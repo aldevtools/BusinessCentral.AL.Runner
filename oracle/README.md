@@ -32,7 +32,7 @@ overall count.
 | Name | App | Oracle file | From | Cases |
 |---|---|---|---|---|
 | `onprem` (27, 28, 29) | `tests/al-language-onprem` | `<major>/junit-onprem.xml` | the small artifact of the same CI run as the main oracle (ids 11957600568, 11957362118, 11956862735), copied unchanged | 72 |
-| `isolation-function` (28 only) | `tests/al-language-isolation-probe` | `28/xunit-isolation-function.xml` | the scheduled Windows nightly of 2026-11-09, BC 28.4 build 28.4.53241.57822, run 42604559766, artifact 13682127739, corpus master 24456ba9 | 49 |
+| `isolation-function` (28 only) | `tests/al-language-isolation-probe` | `28/xunit-isolation-function.xml` | the Windows nightly of 2026-11-11, BC 28.4, run 43058375098, artifact 13889917561, corpus master f270f289 | 49 |
 | `isolation-codeunit` (28 only) | the same app | `28/xunit-isolation-codeunit.xml` | the same artifact | 49 (T5 fails on BC, on purpose) |
 | `testlibraries` (27, 28, 29) | `tests/al-language-testlibraries` | `<major>/junit-testlibraries.xml` | the TestLibraries artifact (`junit-al-language-testlibraries.xml`) of the same CI run as the main oracle, job "BC TestLibraries <ver> / test", copied unchanged | 37 (BC 29: 40, one skipped on purpose) |
 
@@ -52,7 +52,7 @@ suites keep the main job's environment. Its list is `metrics/<major>/not-passing
 
 The isolation probe never runs in the Linux CI legs: it needs two custom test runners
 (`-testRunnerCodeunitId`), which only the Windows nightly provides. Its files are BcContainerHelper
-XUnit, not JUnit, and come from the nightly on corpus master at `24456ba9`, whose
+XUnit, not JUnit, and come from the nightly on corpus master at `f270f289`, whose
 `tests/al-language-isolation-probe` is identical to the pin's (the CLI checks the corpus diff of the app, ADR-007). There is no isolation oracle for
 BC 27 and 29. The control suite fails `T5` on real BC; the report
 shows that the runtime fails it too.

@@ -122,20 +122,21 @@ extra_dirs = [
 ]
 
 # The isolation probe runs only in the corpus's Windows nightly (workflow "Nightly Windows", never
-# in the Linux legs), under two custom test runners. The oracle is the scheduled nightly run 42604559766
-# (2026-11-09, BC 28.4 build 28.4.53241.57822, official Windows container, corpus master 24456ba9, whose
-# tests/al-language-isolation-probe is identical to the pin's; it adds the DJ and SD isolation codeunits 61306-61318
-# and the app.json id range of corpus PR 1222). Earlier oracles: run 40168383221 on ccb6e72f (BC 28.5), run
-# 39127745894 on 92aeaa7. There is no oracle for BC 27 and 29.
+# in the Linux legs), under two custom test runners. The oracle is the nightly run 43058375098 (2026-11-11,
+# BC 28.4, official Windows container, corpus master f270f289, whose tests/al-language-isolation-probe is identical
+# to the pin's), recorded with tools/record_windows_oracle.sh. Its outcomes equal those of the previous oracle, run
+# 42604559766 on 24456ba9 (BC 28.4 build 28.4.53241.57822, which added the DJ and SD isolation codeunits
+# 61306-61318 and the app.json id range of corpus PR 1222). Earlier oracles: run 40168383221 on ccb6e72f (BC 28.5),
+# run 39127745894 on 92aeaa7. There is no oracle for BC 27 and 29.
 [[version.suite]]
 name = "isolation-function"
 app = "corpus/tests/al-language-isolation-probe"
 format = "xunit"
 runner = 61300
 bc_version = "28.4"
-corpus_commit = "24456ba9c3a42dbef0a07a5324e30dd331f22eff"
-workflow_run = 42604559766
-artifact_id = 13682127739
+corpus_commit = "f270f2893faf211961fd56a91e78d4ea0613ef17"
+workflow_run = 43058375098
+artifact_id = 13889917561
 oracle = "28/xunit-isolation-function.xml"
 baseline = "metrics/28/not-passing-isolation-function.txt"
 
@@ -147,9 +148,9 @@ app = "corpus/tests/al-language-isolation-probe"
 format = "xunit"
 runner = 61301
 bc_version = "28.4"
-corpus_commit = "24456ba9c3a42dbef0a07a5324e30dd331f22eff"
-workflow_run = 42604559766
-artifact_id = 13682127739
+corpus_commit = "f270f2893faf211961fd56a91e78d4ea0613ef17"
+workflow_run = 43058375098
+artifact_id = 13889917561
 oracle = "28/xunit-isolation-codeunit.xml"
 baseline = "metrics/28/not-passing-isolation-codeunit.txt"
 

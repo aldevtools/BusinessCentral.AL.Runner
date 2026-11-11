@@ -1,286 +1,286 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <assemblies>
-  <assembly name="61302 Isol Probe Fixture" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:35" total="11" passed="7" failed="4" skipped="0" time="0.049">
-    <collection name="Isol Probe Fixture" total="11" passed="7" failed="4" skipped="0" time="0.049" Skipped="0">
-      <test name="Isol Probe Fixture:T1_SetsGlobalCounterSingleInstanceAndRow" method="T1_SetsGlobalCounterSingleInstanceAndRow" time="0.003" result="Pass" />
-      <test name="Isol Probe Fixture:T2_GlobalSetByT1IsStillSet" method="T2_GlobalSetByT1IsStillSet" time="0.003" result="Pass" />
-      <test name="Isol Probe Fixture:T3_CallCounterCountsEveryEarlierTest" method="T3_CallCounterCountsEveryEarlierTest" time="0.003" result="Pass" />
-      <test name="Isol Probe Fixture:T4_SingleInstanceSetByT1IsStillSet" method="T4_SingleInstanceSetByT1IsStillSet" time="0.006" result="Pass" />
-      <test name="Isol Probe Fixture:T5_RowInsertedByT1IsRolledBack" method="T5_RowInsertedByT1IsRolledBack" time="0.006" result="Fail">
+  <assembly name="61302 Isol Probe Fixture" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:07:58" total="11" passed="7" failed="4" skipped="0" time="0.07">
+    <collection name="Isol Probe Fixture" total="11" passed="7" failed="4" skipped="0" time="0.07" Skipped="0">
+      <test name="Isol Probe Fixture:T1_SetsGlobalCounterSingleInstanceAndRow" method="T1_SetsGlobalCounterSingleInstanceAndRow" time="0.006" result="Pass" />
+      <test name="Isol Probe Fixture:T2_GlobalSetByT1IsStillSet" method="T2_GlobalSetByT1IsStillSet" time="0.006" result="Pass" />
+      <test name="Isol Probe Fixture:T3_CallCounterCountsEveryEarlierTest" method="T3_CallCounterCountsEveryEarlierTest" time="0.006" result="Pass" />
+      <test name="Isol Probe Fixture:T4_SingleInstanceSetByT1IsStillSet" method="T4_SingleInstanceSetByT1IsStillSet" time="0.007" result="Pass" />
+      <test name="Isol Probe Fixture:T5_RowInsertedByT1IsRolledBack" method="T5_RowInsertedByT1IsRolledBack" time="0.007" result="Fail">
         <failure>
           <message>The row T1 inserted is still there in T5: the database was not rolled back after T1 (expected under TestIsolation = Codeunit, not Function)</message>
           <stack-trace>"Isol Probe Fixture"(CodeUnit 61302).T5_RowInsertedByT1IsRolledBack line 6 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
-      <test name="Isol Probe Fixture:T6_RowInsertedByOnRunIsStillThere" method="T6_RowInsertedByOnRunIsStillThere" time="0.003" result="Pass" />
-      <test name="Isol Probe Fixture:T7_OnRunRanOnceOnThisInstance" method="T7_OnRunRanOnceOnThisInstance" time="0.003" result="Pass" />
+      <test name="Isol Probe Fixture:T6_RowInsertedByOnRunIsStillThere" method="T6_RowInsertedByOnRunIsStillThere" time="0.007" result="Pass" />
+      <test name="Isol Probe Fixture:T7_OnRunRanOnceOnThisInstance" method="T7_OnRunRanOnceOnThisInstance" time="0.004" result="Pass" />
       <test name="Isol Probe Fixture:T8_EndsWithDeferredDuplicateInsert" method="T8_EndsWithDeferredDuplicateInsert" time="0.007" result="Fail">
         <failure>
           <message>The record in table Isol Probe Row already exists. Identification fields and values: Key='RXDUP'</message>
-          <stack-trace>"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+          <stack-trace>"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
       <test name="Isol Probe Fixture:T9_RowOfT8IsGoneAfterItsDeferredDuplicate" method="T9_RowOfT8IsGoneAfterItsDeferredDuplicate" time="0.003" result="Pass" />
-      <test name="Isol Probe Fixture:T10_EndsWithDeferredDuplicateInsertAfterCommit" method="T10_EndsWithDeferredDuplicateInsertAfterCommit" time="0.006" result="Fail">
+      <test name="Isol Probe Fixture:T10_EndsWithDeferredDuplicateInsertAfterCommit" method="T10_EndsWithDeferredDuplicateInsertAfterCommit" time="0.01" result="Fail">
         <failure>
           <message>The record in table Isol Probe Row already exists. Identification fields and values: Key='RXCOMMIT'</message>
-          <stack-trace>"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+          <stack-trace>"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
-      <test name="Isol Probe Fixture:T11_CommittedRowOfT10IsGone" method="T11_CommittedRowOfT10IsGone" time="0.006" result="Fail">
+      <test name="Isol Probe Fixture:T11_CommittedRowOfT10IsGone" method="T11_CommittedRowOfT10IsGone" time="0.007" result="Fail">
         <failure>
           <message>The row T10 inserted and committed before its duplicate (RXCOMMIT) is still there in T11: the Commit outlived the failed test</message>
           <stack-trace>"Isol Probe Fixture"(CodeUnit 61302).T11_CommittedRowOfT10IsGone line 5 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
     </collection>
   </assembly>
-  <assembly name="61306 LT DJ Isol Writer" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:37" total="5" passed="4" failed="1" skipped="0" time="0.033">
-    <collection name="LT DJ Isol Writer" total="5" passed="4" failed="1" skipped="0" time="0.033" Skipped="0">
-      <test name="LT DJ Isol Writer:W1_InsertsPassRow" method="W1_InsertsPassRow" time="0.006" result="Pass" />
-      <test name="LT DJ Isol Writer:W2_InsertsFailRowThenFailsOnPurpose" method="W2_InsertsFailRowThenFailsOnPurpose" time="0.007" result="Fail">
+  <assembly name="61306 LT DJ Isol Writer" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:00" total="5" passed="4" failed="1" skipped="0" time="0.023">
+    <collection name="LT DJ Isol Writer" total="5" passed="4" failed="1" skipped="0" time="0.023" Skipped="0">
+      <test name="LT DJ Isol Writer:W1_InsertsPassRow" method="W1_InsertsPassRow" time="0.004" result="Pass" />
+      <test name="LT DJ Isol Writer:W2_InsertsFailRowThenFailsOnPurpose" method="W2_InsertsFailRowThenFailsOnPurpose" time="0.003" result="Fail">
         <failure>
           <message>W2 fails on purpose after inserting W-FAIL</message>
           <stack-trace>"LT DJ Isol Writer"(CodeUnit 61306).W2_InsertsFailRowThenFailsOnPurpose line 6 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
-      <test name="LT DJ Isol Writer:W3_PassRowStillThere" method="W3_PassRowStillThere" time="0.01" result="Pass" />
+      <test name="LT DJ Isol Writer:W3_PassRowStillThere" method="W3_PassRowStillThere" time="0.006" result="Pass" />
       <test name="LT DJ Isol Writer:W4_FailRowRolledBack" method="W4_FailRowRolledBack" time="0.003" result="Pass" />
       <test name="LT DJ Isol Writer:W5_OnRunRowStillThere" method="W5_OnRunRowStillThere" time="0.007" result="Pass" />
     </collection>
   </assembly>
-  <assembly name="61307 LT DJ Isol Reader" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:39" total="3" passed="2" failed="1" skipped="0" time="0.023">
-    <collection name="LT DJ Isol Reader" total="3" passed="2" failed="1" skipped="0" time="0.023" Skipped="0">
-      <test name="LT DJ Isol Reader:R1_WriterOnRunRowKept" method="R1_WriterOnRunRowKept" time="0.007" result="Pass" />
-      <test name="LT DJ Isol Reader:R2_WriterPassRowKept" method="R2_WriterPassRowKept" time="0.01" result="Fail">
+  <assembly name="61307 LT DJ Isol Reader" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:01" total="3" passed="2" failed="1" skipped="0" time="0.025">
+    <collection name="LT DJ Isol Reader" total="3" passed="2" failed="1" skipped="0" time="0.025" Skipped="0">
+      <test name="LT DJ Isol Reader:R1_WriterOnRunRowKept" method="R1_WriterOnRunRowKept" time="0.006" result="Pass" />
+      <test name="LT DJ Isol Reader:R2_WriterPassRowKept" method="R2_WriterPassRowKept" time="0.013" result="Fail">
         <failure>
           <message>The row the writer's W1 inserted is gone in the next test codeunit (1 rows in the table)</message>
           <stack-trace>"LT DJ Isol Reader"(CodeUnit 61307).R2_WriterPassRowKept line 5 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
       <test name="LT DJ Isol Reader:R3_WriterFailRowGone" method="R3_WriterFailRowGone" time="0.006" result="Pass" />
     </collection>
   </assembly>
-  <assembly name="61308 LT DJ Isol Commit" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:41" total="3" passed="1" failed="2" skipped="0" time="0.024">
-    <collection name="LT DJ Isol Commit" total="3" passed="1" failed="2" skipped="0" time="0.024" Skipped="0">
+  <assembly name="61308 LT DJ Isol Commit" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:03" total="3" passed="1" failed="2" skipped="0" time="0.023">
+    <collection name="LT DJ Isol Commit" total="3" passed="1" failed="2" skipped="0" time="0.023" Skipped="0">
       <test name="LT DJ Isol Commit:C1_InsertsCommitsAndInsertsAgain" method="C1_InsertsCommitsAndInsertsAgain" time="0.01" result="Pass" />
       <test name="LT DJ Isol Commit:C2_CommittedRowRolledBack" method="C2_CommittedRowRolledBack" time="0.007" result="Fail">
         <failure>
           <message>Row COMMIT is still there with C1's value: Commit() made the row survive the per-test rollback</message>
           <stack-trace>"LT DJ Isol Commit"(CodeUnit 61308).ExpectNoRowFromC1 line 8 - AL Language Isolation Probe by AL Language version 1.0.0.0
 "LT DJ Isol Commit"(CodeUnit 61308).C2_CommittedRowRolledBack line 2 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
-      <test name="LT DJ Isol Commit:C3_RowAfterCommitRolledBack" method="C3_RowAfterCommitRolledBack" time="0.007" result="Fail">
+      <test name="LT DJ Isol Commit:C3_RowAfterCommitRolledBack" method="C3_RowAfterCommitRolledBack" time="0.006" result="Fail">
         <failure>
           <message>Row AFTER is still there with C1's value: the row written after Commit() survived the per-test rollback</message>
           <stack-trace>"LT DJ Isol Commit"(CodeUnit 61308).ExpectNoRowFromC1 line 8 - AL Language Isolation Probe by AL Language version 1.0.0.0
 "LT DJ Isol Commit"(CodeUnit 61308).C3_RowAfterCommitRolledBack line 2 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
     </collection>
   </assembly>
-  <assembly name="61309 LT DJ Isol After Rollback" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:42" total="9" passed="6" failed="3" skipped="0" time="0.062">
-    <collection name="LT DJ Isol After Rollback" total="9" passed="6" failed="3" skipped="0" time="0.062" Skipped="0">
+  <assembly name="61309 LT DJ Isol After Rollback" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:05" total="9" passed="6" failed="3" skipped="0" time="0.066">
+    <collection name="LT DJ Isol After Rollback" total="9" passed="6" failed="3" skipped="0" time="0.066" Skipped="0">
       <test name="LT DJ Isol After Rollback:S1_InsertsCounterRow" method="S1_InsertsCounterRow" time="0.007" result="Pass" />
-      <test name="LT DJ Isol After Rollback:S2_SetsIsolatedStorage" method="S2_SetsIsolatedStorage" time="0.007" result="Pass" />
-      <test name="LT DJ Isol After Rollback:S3_NextOnNumberSequence" method="S3_NextOnNumberSequence" time="0.006" result="Pass" />
+      <test name="LT DJ Isol After Rollback:S2_SetsIsolatedStorage" method="S2_SetsIsolatedStorage" time="0.01" result="Pass" />
+      <test name="LT DJ Isol After Rollback:S3_NextOnNumberSequence" method="S3_NextOnNumberSequence" time="0.01" result="Pass" />
       <test name="LT DJ Isol After Rollback:S4_CounterRowRolledBack" method="S4_CounterRowRolledBack" time="0.007" result="Fail">
         <failure>
           <message>S1's row 4 is still there in S4: the database was not rolled back after S1</message>
           <stack-trace>"LT DJ Isol After Rollback"(CodeUnit 61309).S4_CounterRowRolledBack line 6 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
-      <test name="LT DJ Isol After Rollback:S5_AutoIncrementNotReset" method="S5_AutoIncrementNotReset" time="0.007" result="Pass" />
-      <test name="LT DJ Isol After Rollback:S6_RowVersionNotReset" method="S6_RowVersionNotReset" time="0.007" result="Pass" />
-      <test name="LT DJ Isol After Rollback:S7_IsolatedStorageKept" method="S7_IsolatedStorageKept" time="0.007" result="Pass" />
+      <test name="LT DJ Isol After Rollback:S5_AutoIncrementNotReset" method="S5_AutoIncrementNotReset" time="0.006" result="Pass" />
+      <test name="LT DJ Isol After Rollback:S6_RowVersionNotReset" method="S6_RowVersionNotReset" time="0.006" result="Pass" />
+      <test name="LT DJ Isol After Rollback:S7_IsolatedStorageKept" method="S7_IsolatedStorageKept" time="0.006" result="Pass" />
       <test name="LT DJ Isol After Rollback:S8_NumberSequenceStillExists" method="S8_NumberSequenceStillExists" time="0.007" result="Fail">
         <failure>
           <message>NumberSequence is gone in S8 (S3 inserted it: Yes): the rollback undid NumberSequence.Insert</message>
           <stack-trace>"LT DJ Isol After Rollback"(CodeUnit 61309).S8_NumberSequenceStillExists line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
       <test name="LT DJ Isol After Rollback:S9_NumberSequenceNotReset" method="S9_NumberSequenceNotReset" time="0.007" result="Fail">
         <failure>
           <message>NumberSequence is gone in S9: the rollback undid NumberSequence.Insert</message>
           <stack-trace>"LT DJ Isol After Rollback"(CodeUnit 61309).S9_NumberSequenceNotReset line 6 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
     </collection>
   </assembly>
-  <assembly name="61310 LT SD Isol Commit Error" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:44" total="5" passed="4" failed="1" skipped="0" time="0.042">
-    <collection name="LT SD Isol Commit Error" total="5" passed="4" failed="1" skipped="0" time="0.042" Skipped="0">
+  <assembly name="61310 LT SD Isol Commit Error" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:07" total="5" passed="4" failed="1" skipped="0" time="0.04">
+    <collection name="LT SD Isol Commit Error" total="5" passed="4" failed="1" skipped="0" time="0.04" Skipped="0">
       <test name="LT SD Isol Commit Error:E1_EmptiesTheTable" method="E1_EmptiesTheTable" time="0.007" result="Pass" />
       <test name="LT SD Isol Commit Error:E2_InsertsCommitsInsertsThenFails" method="E2_InsertsCommitsInsertsThenFails" time="0.01" result="Fail">
         <failure>
           <message>E2 fails on purpose after Commit</message>
           <stack-trace>"LT SD Isol Commit Error"(CodeUnit 61310).E2_InsertsCommitsInsertsThenFails line 5 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
-      <test name="LT SD Isol Commit Error:E3_NextTestSeesE2Rows" method="E3_NextTestSeesE2Rows" time="0.004" result="Pass" />
-      <test name="LT SD Isol Commit Error:E4_InsertsCommitsInsertsAndPasses" method="E4_InsertsCommitsInsertsAndPasses" time="0.014" result="Pass" />
-      <test name="LT SD Isol Commit Error:E5_NextTestSeesE4Rows" method="E5_NextTestSeesE4Rows" time="0.007" result="Pass" />
+      <test name="LT SD Isol Commit Error:E3_NextTestSeesE2Rows" method="E3_NextTestSeesE2Rows" time="0.006" result="Pass" />
+      <test name="LT SD Isol Commit Error:E4_InsertsCommitsInsertsAndPasses" method="E4_InsertsCommitsInsertsAndPasses" time="0.007" result="Pass" />
+      <test name="LT SD Isol Commit Error:E5_NextTestSeesE4Rows" method="E5_NextTestSeesE4Rows" time="0.01" result="Pass" />
     </collection>
   </assembly>
-  <assembly name="61311 LT SD Isol Commit Reader" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:46" total="1" passed="0" failed="1" skipped="0" time="0.007">
+  <assembly name="61311 LT SD Isol Commit Reader" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:09" total="1" passed="0" failed="1" skipped="0" time="0.007">
     <collection name="LT SD Isol Commit Reader" total="1" passed="0" failed="1" skipped="0" time="0.007" Skipped="0">
       <test name="LT SD Isol Commit Reader:R1_NextCodeunitSeesRowsOfCommitError" method="R1_NextCodeunitSeesRowsOfCommitError" time="0.007" result="Fail">
         <failure>
           <message>R1, the next test codeunit: expected E2-BEFORE=Yes E2-AFTER=No E4-COMMITTED=Yes E4-OPEN=Yes, observed E2-BEFORE=No E2-AFTER=No E4-COMMITTED=No E4-OPEN=No</message>
           <stack-trace>"LT SD Isol Commit Reader"(CodeUnit 61311).R1_NextCodeunitSeesRowsOfCommitError line 12 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
     </collection>
   </assembly>
-  <assembly name="61312 LT SD Isol Req Function" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:48" total="2" passed="2" failed="0" skipped="0" time="0.013">
-    <collection name="LT SD Isol Req Function" total="2" passed="2" failed="0" skipped="0" time="0.013" Skipped="0">
+  <assembly name="61312 LT SD Isol Req Function" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:11" total="2" passed="2" failed="0" skipped="0" time="0.017">
+    <collection name="LT SD Isol Req Function" total="2" passed="2" failed="0" skipped="0" time="0.017" Skipped="0">
       <test name="LT SD Isol Req Function:Q1_InsertsRF1" method="Q1_InsertsRF1" time="0.01" result="Pass" />
-      <test name="LT SD Isol Req Function:Q2_NextTestSeesRF1" method="Q2_NextTestSeesRF1" time="0.003" result="Pass" />
+      <test name="LT SD Isol Req Function:Q2_NextTestSeesRF1" method="Q2_NextTestSeesRF1" time="0.007" result="Pass" />
     </collection>
   </assembly>
-  <assembly name="61313 LT SD Isol Req Function Reader" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:50" total="1" passed="0" failed="1" skipped="0" time="0.01">
-    <collection name="LT SD Isol Req Function Reader" total="1" passed="0" failed="1" skipped="0" time="0.01" Skipped="0">
-      <test name="LT SD Isol Req Function Reader:N1_NextCodeunitSeesRF1" method="N1_NextCodeunitSeesRF1" time="0.01" result="Fail">
+  <assembly name="61313 LT SD Isol Req Function Reader" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:13" total="1" passed="0" failed="1" skipped="0" time="0.006">
+    <collection name="LT SD Isol Req Function Reader" total="1" passed="0" failed="1" skipped="0" time="0.006" Skipped="0">
+      <test name="LT SD Isol Req Function Reader:N1_NextCodeunitSeesRF1" method="N1_NextCodeunitSeesRF1" time="0.006" result="Fail">
         <failure>
           <message>N1 after RequiredTestIsolation = Function: expected RF-1=Yes, observed RF-1=No (rolled back at the end of codeunit 61312)</message>
           <stack-trace>"LT SD Isol Req Function Reader"(CodeUnit 61313).N1_NextCodeunitSeesRF1 line 5 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
     </collection>
   </assembly>
-  <assembly name="61314 LT SD Isol Req Disabled" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:52" total="2" passed="2" failed="0" skipped="0" time="0.012">
-    <collection name="LT SD Isol Req Disabled" total="2" passed="2" failed="0" skipped="0" time="0.012" Skipped="0">
-      <test name="LT SD Isol Req Disabled:Q1_InsertsRD1" method="Q1_InsertsRD1" time="0.006" result="Pass" />
-      <test name="LT SD Isol Req Disabled:Q2_NextTestSeesRD1" method="Q2_NextTestSeesRD1" time="0.006" result="Pass" />
+  <assembly name="61314 LT SD Isol Req Disabled" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:15" total="2" passed="2" failed="0" skipped="0" time="0.014">
+    <collection name="LT SD Isol Req Disabled" total="2" passed="2" failed="0" skipped="0" time="0.014" Skipped="0">
+      <test name="LT SD Isol Req Disabled:Q1_InsertsRD1" method="Q1_InsertsRD1" time="0.007" result="Pass" />
+      <test name="LT SD Isol Req Disabled:Q2_NextTestSeesRD1" method="Q2_NextTestSeesRD1" time="0.007" result="Pass" />
     </collection>
   </assembly>
-  <assembly name="61315 LT SD Isol Req Disabled Reader" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:54" total="1" passed="0" failed="1" skipped="0" time="0.007">
+  <assembly name="61315 LT SD Isol Req Disabled Reader" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:17" total="1" passed="0" failed="1" skipped="0" time="0.007">
     <collection name="LT SD Isol Req Disabled Reader" total="1" passed="0" failed="1" skipped="0" time="0.007" Skipped="0">
       <test name="LT SD Isol Req Disabled Reader:N1_NextCodeunitSeesRD1" method="N1_NextCodeunitSeesRD1" time="0.007" result="Fail">
         <failure>
           <message>N1 after RequiredTestIsolation = Disabled: expected RD-1=Yes, observed RD-1=No (rolled back at the end of codeunit 61314)</message>
           <stack-trace>"LT SD Isol Req Disabled Reader"(CodeUnit 61315).N1_NextCodeunitSeesRD1 line 5 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
     </collection>
   </assembly>
-  <assembly name="61316 LT SD Isol Req Codeunit" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:56" total="2" passed="2" failed="0" skipped="0" time="0.012">
-    <collection name="LT SD Isol Req Codeunit" total="2" passed="2" failed="0" skipped="0" time="0.012" Skipped="0">
-      <test name="LT SD Isol Req Codeunit:Q1_InsertsRC1" method="Q1_InsertsRC1" time="0.006" result="Pass" />
-      <test name="LT SD Isol Req Codeunit:Q2_NextTestSeesRC1" method="Q2_NextTestSeesRC1" time="0.006" result="Pass" />
+  <assembly name="61316 LT SD Isol Req Codeunit" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:19" total="2" passed="2" failed="0" skipped="0" time="0.017">
+    <collection name="LT SD Isol Req Codeunit" total="2" passed="2" failed="0" skipped="0" time="0.017" Skipped="0">
+      <test name="LT SD Isol Req Codeunit:Q1_InsertsRC1" method="Q1_InsertsRC1" time="0.01" result="Pass" />
+      <test name="LT SD Isol Req Codeunit:Q2_NextTestSeesRC1" method="Q2_NextTestSeesRC1" time="0.007" result="Pass" />
     </collection>
   </assembly>
-  <assembly name="61317 LT SD Isol Req Codeunit Reader" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:18:58" total="1" passed="0" failed="1" skipped="0" time="0.01">
-    <collection name="LT SD Isol Req Codeunit Reader" total="1" passed="0" failed="1" skipped="0" time="0.01" Skipped="0">
-      <test name="LT SD Isol Req Codeunit Reader:N1_NextCodeunitSeesRC1" method="N1_NextCodeunitSeesRC1" time="0.01" result="Fail">
+  <assembly name="61317 LT SD Isol Req Codeunit Reader" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:21" total="1" passed="0" failed="1" skipped="0" time="0.013">
+    <collection name="LT SD Isol Req Codeunit Reader" total="1" passed="0" failed="1" skipped="0" time="0.013" Skipped="0">
+      <test name="LT SD Isol Req Codeunit Reader:N1_NextCodeunitSeesRC1" method="N1_NextCodeunitSeesRC1" time="0.013" result="Fail">
         <failure>
           <message>N1 after RequiredTestIsolation = Codeunit: expected RC-1=Yes, observed RC-1=No (rolled back at the end of codeunit 61316)</message>
           <stack-trace>"LT SD Isol Req Codeunit Reader"(CodeUnit 61317).N1_NextCodeunitSeesRC1 line 5 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
     </collection>
   </assembly>
-  <assembly name="61318 LT SD Isol StartSession" test-framework="PS Test Runner" run-date="2026-11-09" run-time="14:19:00" total="3" passed="1" failed="2" skipped="0" time="0.03">
-    <collection name="LT SD Isol StartSession" total="3" passed="1" failed="2" skipped="0" time="0.03" Skipped="0">
-      <test name="LT SD Isol StartSession:S1_RemovesTheSessionRow" method="S1_RemovesTheSessionRow" time="0.006" result="Pass" />
-      <test name="LT SD Isol StartSession:S2_StartSessionInATest" method="S2_StartSessionInATest" time="0.017" result="Fail">
+  <assembly name="61318 LT SD Isol StartSession" test-framework="PS Test Runner" run-date="2026-11-11" run-time="20:08:23" total="3" passed="1" failed="2" skipped="0" time="0.024">
+    <collection name="LT SD Isol StartSession" total="3" passed="1" failed="2" skipped="0" time="0.024" Skipped="0">
+      <test name="LT SD Isol StartSession:S1_RemovesTheSessionRow" method="S1_RemovesTheSessionRow" time="0.003" result="Pass" />
+      <test name="LT SD Isol StartSession:S2_StartSessionInATest" method="S2_StartSessionInATest" time="0.014" result="Fail">
         <failure>
           <message>S2: expected started=Yes ended=Yes row=Yes, observed started=No error=Sessions can only be started in tests that are run by a TestRunner that has TestIsolation set to Disabled.</message>
           <stack-trace>"LT SD Isol StartSession"(CodeUnit 61318).S2_StartSessionInATest line 15 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
       <test name="LT SD Isol StartSession:S3_NextTestSeesTheSessionRow" method="S3_NextTestSeesTheSessionRow" time="0.007" result="Fail">
         <failure>
           <message>S3: expected SESSION=Yes, observed SESSION=No</message>
           <stack-trace>"LT SD Isol StartSession"(CodeUnit 61318).S3_NextTestSeesTheSessionRow line 5 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57822
+"Test Runner - Mgt"(CodeUnit 130454).RunTests line 26 - Test Runner by Microsoft version 28.4.53241.57976
 "Isol Probe Runner Codeunit"(CodeUnit 61301).OnRun(Trigger) line 4 - AL Language Isolation Probe by AL Language version 1.0.0.0
-"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57822
-"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57822
-"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57822</stack-trace>
+"Test Suite Mgt."(CodeUnit 130456).RunTests line 2 - Test Runner by Microsoft version 28.4.53241.57976
+"Test Suite Mgt."(CodeUnit 130456).RunSelectedTests line 35 - Test Runner by Microsoft version 28.4.53241.57976
+"Command Line Test Tool"(Page 130455)."RunSelectedTests - OnAction"(Trigger) line 7 - Test Runner by Microsoft version 28.4.53241.57976</stack-trace>
         </failure>
       </test>
     </collection>
