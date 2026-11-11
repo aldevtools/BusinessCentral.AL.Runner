@@ -228,7 +228,9 @@ fn forms_no_test_pins_are_refused() {
         // pinned since TableFilterEnumForms.al TableFilterEvaluate_OptionExpressions: evaluate_table_filter_enum.rs)
         "SR TF Pair: D=010125D",
         "SR TF Pair: Qty=>5",
-        "SR TF Pair: Descr=A*",
+        // A capital prefix with `*` on a Text field is kept as written since format-evaluate/tablefilter-neutral/
+        // TableFilterSpacedChains.al:269 (`BIN E*`, `BIN*WEST`); mixed case is not pinned.
+        "SR TF Pair: Descr=A*b",
         "SI TF Target:",
         "SR TF Pair: Code=A,,Qty=1",
         "SR TF Pair: Location Code=abcdefghijkl",

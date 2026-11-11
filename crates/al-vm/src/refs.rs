@@ -348,31 +348,22 @@ impl Session {
             name
         };
         // `[<namespace>.<name>]` is what Format(RecordId, 0, 9) writes for a table in a namespace, and Evaluate reads it back
-        // (language/namespaces/P69NsConsumers.al:198, :215, a name with spaces); the same text without the brackets
-        // names no table (:202, :216).
+        // (`record_id_tables_bracketed`); the same text without the brackets names no table (language/namespaces/
+        // P69NsConsumers.al:202, :216; RecordIdFormat9Evaluate.al:313).
         let qualified = name.strip_prefix('[').and_then(|n| n.strip_suffix(']'));
-        let tables: Vec<usize> = self
-            .engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .enumerate()
-            .filter(|(_, o)| {
-                o.table.is_some()
-                    && match (qualified, &o.namespace) {
-                        (None, _) => o.name.eq_ignore_ascii_case(name),
-                        (Some(q), Some(ns)) => {
-                            q.get(..ns.len()).is_some_and(|p| p.eq_ignore_ascii_case(ns))
-                                && q[ns.len()..]
-                                    .strip_prefix('.')
-                                    .is_some_and(|n| n.eq_ignore_ascii_case(&o.name))
-                        }
-                        (Some(_), None) => false,
-                    }
-            })
-            .map(|(i, _)| i)
-            .collect();
+        let tables: Vec<usize> = match qualified {
+            Some(q) => self.record_id_tables_bracketed(q, prefix)?,
+            None => self
+                .engine
+                .program
+                .objects
+                .heads()
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.table.is_some() && o.name.eq_ignore_ascii_case(name))
+                .map(|(i, _)| i)
+                .collect(),
+        };
         // `Table <number>` names the table by its id when no table has that name (format-evaluate/Y14Small.al:205
         // `eval table id`: `Table 91690: a b` reads back `LT Y14 SM Key: a b`, corpus master).
         let tables = match (
@@ -397,18 +388,6 @@ impl Session {
         } else {
             tables
         };
-        if let (Some(q), [one]) = (qualified, tables.as_slice()) {
-            if !self.engine.program.objects[*one].name.contains(' ') {
-                return unsupported(format!(
-                    "Evaluate into a RecordId of `[{q}]`, a table in a namespace whose name has no space (not pinned)"
-                ));
-            }
-        }
-        if qualified.is_some() && tables.is_empty() {
-            return unsupported(format!(
-                "Evaluate into a RecordId of the bracketed name `{name}`, which names no table in a namespace (not pinned)"
-            ));
-        }
         let object = match tables.as_slice() {
             [] => return Ok(None),
             [one] => *one,
@@ -1750,6 +1729,7 @@ impl Session {
             "Active" => Ok(Value::Boolean(self.field_enabled(&t, pos))),
             "Length" => crate::fieldref_length::length(&field.ty),
             "SetRange" | "SetFilter" => {
+                self.media_fieldref_filter_argument(method, &field.ty, args)?;
                 let mut a = vec![Value::Integer(pos as i32)];
                 a.extend(args.iter().cloned());
                 self.record_op_from_al(record_method(method), &rec, &mut a)
@@ -2045,24 +2025,39 @@ impl Session {
                 other => unsupported(format!("FieldRef.{other} on a field that is neither Option nor Enum")),
             };
         };
+        // An Enum or Option value passed for the Integer argument is its ordinal (al-runner issue 7450: recordref-fieldref/
+        // fieldref/FieldRefEnumValueAsInteger.al:194 EnumFieldRefValue_FieldRefEnumMethods_EveryMember and :319 an Enum on the
+        // Enum field, :415 an Option on the Enum field, :471 an Enum on the Option field). An Option value by index on an
+        // Option field is not pinned and stays refused.
+        let ordinal_arg = |args: &[Value], by_index: bool| -> Result<i64, Signal> {
+            match args.first() {
+                Some(Value::Enum(_, o)) => Ok(i64::from(*o)),
+                Some(Value::Option(o, _)) if is_enum || !by_index => Ok(i64::from(*o)),
+                _ => int_arg(args, 0),
+            }
+        };
         let at = |args: &[Value]| -> Result<Option<&(i32, String, String)>, Signal> {
-            let i = int_arg(args, 0)?;
+            let i = ordinal_arg(args, true)?;
             Ok(usize::try_from(i - 1).ok().and_then(|i| members.get(i)))
         };
         // GetEnumValue{Caption,Name}FromOrdinalValue of an Option field: an Option value (FieldRef.Value of the field) is the ordinal
         // it holds, and an ordinal the field has no member for answers the number as its caption and an empty name (al-runner issue
         // 5987: recordref-fieldref/fieldref/TestFieldRefEnumOrdinalByIndex.al SO_OptionField_ValueAsOrdinalArgument_ReproShape,
         // SO_OptionField_IntegerOrdinalArguments `-1`, `2`, `5`, SO_OptionField_IntegerAssigned `fieldref value 5 caption`).
-        // An Enum value, and an ordinal an Enum field lacks, stay refused.
+        // An Enum field answers an Integer ordinal it has no member for the same way (FieldRefEnumValueAsInteger.al:445
+        // IntegerInVariant_OnTheEnumField_Contrast `integer 7 (no member)`). An Enum or Option value whose ordinal an Enum field
+        // lacks, and an Enum value whose ordinal an Option field lacks, are not pinned and stay refused.
         type Member = (i32, String, String);
         let by_ordinal = |args: &[Value]| -> Result<(i64, Option<&Member>), Signal> {
-            let o = match args.first() {
-                Some(Value::Option(o, _)) if !is_enum => i64::from(*o),
-                _ => int_arg(args, 0)?,
+            let o = ordinal_arg(args, false)?;
+            let pinned_missing = match args.first() {
+                Some(Value::Integer(_)) => true,
+                Some(Value::BigInteger(_) | Value::Option(..)) => !is_enum,
+                _ => false,
             };
             match members.iter().find(|m| i64::from(m.0) == o) {
                 Some(m) => Ok((o, Some(m))),
-                None if !is_enum => Ok((o, None)),
+                None if pinned_missing => Ok((o, None)),
                 None => unsupported(format!("{method}({o}) for an ordinal the field does not have")),
             }
         };

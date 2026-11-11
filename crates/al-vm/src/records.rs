@@ -23,6 +23,7 @@ mod delete_all;
 mod delete_all_flow;
 mod flowfield_key;
 mod insert_buffer;
+mod setrange_filter;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 mod nested_validate;
 mod op_inner;

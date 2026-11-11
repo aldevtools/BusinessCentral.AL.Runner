@@ -624,7 +624,7 @@ impl Workspace {
             return Err("a file of a dependency app".into());
         }
         let (ai, file_in_app, path) = (file.app, file.file_in_app, file.path.clone());
-        let old_green = file.green.get().cloned().ok_or("the file was never parsed")?;
+        let old_green = self.green(fi);
         let symbols = &self.symbols[ai];
         let (parsed, added): (ParsedFile, Vec<ByteRange>) = match crate::pages::expand_or_parse(&text, symbols) {
             crate::pages::Expansion::Expanded(_, added, parse) => (parsed_file(parse), added),
@@ -935,7 +935,18 @@ impl Workspace {
         out
     }
 
-    /// The parse tree of file `fi`, parsing it now if it was only scanned at load.
+    /// Drops the parse tree of every file: on the corpus about a sixth of a run's memory, and after the lowering only
+    /// what a later compile changes needs a tree. A later [`Workspace::green`] parses the file again; a parse is a
+    /// function of the text, so the tree is the same. What the first parse found besides the tree (the synthetic
+    /// ranges, the parse problem) is kept.
+    pub fn drop_trees(&mut self) {
+        for f in &mut self.files {
+            f.green = OnceLock::new();
+        }
+    }
+
+    /// The parse tree of file `fi`, parsing it now if it was only scanned at load or its tree was dropped
+    /// ([`Workspace::drop_trees`]).
     pub fn green(&self, fi: usize) -> rowan::GreenNode {
         let f = &self.files[fi];
         f.green
@@ -999,7 +1010,9 @@ impl Workspace {
 
     /// The byte ranges of file `fi`'s parsed text that the compiler added (page expression routines).
     pub fn synthetic(&self, fi: usize) -> &[ByteRange] {
-        self.green(fi);
+        if self.files[fi].synthetic.get().is_none() {
+            self.green(fi);
+        }
         self.files[fi].synthetic.get().map_or(&[], Vec::as_slice)
     }
 
@@ -1011,7 +1024,9 @@ impl Workspace {
         if !f.lazy {
             return None;
         }
-        self.green(fi);
+        if f.problem.get().is_none() {
+            self.green(fi);
+        }
         f.problem.get().and_then(|p| p.as_deref())
     }
 
@@ -2339,6 +2354,31 @@ mod tests {
         ] {
             assert!(ws.files[file(p)].green.get().is_none(), "{p} is only scanned");
         }
+    }
+
+    /// A compile of a run that nobody edits drops the parse trees once it is lowered (al-testrun
+    /// `compile_within_limit`); what still needs a tree parses its file again and gets the same tree.
+    #[test]
+    fn dropped_trees_are_parsed_again_the_same() {
+        let mut ws = lazy_ws();
+        let all: Vec<usize> = (0..ws.files.len()).collect();
+        let trees = |ws: &Workspace| all.iter().map(|&fi| format!("{:?}", ws.green(fi))).collect::<Vec<_>>();
+        let found = |ws: &Workspace| {
+            all.iter()
+                .map(|&fi| (ws.file_problem(fi).map(str::to_string), ws.synthetic(fi).to_vec()))
+                .collect::<Vec<_>>()
+        };
+        let before = trees(&ws);
+        let found_before = found(&ws);
+        ws.drop_trees();
+        assert!(ws.files.iter().all(|f| f.green.get().is_none()), "no tree is kept");
+        // What the first parse found besides the tree is kept: reading it parses nothing.
+        assert_eq!(found(&ws), found_before);
+        assert!(
+            ws.files.iter().all(|f| f.green.get().is_none()),
+            "reading what a parse found parses nothing"
+        );
+        assert_eq!(trees(&ws), before);
     }
 
     #[test]

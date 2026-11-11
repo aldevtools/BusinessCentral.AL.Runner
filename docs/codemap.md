@@ -166,7 +166,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 
 ### al-ir
 
-- `body.rs` (270): `Body`, the statements of a routine: a compact form (postcard) stores a body as its own byte string, and a body read from it is decoded on first read, with the link work kept for that moment (`BodyFixup`). Entry: `Body`, `Body::fix`, `BodyFixup`.
+- `body.rs` (320): `Body`, the statements of a routine: a compact form (postcard) stores a body as its own byte string, and a body read from it is decoded on first read, with the link work kept for that moment (`BodyFixup`). The lowering keeps the bodies it lowered compact (`Body::compact`, called by `lower/assemble.rs` `compact_bodies`); a static walk reads a body without keeping it decoded (`Body::read`). Entry: `Body`, `Body::fix`, `Body::compact`, `Body::read`, `BodyFixup`.
 - `head.rs` (110): `ObjectHead`, what a pass over all objects reads of an object (ADR-054 decision 2): kind, id, name, app, properties, the linked table, routine count and the event routines. Entry: `ObjectHead::of`.
 - `lib.rs` (1067): The typed IR (ADR-011): Program, Object, Routine, Stmt, Expr. Plain serde data, no syntax nodes. Entry: `Program` 8, `Object` 150, `Routine` 747, `Stmt` 937, `Expr` 844, `SrcPos` 85, `NO_POS` 79.
 
@@ -224,7 +224,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `relation.rs` (359): `TableRelation` property text → arms (before names are resolved). Entry: `ParsedArm` 13, `ParsedWhere` 23, `parse` 262.
 - `reports.rs` (1035): Report objects: dataset walk, columns, and the IR it lowers to. Entry: `layout` 159, `request_layout` 318, `build` 794, `build_ext` 848.
 - `types.rs` (240): Semantic types (Ty) and their display names. Entry: `Ty` 7, `display_name` 66, `from_type_ref` 71.
-- `workspace.rs` (1561): A set of apps: parse every file, build the object table, resolve names across apps. Entry: `Workspace` 192, `load_apps` 236, `ObjKind` 10, `ObjectSym` 155, `AppSource` 30, `AppKind` 40, `restrict_to` 535, `subscribers_of` 433, `resolve_ref` 682.
+- `workspace.rs` (1561): A set of apps: parse every file, build the object table, resolve names across apps. A run's compile drops the parse trees once lowered (`drop_trees`, from al-testrun `Compiled::for_one_run`) and `green` parses a file again when a tree is needed. Entry: `Workspace` 192, `load_apps` 236, `ObjKind` 10, `ObjectSym` 155, `AppSource` 30, `AppKind` 40, `restrict_to` 535, `subscribers_of` 433, `resolve_ref` 682.
 - `xmlports.rs` (712): XmlPort objects (Format = Xml). Entry: `RawNode` 24, `Layout` 33, `layout` 97, `Context` 248.
 
 ### al-syntax
@@ -466,12 +466,16 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `recmeta.rs` (734): Record builtins that read table metadata or guard on session state. Entry: `string_literal` 29, `mentions_table` 49, `is_blank` 60.
 - `records.rs` (2694): Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry: `record_op` 733, `table_event` 205, `run_trigger` 499, `delete_row` 297, `scan` 545, `unique_violation` 346.
 - `get_key_value.rs` (~240): The primary key a `Record.Get` looks for (each given value converted to its key field's type; an omitted key field is its InitValue for an Integer, else the blank of a pinned type, other shapes refuse) and the key values its not-found error names. Used by the Get arm of `records/op_inner.rs` and by `permissions.rs`. Entry: `get_key`, `get_not_found_ident`, `get_key_value`.
-- `records/op_inner.rs` (2545): `record_op_inner`, the dispatch of every Record method (moved out of `records.rs`), and `clear_record` (`Clear` of a record). Entry: `record_op_inner`.
+- `records/op_inner.rs` (2361): `record_op_inner`, the dispatch of every Record method (moved out of `records.rs`), and `clear_record` (`Clear` of a record). Entry: `record_op_inner`.
+- `records/setrange_filter.rs`: The range a Record's `SetRange` sets (values converted to the field type; two Guids on a Media or MediaSet field refused, `filter::media_guid_order`). Entry: `setrange_filter`.
 - `records/stale.rs` (~520): row-version notes (`note_write`, `note_bulk_write`/`note_bulk_end` for ModifyAll, DeleteAll, Rename, Truncate) and `bump_row_version`.
 - `records/stale_rule.rs` (~330): the one rule for a write through a stale buffer (al-runner issue 7657; record/crud/StaleRuleMatrix.al): committed-read refused, row contact or table contact written, otherwise DB:RecordChanged; every input no cell measured refused. Also the rollback note it reads. Entry: `stale_verdict`, `open_tx_contact`, `assert_error_rollback`.
 - `records/delete_all.rs`: `DeleteAll`, row by row or in one step in the store. Entry: `delete_all`.
+- `records/nested_validate.rs`: The xRec of table code: the before-image a Validate hands its triggers (nested, plain table procedure, page OnModifyRecord) and the caller's xRec a table procedure called on a record value shares (the page's Rec from page code; Rec from the table's own field OnValidate, assumption `xrec-table-proc-from-field-validate`, al-runner issue 7785). Entry: `outer_validate_before`, `validate_before_image` (by the Validate arm of `records/op_inner.rs`), `table_proc_xrec` (by `call_site` in `interp.rs`).
 - `records/flowfield_key.rs` (130): the rows of a record keyed on a row-dependent sum or count FlowField, sorted by its value. Entry: `runs`, `scan_flowfield_key`.
 - `refs.rs` (637): `RecordRef`, `FieldRef` and `KeyRef` on the VM. Entry: `record_ref_value` 42.
+- `fieldref_media_filter.rs` (~70): the error of FieldRef.SetFilter with an argument and FieldRef.SetRange on a Media or MediaSet field (al-runner issue 7461). Entry: `media_fieldref_filter_argument`.
+- `recordid_table_name.rs` (~170): the table a RecordId text names beyond the exact name: quoted, a prefix, and the bracketed `[NS.Name]` form of format 9 (al-runner issue 7326). Entry: `record_id_tables_bracketed`, `record_id_tables_by_prefix`.
 - `relations.rs` (~480): TableRelation: lookups, Validate checks and the error code of a failed check (one rule, `UNPINNED_ERROR` where the corpus does not pin it). Entry: `field_relation`, `validate_relation`, `relation_error_code`.
 - `rename.rs` (214): Rename propagation to related tables. Entry: `rename_references` 33, `propagate_rename` 86.
 - `reports.rs` (1209): Report objects at run time: dataset walk, triggers, request page, `Report.SaveAs` and the dataset rows. Entry: `report_builtin` 80, `first_use` 314, `report_save_as` 936, `dataset_begin` 1109.

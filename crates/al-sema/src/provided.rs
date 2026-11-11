@@ -87,7 +87,9 @@ pub struct DepBlock {
     /// The object as the build linked it (ADR-054, owner decision 2026-10-27): the extensions of the dependency set
     /// merged in and every reference a program position, so a run that touches it only decodes it. Dependency objects
     /// come first in the program, so their positions are the same in the build and in a run. `None` for a placeholder.
-    pub object: Option<ir::Object>,
+    /// Shared: a block made from a program in memory (a cache build's export, a kept compile) holds the program's object,
+    /// not a copy.
+    pub object: Option<std::sync::Arc<ir::Object>>,
     /// The id of the object's first source position in the program of the build. A run whose ids for the object start
     /// elsewhere moves them.
     pub pos_start: u32,
@@ -389,6 +391,10 @@ pub fn decoded_on_touch() -> (usize, std::time::Duration) {
 
 impl ir::ObjectSource for CachedObjects {
     fn object(&self, i: usize) -> ir::Object {
+        std::sync::Arc::unwrap_or_clone(self.shared(i))
+    }
+
+    fn shared(&self, i: usize) -> std::sync::Arc<ir::Object> {
         use std::sync::atomic::Ordering::Relaxed;
         let started = std::time::Instant::now();
         let object = self.object_now(i);
@@ -400,14 +406,16 @@ impl ir::ObjectSource for CachedObjects {
 }
 
 impl CachedObjects {
-    fn object_now(&self, i: usize) -> ir::Object {
+    /// The object of block `i`, its positions moved to where this run has them. A block of a kept compile holds the
+    /// kept program's object: this run shares it unless its positions move.
+    fn object_now(&self, i: usize) -> std::sync::Arc<ir::Object> {
         let block = self.read(i);
         let mut object = block
             .object
             .unwrap_or_else(|| panic!("compile cache: object {i} has no stored object"));
         let by = self.starts[i].wrapping_sub(block.pos_start);
         if by != 0 {
-            for r in &mut object.routines {
+            for r in &mut std::sync::Arc::make_mut(&mut object).routines {
                 r.shift_positions(by);
             }
         }

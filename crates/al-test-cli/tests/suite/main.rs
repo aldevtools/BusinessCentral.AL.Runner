@@ -201,6 +201,7 @@ mod values_allowed_setvalue;
 mod with_statement;
 mod worksheet_validate_temp_part;
 mod xmlport_request_page;
+mod xrec_table_procedure_from_onvalidate;
 mod y14_pins;
 mod y17_expr_refresh;
 mod y17_page_pins;

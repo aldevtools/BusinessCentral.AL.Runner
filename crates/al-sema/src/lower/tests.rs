@@ -2540,3 +2540,21 @@ page 50101 Card { SourceTable = \"Demo Mapping\"; layout { area(Content) { part(
             .collect::<Vec<_>>()
     );
 }
+
+// Most bodies of a run are never read after the lowering: the lowering keeps them compact (the byte form a compile
+// cache stores, ADR-054) and the first read decodes them.
+#[test]
+fn lowered_bodies_stay_compact_until_read() {
+    let (_, l) =
+        lower_pos("codeunit 50100 C { procedure P(): Integer var X: Integer; begin X := 2; exit(X + 1); end; }");
+    let o = l.program.objects.iter().position(|o| o.name == "C").unwrap();
+    let r = l.program.objects[o]
+        .routines
+        .iter()
+        .position(|r| r.name == "P")
+        .unwrap();
+    let body = &l.program.objects[o].routines[r].body;
+    assert!(!body.is_loaded(), "the body is kept compact");
+    assert!(body.iter().any(|s| matches!(s, ir::Stmt::Exit(Some(_)))));
+    assert!(body.is_loaded());
+}
