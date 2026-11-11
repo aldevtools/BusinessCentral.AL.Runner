@@ -23,6 +23,66 @@ use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
 
+/// A FlowField being calculated: its table and field, and whether a source row's condition FlowField asked for it.
+#[derive(Debug, Clone, Copy)]
+struct CalcFrame {
+    table: usize,
+    field: usize,
+    via_source_row: bool,
+}
+
+/// The FlowFields being calculated, outermost first: the recursion guard of `Session::calc_value_in`.
+type CalcStack = Vec<CalcFrame>;
+
+/// What the rows of a formula came to before the value is fitted to the FlowField: how many, the sum of the field, and the
+/// value a min, max or lookup chose.
+#[derive(Debug, Default)]
+struct Tally {
+    n: i64,
+    sum: Decimal,
+    best: Option<Value>,
+}
+
+impl Tally {
+    /// Counts `row` in, for the method of `calc`.
+    fn add(&mut self, calc: &ir::CalcFormula, row: &[Value]) -> Result<(), Signal> {
+        use ir::CalcMethod as M;
+        self.n += 1;
+        match calc.method {
+            M::Count | M::Exist => {}
+            M::Sum | M::Average => {
+                let v = &row[calc.field.expect("field")];
+                self.sum += number(v).ok_or_else(|| non_number(v))?;
+            }
+            M::Lookup => {
+                if self.best.is_none() {
+                    self.best = Some(row[calc.field.expect("field")].clone());
+                }
+            }
+            M::Min | M::Max => {
+                let v = &row[calc.field.expect("field")];
+                self.best = match self.best.take() {
+                    None => Some(v.clone()),
+                    Some(b) => match (calc.method, ops::compare(v, &b)?) {
+                        (M::Min, Ordering::Less) | (M::Max, Ordering::Greater) => Some(v.clone()),
+                        (_, _) => Some(b),
+                    },
+                };
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A value exception of a lookup, min or max (an Enum member kept, a longer Text kept) over rows a condition on a FlowField of the
+/// source table chose: not pinned (al-runner issue 7623).
+fn refuse_combined<T>() -> Result<T, Signal> {
+    unsupported(
+        "a FlowField value kept as the source holds it (Enum member, longer Text) over rows chosen by a condition on a FlowField of \
+         the source table (not pinned)",
+    )
+}
+
 /// Whether the rows of `t` that pass `filters`, read in primary key order, are in the order of
 /// `field`: the first row has the smallest value and the last the largest. That holds when
 /// `field` is a number or date in the primary key and every key field before it is pinned by
@@ -322,7 +382,7 @@ impl Session {
         self.load_blobs(rec, &blobs)?;
         let mut out = Vec::new();
         for &p in positions {
-            out.push((p, self.calc_value(rec, p, &mut Vec::new())?));
+            out.push((p, self.calc_value(rec, p)?));
         }
         // A FlowField on a temporary record reads the persistent source table (corpus
         // record/TestCalcFieldsTruncateUniqueContracts.al:CalcFields_OnATemporaryRecord_ReadsThePersistentSourceTable).
@@ -514,7 +574,7 @@ impl Session {
         }
         let current = {
             self.check_calc_field(table, pos)?;
-            self.calc_value(rec, pos, &mut Vec::new())?
+            self.calc_value(rec, pos)?
         };
         let (Value::Decimal(cur), Value::Decimal(target)) = (&current, &new) else {
             return refuse("a sum that is not a Decimal");
@@ -598,24 +658,48 @@ impl Session {
         Ok(n > 0)
     }
 
-    pub(crate) fn calc_value(&mut self, rec: &Rec, pos: usize, stack: &mut Vec<usize>) -> Result<Value, Signal> {
-        // Corpus record/TestCalcFormulaFlowFieldValueTests.Codeunit.al:176-221: a formula
-        // that needs itself, directly or through another FlowField, is a recursion error.
-        if stack.contains(&pos) {
-            // Real BC runs out of stack: record/TestCalcFieldsTruncateUniqueContracts.al:
-            // CalcFields_SelfReferencingFormula_FullTextAndCode.
+    /// The value of FlowField `pos` of `rec`.
+    pub(crate) fn calc_value(&mut self, rec: &Rec, pos: usize) -> Result<Value, Signal> {
+        self.calc_value_in(rec, pos, &mut Vec::new(), false)
+    }
+
+    /// The value of FlowField `pos` of `rec` while the FlowFields on `stack` are being calculated; `via_source_row` when a source
+    /// row's condition FlowField asks for it.
+    fn calc_value_in(
+        &mut self,
+        rec: &Rec,
+        pos: usize,
+        stack: &mut CalcStack,
+        via_source_row: bool,
+    ) -> Result<Value, Signal> {
+        let table = rec.borrow().table as usize;
+        if let Some(at) = stack.iter().position(|f| f.table == table && f.field == pos) {
+            // A cycle through the condition FlowField of a source row (the same table or another one) has no pinned error: it
+            // used to recurse until the native stack overflowed (al-runner issue 7623).
+            if via_source_row || stack[at + 1..].iter().any(|f| f.via_source_row) {
+                return unsupported(
+                    "a FlowField that needs itself through the condition FlowField of a source row (BC's error is not pinned)",
+                );
+            }
+            // Corpus record/TestCalcFormulaFlowFieldValueTests.Codeunit.al:176-221: a formula that needs itself, directly or
+            // through another FlowField of the same record, is a recursion error. Real BC runs out of stack:
+            // record/TestCalcFieldsTruncateUniqueContracts.al: CalcFields_SelfReferencingFormula_FullTextAndCode.
             return error_code(
                 "There is insufficient memory to execute this function. This can be caused by recursive function calls. Contact your system administrator.".into(),
                 "StackOverflow",
             );
         }
-        stack.push(pos);
+        stack.push(CalcFrame {
+            table,
+            field: pos,
+            via_source_row,
+        });
         let r = self.calc_value_inner(rec, pos, stack);
         stack.pop();
         r
     }
 
-    fn calc_value_inner(&mut self, rec: &Rec, pos: usize, stack: &mut Vec<usize>) -> Result<Value, Signal> {
+    fn calc_value_inner(&mut self, rec: &Rec, pos: usize, stack: &mut CalcStack) -> Result<Value, Signal> {
         let engine = self.engine.clone();
         let table = rec.borrow().table as usize;
         let f = &engine.program.objects[table].table.as_ref().expect("table").fields[pos];
@@ -635,207 +719,170 @@ impl Session {
             self.permission_gate_flowfield(rec, calc.table)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
-        let store_err = |e: al_data::StoreError| Signal::unsupported(format!("store error {e}"));
-        use ir::CalcMethod as M;
-        // A condition on a FlowField of the source table compares each source row's calculated value: count, exist and
-        // lookup are pinned (record/flowfields/CalcFormulaDateLiteral.al:76-95, :243-280
-        // EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count), and so
-        // are sum, -sum, average, min and max over the rows that pass (record/flowfields/
-        // Y17SumWhereFlowField.al:197, :227; a condition FlowField with an unset FlowFilter in its own formula filters
-        // nothing and a condition on a sum FlowField works the same, :303). A sign on another method is not pinned.
         let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let (stored, flow): (Vec<FieldFilter>, Vec<FieldFilter>) = filters
             .iter()
             .cloned()
             .partition(|c| src_fields[c.field].stored || src_fields[c.field].flow_filter);
-        if !flow.is_empty() {
-            if calc.negate && calc.method != M::Sum {
-                return unsupported(
-                    "a signed CalcFormula other than sum with a condition on a FlowField of its source table (not pinned)",
-                );
+        let tally = if flow.is_empty() {
+            self.tally_stored(&cx, &src_t, &filters, calc)?
+        } else {
+            self.tally_source_rows(rec, &cx, &src_t, &stored, &flow, calc, stack)?
+        };
+        self.aggregate(f, calc, tally, !flow.is_empty())
+    }
+
+    /// The rows of the source table that pass `filters`, read from the store: a count and an exist ask the store, a lookup reads
+    /// the first row, and a min or max the first or last row when the primary key orders the rows by the field.
+    fn tally_stored(
+        &mut self,
+        cx: &al_data::AccessContext,
+        src_t: &TableDef,
+        filters: &[FieldFilter],
+        calc: &ir::CalcFormula,
+    ) -> Result<Tally, Signal> {
+        use ir::CalcMethod as M;
+        let store_err = |e: al_data::StoreError| Signal::unsupported(format!("store error {e}"));
+        let first = |s: &mut Self, ascending: bool| {
+            s.store
+                .next(
+                    cx,
+                    src_t,
+                    &Scan {
+                        key: 0,
+                        filters,
+                        ascending,
+                        after: None,
+                    },
+                )
+                .map_err(store_err)
+        };
+        let mut tally = Tally::default();
+        match calc.method {
+            M::Count => tally.n = self.store.count(cx, src_t, filters).map_err(store_err)? as i64,
+            M::Exist => tally.n = i64::from(first(self, true)?.is_some()),
+            // Lookup reads the first matching row in primary key order (corpus
+            // record/TestCalcFieldsTruncateUniqueContracts.al: CalcFields_Lookup_OverSeveralRows_ReadsTheFirstInPrimaryKeyOrder),
+            // so it needs one row. When the primary key already orders the rows by the field, so do min (the first row) and max
+            // (the last row): no need to walk millions of rows of a computed table such as Date
+            // (corpus record/TestDateVirtualTableFlowField.al:94-110).
+            M::Lookup => {
+                if let Some(row) = first(self, true)? {
+                    tally.add(calc, &row)?;
+                }
             }
-            let mut rows = Vec::new();
-            self.each_row(&cx, &src_t, &stored, |row| {
-                rows.push(row.to_vec());
-                Ok(())
-            })?;
-            let mut matched: Vec<Vec<Value>> = Vec::new();
-            for row in rows {
-                let Value::Record(probe) = self.default_value(&RtType::Record(calc.table as u32, false)) else {
-                    return unsupported("a source record of a FlowField");
-                };
-                {
-                    let mut p = probe.borrow_mut();
-                    p.fields = row.clone();
-                    p.company = rec.borrow().company.clone();
-                }
-                let mut pass = true;
-                for c in &flow {
-                    self.check_calc_field(calc.table, c.field)?;
-                    let v = self.calc_value(&probe, c.field, &mut Vec::new())?;
-                    if !c.expr.matches(&v)? {
-                        pass = false;
-                        break;
-                    }
-                }
-                if pass {
-                    matched.push(row);
-                    if matches!(calc.method, M::Exist | M::Lookup) {
-                        break;
-                    }
+            M::Min | M::Max if key_ordered_by(src_t, filters, calc.field.expect("field")) => {
+                if let Some(row) = first(self, calc.method != M::Max)? {
+                    tally.add(calc, &row)?;
                 }
             }
-            let value = match calc.method {
-                M::Count => Value::Integer(matched.len() as i32),
-                M::Exist => Value::Boolean(!matched.is_empty()),
-                M::Lookup => match matched.first() {
-                    Some(row) => row[calc.field.expect("field")].clone(),
-                    None => self.default_value(&f.ty),
-                },
-                M::Sum | M::Average => {
-                    let at = calc.field.expect("field");
-                    let mut sum = Decimal::ZERO;
-                    for row in &matched {
-                        sum += number(&row[at]).ok_or_else(|| non_number(&row[at]))?;
-                    }
-                    // Over no row both are 0 (Y17SumWhereFlowField.al:227, header C).
-                    let mut d = match (calc.method, matched.len()) {
-                        (M::Sum, _) | (_, 0) => sum,
-                        (_, n) => sum / Decimal::from(n as i64),
-                    };
-                    if calc.negate {
-                        d = -d;
-                    }
-                    return to_number(d, &f.ty, calc.method == M::Average);
-                }
-                M::Min | M::Max => {
-                    let at = calc.field.expect("field");
-                    let mut best: Option<Value> = None;
-                    for row in &matched {
-                        let v = &row[at];
-                        best = match best.take() {
-                            None => Some(v.clone()),
-                            Some(b) => match (calc.method, ops::compare(v, &b)?) {
-                                (M::Min, Ordering::Less) | (M::Max, Ordering::Greater) => Some(v.clone()),
-                                (_, _) => Some(b),
-                            },
-                        };
-                    }
-                    match best {
-                        Some(v) => v,
-                        None => self.default_value(&f.ty),
-                    }
-                }
-            };
-            return ops::convert(value, &f.ty);
+            M::Sum | M::Average | M::Min | M::Max => self.each_row(cx, src_t, filters, |row| tally.add(calc, row))?,
         }
+        Ok(tally)
+    }
+
+    /// The rows of the source table that pass the `stored` filters and whose condition FlowFields match `flow`. Count, exist
+    /// and lookup are pinned (record/flowfields/CalcFormulaDateLiteral.al:76-95, :243-280
+    /// EqualsEmptyDate_Chained_GroupOverFlowField: filter(true) on an exist, filter(0) and filter(> 0) on a count), and so are
+    /// sum, -sum, average, min and max over the rows that pass (record/flowfields/Y17SumWhereFlowField.al:197, :227; a condition
+    /// FlowField with an unset FlowFilter in its own formula filters nothing and a condition on a sum FlowField works the same,
+    /// :303). A sign on another method is not pinned.
+    #[allow(clippy::too_many_arguments)]
+    fn tally_source_rows(
+        &mut self,
+        rec: &Rec,
+        cx: &al_data::AccessContext,
+        src_t: &TableDef,
+        stored: &[FieldFilter],
+        flow: &[FieldFilter],
+        calc: &ir::CalcFormula,
+        stack: &mut CalcStack,
+    ) -> Result<Tally, Signal> {
+        use ir::CalcMethod as M;
+        if calc.negate && calc.method != M::Sum {
+            return unsupported(
+                "a signed CalcFormula other than sum with a condition on a FlowField of its source table (not pinned)",
+            );
+        }
+        let mut rows = Vec::new();
+        self.each_row(cx, src_t, stored, |row| {
+            rows.push(row.to_vec());
+            Ok(())
+        })?;
+        let mut tally = Tally::default();
+        for row in rows {
+            let Value::Record(probe) = self.default_value(&RtType::Record(calc.table as u32, false)) else {
+                return unsupported("a source record of a FlowField");
+            };
+            {
+                let mut p = probe.borrow_mut();
+                p.fields = row.clone();
+                p.company = rec.borrow().company.clone();
+            }
+            let mut pass = true;
+            for c in flow {
+                self.check_calc_field(calc.table, c.field)?;
+                let v = self.calc_value_in(&probe, c.field, stack, true)?;
+                if !c.expr.matches(&v)? {
+                    pass = false;
+                    break;
+                }
+            }
+            if pass {
+                tally.add(calc, &row)?;
+                if matches!(calc.method, M::Exist | M::Lookup) {
+                    break;
+                }
+            }
+        }
+        Ok(tally)
+    }
+
+    /// The value of FlowField `f` from what its rows came to. `over_conditions` when a condition on a FlowField of the source
+    /// table chose the rows: the value exceptions below are not pinned there (al-runner issue 7623; probe
+    /// record/flowfields/FlowFieldValidateKeysAndConditions.al `FlowFieldCondition_*` queued) and are refused.
+    fn aggregate(
+        &mut self,
+        f: &ir::Field,
+        calc: &ir::CalcFormula,
+        tally: Tally,
+        over_conditions: bool,
+    ) -> Result<Value, Signal> {
+        use ir::CalcMethod as M;
         let value = match calc.method {
             M::Count => {
-                let n = self.store.count(&cx, &src_t, &filters).map_err(store_err)? as i32;
-                let n = if calc.negate { -n } else { n };
+                let n = if calc.negate { -tally.n } else { tally.n } as i32;
                 if f.ty == RtType::BigInteger {
                     Value::BigInteger(i64::from(n))
                 } else {
                     Value::Integer(n)
                 }
             }
-            M::Exist => {
-                let found = self
-                    .store
-                    .next(
-                        &cx,
-                        &src_t,
-                        &Scan {
-                            key: 0,
-                            filters: &filters,
-                            ascending: true,
-                            after: None,
-                        },
-                    )
-                    .map_err(store_err)?
-                    .is_some();
-                // A leading '-' on an exist is a logical NOT (corpus
-                // record/TestCalcFormulaSignFiltersTests.Codeunit.al:196).
-                Value::Boolean(found != calc.negate)
-            }
+            // A leading '-' on an exist is a logical NOT (corpus record/TestCalcFormulaSignFiltersTests.Codeunit.al:196).
+            M::Exist => Value::Boolean((tally.n > 0) != calc.negate),
             M::Sum | M::Average => {
-                let at = calc.field.expect("field");
-                let (mut sum, mut n) = (Decimal::ZERO, 0i64);
-                self.each_row(&cx, &src_t, &filters, |row| {
-                    sum += number(&row[at]).ok_or_else(|| non_number(&row[at]))?;
-                    n += 1;
-                    Ok(())
-                })?;
-                let mut d = if calc.method == M::Sum {
-                    sum
-                } else if n == 0 {
-                    Decimal::ZERO
-                } else {
-                    sum / Decimal::from(n)
+                // Over no row both are 0 (Y17SumWhereFlowField.al:227, header C).
+                let mut d = match (calc.method, tally.n) {
+                    (M::Sum, _) | (_, 0) => tally.sum,
+                    (_, n) => tally.sum / Decimal::from(n),
                 };
                 if calc.negate {
                     d = -d;
                 }
-                // Corpus record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:115: an Integer
-                // average of 5.25 or 0.25 is stored as 5 and 0; only fractions below one
-                // half are pinned (truncation and rounding agree there).
-                to_number(d, &f.ty, calc.method == M::Average)?
+                // Corpus record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:115: an Integer average of 5.25 or 0.25 is stored as 5
+                // and 0; only fractions below one half are pinned (truncation and rounding agree there).
+                return to_number(d, &f.ty, calc.method == M::Average);
             }
             M::Min | M::Max | M::Lookup => {
-                let at = calc.field.expect("field");
                 // A sign on a lookup of a RecordId gives the stored RecordId unchanged (record/flowfields/
                 // TestSignedRecordIdLookup.al:13 and :25 CalcFormula_SignedRecordIdLookup_ReturnsStoredTarget, corpus pull request
                 // 1199, al-runner issue 7266). A sign on min or max, or on a lookup of any other type, is not pinned.
                 let signed_record_id = calc.method == M::Lookup
-                    && matches!(
-                        f.ty,
-                        al_builtins::value::RtType::Library(al_builtins::library_kind::LibraryKind::RecordId)
-                    );
+                    && matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::RecordId));
                 if calc.negate && !signed_record_id {
                     return unsupported("a sign on min, max or lookup");
                 }
-                // Lookup reads the first matching row in primary key order (corpus
-                // record/TestCalcFieldsTruncateUniqueContracts.al:
-                // CalcFields_Lookup_OverSeveralRows_ReadsTheFirstInPrimaryKeyOrder), so it
-                // needs one row. When the primary key already orders the rows by the field, so
-                // do min (the first row) and max (the last row): no need to walk millions of
-                // rows of a computed table such as Date
-                // (corpus record/TestDateVirtualTableFlowField.al:94-110).
-                let first_only = calc.method == M::Lookup;
-                let ends = !first_only && key_ordered_by(&src_t, &filters, at);
-                let mut best: Option<Value> = None;
-                if first_only || ends {
-                    let ascending = calc.method != M::Max;
-                    let row = self
-                        .store
-                        .next(
-                            &cx,
-                            &src_t,
-                            &Scan {
-                                key: 0,
-                                filters: &filters,
-                                ascending,
-                                after: None,
-                            },
-                        )
-                        .map_err(store_err)?;
-                    best = row.map(|r| r[at].clone());
-                } else {
-                    self.each_row(&cx, &src_t, &filters, |row| {
-                        let v = &row[at];
-                        best = match best.take() {
-                            None => Some(v.clone()),
-                            Some(b) => match (calc.method, ops::compare(v, &b)?) {
-                                (M::Min, Ordering::Less) | (M::Max, Ordering::Greater) => Some(v.clone()),
-                                (_, _) => Some(b),
-                            },
-                        };
-                        Ok(())
-                    })?;
-                }
-                // Before BC 29 a max of an Enum field into an Option FlowField keeps the Enum member, and no row gives the
-                // Enum's first member; from BC 29 it is an Option ordinal (Y20FlowFieldLookupEnumIntoOption.al:189-198,
-                // `#if BC29PLUS`; al-runner issue 6481).
+                let at = calc.field.expect("field");
                 let src_ty = self.engine.program.objects[calc.table]
                     .table
                     .as_ref()
@@ -843,33 +890,46 @@ impl Session {
                     .fields[at]
                     .ty
                     .clone();
+                // Before BC 29 a max of an Enum field into an Option FlowField keeps the Enum member, and no row gives the
+                // Enum's first member; from BC 29 it is an Option ordinal (Y20FlowFieldLookupEnumIntoOption.al:189-198,
+                // `#if BC29PLUS`; al-runner issue 6481).
                 if calc.method == M::Max
                     && matches!((&f.ty, &src_ty), (RtType::Option(_), RtType::Enum(_)))
                     && !self.has(al_version::Gate::ProbedValuesDifferFrom29)
                 {
-                    return Ok(match best {
-                        Some(v) => v,
-                        None => self.default_value(&src_ty),
-                    });
+                    if over_conditions {
+                        return refuse_combined();
+                    }
+                    return Ok(tally.best.unwrap_or_else(|| self.default_value(&src_ty)));
                 }
-                // Nothing matched: the type default (corpus
-                // record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:250).
-                match best {
+                // Nothing matched: the type default (corpus record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:250).
+                match tally.best {
                     Some(v) => v,
                     None => self.default_value(&f.ty),
                 }
             }
         };
+        self.finish_value(value, f, calc, over_conditions)
+    }
+
+    /// `value` fitted to FlowField `f`, with the pinned exceptions of a lookup.
+    fn finish_value(
+        &self,
+        value: Value,
+        f: &ir::Field,
+        calc: &ir::CalcFormula,
+        over_conditions: bool,
+    ) -> Result<Value, Signal> {
         // A lookup into an Enum field of another enum keeps the looked-up member as it is: `Zero` stays `Zero` and `Five`
         // (an ordinal the FlowField's enum lacks) stays `Five` (corpus record/flowfields/
         // FlowFieldLookupOtherEnum.al: Lookup_MembersPresentInBoth_Result, Lookup_MemberOnlyInSource_Result).
-        if matches!((&value, &f.ty), (Value::Enum(from, _), RtType::Enum(to)) if from != to) {
-            return Ok(value);
-        }
         // A lookup of an Enum field into an Option FlowField keeps the Enum member too: Format shows the Enum's name, also for an
         // ordinal the Option lacks (Y20FlowFieldLookupEnumIntoOption.al:115, :136; al-runner issue 6481).
-        if calc.method == ir::CalcMethod::Lookup && matches!((&value, &f.ty), (Value::Enum(..), RtType::Option(_))) {
-            return Ok(value);
+        let keeps_member = matches!((&value, &f.ty), (Value::Enum(from, _), RtType::Enum(to)) if from != to)
+            || (calc.method == ir::CalcMethod::Lookup
+                && matches!((&value, &f.ty), (Value::Enum(..), RtType::Option(_))));
+        if keeps_member {
+            return if over_conditions { refuse_combined() } else { Ok(value) };
         }
         // A value longer than the FlowField: a lookup of a Text source into a shorter Text FlowField keeps the whole value,
         // with no error and no truncation (record/flowfields/BmFlowFieldConversions.al:201-217,
@@ -889,7 +949,7 @@ impl Session {
                     )
                 });
                 if calc.method == ir::CalcMethod::Lookup && matches!(f.ty, RtType::Text(_)) && source_text {
-                    return Ok(value);
+                    return if over_conditions { refuse_combined() } else { Ok(value) };
                 }
                 unsupported(
                     "a min, max or lookup FlowField value longer than the field (only a Text lookup into Text is pinned)",
@@ -904,7 +964,7 @@ impl Session {
         &mut self,
         rec: &Rec,
         calc: &ir::CalcFormula,
-        stack: &mut Vec<usize>,
+        stack: &mut CalcStack,
     ) -> Result<Vec<FieldFilter>, Signal> {
         for a in &calc.assumes {
             al_builtins::assumptions::assume(*a);
@@ -951,7 +1011,7 @@ impl Session {
                         // Corpus record/TestCalcFormulaFlowFieldValueTests.Codeunit.al:112: a
                         // FlowField on the other side is calculated first, not read from the buffer.
                         self.check_calc_field(table, *q)?;
-                        let v = self.calc_value(rec, *q, stack)?;
+                        let v = self.calc_value_in(rec, *q, stack, false)?;
                         parts.push((c.field, FilterExpr::Eq(ops::convert(v, sty)?), false));
                     } else {
                         let v = rec.borrow().fields[*q].clone();
@@ -1222,7 +1282,7 @@ impl Session {
         };
         for f in filters {
             self.check_calc_field(table, f.field)?;
-            let v = self.calc_value(&probe, f.field, &mut Vec::new())?;
+            let v = self.calc_value(&probe, f.field)?;
             if !f.expr.matches(&v)? {
                 return Ok(false);
             }

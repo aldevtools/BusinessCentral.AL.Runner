@@ -153,6 +153,7 @@ mod update_from_new_line;
 mod update_new_line_filter;
 mod update_no_arg_never_run;
 mod validate_filter_refresh;
+mod validate_xrec_main_path;
 mod view_blank_date;
 mod view_boolean_filter_text;
 mod widen_view_from_last;
