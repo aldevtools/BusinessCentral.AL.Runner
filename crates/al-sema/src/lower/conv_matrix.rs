@@ -202,30 +202,54 @@ impl super::Lowerer<'_> {
 impl super::Lowerer<'_> {
     /// `value`, of type Variant, wrapped in `Variant.Into#1` when it goes into a slot of a kind the matrix tries from a
     /// Variant (`al_builtins::conv::variant_into`): the cells pinned for a Variant apply to it, and to no other dynamic value.
+    /// A value already wrapped (by [`Self::variant_into_assigned`]) is left as it is.
     pub(super) fn variant_into(&self, target: &Ty, value: al_ir::Expr) -> super::L<al_ir::Expr> {
-        // A RecordId, RecordRef or Record slot takes the errors pinned for a Variant too (`conv::record_slot_code`).
-        let code = match kind(target).and_then(al_builtins::conv::kind_code) {
-            Some(code) => code,
-            None => match self
-                .rt(target)
+        if super::convert::is_builtin(&value, "Variant.Into#1") {
+            return Ok(value);
+        }
+        match kind(target).and_then(al_builtins::conv::kind_code) {
+            Some(code) => into_call(value, code),
+            None => Ok(value),
+        }
+    }
+
+    /// [`Self::variant_into`] at an assignment `Target := V`: the code carries `AT_ASSIGNMENT`, so the rules measured only for
+    /// `:=` apply (an unassigned Variant, the flag's text), and a RecordId, RecordRef or Record slot takes the errors pinned for
+    /// a Variant (`conv::record_slot_code`; types/variant/VariantRecordIdConversions.al, VaTConvert.al:76-101). An argument and
+    /// `exit` are not measured for these and keep [`Self::variant_into`].
+    pub(super) fn variant_into_assigned(&self, target: &Ty, value: al_ir::Expr) -> super::L<al_ir::Expr> {
+        if super::convert::is_builtin(&value, "Variant.Into#1") {
+            return Ok(value);
+        }
+        let code = kind(target).and_then(al_builtins::conv::kind_code).or_else(|| {
+            self.rt(target)
                 .ok()
                 .as_ref()
                 .and_then(al_builtins::conv::record_slot_code)
-            {
-                Some(code) => code,
-                None => return Ok(value),
-            },
-        };
-        Ok(al_ir::Expr::Builtin {
-            id: super::call::builtin_id("Variant.Into#1")?,
-            receiver: None,
-            args: vec![
-                al_ir::Arg::Value(value),
-                al_ir::Arg::Value(al_ir::Expr::Const(al_ir::Const::Integer(code))),
-            ],
-            ret_used: true,
-        })
+        });
+        match code {
+            Some(code) => into_call(value, code | al_builtins::conv::AT_ASSIGNMENT),
+            None => Ok(value),
+        }
     }
+
+    /// `value`, of type Variant, used as an AL condition (`if`, `while`, `until`, `not`): `Variant.Into#1` with `AS_CONDITION`
+    /// answers the Boolean for the values measured as a condition and refuses the others (`conv::variant`).
+    pub(super) fn variant_condition(&self, value: al_ir::Expr) -> super::L<al_ir::Expr> {
+        into_call(value, al_builtins::conv::AS_CONDITION)
+    }
+}
+
+fn into_call(value: al_ir::Expr, code: i32) -> super::L<al_ir::Expr> {
+    Ok(al_ir::Expr::Builtin {
+        id: super::call::builtin_id("Variant.Into#1")?,
+        receiver: None,
+        args: vec![
+            al_ir::Arg::Value(value),
+            al_ir::Arg::Value(al_ir::Expr::Const(al_ir::Const::Integer(code))),
+        ],
+        ret_used: true,
+    })
 }
 
 impl super::Lowerer<'_> {

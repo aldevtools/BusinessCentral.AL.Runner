@@ -1291,6 +1291,15 @@ fn array_remove_at(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> R
             set_parent(&child, None);
             Ok(Value::Boolean(true))
         }
+        // GetLastErrorText(true) leaves the text of an index past the end (errors/last-error/LastErrorFlagRuntimeCodes.al:192,
+        // :197); a negative index is not measured.
+        None if i >= 0 => {
+            let mut e = index_out_of_bounds();
+            if let Signal::Error(err) = &mut e {
+                err.origin = crate::native::ErrorOrigin::SameText;
+            }
+            used_return::failed(c, e)
+        }
         None => used_return::failed(c, index_out_of_bounds()),
     }
 }

@@ -11,7 +11,6 @@ mod dialog;
 mod enum_fns;
 mod error;
 mod error_fns;
-mod flag_text;
 mod format_field_codes;
 mod format_fns;
 mod messages;

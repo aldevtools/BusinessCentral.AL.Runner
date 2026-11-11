@@ -75,6 +75,33 @@ pub fn raise_redacted<T>(message: impl Into<String>, code: &str, redacted: impl 
     })))
 }
 
+/// The text `GetLastErrorText(true)` answers for an error .NET raised without a privacy classification
+/// (errors/last-error/LastErrorFlagRuntimeCodes.al:168, :171, :174, :215). Only the raise sites that file measured carry it.
+pub const NOT_CLASSIFIED: &str =
+    "Message not shown because the NavBaseException constructor was used without privacy classification";
+
+/// Raises an AL error with a pinned text and code whose text `GetLastErrorText(true)` leaves as it is. Only for a raise site
+/// the corpus measured for the flag (the caller cites it); every other site raises with `raise` and the flag refuses.
+pub fn raise_same_text<T>(message: impl Into<String>, code: &str) -> Result<T, Signal> {
+    Err(Signal::Error(Box::new(AlError {
+        message: message.into(),
+        code: code.into(),
+        origin: ErrorOrigin::SameText,
+        ..Default::default()
+    })))
+}
+
+/// `r` with the origin `origin` on its AL error, for a measured raise site whose error a shared helper builds.
+pub fn with_origin<T>(r: Result<T, Signal>, origin: ErrorOrigin) -> Result<T, Signal> {
+    r.map_err(|s| match s {
+        Signal::Error(mut e) => {
+            e.origin = origin;
+            Signal::Error(e)
+        }
+        other => other,
+    })
+}
+
 /// Refuses what the runtime does not implement (ADR-071 decision 4: the one helper; do not add a private copy). Takes
 /// free text (key `legacy`) or a keyed refusal: `unsupported(refuse!(keys::NAME, "text {}", value))`.
 pub fn unsupported<T>(what: impl Into<Refusal>) -> Result<T, Signal> {

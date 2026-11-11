@@ -1262,7 +1262,7 @@ pub fn mark_not_initialized(v: &Value) -> bool {
         return false;
     };
     let mut g = h.borrow_mut();
-    if !matches!(&*g, LibraryValue::Empty) {
+    if !crate::stream_cleared::holds_no_stream(&g) {
         return false;
     }
     let mut s = InState::snapshot(Vec::new(), Encoding::default());
@@ -1278,7 +1278,7 @@ pub fn create_in_of(v: &Value, bytes: Vec<u8>) -> bool {
         return false;
     };
     let mut g = h.borrow_mut();
-    if !matches!(&*g, LibraryValue::Empty) {
+    if !crate::stream_cleared::holds_no_stream(&g) {
         return false;
     }
     *g = LibraryValue::InStream(InState::snapshot(bytes, Encoding::default()));
@@ -1293,7 +1293,7 @@ pub fn create_empty_in(v: &Value) -> bool {
         return false;
     };
     let mut g = h.borrow_mut();
-    if !matches!(&*g, LibraryValue::Empty) {
+    if !crate::stream_cleared::holds_no_stream(&g) {
         return false;
     }
     *g = LibraryValue::InStream(InState::snapshot(Vec::new(), Encoding::default()));
@@ -1376,7 +1376,7 @@ fn in_eos(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult 
 }
 
 fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
-    crate::stream_cleared::refuse_cleared(r.as_deref())?;
+    crate::stream_cleared::refuse_uncreated(r.as_deref(), "EOS")?;
     // EOS of a stream a Report layout call found no layout for: the variable was never initialized
     // (reports/request-page/P105LytRdlc.al:76, P105LytWord.al:76, P105LytExcel.al:76).
     if let Some(Value::Library(_, h)) = r.as_deref()
@@ -1456,7 +1456,7 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             Ok(Value::Null)
         });
     }
-    crate::stream_cleared::refuse_cleared(r.as_deref())?;
+    crate::stream_cleared::refuse_uncreated(r.as_deref(), "Position")?;
     with_in(r, |s| {
         if s.len0_over_mark && s.pos == 0 {
             return unsupported("InStream.Position after Read(Text, 0) at a UTF-8 byte order mark (not pinned)");
@@ -1624,17 +1624,19 @@ fn is_unit(u: &[u8], c: u8) -> bool {
 /// InOutStream_Write_Integer_ReadInteger) or a Byte (one byte: the HexOf helper of
 /// streams/TestStreamsRuntimeContracts.al reads a stream byte by byte). Other types are not pinned.
 fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    // A BigInteger length into a Text reads as the same Integer length (streams/instream-outstream/StreamUncreatedUse.al:
-    // InStreamRead_TextWithBigIntegerLength: 3, 0 and 10 on a six-byte stream). A negative one is not pinned.
-    if let (2, Value::Text(_) | Value::Code(_), Some(Value::BigInteger(n))) = (a.len(), &a[0], a.get(1))
+    // A BigInteger length into a Text reads as the same Integer length, on a stream created without an encoding
+    // (streams/instream-outstream/StreamUncreatedUse.al:InStreamRead_TextWithBigIntegerLength, :139-147 and :167-178: 3, 0 and
+    // 10 on a six-byte stream). A Code, a negative length and another encoding are not measured and stay refused below.
+    if let (2, Value::Text(_), Some(Value::BigInteger(n))) = (a.len(), &a[0], a.get(1))
         && let Ok(n) = i32::try_from(*n)
         && n >= 0
+        && with_in(r.as_deref_mut(), |s| Ok(s.enc == Encoding::default()))?
     {
         a[1] = Value::Integer(n);
     }
     // Read(Text) of a stream that holds none raises (StreamUncreatedUse.al:UncreatedInStream_EveryMethod `in_read`).
     if a.len() == 1 && matches!(a[0], Value::Text(_) | Value::Code(_)) {
-        crate::stream_cleared::refuse_cleared(r.as_deref())?;
+        crate::stream_cleared::refuse_uncreated(r.as_deref(), "Read")?;
     }
     // `Read(Text, Length)`: per encoding in `stream_read_len` (UTF-8 and the single-byte encodings); UTF-16 is not pinned beyond
     // streams/W7StreamRead.al:375 ReadTextWithLength_Utf16_WhatIsConsumed and stays refused.
@@ -2039,7 +2041,11 @@ fn write_text_length(enc: Encoding, a: &[Value]) -> Result<Option<usize>, Signal
 /// `WriteText(Text)` writes the text in the stream's encoding and no terminator; `WriteText()` writes
 /// CR LF (:OutStream_WriteText_WithoutArgument_WritesCarriageReturnLineFeed).
 fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    if crate::stream_cleared::holds_none(r.as_deref()) {
+    // Only `WriteText(Text)` of a stream never created is measured (`stream_cleared::uncreated_result`).
+    if crate::stream_cleared::never_created(r.as_deref())
+        && a.len() == 1
+        && matches!(a[0], Value::Text(_) | Value::Code(_))
+    {
         return crate::stream_cleared::uncreated_result(c.ret_used(), "OutStream", Value::Integer(0));
     }
     let (b, enc) = out_buf(r)?;
@@ -2157,7 +2163,8 @@ fn decimal_from_bytes(b: &[u8]) -> Result<rust_decimal::Decimal, Signal> {
 /// (:OutStream_Write_BinaryFormsOfEachType, all little endian), a Date 4 and a Decimal 12 (see
 /// [`date_bytes`], [`decimal_bytes`]).
 fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    if crate::stream_cleared::holds_none(r.as_deref()) {
+    // Only `Write(Integer)` of a stream never created is measured (`stream_cleared::uncreated_result`).
+    if crate::stream_cleared::never_created(r.as_deref()) && a.len() == 1 && matches!(a[0], Value::Integer(_)) {
         return crate::stream_cleared::uncreated_result(c.ret_used(), "OutStream", Value::Integer(0));
     }
     let (b, enc) = out_buf(r.as_deref_mut())?;
@@ -2369,8 +2376,8 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
         return copy_stream_count(ctx, a);
     }
     match (
-        crate::stream_cleared::holds_none(Some(&a[0])),
-        crate::stream_cleared::holds_none(Some(&a[1])),
+        crate::stream_cleared::never_created(Some(&a[0])),
+        crate::stream_cleared::never_created(Some(&a[1])),
     ) {
         (true, true) => return unsupported("CopyStream between two streams that were never created (not pinned)"),
         (true, false) => {

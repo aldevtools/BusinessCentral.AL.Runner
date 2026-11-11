@@ -58,7 +58,7 @@ impl Src {
 /// The codes `Variant.Into#1` takes for a RecordId, a RecordRef and a Record slot, after the matrix kinds (`kind_code`).
 const RECORD_ID: i32 = 100;
 const RECORD_REF: i32 = 101;
-const RECORD: i32 = 102;
+pub(super) const RECORD: i32 = 102;
 
 /// The number `Variant.Into#1` takes for a RecordId, RecordRef or Record slot, `None` for another type.
 pub fn record_slot_code(t: &RtType) -> Option<i32> {

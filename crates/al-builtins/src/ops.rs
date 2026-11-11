@@ -1753,14 +1753,6 @@ pub fn compare_keys(a: &[Value], b: &[Value]) -> bool {
 pub fn truthy(v: &Value) -> Result<bool, Signal> {
     match v {
         Value::Boolean(b) => Ok(*b),
-        // A Variant as a condition (types/variant/VariantRecordIdConversions.al:VariantAsCondition): unassigned raises, holding
-        // 1 or 0 is true or false, holding 'true' or '' raises a conversion error. Other values are not pinned.
-        Value::Null => Err(crate::xml::uninitialized("Variant")),
-        Value::Integer(n @ (0 | 1)) => Ok(*n == 1),
-        Value::Text(t) if matches!(t.as_str(), "true" | "") => raise(
-            "The expression Variant cannot be type-converted to a Boolean value.",
-            "TypeConversion:Format",
-        ),
         other => unsupported(format!("{} used as a condition", other.describe())),
     }
 }
