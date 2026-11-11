@@ -2294,7 +2294,7 @@ impl Session {
                 && matches!(key.get(n), Some(Value::Text(t)) if *t != t.to_uppercase())
         });
         if lowercase_code {
-            return self.go_to_key_miss(st, result_used);
+            return self.go_to_key_form_miss(st, result_used);
         }
         let want: Result<Vec<Value>, Signal> = table.keys[0]
             .iter()
@@ -2308,7 +2308,7 @@ impl Session {
         // `wrong-type`: GoToKey(1) over a Code key raises the row error).
         let want = match want {
             Ok(w) => w,
-            Err(Signal::Error(_)) => return self.go_to_key_miss(st, result_used),
+            Err(Signal::Error(_)) => return self.go_to_key_form_miss(st, result_used),
             Err(e) => return Err(e),
         };
         if let Some(found) = self.go_to_key_off_untouched_new_line(st, off_new_line, &want)? {

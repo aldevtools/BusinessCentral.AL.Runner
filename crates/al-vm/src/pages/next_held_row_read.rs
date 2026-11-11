@@ -93,6 +93,11 @@ impl Session {
         // then Next); OpenEdit then Next alone is not that shape and keeps the earlier behavior (al-runner issue 7799).
         let first = st.borrow().first_since_open;
         // The page still stands on the row the `Next` moved onto.
-        Ok(page && row && control && untouched && first && Self::same_values(&self.row_key(&self.page_rec(st))?, reached))
+        Ok(page
+            && row
+            && control
+            && untouched
+            && first
+            && Self::same_values(&self.row_key(&self.page_rec(st))?, reached))
     }
 }
