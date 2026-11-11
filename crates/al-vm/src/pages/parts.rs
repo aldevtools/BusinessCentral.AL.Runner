@@ -527,19 +527,17 @@ impl Session {
         let opening = how == Sync::Open;
         let mut parts = st.borrow().parts.clone();
         // A part a Visible expression hid stays in the TestPage tree and follows its host like a shown one, on a GoToKey and a
-        // GoToRecord too (testpage/parts/ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey `h2` after GoToKey:
-        // `lines-row(0) | detail-row()`). Without a Provider link in the page the older rule stays, which pinned no hidden part
-        // for the other moves.
-        let provider_page = self.has_provider_link(st);
-        if opening || matches!(how, Sync::Move { .. }) || provider_page {
-            let hidden = st.borrow().hidden_parts.clone();
-            parts.extend(
-                hidden
-                    .into_iter()
-                    .filter(|(i, c)| !self.part_eliminated(st, *i) && (opening || c.borrow().open)),
-            );
-            parts.sort_by_key(|(i, _)| *i);
-        }
+        // GoToRecord too, inside a Provider chain (testpage/parts/ProviderLinkedPartsMatrix.al Provider_BothHidden_OpenViewAndGoToKey
+        // `h2` after GoToKey: `lines-row(0) | detail-row()`) and outside every chain (testpage/parts/HiddenPartOutsideChain.al:430
+        // Plain_FbHidden_OpenEditGoToKeyNext `gotokey_h2` `host-row(H1) | host-row(H2) | fb-row(H2)`, the same as its shown twin
+        // :453; the variable in a page extension, after an action too: HiddenPartExtensionVariable.al:530-534, :579).
+        let hidden = st.borrow().hidden_parts.clone();
+        parts.extend(
+            hidden
+                .into_iter()
+                .filter(|(i, c)| !self.part_eliminated(st, *i) && (opening || c.borrow().open)),
+        );
+        parts.sort_by_key(|(i, _)| *i);
         if opening {
             self.refuse_factbox_vs_extension_chain(st)?;
             self.read_blank_before_parts_turning_visible(st)?;
