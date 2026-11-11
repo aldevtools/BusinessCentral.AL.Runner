@@ -1499,6 +1499,20 @@ pub enum CalcValue {
 pub struct Slot {
     pub name: String,
     pub ty: RtType,
+    /// A record variable declared with `[SecurityFiltering(SecurityFilter::X)]`: the member index of X. The variable starts
+    /// with it, and `Clear` and `ClearAll` set it back (al-vm `Session::slot_default`). `None` for every other slot.
+    pub security_filtering: Option<i32>,
+}
+
+impl Slot {
+    /// A slot with no declared SecurityFiltering value.
+    pub fn new(name: impl Into<String>, ty: RtType) -> Self {
+        Slot {
+            name: name.into(),
+            ty,
+            security_filtering: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2057,10 +2071,7 @@ mod tests {
                 uncompiled: false,
                 id: Some(50100),
                 name: "C".into(),
-                globals: vec![Slot {
-                    name: "G".into(),
-                    ty: RtType::Integer,
-                }],
+                globals: vec![Slot::new("G", RtType::Integer)],
                 properties: vec![("Subtype".into(), "Test".into())],
                 enum_values: vec![],
                 enum_captions: vec![],
@@ -2089,10 +2100,7 @@ mod tests {
                     }],
                     params: 0,
                     by_var: vec![],
-                    locals: vec![Slot {
-                        name: "L".into(),
-                        ty: RtType::Text(None),
-                    }],
+                    locals: vec![Slot::new("L", RtType::Text(None))],
                     ret: None,
                     ret_local: None,
                     pos: NO_POS,

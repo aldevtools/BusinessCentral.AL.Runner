@@ -201,6 +201,7 @@ impl super::CorpusRuntime {
             tdd_stubs: self.tdd_stubs.clone(),
             compile_errors: self.compile_errors.clone(),
             entries: self.entries.clone(),
+            met: self.met,
         }
     }
 }

@@ -81,6 +81,7 @@ mod evaluate_table_filter_code_chained;
 mod evaluate_table_filter_enum;
 mod event_recursion_code;
 mod event_var_nested;
+mod event_var_origins_leak;
 mod events;
 mod exec;
 mod ext_validate_across_apps;

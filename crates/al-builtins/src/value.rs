@@ -388,6 +388,15 @@ pub struct RecordState {
     /// `ReadIsolation` and `SecurityFiltering` as member indexes of their platform option types.
     pub read_isolation: i32,
     pub security_filtering: i32,
+    /// The SecurityFiltering value the variable was declared with (`[SecurityFiltering(x)]`, else Validated): `Clear` sets
+    /// `security_filtering` back to it. An assignment and `Copy` change neither (al-vm `Session::slot_default`). `None` on a
+    /// copy whose declared value is not pinned ([`RecordState::copy_as_new_variable`]).
+    pub declared_security_filtering: Option<i32>,
+    /// Why the record's SecurityFiltering is not pinned: the read refuses with it until `Clear` or `SecurityFiltering(x)`
+    /// gives a pinned value. The corpus pins Clear, ClearAll, Reset, Init, assignment, Copy and parameters
+    /// (al-language/reports/runtime/ACAttributes.al:355-360); a TransferFields or a RecordRef.SetTable into the record, and
+    /// Clear of a copy whose declared value is `None`, are not.
+    pub security_filtering_unpinned: Option<&'static str>,
     /// Index of the current key in the table's keys.
     pub key: usize,
     /// `SetCurrentKey` on fields no key of the table starts with: the key index it stands for (one
@@ -558,6 +567,18 @@ impl DirtyBase {
 }
 
 impl RecordState {
+    /// A copy of the record that is a variable of its own: a by-value parameter, an event argument, a Variant's record. It
+    /// reads the original's SecurityFiltering (al-language/reports/runtime/ACAttributes.al:397, :411-414), but it is declared
+    /// without the attribute (a parameter takes none: must-not-compile case 1428-attribute-on-parameter), so what `Clear`
+    /// sets back on it is pinned only when the original was declared Validated (then both possible answers agree).
+    pub fn copy_as_new_variable(&self) -> RecordState {
+        let mut st = self.clone();
+        if st.declared_security_filtering != Some(0) {
+            st.declared_security_filtering = None;
+        }
+        st
+    }
+
     /// A field of the buffer is about to be written: a snapshot that is the buffer itself becomes a copy.
     #[inline]
     pub fn before_field_write(&mut self) {
