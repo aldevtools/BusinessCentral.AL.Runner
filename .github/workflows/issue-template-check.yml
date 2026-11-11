@@ -1,0 +1,88 @@
+name: Issue template check
+
+# When an outside issue is opened or edited, checks that it answers the questions of the issue template
+# (.github/ISSUE_TEMPLATE/alpha-feedback.yml). An issue made through the API skips the form, so this is where a
+# missing answer is caught. The check is .github/scripts/issue-template-check.js (self-test: the job below and
+# `node .github/scripts/issue-template-check.test.js`).
+#
+#   - Missing answers: one comment (marked, updated in place on every edit, never a second one) asks exactly those
+#     questions again, and the label needs-info is set. When everything is answered, the label goes and the comment
+#     says so.
+#   - The answer to "Who will work on the fix?" sets one label: fix: reporter (a pull request is planned),
+#     fix: maintainer (only reporting) or fix: unknown (not sure, or no answer).
+#   - Issues of the repository owner, members, collaborators and bots are skipped.
+#   - No secrets, no external service; the workflow token writes only to issues.
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  pull_request:
+    paths:
+      - .github/scripts/issue-template-check*.js
+      - .github/workflows/issue-template-check.yml
+
+permissions: {}
+
+jobs:
+  self-test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - run: node .github/scripts/issue-template-check.test.js
+
+  check:
+    if: >-
+      github.event_name == 'issues' &&
+      github.event.issue.state == 'open' &&
+      github.event.issue.user.type != 'Bot' &&
+      !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { check, comment, MARKER } = require('./.github/scripts/issue-template-check.js');
+            const issue = context.payload.issue;
+            const { owner, repo } = context.repo;
+            const { missing, fixOwner } = check(issue.body);
+
+            // The fix-owner label: exactly one of the three.
+            const fixLabels = ['fix: reporter', 'fix: maintainer', 'fix: unknown'];
+            const want = `fix: ${fixOwner}`;
+            const have = issue.labels.map((l) => l.name);
+            for (const l of fixLabels.filter((l) => l !== want && have.includes(l))) {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: l });
+            }
+            const add = [];
+            if (!have.includes(want)) add.push(want);
+            if (missing.length > 0 && !have.includes('needs-info')) add.push('needs-info');
+            if (add.length > 0) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: add });
+            }
+            if (missing.length === 0 && have.includes('needs-info')) {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: 'needs-info' });
+            }
+
+            // One marked comment, created only when something is missing, then updated in place.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: issue.number, per_page: 100,
+            });
+            const mine = comments.find((c) => c.user.type === 'Bot' && c.body.startsWith(MARKER));
+            const body = comment(missing);
+            if (mine) {
+              if (mine.body !== body) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+              }
+            } else if (missing.length > 0) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body });
+            }
+            core.info(`missing: ${missing.map((q) => q.id).join(', ') || 'none'}; fix owner: ${fixOwner}`);

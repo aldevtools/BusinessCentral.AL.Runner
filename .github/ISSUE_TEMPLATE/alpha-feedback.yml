@@ -1,0 +1,62 @@
+name: Alpha feedback
+description: Report a wrong result, a crash or a surprise from an al-runner alpha or edge build
+labels: ["alpha-feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A wrong result is the most useful report: a test that passes or fails in
+        al-runner but behaves differently on real Business Central.
+  - type: dropdown
+    id: fix-owner
+    attributes:
+      label: Who will work on the fix?
+      description: This tells me whether to plan the work myself or wait for your pull request.
+      options:
+        - I am only reporting it
+        - I plan to open a pull request with the fix
+        - Not sure yet
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: al-runner version
+      description: Output of `al-runner --version`
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: For example Windows 11 x64, macOS 15 arm64, Ubuntu 24.04
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The full command line
+      render: shell
+  - type: textarea
+    id: actual
+    attributes:
+      label: What al-runner did
+      description: "Outcome: passed, failed, not run with its reason, crash, or wrong output. Paste the lines that matter."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+  - type: dropdown
+    id: real-bc
+    attributes:
+      label: Does the test pass on real Business Central?
+      options:
+        - "Yes"
+        - "No"
+        - Not tried
+  - type: textarea
+    id: code
+    attributes:
+      label: Can you share the AL code?
+      description: A small app that shows the problem helps most. Do not paste secrets or customer data.
