@@ -89,7 +89,10 @@ impl Session {
         // Nothing between the `Next` and the SetValue (the test has no statement between :878 and :879): the store took no
         // insert, modify or delete since, through any record variable, so the row is stored as the `Next` found it.
         let untouched = self.write_mark() == writes;
+        // The test called First before the Next (the reporter's repro of al-runner issue 7783: OpenEdit, First, a SetValue,
+        // then Next); OpenEdit then Next alone is not that shape and keeps the earlier behavior (al-runner issue 7799).
+        let first = st.borrow().first_since_open;
         // The page still stands on the row the `Next` moved onto.
-        Ok(page && row && control && untouched && Self::same_values(&self.row_key(&self.page_rec(st))?, reached))
+        Ok(page && row && control && untouched && first && Self::same_values(&self.row_key(&self.page_rec(st))?, reached))
     }
 }

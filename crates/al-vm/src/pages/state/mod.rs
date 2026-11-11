@@ -514,6 +514,8 @@ pub struct PageState {
     /// The key of the row a `Next` that started `server_lag` just moved onto, on the page `held_row_page_pinned` names, and
     /// the store's write mark then (`next_held_row_read`). Any other call on the page or its controls clears it.
     pub next_held_row: Option<(Vec<Value>, (i64, u64))>,
+    /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
+    pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
     pub lookup_page_from_table: bool,
     /// Page triggers (the page's or an extension's) run on this page so far.

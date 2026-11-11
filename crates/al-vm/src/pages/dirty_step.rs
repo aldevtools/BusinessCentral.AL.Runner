@@ -261,6 +261,13 @@ impl Session {
         // Any TestPage method ends the shape `next_held_row_read` reads in; a `Next` notes its row again.
         st.borrow_mut().next_held_row = None;
         let name = method.method();
+        match name {
+            PageMethod::First => st.borrow_mut().first_since_open = true,
+            PageMethod::OpenEdit | PageMethod::OpenView | PageMethod::OpenNew | PageMethod::Trap => {
+                st.borrow_mut().first_since_open = false
+            }
+            _ => {}
+        }
         let top = Self::top_page(st);
         if top.borrow().save_failed && top.borrow().open {
             // Next answers No, Close closes and runs nothing (:1228 Card_ModifyError_Next `next` No, `close` empty).
