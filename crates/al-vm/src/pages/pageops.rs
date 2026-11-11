@@ -642,25 +642,30 @@ impl Session {
     }
     /// The save of `CurrPage.Update(true)`, `CurrPage.Update()` and `CurrPage.SaveRecord()` on an open page.
     fn save_from_update(&mut self, method: PageOp, st: &St) -> Result<Value, Signal> {
+        if method == PageOp::PageSaveRecord {
+            st.borrow_mut().save_record_called = true;
+        }
         // CurrPage.SaveRecord() in the OnValidate of a part's control changes neither Rec nor xRec of the stored row; a new
         // row gets its inserted key in Rec while xRec stays the blank new row
         // (pages/parts/QjPartPropagation.al:733 QJ_SubformSaveRecord_StoredRow `S.V.after(10000 r=5 x=1 ...)`,
         // :764 QJ_SubformSaveRecord_NewRow `S.V.after(20000 r=5 x=0 x.ln=0 delta=5)`). Pinned for a ListPart only.
-        let keep_xrec = method == PageOp::PageSaveRecord
-            && {
-                let s = st.borrow();
-                s.validating_control && s.host.is_some()
-            }
-            && self.is_list(st);
+        // On the pages `pages/validate_xrec.rs` pins, any save inside a control's validation keeps xRec until the step ends.
+        let keep_xrec = self.validate_step_keeps_xrec(st)?
+            || (method == PageOp::PageSaveRecord
+                && {
+                    let s = st.borrow();
+                    s.validating_control && s.host.is_some()
+                }
+                && self.is_list(st));
         if keep_xrec {
             let xrec = self.page_xrec_fields(st);
-            let r = self.save_record_now(st);
+            self.save_record_now(st)?;
             let stored = self.page_rec(st).borrow().fields.clone();
             self.set_xrec_fields(st, xrec);
             st.borrow_mut().xrec_after_validate = Some(stored);
-            return r.map(|_| Value::Null);
+        } else {
+            self.save_record_now(st)?;
         }
-        self.save_record_now(st)?;
         // What `CurrPage.Update(true)` saved (al-vm pages/leave_new_line.rs, testpage/NewRowThenMove.al:73).
         st.borrow_mut().saved_by_update = method != PageOp::PageSaveRecord;
         Ok(Value::Null)
@@ -1297,9 +1302,6 @@ impl Session {
             }
             PageMethod::Update | PageMethod::SaveRecord => {
                 self.require_open(st)?;
-                if method == PageOp::PageSaveRecord {
-                    st.borrow_mut().save_record_called = true;
-                }
                 // CurrPage.Update() without an argument saves (the parameter defaults to true).
                 let save = (method == PageOp::PageSaveRecord) || !matches!(args.first(), Some(Value::Boolean(false)));
                 if !(method == PageOp::PageSaveRecord) {
@@ -1312,6 +1314,7 @@ impl Session {
                     self.note_view_left(st)?;
                 }
                 if !save {
+                    self.validate_step_update_false(st);
                     return Ok(Value::Null);
                 }
                 self.save_from_update(method, st)

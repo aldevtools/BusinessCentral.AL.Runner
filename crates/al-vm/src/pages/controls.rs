@@ -996,6 +996,8 @@ impl Session {
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
+                    let before = before.as_deref().expect("rec-bound");
+                    self.validate_step_begin(st, pos, before, was_dirty, !ext_after.is_empty())?;
                 }
                 // The value is dropped: see `ir::EXT_MIRROR_PROPERTY`.
                 ir::Binding::BaseVar(_) if ctl.props.iter().any(|(n, _)| n == ir::EXT_MIRROR_PROPERTY) => {}
@@ -1042,31 +1044,15 @@ impl Session {
             Ok(())
         })();
         st.borrow_mut().validating_control = was_validating;
+        let result = self.validate_step_close(st, result);
         // CurrPage.SaveRecord in the validation left xRec as it was; the row it stored is xRec from here on (the next SetValue's
         // OnValidate sees it: pages/parts/QjPartPropagation.al:735 QJ_SubformSaveRecord_StoredRow and :766 _NewRow
         // `S.V.before(... x=5 ...)`).
         self.after_validate_rows(st);
         match result {
-            Ok(()) => {
-                // The row as typed is the current row the next OnAfterGetCurrRecord sees as xRec (corpus bump 41
-                // pages/parts/QjPartPropagation.al QJ_Both_PartModifiesHost_ThenHostSave `L.Qty.V(5 x=1) ...
-                // L.AGCR(10000 q=1 x.q=5)`).
-                if rec_bound && !st.borrow().draft && st.borrow().cursor == Cursor::Row {
-                    let typed = self.page_rec(st).borrow().fields.clone();
-                    st.borrow_mut().agcr_xrec = Some(typed);
-                }
-                // A SetValue that goes through clears the control's refused entries (testpage/F3ValidationAddinFilter.al:
-                // GetValidationError_ErrorThenCorrected, line 272: the page answers an empty text afterwards).
-                st.borrow_mut().errors.retain(|(i, _)| *i != idx);
-                st.borrow_mut().trigger_errors.retain(|(i, _)| *i != idx);
-                if st
-                    .borrow()
-                    .values_allowed_refused_row
-                    .as_ref()
-                    .is_some_and(|(i, _)| *i == idx)
-                {
-                    st.borrow_mut().values_allowed_refused_row = None;
-                }
+            Ok(discard) => {
+                self.validated_row_typed(st, rec_bound, discard)?;
+                clear_refused_entries(st, idx);
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called);
                 let update_asked = st.borrow().refresh;
                 if update_asked && st.borrow().lookup_setting_value {
@@ -1922,6 +1908,17 @@ pub(super) fn quoted_list(raw: &str) -> Option<Vec<String>> {
             Some(',') => {}
             Some(_) => return None,
         }
+    }
+}
+
+/// A SetValue that goes through clears the control's refused entries (testpage/F3ValidationAddinFilter.al:
+/// GetValidationError_ErrorThenCorrected, line 272: the page answers an empty text afterwards).
+fn clear_refused_entries(st: &St, idx: usize) {
+    let mut s = st.borrow_mut();
+    s.errors.retain(|(i, _)| *i != idx);
+    s.trigger_errors.retain(|(i, _)| *i != idx);
+    if s.values_allowed_refused_row.as_ref().is_some_and(|(i, _)| *i == idx) {
+        s.values_allowed_refused_row = None;
     }
 }
 
