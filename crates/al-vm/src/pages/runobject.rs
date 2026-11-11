@@ -43,7 +43,9 @@ impl Session {
                 ));
             }
             ir::RunKind::Codeunit => self.run_object_codeunit(st, &ro)?,
-            ir::RunKind::Page => self.run_object_page(st, &ro)?,
+            ir::RunKind::Page => {
+                self.run_object_page(st, &ro)?;
+            }
         }
         Ok(Value::Null)
     }
@@ -118,7 +120,7 @@ impl Session {
     /// error for an ordinary page, while a dialog is refused afterwards (corpus
     /// testpage/TestPageActionRunObjectNoHandler_Tests.al: arms 1 and 7-9;
     /// testpage/TestPageCreateModeNewRecordArgs.al:ActionCreate_NoHandler_*, DialogCreate_NoHandler_*).
-    pub(super) fn run_object_page(&mut self, st: &St, ro: &ir::RunObject) -> Result<(), Signal> {
+    pub(super) fn run_object_page(&mut self, st: &St, ro: &ir::RunObject) -> Result<St, Signal> {
         let engine = self.engine();
         let target = ro.object.expect("a page target");
         let obj = &engine.program.objects[target];
@@ -231,7 +233,8 @@ impl Session {
         self.settle_after_action(st)?;
         // A page target that wrote nothing leaves the host as it was; one that wrote makes the host
         // read its row again (testpage/TestPageRunObjectContracts.al:228-246, :194-215).
-        self.reread_host_row(st, false)
+        self.reread_host_row(st, false)?;
+        Ok(target_state)
     }
 
     /// What an action's `RunPageLink` fills into the target's Rec before its OnOpenPage, in the shape the corpus pins: a List

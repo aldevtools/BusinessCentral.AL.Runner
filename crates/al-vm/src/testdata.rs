@@ -559,9 +559,7 @@ impl TestBacking {
                 .max()
                 .unwrap_or(0)
         });
-        Rows::from_rows(t, out)
-            .map(|r| r.with_auto_increment_floor(floor))
-            .map_err(|n| format!("{n} rows share a primary key of the compiled table"))
+        Rows::from_rows(t, out).map(|r| r.with_auto_increment_floor(floor))
     }
 
     /// The provider's rows as rows of the compiled table, in the provider's order. `Err`: why the runtime refuses them.

@@ -36,6 +36,14 @@ pub fn table() -> TableDef {
     }
 }
 
+/// [`table`] without its secondary key: for a test that puts a handle (a List, a Blob) into field 2, which AL does not allow
+/// in a key; the store refuses a key value whose order is not pinned (al-runner issue 7644).
+pub fn table_without_secondary_key() -> TableDef {
+    let mut t = table();
+    t.keys.truncate(1);
+    t
+}
+
 pub fn cx(company: &str) -> AccessContext {
     AccessContext {
         company: company.into(),
