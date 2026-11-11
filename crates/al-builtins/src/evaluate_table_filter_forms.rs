@@ -140,31 +140,112 @@ pub(crate) fn kept_form(ty: &RtType, v: &str, enum_ordinals: Option<&[i32]>) -> 
     }
 }
 
-/// Two Code forms of a TableFilter condition kept as written (the stored text is an assumption, tablefilter-code-chained-kept):
-/// - alternatives joined by `|` whose values hold `-` or `/`: `BIN-A|BIN/B` selects BIN-A and BIN/B and not BIN/C
-///   (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:943 TableFilter_Evaluate_CodeAlternatives_SelectsBothMatchingRows,
-///   corpus pull request 1199, al-runner issue 7262);
-/// - exclusions joined by `&`: `<>CORP01&<>CORP02` leaves only OTHER (TableFilterEnumForms.al:936
-///   TableFilter_Evaluate_CodeExclusions_LeavesOtherRow, corpus pull request 1199, al-runner issue 7264).
-/// - exclusions with internal spaces: `<>BIN EAST&<>BIN WEST` leaves only BIN NORTH
-///   (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:988, corpus PR 1235, al-runner issue 7497).
-///
-/// The operands must fit the Code field. Alternatives allow hyphens and slashes.
-/// Exclusions allow ASCII spaces inside a value, with no leading or trailing space.
+/// A Code form of a TableFilter condition kept as written (the stored text is an assumption, tablefilter-code-chained-kept):
+/// alternatives joined by `|` whose values hold `-` or `/`: `BIN-A|BIN/B` selects BIN-A and BIN/B and not BIN/C
+/// (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:943 TableFilter_Evaluate_CodeAlternatives_SelectsBothMatchingRows,
+/// corpus pull request 1199, al-runner issue 7262). The operands must fit the Code field. Exclusions joined by `&` are
+/// [`spaced_chain_form`].
 pub(crate) fn code_chained_form(v: &str, len: Option<u32>) -> bool {
-    let value = |w: &str, extra: &[char]| {
+    let value = |w: &str| {
         !w.is_empty()
             && len.is_none_or(|n| w.chars().count() <= n as usize)
             && w.chars()
-                .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || extra.contains(&ch))
+                .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || matches!(ch, '-' | '/'))
     };
-    let alternatives = v.contains('|') && v.split('|').all(|w| value(w, &['-', '/']));
-    let exclusions = v.contains('&')
-        && v.split('&').all(|w| {
-            w.strip_prefix("<>")
-                .is_some_and(|w| w.trim_matches(' ') == w && value(w, &[' ']))
-        });
-    alternatives || exclusions
+    v.contains('|') && v.split('|').all(value)
+}
+
+/// The stored text of a TableFilter condition on a Code or Text field that chains values of capitals, digits and single inner
+/// spaces, or `None` (format-evaluate/tablefilter-neutral/TableFilterSpacedChains.al, al-runner issue 7497; Format and the page
+/// Table Filter give the text back):
+/// - terms joined by `&` or by `|`, not both: `<>A&<>B`, three `<>` (:169), `A|B`, three alternatives, `A|<>B`, `>A&<B`;
+/// - a term is a value, `<>` before a value, `>` or `<` before a value inside an `&` chain, a range `A..B`, `..A` or `A..`
+///   (:185), and `''` inside a `|` chain (:219, kept as written);
+/// - a value in single quotes is stored without them (:219);
+/// - `*` and `?` in an unquoted value alone or after `<>`, not in a range: `BIN E*`, `<>BIN E*`, `* EAST`, `BIN*WEST`, `BIN ?AST`
+///   (:202);
+/// - `@` before lower-case words alone: `@bin east`, stored in capitals on a Code field and as written on a Text field (:202,
+///   :269).
+///
+/// Values must fit the field. The exclusions without spaces (`<>CORP01&<>CORP02`, TableFilterEnumForms.al:936) are the same form.
+/// Lower-case values elsewhere, other characters and other operators are not pinned.
+pub(crate) fn spaced_chain_form(ty: &RtType, v: &str) -> Option<String> {
+    let (code, len) = match ty {
+        RtType::Code(l) => (true, *l),
+        RtType::Text(l) => (false, *l),
+        _ => return None,
+    };
+    let sep = match (v.contains('&'), v.contains('|')) {
+        (true, true) => return None,
+        (true, false) => '&',
+        _ => '|',
+    };
+    let terms: Vec<&str> = v.split(sep).collect();
+    let chain = Chain {
+        code,
+        len,
+        and: sep == '&',
+        many: terms.len() > 1,
+    };
+    let stored = terms.iter().map(|t| chain.term(t)).collect::<Option<Vec<_>>>()?;
+    Some(stored.join(&sep.to_string()))
+}
+
+/// How the terms of one condition are read ([`spaced_chain_form`]).
+struct Chain {
+    code: bool,
+    len: Option<u32>,
+    and: bool,
+    many: bool,
+}
+
+impl Chain {
+    /// Words of the characters `ok` allows, with single inner spaces, that fit the field.
+    fn words(&self, w: &str, ok: impl Fn(char) -> bool) -> bool {
+        !w.is_empty()
+            && self.len.is_none_or(|n| w.chars().count() <= n as usize)
+            && w.trim_matches(' ') == w
+            && !w.contains("  ")
+            && w.chars().all(|c| c == ' ' || ok(c))
+    }
+
+    /// A value of capitals and digits, plain or in single quotes, as stored (without the quotes).
+    fn value<'a>(&self, w: &'a str) -> Option<&'a str> {
+        let inner = w.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')).unwrap_or(w);
+        self.words(inner, |c| c.is_ascii_uppercase() || c.is_ascii_digit())
+            .then_some(inner)
+    }
+
+    fn term(&self, t: &str) -> Option<String> {
+        if t == "''" {
+            return (!self.and && self.many).then(|| t.to_string());
+        }
+        if let Some(w) = t.strip_prefix('@') {
+            let ok = !self.many && self.words(w, |c| c.is_ascii_lowercase() || c.is_ascii_digit());
+            return ok.then(|| format!("@{}", if self.code { w.to_uppercase() } else { w.to_string() }));
+        }
+        if let Some((a, b)) = t.split_once("..") {
+            let a = if a.is_empty() { "" } else { self.value(a)? };
+            let b = if b.is_empty() { "" } else { self.value(b)? };
+            return (!(a.is_empty() && b.is_empty())).then(|| format!("{a}..{b}"));
+        }
+        let (op, w) = ["<>", ">", "<"]
+            .iter()
+            .find_map(|op| t.strip_prefix(op).map(|w| (*op, w)))
+            .unwrap_or(("", t));
+        if matches!(op, ">" | "<") && !self.and {
+            return None;
+        }
+        if let Some(w) = self.value(w) {
+            return Some(format!("{op}{w}"));
+        }
+        let wild = matches!(op, "" | "<>")
+            && w.contains(['*', '?'])
+            && self.words(w, |c| {
+                c.is_ascii_uppercase() || c.is_ascii_digit() || matches!(c, '*' | '?')
+            });
+        wild.then(|| format!("{op}{w}"))
+    }
 }
 
 #[cfg(test)]

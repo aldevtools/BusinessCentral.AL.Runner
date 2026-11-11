@@ -634,9 +634,11 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                     _ => name.clone(),
                 };
                 // A RecordId made by Evaluate from a table name alone has no key values and reads as the name
-                // (format-evaluate/P128EvalRecordId.al:P128_Evaluate_IntoRecordId_OtherTexts `table name only`).
+                // (format-evaluate/P128EvalRecordId.al:P128_Evaluate_IntoRecordId_OtherTexts `table name only`); format 9 of a
+                // table in a namespace reads as the bracketed name alone (language/namespaces/RecordIdFormat9Evaluate.al:285-286,
+                // `[LT.R7003.Data."R7003.Dot"]`). Format 1 is not pinned.
                 if key.is_empty() {
-                    if shown != *name {
+                    if shown != *name && standard != 9 {
                         return Err(format!(
                             "Format(RecordId, 0, {standard}) of a RecordId with no key values (not pinned)"
                         )

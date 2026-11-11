@@ -79,14 +79,19 @@ fn the_null_guid_on_a_media_set_field_matches_the_empty_sets() {
 
 #[test]
 fn other_media_set_filter_texts_stay_refused() {
-    // Only the null Guid is pinned on a MediaSet field (SoMediaFilter.al:241-253).
-    for f in ["SetOtherGuid", "SetInvalid"] {
-        assert!(
-            matches!(
-                al_testkit::run_in(SRC, "C", f),
-                Err(al_builtins::native::Signal::Unsupported(_))
-            ),
-            "{f}"
-        );
-    }
+    // A text that is no Guid is not pinned on a MediaSet field.
+    assert!(matches!(
+        al_testkit::run_in(SRC, "C", "SetInvalid"),
+        Err(al_builtins::native::Signal::Unsupported(_))
+    ));
+}
+
+#[test]
+fn another_guid_on_a_media_set_field_matches_no_empty_set() {
+    // A bare Guid other than the null Guid reads back braced and keeps no empty set
+    // (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:238-239 `eq`, `eq bare`).
+    assert_eq!(
+        al_testkit::text(al_testkit::run_in(SRC, "C", "SetOtherGuid")),
+        "{11111111-0000-0000-0000-000000000000}|0"
+    );
 }
