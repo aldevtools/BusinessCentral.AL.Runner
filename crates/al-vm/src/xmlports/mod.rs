@@ -31,6 +31,7 @@ mod import_view;
 mod import_xml;
 mod pass;
 mod plain_tree;
+mod root_nested;
 mod run_request;
 mod sequence;
 mod shape;
@@ -48,6 +49,7 @@ use self::einvoice_shapes::*;
 use self::pass::*;
 pub(crate) use self::pass::{PassView, UnlinkedPass};
 use self::plain_tree::*;
+use self::root_nested::*;
 use self::sequence::*;
 use self::shape::*;
 use self::text::*;
@@ -715,6 +717,12 @@ impl Session {
         // returned false it is not pinned.
         if let Some(r) = post {
             if matches!(result, Value::Boolean(false)) {
+                // A guarded import of a `root_holding_table` port that returned false does not run it (al-runner issue 6924;
+                // xmlports/shapes-properties/XpRootTableNested.al:604, :622, :640, the log ends before `post`).
+                if dir == Dir::Import && port_with_root_holding_table(&schema) {
+                    mark_root_table_nested();
+                    return Ok(result);
+                }
                 return unsupported("OnPostXmlPort after a guarded run that returned false (not pinned)");
             }
             mark(inst);
