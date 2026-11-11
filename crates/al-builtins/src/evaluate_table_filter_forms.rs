@@ -146,20 +146,24 @@ pub(crate) fn kept_form(ty: &RtType, v: &str, enum_ordinals: Option<&[i32]>) -> 
 ///   corpus pull request 1199, al-runner issue 7262);
 /// - exclusions joined by `&`: `<>CORP01&<>CORP02` leaves only OTHER (TableFilterEnumForms.al:936
 ///   TableFilter_Evaluate_CodeExclusions_LeavesOtherRow, corpus pull request 1199, al-runner issue 7264).
+/// - exclusions with internal spaces: `<>BIN EAST&<>BIN WEST` leaves only BIN NORTH
+///   (format-evaluate/tablefilter-neutral/TableFilterEnumForms.al:988, corpus PR 1235, al-runner issue 7497).
 ///
-/// Only values in capitals, of letters, digits, `-` and `/`, that fit the field are served; lower case, other characters and
-/// other operators are not pinned.
+/// The operands must fit the Code field. Alternatives allow hyphens and slashes.
+/// Exclusions allow ASCII spaces inside a value, with no leading or trailing space.
 pub(crate) fn code_chained_form(v: &str, len: Option<u32>) -> bool {
-    let value = |w: &str, extra: bool| {
+    let value = |w: &str, extra: &[char]| {
         !w.is_empty()
             && len.is_none_or(|n| w.chars().count() <= n as usize)
             && w.chars()
-                .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || (extra && (ch == '-' || ch == '/')))
+                .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || extra.contains(&ch))
     };
-    let alternatives = v.contains('|') && v.split('|').all(|w| value(w, true));
+    let alternatives = v.contains('|') && v.split('|').all(|w| value(w, &['-', '/']));
     let exclusions = v.contains('&')
-        && v.split('&')
-            .all(|w| w.strip_prefix("<>").is_some_and(|w| value(w, false)));
+        && v.split('&').all(|w| {
+            w.strip_prefix("<>")
+                .is_some_and(|w| w.trim_matches(' ') == w && value(w, &[' ']))
+        });
     alternatives || exclusions
 }
 
