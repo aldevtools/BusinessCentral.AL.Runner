@@ -2,46 +2,20 @@
 //! Scans are linear in the table size; fine for test-sized tables.
 
 use crate::*;
-use al_builtins::filter::{FieldFilter, key_cmp};
+use al_builtins::filter::FieldFilter;
+pub use key::PkStorage;
+use key::{Key, table_storage};
 use std::cmp::Ordering;
 
 mod frozen;
+mod key;
 mod order_carry;
 mod replace;
 mod row_changes;
+#[cfg(test)]
+mod storage_tests;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
 pub use row_changes::{RowChanges, TableRows};
-
-/// A primary-key tuple ordered field by field.
-#[derive(Clone, Debug)]
-struct Key(Vec<Value>, Option<std::sync::Arc<[CodeStorage]>>);
-
-impl Key {
-    /// The key of the primary key values `pk` of table `t`. Values of Code fields the database stores as a number order by number.
-    fn of(t: &TableDef, pk: Vec<Value>) -> Key {
-        Key(pk, crate::code_storage::pk_storage(t))
-    }
-}
-
-impl PartialEq for Key {
-    fn eq(&self, o: &Self) -> bool {
-        self.cmp(o) == Ordering::Equal
-    }
-}
-impl Eq for Key {}
-impl PartialOrd for Key {
-    fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
-        Some(self.cmp(o))
-    }
-}
-impl Ord for Key {
-    fn cmp(&self, o: &Self) -> Ordering {
-        match self.1.as_deref().or(o.1.as_deref()) {
-            Some(storage) => crate::code_storage::cmp_pk(storage, &self.0, &o.0),
-            None => key_cmp(&self.0, &o.0),
-        }
-    }
-}
 
 type Table = crate::pmap::PMap<Key, Row>;
 /// A table's place in the store: its company (empty for a table that is not per company) and its object. The company
@@ -240,6 +214,8 @@ struct Watch {
 pub struct ExportedTable {
     pub company: String,
     pub object: u32,
+    /// How the table's primary key fields are stored: the order of its keys (`memory/key.rs`).
+    pub pk_storage: PkStorage,
     pub rows: Vec<(Vec<Value>, Row)>,
 }
 
@@ -879,6 +855,7 @@ impl MemStore {
                 .map(|((company, object), table)| ExportedTable {
                     company: company.to_string(),
                     object: *object,
+                    pk_storage: table_storage(table),
                     rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
                 })
                 .collect(),
@@ -891,7 +868,11 @@ impl MemStore {
         let mut s = MemStore::default();
         for t in tables {
             let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let table: Table = t.rows.into_iter().map(|(k, r)| (Key(k, None), r)).collect();
+            let table: Table = t
+                .rows
+                .into_iter()
+                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
+                .collect();
             s.counter = next_stamp();
             s.versions.insert(slot.clone(), s.counter);
             s.shapes.insert(slot.clone(), s.counter);
@@ -945,6 +926,7 @@ impl MemStore {
             ExportedTable {
                 company: company.to_string(),
                 object,
+                pk_storage: table_storage(table),
                 rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
             },
             self.committed_emptied.contains_key(&slot),
@@ -965,7 +947,11 @@ impl MemStore {
         }
         for (t, emptied) in tables {
             let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let table: Table = t.rows.into_iter().map(|(k, r)| (Key(k, None), r)).collect();
+            let table: Table = t
+                .rows
+                .into_iter()
+                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
+                .collect();
             self.counter = next_stamp();
             self.versions.insert(slot.clone(), self.counter);
             self.shapes.insert(slot.clone(), self.counter);
@@ -1152,10 +1138,7 @@ impl MemStore {
         self.seen(t.object);
         let slot = slot(cx, t);
         match self.tables.get(&slot) {
-            Some(table) => Some(match restored_order(t, table) {
-                Some(fixed) => std::borrow::Cow::Owned(fixed),
-                None => std::borrow::Cow::Borrowed(table),
-            }),
+            Some(table) => Some(std::borrow::Cow::Borrowed(table)),
             None => self.backing_rows(&slot.0, slot.1).map(|r| std::borrow::Cow::Owned(r.0)),
         }
     }
@@ -1434,27 +1417,13 @@ impl MemStore {
             self.tables.insert(slot.clone(), start);
         }
         let table = self.tables.get_mut(&slot).expect("the slot was just inserted");
-        if let Some(fixed) = restored_order(t, table) {
-            *table = fixed;
-        }
+        debug_assert!(
+            table.is_empty() || table_storage(table).as_deref() == crate::code_storage::pk_storage(t).as_deref(),
+            "table {} was keyed without its primary key's storage (memory/key.rs)",
+            t.name
+        );
         table
     }
-}
-
-/// A table of an exported store ([`MemStore::from_exported`]) was keyed without the table's definition. When the table's primary
-/// key holds a Code field stored as a number, the table with its keys ordered by number; `None` when it needs nothing.
-fn restored_order(t: &TableDef, table: &Table) -> Option<Table> {
-    let storage = crate::code_storage::pk_storage(t)?;
-    let (first, _) = table.iter().next()?;
-    if first.1.is_some() {
-        return None;
-    }
-    Some(
-        table
-            .iter()
-            .map(|(k, r)| (Key(k.0.clone(), Some(storage.clone())), r.clone()))
-            .collect(),
-    )
 }
 
 thread_local! {
