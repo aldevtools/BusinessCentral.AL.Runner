@@ -27,12 +27,27 @@ pub fn record_into_recordref(v: &Value) -> Result<Value, Signal> {
             rec.table
         )));
     }
-    let mut copy = rec.clone();
-    own_unloaded_blobs(&mut copy);
+    let copy = recordref_copy(&rec);
     Ok(Value::Library(
         LibraryKind::RecordRef,
         Rc::new(RefCell::new(LibraryValue::RecordRef(Rc::new(RefCell::new(copy))))),
     ))
+}
+
+/// The record a RecordRef holds when it takes a copy of `rec` (a conversion, RecordRef.GetTable): its own Blobs
+/// ([`own_unloaded_blobs`]). The ref's SecurityFiltering() reads Validated when the record's does; after the copy of a record
+/// with another value it reads Validated too on BC (queued probe al-language/reports/runtime/SFSecurityFilteringFlow.al:226-234,
+/// :257-260, corpus PR 1310), but no Microsoft test needs that, so the read refuses until the probe lands.
+pub fn recordref_copy(rec: &RecordState) -> RecordState {
+    let mut copy = rec.clone();
+    own_unloaded_blobs(&mut copy);
+    if copy.security_filtering != 0 {
+        copy.security_filtering = 0;
+        copy.security_filtering_pin = crate::value::SecurityFilteringPin::Refused(
+            "held by a RecordRef taken from a record with another SecurityFiltering than Validated",
+        );
+    }
+    copy
 }
 
 /// A Blob of a stored row whose bytes were not read yet gets its own copy, so the copy and the record do not share it (as
