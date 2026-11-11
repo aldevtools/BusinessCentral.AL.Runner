@@ -160,7 +160,8 @@ impl Session {
         ))
     }
 
-    /// A fresh destination, or one holding just the blank-key filter of an earlier selection.
+    /// A fresh destination, or one holding just the blank-key filter of an earlier selection
+    /// (HiddenPartSelectionFilter.al: `rec-before=Id: 0/0`).
     pub(super) fn plain_no_row_selection_destination(&self, dst: &Rec, initial: &[Value]) -> Result<bool, Signal> {
         let table = self.table(dst)?;
         let destination = dst.borrow();
@@ -195,12 +196,25 @@ impl Session {
     ) -> Result<bool, Signal> {
         let object = {
             let page = st.borrow();
-            if !page.open || !page.modal || !page.in_action || page.host.is_some() || page.cursor != Cursor::None {
+            if !page.open
+                || !page.modal
+                || page.run_static != Some(true)
+                || !page.in_action
+                || page.host.is_some()
+                || page.cursor != Cursor::None
+            {
                 return Ok(false);
             }
             page.object as usize
         };
-        if self.engine.object_facts[object].page_type != Some(ir::PageType::Worksheet)
+        let facts = &self.engine.object_facts[object];
+        let delayed = self.engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(key, value)| key.eq_ignore_ascii_case("DelayedInsert") && value.trim().eq_ignore_ascii_case("true"));
+        if facts.page_type != Some(ir::PageType::Worksheet)
+            || facts.has_source_table_view
+            || !delayed
             || self.ui_state.page_handler_depth == 0
             || !flag_denied(&self.engine, object, "InsertAllowed")?
         {
@@ -212,12 +226,31 @@ impl Session {
             || destination.temporary
             || !destination.filters.is_empty()
             || destination.filter_group != 0
-            || !source.filters.iter().any(|filter| filter.group == 2)
+            || source.filter_group != 0
+            || source.marked_only
+            || !source.marks.is_empty()
         {
             return Ok(false);
         }
+        let [filter] = source.filters.as_slice() else {
+            return Ok(false);
+        };
         let table = self.table(src)?;
-        if !Self::same_key(&table.primary_key(&source.fields), &table.primary_key(initial)) {
+        let key = &table.keys[0];
+        let exact_text = match &filter.expr {
+            al_builtins::filter::FilterExpr::Eq(Value::Text(text)) => !text.is_empty(),
+            al_builtins::filter::FilterExpr::Range(Some(Value::Text(lower)), Some(Value::Text(upper))) => {
+                !lower.is_empty() && lower == upper
+            }
+            _ => false,
+        };
+        if filter.group != 2
+            || key.len() != 1
+            || key.contains(&filter.field)
+            || !matches!(initial[key[0]], Value::Integer(0))
+            || !exact_text
+            || !Self::same_key(&table.primary_key(&source.fields), &table.primary_key(initial))
+        {
             return Ok(false);
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyModalWorksheetSelection);
