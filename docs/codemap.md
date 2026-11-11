@@ -391,7 +391,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `events.rs` (601): Event publishers and subscribers. Entry: `Registry` 37, `build` 116, `Subscriber` 14, `Publisher` 26.
 - `faultsite.rs` (57): Where a refusal or a failure was raised, for `al-test-cli --explain`. Entry: `FaultFrame` 14, `trace_faults` 23, `fault_site` 30, `note_fault` 40.
 - `filterpage.rs` (268): FilterPageBuilder. Entry: `filter_page_builder_op` 64.
-- `flowfields.rs` (623): FlowFields (`CalcFormula`), FlowFilters, `CalcFields`, `CalcSums` and `SetAutoCalcFields`.
+- `flowfields.rs` (623): FlowFields (`CalcFormula`), FlowFilters, `CalcFields`, `CalcSums` and `SetAutoCalcFields`. A FlowField's value: `calc_value` (recursion guard by table and field, `CalcStack`), the rows from the store (`tally_stored`) or through the condition FlowFields of source rows (`tally_source_rows`), then one `aggregate` and `finish_value` (the pinned value exceptions).
 - `geturl.rs` (230): `GetUrl` for `ClientType::Web`, Default, Windows, Phone, Tablet, Desktop, Background, Management and NAS with a company, an object, a record bookmark or filters (ADR-042). Entry: `Session::get_url`.
 - `globaltriggers.rs` (225): The events of the platform codeunit `Global Triggers` (2000000002, in the platform `System.app`). Entry: `global_setup` 63, `global_enabled` 142, `global_trigger` 157.
 - `hostvalues.rs` (259): Builtins that answer from the host (ADR-006). Entry: `datetime_of_unix_millis` 26, `Replaced` 142.

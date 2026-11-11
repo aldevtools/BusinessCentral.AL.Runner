@@ -98,6 +98,7 @@ mod fieldref_testfield_number_on_text;
 mod fieldref_text_into_integer;
 mod filtergroup_assign;
 mod find_filtered_miss;
+mod flowfield_cross_table_cycle;
 mod fm_eval_matrix;
 mod fm_format_matrix;
 mod for_date;

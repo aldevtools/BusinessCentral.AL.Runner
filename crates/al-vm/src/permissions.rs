@@ -1705,7 +1705,7 @@ impl Session {
         pos: usize,
     ) -> Result<al_builtins::value::Value, Signal> {
         let saved = std::mem::replace(&mut self.permission_page_calc, true);
-        let r = self.calc_value(rec, pos, &mut Vec::new());
+        let r = self.calc_value(rec, pos);
         self.permission_page_calc = saved;
         r
     }
