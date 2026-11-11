@@ -775,6 +775,12 @@
 69387 OpenByName
 69387 OpenByName_CaseOfNameAndNamespace
 69387 ReportByName
+69451 AssignCall_BarePageMembers_Update
+69451 AssignCall_CodeunitRun_RecordArgument
+69451 AssignCall_FieldRefFieldError_TextAndErrorInfo
+69451 AssignCall_FindSet_RowsAndEmptyTable
+69451 AssignCall_StaticMemberWithTypePrefix
+69451 AssignCall_TextSplit_TextAndListOfText
 69451 Y29_Record_AssignForms
 69451 Y29_TextBuilder_AssignForms
 69451 Y29_XmlDocument_GetRoot_AssignForm
@@ -2458,6 +2464,11 @@
 96249 WF3_PlusNoBoth_Line3_Action
 96249 WF3_Plus_Line2_Action
 96249 WF3_Plus_Line3_Action
+96410 AssignCall_TryFunction
+96410 AssignCall_VarParameter_Bare
+96410 AssignCall_XmlPortFilename_ExportToStream
+96410 AssignCall_XmlPortFilename_Variable
+96460 Get_AssignmentForm_OneValueOfTwo
 97000 Insert_Excel_MsReport
 97000 Insert_Excel_OwnReport
 97000 Insert_Rdlc_MsReport
