@@ -442,7 +442,7 @@ impl Session {
                 let i = if is_iso {
                     r.read_isolation
                 } else {
-                    r.security_filtering_read()
+                    r.security_filtering_read()?
                 };
                 Ok(Value::Option(i, members.into()))
             }
@@ -478,7 +478,7 @@ impl Session {
                     }
                 } else {
                     r.security_filtering = *i;
-                    r.security_filtering_assumed = false;
+                    r.security_filtering_unpinned = false;
                 }
                 Ok(Value::Null)
             }
@@ -1434,10 +1434,9 @@ impl Session {
             Some(v) => ops::truthy(v)?,
             None => false,
         };
-        // The target keeps its own SecurityFiltering: Base Application tests read it after a TransferFields (codeunit 137409
-        // CalcAnalysisReportValueUnitPrice, 137400 SalesUnitPriceFromCustomerPriceLineGroup, 134331
-        // PurchaseLineFactboxUnitCostUpdatedInReopenedOrderV16); see `RecordState::security_filtering_kept_through_fill`.
-        rec.borrow_mut().security_filtering_kept_through_fill();
+        // The target keeps its own SecurityFiltering, also one a SecurityFiltering(x) call set (al-language/reports/runtime/
+        // SFSecurityFilteringFlow.al:185-208); Base Application tests read it after a TransferFields (codeunit 137409
+        // CalcAnalysisReportValueUnitPrice, 137400 SalesUnitPriceFromCustomerPriceLineGroup).
         if Rc::ptr_eq(src, rec) {
             return Ok(Value::Null);
         }

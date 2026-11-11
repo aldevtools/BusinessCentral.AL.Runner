@@ -80,7 +80,7 @@ impl Session {
         let mut values = Vec::with_capacity(r.params);
         for (i, a) in args.into_iter().enumerate().take(r.params) {
             values.push(match (a, r.by_var.get(i).copied().unwrap_or(false)) {
-                (Value::Record(rc), false) => self.record_by_value(&rc),
+                (Value::Record(rc), false) => self.record_by_value_unmeasured(&rc),
                 // A Notification handed by value to an event is the caller's own notification: a subscriber's SetData and Message
                 // reach the publisher's caller (events/binding-senders/NotificationByValue.al:Event_ByValueArgument_SubscriberChanges).
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), false) => a,

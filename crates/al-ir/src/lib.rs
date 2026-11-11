@@ -1499,7 +1499,8 @@ pub enum CalcValue {
 pub struct Slot {
     pub name: String,
     pub ty: RtType,
-    /// A record variable declared with `[SecurityFiltering(SecurityFilter::X)]`: the member index of X. The variable starts
+    /// A record variable (or a one-dimension array of records) declared with `[SecurityFiltering(SecurityFilter::X)]`: the
+    /// member index of X. The variable starts
     /// with it, and `Clear` and `ClearAll` set it back (al-vm `Session::slot_default`). `None` for every other slot.
     pub security_filtering: Option<i32>,
 }

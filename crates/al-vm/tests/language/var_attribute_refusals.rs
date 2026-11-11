@@ -1,8 +1,10 @@
 //! Variable attributes the runtime does not implement are refused where the variable is used, never ignored
 //! (hard rule 4): `[RunOnClient]` and `[WithEvents]` on DotNet variables (al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:50,
-//! :86, :145-146) and the read of `SecurityFiltering()` where the value is not pinned: on a global record of an object that
-//! is no codeunit declared with `[SecurityFiltering(...)]` (al-language/reports/runtime/ACAttributes.al:176-191 pins locals,
-//! :427-480 a codeunit's globals).
+//! :86, :145-146) and the read of `SecurityFiltering()` where the value is not pinned: on a global record declared with
+//! `[SecurityFiltering(...)]` of an object that is no codeunit, table, page or report, on a global array of records
+//! (al-language/reports/runtime/ACAttributes.al:176-191 pins locals, :427-480 a codeunit's globals;
+//! al-language/reports/runtime/SFSecurityFilteringFlow.al:406-459 a table's, a page's and a report's globals and a local
+//! array), and on a copy the corpus does not measure.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -55,12 +57,13 @@ fn a_with_events_variable_is_refused_where_it_is_used() {
 // A local record declared with `[SecurityFiltering(x)]` starts with x (al-language/reports/runtime/ACAttributes.al:176-179,
 // :187-190; its counts are unchanged, :184-186). The value stays with the variable: Clear goes back to it (:373-374), Reset
 // keeps it (:375-376), Copy keeps the target's (:385-387), a `var` parameter carries the argument's (:397-398), and a
-// codeunit's global keeps its declared value too (:432, :451-458). The attribute on a global of a table is not pinned: that
-// read is refused.
+// codeunit's global keeps its declared value too (:432, :451-458), and so does a table's global
+// (al-language/reports/runtime/SFSecurityFilteringFlow.al:414, :420). A global array of records is not pinned: that read is
+// refused.
 #[test]
 fn a_local_record_declared_with_security_filtering_starts_with_the_declared_value() {
     let src = "table 50100 T { fields { field(1; Id; Integer) { } } } \
-        codeunit 50100 C { var [SecurityFiltering(SecurityFilter::Filtered)] GR: Record T; \
+        codeunit 50100 C { var [SecurityFiltering(SecurityFilter::Filtered)] GR: Record T; [SecurityFiltering(SecurityFilter::Filtered)] GA: array[2] of Record T; \
         procedure F(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; [SecurityFiltering(SecurityFilter::Ignored)] I: Record T; [SecurityFiltering(SecurityFilter::Validated)] V: Record T; begin exit(Format(R.SecurityFiltering()) + Format(I.SecurityFiltering()) + Format(V.SecurityFiltering())); end; \
         procedure G(): Text var P: Record T; begin exit(Format(P.SecurityFiltering())); end; \
         procedure H(): Integer var [SecurityFiltering(SecurityFilter::Ignored)] R: Record T; begin exit(R.Count()); end; \
@@ -72,6 +75,10 @@ fn a_local_record_declared_with_security_filtering_starts_with_the_declared_valu
         procedure M4(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; P: Record T; begin R.Copy(P); exit(Format(R.SecurityFiltering())); end; \
         procedure M5(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; begin R.TransferFields(R); exit(Format(R.SecurityFiltering())); end; \
         procedure N(): Text var U: Record U; begin exit(U.L2()); end; \
+        procedure NA(): Text begin exit(Format(GA[1].SecurityFiltering())); end; \
+        procedure A1(): Text var [SecurityFiltering(SecurityFilter::Filtered)] Rows: array[2] of Record T; begin exit(ReadArray(Rows)); end; \
+        procedure A2(): Text var [SecurityFiltering(SecurityFilter::Filtered)] Rows: array[2] of Record T; begin Rows[1].SecurityFiltering(SecurityFilter::Ignored); exit(ReadArray(Rows)); end; \
+        procedure ReadArray(X: array[2] of Record T): Text begin exit(Format(X[1].SecurityFiltering())); end; \
         procedure M6(): Text var [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; RR: RecordRef; begin RR.Open(50100); RR.SetTable(R); exit(Format(R.SecurityFiltering())); end; \
         procedure M7(): Text var [SecurityFiltering(SecurityFilter::Ignored)] R: Record T; begin exit(ClearByValue(R)); end; \
         procedure M8(): Text var P: Record T; begin exit(ClearByValue(P)); end; \
@@ -91,9 +98,14 @@ fn a_local_record_declared_with_security_filtering_starts_with_the_declared_valu
     for p in ["K", "L", "M1", "M2", "M3", "M4"] {
         assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", p)), "Filtered", "{p}");
     }
-    refused(al_testkit::run_in(src, "C", "N"), "SecurityFiltering");
+    assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "N")), "Filtered");
+    refused(al_testkit::run_in(src, "C", "NA"), "SecurityFiltering");
+    // An array element passed by value holding its declared value reads it (ACAttributes.al:397, :411-414); one whose
+    // value is not its declared one is not measured (SFSecurityFilteringFlow.al asks only a Record parameter): refused.
+    assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "A1")), "Filtered");
+    refused(al_testkit::run_in(src, "C", "A2"), "SecurityFiltering");
     // TransferFields and RecordRef.SetTable into the record keep its value, and Clear of a by-value copy goes back to the
-    // argument's declared value: measured by the queued probe (see the next test), flagged until it lands.
+    // argument's declared value (SFSecurityFilteringFlow.al, see the next test).
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "M5")), "Filtered");
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "M6")), "Filtered");
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "M7")), "Ignored");
@@ -102,12 +114,10 @@ fn a_local_record_declared_with_security_filtering_starts_with_the_declared_valu
 }
 
 // What SecurityFiltering() reads after a TransferFields into the record, a RecordRef.SetTable into it, and on a by-value
-// parameter, measured on BC 27.5, 28.5 and 29.0 by the queued corpus probe al-language/reports/runtime/SFSecurityFilteringFlow.al
-// (corpus PR 1310, not merged yet; line numbers below are that file's). Until it lands each such read marks the assumption
-// `security-filtering-flow` (a flagged pass). Each cell: the routine, the value BC reads, and whether the read is flagged.
+// parameter, pinned on BC 27.5, 28.5 and 29.0 by the corpus probe al-language/reports/runtime/SFSecurityFilteringFlow.al (line
+// numbers below are that file's); the corpus case runs the same shapes, this test keeps them apart, one routine per cell.
 #[test]
 fn security_filtering_through_transfer_fields_set_table_and_by_value_copies() {
-    use al_builtins::assumptions::{Assumption, take_hits};
     let src = "table 50100 T { fields { field(1; Id; Integer) { } } } \
         codeunit 50100 C { \
         procedure T1(): Text var [SecurityFiltering(SecurityFilter::Filtered)] F: Record T; P: Record T; begin F.TransferFields(P); exit(Format(F.SecurityFiltering())); end; \
@@ -141,44 +151,40 @@ fn security_filtering_through_transfer_fields_set_table_and_by_value_copies() {
         procedure ReadTemporary(X: Record T temporary): Text begin exit(Format(X.SecurityFiltering())); end; \
         procedure ClearTemporary(X: Record T temporary): Text begin Clear(X); exit(Format(X.SecurityFiltering())); end; }";
     let mut b = al_testkit::Built::from_source(src);
-    let cells: &[(&str, &str, bool)] = &[
-        ("T1", "Filtered", true),   // :185-186, :202
-        ("T2", "Filtered", true),   // :187-188, :203
-        ("T3", "Validated", true),  // :189-190, :204
-        ("T4", "Filtered", true),   // :191-193, :205
-        ("T5", "Ignored", true),    // :194-196, :206
-        ("T6", "Filtered", false),  // :197-198, :207 (Clear goes back to the declared value: ACAttributes.al:388-396)
-        ("T7", "Ignored", true),    // :199-201, :208
-        ("S1", "Filtered", true),   // :236-238, :261
-        ("S2", "Validated", true),  // :239-240, :262
-        ("S3", "Validated", true),  // :242-245, :263
-        ("S4", "Filtered", true),   // :246-250, :265
-        ("S5", "Filtered", false),  // :251-252, :266
-        ("R1", "Validated", false), // :223-224, :256
-        ("R2", "Validated", true),  // :226-227, :257
+    let cells: &[(&str, &str)] = &[
+        ("T1", "Filtered"),  // :185-186, :202
+        ("T2", "Filtered"),  // :187-188, :203
+        ("T3", "Validated"), // :189-190, :204
+        ("T4", "Filtered"),  // :191-193, :205
+        ("T5", "Ignored"),   // :194-196, :206
+        ("T6", "Filtered"),  // :197-198, :207 (Clear goes back to the declared value: ACAttributes.al:388-396)
+        ("T7", "Ignored"),   // :199-201, :208
+        ("S1", "Filtered"),  // :236-238, :261
+        ("S2", "Validated"), // :239-240, :262
+        ("S3", "Validated"), // :242-245, :263
+        ("S4", "Filtered"),  // :246-250, :265
+        ("S5", "Filtered"),  // :251-252, :266
+        ("R1", "Validated"), // :223-224, :256
+        ("R2", "Validated"), // :226-227, :257
         // Find Record Management.FindLastEntryIgnoringSecurityFilter reads it on a RecordRef taken through a Variant from
         // Sales-Post's `[SecurityFiltering(SecurityFilter::Ignored)] GLEntry` (GLEntry.GetLastEntryNo in LockTables).
-        ("R3", "Validated", true),          // :228-229, :258
-        ("P1", "Filtered/Filtered", true),  // :279-280, :294-295
-        ("P3", "Validated", false),         // :283-284, :298 (Clear of a copy of a plain record: Validated either way)
-        ("P4", "Filtered/Ignored", true),   // :286-288, :300-301
-        ("P6", "Filtered/Ignored", true),   // :289-290, :302-303
-        ("P8", "Filtered/Filtered", false), // :291-292, :304-305 (a var parameter is the caller's variable)
-        ("P9", "Filtered", true),           // :293, :306
-        ("P10", "Filtered/Filtered", true), // :341-349, :372-373
+        ("R3", "Validated"),          // :228-229, :258
+        ("P1", "Filtered/Filtered"),  // :279-280, :294-295
+        ("P3", "Validated"),          // :283-284, :298 (Clear of a copy of a plain record: Validated either way)
+        ("P4", "Filtered/Ignored"),   // :286-288, :300-301
+        ("P6", "Filtered/Ignored"),   // :289-290, :302-303
+        ("P8", "Filtered/Filtered"),  // :291-292, :304-305 (a var parameter is the caller's variable)
+        ("P9", "Filtered"),           // :293, :306
+        ("P10", "Filtered/Filtered"), // :341-349, :372-373
     ];
     let mut wrong = Vec::new();
-    for (routine, want, flagged) in cells {
-        take_hits();
+    for (routine, want) in cells {
         let got = match b.run_in("C", routine) {
             Ok(Value::Text(s)) => s.to_string(),
             other => format!("{other:?}"),
         };
-        let hit = take_hits().contains(&Assumption::SecurityFilteringFlow);
-        if (got.as_str(), hit) != (*want, *flagged) {
-            wrong.push(format!(
-                "{routine}: got {got} flagged={hit}, want {want} flagged={flagged}"
-            ));
+        if got.as_str() != *want {
+            wrong.push(format!("{routine}: got {got}, want {want}"));
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));

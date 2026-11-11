@@ -392,15 +392,16 @@ pub struct RecordState {
     /// `security_filtering` back to it. An assignment and `Copy` change neither (al-vm `Session::slot_default`). A copy that is a
     /// variable of its own takes the original's ([`RecordState::copy_as_new_variable`]).
     pub declared_security_filtering: i32,
-    /// Whether `declared_security_filtering` is known only from the queued probe (a by-value copy of a record declared with
-    /// another value than Validated): `Clear` then gives a value that is assumed too (`security_filtering_assumed`).
-    pub declared_security_filtering_assumed: bool,
-    /// Whether the value `SecurityFiltering()` reads now is pinned only by the queued probe: the read then marks the assumption
-    /// `security-filtering-flow` (a flagged pass). The corpus pins Clear, ClearAll, Reset, Init, assignment, Copy and parameters
-    /// whose argument holds its declared value (al-language/reports/runtime/ACAttributes.al:355-414); a TransferFields or a
-    /// RecordRef.SetTable into the record, a by-value copy of a record set to another value, and a RecordRef taken from a record
-    /// that is not Validated are measured only by the probe.
-    pub security_filtering_assumed: bool,
+    /// Whether `declared_security_filtering` came with a copy the corpus does not measure
+    /// ([`RecordState::security_filtering_unmeasured_copy`]): `Clear` then gives a value that is not pinned either.
+    pub declared_security_filtering_unpinned: bool,
+    /// Whether the value `SecurityFiltering()` reads now is not pinned: the read is then refused. The corpus pins Clear,
+    /// ClearAll, Reset, Init, assignment, Copy and parameters (al-language/reports/runtime/ACAttributes.al:355-414), a
+    /// TransferFields or a RecordRef.SetTable into the record, a by-value and a temporary Record parameter, and a RecordRef
+    /// taken from a record (al-language/reports/runtime/SFSecurityFilteringFlow.al); an event argument, a record handed to
+    /// StartSession, a Variant's record and an array element passed by value, each of a record whose current value is not
+    /// its declared one, are not measured.
+    pub security_filtering_unpinned: bool,
     /// Index of the current key in the table's keys.
     pub key: usize,
     /// `SetCurrentKey` on fields no key of the table starts with: the key index it stands for (one
@@ -571,46 +572,55 @@ impl DirtyBase {
 }
 
 impl RecordState {
-    /// A copy of the record that is a variable of its own: a by-value parameter (also a temporary one), an event argument, a
-    /// record handed to StartSession, a
-    /// Variant's record. It reads the original's DECLARED value, not its current one, and `Clear` on it goes back to that value;
-    /// the original keeps its current value. The corpus pins the copy of a record that holds its declared value
-    /// (al-language/reports/runtime/ACAttributes.al:397, :411-414) and Clear of a copy of a plain record (Validated either
-    /// way). The rest is measured by the queued probe al-language/reports/runtime/SFSecurityFilteringFlow.al:286-306, :341-349,
-    /// :371-373 (corpus PR 1310; assumption `security-filtering-flow`, needed by Microsoft's tests that read SecurityFiltering()
-    /// after a TransferFields, see the registry entry).
+    /// A copy of the record that is a variable of its own: a by-value parameter (also a temporary one). It reads the
+    /// original's DECLARED value, not its current one, and `Clear` on it goes back to that value; the original keeps its
+    /// current value (al-language/reports/runtime/ACAttributes.al:397, :411-414; al-language/reports/runtime/
+    /// SFSecurityFilteringFlow.al:279-306, :341-349, :371-373). A copy the corpus does not measure goes through
+    /// [`RecordState::security_filtering_unmeasured_copy`] as well.
     pub fn copy_as_new_variable(&self) -> RecordState {
         let mut st = self.clone();
-        if st.security_filtering != st.declared_security_filtering {
-            st.security_filtering = st.declared_security_filtering;
-            st.security_filtering_assumed = true;
-        }
-        if st.declared_security_filtering != 0 {
-            st.declared_security_filtering_assumed = true;
-        }
+        st.security_filtering = st.declared_security_filtering;
         st
     }
 
-    /// The value `SecurityFiltering()` reads, marking the assumption when only the queued probe pins it.
-    pub fn security_filtering_read(&self) -> i32 {
-        if self.security_filtering_assumed {
-            crate::assumptions::assume(crate::assumptions::Assumption::SecurityFilteringFlow);
+    /// The copy of `original` is an event argument, a record handed to StartSession, a Variant's record or an array element
+    /// passed by value: what SecurityFiltering() reads on it is pinned only when `original` holds its declared value
+    /// (al-language/reports/runtime/ACAttributes.al:397, :411-414), and what Clear on it gives only when that value is
+    /// Validated (the probe al-language/reports/runtime/SFSecurityFilteringFlow.al does not ask the rest). Otherwise the
+    /// read is refused.
+    pub fn security_filtering_unmeasured_copy(&mut self, original: &RecordState) {
+        if original.security_filtering != original.declared_security_filtering {
+            self.security_filtering_unpinned = true;
         }
-        self.security_filtering
+        if original.declared_security_filtering != 0 {
+            self.declared_security_filtering_unpinned = true;
+        }
     }
 
-    /// A TransferFields or a RecordRef.SetTable into the record: the record keeps its own SecurityFiltering, also one a
-    /// SecurityFiltering(x) call set (queued probe al-language/reports/runtime/SFSecurityFilteringFlow.al:185-208 TransferFields,
-    /// :236-250 and :261-265 SetTable; corpus PR 1310, assumption `security-filtering-flow`).
-    pub fn security_filtering_kept_through_fill(&mut self) {
-        self.security_filtering_assumed = true;
+    /// [`RecordState::copy_as_new_variable`] for a copy the corpus does not measure
+    /// ([`RecordState::security_filtering_unmeasured_copy`]).
+    pub fn copy_as_unmeasured_variable(&self) -> RecordState {
+        let mut st = self.copy_as_new_variable();
+        st.security_filtering_unmeasured_copy(self);
+        st
+    }
+
+    /// The value `SecurityFiltering()` reads, refused when the corpus does not pin it.
+    pub fn security_filtering_read(&self) -> Result<i32, crate::native::Signal> {
+        if self.security_filtering_unpinned {
+            return Err(crate::native::Signal::unsupported(
+                "SecurityFiltering() of a copy of a record (an event argument, a session's record, a Variant's record or an array element) whose value is not its declared one, or after Clear on such a copy of a record declared with another value than Validated (not pinned)",
+            ));
+        }
+        Ok(self.security_filtering)
     }
 
     /// `Clear`: back to the declared value (al-language/reports/runtime/ACAttributes.al:373-374, :388-396; a codeunit's global:
-    /// :434-435, :466-469), pinned unless that value came with a by-value copy ([`RecordState::copy_as_new_variable`]).
+    /// :434-435, :466-469), pinned unless that value came with a copy the corpus does not measure
+    /// ([`RecordState::security_filtering_unmeasured_copy`]).
     pub fn security_filtering_clear(&mut self) {
         self.security_filtering = self.declared_security_filtering;
-        self.security_filtering_assumed = self.declared_security_filtering_assumed;
+        self.security_filtering_unpinned = self.declared_security_filtering_unpinned;
     }
 
     /// A field of the buffer is about to be written: a snapshot that is the buffer itself becomes a copy.

@@ -87,7 +87,14 @@ impl Lowerer<'_> {
             let label = v.type_ref().as_ref().and_then(label_text);
             let refusal = v.type_ref().as_ref().and_then(textconst_refusal);
             let attrs = var_attribute_names(&v);
-            let declared = declared_security_filtering(&v, &attrs, || matches!(self.rt(&ty), Ok(RtType::Record(..))));
+            // A local record, also a temporary one, and every element of a local one-dimension array of records start with
+            // the declared value and go back to it on Clear of the element and of the array
+            // (al-language/reports/runtime/SFSecurityFilteringFlow.al:429-459).
+            let declared = declared_security_filtering(&v, &attrs, || match self.rt(&ty) {
+                Ok(RtType::Record(..)) => true,
+                Ok(RtType::Array(dims, e)) => dims.len() == 1 && matches!(*e, RtType::Record(..)),
+                _ => false,
+            });
             for n in v.names() {
                 if !attrs.is_empty() {
                     self.local_var_attrs

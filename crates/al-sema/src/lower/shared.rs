@@ -482,10 +482,14 @@ pub(crate) fn lower_object<'a>(
         let label = v.type_ref().as_ref().and_then(label_text);
         let refusal = v.type_ref().as_ref().and_then(textconst_refusal);
         let attrs = var_attribute_names(&v);
-        // A codeunit's global record keeps its declared SecurityFiltering value (al-language/reports/runtime/ACAttributes.al:
-        // 427-480); a global of any other object is not pinned.
+        // A global record of a codeunit keeps its declared SecurityFiltering value (al-language/reports/runtime/ACAttributes.al:
+        // 427-480), and so does one of a table, a page and a report, also through ClearAll after a SecurityFiltering(x) call
+        // (al-language/reports/runtime/SFSecurityFilteringFlow.al:406-424). A global of any other object is not pinned.
         let declared = declared_security_filtering(&v, &attrs, || {
-            o.kind == ObjKind::Codeunit && matches!(lw.rt(&ty), Ok(RtType::Record(..)))
+            matches!(
+                o.kind,
+                ObjKind::Codeunit | ObjKind::Table | ObjKind::Page | ObjKind::Report
+            ) && matches!(lw.rt(&ty), Ok(RtType::Record(..)))
         });
         for n in v.names() {
             if !attrs.is_empty() {

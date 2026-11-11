@@ -4,9 +4,10 @@ use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
     /// `Rec.SecurityFiltering()` read on a variable declared with `[SecurityFiltering(...)]` answers the declared value on
-    /// BC (al-language/reports/runtime/ACAttributes.al:176-191); the runtime keeps it for a local record and a codeunit's
-    /// global record (`shared::declared_security_filtering`), so the read is refused on anything else (a global of another
-    /// kind of object, an array of records: not pinned).
+    /// BC (al-language/reports/runtime/ACAttributes.al:176-191); the runtime keeps it for a local record, a local
+    /// one-dimension array of records and a global record of a codeunit, a table, a page or a report
+    /// (`shared::declared_security_filtering`), so the read is refused on anything else (a global of another kind of object,
+    /// a global array, an array of more dimensions: not pinned). An element `X[i]` is judged by its array `X`.
     fn security_filtering_read_refusal(&self, callee: &SyntaxNode, args: &[SyntaxNode]) -> L<()> {
         if !args.is_empty() || callee.kind() != SyntaxKind::MemberExpr {
             return Ok(());
@@ -22,6 +23,13 @@ impl Lowerer<'_> {
             .eq_ignore_ascii_case("SecurityFiltering")
         {
             return Ok(());
+        }
+        let mut recv = recv;
+        while recv.kind() == SyntaxKind::IndexExpr {
+            let Some(base) = recv.children().next() else {
+                return Ok(());
+            };
+            recv = base;
         }
         let attrs = match self.res(&recv) {
             Some(Res::Local(n)) => self.local_var_attrs.get(n),
