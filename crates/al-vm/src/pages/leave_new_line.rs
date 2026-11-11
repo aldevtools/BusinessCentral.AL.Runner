@@ -58,6 +58,10 @@ impl Session {
             PageMethod::Previous | PageMethod::Last => "+",
             _ => return Ok(None),
         };
+        // Only First is pinned over an empty view; Previous and Last there keep the moves of `rows.rs`.
+        if how != PageMethod::First && self.view_row_count(st)? == 0 {
+            return Ok(None);
+        }
         st.borrow_mut().after_new = None;
         if how == PageMethod::Last {
             self.land_on_new_line(st)?;
@@ -66,9 +70,6 @@ impl Session {
         if self.nav_find(st, which)? {
             self.read_row_off_new_line(st)?;
             return Ok(Some(true));
-        }
-        if how != PageMethod::First {
-            return unsupported(format!("{how}() off the new-row line of a list whose view has no row (not pinned)"));
         }
         self.land_on_new_line(st)?;
         Ok(Some(false))
