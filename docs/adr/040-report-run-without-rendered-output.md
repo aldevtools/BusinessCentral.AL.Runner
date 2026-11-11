@@ -255,3 +255,53 @@ first. The Pdf of a processing-only report goes on to its pinned answer (false, 
 
 About 215 Microsoft test methods (BC 29) reach a PDF save, most through `Library - Post Inventory to G/L`.PostInvtCostToGL
 or through request page handlers. None reads the PDF bytes; 2 need a non-empty file and 2 need the file to exist.
+
+## Amendment 2026-11-11: placeholder Word, Excel and Html outputs, and a run without output (Proposed)
+
+### Decision
+
+The 2026-11-08 placeholder approach extends to the other formats and to `Report.Run`/`RunModal`. What runs is always the
+Xml path (section 2); only the bytes are made up. The format x default layout grid follows what BC does
+(reports/layouts-saveas/AMReportOutputTests.al, AMRdlcOutput.al):
+
+| Format (SaveAs, SaveAsWord/Excel/Html, by number and on a variable) | RDLC layout | Word layout | Excel layout |
+|---|---|---|---|
+| Pdf | placeholder (2026-11-08) | placeholder (2026-11-08) | answers false, no error, no output (AMReportOutputTests.al:257) |
+| Word | refused: fails in the Linux renderer, Windows not measured | placeholder: minimal valid .docx (:187, zip with `word/document.xml`) | refused: not measured |
+| Excel | refused: as Word | answers false, no error, no output (:221) | placeholder: minimal valid .xlsx (:235, zip with one sheet) |
+| Html | `ReportUnsupportedFormat` (pinned, built) | placeholder: minimal valid html (:205, markup) | refused: not measured |
+
+`Report.Run`/`RunModal` (static and variable) and `Execute` of a report with an RDLC, Word or Excel default layout, in a
+test session: the report runs as on the Xml path and writes no output; the call answers as BC does (Yes, PeVTests.al:740-763,
+Windows values). BC raises SubstituteReport, the layout events, OnDocumentReady and OnDocumentDownload there; this path raises
+none of them yet (a later change raises them in the pinned order).
+
+### What stays refused
+
+- Reading the content. The placeholder buffer and file carry the flag of section 4. Presence and size answer from the
+  placeholder (F2, F5, S2: it exists, length > 0) and byte copies are allowed (CopyStream to another blob, a file, an e-mail
+  attachment, a stored Blob; the flag goes along). Every path that parses the bytes raises `Unsupported`: S1 `Read`/`ReadText`
+  into a Text, S3 hashes and Base64, S6 `XmlDocument.ReadFrom`, F9 Excel Buffer and `LibraryReportValidation`, Data Compression
+  opening the zip. So an Excel cell check, a text search in the Html, an exact length or a page count stay refused, never wrong.
+- Layout-event subscribers the test can see, and Report Layout Selection, Design-time Report Selection and Tenant Report Layout
+  Selection rows that pick another layout: the same refusal as the 2026-11-08 amendment, for every format and for Run/RunModal.
+- A Custom default layout, a layout that cannot be told, `TestRequestPage.Preview`, printing with `SystemPrinter`.
+
+### What it unlocks
+
+- Microsoft tests (ADR-040 table, BC 27.5): the Word/Excel/Html share of "file exists and is not empty" (36 + 12, split by
+  format not counted) and of "output discarded" (about 220, mostly Pdf, already open). Excel cell tests (135) stay refused.
+- Corpus: 12 cases refused with "renders output ... defaultrenderinglayout" (LtTkShowPrintStatus.al 9, CiReportRunLeads.al 2,
+  W3ReportObjectIdPreviewLanguage.al 1), and the Word layout rows of AMReportOutputTests.al that assert only ok, saved and kind.
+- Outside reporter (issue 6924): 49 tests stop at `Report.SaveAs(.., Html)` of e-mail body reports. Those that copy the Html
+  into an attachment or check only that it saved can run; those that read the Html into the mail body text stay refused
+  (S1). How many of the 49 read the text is not known; the reporter's `--explain` after the change will tell. Also the
+  "renders output" refusals of Run/RunModal there (5 tests).
+
+### Assumptions and probes
+
+- Ids: `report-word-placeholder`, `report-excel-placeholder`, `report-html-placeholder`, `report-run-without-output`, each
+  marked when its path writes or runs; a test through one is a flagged pass. Content beyond kind and length > 0 is never pinned.
+- Probe to queue (Windows nightly, since the Linux tier does not render): RDLC layout to Word and Excel; Excel layout to Word
+  and Html; Word layout to Excel again; `SaveAsWord`/`SaveAsExcel`/`SaveAsHtml(FileName)` then `File.Exists` and size;
+  Run/RunModal/Execute of a Word and an Excel layout report with a logging subscriber. When it lands it wins.
