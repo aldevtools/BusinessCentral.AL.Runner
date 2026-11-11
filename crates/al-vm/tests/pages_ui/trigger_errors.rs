@@ -293,13 +293,13 @@ fn the_page_after_a_swallowed_on_modify_record_error_is_refused() {
 
 // CcPageLeads.al:611-621 (OnQueryClosePage) needs a test method for the unhandled message: al-test-cli tests/page_trigger_errors.rs.
 
-// CcPageLeads.al:624-633: wrapped, code TestWrapped, then the page is closed.
+// CcPageLeads.al:624-634: wrapped, code TestWrapped, then the page is closed; the two CR LF show as backslashes.
 #[test]
 fn an_error_in_on_close_page_is_wrapped() {
     assert_eq!(
         case("OnClosePage"),
         format!(
-            "One or more errors occurred while closing the page.\n\nTE failure in OnClosePage [TestWrapped]|hit OnClosePage;|{NOT_OPEN}|{NOT_OPEN}"
+            "One or more errors occurred while closing the page.\\\\TE failure in OnClosePage [TestWrapped]|hit OnClosePage;|{NOT_OPEN}|{NOT_OPEN}"
         )
     );
 }

@@ -1637,8 +1637,9 @@ impl Session {
                     read_isolation: 0,
                     // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
                     security_filtering: 0,
-                    declared_security_filtering: Some(0),
-                    security_filtering_unpinned: None,
+                    declared_security_filtering: 0,
+                    declared_security_filtering_assumed: false,
+                    security_filtering_assumed: false,
                     key: 0,
                     adhoc: None,
                     ascending: true,
@@ -2148,6 +2149,23 @@ impl Session {
         Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())))
     }
 
+    /// The copy a parameter declared `temporary` (or of a TableType = Temporary table) gets of a record handed by value: an
+    /// empty table of its own, the current values, no filters, the primary key ascending, no marks (see `call_inner`).
+    fn temporary_param_copy(&mut self, rc: &Rc<RefCell<RecordState>>) -> Value {
+        let mut st = rc.borrow().copy_as_new_variable();
+        st.key = 0;
+        st.adhoc = None;
+        st.ascending = true;
+        st.field_descending = 0;
+        st.marks.clear();
+        st.marked_only = false;
+        st.filters.clear();
+        st.filter_group = 0;
+        st.temporary = true;
+        st.temp_id = Some(self.new_temp_id());
+        Value::Record(Rc::new(RefCell::new(st)))
+    }
+
     /// A record passed by value is a copy (ADR-010). A temporary record's copy
     /// gets an independent, empty table of its own (corpus
     /// record/TestTempTableContracts.al:TempVar_PassedByValue_CallerNotAffected).
@@ -2414,18 +2432,7 @@ impl Session {
                         || (rc.borrow().temporary
                             && matches!(r.locals[i].ty, RtType::Record(t, false) if self.engine.object_facts[t as usize].temporary())) =>
                 {
-                    let mut st = rc.borrow().copy_as_new_variable();
-                    st.key = 0;
-                    st.adhoc = None;
-                    st.ascending = true;
-                    st.field_descending = 0;
-                    st.marks.clear();
-                    st.marked_only = false;
-                    st.filters.clear();
-                    st.filter_group = 0;
-                    st.temporary = true;
-                    st.temp_id = Some(self.new_temp_id());
-                    Value::Record(Rc::new(RefCell::new(st)))
+                    self.temporary_param_copy(&rc)
                 }
                 // Rec of a page an action opened through RunPageLink handed to a Variant parameter keeps the link filter: a
                 // RecordRef.GetTable of the Variant carries it (testpage/R7138RunPageLinkCopyGet.al:117-134 `rr[Project Code: P2]
@@ -2446,6 +2453,16 @@ impl Session {
                         copy.borrow_mut().is_dirty_base = rc.borrow().is_dirty_base.copy();
                     }
                     v
+                }
+                // A RecordRef handed by value to a RecordRef or Variant parameter: a RecordRef of its own on the same buffer, so the
+                // callee's Close leaves the caller's open (`recordref_variant.rs`).
+                (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), false)
+                    if matches!(
+                        r.locals[i].ty,
+                        RtType::Variant | RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef)
+                    ) =>
+                {
+                    crate::recordref_variant::own_copy(&h)
                 }
                 // A Variant holding a RecordRef handed by value to a Record parameter: see `record_ref_into_record_param`.
                 (Value::Library(name, h), false)

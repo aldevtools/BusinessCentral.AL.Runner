@@ -141,6 +141,7 @@ impl ReachFacts {
     pub fn absorb(&mut self, other: &ReachFacts) {
         self.touched.extend(other.touched.iter().copied());
         self.writes.extend(other.writes.iter().copied());
+        self.inserts.extend(other.inserts.iter().copied());
         self.writes_any |= other.writes_any;
         self.globals_read.extend(other.globals_read.iter().copied());
         self.globals_written.extend(other.globals_written.iter().copied());
@@ -461,6 +462,52 @@ pub(crate) fn union_reach_facts_without_database_events(
     walk.stack.extend(roots.iter().rev().copied());
     walk.run(&|_| false);
     walk.out
+}
+
+/// The facts of the reach of the subscribers of the `Global Triggers` database events, not entering the routines `skip`:
+/// what a walk of [`union_reach_facts_skipping`] adds at its first write ([`union_reach_facts_by_parts`]). It depends on
+/// the program and `skip` only, so a caller that asks it for many roots with the same `skip` keeps it per engine.
+pub(crate) fn global_triggers_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    skip: &[(usize, usize)],
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    // Pushed here, as `Walk::note_table_write` pushes them, and not again at a write.
+    walk.global_triggers = true;
+    for &(o, r) in skip {
+        walk.first_visit(o, r);
+    }
+    walk.stack.extend(index.global_triggers.iter().copied());
+    walk.run(&|_| false);
+    walk.out
+}
+
+/// The facts of [`union_reach_facts_skipping`] of some roots and `skip`, put together from two walks: `own`, the
+/// [`union_reach_facts_without_database_events`] of the same roots and `skip`, and `database_events`, the
+/// [`global_triggers_reach_facts`] of the same `skip`, asked only when `own` writes. The second is the same for every
+/// root, so a caller that walks the reach of many test codeunits walks the database event fan-out (in Microsoft's apps,
+/// much of Base Application) once instead of once per codeunit.
+///
+/// Why the facts are the same: a walk visits the routines reachable from its roots, not entering `skip`, over edges that
+/// the program fixes (a routine's [`Summary`] steps, a table's triggers, an object's event subscribers, the routines of
+/// an object run). What the walk has already entered only decides whether it pushes an edge again, never where an edge
+/// leads. The one edge that depends on the walk is the push of the `Global Triggers` subscribers at the first write
+/// (`Walk::note_table_write`). So the full reach is the reach without that edge, plus, when that reach writes (a known
+/// table or `writes_any`), the reach of those subscribers; a write inside their reach adds nothing, since they are pushed
+/// already. Every fact is a union over the routines visited (sets and bits), so it is the union of the two parts' facts.
+/// Only `unknown` and `report_cannot_run`, which keep the first reason a walk meets, can name another reason than the
+/// full walk does; whether there is one is the same.
+pub(crate) fn union_reach_facts_by_parts<'a>(
+    own: &ReachFacts,
+    database_events: impl FnOnce() -> &'a ReachFacts,
+) -> ReachFacts {
+    let mut full = own.clone();
+    if !own.writes.is_empty() || own.writes_any {
+        full.absorb(database_events());
+    }
+    full
 }
 
 /// Whether `fact` holds of the joined reach of the routines `roots`: one walk of the union of their reaches, which
@@ -1819,5 +1866,72 @@ mod tests {
         assert!(!has(&all[..2], &|f| f.unknown.is_some()));
         assert!(!has(&all[..1], &|f| f.state_writes & state::NUMBER_SEQUENCE != 0));
         assert!(!has(&all, &|f| f.writes_any));
+    }
+
+    /// Every fact of `a` and `b`, with only whether there is a reason for `unknown` and `report_cannot_run` (which reason a
+    /// walk names first depends on the order it visits routines in).
+    fn same_facts(a: &ReachFacts, b: &ReachFacts) -> bool {
+        a.touched == b.touched
+            && a.writes == b.writes
+            && a.inserts == b.inserts
+            && a.writes_any == b.writes_any
+            && a.globals_read == b.globals_read
+            && a.globals_written == b.globals_written
+            && a.state_reads == b.state_reads
+            && a.state_writes == b.state_writes
+            && a.unknown.is_some() == b.unknown.is_some()
+            && a.report_cannot_run.is_some() == b.report_cannot_run.is_some()
+    }
+
+    // The full walk of a test codeunit (`login.rs`) is put together from the walk without the `Global Triggers` database
+    // events and the walk of their subscribers, which a caller keeps per engine: the same facts, for roots that write and
+    // roots that do not, with and without routines to skip.
+    #[test]
+    fn the_full_walk_is_the_walk_without_database_events_and_their_subscribers() {
+        let src = r#"
+            table 50100 T { fields { field(1; K; Integer) { } } }
+            table 50104 Logged { fields { field(1; K; Integer) { } }
+                trigger OnInsert() var Id: Integer; begin Codeunit.Run(Id); end; }
+            table 50105 Seen { fields { field(1; K; Integer) { } } }
+            codeunit 50101 Flag { SingleInstance = true; var Hit: Boolean;
+                procedure SetIt() begin Hit := true; end; }
+            codeunit 50106 Log {
+                [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+                local procedure OnInsert(RecRef: RecordRef)
+                var L: Record Logged; S: Record Seen; F: Codeunit Flag;
+                begin if S.Get(1) then; L.Insert(true); F.SetIt(); Randomize(1); end; }
+            codeunit 50102 Helper {
+                procedure H() var R: Record T; begin R.Insert(true); end;
+                procedure Read() var R: Record T; begin if R.Get(1) then; end; }
+            codeunit 50103 Tests { Subtype = Test;
+                [Test] procedure A() var Hp: Codeunit Helper; begin Hp.H(); end;
+                [Test] procedure B() var Hp: Codeunit Helper; begin Hp.Read(); end;
+                [Test] procedure C() var R: RecordRef; begin R.Open(50100); R.Insert(); end; }"#;
+        let l = lowered(src);
+        let events = al_vm::events::Registry::build(&l.program);
+        let index = ReachIndex::new(&events, &l);
+        let (o, a) = routine(&l, "Tests", "A");
+        let (_, b) = routine(&l, "Tests", "B");
+        let (_, c) = routine(&l, "Tests", "C");
+        let log = routine(&l, "Log", "OnInsert");
+        let set_it = routine(&l, "Flag", "SetIt");
+        let mut subscribed = 0;
+        for skip in [vec![], vec![set_it], vec![log]] {
+            let database_events = global_triggers_reach_facts(&events, &l, &index, &skip);
+            for roots in [vec![(o, a)], vec![(o, b)], vec![(o, c)], vec![(o, a), (o, b), (o, c)]] {
+                let full = union_reach_facts_skipping(&events, &l, &index, &roots, &skip);
+                let own = union_reach_facts_without_database_events(&events, &l, &index, &roots, &skip);
+                let built = union_reach_facts_by_parts(&own, || &database_events);
+                assert!(
+                    same_facts(&full, &built),
+                    "{roots:?} skipping {skip:?}:\n{full:?}\n{built:?}"
+                );
+                if full.touched.len() > own.touched.len() {
+                    subscribed += 1;
+                }
+            }
+        }
+        // The subscriber's reach (table Seen) counts for the tests that write, unless it is skipped; B writes nothing.
+        assert_eq!(subscribed, 6);
     }
 }

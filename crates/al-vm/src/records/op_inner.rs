@@ -830,16 +830,8 @@ impl Session {
                         None => unsupported(format!("a Modify of a {} row that does not exist (not pinned)", t.name)),
                     };
                 }
-                // A buffer older than a committed change to its row cannot be saved
-                // (record/TestRecordStaleBufferWrite.al); before a commit the last writer wins.
-                if let (Some(row), Some(i)) = (&stored, t.fields.iter().position(|f| f.id == 2_000_000_005)) {
-                    let (mine, theirs) = (rec.borrow().fields[i].clone(), row[i].clone());
-                    let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
-                    self.refuse_stale_modify(&t, rec, &cx, &pk, run, (version(&mine), version(&theirs)))?;
-                    let v = (version(&mine), version(&theirs));
-                    if let Some(answer) = self.modify_own_rolled_back_write(&t, rec, i, v, run)? {
-                        return Ok(answer);
-                    }
+                if let Some(answer) = self.modify_version_checks(&t, rec, &cx, &pk, run, stored.as_deref())? {
+                    return Ok(answer);
                 }
                 // Modify never changes the stored SystemId, whatever the buffer carries
                 // (corpus record/TestRecordSystemId.al:176-215, :285-330).
@@ -2505,20 +2497,8 @@ impl Session {
         r.position = None;
         // Clear sets ReadIsolation back to Default (record/CvReadIsolationState.al:58, :64).
         r.read_isolation = 0;
-        // Clear sets SecurityFiltering back to the value the variable was declared with, also after a SecurityFiltering(x) call
-        // (al-language/reports/runtime/ACAttributes.al:373-374, :388-396; a codeunit's global: :434-435, :466-469). On a copy
-        // whose declared value is not pinned (`RecordState::copy_as_new_variable`) the value is not pinned either.
-        match r.declared_security_filtering {
-            Some(x) => {
-                r.security_filtering = x;
-                r.security_filtering_unpinned = None;
-            }
-            None => {
-                r.security_filtering_unpinned = Some(
-                    "after Clear of a copy (a by-value parameter) of a record declared with another SecurityFiltering",
-                )
-            }
-        }
+        // Clear sets SecurityFiltering back to the value the variable was declared with, also after a SecurityFiltering(x) call.
+        r.security_filtering_clear();
         // A Clear leaves the record's record of what it fetched: the fields in hand stay loaded for a later
         // partial fetch (session-system/TestProbeSessionMiscContracts.al:PartialRecords_AreFieldsLoaded: a full Get,
         // Clear, SetLoadFields(Cd) and Get still reports Txt loaded).

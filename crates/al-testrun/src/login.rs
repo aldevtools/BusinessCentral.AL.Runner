@@ -49,13 +49,14 @@
 //!   either way).
 
 use crate::runtime::written::{
-    ReachFacts, ReachIndex, login_subscriber_reach_facts, login_subscribers_reach_without, state,
-    union_call_reach_facts, union_reach_facts_skipping, union_reach_facts_without_database_events,
+    ReachFacts, ReachIndex, global_triggers_reach_facts, login_subscriber_reach_facts, login_subscribers_reach_without,
+    state, union_call_reach_facts, union_reach_facts_by_parts, union_reach_facts_without_database_events,
 };
 use al_sema::lower::Lowered;
 use al_vm::Engine;
 use al_vm::events::Registry;
 use std::collections::BTreeSet;
+use std::sync::OnceLock;
 
 /// How the test session of a test codeunit models the login ([`decide`]).
 pub(crate) enum Login {
@@ -76,6 +77,7 @@ pub(crate) enum Login {
 }
 
 /// One login event raised to the apps under test's own subscribers ([`Login::Own`]).
+#[derive(Clone)]
 pub(crate) struct OwnEvent {
     /// The publisher routine (object, routine).
     pub publisher: (usize, usize),
@@ -117,6 +119,15 @@ pub(crate) const NO_CLIENT: &str = "the login was not raised for this test codeu
 
 /// Why what the login does under RequiredTestIsolation = Disabled is not known ([`Login::Own`]).
 pub(crate) const DISABLED: &str = "the login was not raised for this test codeunit, and under RequiredTestIsolation = Disabled how what the login writes meets what an earlier codeunit left is not pinned";
+
+/// The login events the apps under test subscribe to ([`own_events`]), their subscribers, and the reach of the
+/// subscribers of the `Global Triggers` database events without them, which the walk of every test codeunit that writes
+/// shares ([`union_reach_facts_by_parts`]). Made once per engine.
+struct LoginSubscribers {
+    own_events: Vec<OwnEvent>,
+    subs: Vec<(usize, usize)>,
+    database_events: OnceLock<ReachFacts>,
+}
 
 /// What the apps under test's login subscribers leave: the facts of their reach ([`login_subscriber_reach_facts`]), and
 /// the codeunits of the apps under test whose state they keep; and whether they read what the dependency apps' login code writes
@@ -341,15 +352,23 @@ fn own_events_of_microsoft(lowered: &Lowered, events: &Registry) -> Vec<(usize, 
 /// it can see what they leave besides rows ([`watched_state`]).
 pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: Option<&'static str>) -> Login {
     let events = &engine.events;
-    let own_events = own_events(lowered, events);
-    let subs: Vec<(usize, usize)> = own_events.iter().flat_map(|e| e.subscribers.iter().copied()).collect();
+    let login = engine.derived(|| {
+        let own_events = own_events(lowered, events);
+        let subs = own_events.iter().flat_map(|e| e.subscribers.iter().copied()).collect();
+        LoginSubscribers {
+            own_events,
+            subs,
+            database_events: OnceLock::new(),
+        }
+    });
+    let subs = &login.subs;
     if subs.is_empty() {
         return Login::None;
     }
     let index = engine.derived(|| ReachIndex::new(events, lowered));
     let left = engine.derived(|| {
         let mut left = LoginLeaves::default();
-        for &(o, r) in &subs {
+        for &(o, r) in subs {
             let facts = login_subscriber_reach_facts(events, lowered, &index, o, r);
             let f = &mut left.facts;
             f.touched.extend(facts.touched);
@@ -363,10 +382,10 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
             left.state.insert(o);
             left.state.extend(held_codeunits(lowered, o));
         }
-        left.reads_microsoft = reads_microsofts_login(events, lowered, &index, &subs);
+        left.reads_microsoft = reads_microsofts_login(events, lowered, &index, subs);
         left
     });
-    if left.reads_microsoft.is_some() || own_events.iter().any(|e| RAISE_ONLY.contains(&e.event)) {
+    if left.reads_microsoft.is_some() || login.own_events.iter().any(|e| RAISE_ONLY.contains(&e.event)) {
         return Login::Raise;
     }
     let writes = &left.facts.writes;
@@ -374,8 +393,12 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
         .map(|r| (test, r))
         .collect();
     // The subscribers themselves are not followed: a raise of a login event in the test's reach reaches them, but what
-    // the test can see is what they left before it.
-    let mine = union_reach_facts_skipping(events, lowered, &index, &roots, &subs);
+    // the test can see is what they left before it. The whole reach is put together from the reach without the
+    // subscribers of the `Global Triggers` database events (`own`, asked again below) and theirs, walked once per engine.
+    let own = union_reach_facts_without_database_events(events, lowered, &index, &roots, subs);
+    let mine = union_reach_facts_by_parts(&own, || {
+        (login.database_events).get_or_init(|| global_triggers_reach_facts(events, lowered, &index, subs))
+    });
     // A table the test codeunit writes itself is not one whose rows it can only have from the login: an insert reaches
     // the database trigger subscribers of Microsoft's apps, which write the same tables in both reaches.
     if mine
@@ -394,7 +417,6 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
     // its calls, the objects it runs, the table triggers and the other events still counts as its own. That the row is
     // there before the first test, whoever reads it, is LgnLoginChecklistTests.al:137-138; the read from a page's
     // triggers is the reporter's repro, which passes on BC 29.0.
-    let own = union_reach_facts_without_database_events(events, lowered, &index, &roots, &subs);
     if own
         .touched
         .iter()
@@ -414,7 +436,7 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
     // Experience tables (a wizard whose Finish action reads Customer then looked like one that registers itself). A
     // table the subscribers only modify or delete in holds no row of theirs. A record declared temporary and a page over
     // a temporary source insert nothing.
-    let calls = union_call_reach_facts(events, lowered, &index, &roots, &subs);
+    let calls = union_call_reach_facts(events, lowered, &index, &roots, subs);
     if calls
         .touched
         .iter()
@@ -430,7 +452,7 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
         }
     }
     Login::Own {
-        events: own_events,
+        events: login.own_events.clone(),
         watched,
     }
 }

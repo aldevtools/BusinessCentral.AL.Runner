@@ -1450,11 +1450,6 @@ impl Lowerer<'_> {
                 if super::is_compound_assign(n) {
                     return Err("compound assignment to a setter-form builtin is not lowered yet".into());
                 }
-                // The assignment form of `ApplicationArea` is the reporter's measurement, not a corpus pin (al-runner
-                // issue 7597).
-                if sig.receiver == "Session" && sig.name == "ApplicationArea" {
-                    self.assume(al_builtins::assumptions::Assumption::ApplicationAreaAssignIsCall);
-                }
                 // `NsMgr.NameTable := Doc.NameTable` is the call form (al-runner issue 6526;
                 // xml/XmlXPathNamespaces.al Y29_NameTable_AssignForm_SelectsLikeCallForm).
                 let receiver = if member {

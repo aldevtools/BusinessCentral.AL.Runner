@@ -14,7 +14,7 @@ impl Session {
         if let (Some(x), Value::Record(r)) = (s.security_filtering, &v) {
             let mut r = r.borrow_mut();
             r.security_filtering = x;
-            r.declared_security_filtering = Some(x);
+            r.declared_security_filtering = x;
         }
         v
     }
