@@ -802,7 +802,10 @@
 70048 Filter_MediaSet_View
 70048 Filter_MediaSet_Wild
 70048 Filter_Media_Args
+70048 Filter_Media_Compare
 70048 Filter_Media_Empty
+70048 Filter_Media_Lists
+70048 Filter_Media_View
 70048 Filter_Media_Wild
 70051 FormatString_Invalid
 70051 FormatString_Separators
