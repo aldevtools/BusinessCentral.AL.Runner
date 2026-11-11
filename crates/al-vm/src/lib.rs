@@ -1634,7 +1634,7 @@ impl Session {
                     security_filtering: 0,
                     declared_security_filtering: 0,
                     declared_security_filtering_assumed: false,
-                    security_filtering_pin: Default::default(),
+                    security_filtering_assumed: false,
                     key: 0,
                     adhoc: None,
                     ascending: true,

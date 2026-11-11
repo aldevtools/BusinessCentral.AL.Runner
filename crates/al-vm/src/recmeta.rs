@@ -442,7 +442,7 @@ impl Session {
                 let i = if is_iso {
                     r.read_isolation
                 } else {
-                    r.security_filtering_read()?
+                    r.security_filtering_read()
                 };
                 Ok(Value::Option(i, members.into()))
             }
@@ -478,7 +478,7 @@ impl Session {
                     }
                 } else {
                     r.security_filtering = *i;
-                    r.security_filtering_pin = al_builtins::value::SecurityFilteringPin::Pinned;
+                    r.security_filtering_assumed = false;
                 }
                 Ok(Value::Null)
             }

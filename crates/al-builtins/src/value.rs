@@ -364,17 +364,6 @@ impl std::fmt::Debug for TempId {
 }
 
 /// Everything a record variable carries.
-/// How the corpus pins the value `Record.SecurityFiltering()` reads ([`RecordState::security_filtering_pin`]).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum SecurityFilteringPin {
-    #[default]
-    Pinned,
-    /// Pinned only by the queued probe: the read marks the assumption `security-filtering-flow` (a flagged pass).
-    Assumed,
-    /// Not pinned: the read refuses, naming what happened to the record.
-    Refused(&'static str),
-}
-
 #[derive(Debug, Clone)]
 pub struct RecordState {
     /// Object index of the table.
@@ -404,13 +393,14 @@ pub struct RecordState {
     /// variable of its own takes the original's ([`RecordState::copy_as_new_variable`]).
     pub declared_security_filtering: i32,
     /// Whether `declared_security_filtering` is known only from the queued probe (a by-value copy of a record declared with
-    /// another value than Validated): `Clear` then gives a value read as [`SecurityFilteringPin::Assumed`].
+    /// another value than Validated): `Clear` then gives a value that is assumed too (`security_filtering_assumed`).
     pub declared_security_filtering_assumed: bool,
-    /// How the corpus pins the value `SecurityFiltering()` reads now. The corpus pins Clear, ClearAll, Reset, Init, assignment,
-    /// Copy and parameters whose argument holds its declared value (al-language/reports/runtime/ACAttributes.al:355-414); a
-    /// TransferFields or a RecordRef.SetTable into the record and a by-value copy of a record set to another value are pinned
-    /// only by the queued probe, and RecordRef.GetTable of a record that is not Validated not at all.
-    pub security_filtering_pin: SecurityFilteringPin,
+    /// Whether the value `SecurityFiltering()` reads now is pinned only by the queued probe: the read then marks the assumption
+    /// `security-filtering-flow` (a flagged pass). The corpus pins Clear, ClearAll, Reset, Init, assignment, Copy and parameters
+    /// whose argument holds its declared value (al-language/reports/runtime/ACAttributes.al:355-414); a TransferFields or a
+    /// RecordRef.SetTable into the record, a by-value copy of a record set to another value, and a RecordRef taken from a record
+    /// that is not Validated are measured only by the probe.
+    pub security_filtering_assumed: bool,
     /// Index of the current key in the table's keys.
     pub key: usize,
     /// `SetCurrentKey` on fields no key of the table starts with: the key index it stands for (one
@@ -582,6 +572,7 @@ impl DirtyBase {
 
 impl RecordState {
     /// A copy of the record that is a variable of its own: a by-value parameter (also a temporary one), an event argument, a
+    /// record handed to StartSession, a
     /// Variant's record. It reads the original's DECLARED value, not its current one, and `Clear` on it goes back to that value;
     /// the original keeps its current value. The corpus pins the copy of a record that holds its declared value
     /// (al-language/reports/runtime/ACAttributes.al:397, :411-414) and Clear of a copy of a plain record (Validated either
@@ -592,7 +583,7 @@ impl RecordState {
         let mut st = self.clone();
         if st.security_filtering != st.declared_security_filtering {
             st.security_filtering = st.declared_security_filtering;
-            st.security_filtering_pin = SecurityFilteringPin::Assumed;
+            st.security_filtering_assumed = true;
         }
         if st.declared_security_filtering != 0 {
             st.declared_security_filtering_assumed = true;
@@ -600,40 +591,26 @@ impl RecordState {
         st
     }
 
-    /// `SecurityFiltering()` is about to read the record's value: the refusal or the assumption mark its pin calls for.
-    pub fn security_filtering_read(&self) -> Result<i32, crate::native::Signal> {
-        match self.security_filtering_pin {
-            SecurityFilteringPin::Pinned => {}
-            SecurityFilteringPin::Assumed => {
-                crate::assumptions::assume(crate::assumptions::Assumption::SecurityFilteringFlow)
-            }
-            SecurityFilteringPin::Refused(why) => {
-                return Err(crate::native::Signal::unsupported(format!(
-                    "SecurityFiltering() of a record {why} (not pinned)"
-                )));
-            }
+    /// The value `SecurityFiltering()` reads, marking the assumption when only the queued probe pins it.
+    pub fn security_filtering_read(&self) -> i32 {
+        if self.security_filtering_assumed {
+            crate::assumptions::assume(crate::assumptions::Assumption::SecurityFilteringFlow);
         }
-        Ok(self.security_filtering)
+        self.security_filtering
     }
 
     /// A TransferFields or a RecordRef.SetTable into the record: the record keeps its own SecurityFiltering, also one a
     /// SecurityFiltering(x) call set (queued probe al-language/reports/runtime/SFSecurityFilteringFlow.al:185-208 TransferFields,
     /// :236-250 and :261-265 SetTable; corpus PR 1310, assumption `security-filtering-flow`).
     pub fn security_filtering_kept_through_fill(&mut self) {
-        if self.security_filtering_pin == SecurityFilteringPin::Pinned {
-            self.security_filtering_pin = SecurityFilteringPin::Assumed;
-        }
+        self.security_filtering_assumed = true;
     }
 
     /// `Clear`: back to the declared value (al-language/reports/runtime/ACAttributes.al:373-374, :388-396; a codeunit's global:
     /// :434-435, :466-469), pinned unless that value came with a by-value copy ([`RecordState::copy_as_new_variable`]).
     pub fn security_filtering_clear(&mut self) {
         self.security_filtering = self.declared_security_filtering;
-        self.security_filtering_pin = if self.declared_security_filtering_assumed {
-            SecurityFilteringPin::Assumed
-        } else {
-            SecurityFilteringPin::Pinned
-        };
+        self.security_filtering_assumed = self.declared_security_filtering_assumed;
     }
 
     /// A field of the buffer is about to be written: a snapshot that is the buffer itself becomes a copy.

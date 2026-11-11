@@ -35,17 +35,18 @@ pub fn record_into_recordref(v: &Value) -> Result<Value, Signal> {
 }
 
 /// The record a RecordRef holds when it takes a copy of `rec` (a conversion, RecordRef.GetTable): its own Blobs
-/// ([`own_unloaded_blobs`]). The ref's SecurityFiltering() reads Validated when the record's does; after the copy of a record
-/// with another value it reads Validated too on BC (queued probe al-language/reports/runtime/SFSecurityFilteringFlow.al:226-234,
-/// :257-260, corpus PR 1310), but no Microsoft test needs that, so the read refuses until the probe lands.
+/// ([`own_unloaded_blobs`]). The ref's SecurityFiltering() reads Validated, also when the record was declared with or set to
+/// another value (queued probe al-language/reports/runtime/SFSecurityFilteringFlow.al:226-234, :257-260, corpus PR 1310;
+/// assumption `security-filtering-flow`). Microsoft code reads it: Sales-Post, Purch.-Post and Service-Post call
+/// `GetLastEntryNo` on their `[SecurityFiltering(SecurityFilter::Ignored)] GLEntry` in LockTables (legacy posting with
+/// Automatic Cost Posting), and Find Record Management.FindLastEntryIgnoringSecurityFilter reads `RecRef.SecurityFiltering`
+/// of the RecordRef it took through a Variant.
 pub fn recordref_copy(rec: &RecordState) -> RecordState {
     let mut copy = rec.clone();
     own_unloaded_blobs(&mut copy);
     if copy.security_filtering != 0 {
         copy.security_filtering = 0;
-        copy.security_filtering_pin = crate::value::SecurityFilteringPin::Refused(
-            "held by a RecordRef taken from a record with another SecurityFiltering than Validated",
-        );
+        copy.security_filtering_assumed = true;
     }
     copy
 }

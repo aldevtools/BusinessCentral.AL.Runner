@@ -2,7 +2,7 @@
 //! (hard rule 4): `[RunOnClient]` and `[WithEvents]` on DotNet variables (al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:50,
 //! :86, :145-146) and the read of `SecurityFiltering()` where the value is not pinned: on a global record of an object that
 //! is no codeunit declared with `[SecurityFiltering(...)]` (al-language/reports/runtime/ACAttributes.al:176-191 pins locals,
-//! :427-480 a codeunit's globals), and on a RecordRef that took a record with another value than Validated.
+//! :427-480 a codeunit's globals).
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
@@ -124,6 +124,8 @@ fn security_filtering_through_transfer_fields_set_table_and_by_value_copies() {
         procedure S5(): Text var [SecurityFiltering(SecurityFilter::Filtered)] F: Record T; RR: RecordRef; begin RR.GetTable(F); RR.SecurityFiltering(SecurityFilter::Ignored); RR.SetTable(F); Clear(F); exit(Format(F.SecurityFiltering())); end; \
         procedure R1(): Text var RR: RecordRef; begin RR.Open(50100); exit(Format(RR.SecurityFiltering())); end; \
         procedure R2(): Text var [SecurityFiltering(SecurityFilter::Filtered)] F: Record T; RR: RecordRef; begin RR.GetTable(F); exit(Format(RR.SecurityFiltering())); end; \
+        procedure R3(): Text var [SecurityFiltering(SecurityFilter::Ignored)] I: Record T; begin exit(ViaVariant(I)); end; \
+        procedure ViaVariant(V: Variant): Text var RR: RecordRef; begin RR.GetTable(V); exit(Format(RR.SecurityFiltering())); end; \
         procedure P1(): Text var [SecurityFiltering(SecurityFilter::Filtered)] F: Record T; begin exit(ClearByValue(F) + '/' + Format(F.SecurityFiltering())); end; \
         procedure P3(): Text var P: Record T; begin P.SecurityFiltering(SecurityFilter::Ignored); exit(ClearByValue(P)); end; \
         procedure P4(): Text var [SecurityFiltering(SecurityFilter::Filtered)] F: Record T; begin F.SecurityFiltering(SecurityFilter::Ignored); exit(ReadByValue(F) + '/' + ReadVar(F)); end; \
@@ -140,25 +142,29 @@ fn security_filtering_through_transfer_fields_set_table_and_by_value_copies() {
         procedure ClearTemporary(X: Record T temporary): Text begin Clear(X); exit(Format(X.SecurityFiltering())); end; }";
     let mut b = al_testkit::Built::from_source(src);
     let cells: &[(&str, &str, bool)] = &[
-        ("T1", "Filtered", true),           // :185-186, :202
-        ("T2", "Filtered", true),           // :187-188, :203
-        ("T3", "Validated", true),          // :189-190, :204
-        ("T4", "Filtered", true),           // :191-193, :205
-        ("T5", "Ignored", true),            // :194-196, :206
-        ("T6", "Filtered", false), // :197-198, :207 (Clear goes back to the declared value: ACAttributes.al:388-396)
-        ("T7", "Ignored", true),   // :199-201, :208
-        ("S1", "Filtered", true),  // :236-238, :261
-        ("S2", "Validated", true), // :239-240, :262
-        ("S3", "Validated", true), // :242-245, :263
-        ("S4", "Filtered", true),  // :246-250, :265
-        ("S5", "Filtered", false), // :251-252, :266
+        ("T1", "Filtered", true),   // :185-186, :202
+        ("T2", "Filtered", true),   // :187-188, :203
+        ("T3", "Validated", true),  // :189-190, :204
+        ("T4", "Filtered", true),   // :191-193, :205
+        ("T5", "Ignored", true),    // :194-196, :206
+        ("T6", "Filtered", false),  // :197-198, :207 (Clear goes back to the declared value: ACAttributes.al:388-396)
+        ("T7", "Ignored", true),    // :199-201, :208
+        ("S1", "Filtered", true),   // :236-238, :261
+        ("S2", "Validated", true),  // :239-240, :262
+        ("S3", "Validated", true),  // :242-245, :263
+        ("S4", "Filtered", true),   // :246-250, :265
+        ("S5", "Filtered", false),  // :251-252, :266
         ("R1", "Validated", false), // :223-224, :256
-        ("P1", "Filtered/Filtered", true), // :279-280, :294-295
-        ("P3", "Validated", false), // :283-284, :298 (Clear of a copy of a plain record: Validated either way)
-        ("P4", "Filtered/Ignored", true), // :286-288, :300-301
-        ("P6", "Filtered/Ignored", true), // :289-290, :302-303
+        ("R2", "Validated", true),  // :226-227, :257
+        // Find Record Management.FindLastEntryIgnoringSecurityFilter reads it on a RecordRef taken through a Variant from
+        // Sales-Post's `[SecurityFiltering(SecurityFilter::Ignored)] GLEntry` (GLEntry.GetLastEntryNo in LockTables).
+        ("R3", "Validated", true),          // :228-229, :258
+        ("P1", "Filtered/Filtered", true),  // :279-280, :294-295
+        ("P3", "Validated", false),         // :283-284, :298 (Clear of a copy of a plain record: Validated either way)
+        ("P4", "Filtered/Ignored", true),   // :286-288, :300-301
+        ("P6", "Filtered/Ignored", true),   // :289-290, :302-303
         ("P8", "Filtered/Filtered", false), // :291-292, :304-305 (a var parameter is the caller's variable)
-        ("P9", "Filtered", true),  // :293, :306
+        ("P9", "Filtered", true),           // :293, :306
         ("P10", "Filtered/Filtered", true), // :341-349, :372-373
     ];
     let mut wrong = Vec::new();
@@ -176,7 +182,4 @@ fn security_filtering_through_transfer_fields_set_table_and_by_value_copies() {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
-    // RecordRef.GetTable of a record whose SecurityFiltering is not Validated: the probe reads Validated on the ref (:226-227,
-    // :257), but no Microsoft test needs it, so the read stays refused until the probe lands.
-    refused(b.run_in("C", "R2"), "SecurityFiltering");
 }
