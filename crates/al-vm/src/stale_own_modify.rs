@@ -1,9 +1,10 @@
-//! A Modify(true) through a stale buffer from the variable's own Insert two or three Commits back, in a transaction that
-//! wrote nothing and took no lock: the table's OnModify trigger runs on the buffer, with xRec the buffer itself, then the
-//! write raises DB:RecordChanged and the row stays (record/crud/Y27StaleOtherVarTests.al:269-299,
-//! Y27_2C_Nothing and Y27_3C_Nothing, `buffer` `Changed|100|1|1|100|Changed`; al-runner issue 6522). A table extension's
-//! modify triggers, modify event subscribers and the OnDatabaseModify global trigger are not pinned there: with any of
-//! them the error comes before the trigger, as before.
+//! A Modify(true) through a stale buffer the stale-buffer rule refuses (`records/stale_rule.rs`): the table's OnModify trigger
+//! runs on the buffer, with xRec the buffer itself, then the write raises DB:RecordChanged and the row stays. Measured for the
+//! buffers of the variable's own write and for a committed-read buffer, at 1, 2 and 4 Commits, beside Inserts, Modifies,
+//! Deletes, DeleteAll and LockTable of another table, after a Get, a FindSet, a rollback and a guarded run (record/crud/
+//! StaleRuleMatrix.al: `buf=` one more than before in all 47 refused Modify(true) cells; Y27StaleOtherVarTests.al:269-299,
+//! al-runner issue 6522; Y27StaleOwnInsertMore.al:650). A table extension's modify triggers, modify event subscribers and the
+//! OnDatabaseModify global trigger are not pinned there: with any of them the error comes before the trigger, as before.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;
@@ -16,35 +17,27 @@ use std::rc::Rc;
 type Rec = Rc<RefCell<RecordState>>;
 
 impl Session {
-    /// The error of a refused stale Modify, after the OnModify trigger when the buffer has the Y27 shape.
+    /// The error of a refused stale Modify, after the OnModify trigger (see the module comment). `pk` is the row's key, `theirs`
+    /// the stored row's version.
     pub(crate) fn stale_own_insert_modify_refused(
         &mut self,
         t: &TableDef,
         rec: &Rec,
         run: bool,
+        pk: &[Value],
+        theirs: i64,
     ) -> Result<Signal, Signal> {
         let i = t
             .fields
             .iter()
             .position(|f| f.id == 2_000_000_005)
             .expect("a table with SystemRowVersion");
-        let own_insert = {
+        let (origin, company) = {
             let r = rec.borrow();
             let mine = if let Value::BigInteger(n) = &r.fields[i] { *n } else { 0 };
-            r.row_origin
-                .filter(|o| o.version == mine)
-                .is_some_and(|o| o.own_write && (1..=3).contains(&self.commits.saturating_sub(o.commits)))
+            (r.row_origin.filter(|o| o.version == mine), r.company.clone())
         };
-        // Inserts into other tables (a log) do not change that: the OnModify trigger runs before the refusal
-        // (record/crud/Y27StaleOwnInsertMore.al:650 Y27B_2C_OnlyLogInserted_Refused, `buffer` Modify Count 1).
-        let untouched_tx = !self.tx.rolled_back
-            && !self.tx.lock_tx
-            && self.tx.lock_unpinned.is_none()
-            && self
-                .tx
-                .writes
-                .iter()
-                .all(|w| w.kind == crate::state::TxWriteKind::Insert && w.table != t.object);
+        let trigger = self.table_trigger(t, "OnModify");
         let mut hooks = false;
         for n in ["OnBeforeModify", "OnModify", "OnAfterModify"] {
             hooks |= !self.ext_triggers(t, n).is_empty();
@@ -52,8 +45,25 @@ impl Session {
         // An OnAfterModify subscriber does not matter: the refused write never reaches it (Y27StaleOwnInsertMore.al:754
         // Y27B_2C_SubscriberLogInTx2_NothingAfter_Refused, `log` 1 from the helper's own Modify only).
         hooks = hooks || self.listened(t, "onbeforemodifyevent", None)? || self.global_enabled(t, GlobalOp::Modify)?;
-        if run && own_insert && untouched_tx && !hooks {
-            if let Some(tr) = self.table_trigger(t, "OnModify") {
+        let runs_first = match origin {
+            // The rule refused it, so the open transaction has a measured shape.
+            Some(o) if o.own_write && !o.lock_only => true,
+            // A committed-read buffer is refused whatever the open transaction did; the trigger order is measured where the
+            // rule knows the shape (StaleRuleMatrix.al CommittedRead_*).
+            Some(o) if !o.own_write && run && trigger.is_some() && !hooks => {
+                if let Err(why) = self.open_tx_contact(t, &company, pk, o, theirs) {
+                    return Err(Signal::unsupported(format!(
+                        "Modify(true) through a stale {} buffer read from a committed row, {why}: whether OnModify runs first is not pinned",
+                        t.name
+                    )));
+                }
+                true
+            }
+            // A TransferFields buffer or one of no origin: not pinned, the error first, as before.
+            _ => false,
+        };
+        if run && runs_first && !hooks {
+            if let Some(tr) = trigger {
                 let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
                 self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
             }
@@ -107,10 +117,10 @@ impl Session {
         versions: (i64, i64),
     ) -> Result<(), Signal> {
         let after_failed_insert = rec.borrow().failed_insert.is_some_and(|v| v != 0 && v == versions.0);
-        if self.stale_verdict(t, rec, cx, pk, versions.1, false)? == crate::records::StaleVerdict::Refused
+        if self.stale_verdict(t, rec, cx, pk, versions.1)? == crate::records::StaleVerdict::Refused
             && !after_failed_insert
         {
-            return Err(self.stale_own_insert_modify_refused(t, rec, run)?);
+            return Err(self.stale_own_insert_modify_refused(t, rec, run, pk, versions.1)?);
         }
         Ok(())
     }

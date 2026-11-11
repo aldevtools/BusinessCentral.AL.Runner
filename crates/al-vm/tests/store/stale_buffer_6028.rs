@@ -315,19 +315,28 @@ fn a_delete_of_another_row_three_commits_later_lets_the_stale_delete_delete() {
     assert!(take_hits().is_empty());
 }
 
+// The neighbours the stale-buffer matrix measured (record/crud/StaleRuleMatrix.al): table contact writes, no contact refuses.
+#[test]
+fn the_neighbours_the_matrix_measured_follow_the_rule() {
+    clear_hits();
+    // StaleRuleMatrix.al NoContact_2C_A `kl_ki`: LockTable on another table and an Insert there.
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "LockTwoNoRead")), "DB:RecordChanged");
+    // TableContact_* `oi_od_on`, `om_ki`, `kl_om`, BulkSameTable_* `oma`: another row of the table written.
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "ModifyThreeAndInsert")), "start|5");
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "ModifyThreeAndOtherTable")),
+        "start|5"
+    );
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "ModifyThreeLocked")), "start|5");
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "ModifyAllThree")), "start|5");
+    assert!(take_hits().is_empty());
+}
+
+// A locking ReadIsolation read without contact with the row is measured four Commits later only (WbStaleUpdLockTests.al:16).
 #[test]
 fn the_unmeasured_neighbours_are_refused() {
-    for routine in [
-        "LockTwoNoRead",
-        "LockTwoUpdLock",
-        "ModifyThreeAndInsert",
-        "ModifyThreeAndOtherTable",
-        "ModifyAllThree",
-        "ModifyThreeLocked",
-    ] {
-        let r = al_testkit::run_in(SRC, "C", routine);
-        assert!(matches!(r, Err(Signal::Unsupported(_))), "{routine}: {r:?}");
-    }
+    let r = al_testkit::run_in(SRC, "C", "LockTwoUpdLock");
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "LockTwoUpdLock: {r:?}");
 }
 
 #[test]

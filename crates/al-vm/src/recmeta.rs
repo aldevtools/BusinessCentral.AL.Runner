@@ -1921,7 +1921,14 @@ impl Session {
     /// the call starts, gets the value through `Modify(RunTrigger)`; the buffer is left alone
     /// (corpus record/TestRecordModify.al:87-170, TestTriggerContracts.al:123-146).
     fn modify_all(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
-        self.note_other_write(rec, t);
+        let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll);
+        let r = self.modify_all_noted(rec, t, args);
+        self.note_bulk_end(at);
+        r
+    }
+
+    /// `modify_all` inside its notes for the stale-buffer rule.
+    fn modify_all_noted(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
         let pos = arg_pos(args, 0)?;
         if t.fields[pos].id == 2_000_000_000 {
             // Wording after the pinned fragment: record/TestRecordSystemId.al:230-262, docs/probes-needed.md.

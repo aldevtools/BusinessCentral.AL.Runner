@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 mod blob_filter;
 mod boolean_filter_error;
+mod delete_all;
 mod delete_all_flow;
 mod flowfield_key;
 mod insert_buffer;
@@ -28,7 +29,8 @@ mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
-mod stale_own_insert;
+mod stale_rule;
+pub(crate) use stale_rule::same_key;
 mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
@@ -1105,7 +1107,7 @@ impl Session {
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
             let i = t.fields.iter().position(|f| f.id == 2_000_000_005).expect("checked");
             if let Some(Value::BigInteger(theirs)) = stored.as_ref().map(|r| r[i].clone()) {
-                let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs, true)?;
+                let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs)?;
                 if verdict != StaleVerdict::Fresh {
                     let mut ext = false;
                     for n in ["OnBeforeDelete", "OnDelete", "OnAfterDelete"] {

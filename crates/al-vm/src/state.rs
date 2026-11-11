@@ -22,15 +22,6 @@ pub(crate) struct TxState {
     pub(crate) lock_timeout_duration: i64,
     /// The highest rowversion handed out when the last `Commit` ran: rows at or below it are durable.
     pub(crate) committed_row_version: i64,
-    /// `committed_row_version` before the last `Commit`: a row whose committed version is above it was written in the
-    /// transaction the last Commit closed (`Session::stale_verdict`, al-runner issue 6522).
-    pub(crate) prior_committed_row_version: i64,
-    /// The rows (table object, company, primary key) the Record writes of the transaction the last Commit closed wrote, or
-    /// `None` when not every write of it was noted.
-    pub(crate) closed_tx_rows: Option<Vec<RowKey>>,
-    /// `closed_tx_rows` before the last Commit: the rows written by the transaction the Commit before it closed
-    /// (`Session::stale_verdict`, al-runner issue 6522, three Commits).
-    pub(crate) closed_tx_rows_before: Option<Vec<RowKey>>,
     /// The rows (table object, company, primary key) a Record Modify wrote, or a Get read while its table was locked by
     /// `LockTable`, since the last Commit or rollback: a stale buffer from the Insert of the transaction before may then be
     /// written (record/TestRecordStaleBufferWrite.al:495-584, `Session::stale_verdict`).
@@ -44,12 +35,13 @@ pub(crate) struct TxState {
     pub(crate) commit_counter: u64,
     /// The Record writes to the database store since the last Commit or rollback, in order (`Session::stale_verdict`).
     pub(crate) writes: Vec<TxWrite>,
-    /// The tables (table object, company) a Record FindSet read since the last Commit or rollback (`Session::stale_verdict`).
-    pub(crate) find_set_tables: Vec<(u32, Option<String>)>,
     /// A locking ReadIsolation (a FindFirst under RepeatableRead or UpdLock) set `lock_tx` in the open transaction.
     pub(crate) isolation_lock: bool,
     /// A rollback ran since the last Commit.
     pub(crate) rolled_back: bool,
+    /// Why a rollback since the last Commit is not one the stale-buffer rule knows (`Session::note_rollback_for_stale_rule`);
+    /// `None` without a rollback or after rollbacks the rule knows only.
+    pub(crate) rollback_unpinned: Option<&'static str>,
     /// The last `Commit` made writes durable (the transaction it ended had written): `MinimumActiveRowVersion` is then not pinned.
     pub(crate) last_commit_wrote: bool,
     /// A duplicate-key Insert into a table without a Blob field does not fail where it is
@@ -117,8 +109,23 @@ pub(crate) enum TxWriteKind {
     /// A Rename of a row to another key, with no trigger write before it and no field that relates to the table (`pk` is the
     /// old key).
     Rename,
-    /// A ModifyAll, DeleteAll, Truncate or another Rename: its own writes are not told apart.
+    /// A ModifyAll: the Modifies of its rows follow it in `TxState::writes` (`TxWrite::bulk`).
+    ModifyAll,
+    /// A DeleteAll: the Deletes of its rows follow it, or the store deleted them in one step (`TxWrite::bulk`).
+    DeleteAll,
+    /// A Truncate.
+    Truncate,
+    /// A Rename that also rewrote related rows, or one with a trigger write before it: its own writes are not told apart.
     Other,
+}
+
+/// How a ModifyAll or DeleteAll ended (`TxWrite::bulk`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BulkEnd {
+    /// How many entries of `TxState::writes` its rows (and the triggers they ran) added after it.
+    pub(crate) entries: usize,
+    /// The store's change counter when it ended.
+    pub(crate) counter: u64,
 }
 
 /// The row versions of the open transaction as `Database.LastUsedRowVersion` sees them (`TxState::row_versions`).
@@ -132,9 +139,6 @@ pub(crate) struct RowVersionTx {
     pub(crate) unpinned: Option<&'static str>,
 }
 
-/// A row by table object, company and primary key.
-pub(crate) type RowKey = (u32, Option<String>, Vec<Value>);
-
 /// One Record write to the database store: the store's change counter before and after it.
 #[derive(Clone, Debug)]
 pub(crate) struct TxWrite {
@@ -144,6 +148,9 @@ pub(crate) struct TxWrite {
     pub(crate) pk: Vec<Value>,
     pub(crate) before: u64,
     pub(crate) after: u64,
+    /// A ModifyAll or DeleteAll that ended: what it wrote (`Session::note_bulk_end`). `None` for other writes and for one that
+    /// stopped with an error.
+    pub(crate) bulk: Option<BulkEnd>,
 }
 
 impl TxState {
@@ -157,17 +164,14 @@ impl TxState {
             lock_timeout: true,
             lock_timeout_duration: 10,
             committed_row_version: 0,
-            prior_committed_row_version: 0,
-            closed_tx_rows: None,
-            closed_tx_rows_before: None,
             rows_touched: Vec::new(),
             tables_inserted: Vec::new(),
             locked_tables: Vec::new(),
             commit_counter: 0,
             writes: Vec::new(),
-            find_set_tables: Vec::new(),
             isolation_lock: false,
             rolled_back: false,
+            rollback_unpinned: None,
             last_commit_wrote: false,
             deferred_insert: None,
             insert_buffer: Vec::new(),

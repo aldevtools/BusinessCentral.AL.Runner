@@ -460,7 +460,9 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `recmeta.rs` (734): Record builtins that read table metadata or guard on session state. Entry: `string_literal` 29, `mentions_table` 49, `is_blank` 60.
 - `records.rs` (2694): Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry: `record_op` 733, `table_event` 205, `run_trigger` 499, `delete_row` 297, `scan` 545, `unique_violation` 346.
 - `records/op_inner.rs` (2545): `record_op_inner`, the dispatch of every Record method (moved out of `records.rs`), and `clear_record` (`Clear` of a record). Entry: `record_op_inner`.
-- `records/stale.rs` (598): row-version notes and the stale-record verdict. Entry: `note_write`, `stale_verdict`, `bump_row_version`.
+- `records/stale.rs` (~520): row-version notes (`note_write`, `note_bulk_write`/`note_bulk_end` for ModifyAll, DeleteAll, Rename, Truncate) and `bump_row_version`.
+- `records/stale_rule.rs` (~330): the one rule for a write through a stale buffer (al-runner issue 7657; record/crud/StaleRuleMatrix.al): committed-read refused, row contact or table contact written, otherwise DB:RecordChanged; every input no cell measured refused. Also the rollback note it reads. Entry: `stale_verdict`, `open_tx_contact`, `assert_error_rollback`.
+- `records/delete_all.rs`: `DeleteAll`, row by row or in one step in the store. Entry: `delete_all`.
 - `records/flowfield_key.rs` (130): the rows of a record keyed on a row-dependent sum or count FlowField, sorted by its value. Entry: `runs`, `scan_flowfield_key`.
 - `refs.rs` (637): `RecordRef`, `FieldRef` and `KeyRef` on the VM. Entry: `record_ref_value` 42.
 - `relations.rs` (179): TableRelation: lookups and Validate checks. Entry: `field_relation` 70, `validate_relation` 94.
