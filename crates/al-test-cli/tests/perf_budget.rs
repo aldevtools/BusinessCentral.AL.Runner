@@ -369,7 +369,7 @@ fn a_run_over_the_temporary_limit_fails_and_one_at_it_passes() {
     assert!(!within_limit(limit + TEMPORARY_OVER_INSTRUCTIONS + 1, limit));
     // ADR-073: the temporary amount started at 52.6 G with no pass term; with the term it may only be lower.
     const STARTED_AT: u64 = 52_600_000_000;
-    assert!(TEMPORARY_OVER_INSTRUCTIONS + TESTLIBRARIES_PASS_INSTRUCTIONS <= STARTED_AT);
+    const { assert!(TEMPORARY_OVER_INSTRUCTIONS + TESTLIBRARIES_PASS_INSTRUCTIONS <= STARTED_AT) };
 }
 
 #[test]

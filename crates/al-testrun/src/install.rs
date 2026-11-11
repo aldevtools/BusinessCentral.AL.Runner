@@ -1467,6 +1467,9 @@ fn kept_login_record(session: &mut Session) -> Option<crate::baseline::LoginReco
 /// How many runs of the login code the file of one baseline keeps (the oldest goes first).
 const KEPT_RECORDS: usize = 8;
 
+/// The Date globals of LogInManagement a run of the login code may have changed, as `LoginRecord::globals` keeps them.
+type DateGlobals = Vec<(usize, i32, bool)>;
+
 /// What a recorded run of the login code that sets WorkDate keeps in the file of its baseline (the WorkDate it set
 /// and the Date globals of LogInManagement it may have changed), when another process may take it without comparing
 /// the session image: the code ran (not a kept run), wrote no row, raised no event, used no page, report or .NET, read
@@ -1479,7 +1482,7 @@ fn replayable(
     routine: usize,
     session: &Session,
     run: &al_vm::RecordedRun,
-) -> Option<(i32, Vec<(usize, i32, bool)>)> {
+) -> Option<(i32, DateGlobals)> {
     use crate::runtime::written::state;
     let touches = run.touches();
     let quiet = touches.routines.contains(&(object, routine))
