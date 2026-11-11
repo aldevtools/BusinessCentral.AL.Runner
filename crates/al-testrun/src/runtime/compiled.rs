@@ -604,6 +604,19 @@ pub type Resources = [(String, Vec<u8>)];
 pub type ResourceFiles = Vec<(String, Vec<u8>)>;
 
 impl Compiled {
+    /// The compile of a run that is not edited afterwards (a warm server's is, [`Compiled::update_files`], and keeps its
+    /// trees): its workspace drops its parse trees once the program is lowered (`Workspace::drop_trees`). A compile kept
+    /// for a later pass that grows it (ADR-063, `grow_kept`) keeps them: that pass reads the trees of most files again
+    /// (the test codeunits it leaves out, what its demand newly reaches), and parsing them again cost about a tenth more
+    /// instructions on the corpus run (measured 2026-11-11). What needs a tree after the drop (the second compile of
+    /// `--tdd`) parses its file again.
+    pub(crate) fn for_one_run(mut self) -> Compiled {
+        if self.grow_kept.is_none() {
+            self.ws.drop_trees();
+        }
+        self
+    }
+
     /// Gives the apps the resource files `resources[i]` (for the app the caller numbered `i`) where they differ from
     /// those the program has. The program is copied only when something else still holds it.
     pub(crate) fn set_resources(&mut self, resources: &[&Resources]) {

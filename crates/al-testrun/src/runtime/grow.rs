@@ -9,6 +9,8 @@ use super::*;
 pub struct KeptCompile {
     pub(crate) ws: al_sema::Workspace,
     pub(crate) growable: al_sema::lower::Growable,
+    /// The program of the compile, as the run used it (`al_sema::lower::grow` takes it back).
+    pub(crate) program: Arc<al_ir::Program>,
     /// Per app of the compile, in its order: the preprocessor symbols of a dependency app (its own app.json's).
     pub(crate) app_symbols: Vec<Option<BTreeSet<String>>>,
     /// The project's symbols and the target the compile was made for.

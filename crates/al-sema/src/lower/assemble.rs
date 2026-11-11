@@ -892,7 +892,7 @@ fn foreign_request_control<'a>(
 }
 
 /// The heads, positions, drivers and (with `export`) the blocks of a cache layer, from the objects as linked
-/// (`lower_core`). A block holds a copy of its object, so this doubles the program for a moment: a hard memory limit
+/// (`lower_core`). A block shares its object with the program (no copy); its positions are copied. A hard memory limit
 /// stops it at the next object (`halt.rs`).
 fn export_blocks(
     set: &mut crate::provided::DepSet,
@@ -902,9 +902,9 @@ fn export_blocks(
     prov: &dyn Fn(usize) -> bool,
 ) {
     set.heads = program.objects.iter().map(ir::ObjectHead::of).collect();
-    for (oi, o) in program.objects.iter().enumerate() {
+    for (oi, &(start, len)) in pos_ranges.iter().enumerate().take(program.objects.len()) {
         crate::halt::check();
-        let (start, len) = pos_ranges[oi];
+        let o = program.objects.get_shared(oi).expect("in range");
         let facts = &mut set.facts[oi];
         facts.positions = len;
         facts.drivers = o
@@ -919,7 +919,7 @@ fn export_blocks(
             crate::provided::DepBlock::placeholder()
         } else {
             crate::provided::DepBlock {
-                object: Some(o.clone()),
+                object: Some(std::sync::Arc::clone(o)),
                 pos_start: start,
                 positions: (start..start + len).map(|id| program.positions[id as usize]).collect(),
             }
@@ -1458,6 +1458,7 @@ pub(crate) fn lower_core(
     if !shared.early_relations || check {
         derive_relations(&mut objects, &shared, &prov, lower_workers());
     }
+    compact_bodies(&mut objects);
     // Without the cache kept, a supplied object is the default object its placeholder always was.
     let defaults = |objects: Vec<Option<ir::Object>>| -> ir::Objects {
         objects
@@ -1498,6 +1499,14 @@ pub(crate) fn lower_core(
     }
     out.program = std::sync::Arc::new(program);
     Ok(out)
+}
+
+/// Keeps the routine bodies of the objects lowered here compact (`ir::Body::compact`): the lowering reads no body after
+/// its relations, and a run reads few of them again (the first read decodes the body). On the BC 29 corpus run the
+/// lowered bodies took about 1.3 GB decoded.
+fn compact_bodies(objects: &mut [Option<ir::Object>]) {
+    use rayon::prelude::*;
+    objects.par_iter_mut().flatten().for_each(ir::Object::compact_bodies);
 }
 
 /// Works out what the `TableRelation` of each field gives the runtime, from the properties the table and its

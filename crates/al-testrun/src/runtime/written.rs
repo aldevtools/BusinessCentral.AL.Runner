@@ -1312,8 +1312,11 @@ impl Rec<'_> {
         for s in rt.locals.iter().chain(&obj.globals) {
             self.slot(&s.ty);
         }
-        self.places(o, &rt.body);
-        al_ir::types::for_each_expr_post(&rt.body, &mut |e| self.expr(o, r, e));
+        // A walk reads many bodies once and runs none: a compact body stays compact (`Body::read`).
+        rt.body.read(|body| {
+            self.places(o, body);
+            al_ir::types::for_each_expr_post(body, &mut |e| self.expr(o, r, e));
+        });
         let mut calls = Vec::new();
         lowered.calls_into(o, r, &mut calls);
         self.push(calls);
@@ -1723,36 +1726,41 @@ pub(crate) fn settled_flags(lowered: &Lowered, object: usize) -> Vec<(usize, boo
     }
     let mut clear_all = false;
     for rt in &obj.routines {
-        stmts(&rt.body, &mut |s| match s {
-            Stmt::Assign(Place::Global(g), Expr::Const(Const::Boolean(v))) => {
-                let e = seen.entry(*g).or_insert(Some(*v));
-                if *e != Some(*v) {
-                    *e = None;
-                }
-            }
-            Stmt::Assign(p, _) | Stmt::For { var: p, .. } | Stmt::Foreach { var: p, .. } => spoil(&mut seen, p),
-            _ => {}
-        });
-        al_ir::types::for_each_expr_post(&rt.body, &mut |e| {
-            let (args, receiver) = match e {
-                Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => (args, None),
-                Expr::Builtin { id, args, receiver, .. } => {
-                    if id.name().starts_with("System.ClearAll") {
-                        clear_all = true;
+        // One read of each body, kept by nothing (`Body::read`).
+        rt.body.read(|body| {
+            stmts(body, &mut |s| match s {
+                Stmt::Assign(Place::Global(g), Expr::Const(Const::Boolean(v))) => {
+                    let e = seen.entry(*g).or_insert(Some(*v));
+                    if *e != Some(*v) {
+                        *e = None;
                     }
-                    (args, receiver.as_deref())
                 }
-                _ => return,
-            };
-            for a in args.iter().chain(receiver) {
-                match a {
-                    Arg::Ref(p) | Arg::Value(Expr::Load(p)) if receiver.is_some_and(|r| std::ptr::eq(r, a)) => {
-                        spoil(&mut seen, p)
+                Stmt::Assign(p, _) | Stmt::For { var: p, .. } | Stmt::Foreach { var: p, .. } => spoil(&mut seen, p),
+                _ => {}
+            });
+            al_ir::types::for_each_expr_post(body, &mut |e| {
+                let (args, receiver) = match e {
+                    Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => {
+                        (args, None)
                     }
-                    Arg::Ref(p) => spoil(&mut seen, p),
-                    _ => {}
+                    Expr::Builtin { id, args, receiver, .. } => {
+                        if id.name().starts_with("System.ClearAll") {
+                            clear_all = true;
+                        }
+                        (args, receiver.as_deref())
+                    }
+                    _ => return,
+                };
+                for a in args.iter().chain(receiver) {
+                    match a {
+                        Arg::Ref(p) | Arg::Value(Expr::Load(p)) if receiver.is_some_and(|r| std::ptr::eq(r, a)) => {
+                            spoil(&mut seen, p)
+                        }
+                        Arg::Ref(p) => spoil(&mut seen, p),
+                        _ => {}
+                    }
                 }
-            }
+            });
         });
     }
     if clear_all {
