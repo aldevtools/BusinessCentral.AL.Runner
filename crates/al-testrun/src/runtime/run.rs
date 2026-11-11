@@ -390,7 +390,7 @@ fn run_codeunit_inner(
         if let Err(why) = crate::install::login_work_date(engine, lowered, &mut session) {
             return all(Outcome::NotRun(why));
         }
-        match crate::install::test_session_company_open(lowered, &mut session) {
+        match crate::install::test_session_company_open(lowered, &mut session, isolation == TestIsolation::Disabled) {
             Err(why) => return all(Outcome::NotRun(why)),
             Ok(wrote) => {
                 session.commit_transaction();
@@ -688,7 +688,7 @@ fn run_codeunit_inner(
                         began = true;
                         session
                             .store_mut()
-                            .watch(company_open.tables.union(&leak).copied().collect());
+                            .watch(company_open.watched().union(&leak).copied().collect());
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
                         if on_run_shape_assumed {
@@ -988,16 +988,19 @@ fn run_codeunit_inner(
             // cannot seed the sequence with `Randomize(n)`.
             let drew_carried = session.carried_random_draws() > carried_before;
             // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
-            // (al-runner issue 5641): what it found there is not pinned.
-            let outcome = match session.store_mut().watch_hit() {
-                Some(t) if began && company_open.tables.contains(&t) => {
-                    Outcome::NotRun(company_open.touched(t, lowered))
-                }
-                Some(t) if began && leak.contains(&t) => {
-                    scratch.leak_hit = true;
+            // (al-runner issue 5641), or one a watched login wrote (`login.rs`): what it found there is not pinned.
+            // A read or write of any table an earlier Disabled codeunit left rows in sets `leak_hit`, whatever watched
+            // table the test touched first (review of al-runner issue 7717, round five, probe p13).
+            let touched = session.store_mut().watch_hits();
+            let hit = company_open.watch_hit(&touched, began);
+            let outcome = match hit.and_then(|t| company_open.touched(t, lowered)) {
+                Some(why) => Outcome::NotRun(why),
+                None => {
+                    if began && !leak.is_disjoint(&touched) {
+                        scratch.leak_hit = true;
+                    }
                     outcome
                 }
-                _ => outcome,
             };
             session.store_mut().watch(Default::default());
             // A test the time limit stopped started from the same state as a failure does, so it is judged alike (al-runner

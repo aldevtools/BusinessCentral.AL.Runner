@@ -18,7 +18,7 @@ impl Session {
                 && n.link_node.is_some()
                 && n.source_view
                     .as_deref()
-                    .is_some_and(|v| v.to_ascii_lowercase().contains("where"))
+                    .is_some_and(|v| crate::views::view_clauses(v).filters)
         }) {
             return unsupported(format!(
                 "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",

@@ -29,6 +29,5 @@ mod server_helpers;
 mod streams;
 mod task_scheduler;
 mod task_scheduler_after_commit;
-mod task_scheduler_company_arg;
 mod xml_read_bom;
 mod xml_read_stream_options;

@@ -18,10 +18,11 @@ impl Session {
             };
             // With an ORDER: refused where a trigger of the port's elements could read the key or direction.
             let triggers = schema.xp().nodes.iter().any(|n| !n.triggers.is_empty());
-            if view.to_ascii_lowercase().contains("order") && !triggers {
+            let ordered = crate::views::view_clauses(&view).order;
+            if ordered && !triggers {
                 continue;
             }
-            if view.to_ascii_lowercase().contains("order") {
+            if ordered {
                 return unsupported(format!(
                     "XmlPort import of table element {} (no LinkTable, below another table element) whose SourceTableView has an ORDER (the key and direction its triggers see are not pinned)",
                     schema.node(node).name
@@ -64,6 +65,6 @@ impl Session {
     /// The SourceTableView with a sorting of table element `node` without LinkTable right below another table element.
     fn xp_import_view_of(schema: &Schema, node: usize) -> Option<String> {
         let view = schema.node(node).source_view.as_deref()?;
-        (unlinked_below_table(schema, node) && view.to_ascii_lowercase().contains("sorting")).then(|| view.to_string())
+        (unlinked_below_table(schema, node) && crate::views::view_clauses(view).sorting).then(|| view.to_string())
     }
 }

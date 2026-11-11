@@ -67,9 +67,9 @@ impl Session {
                     // _KeyFirstPass, _DescendingFirstPass, _ResetFirstPass, IntegerView_Export_OneEachPass, _GrowEachPass: `pre h2 f=
                     // n=4 k=Kind a=Yes` at every later pass). Pinned for a view with a sorting and no ORDER, on the first export of
                     // the instance (a later export keeps the record's key, `xp_apply_source_views`).
-                    let view = n.source_view.as_deref().unwrap_or("").to_ascii_lowercase();
+                    let view = crate::views::view_clauses(n.source_view.as_deref().unwrap_or(""));
                     let again = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_EXPORTED);
-                    if !view.contains("sorting") || view.contains("order") || again {
+                    if !view.sorting || view.order || again {
                         return refuse(
                             "a SourceTableView without a sorting, with an ORDER, or on a later export of the instance",
                         );
@@ -342,23 +342,18 @@ impl Session {
             if !nested_table(schema, node) || n.link_node.is_none() || !n.link_fields.is_empty() {
                 continue;
             }
-            let view = n
-                .source_view
-                .as_deref()
-                .unwrap_or("")
-                .to_ascii_lowercase()
-                .replace(' ', "");
+            let view = crate::views::view_clauses(n.source_view.as_deref().unwrap_or(""));
             let rec = self.xp_record(inst, n)?;
             let r = rec.borrow();
             // A later export on the same instance keeps the record's key (`xp_apply_source_views`): pinned only while it is still the
             // view's own.
             let ascending = r.ascending && r.field_descending == 0;
-            let by_view = view.contains("sorting(")
+            let by_view = view.sorting
                 && ascending
                 && view_keys
                     .iter()
                     .any(|(i, (k, a))| *i == node && *k == r.key && *a == r.adhoc);
-            let primary = !view.contains("sorting(") && r.key == 0 && r.adhoc.is_none() && ascending;
+            let primary = !view.sorting && r.key == 0 && r.adhoc.is_none() && ascending;
             let v = PassView {
                 filters: Vec::new(),
                 filter_group: r.filter_group,
@@ -366,7 +361,7 @@ impl Session {
                 adhoc: r.adhoc.clone(),
                 ascending: r.ascending,
                 field_descending: r.field_descending,
-                pinned_key: !view.contains("order(") && (by_view || primary),
+                pinned_key: !view.order && (by_view || primary),
                 started: false,
             };
             drop(r);

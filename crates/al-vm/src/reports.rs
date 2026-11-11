@@ -1410,7 +1410,7 @@ impl Session {
                     let sorts = item
                         .view
                         .as_deref()
-                        .is_some_and(|w| w.to_ascii_lowercase().contains("sorting"));
+                        .is_some_and(|w| crate::views::view_clauses(w).sorting);
                     if (v.key != 0 || v.adhoc.is_some()) && !sorts {
                         return unsupported(
                             "SetTableView with a key on a data item a reportextension adds without a sorting (not pinned)",
@@ -1779,24 +1779,23 @@ impl Session {
             // A view that only sorts leaves the filters a SetTableView gave the item in force
             // (reports/TestReportRuntimeContracts.al:393-410).
             let kept = Some(rec.borrow().filters.clone());
-            let filtering = view.to_ascii_lowercase().contains("where");
+            let clauses = crate::views::view_clauses(&view);
             // A view that only filters keeps the key and direction a SetTableView gave the item (corpus
             // reports/dataset/ReportSetTableViewOverWhere.al:P163_SetTableView_OverWhere_KeyOfTheView: key Txt, 4|3|2).
             let kept_order = {
                 let r = rec.borrow();
                 (r.key, r.adhoc.clone(), r.ascending, r.field_descending)
             };
-            let sorts = view.to_ascii_lowercase().contains("sorting");
             // The filters of a DataItemTableView are the report's, not the record's: GetFilters does not show them, in
             // OnPostReport either (reports/TestProbeReportContracts.al:TriggerOrder_NestedAndSecondItem).
             self.set_view_in(&rec, &t, &view, Some(ITEM_VIEW_GROUP), false, false, false)?;
-            if !sorts {
+            if !clauses.sorting {
                 let mut r = rec.borrow_mut();
                 (r.key, r.adhoc, r.ascending, r.field_descending) = kept_order;
             }
             if let Some(mut filters) = kept {
                 // A view that filters adds its own filters to the ones a SetTableView gave the item.
-                if filtering {
+                if clauses.filters {
                     filters.extend(
                         rec.borrow()
                             .filters

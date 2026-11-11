@@ -535,11 +535,7 @@ impl Session {
         let mut sorting_len = 0usize;
         let mut filters: Vec<FieldFilter> = Vec::new();
         let group = group.unwrap_or(rec.borrow().filter_group);
-        let mut rest = view.trim();
-        while !rest.is_empty() {
-            let open = rest.find('(').ok_or_else(|| invalid_view(view))?;
-            let word = rest[..open].trim().to_ascii_uppercase();
-            let (inner, after) = balanced(&rest[open..]).ok_or_else(|| invalid_view(view))?;
+        for (word, inner) in view_parts(view).ok_or_else(|| invalid_view(view))? {
             match word.as_str() {
                 "VERSION" => {}
                 "SORTING" => {
@@ -547,7 +543,6 @@ impl Session {
                         key = Some(0);
                         adhoc = None;
                         sorting_len = 1;
-                        rest = after.trim();
                         continue;
                     };
                     sorting_len = wanted.len();
@@ -679,7 +674,6 @@ impl Session {
                 }
                 other => return unsupported(format!("view part {other}")),
             }
-            rest = after.trim();
         }
         // One direction, or one per SORTING field (SetAscendingEdges.al:SetView_OrderClauses); any other count is an error.
         let mut field_mask = 0u32;
@@ -744,6 +738,57 @@ impl Session {
         }
         Ok(())
     }
+}
+
+/// The parts of a view, `WORD(body)` one after the other, each word upper-cased with the text between its brackets (brackets
+/// inside quotes do not count, see [`balanced`]). `None` when the view does not read so. The one reader of a view's
+/// structure: `set_view_in`, [`view_clauses`] and the page metadata view (`platform/pages.rs`) all read through it.
+pub(crate) fn view_parts(view: &str) -> Option<Vec<(String, &str)>> {
+    let mut out = Vec::new();
+    let mut rest = view.trim();
+    while !rest.is_empty() {
+        let open = rest.find('(')?;
+        let (inner, after) = balanced(&rest[open..])?;
+        out.push((rest[..open].trim().to_ascii_uppercase(), inner));
+        rest = after.trim();
+    }
+    Some(out)
+}
+
+/// Which of SORTING, ORDER and WHERE a view has.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ViewClauses {
+    pub(crate) sorting: bool,
+    pub(crate) order: bool,
+    pub(crate) filters: bool,
+}
+
+/// The clauses `view` names, read by [`view_parts`], never by searching the text: a field name or a value that holds one of
+/// the words (`"Order No."`, `"Sorting Group"`, `filter(<>'sorting')`) names no clause (AL Runner issue 7613). A view that
+/// does not read as SORTING, ORDER, WHERE and VERSION parts counts as having all three, so every caller takes its careful
+/// path (a refusal, or what the view sets), and `set_view_in` rejects the view itself.
+pub(crate) fn view_clauses(view: &str) -> ViewClauses {
+    let all = ViewClauses {
+        sorting: true,
+        order: true,
+        filters: true,
+    };
+    let Some(parts) = view_parts(view) else { return all };
+    let mut out = ViewClauses {
+        sorting: false,
+        order: false,
+        filters: false,
+    };
+    for (word, _) in parts {
+        match word.as_str() {
+            "SORTING" => out.sorting = true,
+            "ORDER" => out.order = true,
+            "WHERE" => out.filters = true,
+            "VERSION" => {}
+            _ => return all,
+        }
+    }
+    out
 }
 
 /// BC's error for a view that does not parse: a carriage return and a backslash join the
@@ -1067,7 +1112,38 @@ pub(crate) fn enum_filter_members(o: &al_ir::Object, language: i32) -> Result<Ve
 
 #[cfg(test)]
 mod tests {
-    use super::property_view;
+    use super::{ViewClauses, property_view, view_clauses};
+
+    #[test]
+    fn the_clauses_of_a_view_come_from_its_parts_not_from_the_words_in_its_names_and_values() {
+        let c = |sorting, order, filters| ViewClauses {
+            sorting,
+            order,
+            filters,
+        };
+        assert_eq!(view_clauses(""), c(false, false, false));
+        assert_eq!(
+            view_clauses("sorting(Seq) where(\"Order No.\" = filter(<>''))"),
+            c(true, false, true)
+        );
+        assert_eq!(
+            view_clauses("where(\"Sorting Group\" = const(1))"),
+            c(false, false, true)
+        );
+        assert_eq!(
+            view_clauses("where(Txt = filter('order(x) sorting(y)'))"),
+            c(false, false, true)
+        );
+        assert_eq!(view_clauses("sorting(\"Where Used\")"), c(true, false, false));
+        assert_eq!(view_clauses("SORTING(Field1) ORDER(Descending)"), c(true, true, false));
+        assert_eq!(
+            view_clauses("VERSION(1) Sorting (Field2) Where(Field1=1(2))"),
+            c(true, false, true)
+        );
+        // A view that does not read as parts counts as having every clause.
+        assert_eq!(view_clauses("sorting(Seq"), c(true, true, true));
+        assert_eq!(view_clauses("garbage(1)"), c(true, true, true));
+    }
 
     #[test]
     fn a_property_view_reads_al_quoted_names_in_values_as_filter_literals() {

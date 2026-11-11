@@ -22,9 +22,7 @@ mod boolean_filter_error;
 mod delete_all_flow;
 mod flowfield_key;
 mod insert_buffer;
-mod login_guard;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
-pub(crate) use login_guard::ReadGuards;
 mod nested_validate;
 mod op_inner;
 mod own_rolled_back_modify;
@@ -50,11 +48,26 @@ pub(crate) const BR: &str = "\\";
 pub(crate) const RUN_PAGE_LINK_OPEN: &str = "in the OnOpenPage of a page an action opens through RunPageLink: real BC fills the linked fields of Rec and GetFilters() reads '' there, the runtime holds the link as a filter (corpus issue 712)";
 
 /// The `RecordState::unpinned_buffer` reason of Rec of a part page reached through a page the test client closed (set in
-/// pages/held_page_part.rs): its fields read and `Count()` counts (pages/parts/HeldSenderPartAccess.al HS01, HS02, staging
-/// branch al-runtime-rs-staging-probe-train-1110b, assumption `held-page-part-after-testpage-close`); no other method of it
-/// is measured there, so they refuse.
+/// pages/held_page_part.rs): its fields read and `Count()` counts (pages/parts/HeldSenderPartAccess.al:286-323 HS01, HS02
+/// `read=id=1 name=one count=1`); no other method of it is measured there, so they refuse. A field write runs and marks the
+/// assumption `held-page-part-after-testpage-close` ([`held_part_field_write`]).
 pub(crate) const HELD_PART_REC: &str =
     "on Rec of a part of a page the test client closed: only its fields and Count() are measured there";
+
+/// The `RecordState::unpinned_buffer` reason of xRec of such a part: HeldSenderPartAccess.al does not read it, so a read, a
+/// write and every method of it refuse.
+pub(crate) const HELD_PART_XREC: &str = "xRec of a part of a page the test client closed is not measured there";
+
+/// A field write on a record whose buffer is `why`: on Rec of a held part it runs and marks the assumption (not measured); on
+/// its xRec it refuses. Every other buffer writes as before.
+pub(crate) fn held_part_field_write(why: &str) -> Result<(), Signal> {
+    if why == HELD_PART_REC {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::HeldPagePartAfterTestPageClose);
+    } else if why == HELD_PART_XREC {
+        return Err(Signal::unsupported(HELD_PART_XREC));
+    }
+    Ok(())
+}
 
 /// The `RecordState::unpinned_buffer` reason of a table element record after an export under `SourceTableView` (set in
 /// xmlports.rs `xp_export_table`). The export order is pinned (xmlports/shapes-properties/RaXmlPortExport.al:416, :448, :474,
@@ -2148,6 +2161,9 @@ impl Session {
         if why == RUN_PAGE_LINK_VARIANT {
             return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
         }
+        if why == HELD_PART_XREC {
+            return unsupported(format!("Record.{}(): {HELD_PART_XREC}", method.name()));
+        }
         if why == HELD_PART_REC {
             if method != RecordOp::Count || !args.is_empty() {
                 return unsupported(format!("Record.{}(): {HELD_PART_REC}", method.name()));
@@ -2326,8 +2342,6 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        self.note_task_table_read(method, rec);
-        self.login_guard_read(method, rec)?;
         if self.coverage.profiler.is_some() {
             return self.record_op_profiled(method, rec, args);
         }

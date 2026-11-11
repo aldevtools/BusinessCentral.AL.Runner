@@ -100,13 +100,13 @@ fn view_text(
             .find(|f| f.name.eq_ignore_ascii_case(&name))
             .ok_or_else(not_pinned)
     };
-    let clauses = view_clauses(v).ok_or_else(not_pinned)?;
+    let clauses = crate::views::view_parts(v).ok_or_else(not_pinned)?;
     let (mut sorting, mut order, mut filters) = (None, None, None);
     for (name, body) in clauses {
-        let slot = match name.to_ascii_lowercase().as_str() {
-            "sorting" => &mut sorting,
-            "order" => &mut order,
-            "where" => &mut filters,
+        let slot = match name.as_str() {
+            "SORTING" => &mut sorting,
+            "ORDER" => &mut order,
+            "WHERE" => &mut filters,
             _ => return Err(not_pinned()),
         };
         if slot.replace(body).is_some() {
@@ -267,44 +267,6 @@ fn const_text(f: &al_ir::Field, value: &str, table_objects: &al_ir::Objects) -> 
         RtType::Date if value.eq_ignore_ascii_case("0d") => Some("0001-01-01T00:00:00.0000000".into()),
         _ => None,
     }
-}
-
-/// The clauses of a view, `name(body)` separated by white space, with their bodies. `None` when it does not read so.
-fn view_clauses(v: &str) -> Option<Vec<(&str, &str)>> {
-    let mut out = Vec::new();
-    let mut rest = v.trim();
-    while !rest.is_empty() {
-        let open = rest.find('(')?;
-        let name = rest[..open].trim();
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphabetic()) {
-            return None;
-        }
-        let close = matching_paren(rest, open)?;
-        out.push((name, &rest[open + 1..close]));
-        rest = rest[close + 1..].trim_start();
-    }
-    Some(out)
-}
-
-/// The index of the `)` that closes the `(` at `open`, outside quotes.
-fn matching_paren(s: &str, open: usize) -> Option<usize> {
-    let (mut depth, mut quote) = (0usize, None::<char>);
-    for (i, c) in s.char_indices().skip_while(|(i, _)| *i < open) {
-        match (quote, c) {
-            (Some(q), c) if c == q => quote = None,
-            (Some(_), _) => {}
-            (None, '\'' | '"') => quote = Some(c),
-            (None, '(') => depth += 1,
-            (None, ')') => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 /// `body` split at its top-level commas (outside parentheses and quotes), each part trimmed. `None` for an empty part.

@@ -47,6 +47,7 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
+pub use state_stamp::StateStamp;
 pub use test_runner_host::TestCodeunitHost;
 mod callstack;
 mod clear_all_page_ext;
@@ -103,6 +104,7 @@ mod profile;
 mod queries;
 mod query_date_filter;
 mod query_save_as;
+mod raise_to;
 mod rdlc_fields;
 mod read_only_tables;
 mod recmeta;
@@ -130,6 +132,7 @@ mod sqlcount;
 mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
+mod state_stamp;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
@@ -831,8 +834,9 @@ pub struct Session {
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
-    /// What decides whether a read of a table is refused (`records/login_guard.rs`).
-    guards: records::ReadGuards,
+    /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
+    /// one of the others is refused before the session's own code wrote it.
+    demo_written: std::collections::HashSet<u32>,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
     /// was resolved (`setup_caption_read_early`): such captions read the test's row (`refuse_setup_caption`).
     pub(crate) gl_setup_written: bool,
@@ -1325,7 +1329,7 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
-            guards: Default::default(),
+            demo_written: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,
             sequences,
@@ -1394,6 +1398,7 @@ impl Session {
                 pages_with_instance: Vec::new(),
                 event_stats,
                 publish_frame: false,
+                only_targets: None,
                 sender_refused: None,
                 var_origins: Vec::new(),
                 next_aliases: Vec::new(),
@@ -1436,7 +1441,7 @@ impl Session {
         self.shadow_begin();
         self.application_areas.clear();
         self.isolated_set_in_test.clear();
-        self.guards.demo_written.clear();
+        self.demo_written.clear();
         self.gl_setup_written = false;
         self.tx.transaction_type = 0;
         self.tx.tx_phase = crate::transactions::TX_FRESH;
@@ -1632,8 +1637,9 @@ impl Session {
                     read_isolation: 0,
                     // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
                     security_filtering: 0,
-                    declared_security_filtering: Some(0),
-                    security_filtering_unpinned: None,
+                    declared_security_filtering: 0,
+                    declared_security_filtering_assumed: false,
+                    security_filtering_assumed: false,
                     key: 0,
                     adhoc: None,
                     ascending: true,
@@ -2143,6 +2149,23 @@ impl Session {
         Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())))
     }
 
+    /// The copy a parameter declared `temporary` (or of a TableType = Temporary table) gets of a record handed by value: an
+    /// empty table of its own, the current values, no filters, the primary key ascending, no marks (see `call_inner`).
+    fn temporary_param_copy(&mut self, rc: &Rc<RefCell<RecordState>>) -> Value {
+        let mut st = rc.borrow().copy_as_new_variable();
+        st.key = 0;
+        st.adhoc = None;
+        st.ascending = true;
+        st.field_descending = 0;
+        st.marks.clear();
+        st.marked_only = false;
+        st.filters.clear();
+        st.filter_group = 0;
+        st.temporary = true;
+        st.temp_id = Some(self.new_temp_id());
+        Value::Record(Rc::new(RefCell::new(st)))
+    }
+
     /// A record passed by value is a copy (ADR-010). A temporary record's copy
     /// gets an independent, empty table of its own (corpus
     /// record/TestTempTableContracts.al:TempVar_PassedByValue_CallerNotAffected).
@@ -2409,18 +2432,7 @@ impl Session {
                         || (rc.borrow().temporary
                             && matches!(r.locals[i].ty, RtType::Record(t, false) if self.engine.object_facts[t as usize].temporary())) =>
                 {
-                    let mut st = rc.borrow().copy_as_new_variable();
-                    st.key = 0;
-                    st.adhoc = None;
-                    st.ascending = true;
-                    st.field_descending = 0;
-                    st.marks.clear();
-                    st.marked_only = false;
-                    st.filters.clear();
-                    st.filter_group = 0;
-                    st.temporary = true;
-                    st.temp_id = Some(self.new_temp_id());
-                    Value::Record(Rc::new(RefCell::new(st)))
+                    self.temporary_param_copy(&rc)
                 }
                 // Rec of a page an action opened through RunPageLink handed to a Variant parameter keeps the link filter: a
                 // RecordRef.GetTable of the Variant carries it (testpage/R7138RunPageLinkCopyGet.al:117-134 `rr[Project Code: P2]
@@ -2441,6 +2453,16 @@ impl Session {
                         copy.borrow_mut().is_dirty_base = rc.borrow().is_dirty_base.copy();
                     }
                     v
+                }
+                // A RecordRef handed by value to a RecordRef or Variant parameter: a RecordRef of its own on the same buffer, so the
+                // callee's Close leaves the caller's open (`recordref_variant.rs`).
+                (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), false)
+                    if matches!(
+                        r.locals[i].ty,
+                        RtType::Variant | RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef)
+                    ) =>
+                {
+                    crate::recordref_variant::own_copy(&h)
                 }
                 // A Variant holding a RecordRef handed by value to a Record parameter: see `record_ref_into_record_param`.
                 (Value::Library(name, h), false)
