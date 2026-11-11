@@ -70,3 +70,13 @@ reviewed list depends on them, and CI fails while they are stale:
   `pinned_columns.rs` does not name the corpus commit, so it changes only when a pinned column changes.
 - `crates/al-sema/tests/expected-unresolved.txt`: a reviewed list that never
   grows without a decision.
+
+## The isolation oracle (Windows nightly)
+
+The suites `isolation-function` and `isolation-codeunit` (BC 28, corpus `tests/al-language-isolation-probe`, runners
+61300 and 61301) take their oracle from the corpus workflow "Nightly Windows (official MS BC container)", which
+`tools/corpus_bump.sh` does not read. When a pin changes the probe app, the CLI refuses ("the oracle is recorded for
+corpus commit X, but the pin Y changes or removes existing test files") and the bump points here. Record the oracle
+again with `tools/record_windows_oracle.sh [--dry-run] [--pin SHA] RUN_ID`: a green run of that workflow whose commit
+is an ancestor of the pin with the same probe app. It copies both XUnit files unchanged and rewrites the two suite
+tables of `oracle/oracle.toml` and their `oracle/README.md` rows. Update the comment above the tables by hand.
