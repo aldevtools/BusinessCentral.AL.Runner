@@ -7,10 +7,11 @@
 //! ownership check of the retention policy module compares equal for an app and its own tables
 //! (install-upgrade/TestRetenPolAllowedTables_Tests.al).
 
-use super::mat::Entry;
+use super::mat::{Entry, Mat, SharedMat};
 use super::{Providers, blank, ids, pos};
 use al_builtins::value::Value;
 use al_data::TableDef;
+use std::sync::{Arc, Mutex};
 
 fn version(v: &str) -> Option<[i32; 4]> {
     let parts: Vec<i32> = v.split('.').map(|p| p.parse().ok()).collect::<Option<_>>()?;
@@ -213,6 +214,38 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
         rows.push(super::application_row::published_application_row(p, t, id));
     }
     rows
+}
+
+/// The Published Application listings of an engine's sessions (`Engine::derived`), by what its rows follow besides the
+/// program ([`published_application_rows`]): the run's setting for dependency apps and the tenant id. Every test codeunit
+/// has a session of its own, and Microsoft's code reads the table in many of them.
+#[derive(Default)]
+struct PublishedListings(Mutex<Vec<(ListingKey, Arc<SharedMat>)>>);
+
+/// The run's setting for dependency apps and the tenant id ([`PublishedListings`]).
+type ListingKey = (bool, String);
+
+/// The Published Application listing of the session `p`, shared with the engine's other sessions with the same setting and
+/// tenant id; `Err` with the listing `build` made when it holds a handle (a description Blob) and stays the session's own.
+pub(super) fn published_application_listing(
+    p: &Providers,
+    build: impl FnOnce() -> Mat,
+) -> Result<Arc<SharedMat>, Box<Mat>> {
+    let engine = p.engine();
+    let key = (engine.dependencies_published_global, p.ident.tenant_id.clone());
+    let kept = engine.derived(PublishedListings::default);
+    if let Some((_, m)) = kept
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(k, _)| *k == key)
+    {
+        return Ok(m.clone());
+    }
+    let m = Arc::new(SharedMat::try_new(build())?);
+    kept.0.lock().unwrap_or_else(|e| e.into_inner()).push((key, m.clone()));
+    Ok(m)
 }
 
 /// Media (2000000181): one row per app whose manifest declares a PNG logo, under the id its Published Application Logo

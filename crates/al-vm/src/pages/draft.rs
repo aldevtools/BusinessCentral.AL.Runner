@@ -469,7 +469,11 @@ impl Session {
         if !self.has_source(st) {
             return unsupported("a new record on a page without a source table");
         }
-        st.borrow_mut().blank_after_empty_last = false;
+        {
+            let mut s = st.borrow_mut();
+            s.blank_after_empty_last = false;
+            s.draft_from_open = false;
+        }
         let rec = self.page_rec(st);
         let part_xrec = if keep_focus { self.part_new_xrec(st)? } else { None };
         self.set_xrec(st);
@@ -564,6 +568,7 @@ impl Session {
         st.borrow_mut().new_row_inserted_by_trigger = false;
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
+        st.borrow_mut().draft_start = Some(rec.borrow().fields.clone());
         // A card opened with OpenNew whose OnNewRecord inserts the new row itself still holds it as a new row: the next write to
         // a field outside the key inserts it again (corpus testpage/CfPageLeads.al:241-289
         // Card_OnNewRecordInserts_OpenNewSetClose: `OnInsertRecord:DOC1,Doc.OnInsert:DOC1` at SetValue). Only that shape is
@@ -774,20 +779,52 @@ impl Session {
         Ok(())
     }
 
-    /// Close inserts a new Document or Card host whose key was typed, over a part that shows no row, declares OnNewRecord or
-    /// OnAfterGetCurrRecord and that the test never called: BC runs neither trigger then (pages/parts/
-    /// PartLineBeforeHostKey.al:1687 QH_EmptyPart_OpenNew_KeyTyped, `close` = `[H.OnInsert:Q1]`), the relink after the insert does.
-    /// Refused until the relink is told apart. A key given by the table's OnInsert, a part the test called or a typed line relinks
-    /// as before.
-    pub(super) fn refuse_part_triggers_at_new_host_close(&mut self, st: &St) -> Result<(), Signal> {
+    /// Whether `st` is a top-level Card or Document page: the host type of every new-row part pin (testpage/parts/
+    /// HiddenPartOutsideChain.al, a Card; HiddenPartExtensionVariable.al and PartLineBeforeHostKey.al, a Document).
+    pub(super) fn top_card_or_document(&self, st: &St) -> bool {
+        st.borrow().host.is_none()
+            && matches!(
+                self.engine.object_facts[st.borrow().object as usize].page_type,
+                Some(al_ir::PageType::Card | al_ir::PageType::Document)
+            )
+    }
+
+    /// Whether a SetValue typed the key of the new row: its key differs from the one it started with (`PageState::draft_start`,
+    /// after the filters stamped it and OnNewRecord ran). False for a row `start_draft` did not start.
+    pub(super) fn key_typed_since_draft_start(&mut self, st: &St) -> Result<bool, Signal> {
+        let Some(start) = st.borrow().draft_start.clone() else {
+            return Ok(false);
+        };
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let r = rec.borrow();
+        Ok(table.keys[0]
+            .iter()
+            .any(|&k| !Self::same_values(std::slice::from_ref(&r.fields[k]), std::slice::from_ref(&start[k]))))
+    }
+
+    /// Close inserts a new host whose key was typed, over a part that shows no row, declares OnNewRecord or OnAfterGetCurrRecord
+    /// and that the test never called: the part does not read again after the insert, so neither trigger runs (pages/parts/
+    /// PartLineBeforeHostKey.al:1702 QH_EmptyPart_OpenNew_KeyTyped, a Document host with a list part, `close` =
+    /// `[H.OnInsert:Q1]`; testpage/parts/HiddenPartOutsideChain.al:335 Chain_FbShown_OpenNewTypeKey, a Card host with a CardPart
+    /// whose link finds the inserted row, `closed` `docs=3 log=[]`, hidden or shown, with or without a Provider link: :321, :349,
+    /// :363). Every pin is the row TestPage.OpenNew started (`PageState::draft_from_open`) on a top-level Card or Document page,
+    /// with a key a SetValue typed: those parts, shown and hidden, are returned marked `quiet_at_close`, and the caller clears
+    /// the mark. Any other such part is refused (a New() on an open host, another page type, a key the row started with). A part
+    /// the test called or a typed line relinks as before.
+    pub(super) fn quiet_parts_at_new_host_close(&mut self, st: &St) -> Result<Vec<St>, Signal> {
         {
             let s = st.borrow();
-            if !(s.draft && s.dirty && s.host.is_none() && !s.parts.is_empty()) {
-                return Ok(());
+            if !(s.draft && s.dirty && s.host.is_none()) {
+                return Ok(Vec::new());
             }
         }
+        let parts: Vec<St> = Self::open_parts_with_hidden(st).into_iter().map(|(_, c)| c).collect();
+        if parts.is_empty() {
+            return Ok(Vec::new());
+        }
         let rec = self.page_rec(st);
-        let key_typed = {
+        let key_set = {
             let initial = self.initial_fields(rec.borrow().table as usize);
             let table = self.table(&rec)?;
             let r = rec.borrow();
@@ -795,28 +832,34 @@ impl Session {
                 .iter()
                 .any(|&p| al_builtins::ops::compare(&r.fields[p], &initial[p]).ok() != Some(std::cmp::Ordering::Equal))
         };
-        if !key_typed {
-            return Ok(());
+        if !key_set {
+            return Ok(Vec::new());
         }
-        let parts: Vec<St> = st.borrow().parts.iter().map(|(_, c)| c.clone()).collect();
-        for c in &parts {
+        let pinned =
+            st.borrow().draft_from_open && self.top_card_or_document(st) && self.key_typed_since_draft_start(st)?;
+        let mut quiet = Vec::new();
+        for c in parts {
             if c.borrow().part_accessed || (c.borrow().draft && c.borrow().dirty) {
                 continue;
             }
             let object = c.borrow().object as usize;
             let observes = ["onnewrecord", "onaftergetcurrrecord"]
                 .iter()
-                .any(|t| self.declares(c, t))
+                .any(|t| self.declares(&c, t))
                 || ["onnewrecordevent", "onaftergetcurrrecordevent"]
                     .iter()
                     .any(|t| self.engine().events.is_subscribed(object, t));
-            if observes && c.borrow().cursor != Cursor::Row && self.has_source(c) {
-                return unsupported(
-                    "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
-                );
+            if observes && c.borrow().cursor != Cursor::Row && self.has_source(&c) {
+                if !pinned {
+                    return unsupported(
+                        "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
+                    );
+                }
+                c.borrow_mut().quiet_at_close = true;
+                quiet.push(c);
             }
         }
-        Ok(())
+        Ok(quiet)
     }
 
     /// OnInsertRecord decides whether the typed record is inserted at all (corpus
