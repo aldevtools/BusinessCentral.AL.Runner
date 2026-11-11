@@ -364,6 +364,43 @@ pub struct TestResult {
     /// ADR-066 amendment 12, decision 2: a failed test of a default run (no `--strict-order`) that read first a
     /// SingleInstance global an earlier test codeunit would have left with another value on BC (`order_hint.rs`).
     pub order_hint: Option<OrderHint>,
+    /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
+    pub cells: Option<al_vm::observer_tap::CellRecord>,
+}
+
+impl TestResult {
+    /// A test with its outcome and nothing else recorded (a test that did not start).
+    pub(crate) fn bare(
+        suite: usize,
+        app: usize,
+        codeunit: u32,
+        codeunit_name: String,
+        test: String,
+        outcome: Outcome,
+    ) -> Self {
+        TestResult {
+            suite,
+            app,
+            codeunit,
+            codeunit_name,
+            test,
+            outcome,
+            call_stack: String::new(),
+            assumptions: Vec::new(),
+            time: std::time::Duration::ZERO,
+            slept_ms: 0,
+            coverage: Vec::new(),
+            messages: Vec::new(),
+            captured: None,
+            impact: Vec::new(),
+            stubs: Vec::new(),
+            ui_answered: Vec::new(),
+            entered: Vec::new(),
+            dotnet: false,
+            order_hint: None,
+            cells: None,
+        }
+    }
 }
 
 /// Wall time of the phases of a run (`--timings`).
@@ -608,6 +645,8 @@ pub(crate) struct Unit {
     runner: Option<usize>,
     /// The session watches the single instances it makes (`single_lane.rs`).
     watch: bool,
+    /// See `Scratch::singles_past_stop`.
+    singles_past_stop: bool,
     /// ADR-066 amendment 12, decision 3: by default its tests can take NumberSequence numbers but it is not in the
     /// carry chain for that (`ChainWhy::TestsTakeNumbers` without `--strict-order`): it is on the numbers list when
     /// it comes after another such codeunit (`order_hint::numbers_order`).
@@ -635,6 +674,8 @@ pub(crate) struct Scratch {
     stubbed: Vec<(String, Vec<String>)>,
     /// `--dev-endpoint-ui`: the UI calls answered for each test (`TestResult::ui_answered`).
     ui_answered: Vec<(String, Vec<String>)>,
+    /// `RunOptions::cell_tap`: the cells each test matched (`TestResult::cells`).
+    cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
@@ -669,17 +710,52 @@ pub(crate) struct Scratch {
     pub(crate) runner: Option<usize>,
     /// See `Unit::watch`.
     watch: bool,
+    /// The sequential strict run (ADR-070 step 2, review finding 1): after a test refused while it ran or stopped by the
+    /// time limit, the single instances still move to the next codeunit (`run.rs` `singles_out`). What ran before the stop
+    /// ran on BC too; the part that did not run is the stopped codeunit's reach, which `strict_taint.rs` checks the later
+    /// codeunits against. Off: R3 of ADR-066 amendment 3, the next codeunit starts without single instances.
+    singles_past_stop: bool,
     /// What this codeunit did with the watched single instances (`al_vm::single_track`).
     pub(crate) singles_out: Option<al_vm::single_track::SingleOut>,
     /// A test of the codeunit started and did not run to its end: it failed (also a failure judged not trusted) or was
     /// refused while it ran. A test refused before it started does not count (ADR-066 amendment 5, decision 2:
     /// only this, or a failed test, makes a dependent codeunit run again serially).
     pub(crate) unfinished_after_start: bool,
+    /// A test of the codeunit was refused while it ran, or stopped by the time limit (`Ended::RefusedMidRun`): what it left
+    /// is not what BC's run of it to its end would have left (ADR-070: the later codeunits of a strict session are flagged).
+    pub(crate) refused_mid_run: bool,
+    /// A test method panicked (a runtime bug, caught as a refusal while it ran): the session was unwound in the middle
+    /// of a VM operation, so its single instances may hold a state no AL statement made (ADR-070: a panic drops them).
+    pub(crate) test_panicked: bool,
     /// The tests that started and did not run to their end (as for `unfinished_after_start`), each with the number
     /// `Session::single_test_begins` gave it (from 1) and its name (ADR-066 amendment 7, option 1).
     pub(crate) unfinished_at: Vec<(u32, String)>,
     /// ADR-066 amendment 12, decision 2: the hint of each failed test (`TestResult::order_hint`), set by the lane.
     pub(crate) order_hints: Vec<(String, OrderHint)>,
+}
+
+/// How the tests of a codeunit ended (`Scratch::note_ended`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Ends {
+    pub(crate) unfinished_after_start: bool,
+    pub(crate) refused_mid_run: bool,
+    pub(crate) test_panicked: bool,
+}
+
+impl Scratch {
+    /// How the codeunit's tests ended (`unfinished_after_start`, `refused_mid_run`, `test_panicked`).
+    pub(crate) fn note_ended(&mut self, e: Ends) {
+        self.unfinished_after_start = e.unfinished_after_start;
+        self.refused_mid_run = e.refused_mid_run;
+        self.test_panicked = e.test_panicked;
+    }
+
+    /// The codeunit hands no single instances to the next one (`run.rs` `singles_out`): a test panicked (ADR-070, second
+    /// review, finding B), or a test was refused while it ran or stopped by the time limit outside the sequential strict
+    /// run (R3 of ADR-066 amendment 3; `singles_past_stop`).
+    pub(crate) fn hands_on_none(&self) -> bool {
+        self.test_panicked || (self.refused_mid_run && !self.singles_past_stop)
+    }
 }
 
 /// What a test codeunit left: each test's outcome, the call stack of each AL error that failed one, how long
@@ -788,6 +864,7 @@ fn run_unit(
             run_seed: u.run_seed,
             runner: u.runner,
             watch: u.watch,
+            singles_past_stop: u.singles_past_stop,
             ..Default::default()
         };
         if u.coverage {
@@ -875,6 +952,46 @@ fn run_unit(
         result,
         took,
         sidecar_start,
+    }
+}
+
+/// The unit of a scratch run (`RunOptions::execute`): the `OnRun` trigger of codeunit `oi` of suite `si`, as the one test.
+fn scratch_unit(
+    lowered: &Lowered,
+    si: usize,
+    oi: usize,
+    opts: &RunOptions,
+    order: &Arc<Vec<usize>>,
+    hooks: &crate::events::Hooks,
+) -> Unit {
+    Unit {
+        si,
+        oi,
+        id: lowered.program.objects[oi].id.unwrap_or(0),
+        isolation: TestIsolation::default(),
+        without_baseline: false,
+        coverage: opts.coverage,
+        execute: true,
+        capture: opts.capture,
+        order: order.clone(),
+        hooks: hooks.clone(),
+        clock_start: None,
+        impact: opts.impact_trace,
+        run_only: None,
+        hub: false,
+        hub_leg: false,
+        carry: None,
+        leak: None,
+        on_run_rows: OnRunRows::PerTest,
+        flags: Default::default(),
+        report_unpinned_errors: false,
+        skip_after_timeout: false,
+        perturb: Default::default(),
+        run_seed: opts.run_seed,
+        runner: None,
+        watch: false,
+        takes_numbers: false,
+        singles_past_stop: false,
     }
 }
 
@@ -1017,6 +1134,8 @@ mod runner_reset;
 mod session_flags;
 mod single_fresh;
 mod single_lane;
+mod strict_taint;
+mod strict_walk;
 mod suite_rows;
 #[cfg(test)]
 mod suite_rows_tests;

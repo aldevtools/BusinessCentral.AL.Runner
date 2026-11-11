@@ -18,6 +18,8 @@ pub struct Args {
     pub json: Option<PathBuf>,
     pub markdown: Option<PathBuf>,
     pub junit: Option<PathBuf>,
+    /// `--cell-report FILE`: per test that uses the observer fixture, the `Expect` cells it matched (report only).
+    pub cell_report: Option<PathBuf>,
     /// `--prune-not-passing` (ADR-065): delete the stale lines of the not-passing lists; never adds one.
     pub prune_not_passing: bool,
     /// `--list-new-cases REV` (ADR-065, corpus bumps): add lines for the cases that do not pass and that the oracle
@@ -239,6 +241,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--json" => a.json = Some(text()?.into()),
             "--markdown" => a.markdown = Some(text()?.into()),
             "--junit" => a.junit = Some(text()?.into()),
+            "--cell-report" => a.cell_report = Some(text()?.into()),
             "--prune-not-passing" => a.prune_not_passing = true,
             "--list-new-cases" => a.list_new_cases = Some(text()?),
             "--list-changes" => a.list_changes = Some(text()?),
@@ -461,7 +464,12 @@ NOT-PASSING LISTS (ADR-065) AND REPORTS
   --no-ratchet                report only; do not check the not-passing lists
   --json FILE                 write the pass-rate report as JSON
   --markdown FILE             write the pass-rate report as Markdown
-  --junit FILE                write per-test outcomes and refusal reasons as JUnit XML
+  --junit FILE                write per-test outcomes and refusal reasons as JUnit XML (a test that uses the
+                              observer fixture also gets cellsExpected, cellsMatched and firstMismatch properties)
+  --cell-report FILE          write, as JSON, the Expect cells of the observer fixture each test matched, the
+                              wrong ones and the ones never reached; prints one `cells:` line (report only).
+                              The expected count is the Expect calls that ran: for a failing test it can grow
+                              when a fix lets the test reach more of them, and it is 0 when it fails before one
 
 DOTNET (ADR-014)
   --dotnet-sidecar PATH       the built sidecar (default: next to this binary)

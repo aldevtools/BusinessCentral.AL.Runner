@@ -63,6 +63,9 @@ pub struct CheckResult {
     pub kept_demand: Option<demand::KeptDemand>,
     /// With `Roots::keep_demand`: the findings of the rules of each object and of each app, which a grown check keeps.
     pub kept_codes: Option<KeptCodes>,
+    /// `diagnostics` by position, built on the first [`CheckResult::diagnostic_at`]. Nothing changes `diagnostics`
+    /// after that: lowering only reads it.
+    diag_index: std::sync::OnceLock<diag_index::DiagIndex>,
 }
 
 /// The findings of the diagnostic rules that read one object (`alcodes::check_workspace_parts`, `features::check_from`)
@@ -136,6 +139,14 @@ impl CheckResult {
     /// Whether object `oi` was left out of the check by a test selection.
     pub fn is_skipped(&self, oi: usize) -> bool {
         self.skipped.get(oi).copied().unwrap_or(false)
+    }
+
+    /// The first diagnostic (in `diagnostics` order) at `offset` of the file at `path` whose code is one of `codes`:
+    /// what a scan of `diagnostics` finds, without the scan (lowering asks once per call it lowers).
+    pub fn diagnostic_at(&self, path: &str, offset: usize, codes: &[&str]) -> Option<&Diagnostic> {
+        self.diag_index
+            .get_or_init(|| diag_index::DiagIndex::build(&self.diagnostics))
+            .find(&self.diagnostics, path, offset, codes)
     }
 
     /// Whether object `oi` was left out by a lean compile (`Roots::lean`).
@@ -629,30 +640,50 @@ fn check_inner(
         object_hashes: roots.object_hashes,
         kept_demand: c.kept_demand.take(),
         kept_codes: roots.keep_demand.then_some(kept_codes),
+        diag_index: Default::default(),
     };
-    // The context rules that need what the check resolved. They count as the checker's (`from_checker`): an
-    // incremental compile resolves the changed objects only and keeps the earlier findings of the other files.
-    if !contexts.is_empty() {
-        let mut more = Vec::new();
-        // A grown check: what these rules found in the kept apps is among the checker's findings it kept.
-        for (app, ctx) in contexts.iter().filter(|(app, _)| *app >= n_old_apps) {
-            more.extend(crate::alcodes::check_resolved_scope(ws, *app, ctx, &result));
-            // What the selection left out is still compiled by alc (al-runner issue 5602).
-            if let Some(r) = &left_out_resolutions {
-                more.extend(crate::alcodes::resolved_scope(ws, *app, ctx, r));
-            }
-        }
-        more.sort_by_key(|d| (d.file.clone(), d.offset, d.code));
-        more.dedup_by(|a, b| a.file == b.file && a.offset == b.offset && a.code == b.code);
-        if !more.is_empty() {
-            result.from_checker.extend(more.iter().cloned());
-            result.diagnostics.extend(more);
-            result
-                .diagnostics
-                .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
+    resolved_scope_findings(
+        ws,
+        &mut result,
+        &contexts,
+        n_old_apps,
+        left_out_resolutions.as_ref(),
+        &positions,
+    );
+    result
+}
+
+/// The context rules that need what the check resolved. They count as the checker's (`from_checker`): an incremental
+/// compile resolves the changed objects only and keeps the earlier findings of the other files.
+fn resolved_scope_findings(
+    ws: &Workspace,
+    result: &mut CheckResult,
+    contexts: &[(usize, crate::alcodes::AppContext)],
+    n_old_apps: usize,
+    left_out_resolutions: Option<&PosMap<Res>>,
+    positions: &HashMap<&str, usize>,
+) {
+    if contexts.is_empty() {
+        return;
+    }
+    let mut more = Vec::new();
+    // A grown check: what these rules found in the kept apps is among the checker's findings it kept.
+    for (app, ctx) in contexts.iter().filter(|(app, _)| *app >= n_old_apps) {
+        more.extend(crate::alcodes::check_resolved_scope(ws, *app, ctx, result));
+        // What the selection left out is still compiled by alc (al-runner issue 5602).
+        if let Some(r) = left_out_resolutions {
+            more.extend(crate::alcodes::resolved_scope(ws, *app, ctx, r));
         }
     }
-    result
+    more.sort_by_key(|d| (d.file.clone(), d.offset, d.code));
+    more.dedup_by(|a, b| a.file == b.file && a.offset == b.offset && a.code == b.code);
+    if !more.is_empty() {
+        result.from_checker.extend(more.iter().cloned());
+        result.diagnostics.extend(more);
+        result
+            .diagnostics
+            .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
+    }
 }
 
 /// The compile errors of the workspace code a selection left out of the check (`Roots::only_tests`): test codeunits it
@@ -1472,6 +1503,7 @@ mod blank_member;
 mod calls;
 pub(crate) use calls::BARE_REPORT_MEMBERS;
 mod conv;
+mod diag_index;
 mod enum_overload;
 pub(crate) use enum_overload::EnumFit;
 mod fit;

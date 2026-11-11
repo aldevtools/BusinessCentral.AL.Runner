@@ -43,6 +43,30 @@ pub(super) fn streams(
     has: &dyn Fn(usize) -> bool,
     suites: Option<&crate::test_suites::TestSuites>,
 ) -> Vec<Vec<usize>> {
+    keyed_streams(units, place, has, suites)
+        .into_iter()
+        .map(|s| s.members.into_iter().map(|(_, k)| k).collect())
+        .collect()
+}
+
+/// One BC session of [`keyed_streams`].
+pub(super) struct Stream {
+    /// The suite of `--test-suites` it is a line of (`usize::MAX`: a codeunit in no suite, a session of its own, or no
+    /// suites file), the app suite (`Unit::si`) and whether it is the hub leg.
+    pub suite: usize,
+    pub si: usize,
+    pub hub_leg: bool,
+    /// Its units in BC's run order, each with its place in the session (the id's place, or the position in the file).
+    pub members: Vec<(u64, usize)>,
+}
+
+/// [`streams`] with each session's key and the place of each member.
+pub(super) fn keyed_streams(
+    units: &[Unit],
+    place: &dyn Fn(usize, u32) -> u32,
+    has: &dyn Fn(usize) -> bool,
+    suites: Option<&crate::test_suites::TestSuites>,
+) -> Vec<Stream> {
     let picked = (0..units.len()).filter(|&k| !units[k].execute && has(k));
     // (session key, place in the session, unit), sorted: a key is (suite or `usize::MAX`, app suite, hub leg).
     let mut order: Vec<((usize, usize, bool), u64, usize)> = match suites {
@@ -69,13 +93,18 @@ pub(super) fn streams(
         }
     };
     order.sort();
-    let mut out: Vec<Vec<usize>> = Vec::new();
+    let mut out: Vec<Stream> = Vec::new();
     let mut last = None;
-    for (key, _, k) in order {
+    for (key, p, k) in order {
         if last == Some(key) && key.0 != usize::MAX {
-            out.last_mut().expect("a stream").push(k);
+            out.last_mut().expect("a stream").members.push((p, k));
         } else {
-            out.push(vec![k]);
+            out.push(Stream {
+                suite: key.0,
+                si: key.1,
+                hub_leg: key.2,
+                members: vec![(p, k)],
+            });
             last = Some(key);
         }
     }
@@ -1185,7 +1214,7 @@ fn dispatch_order(costs: &[std::time::Duration]) -> Vec<usize> {
 }
 
 /// Marks every test of a codeunit's run with `a`.
-fn flag_all(done: &mut UnitOutcomes, a: Assumption) {
+pub(super) fn flag_all(done: &mut UnitOutcomes, a: Assumption) {
     for (test, _) in &done.0 {
         match done.3.iter_mut().find(|(t, _)| t == test) {
             Some((_, hits)) => {
