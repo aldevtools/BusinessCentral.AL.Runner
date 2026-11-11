@@ -1,7 +1,7 @@
 ExactSourceFlowFilterRelation => {
     id: "exact-source-flowfilter-relation",
     assumed: "TableRelation validation treats an unset source FlowFilter as unrestricted and uses a single exact source FlowFilter value when it is set.",
-    tests: "External repro in al-runner issue 7769, measured on real BC 27.5, 28.5 and 29.0.",
+    tests: "External repro in al-runner issue 7769, measured on every supported BC major.",
     probe: "The same tests in the pinned corpus.",
     awaiting: Awaiting {
         issues: &[7769],
