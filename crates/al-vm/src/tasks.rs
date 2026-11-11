@@ -59,14 +59,14 @@ impl Session {
             ids::TASKSCHEDULER_TASKEXISTS_1 => self
                 .task_id(args, "TaskExists")
                 .map(|t| Value::Boolean(self.task_exists(t))),
-            ids::TASKSCHEDULER_CANCELTASK_1 => self.task_id(args, "CancelTask").map(|t| {
+            ids::TASKSCHEDULER_CANCELTASK_1 => self.task_id(args, "CancelTask").and_then(|t| {
                 let removed = self.task_exists(t);
                 if removed {
                     self.tasks.open.remove(&t);
                     self.tasks.committed.remove(&t);
-                    self.remove_task_row(t);
+                    self.remove_task_row(t)?;
                 }
-                Value::Boolean(removed)
+                Ok(Value::Boolean(removed))
             }),
             ids::TASKSCHEDULER_SETTASKREADY_1 => self.set_task_ready(args),
             _ => return None,
@@ -109,7 +109,8 @@ impl Session {
         }
         if let Some(def) = self.table_def(SCHEDULED_TASK) {
             let cx = self.cx.clone();
-            if let Ok(Some(mut row)) = al_data::Store::get(&self.store, &cx, &def, &[Value::Guid(t)]) {
+            let found = al_data::Store::get(&self.store, &cx, &def, &[Value::Guid(t)])?;
+            if let Some(mut row) = found {
                 for (i, f) in def.fields.iter().enumerate() {
                     if f.name.eq_ignore_ascii_case("Is Ready") {
                         row[i] = Value::Boolean(true);
@@ -117,7 +118,7 @@ impl Session {
                         row[i] = crate::platform::unknown(&def, f.id, "a task after SetTaskReady");
                     }
                 }
-                let _ = al_data::Store::modify(&mut self.store, &cx, &def, row);
+                al_data::Store::modify(&mut self.store, &cx, &def, row)?;
             }
         }
         Ok(Value::Boolean(true))
@@ -125,10 +126,10 @@ impl Session {
 
     /// The row of a task created in the open transaction (the module comment lists the pinned columns). The store's
     /// rollback takes it back with the transaction.
-    fn write_task_row(&mut self, id: [u8; 16], args: &[Value]) {
+    fn write_task_row(&mut self, id: [u8; 16], args: &[Value]) -> Result<(), Signal> {
         let Some(t) = self.table_def(SCHEDULED_TASK) else {
             // Nothing in the program reads the table.
-            return;
+            return Ok(());
         };
         let whose = "a task created by TaskScheduler.CreateTask";
         let mut row: al_data::Row = t
@@ -177,7 +178,8 @@ impl Session {
             Some(_) => {}
         }
         let cx = self.cx.clone();
-        let _ = al_data::Store::insert(&mut self.store, &cx, &t, row);
+        al_data::Store::insert(&mut self.store, &cx, &t, row)?;
+        Ok(())
     }
 
     /// The Company of a task's row, or `None` while it is not known. Without a company argument: the current company
@@ -199,12 +201,13 @@ impl Session {
         Some(Value::Text(value.into()))
     }
 
-    fn remove_task_row(&mut self, id: [u8; 16]) {
+    fn remove_task_row(&mut self, id: [u8; 16]) -> Result<(), Signal> {
         let Some(t) = self.table_def(SCHEDULED_TASK) else {
-            return;
+            return Ok(());
         };
         let cx = self.cx.clone();
-        let _ = al_data::Store::delete(&mut self.store, &cx, &t, &[Value::Guid(id)]);
+        al_data::Store::delete(&mut self.store, &cx, &t, &[Value::Guid(id)])?;
+        Ok(())
     }
 
     fn create_task(&mut self, args: &[Value]) -> Result<Value, Signal> {
@@ -218,7 +221,7 @@ impl Session {
         }
         let id = self.fresh_guid();
         self.tasks.open.insert(id);
-        self.write_task_row(id, args);
+        self.write_task_row(id, args)?;
         Ok(Value::Guid(id))
     }
 }

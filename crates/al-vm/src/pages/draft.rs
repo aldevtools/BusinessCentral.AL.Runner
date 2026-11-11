@@ -55,8 +55,9 @@ impl Session {
         let object = st.borrow().object as usize;
         // A request page without a SourceTable denies New() as InsertAllowed = false does
         // (reports/request-page/P105RpNav.al:174 P105_New).
-        let insert_denied =
-            flag_denied(&engine, object, "InsertAllowed")? || (self.is_request_page(st) && !self.has_source(st));
+        let insert_denied = flag_denied(&engine, object, "InsertAllowed")?
+            || (self.is_request_page(st) && !self.has_source(st))
+            || self.no_source_new_denied(st);
         // A request page is pinned only where InsertAllowed is false: the error names the report and `Id = 0`
         // (reports/request-page/YRequestPageTests.al:161). Which row a new line gets and whether the request page writes the
         // row it leaves are not pinned (the AutoSplitKey cases of the same file go by rules the corpus does not settle).

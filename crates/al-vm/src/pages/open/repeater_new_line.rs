@@ -53,6 +53,7 @@ impl Session {
     /// Yes when it is opened with OpenView (pages/readonly-repeater/Y65ReadOnlyRepeater.al:423 `view two rows`
     /// `editable=No/Yes`). A Worksheet opened for view with an editable repeater is not pinned and keeps the earlier answer.
     pub(in crate::pages) fn test_page_editable(&mut self, st: &St) -> Result<bool, Signal> {
+        self.refuse_unpinned_lookup_editable(st)?;
         if self.page_editable(st) {
             return Ok(true);
         }

@@ -507,6 +507,9 @@ pub struct PageState {
     /// The fields the page's server-side Rec still has after the test client moved onto a row it holds without running a read
     /// trigger (`Session::note_server_row_lag`): a procedure called through a held `Page` variable reads this row.
     pub server_lag: Option<Vec<Value>>,
+    /// The key of the row a `Next` that started `server_lag` just moved onto, on the page `held_row_page_pinned` names, and
+    /// the store's write mark then (`next_held_row_read`). Any other call on the page or its controls clears it.
+    pub next_held_row: Option<(Vec<Value>, (i64, u64))>,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
     pub lookup_page_from_table: bool,
     /// Page triggers (the page's or an extension's) run on this page so far.
@@ -801,6 +804,13 @@ impl std::fmt::Debug for PageState {
 }
 
 impl PageState {
+    /// The page is one the test's own `TestPage.OpenEdit` opened, at the top level: not a page AL code ran that the test
+    /// trapped or a handler got (`opened_by_test`), not a modal page, not a part. The entry condition of every rule whose pins
+    /// all open with OpenEdit; another open keeps the earlier behavior or is refused there.
+    pub(crate) fn test_open_edit(&self) -> bool {
+        self.opened_by_test && self.mode == PageMode::Edit && !self.modal && self.host.is_none()
+    }
+
     /// The platform runs the page as a lookup of `kind`: the static `Page.RunModal` whose return value is used, or a
     /// TableRelation lookup.
     pub(crate) fn open_as_lookup(&mut self, kind: LookupKind) {

@@ -26,6 +26,8 @@ impl Session {
         .transpose()?;
         // The rows of a tree the client had expanded: putting the cut back after OnValidate may expand the parent of Rec's row.
         let expanded = st.borrow().expanded.clone();
+        // A control write ends the shape `next_held_row_read` reads in (`set_value_reading_held_row` read before this).
+        st.borrow_mut().next_held_row = None;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
             if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
@@ -273,8 +275,8 @@ impl Session {
         // A control bound to an expression that can be written, on a page with no source table: the write itself is pinned
         // (testpage/PnGTempControl.al, pages/W1Controls.al:424 TempRecordControl_SetValue `set_log`, `c_after`;
         // pages/array-element-fields/PageArrayPathSetValue.al:91-200 ArrayElementField_*), with the type of the value it gives now
-        // (as `control_type` on a page with a source table; a Decimal or a Text). The page also refreshes after a later action there (AGCR,
-        // W1Controls.al:453 `buf_log`), which is not modelled: `action_invoke` refuses an action after such a write.
+        // (as `control_type` on a page with a source table; a Decimal, a Text or a Date). The page also refreshes after a later action
+        // there (AGCR, W1Controls.al:453 `buf_log`), which `action_invoke` serves for the page types whose refresh is pinned.
         let no_source_expr = matches!(ctl.binding, ir::Binding::Expr(_))
             && ctl.trigger("__sourceset").is_some()
             && !self.has_source(st)
@@ -288,6 +290,8 @@ impl Session {
                 Value::Decimal(_) if no_source_expr => Some(RtType::Decimal),
                 Value::Text(_) if no_source_expr => Some(RtType::Text(None)),
                 Value::Enum(id, _) if no_source_expr => Some(RtType::Enum(*id)),
+                // A Date array element (testpage/no-source-controls/NoSourceArrayAndWizard.al:259 `date control, Date`).
+                Value::Date(..) if no_source_expr => Some(RtType::Date),
                 _ => None,
             });
         let Some(ty) = ty else {
@@ -1445,8 +1449,7 @@ impl Session {
                 // OK and Yes confirm, Cancel and No cancel; a refused save keeps the page open
                 // (corpus testpage/lifecycle/TestPageClosingActions.al).
                 if name == "Cancel" {
-                    self.cancel_reads_card_row(st)?;
-                    self.cancel_refinds_static_lookup_row(st)?;
+                    self.cancel_reads(st)?;
                 }
                 // Yes on a ConfirmationDialog whose control still holds a refused entry closes it as Cancel; the values it took stay
                 // (pages/values-allowed-set-value/Y37ValuesAllowedSetValue.al:193-196, :225-226; without a refused entry Yes reports Yes,
@@ -1512,6 +1515,7 @@ impl Session {
             || self.control_eliminated(st, idx)
             || self.off_page(st, idx)
             || self.action_without_behaviour(st, idx)
+            || self.no_source_dialog_action_absent(st, idx)
         {
             let engine = self.engine();
             let ctl = &page_of(&engine, st).controls[idx];
@@ -1788,7 +1792,7 @@ impl Session {
             PageMethod::SetValue if self.read_only_expression_control(st, idx) => Ok(Value::Null),
             PageMethod::SetValue => {
                 let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
-                let r = self.control_set_value(st, idx, args)?;
+                let r = self.set_value_reading_held_row(st, idx, args)?;
                 self.resync_parts_linked_by(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)
@@ -1980,6 +1984,14 @@ impl Session {
             self.populate_current(st)?;
         }
         Ok(())
+    }
+
+    /// What the client reads before Cancel closes the page: the row of a card, the row a static lookup finds again, and the
+    /// current record of a page over no table in lookup mode (`no_source_lookup_cancel_reads`).
+    fn cancel_reads(&mut self, st: &St) -> Result<(), Signal> {
+        self.cancel_reads_card_row(st)?;
+        self.cancel_refinds_static_lookup_row(st)?;
+        self.no_source_lookup_cancel_reads(st)
     }
 
     /// Before Cancel the client reads the row of a card.

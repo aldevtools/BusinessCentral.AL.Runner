@@ -774,62 +774,12 @@ impl Session {
             .ok_or_else(|| Signal::Unsupported("CardPageId names a page outside the workspace".into()))
     }
 
-    /// Whether the card a list's Edit action would open can be edited. Only `Editable = false`
-    /// is pinned (corpus testpage/TestPageModeSwitchAction_Tests.al:
-    /// ListWhoseCardIsReadOnlyLeavesTheEditActionVisibleButNotEnabled); any other restriction is refused.
-    pub(super) fn card_allows_edit(&self, card: usize) -> Result<bool, Signal> {
-        let engine = self.engine();
-        let prop = |n: &str| {
-            engine.program.objects[card]
-                .properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(n))
-                .map(|(_, v)| v.trim().to_ascii_lowercase())
-        };
-        if prop("ModifyAllowed").is_some_and(|v| v != "true") {
-            return unsupported("the Edit action of a list whose card sets ModifyAllowed (not pinned)");
-        }
-        match prop("Editable").as_deref() {
-            None | Some("true") => Ok(true),
-            Some("false") => Ok(false),
-            Some(_) => unsupported("the Edit action of a list whose card computes Editable (not pinned)"),
-        }
-    }
-
-    /// The built-in Edit or View action of a list page: opens the page named by the list's
-    /// `CardPageId` on the current row, editable or read-only, as a `RunObject` action would.
-    pub(super) fn list_card_action(&mut self, st: &St, edit: bool) -> Result<Value, Signal> {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
-        let Some(card) = effective_prop(&engine, object, "CardPageId")?.map(|v| v.trim_matches('"').to_string()) else {
-            return unsupported("the built-in Edit/View action of a list page with no CardPageId (not pinned)");
-        };
-        let Some(target) = engine.program.objects.heads().iter().position(|o| {
-            o.is_kind(al_ir::ObjKind::Page)
-                && (o.name.eq_ignore_ascii_case(&card) || o.id.is_some_and(|i| i.to_string() == card))
-        }) else {
-            return unsupported("CardPageId names a page outside the workspace");
-        };
-        if st.borrow().cursor != Cursor::Row {
-            return unsupported("the built-in Edit/View action of a list that stands on no stored row (not pinned)");
-        }
-        let ro = ir::RunObject {
-            kind: ir::RunKind::Page,
-            object: Some(target),
-            on_rec: true,
-            mode: if edit { ir::RunMode::Edit } else { ir::RunMode::View },
-            link: None,
-            unsupported: None,
-        };
-        st.borrow_mut().refresh = false;
-        self.run_object_page(st, &ro)?;
-        Ok(Value::Null)
-    }
-
     /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action does nothing and raises nothing
     /// (corpus testpage/TestPageActionEnabledSourceField_Tests.al, TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
     pub(super) fn action_invoke(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
-        if st.borrow().expr_set_no_source {
+        // A Card and a NavigatePage run OnAfterGetCurrRecord after the action and read their expression controls live
+        // (`no_source_expr_set_action_pinned`; pages/W1Controls.al:424 TempRecordControl_SetValue `buf_log` = `buf=changed;AGCR;`).
+        if st.borrow().expr_set_no_source && !self.no_source_expr_set_action_pinned(st) {
             return unsupported(
                 "an action after a SetValue on a control bound to an expression of a page with no source table (the refresh after the action is not modelled)",
             );
@@ -1490,9 +1440,10 @@ impl Session {
             // A card without a source table runs OnAfterGetCurrRecord once after each action, also after one that called
             // CurrPage.Update(false) (testpage/P146PageExprSetValue.al:351
             // P146_NoSourceTable_SetValue_And_Action `log after bump`, :420 QG_NoSource_OpenEdit_StepLog `qg action;qg agcr;`,
-            // `qg update;qg update done;qg agcr;`). Another page type is not pinned.
+            // `qg update;qg update done;qg agcr;`); so do the page types `no_source_action_refresh_pinned` names. Another page
+            // type is not pinned.
             if !self.has_source(st) && st.borrow().open && !self.is_request_page(st) {
-                if !self.is_card(st) {
+                if !self.is_card(st) && !self.no_source_action_refresh_pinned(st) {
                     if self.declares(st, "onaftergetcurrrecord") {
                         return unsupported(
                             "an action on a page without a source table other than a card that declares OnAfterGetCurrRecord (not pinned)",

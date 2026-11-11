@@ -62,7 +62,7 @@ impl Session {
             if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
                 r[p] = Value::Guid(self.fresh_system_id());
             }
-            let _ = self.store.insert(&self.cx, t, r);
+            self.store_seed(t, r);
         }
         true
     }

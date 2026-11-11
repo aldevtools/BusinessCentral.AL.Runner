@@ -14,6 +14,7 @@
 
 use crate::Session;
 use al_builtins::datatransfer::Plan;
+use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{LibraryValue, RtType, Value};
@@ -52,6 +53,70 @@ fn pos(t: &TableDef, no: i32) -> Result<usize, Signal> {
             },
             Ok,
         )
+}
+
+/// The positions of the fields of an `AddJoin`. A join of two fields of the same scalar type (for Code and Text, of any
+/// length) matches by value equality, as the joins of two Code[20] fields pin (install-upgrade/AsDtInstaller.al:163, :195
+/// and record/Y47DtInstall.al:350, read back by AsDtInstallRead.al and Y47DtInstallRead.al); the other same-type pairs keep
+/// that path by orchestrator decision (review of al-runner issue 7644) until the join matrix probe in
+/// docs/probes-needed.md lands. A pair of different field types is refused before a row is written (issue 7644: a Guid
+/// against a Code that holds no Guid counted as no match).
+fn join_fields(st: &TableDef, s: i32, dt: &TableDef, d: i32) -> Result<(usize, usize), Signal> {
+    let (sp, dp) = (pos(st, s)?, pos(dt, d)?);
+    if !same_scalar_type(&st.fields[sp].ty, &dt.fields[dp].ty) {
+        return refuse(format!(
+            "DataTransfer.AddJoin of {} field {} with {} field {} (a join of two fields of different types is not pinned)",
+            st.name, st.fields[sp].name, dt.name, dt.fields[dp].name
+        ));
+    }
+    Ok((sp, dp))
+}
+
+/// Whether two field types are the same scalar type for a join: Code with Code and Text with Text of any length, an enum
+/// with the same enum, an option with an option, and every other scalar type with itself.
+fn same_scalar_type(a: &RtType, b: &RtType) -> bool {
+    use RtType as T;
+    match (a, b) {
+        (T::Code(_), T::Code(_)) | (T::Text(_), T::Text(_)) | (T::Option(_), T::Option(_)) => true,
+        (T::Enum(x), T::Enum(y)) => x == y,
+        _ => {
+            a == b
+                && matches!(
+                    a,
+                    T::Boolean
+                        | T::Integer
+                        | T::BigInteger
+                        | T::Decimal
+                        | T::Byte
+                        | T::Char
+                        | T::Date
+                        | T::Time
+                        | T::DateTime
+                        | T::Duration
+                        | T::Guid
+                        | T::DateFormula
+                )
+        }
+    }
+}
+
+/// Whether the source row `s` matches the destination row `d` on every join field. Two values that do not compare refuse:
+/// they are neither a match nor no match (al-runner issue 7644).
+fn joined(joins: &[(usize, usize)], s: &[Value], d: &[Value]) -> Result<bool, Signal> {
+    for &(sp, dp) in joins {
+        match al_builtins::ops::compare(&s[sp], &d[dp]) {
+            Ok(o) if o.is_eq() => {}
+            Ok(_) => return Ok(false),
+            Err(_) => {
+                return refuse(format!(
+                    "DataTransfer.AddJoin comparing {} with {} (not pinned)",
+                    s[sp].describe(),
+                    d[dp].describe()
+                ));
+            }
+        }
+    }
+    Ok(true)
 }
 
 impl Session {
@@ -249,18 +314,16 @@ impl Session {
             let joins: Vec<(usize, usize)> = plan
                 .joins
                 .iter()
-                .map(|(s, d)| Ok((pos(&st, *s)?, pos(&dt, *d)?)))
+                .map(|(s, d)| join_fields(&st, *s, &dt, *d))
                 .collect::<Result<_, Signal>>()?;
             let mut out = Vec::new();
             for row in rows {
-                let matches: Vec<&Vec<Value>> = sources
-                    .iter()
-                    .filter(|s| {
-                        joins
-                            .iter()
-                            .all(|&(sp, dp)| al_builtins::ops::compare(&s[sp], &row[dp]).is_ok_and(|o| o.is_eq()))
-                    })
-                    .collect();
+                let mut matches: Vec<&Vec<Value>> = Vec::new();
+                for s in &sources {
+                    if joined(&joins, s, &row)? {
+                        matches.push(s);
+                    }
+                }
                 match matches.as_slice() {
                     [] => {}
                     [source] => {

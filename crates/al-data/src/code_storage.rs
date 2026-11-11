@@ -11,6 +11,7 @@ use std::sync::Arc;
 /// The order of two values of a field stored as `s`. `Integer` and `BigInteger`: by number, the empty value first. `Variant`:
 /// the empty value, then the texts that are no number, then the numbers (Y82PkTests.al `PkVnt_Mixed`: blank, 1A, A, A1, B, 9, 10).
 pub fn cmp_code(s: CodeStorage, a: &Value, b: &Value) -> Ordering {
+    // `TableDef::check_key_values` keeps every value that does not compare out of the store (al-runner issue 7644).
     let text_order = || al_builtins::ops::compare_key_value(a, b).unwrap_or(Ordering::Equal);
     let (Value::Code(x), Value::Code(y)) = (a, b) else {
         return text_order();
