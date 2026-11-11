@@ -127,7 +127,7 @@ impl Session {
             };
             let table = rec.borrow().table as usize;
             self.check_calc_field(table, ff)?;
-            row[ff] = self.calc_value(&probe, ff, &mut Vec::new())?;
+            row[ff] = self.calc_value(&probe, ff)?;
             rows.push((position(t, key, &row), row));
         }
         let mask = rec.borrow().field_descending;
