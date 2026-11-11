@@ -4,6 +4,7 @@
 
 use crate::records::Rec;
 use crate::{Frame, Session};
+use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_ir::ObjKind;
@@ -16,13 +17,20 @@ impl Session {
     /// - Page code calls it on the page's Rec (`Rec.InitType()`): the page's xRec, as the page's triggers see it (Sales
     ///   Invoice Subform.OnNewRecord calls Rec.InitType, which copies xRec.Type; pages/xrec-in-table-procedure/
     ///   XRecTableProcedure.al `proc xRec=2/22/two`).
-    /// - A field OnValidate of the table, or a field OnValidate or OnAfterValidate of one of its table extensions, calls it on
-    ///   Rec (`Rec.Proc()`, `this.Proc()` or unqualified): the trigger's xRec, on a stored and on a fresh record; what the
-    ///   procedure assigns to xRec shows in the trigger after the call (record/validate/XRecTableProcCalls.al:186-339, al-runner
-    ///   issues 7785 and 7792; the unqualified call from the table: record/TestXRecContracts.al:52, :255). Every other call from
-    ///   a trigger keeps the blank xRec of a plain call, unprobed (OnInsert, OnModify, OnDelete, OnRename, OnBeforeValidate,
-    ///   another record variable).
+    /// - A field OnValidate of the table, or a field OnValidate or OnAfterValidate of one of its table extensions, calls a
+    ///   procedure of the base table on Rec (`Rec.Proc()`, `this.Proc()` or unqualified) in a `Record.Validate` from code: the
+    ///   trigger's xRec, on a stored and on a fresh record; what the procedure assigns to xRec shows in the trigger after the call
+    ///   (record/validate/XRecTableProcCalls.al:186-339, al-runner issues 7785 and 7792; the unqualified call from the table:
+    ///   record/TestXRecContracts.al:52, :255).
+    /// - The same call from the table's own field OnValidate in the Validate of a TestPage write: not measured; Microsoft's
+    ///   Subscription Billing test Service Object Test.CheckChangeServiceObjectSN needs the trigger's xRec, so it is taken on
+    ///   assumption `xrec-table-proc-from-field-validate` (al-runner issue 7785), and only when that xRec holds other values than
+    ///   the blank record a plain call gets (else the two read the same).
+    ///
+    /// Every other call from a trigger keeps the blank xRec of a plain call, unprobed (OnInsert, OnModify, OnDelete, OnRename,
+    /// OnBeforeValidate, another record variable, a table extension's own procedure, an extension trigger in a TestPage write).
     pub(crate) fn table_proc_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> Option<Rec> {
+        let from_control = self.pages.control_validates.contains(&(Rc::as_ptr(rc) as usize));
         let caller_xrec = {
             let fi = f.instance.borrow();
             let objects = &self.engine.program.objects;
@@ -40,7 +48,10 @@ impl Session {
                 x == object
                     || (objects[x].kind == ObjKind::TableExtension && objects[x].extends_id == objects[object].id)
             };
-            let field_validate = owner(f.object)
+            // From a TestPage write only the table's own field OnValidate, as before XRecTableProcCalls.al.
+            let owner = |x: usize| if from_control { x == object } else { owner(x) };
+            let field_validate = objects[object].kind == ObjKind::Table
+                && owner(f.object)
                 && owner(fi.object as usize)
                 && objects[f.object].routines.get(f.routine).is_some_and(|r| {
                     let modify = r.container.as_ref().is_some_and(|(sec, _)| sec == "modify");
@@ -49,11 +60,17 @@ impl Session {
                             || (modify && r.name.eq_ignore_ascii_case("OnAfterValidate")))
                 });
             match (o.kind == ObjKind::Page, field_validate) {
-                (true, _) | (false, true) => caller_xrec.clone(),
+                (true, _) => return Some(caller_xrec.clone()),
+                (false, true) => caller_xrec.clone(),
                 (false, false) => return None,
             }
         };
-        Some(caller_xrec)
+        if !from_control {
+            return Some(caller_xrec);
+        }
+        let blank = self.initial_fields(rc.borrow().table as usize);
+        let differs = !Self::same_values(&caller_xrec.borrow().fields, &blank);
+        (differs && assumptions::hit(Assumption::XrecTableProcFromFieldValidate)).then_some(caller_xrec)
     }
 
     /// The before-image of the innermost running Validate of the record at `handle`, when the Validate about to start is

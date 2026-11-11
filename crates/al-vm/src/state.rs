@@ -253,6 +253,8 @@ pub(crate) struct PageClients {
     /// code), with the field's number: what `CurrFieldNo` reads. Held weakly: the entry keeps the record's
     /// allocation, so a later record cannot get the same address and inherit the number.
     pub(crate) curr_field_no: Vec<(std::rc::Weak<RefCell<RecordState>>, i32)>,
+    /// The records (by handle) a TestPage write is validating now, innermost last (`Session::table_proc_xrec`).
+    pub(crate) control_validates: Vec<usize>,
     /// The report instances that `Execute` has run: a second `Execute` on one is refused.
     /// A page opened for a `RunObject` action looks its handler up without failing when there is
     /// none (al-vm pages/runobject.rs).

@@ -10,8 +10,10 @@
 //! TestWrapped; OnQueryClosePage and OnClosePage do not run.
 //!
 //! Pinned by pages/close-errors/ModalCloseSaveErrorShapes.al (BC 27.5, 28.5, 29.0) on pages without OnQueryClosePage: on a List
-//! and a Card a TestField error (from a codeunit the page's OnModifyRecord runs, the al-runner issue 7400 report, or directly)
-//! keeps its text and the code TestField, and the save runs once more first (:250, :271, :314, :336, `log` twice); an Error()
+//! and a Card run by a static `Page.RunModal(Id, Rec)` whose return value is used (on a List also called as a statement), a TestField error raised in the page's
+//! OnModifyRecord (from a codeunit it runs, the al-runner issue 7400 report, or directly) keeps its text and the code
+//! TestField, and the save runs once more first (:250, :271, :314, :336, `log` twice). A TestField error from the table's
+//! OnModify, after a Page variable's RunModal or on a page with OnQueryClosePage is not measured and refused. An Error()
 //! gets the code TestWrapped (:292, :356), also on a Worksheet (:376) and on a List run by a Page variable in LookupMode (:419),
 //! where only Error() is measured.
 //! A new row's insert at close (:398 measures one, but the runtime inserts the row at SetValue and no corpus case shows when a
@@ -27,7 +29,16 @@ impl Session {
         let pinned = self.modal_close_save_pinned(st);
         let errors_before = st.borrow().errors.len();
         self.pages.close_save_error = None;
+        self.pages.failed_trigger = None;
         self.close_with(st, action, true, false)?;
+        // The page trigger the save's error came from (the close keeps the error on the page, `PageState::errors`).
+        let object = st.borrow().object;
+        let origin = self
+            .pages
+            .failed_trigger
+            .take()
+            .filter(|(o, _)| *o == object)
+            .map(|(_, name)| name);
         let saved = std::mem::take(&mut self.pages.close_save_error);
         // The save of the edited row raised (OnModifyRecord, OnInsertRecord or the table's trigger), so the page stayed open.
         let raised = st.borrow().open && st.borrow().errors.len() > errors_before;
@@ -42,7 +53,11 @@ impl Session {
         let mut wrapped = e.clone();
         if e.code == "Dialog" {
             wrapped.code = "TestWrapped".into();
-        } else if e.code == "TestField" && codes == PinnedCodes::DialogAndTestField {
+        } else if e.code == "TestField"
+            && codes == PinnedCodes::DialogAndTestField
+            && origin.as_deref() == Some("onmodifyrecord")
+            && !self.query_close_code(st)
+        {
             // The save runs once more and raises the TestField error again (ModalCloseSaveErrorShapes.al:250 `log` M-list NEW twice).
             match self.save_row(st) {
                 Err(Signal::Error(again)) if again.code == "TestField" => wrapped = (*again).clone(),
@@ -69,9 +84,11 @@ impl Session {
     }
 
     /// The shape whose save error is pinned, and the error codes pinned on it: a modal Card, List or Worksheet with no parts,
-    /// holding an edited row that exists (no new row, no pending insert). A Card or List not in lookup mode, or in lookup mode as
-    /// a static `Page.RunModal(Id, Rec)` puts it there: Dialog and TestField. A Worksheet in lookup mode as a static
-    /// `Page.RunModal(Id, Rec)` puts it there, and a List in lookup mode by `LookupMode(true)` on its Page variable: Dialog.
+    /// holding an edited row that exists (no new row, no pending insert). A Card or List in lookup mode as a static
+    /// `Page.RunModal(Id, Rec)` puts it there, and a List that call opened as a statement: Dialog and TestField (the TestField only from OnModifyRecord without
+    /// OnQueryClosePage, `close_modal_left_open`). A Card or List not in lookup mode (CemModalHandlerTests.al CardVariableRunModal,
+    /// ListVariableRunModal cells), a Worksheet in lookup mode as a static `Page.RunModal(Id, Rec)` puts it there, and a List in
+    /// lookup mode by `LookupMode(true)` on its Page variable: Dialog.
     fn modal_close_save_pinned(&self, st: &St) -> Option<PinnedCodes> {
         let s = st.borrow();
         let row_shape = s.modal
@@ -88,14 +105,27 @@ impl Session {
             return None;
         }
         let page_type = self.engine.object_facts[s.object as usize].page_type.clone();
+        let static_statement = s.run_static == Some(true) && !s.lookup;
         match (page_type, s.lookup.then_some(s.lookup_kind)) {
-            (Some(al_ir::PageType::Card | al_ir::PageType::List), None | Some(LookupKind::StaticRunModal)) => {
+            (Some(al_ir::PageType::Card | al_ir::PageType::List), Some(LookupKind::StaticRunModal)) => {
                 Some(PinnedCodes::DialogAndTestField)
             }
-            (Some(al_ir::PageType::Worksheet), Some(LookupKind::StaticRunModal))
+            // ModalCloseSaveErrorShapes.al:314 List_CodeunitTestField_LastErrorCode: `asserterror Page.RunModal(Id, Rec)`.
+            (Some(al_ir::PageType::List), None) if static_statement => Some(PinnedCodes::DialogAndTestField),
+            (Some(al_ir::PageType::Card | al_ir::PageType::List), None)
+            | (Some(al_ir::PageType::Worksheet), Some(LookupKind::StaticRunModal))
             | (Some(al_ir::PageType::List), Some(LookupKind::Variable)) => Some(PinnedCodes::Dialog),
             _ => None,
         }
+    }
+}
+
+impl Session {
+    /// Whether the page, a page extension or a subscriber has OnQueryClosePage code.
+    fn query_close_code(&self, st: &St) -> bool {
+        let object = st.borrow().object as usize;
+        self.declares_or_ext_declares(st, "onqueryclosepage")
+            || self.engine().events.is_subscribed(object, "onqueryclosepageevent")
     }
 }
 

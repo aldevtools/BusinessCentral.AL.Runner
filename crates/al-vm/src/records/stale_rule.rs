@@ -322,6 +322,7 @@ impl Session {
     /// - after a failed guarded `Codeunit.Run` whose rollback undid no write: nothing after it refuses
     ///   (record/crud/CodeunitRunTableNoWrites.al:267 Guarded_ModifyCommitError_ThenModify), and so does a Get of the row alone
     ///   through another variable (:205 Guarded_ModifyCommitError_ThenHandler: `stored after run` reads the row).
+    ///
     /// Any other rollback or anything else after it (a Get alone after an asserterror, a Get and Modify after a guarded run, a
     /// Find, another read) is not measured (corpus PR 1313 StaleEdge_LockThenRollback, StaleEdge_DatabaseErrorRollback;
     /// docs/probes-needed.md).

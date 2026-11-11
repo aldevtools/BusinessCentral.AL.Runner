@@ -18,8 +18,8 @@
 //! Pinned pages (`validate_xrec_pinned_page`), matched by the shape the probes have: a List or a Card opened on its own with no
 //! page trigger (its own or an extension's), no part, no DelayedInsert and a stored source table, and a ListPart with AutoSplitKey
 //! and DelayedInsert, no page trigger and a stored source table, opened on its own or inside a Document page opened on its own
-//! that has neither (UpdatePropagation not Both); inside such a Document also a ListPart whose page triggers are OnAfterGetRecord,
-//! OnNewRecord and OnAfterGetCurrRecord only (XRecPartWithTriggersSaveRecord.al:363-506). On those a row stored after `CurrPage.Update(false)` in the same step is
+//! that has neither (UpdatePropagation not Both); inside such a Document also a ListPart whose page triggers are exactly
+//! OnAfterGetRecord, OnNewRecord and OnAfterGetCurrRecord (XRecPartWithTriggersSaveRecord.al:363-506). On those a row stored after `CurrPage.Update(false)` in the same step is
 //! refused, and `CurrPage.Update(false)` on a row that held an unsaved edit before the step keeps the edit as before: no probe
 //! shows what stays then (a probe is queued). A save inside the step runs with the xRec the page had before this rule (the row it
 //! read, or the row a save stored): what the table's modify triggers see then is not pinned. After an error in the step the page
@@ -71,15 +71,14 @@ impl Session {
             Ok(p.triggers.is_empty() && p.ext_triggers.is_empty() && !on(o, "SourceTableTemporary")?)
         };
         let page = page_of(&engine, st);
-        // A ListPart of a Document whose page triggers are OnAfterGetRecord, OnNewRecord and OnAfterGetCurrRecord only
+        // A ListPart of a Document whose page triggers are exactly OnAfterGetRecord, OnNewRecord and OnAfterGetCurrRecord
         // (pages/currpage/XRecPartWithTriggersSaveRecord.al:363-506, al-runner issue 7403): its extensions' OnAfterValidate
-        // sees the base trigger's xRec too.
+        // sees the base trigger's xRec too. A part with only some of them is not measured.
+        const PART_TRIGGERS: [&str; 3] = ["onaftergetrecord", "onnewrecord", "onaftergetcurrrecord"];
         let part_triggers_measured = page.ext_triggers.is_empty()
             && !on(object, "SourceTableTemporary")?
-            && page
-                .triggers
-                .iter()
-                .all(|(n, _)| matches!(n.as_str(), "onaftergetrecord" | "onnewrecord" | "onaftergetcurrrecord"));
+            && page.triggers.len() == PART_TRIGGERS.len()
+            && PART_TRIGGERS.iter().all(|t| page.triggers.iter().any(|(n, _)| n == t));
         let is_part = matches!(page_type(object), Some(al_ir::PageType::Other(ref o)) if o == "listpart");
         if !quiet(page, object)? && !(is_part && part_triggers_measured) {
             return Ok(false);
