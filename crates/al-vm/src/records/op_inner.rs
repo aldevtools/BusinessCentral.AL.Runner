@@ -879,6 +879,12 @@ impl Session {
                         return Ok(answer);
                     }
                 }
+                if stored.is_none()
+                    && let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005)
+                    && let Some(answer) = self.modify_own_rolled_back_insert(&t, rec, i, run)?
+                {
+                    return Ok(answer);
+                }
                 // Modify never changes the stored SystemId, whatever the buffer carries
                 // (corpus record/TestRecordSystemId.al:176-215, :285-330).
                 let kept: Vec<(usize, Value)> = match &stored {
