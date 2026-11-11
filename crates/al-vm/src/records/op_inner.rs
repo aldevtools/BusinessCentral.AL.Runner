@@ -1238,14 +1238,8 @@ impl Session {
                         "AL:ToManyKeyFields",
                     ));
                 }
-                let mut pk = Vec::new();
-                for (n, &field) in t.keys[0].iter().enumerate() {
-                    let ty = t.fields[field].ty.clone();
-                    pk.push(match args.get(n) {
-                        Some(v) => self.get_key_value(v, &ty)?,
-                        None => self.default_value(&ty),
-                    });
-                }
+                let key = self.get_key(&t, args)?;
+                let mut pk = key.pk.clone();
                 // A Time or DateTime key value the SQL column rounds looks for the rounded row: Get('A', 10:00:00.001) and
                 // Get('A', 10:00:00) find the row stored from 10:00:00.001, Get('A', 10:00:00.002) does not, as it looks for
                 // 10:00:00.003 (record/filters/P130DateFilters.al:603-605, :617-618, :722-723). Through a RecordId
@@ -1278,23 +1272,8 @@ impl Session {
                     None => {
                         // A row that is there: record/TestSetAutoCalcFieldsOnGet.Codeunit.al:68-79; a row that is not: the
                         // error of Get(key) (record/crud/GetRecordId.al: P98_Get_RecordId_Missing_*).
-                        let mut ident = rec.borrow().fields.clone();
-                        for (n, &field) in t.keys[0].iter().enumerate() {
-                            ident[field] = match (args.get(n), &t.fields[field].ty) {
-                                // The message names the key as the caller gave it: an Option for an Enum key
-                                // reads 'Three', not the ordinal the enum lacks
-                                // (corpus types/PEOptionEnumBigText.al:225-259, probed on BC 27.5).
-                                (Some(o @ Value::Option(..)), RtType::Enum(_)) => o.clone(),
-                                // An enum of another type is named by the caller's value, its caption in its own enum, also
-                                // for an ordinal the key's enum lacks (errors/P138EnumGetNotFound.al:82-86,
-                                // :103, :178-180).
-                                (Some(e @ Value::Enum(from, _)), RtType::Enum(to)) if from != to => e.clone(),
-                                // An Integer is named as the key's enum value: its caption, or the number for an ordinal the
-                                // enum lacks (P138EnumGetNotFound.al:126-130, :153-155).
-                                (Some(Value::Integer(n)), RtType::Enum(to)) => Value::Enum(*to, *n),
-                                _ => pk[n].clone(),
-                            };
-                        }
+                        let held = rec.borrow().fields.clone();
+                        let ident = self.get_not_found_ident(&t, args, &key, held)?;
                         // GetLastErrorObject.al:232-255: the exception of a Get without a row.
                         self.fail(&t, &ident, false).map_err(|s| match s {
                             Signal::Error(mut e) if e.code == "DB:RecordNotFound" => {

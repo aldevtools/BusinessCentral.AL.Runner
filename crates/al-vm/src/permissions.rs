@@ -1599,18 +1599,17 @@ impl Session {
             return Ok(());
         }
         if method == R::Get {
-            let mut pk = Vec::new();
-            for (n, &field) in t.keys[0].iter().enumerate() {
-                let ty = t.fields[field].ty.clone();
-                match args.get(n) {
-                    Some(v) if !matches!(v, al_builtins::value::Value::Library(..)) => {
-                        pk.push(self.get_key_value(v, &ty)?)
-                    }
-                    _ => return refuse("Get with a RecordId or fewer values than the primary key has fields"),
-                }
+            if args.iter().any(|v| matches!(v, al_builtins::value::Value::Library(..))) || args.len() > t.keys[0].len()
+            {
+                return refuse("Get with a RecordId or more values than the primary key has fields");
             }
-            if args.len() != pk.len() || crate::sqltime::key_rounds(&pk) {
-                return refuse("Get with more values than the key, or a Time or DateTime key");
+            let key = self.get_key(&t, args)?;
+            if key.given < key.pk.len() {
+                return refuse("Get with fewer values than the primary key has fields");
+            }
+            let pk = key.pk;
+            if crate::sqltime::key_rounds(&pk) {
+                return refuse("Get with a Time or DateTime key value the SQL column rounds");
             }
             let cx = self.cx_for(rec, &t)?;
             let found = al_data::Store::get(&*self.store_for(rec), &cx, &t, &pk)

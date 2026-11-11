@@ -152,6 +152,11 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "the checker does not resolve the assignment form of a call (`Sleep := 1`, `Target.SetCounter := 7`) (corpus bump to 92031e20)",
     ),
     (
+        "codeunits/procedures/AssignIsCallRule.al",
+        "the checker does not resolve the assignment form of a call to an own procedure (`Rec.TableProc := 1`, `Bump := 1`); \
+         assignment as a call is its own package (corpus bump to 86dadd47)",
+    ),
+    (
         "reports/bare-report-member/UseRequestPageReadInTriggers.al",
         "the checker does not resolve a bare report method named without parentheses (`UseRequestPage`); the lowering refuses it (corpus bump to 662b1028)",
     ),

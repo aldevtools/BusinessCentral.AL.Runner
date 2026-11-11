@@ -459,6 +459,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `query_save_as.rs`: the bytes Query.SaveAsXml (a .NET DataSet) and SaveAsJson write. Entry: `render`.
 - `recmeta.rs` (734): Record builtins that read table metadata or guard on session state. Entry: `string_literal` 29, `mentions_table` 49, `is_blank` 60.
 - `records.rs` (2694): Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry: `record_op` 733, `table_event` 205, `run_trigger` 499, `delete_row` 297, `scan` 545, `unique_violation` 346.
+- `get_key_value.rs` (~240): The primary key a `Record.Get` looks for (each given value converted to its key field's type; an omitted key field is its InitValue for an Integer, else the blank of a pinned type, other shapes refuse) and the key values its not-found error names. Used by the Get arm of `records/op_inner.rs` and by `permissions.rs`. Entry: `get_key`, `get_not_found_ident`, `get_key_value`.
 - `records/op_inner.rs` (2545): `record_op_inner`, the dispatch of every Record method (moved out of `records.rs`), and `clear_record` (`Clear` of a record). Entry: `record_op_inner`.
 - `records/stale.rs` (598): row-version notes and the stale-record verdict. Entry: `note_write`, `stale_verdict`, `bump_row_version`.
 - `records/flowfield_key.rs` (130): the rows of a record keyed on a row-dependent sum or count FlowField, sorted by its value. Entry: `runs`, `scan_flowfield_key`.
