@@ -34,6 +34,7 @@ pub mod isolation;
 pub mod junit;
 pub mod license;
 mod login;
+pub mod login_start;
 pub mod observe;
 pub mod profiling;
 pub mod reach;

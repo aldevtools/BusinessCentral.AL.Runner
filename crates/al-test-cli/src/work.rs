@@ -135,6 +135,7 @@ pub fn counts_of(w: &al_testrun::runtime::RunWork) -> Counts {
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v as u64))
+    .chain(w.login.iter().map(|&(k, v)| (k.to_string(), v)))
     .collect()
 }
 

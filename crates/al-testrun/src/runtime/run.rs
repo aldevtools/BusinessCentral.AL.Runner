@@ -384,16 +384,10 @@ fn run_codeunit_inner(
     let company_open = if execute {
         crate::install::CompanyOpenWrites::default()
     } else {
-        // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
-        // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
-        // (docs/probes-needed.md, WorkDate row).
-        if let Err(why) = crate::install::login_work_date(engine, lowered, &mut session) {
-            return all(Outcome::NotRun(why));
-        }
-        match crate::install::test_session_company_open(lowered, &mut session, isolation == TestIsolation::Disabled) {
+        // The WorkDate step and the company-open step, run once per engine and replayed (`login_start.rs`).
+        match crate::login_start::open_company(engine, lowered, &mut session, isolation == TestIsolation::Disabled) {
             Err(why) => return all(Outcome::NotRun(why)),
             Ok(wrote) => {
-                session.commit_transaction();
                 // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the
                 // login code set it; a `WorkDate(d)` of the test still wins.
                 if let Some(shift) = perturb.work_date {

@@ -1224,6 +1224,13 @@ fn run_version_inner(
         allow_write_in_try_functions: pass.settings.allow_write_in_try_functions,
         // `dev_endpoint_ui` stays off: the corpus runs as Microsoft's Test Runner app does, so unhandled UI is an error.
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
+        recorded_runs: if std::env::var_os("AL_NO_RECORDED_RUNS").is_some() {
+            al_vm::RecordedRunsMode::Off // ADR-073 decision 8
+        } else if std::env::var_os("AL_RECORDED_RUNS_CHECK").is_some() {
+            al_vm::RecordedRunsMode::Check // ADR-073, Conformance: the state check
+        } else {
+            al_vm::RecordedRunsMode::On
+        },
         // Internal, for the ADR-070 step 2 comparison: the whole corpus in BC's order (`AL_STRICT_ORDER_ALL`), and the
         // sequential strict run (`AL_STRICT_SEQUENTIAL`).
         strict_order: std::env::var_os("AL_STRICT_ORDER_ALL").is_some(),
@@ -1317,6 +1324,9 @@ fn run_version_inner(
             eprintln!("{line}");
         }
         if let Some(line) = p.compile_line() {
+            eprintln!("{line}");
+        }
+        if let Some(line) = p.login.line() {
             eprintln!("{line}");
         }
         if p.cache.is_some() {

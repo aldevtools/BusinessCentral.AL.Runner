@@ -1259,7 +1259,9 @@ pub(crate) struct SqlImage {
     ops_since_commit: Option<u64>,
     chains: u32,
     buffer: Buffer,
-    buffer_outside: u64,
+    /// Whether store operations outside logged record methods happened since `buffer` was last brought up to date, while
+    /// a measurement is active (`buffer_outside` is compared for equality only, and set again by the first read).
+    buffer_stale: bool,
     muted_calls: u64,
     muted_dirty: u64,
     muted_rec_ops: u64,
@@ -1322,7 +1324,7 @@ impl SqlCounters {
             ops_since_commit: ops_at_commit.map(|o| now.wrapping_sub(o)),
             chains: *chains,
             buffer: *buffer,
-            buffer_outside: *buffer_outside,
+            buffer_stale: *active && now.wrapping_sub(*inside) != *buffer_outside,
             muted_calls: *muted_calls,
             muted_dirty: *muted_dirty,
             muted_rec_ops: *muted_rec_ops,
@@ -1351,7 +1353,7 @@ impl SqlCounters {
             ops_at_commit: i.ops_since_commit.map(|o| now.wrapping_sub(o)),
             chains: i.chains,
             buffer: i.buffer,
-            buffer_outside: i.buffer_outside,
+            buffer_outside: now.wrapping_sub(i.inside).wrapping_sub(u64::from(i.buffer_stale)),
             mute: 0,
             muted_calls: i.muted_calls,
             muted_dirty: i.muted_dirty,

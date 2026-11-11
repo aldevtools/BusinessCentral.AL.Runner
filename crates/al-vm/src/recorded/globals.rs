@@ -285,6 +285,29 @@ pub(super) struct SingleImage {
     single: bool,
 }
 
+impl SingleImage {
+    pub(super) fn object(&self) -> usize {
+        self.object
+    }
+}
+
+/// The globals of `single` that do not hold their initial empty collection, by slot: the plain values decoded, `None`
+/// for a record.
+pub(super) fn plain_globals(single: &SingleImage) -> Vec<(usize, Option<Value>)> {
+    (single.globals.iter())
+        .map(|(slot, g)| match g {
+            GlobalImage::Plain(bytes) => {
+                let mut r = al_builtins::value_codec::Reader::new(bytes);
+                (
+                    *slot,
+                    Some(al_builtins::value_codec::decode(&mut r).expect("bytes `encode` wrote")),
+                )
+            }
+            GlobalImage::Record(_) => (*slot, None),
+        })
+        .collect()
+}
+
 /// The image of one global, `None` when it holds its initial empty collection.
 fn global_image(v: &Value) -> Result<Option<GlobalImage>, NotRecorded> {
     match v {

@@ -255,6 +255,9 @@ pub struct RunOptions {
     /// shared baseline, instead of sharing one frozen baseline. The reference side of the differential check
     /// (`AL_PRIVATE_BASELINE=1`, read by the front ends); not documented for users. Only time and memory depend on it.
     pub private_baseline: bool,
+    /// ADR-073: record and replay the login start, its off switch (`AL_NO_RECORDED_RUNS=1`) or its state check
+    /// (`AL_RECORDED_RUNS_CHECK=1`), read by the front end (ADR-006).
+    pub recorded_runs: al_vm::RecordedRunsMode,
 }
 
 impl RunOptions {

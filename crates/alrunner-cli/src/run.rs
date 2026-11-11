@@ -1622,6 +1622,13 @@ fn test_inner(
         test_suites,                        // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
+        recorded_runs: if std::env::var_os("AL_NO_RECORDED_RUNS").is_some() {
+            al_vm::RecordedRunsMode::Off // ADR-073 decision 8
+        } else if std::env::var_os("AL_RECORDED_RUNS_CHECK").is_some() {
+            al_vm::RecordedRunsMode::Check // ADR-073, Conformance: the state check
+        } else {
+            al_vm::RecordedRunsMode::On
+        },
         strict_sequential: std::env::var_os("AL_STRICT_SEQUENTIAL").is_some(), // ADR-070 step 2 (internal)
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: run_only_picks(a, &selection, &found),
@@ -2000,6 +2007,9 @@ fn test_inner(
             eprintln!("{line}");
         }
         if let Some(line) = p.compile_line() {
+            eprintln!("{line}");
+        }
+        if let Some(line) = p.login.line() {
             eprintln!("{line}");
         }
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {

@@ -325,6 +325,32 @@ fn event_image(e: &crate::state::EventState) -> Result<EventImage, NotRecorded> 
     })
 }
 
+/// The UI state: the notifications and client marks are imaged; the handlers must be untouched (`check_untouched`).
+#[derive(Clone, PartialEq, Debug)]
+struct UiImage {
+    sent_notifications: Vec<[u8; 16]>,
+    dev_endpoint: crate::dev_endpoint_ui::DevEndpointUi,
+    clientless: bool,
+    clientless_login_skipped: bool,
+}
+
+fn ui_image(ui: &crate::state::UiState) -> UiImage {
+    let crate::state::UiState {
+        scope: _,              // untouched: check_untouched
+        page_handler_depth: _, // untouched: check_untouched
+        sent_notifications,
+        dev_endpoint,
+        clientless,
+        clientless_login_skipped,
+    } = ui;
+    UiImage {
+        sent_notifications: sent_notifications.clone(),
+        dev_endpoint: dev_endpoint.clone(),
+        clientless: *clientless,
+        clientless_login_skipped: *clientless_login_skipped,
+    }
+}
+
 /// The state of a session outside the database rows and the SingleInstance codeunits, as plain data (see the module
 /// comment). Two sessions with equal images, the same rows and no SingleInstance codeunit run the same code the same way.
 #[derive(Clone, PartialEq, Debug)]
@@ -412,10 +438,7 @@ pub struct SessionImage {
     caption_translations: Vec<(String, i32, String)>,
     ui_caption_translated: Vec<(String, i32)>,
     tx: TxImage,
-    sent_notifications: Vec<[u8; 16]>,
-    dev_endpoint: crate::dev_endpoint_ui::DevEndpointUi,
-    clientless: bool,
-    clientless_login_skipped: bool,
+    ui: UiImage,
     events: EventImage,
 }
 
@@ -449,243 +472,156 @@ fn untouched(fresh: bool, field: &'static str) -> Result<(), NotRecorded> {
 /// something). Called before a recorded run (its key) and after it (its result), and before a replay (the key).
 pub(super) fn image_of(s: &Session) -> Result<SessionImage, NotRecorded> {
     let Session {
-        engine: _,                   // not state: the program and the engine's own data are immutable
-        last_error,                  // imaged
-        depth,                       // untouched
-        spare_vecs: _,               // not state: emptied vectors kept for reuse
-        xp_pass_views,               // untouched
-        frames,                      // untouched
-        xp_unlinked_passes,          // untouched
-        xp_link_hidden,              // untouched
-        call_stack,                  // untouched
-        runner_frames,               // imaged
-        fault_trace,                 // imaged
-        fault_site: _,               // not state: tooling (where the last error left from, for `--explain`)
-        fault_site_lost: _,          // not state: tooling, with `fault_site`
-        isolated_storage,            // imaged
-        isolated_committed,          // imaged
-        isolated_set_in_test,        // imaged
-        tasks,                       // untouched
-        install_scope,               // imaged
-        company_build,               // imaged
-        no_client,                   // imaged
-        background_session,          // imaged
-        sessions_started,            // imaged
-        install_without_client,      // imaged
-        company_built,               // imaged
-        demo_written,                // imaged
-        gl_setup_written,            // imaged
-        setup_caption_read_early,    // imaged
-        table_connections,           // imaged
-        default_table_connection,    // imaged
-        crm_stores,                  // untouched
-        sequences,                   // imaged
-        sequences_changed,           // imaged
-        singletons: _,               // imaged by `globals.rs` (the SingleInstance codeunits and their globals)
-        si_track,                    // untouched
-        singles_unclaimed,           // untouched
-        store,                       // the rows: the caller's key and the recorded run's row changes (`rows.rs`)
-        temps,                       // untouched (after the dead temporary tables are released)
-        next_temp,                   // imaged
-        temp_release,                // untouched
-        next_guid,                   // imaged
-        guid_key,                    // imaged
-        unseeded_base,               // imaged
-        randomized_with_seed,        // imaged
-        rng,                         // imaged
-        random_draws,                // imaged
-        calls_made,                  // imaged
-        sql,                         // imaged
-        dirty_ops_open,              // untouched
-        dirty_frames,                // untouched
-        live_xrecs,                  // untouched
-        reseeded_in_test,            // imaged
-        inherited_draws,             // imaged
-        run_seeded_in_test,          // imaged
-        carried_draws,               // imaged
-        unseeded_randomizes,         // imaged
-        next_row_version,            // imaged
-        deletes,                     // imaged
-        install_row_version,         // imaged
-        restored_row_version,        // imaged
-        session_id_override,         // imaged
-        autoinc,                     // imaged
-        truncate_undo,               // imaged
-        validating,                  // untouched
-        stamp_validating,            // untouched
-        plain_proc_xrec,             // untouched
-        cx,                          // imaged
-        baseline_rows,               // imaged
+        engine: _,                    // not state: the program and the engine's own data are immutable
+        last_error,                   // imaged
+        depth: _,                     // untouched: check_untouched
+        spare_vecs: _,                // not state: emptied vectors kept for reuse
+        xp_pass_views: _,             // untouched: check_untouched
+        frames: _,                    // untouched: check_untouched
+        xp_unlinked_passes: _,        // untouched: check_untouched
+        xp_link_hidden: _,            // untouched: check_untouched
+        call_stack: _,                // untouched: check_untouched
+        runner_frames,                // imaged
+        fault_trace,                  // imaged
+        fault_site: _,                // not state: tooling (where the last error left from, for `--explain`)
+        fault_site_lost: _,           // not state: tooling, with `fault_site`
+        isolated_storage,             // imaged
+        isolated_committed,           // imaged
+        isolated_set_in_test,         // imaged
+        tasks: _,                     // untouched: check_untouched
+        install_scope,                // imaged
+        company_build,                // imaged
+        no_client,                    // imaged
+        background_session,           // imaged
+        sessions_started,             // imaged
+        install_without_client,       // imaged
+        company_built,                // imaged
+        demo_written,                 // imaged
+        gl_setup_written,             // imaged
+        setup_caption_read_early,     // imaged
+        table_connections,            // imaged
+        default_table_connection,     // imaged
+        crm_stores: _,                // untouched: check_untouched
+        sequences,                    // imaged
+        sequences_changed,            // imaged
+        singletons: _,                // imaged by `globals.rs` (the SingleInstance codeunits and their globals)
+        si_track: _,                  // untouched: check_untouched
+        singles_unclaimed: _,         // untouched: check_untouched
+        store,                        // the rows: the caller's key and the recorded run's row changes (`rows.rs`)
+        temps: _,                     // untouched: check_untouched (after the dead temporary tables are released)
+        next_temp,                    // imaged
+        temp_release: _,              // untouched: check_untouched
+        next_guid,                    // imaged
+        guid_key,                     // imaged
+        unseeded_base,                // imaged
+        randomized_with_seed,         // imaged
+        rng,                          // imaged
+        random_draws,                 // imaged
+        calls_made,                   // imaged
+        sql,                          // imaged
+        dirty_ops_open: _,            // untouched: check_untouched
+        dirty_frames: _,              // untouched: check_untouched
+        live_xrecs: _,                // untouched: check_untouched
+        reseeded_in_test,             // imaged
+        inherited_draws,              // imaged
+        run_seeded_in_test,           // imaged
+        carried_draws,                // imaged
+        unseeded_randomizes,          // imaged
+        next_row_version,             // imaged
+        deletes,                      // imaged
+        install_row_version,          // imaged
+        restored_row_version,         // imaged
+        session_id_override,          // imaged
+        autoinc,                      // imaged
+        truncate_undo,                // imaged
+        validating: _,                // untouched: check_untouched
+        stamp_validating: _,          // untouched: check_untouched
+        plain_proc_xrec: _,           // untouched: check_untouched
+        cx,                           // imaged
+        baseline_rows,                // imaged
         baseline_origin: _, // the rows: the caller's key (`Session::baseline_origin`); a run does not change it
         ret_used: _,        // not state: set before each builtin call
-        field_error_form,   // untouched
+        field_error_form: _, // untouched: check_untouched
         error_finals: _,    // not state: plumbing of a failed call, taken by its caller
-        var_alias_watch,    // untouched
+        var_alias_watch: _, // untouched: check_untouched
         tx_model,           // imaged
         in_test_codeunit,   // imaged
         isolation_from_hub, // imaged
         hub_disabled,       // imaged
         iso_min,            // imaged
         runner_permission_step, // imaged
-        runner_host,        // untouched
+        runner_host: _,     // untouched: check_untouched
         ignore_permission_mock, // imaged
         permissions_off,    // imaged
         permission_roles,   // imaged
-        permissions,        // untouched
+        permissions: _,     // untouched: check_untouched
         runner_permission_sets, // imaged
         shadow_roles,       // imaged
         shadow_active,      // imaged
         shadow_lower_bound, // imaged
-        permission_from_al, // untouched
-        permission_autocalc, // untouched
-        permission_page_calc, // untouched
-        permission_opening_source, // untouched
+        permission_from_al: _, // untouched: check_untouched
+        permission_autocalc: _, // untouched: check_untouched
+        permission_page_calc: _, // untouched: check_untouched
+        permission_opening_source: _, // untouched: check_untouched
         report_refusal_after_denial, // imaged
-        permission_caller,  // untouched
-        permission_run_object, // untouched
+        permission_caller: _, // untouched: check_untouched
+        permission_run_object: _, // untouched: check_untouched
         query_object,       // imaged
         test_object,        // imaged
         http_policy,        // imaged
         scratch_messages,   // imaged
         tdd_reached,        // imaged
         global_group1,      // imaged
-        capture,            // untouched (decision 6: a session that notes the code it runs takes no replay)
-        form,               // untouched
-        debug,              // untouched (decision 6)
-        constants: _,       // not state: a cache by node address
-        stop: _,            // not state: the runner's stop flag for this session
-        commits,            // imaged
-        error_scopes,       // untouched
-        initial_cache: _,   // not state: a cache by table
-        adhoc_tables: _,    // not state: a cache of table definitions
-        media,              // untouched
-        media_removed,      // untouched
-        bulk_modify,        // untouched
-        variant_refs,       // untouched
-        set_value_from_variant, // untouched
-        host_new_running,   // untouched
-        part_open_running,  // untouched
-        part_sync_keeps_same_link, // untouched
-        dotnet,             // untouched
-        application_areas,  // imaged
-        host,               // imaged (identity, seeds, clock); its files untouched
-        companies,          // imaged
-        company_unknown,    // imaged
-        full_copies,        // imaged
-        run_trigger_unknown, // untouched
-        package_load,       // untouched
-        waited_ms,          // imaged
-        sleep_budget,       // imaged
-        slept_in_test,      // imaged
-        encrypted,          // imaged
-        encryption_key,     // imaged
-        temp_files,         // imaged
-        render_pending_files, // untouched
-        last_stamp,         // imaged
-        clock_key,          // imaged
-        clock_draws,        // imaged
-        work_date,          // imaged
-        global_language,    // imaged
+        capture: _, // untouched: check_untouched (decision 6: a session that notes the code it runs takes no replay)
+        form: _,    // untouched: check_untouched
+        debug: _,   // untouched: check_untouched (decision 6)
+        constants: _, // not state: a cache by node address
+        stop: _,    // not state: the runner's stop flag for this session
+        commits,    // imaged
+        error_scopes: _, // untouched: check_untouched
+        initial_cache: _, // not state: a cache by table
+        adhoc_tables: _, // not state: a cache of table definitions
+        media: _,   // untouched: check_untouched
+        media_removed: _, // untouched: check_untouched
+        bulk_modify: _, // untouched: check_untouched
+        variant_refs: _, // untouched: check_untouched
+        set_value_from_variant: _, // untouched: check_untouched
+        host_new_running: _, // untouched: check_untouched
+        part_open_running: _, // untouched: check_untouched
+        part_sync_keeps_same_link: _, // untouched: check_untouched
+        dotnet: _,  // untouched: check_untouched
+        application_areas, // imaged
+        host,       // imaged (identity, seeds, clock); its files untouched
+        companies,  // imaged
+        company_unknown, // imaged
+        full_copies, // imaged
+        run_trigger_unknown: _, // untouched: check_untouched
+        package_load: _, // untouched: check_untouched
+        waited_ms,  // imaged
+        sleep_budget, // imaged
+        slept_in_test, // imaged
+        encrypted,  // imaged
+        encryption_key, // imaged
+        temp_files, // imaged
+        render_pending_files: _, // untouched: check_untouched
+        last_stamp, // imaged
+        clock_key,  // imaged
+        clock_draws, // imaged
+        work_date,  // imaged
+        global_language, // imaged
         caption_translations, // imaged
         ui_caption_translated, // imaged
-        get_load,           // untouched
-        sysid_load,         // untouched
-        find_load,          // untouched
-        tx,                 // imaged: what lasts past a commit; the rest untouched (`tx_image`)
-        ui_state,           // imaged: the notifications and client marks; the handlers untouched
-        pages,              // untouched
-        events,             // imaged: setup answers and marks; bindings untouched (`event_image`)
-        coverage,           // untouched (decision 6)
-        report,             // untouched
+        get_load: _, // untouched: check_untouched
+        sysid_load: _, // untouched: check_untouched
+        find_load: _, // untouched: check_untouched
+        tx,         // imaged: what lasts past a commit; the rest untouched (`tx_image`)
+        ui_state,   // imaged: the notifications and client marks; the handlers untouched
+        pages: _,   // untouched: check_untouched
+        events,     // imaged: setup answers and marks; bindings untouched (`event_image`)
+        coverage: _, // untouched: check_untouched (decision 6)
+        report: _,  // untouched: check_untouched
     } = s;
-    untouched(
-        *depth == 0 && frames.is_empty() && call_stack.is_empty(),
-        "depth (code is running)",
-    )?;
-    untouched(
-        xp_pass_views.is_empty() && xp_unlinked_passes.is_empty() && xp_link_hidden.is_empty(),
-        "xmlport passes",
-    )?;
-    untouched(tasks.holds_nothing(), "tasks (background tasks)")?;
-    untouched(crm_stores.is_empty(), "crm_stores")?;
-    untouched(
-        si_track.is_none() && singles_unclaimed.is_empty(),
-        "single instances moved in or watched",
-    )?;
-    untouched(
-        temps.is_empty() && temp_release.borrow().is_empty(),
-        "temps (temporary tables held outside globals)",
-    )?;
-    untouched(
-        *dirty_ops_open == 0 && dirty_frames.is_empty() && live_xrecs.iter().all(|w| w.strong_count() == 0),
-        "record writes running",
-    )?;
-    untouched(
-        validating.is_empty() && stamp_validating.is_empty() && plain_proc_xrec.is_empty(),
-        "a validate or table procedure running",
-    )?;
-    untouched(
-        field_error_form.is_none() && var_alias_watch.is_empty(),
-        "a call running",
-    )?;
-    untouched(runner_host.holds_nothing(), "runner_host (a test runner codeunit runs)")?;
-    untouched(permissions.is_none(), "permissions (a permission set is assigned)")?;
-    untouched(
-        !permission_from_al
-            && !permission_autocalc
-            && !permission_page_calc
-            && permission_opening_source.is_none()
-            && permission_caller.is_none()
-            && permission_run_object.is_none(),
-        "a permission check running",
-    )?;
-    untouched(
-        capture.is_none() && debug.is_none() && *form == crate::Form::Plain,
-        "value capture or debugger",
-    )?;
-    untouched(error_scopes.holds_nothing(), "error_scopes (collected errors)")?;
-    let al_builtins::media::MediaStore {
-        objects,
-        sets,
-        removed,
-        outside_tenant,
-    } = media;
-    let no_media = objects.borrow().is_empty()
-        && sets.borrow().is_empty()
-        && removed.borrow().is_empty()
-        && outside_tenant.borrow().is_empty();
-    untouched(
-        no_media && media_removed.0.is_empty() && media_removed.1.is_empty(),
-        "media",
-    )?;
-    untouched(
-        !bulk_modify
-            && !variant_refs.get_table
-            && !set_value_from_variant
-            && !host_new_running
-            && !part_open_running
-            && part_sync_keeps_same_link.is_none(),
-        "a record or page operation running",
-    )?;
-    untouched(dotnet.holds_nothing(), "dotnet (.NET objects)")?;
-    untouched(
-        run_trigger_unknown.is_none() && !package_load,
-        "a company copy or package load running",
-    )?;
-    untouched(render_pending_files.is_empty(), "render_pending_files")?;
-    untouched(!get_load && !sysid_load && !find_load, "a record load running")?;
-    untouched(pages.holds_nothing(), "pages (open pages)")?;
-    untouched(coverage.holds_nothing(), "coverage, impact trace or profiler")?;
-    untouched(report.holds_nothing(), "report (a report runs)")?;
-    let crate::state::UiState {
-        scope,
-        page_handler_depth,
-        sent_notifications,
-        dev_endpoint,
-        clientless,
-        clientless_login_skipped,
-    } = ui_state;
-    untouched(scope.is_none() && *page_handler_depth == 0, "ui_state (UI handlers)")?;
+    check_untouched(s)?;
     Ok(SessionImage {
         last_error: last_error.clone(),
         runner_frames: runner_frames.clone(),
@@ -772,12 +708,153 @@ pub(super) fn image_of(s: &Session) -> Result<SessionImage, NotRecorded> {
         caption_translations: caption_translations.clone(),
         ui_caption_translated: ui_caption_translated.clone(),
         tx: tx_image(tx, store.change_counter())?,
-        sent_notifications: sent_notifications.clone(),
-        dev_endpoint: dev_endpoint.clone(),
-        clientless: *clientless,
-        clientless_login_skipped: *clientless_login_skipped,
+        ui: ui_image(ui_state),
         events: event_image(events)?,
     })
+}
+
+/// Fails with the first must-be-untouched field (the fields `image_of` binds as `_` with "untouched") that does not hold
+/// what a new session holds.
+fn check_untouched(s: &Session) -> Result<(), NotRecorded> {
+    let Session {
+        depth,
+        xp_pass_views,
+        frames,
+        xp_unlinked_passes,
+        xp_link_hidden,
+        call_stack,
+        tasks,
+        crm_stores,
+        si_track,
+        singles_unclaimed,
+        temps,
+        temp_release,
+        dirty_ops_open,
+        dirty_frames,
+        live_xrecs,
+        validating,
+        stamp_validating,
+        plain_proc_xrec,
+        field_error_form,
+        var_alias_watch,
+        runner_host,
+        permissions,
+        permission_from_al,
+        permission_autocalc,
+        permission_page_calc,
+        permission_opening_source,
+        permission_caller,
+        permission_run_object,
+        capture,
+        form,
+        debug,
+        error_scopes,
+        media,
+        media_removed,
+        bulk_modify,
+        variant_refs,
+        set_value_from_variant,
+        host_new_running,
+        part_open_running,
+        part_sync_keeps_same_link,
+        dotnet,
+        run_trigger_unknown,
+        package_load,
+        render_pending_files,
+        get_load,
+        sysid_load,
+        find_load,
+        pages,
+        coverage,
+        report,
+        ..
+    } = s;
+    untouched(
+        *depth == 0 && frames.is_empty() && call_stack.is_empty(),
+        "depth (code is running)",
+    )?;
+    untouched(
+        xp_pass_views.is_empty() && xp_unlinked_passes.is_empty() && xp_link_hidden.is_empty(),
+        "xmlport passes",
+    )?;
+    untouched(tasks.holds_nothing(), "tasks (background tasks)")?;
+    untouched(crm_stores.is_empty(), "crm_stores")?;
+    untouched(
+        si_track.is_none() && singles_unclaimed.is_empty(),
+        "single instances moved in or watched",
+    )?;
+    untouched(
+        temps.is_empty() && temp_release.borrow().is_empty(),
+        "temps (temporary tables held outside globals)",
+    )?;
+    untouched(
+        *dirty_ops_open == 0 && dirty_frames.is_empty() && live_xrecs.iter().all(|w| w.strong_count() == 0),
+        "record writes running",
+    )?;
+    untouched(
+        validating.is_empty() && stamp_validating.is_empty() && plain_proc_xrec.is_empty(),
+        "a validate or table procedure running",
+    )?;
+    untouched(
+        field_error_form.is_none() && var_alias_watch.is_empty(),
+        "a call running",
+    )?;
+    untouched(runner_host.holds_nothing(), "runner_host (a test runner codeunit runs)")?;
+    untouched(permissions.is_none(), "permissions (a permission set is assigned)")?;
+    untouched(
+        !permission_from_al
+            && !permission_autocalc
+            && !permission_page_calc
+            && permission_opening_source.is_none()
+            && permission_caller.is_none()
+            && permission_run_object.is_none(),
+        "a permission check running",
+    )?;
+    untouched(
+        capture.is_none() && debug.is_none() && *form == crate::Form::Plain,
+        "value capture or debugger",
+    )?;
+    untouched(error_scopes.holds_nothing(), "error_scopes (collected errors)")?;
+    let al_builtins::media::MediaStore {
+        objects,
+        sets,
+        removed,
+        outside_tenant,
+    } = media;
+    let no_media = objects.borrow().is_empty()
+        && sets.borrow().is_empty()
+        && removed.borrow().is_empty()
+        && outside_tenant.borrow().is_empty();
+    untouched(
+        no_media && media_removed.0.is_empty() && media_removed.1.is_empty(),
+        "media",
+    )?;
+    untouched(
+        !bulk_modify
+            && !variant_refs.get_table
+            && !set_value_from_variant
+            && !host_new_running
+            && !part_open_running
+            && part_sync_keeps_same_link.is_none(),
+        "a record or page operation running",
+    )?;
+    untouched(dotnet.holds_nothing(), "dotnet (.NET objects)")?;
+    untouched(
+        run_trigger_unknown.is_none() && !package_load,
+        "a company copy or package load running",
+    )?;
+    untouched(render_pending_files.is_empty(), "render_pending_files")?;
+    untouched(!get_load && !sysid_load && !find_load, "a record load running")?;
+    untouched(pages.holds_nothing(), "pages (open pages)")?;
+    untouched(coverage.holds_nothing(), "coverage, impact trace or profiler")?;
+    untouched(report.holds_nothing(), "report (a report runs)")?;
+    let crate::state::UiState {
+        scope,
+        page_handler_depth,
+        ..
+    } = &s.ui_state;
+    untouched(scope.is_none() && *page_handler_depth == 0, "ui_state (UI handlers)")?;
+    Ok(())
 }
 
 /// Puts the imaged fields of `image` into `s`, whose image before was the recorded run's image before (the caller
@@ -868,10 +945,7 @@ pub(super) fn restore(s: &mut Session, image: &SessionImage) {
         caption_translations,
         ui_caption_translated,
         tx,
-        sent_notifications,
-        dev_endpoint,
-        clientless,
-        clientless_login_skipped,
+        ui,
         events,
     } = image;
     s.last_error = last_error.clone();
@@ -959,6 +1033,13 @@ pub(super) fn restore(s: &mut Session, image: &SessionImage) {
     al_builtins::filter::set_filter_language(*global_language);
     s.caption_translations = caption_translations.clone();
     s.ui_caption_translated = ui_caption_translated.clone();
+    restore_tx(s, tx);
+    restore_ui(s, ui);
+    restore_events(s, events);
+}
+
+/// The transaction part of [`restore`]: what lasts past a commit; `commit_counter` is the store's counter now.
+fn restore_tx(s: &mut Session, tx: &TxImage) {
     let TxImage {
         commit_behavior,
         tx_phase,
@@ -988,10 +1069,24 @@ pub(super) fn restore(s: &mut Session, image: &SessionImage) {
     s.tx.inconsistent = inconsistent.clone();
     s.tx.lock_unpinned = *lock_unpinned;
     s.tx.commit_counter = s.store.change_counter();
+}
+
+/// The UI part of [`restore`]: the notifications and client marks (the handlers are untouched).
+fn restore_ui(s: &mut Session, ui: &UiImage) {
+    let UiImage {
+        sent_notifications,
+        dev_endpoint,
+        clientless,
+        clientless_login_skipped,
+    } = ui;
     s.ui_state.sent_notifications = sent_notifications.clone();
     s.ui_state.dev_endpoint = dev_endpoint.clone();
     s.ui_state.clientless = *clientless;
     s.ui_state.clientless_login_skipped = *clientless_login_skipped;
+}
+
+/// The event part of [`restore`]: the setup answers, the install marks and the statistics (bindings are untouched).
+fn restore_events(s: &mut Session, events: &EventImage) {
     let EventImage {
         calls,
         active,

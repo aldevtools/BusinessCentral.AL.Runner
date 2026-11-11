@@ -19,10 +19,7 @@ use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_sema::lower::Lowered;
 use al_vm::{Engine, InstallFacts, Session};
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 /// One part of an app's install: the per-company code, or the per-database code.
@@ -1023,7 +1020,7 @@ fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usi
 }
 
 /// The tables the Company Triggers subscribers of the test session wrote ([`test_session_company_open`]).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct CompanyOpenWrites {
     /// The first subscriber that wrote, for the reason text.
     pub who: Option<String>,
@@ -1101,6 +1098,25 @@ impl CompanyOpenWrites {
     }
 }
 
+/// How the test session of the codeunit models the login ([`test_session_company_open`]; `disabled`: under
+/// RequiredTestIsolation = Disabled). The login (`login.rs`, al-runner issue 7343): raised through the dependency apps'
+/// OnCompanyOpenCompleted subscribers, in codeunit id order with the apps under test's own, for a test codeunit that can
+/// see what the login leaves; else the apps under test's own login subscribers run where the login is raised, watched in
+/// a session the pin does not cover (`login::decide`). It reads the program and the test codeunit only, so it is part of
+/// the key of the login start (`login_start.rs`).
+pub(crate) fn login_decision(lowered: &Lowered, session: &Session, disabled: bool) -> crate::login::Login {
+    let watched = if session.is_clientless_session() {
+        Some(crate::login::NO_CLIENT)
+    } else if disabled {
+        Some(crate::login::DISABLED)
+    } else {
+        None
+    };
+    session.test_object.map_or(crate::login::Login::None, |t| {
+        crate::login::decide(&session.engine, lowered, t, watched)
+    })
+}
+
 /// The test session raises Company Triggers OnCompanyOpen, then OnCompanyOpenCompleted, once, before the first test of a
 /// codeunit, and not again for later tests (ADR-046 amendment 1, A4 item 10; events/platform-triggers/BfCompanyOpenTests.al:19-38,
 /// :40-50; events/platform-triggers/PeVTests.al:297). Here the subscribers of the apps under test run. What the runner
@@ -1114,25 +1130,11 @@ impl CompanyOpenWrites {
 pub(crate) fn test_session_company_open(
     lowered: &Lowered,
     session: &mut Session,
-    disabled: bool,
+    mut decision: crate::login::Login,
 ) -> Result<CompanyOpenWrites, String> {
     let engine = session.engine.clone();
     let objs = &lowered.program.objects;
     let mut wrote = CompanyOpenWrites::default();
-    // The login (`login.rs`, al-runner issue 7343): raised through the dependency apps' OnCompanyOpenCompleted
-    // subscribers, in codeunit id order with the apps under test's own, for a test codeunit that can see what the login
-    // leaves; else the apps under test's own login subscribers run where the login is raised, watched in a session the
-    // pin does not cover (`login::decide`).
-    let watched = if session.is_clientless_session() {
-        Some(crate::login::NO_CLIENT)
-    } else if disabled {
-        Some(crate::login::DISABLED)
-    } else {
-        None
-    };
-    let mut decision = session.test_object.map_or(crate::login::Login::None, |t| {
-        crate::login::decide(&engine, lowered, t, watched)
-    });
     // Microsoft's code raises OnRegisterAssistedSetup only while the checklist is not set up (the pin measured a session
     // where it was not, LgnLoginChecklistTests.al:10, :139): when it is, Microsoft's code decides (review of al-runner
     // issue 7717, round three, probe p6c).
@@ -1317,112 +1319,57 @@ pub(crate) fn login_work_date(engine: &Engine, lowered: &Lowered, session: &mut 
     if let Some(reason) = crate::runtime::blocked_reason(lowered, object, routine) {
         return Err(why(reason));
     }
-    // LogInManagement is a SingleInstance codeunit: the session's one instance keeps what the call set.
+    // Recorded and replayed once per engine (ADR-073 phase 1, `login_start.rs`). A run kept in the baseline's file
+    // ([`keep_login_records`]) is not taken by a session that notes the code it runs.
+    let may_take_record = !session.notes_code_run();
+    let company = session.access_company().to_string();
+    let work_date = session.work_date();
+    let origin = session.baseline_origin();
+    crate::login_start::work_date_step(
+        engine,
+        session,
+        |session| work_date_code(session, object, routine, may_take_record, why),
+        |session, run| {
+            let Some(baseline) = origin else { return };
+            let Some((day, globals)) = replayable(engine, lowered, object, routine, session, run) else {
+                return;
+            };
+            let record = crate::baseline::LoginRecord {
+                company,
+                work_date,
+                day,
+                globals,
+                hits: run.hits(),
+            };
+            note_login_record(baseline, record);
+        },
+    )
+}
+
+/// `GetDefaultWorkDate` on the session's LogInManagement, a SingleInstance codeunit whose one instance keeps what the
+/// call set: from a run kept in the baseline's file when one fits (LogInManagement is new, no table changed since the
+/// baseline, [`keep_login_records`]), else the code.
+fn work_date_code(
+    session: &mut Session,
+    object: usize,
+    routine: usize,
+    may_take_record: bool,
+    why: impl Fn(String) -> String,
+) -> Result<(), String> {
     let fresh = !session.has_single_instance(object);
     let instance = session.codeunit_instance(object);
-    let memo = engine.derived(LoginMemo::default);
-    let Some(key) = fresh.then(|| memo_key(session)).flatten() else {
-        let called = session.call(object, routine, instance, Vec::new());
-        return finish(session, called, why);
-    };
-    // The threads of a run start their first sessions together: one records, the others wait for its run instead of
-    // running the same code beside it.
-    let recording = memo.recording.lock().unwrap_or_else(PoisonError::into_inner);
-    let found = {
-        let mut state = memo.state.lock().unwrap_or_else(PoisonError::into_inner);
-        // A warm server runs its next request on the same engine, maybe over other test data.
-        if state.backing != Some(key.backing) {
-            *state = MemoState {
-                backing: Some(key.backing),
-                ..Default::default()
-            };
-        }
-        if state.gave_up {
-            None
-        } else {
-            Some(state.runs.iter().find(|r| r.key == key).cloned())
-        }
-    };
-    let Some(found) = found else {
-        drop(recording);
-        let called = session.call(object, routine, instance, Vec::new());
-        return finish(session, called, why);
-    };
-    // A run recorded over the same baseline by an earlier run of the program, kept in the baseline's file
-    // ([`keep_login_records`]): it is taken as if this engine had recorded it.
-    let found = found.or_else(|| {
-        let record = kept_login_record(&key)?;
-        let run = MemoRun {
-            key: key.clone(),
-            day: record.day,
-            globals: record.globals,
-            hits: record.hits,
-        };
-        let mut state = memo.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.runs.len() == MEMO_RUNS {
-            state.runs.remove(0);
-        }
-        state.runs.push(run.clone());
-        Some(run)
-    });
-    if let Some(run) = found {
-        drop(recording);
-        memo.replays.fetch_add(1, Ordering::Relaxed);
+    if let Some(record) = (fresh && may_take_record).then(|| kept_login_record(session)).flatten() {
         {
             let mut inst = instance.borrow_mut();
-            for &(g, day, flag) in &run.globals {
+            for &(g, day, flag) in &record.globals {
                 inst.globals[g] = Value::Date(day, flag);
             }
         }
-        al_builtins::assumptions::add_hit_bits(run.hits);
-        session.set_work_date(run.day);
+        al_builtins::assumptions::add_hit_bits(record.hits);
+        session.set_work_date(record.day);
         return Ok(());
     }
-    let hits_before = al_builtins::assumptions::take_hit_bits();
-    let before = (
-        session.store_mut().change_counter(),
-        session.work_date(),
-        session.clock_offset_ms(),
-        session.last_error.clone(),
-    );
-    session.enable_impact_trace();
-    let called = session.call(object, routine, instance.clone(), Vec::new());
-    let touches = session.take_impact_trace();
-    session.disable_impact_trace();
-    let hits = al_builtins::assumptions::take_hit_bits();
-    al_builtins::assumptions::add_hit_bits(hits_before | hits);
-    let after = (
-        session.store_mut().change_counter(),
-        session.work_date(),
-        session.clock_offset_ms(),
-        session.last_error.clone(),
-    );
-    let recorded = match &called {
-        Ok((Value::Date(day, false), _)) if before == after => {
-            replayable(engine, lowered, object, session, &touches, &instance).map(|globals| MemoRun {
-                key,
-                day: *day,
-                globals,
-                hits,
-            })
-        }
-        _ => None,
-    };
-    {
-        let mut state = memo.state.lock().unwrap_or_else(PoisonError::into_inner);
-        match recorded {
-            Some(run) => {
-                note_login_record(&run);
-                if state.runs.len() == MEMO_RUNS {
-                    state.runs.remove(0);
-                }
-                state.runs.push(run);
-            }
-            // A run whose effects cannot be replayed: later sessions run the code without waiting for each other.
-            None => state.gave_up = true,
-        }
-    }
-    drop(recording);
+    let called = session.call(object, routine, instance, Vec::new());
     finish(session, called, why)
 }
 
@@ -1491,109 +1438,53 @@ pub(crate) fn login_records(origin: u64) -> Vec<crate::baseline::LoginRecord> {
         .unwrap_or_default()
 }
 
-fn note_login_record(run: &MemoRun) {
-    let record = crate::baseline::LoginRecord {
-        company: run.key.company.clone(),
-        work_date: run.key.work_date,
-        day: run.day,
-        globals: run.globals.clone(),
-        hits: run.hits,
-    };
-    with_origin(run.key.baseline, |kept| {
+/// Keeps a recorded run of the login code that sets WorkDate for the file of the baseline of origin `baseline`, in
+/// place of one recorded with the same company and WorkDate.
+fn note_login_record(baseline: u64, record: crate::baseline::LoginRecord) {
+    with_origin(baseline, |kept| {
         kept.retain(|r| !(r.company == record.company && r.work_date == record.work_date));
         kept.push(record);
-        if kept.len() > MEMO_RUNS {
+        if kept.len() > KEPT_RECORDS {
             kept.remove(0);
         }
     });
 }
 
-fn kept_login_record(key: &MemoKey) -> Option<crate::baseline::LoginRecord> {
+/// The run kept in the file of the session's baseline for its company and WorkDate: `None` when a table changed since
+/// the baseline, the session has none, or who offers the rows of its untouched tables is not known.
+fn kept_login_record(session: &mut Session) -> Option<crate::baseline::LoginRecord> {
+    session.store_mut().backing_identity()?;
+    let baseline = session.baseline_origin()?;
+    let (company, work_date) = (session.access_company(), session.work_date());
     let all = LOGIN_RECORDS.lock().unwrap_or_else(PoisonError::into_inner);
-    let (_, records) = all.iter().find(|(o, _)| *o == key.baseline)?;
+    let (_, records) = all.iter().find(|(o, _)| *o == baseline)?;
     records
         .iter()
-        .find(|r| r.company == key.company && r.work_date == key.work_date)
+        .find(|r| r.company == company && r.work_date == work_date)
         .cloned()
 }
 
-/// How many recorded runs of the login code an engine keeps (the oldest goes first): one per state of the database a
-/// session starts from, and the sessions of a run usually share one.
-const MEMO_RUNS: usize = 8;
+/// How many runs of the login code the file of one baseline keeps (the oldest goes first).
+const KEPT_RECORDS: usize = 8;
 
-/// The login code's recorded runs, per engine (`Engine::derived`). Without them, each of a run's threads builds the
-/// tables `GetDefaultWorkDate` reads from the test data (every G/L entry) only to find the last posting date.
-#[derive(Default)]
-pub(crate) struct LoginMemo {
-    state: Mutex<MemoState>,
-    /// Held while a session looks for a recorded run and records one.
-    recording: Mutex<()>,
-    /// How often a recorded run was replayed (for tests).
-    pub(crate) replays: AtomicU64,
-}
-
-/// The recorded runs over one test data.
-#[derive(Default)]
-struct MemoState {
-    backing: Option<(u64, u64)>,
-    runs: Vec<MemoRun>,
-    /// A run could not be replayed: the sessions run the code and no longer wait for each other.
-    gave_up: bool,
-}
-
-/// What a run of the login code can depend on: the database (the baseline the session started from, while no table
-/// changed since, and who offers the rows of the untouched tables), the company and WorkDate. LogInManagement's
-/// instance is a new one, as the session made no use of it before. The run reads no other session state
-/// ([`replayable`]).
-#[derive(Clone, PartialEq)]
-struct MemoKey {
-    baseline: u64,
-    backing: (u64, u64),
-    company: String,
-    work_date: i32,
-}
-
-#[derive(Clone)]
-struct MemoRun {
-    key: MemoKey,
-    day: i32,
-    /// The globals of LogInManagement the run may have changed, and their Date values after it.
-    globals: Vec<(usize, i32, bool)>,
-    /// The assumption marks the run made.
-    hits: al_builtins::assumptions::HitBits,
-}
-
-/// The key of the session's state, whose LogInManagement instance is new; `None` when a run may be neither recorded
-/// nor replayed now: the session notes the code it runs (coverage, the impact trace), a table changed since it started
-/// from its baseline (install code, what an earlier codeunit left), it has no baseline, or who offers the rows of its
-/// untouched tables is not known.
-fn memo_key(session: &mut Session) -> Option<MemoKey> {
-    if session.notes_code_run() {
-        return None;
-    }
-    let backing = session.store_mut().backing_identity()?;
-    let baseline = session.baseline_origin()?;
-    Some(MemoKey {
-        baseline,
-        backing,
-        company: session.access_company().to_string(),
-        work_date: session.work_date(),
-    })
-}
-
-/// The globals of LogInManagement a run may have changed and their values after it, when the run can be replayed: it raised no event, wrote nothing,
-/// used no page, report or .NET, read only stored tables, and the routines it called read no session state but
-/// WorkDate, change none, are all known, and name no global of another codeunit; the globals they may change hold Dates.
+/// What a recorded run of the login code that sets WorkDate keeps in the file of its baseline (the WorkDate it set
+/// and the Date globals of LogInManagement it may have changed), when another process may take it without comparing
+/// the session image: the code ran (not a kept run), wrote no row, raised no event, used no page, report or .NET, read
+/// only stored tables, and the routines it called read no session state but WorkDate, change none, are all known, and
+/// name no global of another codeunit; the globals they may change hold Dates.
 fn replayable(
     engine: &Engine,
     lowered: &Lowered,
     object: usize,
+    routine: usize,
     session: &Session,
-    touches: &al_vm::impact::Touches,
-    instance: &Rc<RefCell<al_builtins::value::Instance>>,
-) -> Option<Vec<(usize, i32, bool)>> {
+    run: &al_vm::RecordedRun,
+) -> Option<(i32, Vec<(usize, i32, bool)>)> {
     use crate::runtime::written::state;
-    let quiet = touches.events.is_empty()
+    let touches = run.touches();
+    let quiet = touches.routines.contains(&(object, routine))
+        && !run.wrote_rows()
+        && touches.events.is_empty()
         && touches.writes.is_empty()
         && touches.pages.is_empty()
         && touches.reports.is_empty()
@@ -1602,6 +1493,7 @@ fn replayable(
     if !quiet {
         return None;
     }
+    let day = run.work_date_after()?;
     let mut routines: Vec<(usize, usize)> = touches.routines.iter().copied().collect();
     routines.sort_unstable();
     let index = engine.derived(|| crate::runtime::written::ReachIndex::new(&engine.events, lowered));
@@ -1621,17 +1513,18 @@ fn replayable(
     }
     // The globals the routines may change (assign, hand to a `var` parameter, call a method on, clear) are taken as
     // they are after the run, and must all hold Dates, which are plain values; the others kept their new instance's
-    // values. A record or another handle among them turns the replay off.
-    let inst = instance.borrow();
+    // values. A record or another handle among them keeps the run out of the file.
+    let values = run.single_globals(object)?;
     let mut written: Vec<usize> = facts.globals_written.iter().map(|&(_, g)| g).collect();
     written.sort_unstable();
-    written
+    let globals = written
         .into_iter()
-        .map(|g| match inst.globals.get(g) {
-            Some(Value::Date(d, f)) => Some((g, *d, *f)),
+        .map(|g| match values.iter().find(|(slot, _)| *slot == g) {
+            Some((_, Some(Value::Date(d, f)))) => Some((g, *d, *f)),
             _ => None,
         })
-        .collect()
+        .collect::<Option<Vec<_>>>()?;
+    Some((day, globals))
 }
 
 /// Runs one install routine; why it did not run to its end, if it did not.

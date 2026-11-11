@@ -468,6 +468,8 @@ pub struct Phases {
     /// How the test threads took the install baseline: shared (ADR-069), or a copy each and why; `None` with one
     /// test thread or no baseline.
     pub install_snapshot: Option<String>,
+    /// What the login start did on the tests' engines (ADR-073 phase 1), for `--timings`.
+    pub login: crate::login_start::LoginCounts,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
     /// What the run did, counted (the work ratchet of `al-test-cli`).
@@ -494,6 +496,8 @@ pub struct RunWork {
     pub baseline_rows: Option<usize>,
     /// Tests that ran (passed or failed); a test that was not run does not count.
     pub tests_run: usize,
+    /// The login start (ADR-073 phase 1, `login_start.rs`): the counters of [`crate::login_start::LoginCounts::work`].
+    pub login: [(&'static str, u64); 3],
 }
 
 /// The time of one pass over the test codeunits ([`Phases::passes`]).
@@ -1116,6 +1120,8 @@ mod grow;
 mod handlers;
 mod install_snapshot;
 mod lane_starts;
+#[cfg(test)]
+mod login_start_tests;
 #[cfg(test)]
 mod login_tests;
 pub mod memory;

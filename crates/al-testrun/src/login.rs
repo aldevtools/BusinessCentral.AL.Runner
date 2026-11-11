@@ -59,6 +59,7 @@ use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 /// How the test session of a test codeunit models the login ([`decide`]).
+#[derive(Clone, PartialEq)]
 pub(crate) enum Login {
     /// No app under test subscribes to a login event: nothing to model.
     None,
@@ -77,7 +78,7 @@ pub(crate) enum Login {
 }
 
 /// One login event raised to the apps under test's own subscribers ([`Login::Own`]).
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct OwnEvent {
     /// The publisher routine (object, routine).
     pub publisher: (usize, usize),

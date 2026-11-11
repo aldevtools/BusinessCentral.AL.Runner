@@ -916,10 +916,10 @@ fn the_test_session_starts_on_the_login_work_date() {
     }
 }
 
-// The login code runs once per engine while the tables it reads stay as they were (`install::LoginMemo`): a later test
+// The login code runs once per engine while the tables it reads stay as they were (`login_start.rs`): a later test
 // session gets the same WorkDate and the same LogInManagement global (read later by Base Application's LogInEnd,
 // LogInManagement.Codeunit.al:148) as a session that ran the code. Codeunit 40 stands in for Base Application's.
-const LOGIN_SRC: &str = "table 60900 Entry { fields { field(1; No; Integer) { } field(2; D; Date) { } } }
+pub(super) const LOGIN_SRC: &str = "table 60900 Entry { fields { field(1; No; Integer) { } field(2; D; Date) { } } }
     codeunit 60910 Seed { trigger OnRun() var E: Record Entry; begin E.No := 1; E.D := 20240115D; E.Insert(); end; }
     codeunit 40 LogInManagement { SingleInstance = true;
         var LogInWorkDate: Date;
@@ -936,7 +936,7 @@ const LOGIN_SRC: &str = "table 60900 Entry { fields { field(1; No; Integer) { } 
             if WorkDate() <> 20240115D then Error('WorkDate %1', WorkDate());
             if L.LoginDate() <> 20240115D then Error('LogInWorkDate %1', L.LoginDate()); end; }";
 
-fn login_engine(src: &str) -> (Arc<Engine>, Lowered) {
+pub(super) fn login_engine(src: &str) -> (Arc<Engine>, Lowered) {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -959,15 +959,12 @@ fn object_named(l: &Lowered, name: &str) -> usize {
     l.program.objects.iter().position(|o| o.name == name).unwrap()
 }
 
-fn login_replays(engine: &Engine) -> u64 {
-    engine
-        .derived(crate::install::LoginMemo::default)
-        .replays
-        .load(std::sync::atomic::Ordering::Relaxed)
+pub(super) fn login_replays(engine: &Engine) -> u64 {
+    crate::login_start::counts(engine).work_date.replayed
 }
 
 /// The baseline of a session that ran codeunit `seed`'s OnRun.
-fn seeded_baseline(engine: &Arc<Engine>, l: &Lowered, seed: &str) -> al_vm::Baseline {
+pub(super) fn seeded_baseline(engine: &Arc<Engine>, l: &Lowered, seed: &str) -> al_vm::Baseline {
     let mut session = al_vm::Session::new(engine.clone());
     let s = object_named(l, seed);
     let on_run = l.program.objects[s]
@@ -1023,27 +1020,6 @@ fn login_code_that_writes_is_not_replayed() {
     let (engine, l) = login_engine(&src);
     let baseline = seeded_baseline(&engine, &l, "Seed");
     for t in ["T1", "T2", "T1"] {
-        let o = run_codeunit_from(&engine, &l, object_named(&l, t), Some(&baseline));
-        assert_eq!(o, vec![("SeesTheLoginDate".to_string(), Outcome::Pass)], "{t}");
-    }
-    assert_eq!(login_replays(&engine), 0);
-}
-
-// Login code that may change a record global is not replayed: the record's state is not a plain value to put back.
-#[test]
-fn login_code_that_may_change_a_record_global_is_not_replayed() {
-    let src = LOGIN_SRC
-        .replace(
-            "var LogInWorkDate: Date;",
-            "var LogInWorkDate: Date; Last: Record Entry;",
-        )
-        .replace(
-            "if E.FindLast() then begin",
-            "if Last.FindLast() then; if E.FindLast() then begin",
-        );
-    let (engine, l) = login_engine(&src);
-    let baseline = seeded_baseline(&engine, &l, "Seed");
-    for t in ["T1", "T2"] {
         let o = run_codeunit_from(&engine, &l, object_named(&l, t), Some(&baseline));
         assert_eq!(o, vec![("SeesTheLoginDate".to_string(), Outcome::Pass)], "{t}");
     }

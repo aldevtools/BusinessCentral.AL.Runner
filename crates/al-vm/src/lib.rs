@@ -22,7 +22,7 @@ mod get_key_value;
 mod package_data;
 mod partial_gone;
 mod recorded;
-pub use recorded::{NotRecorded, RecordedRun, Recording, SessionImage};
+pub use recorded::{NotRecorded, RecordedRun, RecordedRunsMode, Recording, SessionImage};
 mod run_restore;
 pub mod single_track;
 mod state;
@@ -248,6 +248,9 @@ pub struct Engine {
     /// ADR-069 decision 11 (`AL_PRIVATE_BASELINE=1`): each thread builds its own rows of the test data, as before
     /// `test_rows`. The reference side of the differential check; only time and memory depend on it.
     pub private_test_rows: bool,
+    /// ADR-073: whether the sessions record and replay runs (the login), with the off switch (`AL_NO_RECORDED_RUNS=1`)
+    /// and the state check (`AL_RECORDED_RUNS_CHECK=1`), read by the front ends (ADR-006).
+    pub recorded_runs: RecordedRunsMode,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
     pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
@@ -531,6 +534,7 @@ impl Engine {
             seed_rows: Default::default(),
             test_rows: Default::default(),
             private_test_rows: false,
+            recorded_runs: RecordedRunsMode::On,
             facts,
             exec: Arc::new(exec),
             positions_by_object: Default::default(),
@@ -584,6 +588,7 @@ impl Engine {
             // run's install engine and tests engine, so each table is built once per process (ADR-069 decision 4).
             test_rows: self.test_rows.clone(),
             private_test_rows: false,
+            recorded_runs: RecordedRunsMode::On,
             facts: self.facts.clone(),
             exec: self.exec.clone(),
             positions_by_object: Default::default(),
@@ -657,6 +662,7 @@ impl Engine {
             seed_rows: _,
             test_rows,
             private_test_rows: _,
+            recorded_runs: _,
             delete_subscribed: _,
             lasting_effects: _,
             positions_by_object: _,

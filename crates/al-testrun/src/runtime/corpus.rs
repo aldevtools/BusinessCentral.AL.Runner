@@ -1084,6 +1084,7 @@ impl CorpusRuntime {
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
                 (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+                e.recorded_runs = opts.recorded_runs;
                 e.license = opts.license.clone();
                 e.write_in_try_allowed = opts.allow_write_in_try_functions;
                 e.dependencies_published_global = opts.dependencies_published_global;
@@ -1097,6 +1098,7 @@ impl CorpusRuntime {
             let mut sibling = engine.sibling();
             if let Some(e) = Arc::get_mut(&mut sibling) {
                 (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+                e.recorded_runs = opts.recorded_runs;
                 e.license = opts.license.clone();
                 e.write_in_try_allowed = opts.allow_write_in_try_functions;
                 e.dependencies_published_global = opts.dependencies_published_global;
@@ -1906,6 +1908,10 @@ impl CorpusRuntime {
         } else {
             Vec::new()
         };
+        let mut login = crate::login_start::counts(&engine);
+        if let Some(spare) = &spare_engine {
+            login.add(&crate::login_start::counts(spare));
+        }
         let install_met = keep_or_retire_engines(
             (engine, baseline_engine, spare_engine),
             baseline.as_ref().and_then(|b| b.workspace_installs.as_deref()),
@@ -1964,7 +1970,9 @@ impl CorpusRuntime {
                         .map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
                     baseline_rows,
                     tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
+                    login: login.work(),
                 },
+                login,
                 // Not redone, not warm: the caller sets them.
                 ..Default::default()
             },
@@ -2256,6 +2264,7 @@ fn take_kept_engines(
         e.reset_run_state();
         e.dotnet = dotnet.clone();
         (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+        e.recorded_runs = opts.recorded_runs;
         e.license = opts.license.clone();
         e.write_in_try_allowed = opts.allow_write_in_try_functions;
         e.dependencies_published_global = opts.dependencies_published_global;

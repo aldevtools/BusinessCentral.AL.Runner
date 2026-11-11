@@ -29,6 +29,19 @@ pub use image::SessionImage;
 
 use crate::Session;
 
+/// Whether an engine's sessions record and replay runs (`Engine::recorded_runs`, ADR-073 decisions 8 and the state check).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RecordedRunsMode {
+    /// Record and replay.
+    #[default]
+    On,
+    /// The off switch: every session runs the code for real, as before ADR-073.
+    Off,
+    /// The state check: a session that could take a replay runs the code for real, records it, and the caller compares
+    /// the result with the kept run's ([`RecordedRun::result_difference`]).
+    Check,
+}
+
 /// Why a run is not recorded, or why a session takes no replay.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NotRecorded {
@@ -104,6 +117,48 @@ impl RecordedRun {
     pub fn work_date_after(&self) -> Option<i32> {
         self.after.work_date()
     }
+
+    /// The globals the run left in SingleInstance codeunit `object`, by slot (a global that holds its initial empty
+    /// collection is left out): the plain values, `None` for a record. `None` when the run left no instance of it.
+    pub fn single_globals(&self, object: usize) -> Option<Vec<(usize, Option<al_builtins::value::Value>)>> {
+        Some(globals::plain_globals(
+            self.singles.iter().find(|s| s.object() == object)?,
+        ))
+    }
+
+    /// The first part of the result in which `other`, a run of the same code from an equal image, differs from this run:
+    /// the image after, the SingleInstance codeunits, the rows or the assumption marks. `None`: the same result. The
+    /// state check (ADR-073, Conformance) compares a real run with the kept run a replay would have given.
+    pub fn result_difference(&self, other: &RecordedRun) -> Option<String> {
+        if let Some(d) = first_difference(&self.after, &other.after) {
+            return Some(format!("session image after the run: {d}"));
+        }
+        if let Some(d) = first_difference(&self.singles, &other.singles) {
+            return Some(format!("SingleInstance codeunits: {d}"));
+        }
+        if let Some(d) = first_difference(&self.rows, &other.rows) {
+            return Some(format!("rows: {d}"));
+        }
+        (self.hits != other.hits).then(|| "assumption marks".to_string())
+    }
+}
+
+/// Where the debug forms of `a` and `b` first differ: the top-level field and the first line that differs; `None` when
+/// they are equal. Diagnosis only (`--explain`, `--timings`, the state check).
+fn first_difference<T: std::fmt::Debug>(a: &T, b: &T) -> Option<String> {
+    let (a, b) = (format!("{a:#?}"), format!("{b:#?}"));
+    if a == b {
+        return None;
+    }
+    let (la, lb): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+    let at = (0..la.len().max(lb.len())).find(|&i| la.get(i) != lb.get(i))?;
+    let field = (0..=at.min(la.len().saturating_sub(1)))
+        .rev()
+        .map(|i| la[i])
+        .find(|l| l.starts_with("    ") && !l.starts_with("     "))
+        .map_or("", |l| l.trim().split(':').next().unwrap_or(""));
+    let line = |l: Option<&&str>| l.map_or("(none)".to_string(), |l| l.trim().chars().take(100).collect());
+    Some(format!("{field}: {} against {}", line(la.get(at)), line(lb.get(at))))
 }
 
 impl Session {
@@ -203,6 +258,25 @@ impl Session {
             now.forget_test_object();
         }
         now == run.before
+    }
+
+    /// Why this session may not take `run`'s result now, for diagnosis: the first field of the image that differs, or
+    /// another reason. `None`: it may ([`Session::replay_applies`]).
+    pub fn replay_miss(&self, run: &RecordedRun) -> Option<String> {
+        if self.notes_code_run() {
+            return Some(NotRecorded::NotesCode.to_string());
+        }
+        if !self.singletons.is_empty() {
+            return Some(NotRecorded::SingleInstanceBefore.to_string());
+        }
+        let mut now = match image::image_of(self) {
+            Ok(now) => now,
+            Err(why) => return Some(why.to_string()),
+        };
+        if !run.touches.test_object {
+            now.forget_test_object();
+        }
+        first_difference(&run.before, &now).map(|d| format!("the session image differs in {d}"))
     }
 
     /// Puts `run`'s result in place of running its code; the caller checked [`Session::replay_applies`]. `Err` (the
