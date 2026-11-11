@@ -602,6 +602,12 @@ pub struct PageState {
     /// The row a new line was started below (`New()` on a stored row of a list): after the new row
     /// is saved, `Next()` goes to the row below that one, as the client's own row order has it.
     pub after_new: Option<Vec<Value>>,
+    /// The client call that runs now (or the last one) saved the current row through `CurrPage.Update(true)` in page code;
+    /// cleared at the start of every client call on the page except `New()` (al-vm pages/pageops.rs).
+    pub saved_by_update: bool,
+    /// `New()` started its line below a row `CurrPage.Update(true)` in page code saved in the call before (`saved_by_update`), the
+    /// shape testpage/NewRowThenMove.al:407 TypeOneRowThenNewList pins (al-vm pages/leave_new_line.rs).
+    pub after_new_by_update: bool,
     /// OnInit/OnOpenPage are running, and `CurrPage.Editable(false)` has been called in them.
     pub opening: bool,
     pub editable_off: bool,

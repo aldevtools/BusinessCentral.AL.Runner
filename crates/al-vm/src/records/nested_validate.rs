@@ -1,6 +1,9 @@
-//! The xRec of a Validate nested in a Validate of the same record (`RecordOp::Validate`).
+//! The xRec a Validate hands its triggers (`RecordOp::Validate`): nested in a Validate of the same record, in a plain table
+//! procedure call, in a page's OnModifyRecord, else the record before the call.
 
 use crate::Session;
+use crate::records::Rec;
+use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_ir::ObjKind;
 
@@ -22,5 +25,37 @@ impl Session {
                 || (objects[o].kind == ObjKind::TableExtension && objects[o].extends_id == objects[table_object].id)
         });
         (own || self.stamp_validating.contains(&handle)).then(|| before.clone())
+    }
+
+    /// The before-image a Validate of `rec` (at `handle`) hands its triggers as xRec, `outer` being `outer_validate_before` and
+    /// `with_value` whether the Validate hands a new value.
+    /// In a table procedure that no operation of the record called (a plain call, whose xRec is a blank record:
+    /// `enter_record`), a Validate of the procedure's own Rec passes that xRec, not the record as it is
+    /// (types/operators-expressions/UpThisField.al:175 UP_This_ValidateTestFieldCompound: `this.Validate(Qty, 5)` after
+    /// Qty := 3 sees old=0, and `this.Qty := 7; this.Validate(this.Qty)` sees old=0). In the page's OnModifyRecord a Validate
+    /// of the page's Rec passes the page's xRec or is refused (`pages/modify_record_xrec.rs`). Called from other code, the xRec is the record
+    /// before the call (record/TestXRecContracts.al:190, record/TestTableEventSequenceContracts.al).
+    pub(crate) fn validate_before_image(
+        &self,
+        handle: usize,
+        outer: Option<Vec<Value>>,
+        rec: &Rec,
+        with_value: bool,
+    ) -> Result<Vec<Value>, Signal> {
+        if let Some(b) = outer {
+            return Ok(b);
+        }
+        let depth = self.call_stack.len();
+        if let Some(x) = self
+            .plain_proc_xrec
+            .last()
+            .filter(|(h, d, _)| *h == handle && *d == depth)
+        {
+            return Ok(x.2.borrow().fields.clone());
+        }
+        let before = rec.borrow().fields.clone();
+        Ok(self
+            .modify_record_validate_xrec(handle, &before, with_value)?
+            .unwrap_or(before))
     }
 }

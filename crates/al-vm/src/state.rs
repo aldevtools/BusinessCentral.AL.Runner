@@ -230,6 +230,9 @@ pub(crate) struct PageClients {
     /// page saving a row passes its own xRec (corpus
     /// testpage/TestPageActionRunObjectPageRec_Tests.al:HostSaveAfterTheTargetEditedTheRowCarriesXRec).
     pub(crate) page_xrec: Option<Vec<Value>>,
+    /// The page whose OnModifyRecord runs now, innermost last: a `Rec.Validate` of its Rec in its own code takes its xRec
+    /// (`pages/modify_record_xrec.rs`).
+    pub(crate) modify_record_xrec: Vec<crate::pages::modify_record_xrec::ModifyRecordXRec>,
     /// Records whose `CurrFieldNo` is set (a TestPage write validating a field, or an assignment in table
     /// code), with the field's number: what `CurrFieldNo` reads. Held weakly: the entry keeps the record's
     /// allocation, so a later record cannot get the same address and inherit the number.

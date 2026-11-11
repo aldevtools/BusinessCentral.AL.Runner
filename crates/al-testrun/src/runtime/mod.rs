@@ -76,6 +76,9 @@ pub struct Manifest {
     pub package_data_files: Vec<(String, Vec<u8>)>,
     /// The translation files of an app folder (ADR-053 step 2); empty for a package.
     pub translation_files: Vec<al_ir::TranslationFile>,
+    /// Reads the translation files of a package or a dependency folder when a translated read needs them
+    /// (`al_deps::lazy::PackageTranslations`); `None` for an app whose files are in `translation_files`.
+    pub translation_source: Option<al_ir::TranslationSourceRef>,
     /// `runtime` of the app's own app.json as (major, minor); `None` when it names none or is not known (a package).
     pub runtime: Option<(u32, u32)>,
     /// The top-level keys of the app's own app.json; empty for a package. With `target` and `runtime`, what the AL
@@ -194,6 +197,7 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
         package_data: al_deps::load::ships_package_data(dir),
         package_data_files: al_deps::load::package_data_files(dir)?,
         translation_files: translation_files(dir),
+        translation_source: None,
         id_ranges: manifest["idRanges"]
             .as_array()
             .into_iter()
@@ -1169,23 +1173,6 @@ pub use self::single_lane::{LaneReport, RerunSkipped, rerun_skipped_text};
 pub fn translation_files(dir: &std::path::Path) -> Vec<al_ir::TranslationFile> {
     al_deps::load::translation_files(dir)
         .into_iter()
-        .map(|(name, parsed)| translation_file(name, parsed))
+        .map(|(name, parsed)| al_deps::xliff::translation_file(name, parsed))
         .collect()
-}
-
-/// [`translation_files`] for one file that has been read.
-pub fn translation_file(name: String, parsed: Result<al_deps::xliff::Xliff, String>) -> al_ir::TranslationFile {
-    match parsed {
-        Ok(x) => al_ir::TranslationFile {
-            name,
-            target_language: x.target_language,
-            units: x.units,
-            error: None,
-        },
-        Err(e) => al_ir::TranslationFile {
-            name,
-            error: Some(e),
-            ..Default::default()
-        },
-    }
 }
