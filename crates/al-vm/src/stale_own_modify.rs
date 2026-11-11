@@ -53,7 +53,7 @@ impl Session {
             Some(o) if !o.own_write && run && trigger.is_some() && !hooks => {
                 // With a locking ReadIsolation read in the open transaction the order is measured for own-write buffers only
                 // (record/crud/CodeunitRunTableNoWrites.al:629-741).
-                let contact = match self.open_tx_contact(t, &company, pk, theirs) {
+                let contact = match self.open_tx_contact(t, &company, pk, o, theirs) {
                     Ok(_) if self.locking_read_in_tx() => Err("after a ReadIsolation read that locks"),
                     c => c,
                 };

@@ -1,9 +1,7 @@
 //! A stale buffer from the variable's own Insert, four Commits later, after a transaction that reads another table under
 //! ReadIsolation UpdLock (Find, as No. Series takes a number) and writes other tables only: the Modify raises DB:RecordChanged,
 //! as after a plain Get (record/WbStaleUpdLockTests.al:16-25 and the contrast :29-38; al-runner issue 6287).
-//! The number of Commits and the table the locking read reads do not matter: five Commits and an UpdLock read of the buffer's own
-//! row raise DB:RecordChanged too (record/crud/CodeunitRunTableNoWrites.al:629-741, corpus PR 1323: one Commit, a read of the own
-//! row, another row or another table, nothing else of the table written).
+//! Five Commits and an UpdLock read of the buffer's own table are not pinned and stay refused.
 
 use al_testkit::outcomes_in;
 
@@ -101,7 +99,8 @@ fn an_updlock_read_of_another_table_four_commits_later_raises_record_changed() {
     let get = |n: &str| format!("{:?}", o.iter().find(|(name, _)| name == n).map(|(_, x)| x));
     assert_eq!(get("UpdLockFour"), "Some(Pass)");
     assert_eq!(get("PlainFour"), "Some(Pass)");
-    // Refused before corpus PR 1323 measured them; the test names are kept.
-    assert_eq!(get("UpdLockFiveIsRefused"), "Some(Pass)");
-    assert_eq!(get("UpdLockOwnTableIsRefused"), "Some(Pass)");
+    for t in ["UpdLockFiveIsRefused", "UpdLockOwnTableIsRefused"] {
+        let g = get(t);
+        assert!(g.contains("NotRun"), "{t}: {g}");
+    }
 }

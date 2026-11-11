@@ -943,7 +943,7 @@ impl Session {
                 // :GuardedRun_InstanceForm_CommitThenError_KeepsCommittedRowOnly).
                 // (Nothing to undo in a page background worker: the caller's rows are not its own.)
                 if self.pages.bg_worker.is_none() {
-                    self.trapped_error_rollback(&e)?;
+                    self.trapped_error_rollback(&e, crate::records::TrappedRollback::GuardedRun)?;
                 }
                 self.error_finals = None;
                 self.last_error = *e;

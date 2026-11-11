@@ -31,7 +31,7 @@ mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
 mod stale_rule;
-pub(crate) use stale_rule::same_key;
+pub(crate) use stale_rule::{LockingRead, TrappedRollback, same_key};
 mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;

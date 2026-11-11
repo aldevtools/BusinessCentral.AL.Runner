@@ -42,6 +42,9 @@ pub(crate) struct TxState {
     /// Why a rollback since the last Commit is not one the stale-buffer rule knows (`Session::note_rollback_for_stale_rule`);
     /// `None` without a rollback or after rollbacks the rule knows only.
     pub(crate) rollback_unpinned: Option<&'static str>,
+    /// What trapped the rollbacks since the last Commit, while they are all of one kind the stale-buffer rule knows
+    /// (`Session::trapped_error_rollback`).
+    pub(crate) rollback_kind: Option<crate::records::TrappedRollback>,
     /// The database reads (table object, company, the key a Get named; `None` for any other read) since the last rollback, while
     /// the transaction then open began at it (`Session::note_read_after_rollback`).
     pub(crate) reads_after_rollback: Vec<(u32, Option<String>, Option<Vec<Value>>)>,
@@ -97,6 +100,9 @@ pub(crate) struct TxState {
     /// The tables (object index, company) a locking ReadIsolation locked since the last Commit: UpdLock set on a database
     /// table, or a read under RepeatableRead or UpdLock.
     pub(crate) isolation_lock_tables: Vec<(u32, Option<String>)>,
+    /// The reads under a locking ReadIsolation since the last Commit or rollback: table object, company and the read's form
+    /// (`Session::locking_reads_measured`).
+    pub(crate) locking_reads: Vec<(u32, Option<String>, crate::records::LockingRead)>,
     /// A read under UpdLock or RepeatableRead whose effect on the write transaction is not pinned ran since the last Commit
     /// (a FindFirst, FindSet, FindLast or another Find under an isolation set in an earlier transaction): `lock_unpinned`
     /// then refuses IsInWriteTransaction. Without it, the pinned reads that set `lock_unpinned` open no write transaction.
@@ -176,6 +182,7 @@ impl TxState {
             rolled_back: false,
             reads_after_rollback: Vec::new(),
             rollback_unpinned: None,
+            rollback_kind: None,
             last_commit_wrote: false,
             deferred_insert: None,
             insert_buffer: Vec::new(),
@@ -193,6 +200,7 @@ impl TxState {
             lock_unpinned: None,
             recref_lock_tx: false,
             isolation_lock_tables: Vec::new(),
+            locking_reads: Vec::new(),
             locking_read_tx_unpinned: false,
         }
     }

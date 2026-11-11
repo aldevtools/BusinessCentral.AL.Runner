@@ -373,6 +373,13 @@ impl Session {
                 RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "="),
                 _ => false,
             };
+            if matches!(
+                rec.borrow().read_isolation,
+                ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
+            ) {
+                let read = (t.object, company.clone(), super::LockingRead::of(method));
+                self.tx.locking_reads.push(read);
+            }
             match rec.borrow().read_isolation {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
                     if self.tx.lock_tx && matches!(method, RecordOp::FindFirst | RecordOp::FindSet) =>
