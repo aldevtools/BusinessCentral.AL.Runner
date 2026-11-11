@@ -160,6 +160,30 @@ impl Session {
         ))
     }
 
+    /// A fresh destination, or one holding just the blank-key filter of an earlier selection.
+    pub(super) fn plain_no_row_selection_destination(&self, dst: &Rec, initial: &[Value]) -> Result<bool, Signal> {
+        let table = self.table(dst)?;
+        let destination = dst.borrow();
+        let key = &table.keys[0];
+        Ok(destination.marks.is_empty()
+            && !destination.marked_only
+            && destination.filters.iter().all(|filter| {
+                key.len() == 1
+                    && filter.field == key[0]
+                    && match &filter.expr {
+                        al_builtins::filter::FilterExpr::Eq(value) => {
+                            al_builtins::ops::compare(value, &initial[filter.field]).is_ok_and(|order| order.is_eq())
+                        }
+                        al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) => {
+                            let expected = &initial[filter.field];
+                            al_builtins::ops::compare(a, expected).is_ok_and(|order| order.is_eq())
+                                && al_builtins::ops::compare(b, expected).is_ok_and(|order| order.is_eq())
+                        }
+                        _ => false,
+                    }
+            }))
+    }
+
     /// An action on a filtered modal Worksheet with InsertAllowed = false and no current row selects the default key.
     /// Measured by the pending corpus probe pages/currpage/SelectionFilterNoRow.al:346.
     pub(super) fn empty_modal_worksheet_selection(

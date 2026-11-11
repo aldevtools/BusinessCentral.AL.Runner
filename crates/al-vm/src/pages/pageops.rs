@@ -1068,30 +1068,7 @@ impl Session {
                     // _HiddenByVariable_, _VisiblePart_): that is the blank-row path below.
                     let initial = self.initial_fields(src.borrow().table as usize);
                     let blank_rec = self.is_blank_row(&src);
-                    // The record may hold the blank-key filter of an earlier call (HiddenPartSelectionFilter.al: `rec-before=Id: 0/0`).
-                    let t = self.table(dst)?;
-                    let plain_dst = {
-                        let d = dst.borrow();
-                        d.marks.is_empty()
-                            && !d.marked_only
-                            && d.filters.iter().all(|f| {
-                                f.field == t.keys[0][0]
-                                    && t.keys[0].len() == 1
-                                    && match &f.expr {
-                                        al_builtins::filter::FilterExpr::Eq(v) => {
-                                            al_builtins::ops::compare(v, &initial[f.field]).ok()
-                                                == Some(std::cmp::Ordering::Equal)
-                                        }
-                                        al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) => {
-                                            al_builtins::ops::compare(a, &initial[f.field]).ok()
-                                                == Some(std::cmp::Ordering::Equal)
-                                                && al_builtins::ops::compare(b, &initial[f.field]).ok()
-                                                    == Some(std::cmp::Ordering::Equal)
-                                        }
-                                        _ => false,
-                                    }
-                            })
-                    };
+                    let plain_dst = self.plain_no_row_selection_destination(dst, &initial)?;
                     // Pinned for the page of a part, and for a Page variable that never ran and was handed no record or view: a
                     // ListPart over a temporary Integer (`Number: 0`, count 1 of the Integer table), a List and a Card (`Id: 0`,
                     // count 0) (pages/currpage/UnopenedCurrPage.al:110, :159, :208 Never_Opened_*_TryFunction).
