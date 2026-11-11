@@ -90,6 +90,7 @@ pub(crate) fn of_expr(e: &FilterExpr, num: &dyn Fn(&Value) -> Option<i64>, lo: i
             acc
         }
         FilterExpr::EmptyViewValue => vec![(lo, hi)],
+        FilterExpr::UnpinnedText(inner) => of_expr(inner, num, lo, hi)?,
         // A store's own wrapper, never part of a filter the language builds.
         FilterExpr::NumCode(_) => return Err("a store-internal filter".into()),
         FilterExpr::UnpinnedMatch(..) => return Err("a filter whose matching is not pinned".into()),
