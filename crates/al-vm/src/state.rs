@@ -287,6 +287,9 @@ pub(crate) struct EventState {
     pub(crate) event_stats: Rc<platform::EventStats>,
     /// `publish` is about to raise its event: the next `raise` has an event frame on the stack.
     pub(crate) publish_frame: bool,
+    /// The subscribers (object, routine) the next raise reaches, when only some of them (`Session::raise_to`); the events
+    /// raised inside them reach every subscriber.
+    pub(crate) only_targets: Option<Vec<(usize, usize)>>,
     /// Set by `publish` for an IncludeSender event whose sender is not pinned: a subscriber that asks for it is refused with this text.
     pub(crate) sender_refused: Option<String>,
     /// Set by `finish_call` for a publisher: per argument, the global of the caller's instance a `var` argument names

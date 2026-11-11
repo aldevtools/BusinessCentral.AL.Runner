@@ -10,19 +10,30 @@ use super::*;
 
 const DEP: &str = r#"
 table 1990 "Guided Experience Item" { fields { field(1; "Object ID"; Integer) { } field(2; Completed; Boolean) { } } keys { key(PK; "Object ID") { Clustered = true; } } }
-table 1991 "Checklist Setup" { fields { field(1; K; Code[10]) { } field(2; Done; Boolean) { } } keys { key(PK; K) { Clustered = true; } } }
+table 1996 "Checklist Setup" { fields { field(1; K; Code[10]) { } field(2; Done; Boolean) { } } keys { key(PK; K) { Clustered = true; } } }
 codeunit 150 "System Initialization"
 {
-    [IntegrationEvent(false, false)] internal procedure OnAfterLogin() begin end;
+    procedure IsInProgress(): Boolean var Impl: Codeunit "System Initialization Impl."; begin exit(Impl.IsInProgress()); end;
+    [IntegrationEvent(false, false, true)] internal procedure OnAfterLogin() begin end;
 }
 codeunit 151 "System Initialization Impl."
 {
+    SingleInstance = true;
+    var InitializationInProgress: Boolean;
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
     local procedure InitCompany()
     var SystemInitialization: Codeunit "System Initialization";
     begin
+        InitializationInProgress := true;
         SystemInitialization.OnAfterLogin();
+        InitializationInProgress := false;
     end;
+    procedure IsInProgress(): Boolean begin exit(InitializationInProgress); end;
+}
+codeunit 1995 "Checklist"
+{
+    procedure ShouldInitializeChecklist(Skip: Boolean): Boolean var S: Record "Checklist Setup"; begin exit(not S.Get('')); end;
+    procedure MarkChecklistSetupAsDone() var S: Record "Checklist Setup"; begin if S.Get('') then exit; S.Done := true; S.Insert(); end;
 }
 codeunit 1990 "Guided Experience"
 {
@@ -1432,4 +1443,207 @@ fn under_disabled_isolation_what_the_login_would_leave_is_refused() {
         TestIsolation::Disabled,
         false,
     ));
+}
+
+// Round four (review of issue 7717, round three). The app's subscribers run alone only where that gives BC's state.
+
+/// HIGH 1 (probe p5): an `OnAfterLogin` subscriber that notes what Microsoft's login code set before it (the checklist
+/// set up, the login in progress), and two test codeunits: one only reads (the login is raised), one inserts its own row
+/// first. On BC both sessions get the same login, so both see the same note.
+const READS_MICROSOFTS_LOGIN: &str = r#"
+table 51800 "R Note" { fields { field(1; Code; Code[20]) { } field(2; Txt; Text[250]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 51800 "R Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure AfterLogin()
+    var Note: Record "R Note"; Checklist: Codeunit Checklist; SysInit: Codeunit "System Initialization";
+    begin
+        Note.Code := 'AFTER';
+        Note.Txt := 'ShouldInit=' + Format(Checklist.ShouldInitializeChecklist(false)) + ' InProgress=' + Format(SysInit.IsInProgress());
+        Note.Insert();
+    end;
+}
+codeunit 51810 "RA Reads Only"
+{
+    Subtype = Test;
+    [Test]
+    procedure A1_WhatTheSubscriberSaw()
+    var Note: Record "R Note";
+    begin
+        Note.Get('AFTER');
+        if Note.Txt <> 'ShouldInit=No InProgress=Yes' then Error('SAW %1', Note.Txt);
+    end;
+}
+codeunit 51811 "RB Inserts"
+{
+    Subtype = Test;
+    [Test]
+    procedure B1_WhatTheSubscriberSaw()
+    var Note: Record "R Note";
+    begin
+        Note.Code := 'OWN'; Note.Insert();
+        Note.Get('AFTER');
+        if Note.Txt <> 'ShouldInit=No InProgress=Yes' then Error('SAW %1', Note.Txt);
+    end;
+}
+"#;
+
+// A subscriber that reads what Microsoft's login code sets before it gets the login raised, so both codeunits see what
+// they see on BC.
+#[test]
+fn a_subscriber_that_reads_what_microsofts_login_sets_gets_the_login_raised() {
+    for codeunit in ["RA Reads Only", "RB Inserts"] {
+        assert_all_pass(&outcomes_in(
+            READS_MICROSOFTS_LOGIN,
+            DEP,
+            codeunit,
+            TestIsolation::Codeunit,
+            false,
+        ));
+    }
+}
+
+/// HIGH 2 (probe p6c): the app's install code marks the checklist as set up, so Microsoft's login code does not raise
+/// OnRegisterAssistedSetup; the subscribers only log, they read nothing of Microsoft's.
+const CHECKLIST_DONE_AT_INSTALL: &str = r#"
+table 51880 "T Log" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 51880 "T Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure AfterLogin() var L: Record "T Log"; begin L.Code := 'AFTER'; L.Insert(); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure Register() var L: Record "T Log"; begin L.Code := 'REG'; L.Insert(); end;
+}
+codeunit 51881 "T Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() var Checklist: Codeunit Checklist; begin Checklist.MarkChecklistSetupAsDone(); end;
+}
+codeunit 51890 "TA Reads Only"
+{
+    Subtype = Test;
+    [Test]
+    procedure A1_Log() var L: Record "T Log"; begin if L.Get('REG') then Error('REG is there'); L.Get('AFTER'); end;
+}
+codeunit 51891 "TB Inserts"
+{
+    Subtype = Test;
+    [Test]
+    procedure B1_Log() var L: Record "T Log"; begin L.Code := 'OWN'; L.Insert(); if L.Get('REG') then Error('REG is there'); L.Get('AFTER'); end;
+}
+"#;
+
+// With the checklist set up, OnRegisterAssistedSetup is not raised: Microsoft's code decides, in both codeunits.
+#[test]
+fn with_the_checklist_set_up_the_registration_event_is_not_raised() {
+    for codeunit in ["TA Reads Only", "TB Inserts"] {
+        assert_all_pass(&outcomes_in(
+            CHECKLIST_DONE_AT_INSTALL,
+            DEP,
+            codeunit,
+            TestIsolation::Codeunit,
+            false,
+        ));
+    }
+}
+
+/// MEDIUM 1 (probes p8, p9): an `OnAfterLogin` subscriber that inserts a row and then raises an error. OnAfterLogin is an
+/// isolated event: the error is rolled back with the insert and the session goes on
+/// (codeunits/TestIsolatedEventSubscriberError.al).
+const FAILING_AFTER_LOGIN: &str = r#"
+table 51895 "U Row" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 51895 "U Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure AfterLogin() var Row: Record "U Row"; begin Row.Code := 'BEFORE ERROR'; Row.Insert(); Error('U Login fails'); end;
+}
+codeunit 51896 "UA Reads Only"
+{
+    Subtype = Test;
+    [Test]
+    procedure A1_Count() var Row: Record "U Row"; begin if Row.Count() <> 0 then Error('Count=%1', Row.Count()); end;
+}
+codeunit 51897 "UB Inserts"
+{
+    Subtype = Test;
+    [Test]
+    procedure B1_Count() var Row: Record "U Row"; begin Row.Code := 'OWN'; Row.Insert(); if Row.Count() <> 1 then Error('Count=%1', Row.Count()); end;
+}
+codeunit 51898 "UC Unrelated"
+{
+    Subtype = Test;
+    [Test]
+    procedure C1_Text() begin if UpperCase('a') <> 'A' then Error('text'); end;
+}
+"#;
+
+// The failing subscriber's insert is rolled back and every codeunit runs, as on the Raise path.
+#[test]
+fn an_error_in_an_after_login_subscriber_is_rolled_back_and_the_codeunit_runs() {
+    for codeunit in ["UA Reads Only", "UB Inserts", "UC Unrelated"] {
+        assert_all_pass(&outcomes_in(
+            FAILING_AFTER_LOGIN,
+            DEP,
+            codeunit,
+            TestIsolation::Codeunit,
+            false,
+        ));
+    }
+}
+
+/// MEDIUM 2 (probe p7): under Disabled isolation, an `OnAfterLogin` subscriber sets a SingleInstance flag through a
+/// helper codeunit, and another binds a manual subscriber.
+const WATCHED_STATE: &str = r#"
+codeunit 51900 "V Flag" { SingleInstance = true; var Flag: Boolean; procedure SetFlag() begin Flag := true; end; procedure GetFlag(): Boolean begin exit(Flag); end; }
+codeunit 51901 "V Helper" { procedure Mark() var F: Codeunit "V Flag"; begin F.SetFlag(); end; }
+codeunit 51902 "V Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure AfterLogin() var H: Codeunit "V Helper"; begin H.Mark(); end;
+}
+codeunit 51910 "VA Reads The Flag"
+{
+    Subtype = Test;
+    [Test]
+    procedure A1_Flag() var F: Codeunit "V Flag"; begin if not F.GetFlag() then Error('no flag'); end;
+}
+codeunit 51911 "VB Unrelated"
+{
+    Subtype = Test;
+    [Test]
+    procedure B1_Text() begin if UpperCase('a') <> 'A' then Error('text'); end;
+}
+"#;
+
+/// The same with a subscriber that binds a manual subscriber at login.
+const WATCHED_BINDING: &str = r#"
+codeunit 51920 "W Manual" { EventSubscriberInstance = Manual; SingleInstance = true; }
+codeunit 51921 "W Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure AfterLogin() var M: Codeunit "W Manual"; begin BindSubscription(M); end;
+}
+codeunit 51930 "WA Test"
+{
+    Subtype = Test;
+    [Test]
+    procedure A1_Text() begin if UpperCase('a') <> 'A' then Error('text'); end;
+}
+"#;
+
+// Under Disabled isolation, a codeunit that reads a global the login subscribers write (also through a helper), and any
+// codeunit when they bind a manual subscriber, is not run; another runs.
+#[test]
+fn under_disabled_isolation_state_the_login_leaves_besides_rows_is_refused() {
+    let o = outcomes_in(WATCHED_STATE, DEP, "VA Reads The Flag", TestIsolation::Disabled, false);
+    assert!(refused_unmodelled(&o[0].1, "codeunit global"), "{o:?}");
+    assert_all_pass(&outcomes_in(
+        WATCHED_STATE,
+        DEP,
+        "VB Unrelated",
+        TestIsolation::Disabled,
+        false,
+    ));
+    let o = outcomes_in(WATCHED_BINDING, DEP, "WA Test", TestIsolation::Disabled, false);
+    assert!(refused_unmodelled(&o[0].1, "bind a manual event subscriber"), "{o:?}");
 }

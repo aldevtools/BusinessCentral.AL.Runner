@@ -1108,44 +1108,51 @@ pub(crate) fn test_session_company_open(
     } else {
         None
     };
-    let decision = session.test_object.map_or(crate::login::Login::None, |t| {
+    let mut decision = session.test_object.map_or(crate::login::Login::None, |t| {
         crate::login::decide(&engine, lowered, t, watched)
     });
+    // Microsoft's code raises OnRegisterAssistedSetup only while the checklist is not set up (the pin measured a session
+    // where it was not, LgnLoginChecklistTests.al:10, :139): when it is, Microsoft's code decides (review of al-runner
+    // issue 7717, round three, probe p6c).
+    if let crate::login::Login::Own { events, .. } = &decision {
+        if events.iter().any(|e| e.event == "onregisterassistedsetup")
+            && crate::login::checklist_set_up(lowered, session)
+        {
+            decision = crate::login::Login::Raise;
+        }
+    }
     let raise = matches!(decision, crate::login::Login::Raise);
-    let (own, watched): (&[(usize, usize)], _) = match &decision {
-        crate::login::Login::Own { subscribers, watched } => (subscribers, *watched),
+    let (own, watched): (&[crate::login::OwnEvent], _) = match &decision {
+        crate::login::Login::Own { events, watched } => (events, *watched),
+        crate::login::Login::Refused(why) => return Err(why.clone()),
         _ => (&[], None),
     };
-    // (object, routine, whether it is a login subscriber of an app under test).
-    let mut subs = Vec::new();
+    // The subscribers to run, (object, routine); `None` for the login raised to the apps' own subscribers.
+    let mut subs: Vec<Option<(usize, usize)>> = Vec::new();
     for event in ["oncompanyopen", "oncompanyopencompleted"] {
-        let mut of_event: Vec<(u32, usize, usize, bool)> = engine
+        let mut of_event: Vec<(u32, Option<(usize, usize)>)> = engine
             .events
             .subscribers
             .get(&(al_vm::events::COMPANY_TRIGGERS, event.to_string()))
             .into_iter()
             .flatten()
             .filter(|s| !s.manual && (!lowered.dependency[s.object] || (raise && event == "oncompanyopencompleted")))
-            .map(|s| (objs[s.object].id.unwrap_or(0), s.object, s.routine, false))
+            .map(|s| (objs[s.object].id.unwrap_or(0), Some((s.object, s.routine))))
             .collect();
-        if event == "oncompanyopencompleted" {
-            of_event.extend(own.iter().map(|&(o, r)| (crate::login::LOGIN_RAISER, o, r, true)));
+        if event == "oncompanyopencompleted" && !own.is_empty() {
+            of_event.push((crate::login::LOGIN_RAISER, None));
         }
-        of_event.sort_by_key(|&(id, ..)| id);
-        subs.extend(of_event.into_iter().map(|(_, o, r, own)| (o, r, own)));
+        of_event.sort_by_key(|&(id, _)| id);
+        subs.extend(of_event.into_iter().map(|(_, s)| s));
     }
-    // What the session held besides rows before the apps' own login subscribers ran, when they are watched.
-    let mut before = None;
     let mut own_wrote = BTreeSet::new();
-    for (i, &(o, r, own)) in subs.iter().enumerate() {
-        if own && watched.is_some() && before.is_none() {
-            before = Some(session.state_stamp());
-        }
-        let name = label(lowered, o, r);
-        let who = match own {
-            true => format!("login subscriber of an app under test {name}"),
-            false => format!("Company Triggers OnCompanyOpen(Completed) subscriber {name}"),
+    for step in subs {
+        let Some((o, r)) = step else {
+            own_wrote = own_login(lowered, session, own, watched)?;
+            continue;
         };
+        let name = label(lowered, o, r);
+        let who = format!("Company Triggers OnCompanyOpen(Completed) subscriber {name}");
         if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
             return Err(format!("{who} before the first test: {reason}"));
         }
@@ -1172,21 +1179,6 @@ pub(crate) fn test_session_company_open(
             ));
         }
         let changed = store.tables_changed_since(since);
-        if own {
-            // What the apps' own login subscribers wrote is the login's, there for every test of the codeunit
-            // (LgnLoginChecklistTests.al:137-138, :161). Where what BC's login does is not known, a test that touches
-            // what they wrote is not run, and a change of the session's state other than rows refuses the codeunit.
-            own_wrote.extend(changed);
-            let last = !subs.get(i + 1).is_some_and(|s| s.2);
-            if let (true, Some(why), Some(b)) = (last, watched, &before) {
-                if let Some(what) = b.changed(&session.state_stamp()) {
-                    return Err(format!(
-                        "{why}: the login subscribers of the apps under test ran before the first test and changed {what}"
-                    ));
-                }
-            }
-            continue;
-        }
         if changed.is_empty() {
             continue;
         }
@@ -1200,6 +1192,60 @@ pub(crate) fn test_session_company_open(
         }
     }
     wrote.watched_login = watched.map(|why| (own_wrote, why));
+    Ok(wrote)
+}
+
+/// The login events raised to the apps under test's own subscribers only (`login::Login::Own`), through the event code
+/// (`Session::raise_to`), so `OnAfterLogin` stays an isolated event (codeunits/TestIsolatedEventSubscriberError.al). What
+/// they wrote is the login's, there for every test of the codeunit (LgnLoginChecklistTests.al:137-138, :161); the tables
+/// are answered. Where what BC's login does is not known (`watched`), a change of the session's state other than rows
+/// refuses the codeunit.
+fn own_login(
+    lowered: &Lowered,
+    session: &mut Session,
+    events: &[crate::login::OwnEvent],
+    watched: Option<&'static str>,
+) -> Result<BTreeSet<u32>, String> {
+    let before = watched.map(|_| session.state_stamp());
+    let since = session.store_mut().change_counter();
+    for e in events {
+        for &(o, r) in &e.subscribers {
+            if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
+                return Err(format!(
+                    "login subscriber of an app under test {} before the first test: {reason}",
+                    label(lowered, o, r)
+                ));
+            }
+        }
+        let (po, pr) = e.publisher;
+        let what = format!(
+            "{} raised to the login subscribers of the apps under test",
+            lowered.program.objects[po].routines[pr].name
+        );
+        match session.raise_to(po, pr, &e.subscribers) {
+            Ok(()) => {}
+            Err(Signal::Unsupported(why)) => return Err(format!("{what} before the first test: {why}")),
+            Err(Signal::Error(err)) => {
+                return Err(format!(
+                    "{what} failed before the first test (behaviour not pinned): {}",
+                    err.message
+                ));
+            }
+            Err(_) => return Err(format!("{what} stopped before the first test (not pinned)")),
+        }
+    }
+    let store = session.store_mut();
+    if store.virtual_write_pending() {
+        return Err("the login subscribers of the apps under test changed a platform table in the test session before the first test: what the test runner does with the change is not pinned (ADR-046 amendment 1, A4 item 10)".into());
+    }
+    let wrote = store.tables_changed_since(since);
+    if let (Some(why), Some(b)) = (watched, &before) {
+        if let Some(what) = b.changed(&session.state_stamp()) {
+            return Err(format!(
+                "{why}: the login subscribers of the apps under test ran before the first test and changed {what}"
+            ));
+        }
+    }
     Ok(wrote)
 }
 

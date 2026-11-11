@@ -103,6 +103,7 @@ mod profile;
 mod queries;
 mod query_date_filter;
 mod query_save_as;
+mod raise_to;
 mod rdlc_fields;
 mod read_only_tables;
 mod recmeta;
@@ -1395,6 +1396,7 @@ impl Session {
                 pages_with_instance: Vec::new(),
                 event_stats,
                 publish_frame: false,
+                only_targets: None,
                 sender_refused: None,
                 var_origins: Vec::new(),
                 next_aliases: Vec::new(),
