@@ -183,6 +183,13 @@ impl Lowered {
         out
     }
 
+    /// Whether the compile was made for a selection and left workspace objects out of it: test codeunits the selection
+    /// does not keep (`check::Roots::only_tests`) or objects a lean compile leaves out (`check::Roots::lean`). A run on it
+    /// that meets a routine it left out (`check::UNSELECTED`, `check::LEFT_OUT`) is not the full run's answer.
+    pub fn narrowed(&self) -> bool {
+        self.skipped.iter().any(|s| *s)
+    }
+
     /// [`calls_of`](Self::calls_of), appended to `out`.
     pub fn calls_into(&self, o: usize, r: usize, out: &mut Vec<(usize, usize)>) {
         self.calls.extend_into(o, r, out);
