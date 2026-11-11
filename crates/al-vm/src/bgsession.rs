@@ -80,7 +80,7 @@ impl Session {
                     );
                 }
                 drop(r);
-                let copy = self.record_by_value(&rc);
+                let copy = self.record_by_value_unmeasured(&rc);
                 // A temporary record hands over a temporary record with all the caller's rows and its current row; the
                 // caller keeps its rows. Filters, marks with MarkedOnly and values not yet saved are handed over (corpus
                 // probe branch al-runtime-rs-probe-y30-session, session/lt-y30-startsession-isol-disabled/

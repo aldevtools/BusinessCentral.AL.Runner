@@ -254,7 +254,9 @@ pub enum Gate {
     /// on a MediaSet field with a Text or Guid argument raises `Invalid Conversion. Source: NavVariant, Destination: NavMediaSet.`
     /// on BC 27 and an Evaluate:Argument error from BC 28 (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:258), and
     /// Evaluate of a RecordId text with an unqualified or partly qualified table name answers differently on BC 27
-    /// (language/namespaces/RecordIdFormat9Evaluate.al:328,362). Not consumed yet.
+    /// (language/namespaces/RecordIdFormat9Evaluate.al:328,362). Corpus bump 1111b: a card edited and left open at the end of a
+    /// test, whose OnClosePage asks a Confirm nobody handles, fails that test on BC 27 and not from BC 28
+    /// (pages/close-errors/CemTestPageCloseTests.al:869). Not consumed yet.
     ProbedValuesDifferFrom28,
     /// A BigInteger literal in a Boolean control expression (`Enabled = 0L <> Rec.Big`) compiles on the client and runs.
     /// Before, the page fails to open ("Error compiling dynamic control expression ... Not a valid number."); the runtime
@@ -1614,6 +1616,12 @@ const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
     Evidence {
         file: "record/captions/QdCaptionClassAreas.al",
         lines: "808",
+    },
+    // Corpus bump 1111b: a card edited and left open at the end of a test, whose OnClosePage asks a Confirm nobody handles,
+    // fails that test on BC 27 (the close raises) and not from BC 28.
+    Evidence {
+        file: "pages/close-errors/CemTestPageCloseTests.al",
+        lines: "869",
     },
 ];
 
