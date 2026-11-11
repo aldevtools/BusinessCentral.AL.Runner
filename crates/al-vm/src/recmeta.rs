@@ -423,6 +423,68 @@ impl Session {
         Ok(parts.join(", "))
     }
 
+    /// `ReadIsolation` and `SecurityFiltering`, read (no argument) or set (an option member).
+    fn isolation_or_security_filtering(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        args: &[Value],
+    ) -> Result<Value, Signal> {
+        let (enum_name, is_iso) = if method == RecordOp::ReadIsolation {
+            ("IsolationLevel", true)
+        } else {
+            ("SecurityFilter", false)
+        };
+        let members = al_builtins::sysenum::option_members(enum_name).expect("known");
+        match args.first() {
+            None => {
+                let r = rec.borrow();
+                if let (false, Some(why)) = (is_iso, r.security_filtering_unpinned) {
+                    return unsupported(format!("SecurityFiltering() of a record {why} (not pinned)"));
+                }
+                let i = if is_iso { r.read_isolation } else { r.security_filtering };
+                Ok(Value::Option(i, members.into()))
+            }
+            Some(Value::Option(i, _)) => {
+                let mut r = rec.borrow_mut();
+                if is_iso {
+                    let before = r.read_isolation;
+                    r.read_isolation = *i;
+                    // The ASSIGNMENT of UpdLock or RepeatableRead on a database table opens the write transaction, the
+                    // read under it does not (codeunits/TestCodeunitRunWriteTransaction.al:254-278 `updlock_set`,
+                    // :340-355; corpus PR 896 format-evaluate/Np4Misc.al Y9_UpdLock_SetAfterCommit_FirstRead,
+                    // Y9_RepeatableRead_SetAfterCommit_FirstRead `before=Yes`). Assigning the level the record already
+                    // has opens none (Y9_ReadIsolation_ValueAcrossCommit `after setting again UpdLock|tx=No`); another
+                    // level does, also on a fresh record (Y9_ReadIsolation_SetAgainAfterCommit `different level`,
+                    // `same level other record`); ReadCommitted does not (`read committed`). RepeatableRead assigned
+                    // again is pinned only before a Commit; either on a temporary table is not pinned.
+                    match (*i, r.temporary) {
+                        (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) if before == *i => {
+                            if *i == ISOLATION_REPEATABLE_READ && !self.tx.lock_tx && self.tx.lock_unpinned.is_none() {
+                                self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_ASSIGNED_AGAIN);
+                            }
+                        }
+                        (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) => {
+                            self.tx.lock_tx = true;
+                            self.tx.isolation_lock = true;
+                            let key = (r.table, r.company.clone());
+                            self.tx.note_isolation_lock(key.0, key.1);
+                        }
+                        (ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK, true) => {
+                            self.tx.lock_unpinned = Some("a locking ReadIsolation on a temporary table")
+                        }
+                        _ => {}
+                    }
+                } else {
+                    r.security_filtering = *i;
+                    r.security_filtering_unpinned = None;
+                }
+                Ok(Value::Null)
+            }
+            Some(other) => unsupported(format!("{method}({})", other.describe())),
+        }
+    }
+
     pub(crate) fn record_meta_op(
         &mut self,
         method: RecordOp,
@@ -656,58 +718,7 @@ impl Session {
             RecordOp::CountApprox => self.count_approx(rec),
             RecordOp::CurrentCompany => Ok(Value::Text(self.current_company_of(rec).into())),
             RecordOp::ReadIsolation | RecordOp::SecurityFiltering => {
-                let (enum_name, is_iso) = if method == RecordOp::ReadIsolation {
-                    ("IsolationLevel", true)
-                } else {
-                    ("SecurityFilter", false)
-                };
-                let members = al_builtins::sysenum::option_members(enum_name).expect("known");
-                match args.first() {
-                    None => {
-                        let r = rec.borrow();
-                        let i = if is_iso { r.read_isolation } else { r.security_filtering };
-                        Ok(Value::Option(i, members.into()))
-                    }
-                    Some(Value::Option(i, _)) => {
-                        let mut r = rec.borrow_mut();
-                        if is_iso {
-                            let before = r.read_isolation;
-                            r.read_isolation = *i;
-                            // The ASSIGNMENT of UpdLock or RepeatableRead on a database table opens the write transaction, the
-                            // read under it does not (codeunits/TestCodeunitRunWriteTransaction.al:254-278 `updlock_set`,
-                            // :340-355; corpus PR 896 format-evaluate/Np4Misc.al Y9_UpdLock_SetAfterCommit_FirstRead,
-                            // Y9_RepeatableRead_SetAfterCommit_FirstRead `before=Yes`). Assigning the level the record already
-                            // has opens none (Y9_ReadIsolation_ValueAcrossCommit `after setting again UpdLock|tx=No`); another
-                            // level does, also on a fresh record (Y9_ReadIsolation_SetAgainAfterCommit `different level`,
-                            // `same level other record`); ReadCommitted does not (`read committed`). RepeatableRead assigned
-                            // again is pinned only before a Commit; either on a temporary table is not pinned.
-                            match (*i, r.temporary) {
-                                (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) if before == *i => {
-                                    if *i == ISOLATION_REPEATABLE_READ
-                                        && !self.tx.lock_tx
-                                        && self.tx.lock_unpinned.is_none()
-                                    {
-                                        self.tx.lock_unpinned = Some(crate::records::REPEATABLE_READ_ASSIGNED_AGAIN);
-                                    }
-                                }
-                                (ISOLATION_UPDLOCK | ISOLATION_REPEATABLE_READ, false) => {
-                                    self.tx.lock_tx = true;
-                                    self.tx.isolation_lock = true;
-                                    let key = (r.table, r.company.clone());
-                                    self.tx.note_isolation_lock(key.0, key.1);
-                                }
-                                (ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK, true) => {
-                                    self.tx.lock_unpinned = Some("a locking ReadIsolation on a temporary table")
-                                }
-                                _ => {}
-                            }
-                        } else {
-                            r.security_filtering = *i;
-                        }
-                        Ok(Value::Null)
-                    }
-                    Some(other) => unsupported(format!("{method}({})", other.describe())),
-                }
+                self.isolation_or_security_filtering(method, rec, args)
             }
             RecordOp::GetPosition => {
                 let use_names = match args.first() {
@@ -1001,7 +1012,8 @@ impl Session {
                 d.ascending = s.ascending;
                 d.field_descending = s.field_descending;
                 d.position = s.position;
-                // ReadIsolation comes over with Copy (record/CvReadIsolationState.al:49-51, :61).
+                // ReadIsolation comes over with Copy (record/CvReadIsolationState.al:49-51, :61); SecurityFiltering stays the
+                // target's (al-language/reports/runtime/ACAttributes.al:385-387).
                 d.read_isolation = s.read_isolation;
                 // The marks come over with Copy, not with an assignment (record/crud/RcAMisc.al:
                 // Mark_Separate_Variables_Do_Not_Share `copied`).
@@ -1421,6 +1433,7 @@ impl Session {
             Some(v) => ops::truthy(v)?,
             None => false,
         };
+        rec.borrow_mut().security_filtering_unpinned = Some("after a TransferFields into it");
         if Rc::ptr_eq(src, rec) {
             return Ok(Value::Null);
         }

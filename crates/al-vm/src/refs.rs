@@ -1354,100 +1354,105 @@ impl Session {
             // Doc (RecordRef.SetTable): the record variable takes the ref's buffer and
             // filters. The corpus pins that the Record's old buffer does not flow into the
             // ref (recordref-fieldref/recordref/TestRecordRefGetSetTableContracts.al:78-104).
-            "SetTable" => {
-                // A Variant argument (types/WcSetTableVariant.al): an empty Variant and a RecordRef in it.
-                if args.len() == 1 {
-                    match args.first() {
-                        Some(Value::Null) => {
-                            // :188-203 WC_SetTable_EmptyVariant.
-                            return Err(crate::transactions::al_error_code(
-                                "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized.",
-                                "NotInitialized",
-                            ));
-                        }
-                        Some(Value::Library(name, other)) if name.eq_ignore_ascii_case("RecordRef") => {
-                            return self.set_table_into_recordref(&rec, lib, other);
-                        }
-                        _ => {}
-                    }
-                }
-                let Some(Value::Record(dst)) = args.first() else {
-                    return unsupported(format!("RecordRef.SetTable of {}", args.first().describe()));
-                };
-                let same_table = rec.borrow().table == dst.borrow().table;
-                // Into a record of another table: the error, and the record keeps its buffer
-                // (record/load-fields/P81RecordRefTables.al:86-167, SetTable_OtherTable_Error,
-                // SetTable_OpenedOtherTable_Error, :430-450 GetTable_Variant_OfOtherTable_ThenSetTable).
-                if !same_table {
-                    return Err(crate::transactions::al_error_code(
-                        "The table IDs do not match.",
-                        "TableIdMismatch",
-                    ));
-                }
-                // SetTable(Rec, ShareTable) (recordref-fieldref/P107RecRefNames.al:175-253): another
-                // table raises TableIdMismatch whatever ShareTable is (:243-251); with ShareTable true two records that are
-                // not temporary raise the Copy error and the record keeps its buffer (:190-200); two temporary records share
-                // the table (:219-221); with false it is SetTable(Rec) (:187-189, :223-225). One temporary and one not is
-                // not pinned.
-                let share = match args.get(1) {
-                    Some(v) => {
-                        let (src_temp, dst_temp) = (rec.borrow().temporary, dst.borrow().temporary);
-                        if src_temp != dst_temp {
-                            return unsupported(
-                                "RecordRef.SetTable(Rec, ShareTable) between a temporary and a normal record (not pinned)",
-                            );
-                        }
-                        let share = ops::truthy(v)?;
-                        if share && !src_temp {
-                            return Err(crate::transactions::al_error_code(
-                                "The COPY function can only be used with the shareTable argument set to true if both records are temporary.",
-                                "Argument",
-                            ));
-                        }
-                        share
-                    }
-                    None => false,
-                };
-                // The record variable keeps its own rows and its own kind: a temporary RecordRef set into a permanent record leaves it
-                // permanent on the table's rows, a permanent one set into a temporary record leaves it temporary and empty of them; only the
-                // current record and the filters pass (recordref-fieldref/recordref/SetTableTemporaryToPermanent.al:
-                // SetTable_TempIntoPermanent_State, _Insert, _ModifyDelete, _FilteredSource, SetTable_PermanentIntoTemporary_State).
-                if !Rc::ptr_eq(&rec, dst) {
-                    let s = rec.borrow();
-                    // SetTable does not move the target either (:123-127); GetTable takes the company.
-                    let mut d = dst.borrow_mut();
-                    d.field_descending = s.field_descending;
-                    // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
-                    d.read_isolation = s.read_isolation;
-                    d.fields = s.fields.clone();
-                    d.filters = s.filters.clone();
-                    d.key = s.key;
-                    d.adhoc = s.adhoc.clone();
-                    d.ascending = s.ascending;
-                    d.position = s.position.clone();
-                    d.load.buffer = s.load.buffer.clone();
-                    d.load.partial = s.load.partial;
-                    // Record.IsDirty of the record compares with what the RecordRef last read or wrote
-                    // (record/Y8RecordIsDirtyShapes.al:325-331 `settable_read_row` No, `settable_changed_row` Yes).
-                    d.is_dirty_base = match &s.dirty_base {
-                        Some(base) => al_builtins::value::DirtyBase::Row {
-                            base: base.clone(),
-                            alt: None,
-                            dirty_only: false,
-                            stale_store: false,
-                        },
-                        None => al_builtins::value::DirtyBase::Unknown(
-                            "after RecordRef.SetTable from a RecordRef that did not read or write its buffer (not pinned)",
-                        ),
-                    };
-                    if share {
-                        d.temp_id = s.temp_id.clone();
-                    }
-                }
-                Ok(Value::Null)
-            }
+            "SetTable" => self.rr_set_table(&rec, lib, args),
             other => unsupported(format!("RecordRef.{other}")),
         }
+    }
+
+    /// `RecordRef.SetTable(Rec [, ShareTable])` and `RecordRef.SetTable(Variant)`.
+    fn rr_set_table(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
+        // A Variant argument (types/WcSetTableVariant.al): an empty Variant and a RecordRef in it.
+        if args.len() == 1 {
+            match args.first() {
+                Some(Value::Null) => {
+                    // :188-203 WC_SetTable_EmptyVariant.
+                    return Err(crate::transactions::al_error_code(
+                        "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized.",
+                        "NotInitialized",
+                    ));
+                }
+                Some(Value::Library(name, other)) if name.eq_ignore_ascii_case("RecordRef") => {
+                    return self.set_table_into_recordref(rec, lib, other);
+                }
+                _ => {}
+            }
+        }
+        let Some(Value::Record(dst)) = args.first() else {
+            return unsupported(format!("RecordRef.SetTable of {}", args.first().describe()));
+        };
+        let same_table = rec.borrow().table == dst.borrow().table;
+        // Into a record of another table: the error, and the record keeps its buffer
+        // (record/load-fields/P81RecordRefTables.al:86-167, SetTable_OtherTable_Error,
+        // SetTable_OpenedOtherTable_Error, :430-450 GetTable_Variant_OfOtherTable_ThenSetTable).
+        if !same_table {
+            return Err(crate::transactions::al_error_code(
+                "The table IDs do not match.",
+                "TableIdMismatch",
+            ));
+        }
+        // SetTable(Rec, ShareTable) (recordref-fieldref/P107RecRefNames.al:175-253): another
+        // table raises TableIdMismatch whatever ShareTable is (:243-251); with ShareTable true two records that are
+        // not temporary raise the Copy error and the record keeps its buffer (:190-200); two temporary records share
+        // the table (:219-221); with false it is SetTable(Rec) (:187-189, :223-225). One temporary and one not is
+        // not pinned.
+        let share = match args.get(1) {
+            Some(v) => {
+                let (src_temp, dst_temp) = (rec.borrow().temporary, dst.borrow().temporary);
+                if src_temp != dst_temp {
+                    return unsupported(
+                        "RecordRef.SetTable(Rec, ShareTable) between a temporary and a normal record (not pinned)",
+                    );
+                }
+                let share = ops::truthy(v)?;
+                if share && !src_temp {
+                    return Err(crate::transactions::al_error_code(
+                        "The COPY function can only be used with the shareTable argument set to true if both records are temporary.",
+                        "Argument",
+                    ));
+                }
+                share
+            }
+            None => false,
+        };
+        // The record variable keeps its own rows and its own kind: a temporary RecordRef set into a permanent record leaves it
+        // permanent on the table's rows, a permanent one set into a temporary record leaves it temporary and empty of them; only the
+        // current record and the filters pass (recordref-fieldref/recordref/SetTableTemporaryToPermanent.al:
+        // SetTable_TempIntoPermanent_State, _Insert, _ModifyDelete, _FilteredSource, SetTable_PermanentIntoTemporary_State).
+        // Whether SecurityFiltering passes is not pinned (ReadIsolation does, below): the next read of it refuses.
+        dst.borrow_mut().security_filtering_unpinned = Some("after a RecordRef.SetTable into it");
+        if !Rc::ptr_eq(rec, dst) {
+            let s = rec.borrow();
+            // SetTable does not move the target either (:123-127); GetTable takes the company.
+            let mut d = dst.borrow_mut();
+            d.field_descending = s.field_descending;
+            // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
+            d.read_isolation = s.read_isolation;
+            d.fields = s.fields.clone();
+            d.filters = s.filters.clone();
+            d.key = s.key;
+            d.adhoc = s.adhoc.clone();
+            d.ascending = s.ascending;
+            d.position = s.position.clone();
+            d.load.buffer = s.load.buffer.clone();
+            d.load.partial = s.load.partial;
+            // Record.IsDirty of the record compares with what the RecordRef last read or wrote
+            // (record/Y8RecordIsDirtyShapes.al:325-331 `settable_read_row` No, `settable_changed_row` Yes).
+            d.is_dirty_base = match &s.dirty_base {
+                Some(base) => al_builtins::value::DirtyBase::Row {
+                    base: base.clone(),
+                    alt: None,
+                    dirty_only: false,
+                    stale_store: false,
+                },
+                None => al_builtins::value::DirtyBase::Unknown(
+                    "after RecordRef.SetTable from a RecordRef that did not read or write its buffer (not pinned)",
+                ),
+            };
+            if share {
+                d.temp_id = s.temp_id.clone();
+            }
+        }
+        Ok(Value::Null)
     }
 
     fn keyref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {

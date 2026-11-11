@@ -877,13 +877,7 @@ fn slots_for_globals_params_and_locals() {
         "codeunit 50100 C { var G: Integer; procedure P(A: Text; var B: Decimal) R: Boolean var L: Code[10]; begin end; }",
     );
     let o = &l.program.objects[0];
-    assert_eq!(
-        o.globals,
-        vec![ir::Slot {
-            name: "G".into(),
-            ty: RtType::Integer
-        }]
-    );
+    assert_eq!(o.globals, vec![ir::Slot::new("G", RtType::Integer)]);
     let (_, r) = routine(&l, "P");
     assert_eq!(r.params, 2);
     assert_eq!(r.by_var, vec![false, true]);
