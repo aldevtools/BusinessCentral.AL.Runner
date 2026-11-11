@@ -256,11 +256,21 @@ impl Session {
         s.host.is_none() && s.dirty && !s.trigger_errors.is_empty() && !s.errors.is_empty()
     }
 
-    /// `TestPage.*` with the rules above in front.
+    /// `TestPage.*` with the rules above in front. The page notes the call (`note_test_call`), so a rule pinned for one
+    /// scenario knows what the test did since the page opened.
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
+        Self::note_test_call(st, method, None, args.len());
+        Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestPage method ends the shape `next_held_row_read` reads in; a `Next` notes its row again.
         st.borrow_mut().next_held_row = None;
         let name = method.method();
+        match name {
+            PageMethod::First => st.borrow_mut().first_since_open = true,
+            PageMethod::OpenEdit | PageMethod::OpenView | PageMethod::OpenNew | PageMethod::Trap => {
+                st.borrow_mut().first_since_open = false
+            }
+            _ => {}
+        }
         let top = Self::top_page(st);
         if top.borrow().save_failed && top.borrow().open {
             // Next answers No, Close closes and runs nothing (:1228 Card_ModifyError_Next `next` No, `close` empty).
@@ -330,6 +340,8 @@ impl Session {
     ) -> Result<Value, Signal> {
         let m = method.method();
         let st = &c.page;
+        Self::note_test_call(st, method, Some(&c.target), args.len());
+        Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestField or TestAction call but SetValue ends the shape `next_held_row_read` reads in.
         if m != PageMethod::SetValue {
             st.borrow_mut().next_held_row = None;

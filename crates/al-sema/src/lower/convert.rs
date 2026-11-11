@@ -276,6 +276,17 @@ impl<'a> Lowerer<'a> {
     /// codeunit that implements it (corpus codeunits/TestCodeunitInterface.al:14-26) or an enum
     /// that implements it (types/TestEnumDefaultImplTests.Codeunit.al:30-42); everything else
     /// is refused.
+    /// [`Self::convert_to`] for the right side of `Target := Value`: a Variant takes the rules measured only at an assignment
+    /// first (`variant_into_assigned`).
+    pub(crate) fn convert_assigned(&mut self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
+        let value = if matches!(src, Ty::Variant) {
+            self.variant_into_assigned(target, value)?
+        } else {
+            value
+        };
+        self.convert_to(target, src, value)
+    }
+
     pub(crate) fn convert_to(&mut self, target: &Ty, src: &Ty, value: ir::Expr) -> L<ir::Expr> {
         // A Variant into an Integer anywhere (`:=`, a by-value argument, `exit`): a BigInteger beyond Integer raises
         // TypeConversion:Overflow (types/operators-expressions/Y31ConvCv.al, LT Y31 Cv Variant `Variant_To_Integer` big in all
@@ -795,6 +806,6 @@ fn is_identity_scalar(t: &RtType) -> bool {
 }
 
 /// Whether `e` is a call of the builtin `id`.
-fn is_builtin(e: &ir::Expr, id: &str) -> bool {
+pub(super) fn is_builtin(e: &ir::Expr, id: &str) -> bool {
     matches!(e, ir::Expr::Builtin { id: b, .. } if super::call::builtin_id(id).is_ok_and(|i| i == *b))
 }

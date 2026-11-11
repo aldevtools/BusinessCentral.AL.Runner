@@ -1167,12 +1167,9 @@ fn resource_bytes_without_an_encoding() {
     );
     assert_eq!(r.unwrap(), "105,100,44");
     // BiDataDriven.al:481-482: without an encoding GetResourceAsText reads one character per byte (47 for cases.csv, whose
-    // two UTF-8 pairs count twice); which characters the bytes from 128 up become is not pinned, so that is refused.
+    // two UTF-8 pairs count twice), as Windows-1252 (session-system/NavAppResourceAsTextHighBytes.al).
     let r = module_text("exit(Format(StrLen(NavApp.GetResourceAsText('cases.csv'))));");
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("not pinned")),
-        "{r:?}"
-    );
+    assert_eq!(r.unwrap(), "47");
     let r = module_text("exit(Format(StrLen(NavApp.GetResourceAsText('greeting.txt'))));");
     assert_eq!(r.unwrap(), "28");
 }
