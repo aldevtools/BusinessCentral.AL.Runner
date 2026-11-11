@@ -25,16 +25,31 @@ fn translates_into(a: &al_ir::AppInfo, language: i32) -> bool {
     if !a.translations {
         return false;
     }
-    if a.translation_files.is_empty() {
+    let heads = a.translation_heads();
+    if heads.is_empty() {
         return true;
     }
     let Some(culture) = crate::platform::culture_name(language) else {
         return true;
     };
-    let family = |c: &str| c.split('-').next().unwrap_or(c).to_ascii_lowercase();
-    a.translation_files
+    heads
         .iter()
         .any(|f| f.error.is_some() || family(&f.target_language) == family(culture))
+}
+
+/// The cultures whose file is pinned to give the units of another culture of its language that has no file of its own: the
+/// nl-NL file under nl-BE (localization/app-xliff/TaXliff.al:146, :176). Other languages wait for corpus probe
+/// TlTranslationCells.al (fr-FR under fr-BE, fr-CA and fr-CH; en-GB under en-AU) and stay refused.
+const PINNED_FALLBACKS: &[&str] = &["nl-NL"];
+
+/// The language of culture `c` (`nl` for `nl-BE`), lowercase.
+fn family(c: &str) -> String {
+    c.split('-').next().unwrap_or(c).to_ascii_lowercase()
+}
+
+/// Every translation file of app `a` with its units (a package's are read here).
+fn read_files(a: &al_ir::AppInfo) -> impl Iterator<Item = &al_ir::TranslationFile> {
+    (0..a.translation_heads().len()).map(|i| a.translation_file(i))
 }
 
 impl Session {
@@ -90,24 +105,6 @@ impl Session {
         Ok(())
     }
 
-    /// [`Self::translated_app_read`] for a text whose XLIFF unit is `xliff`: the read passes when the app ships readable
-    /// translation files and none of them has that unit, because the source text stays whichever file BC picks (the option
-    /// captions of format-evaluate/EvalLanguageBoolean.al EL_Option_NLB_2067 and EL_Option_NLD_1043: the app's only file is
-    /// nl-NL and has no unit of the table).
-    pub(crate) fn translated_app_read_unit(&self, app: &str, what: &str, xliff: &str) -> Result<(), Signal> {
-        let apps = &self.engine.program.apps;
-        let absent = apps.iter().find(|a| a.id.eq_ignore_ascii_case(app)).is_some_and(|a| {
-            !a.translation_files.is_empty()
-                && a.translation_files
-                    .iter()
-                    .all(|f| f.error.is_none() && f.units.iter().all(|(k, _)| k != xliff))
-        });
-        if absent {
-            return Ok(());
-        }
-        self.translated_app_read(app, what)
-    }
-
     /// The refusal of a read of the captions of enum `id` (`ordinal`: of that value only; `None`: of any value), when the
     /// enum declares a caption the read can see.
     pub(crate) fn enum_caption_refusal(&self, id: u32, ordinal: Option<i32>) -> Option<String> {
@@ -140,9 +137,13 @@ impl Session {
     /// source text stays (as in step 1). Otherwise the app's file for exactly the language's culture gives the target, and a
     /// unit without one gives the source; a language with no file of its own language keeps the source too
     /// (localization/app-xliff/TaXliff.al: TA_Enum_Format_And_Evaluate, TA_Label_Text and TA_Captions_And_Options under
-    /// 1043, TA_Captions_Language_Without_File under 1031; al-runner issue 5772). Refused: a package, whose
-    /// files are not read; two files for one culture; a file that could not be read; and a file of the same language but
-    /// another culture (nl-NL under nl-BE: which one BC uses is not pinned, ADR-053 P3).
+    /// 1043, TA_Captions_Language_Without_File under 1031; al-runner issue 5772). With no file of the culture and exactly one
+    /// of the same language for another culture that has the unit, that file gives the target where it is pinned
+    /// ([`PINNED_FALLBACKS`]: the nl-NL file under 2067). The files come from an app folder or, read on the first ask, from a package (`al_ir::AppInfo::translation_heads`).
+    /// Refused: an app whose files cannot be listed (a wrapper package); two files for one culture; a file that could not be
+    /// read; a unit only another culture's file has while the culture's own file exists, or that several files of other
+    /// cultures have (which one BC uses is not pinned: corpus probe TlTranslationCells.al, ADR-053 P3); and a unit whose state
+    /// is not pinned ([`unit_text`]).
     pub(crate) fn app_translation(
         &self,
         app: usize,
@@ -165,43 +166,64 @@ impl Session {
                 what()
             ))
         };
-        if a.translation_files.is_empty() {
+        let heads = a.translation_heads();
+        if heads.is_empty() {
             return refuse("the app ships a translation file");
         }
         let Some(culture) = crate::platform::culture_name(language) else {
             return refuse("the language's culture is not known");
         };
-        let mut files = a
-            .translation_files
-            .iter()
-            .filter(|f| f.error.is_some() || f.target_language.eq_ignore_ascii_case(culture));
-        match (files.next(), files.next()) {
-            (Some(_), Some(_)) => refuse(&format!(
-                "two translation files for {culture}, or one that could not be read"
-            )),
-            (Some(f), None) => {
-                if let Some(e) = &f.error {
-                    return refuse(&format!("the translation file {} could not be read: {e}", f.name));
-                }
-                Ok(f.target(xliff).map(str::to_string))
+        let pick = |own: bool| -> Vec<usize> {
+            (0..heads.len())
+                .filter(|&i| {
+                    let f = &heads[i];
+                    if own {
+                        f.error.is_some() || f.target_language.eq_ignore_ascii_case(culture)
+                    } else {
+                        f.error.is_none()
+                            && !f.target_language.eq_ignore_ascii_case(culture)
+                            && family(&f.target_language) == family(culture)
+                    }
+                })
+                .collect()
+        };
+        let (own, others) = (pick(true), pick(false));
+        // A file of the same language for another culture matters only when it has the unit: without one the source text
+        // stays whichever file BC picks (format-evaluate/EvalLanguageBoolean.al EL_Enum_NLB_2067: the enum has no unit in the
+        // app's nl-NL file; read under nl-BE).
+        let mut others_with_unit = Vec::new();
+        let mut fallback = true;
+        for &i in &others {
+            let f = a.translation_file(i);
+            if let Some(e) = &f.error {
+                return refuse(&format!("the translation file {} could not be read: {e}", f.name));
             }
-            (None, None) => {
-                let family = |c: &str| c.split('-').next().unwrap_or(c).to_ascii_lowercase();
-                // A file of the same language for another culture matters only when it has the unit: without one the source
-                // text stays whichever file BC picks (format-evaluate/EvalLanguageBoolean.al EL_Enum_NLB_2067: the enum
-                // has no unit in the app's nl-NL file; read under nl-BE).
-                if a.translation_files
+            if let Some(unit) = f.unit(xliff) {
+                others_with_unit.push(unit);
+                fallback &= PINNED_FALLBACKS
                     .iter()
-                    .any(|f| family(&f.target_language) == family(culture) && f.target(xliff).is_some())
-                {
-                    return refuse(&format!(
-                        "the app ships a translation file of the same language for another culture than {culture}"
-                    ));
-                }
-                Ok(None)
+                    .any(|c| c.eq_ignore_ascii_case(&f.target_language));
             }
-            (None, Some(_)) => unreachable!(),
         }
+        let file = match (own.as_slice(), others_with_unit.as_slice()) {
+            ([_, _, ..], _) => {
+                return refuse(&format!(
+                    "two translation files for {culture}, or one that could not be read"
+                ));
+            }
+            ([i], []) => a.translation_file(*i),
+            ([], []) => return Ok(None),
+            ([], [unit]) if fallback => return unit_text(Some(*unit), &refuse),
+            (_, _) => {
+                return refuse(&format!(
+                    "the app ships a translation file of the same language for another culture than {culture} with this unit"
+                ));
+            }
+        };
+        if let Some(e) = &file.error {
+            return refuse(&format!("the translation file {} could not be read: {e}", file.name));
+        }
+        unit_text(file.unit(xliff), &refuse)
     }
 
     /// Whether an extension of object `object` exists: the texts it adds or changes (`modify`) are the extension's units, or
@@ -265,7 +287,7 @@ impl Session {
             .program
             .apps
             .get(o.app as usize)
-            .is_none_or(|a| a.translation_files.is_empty());
+            .is_none_or(|a| a.translation_heads().is_empty());
         if o.kind == al_ir::ObjKind::Enum && self.only_foreign_translating_extensions_enum(id as usize) {
             return Ok(None);
         }
@@ -358,7 +380,6 @@ impl Session {
         {
             return false;
         }
-        let family = |c: &str| c.split('-').next().unwrap_or(c).to_ascii_lowercase();
         p.objects
             .iter()
             .filter(|o| o.kind.extended() == Some(base.kind) && o.extends_id == base.id)
@@ -367,8 +388,8 @@ impl Session {
                     return false;
                 };
                 !translates_into(a, language)
-                    || (!a.translation_files.is_empty()
-                        && a.translation_files.iter().all(|f| {
+                    || (!a.translation_heads().is_empty()
+                        && a.translation_heads().iter().all(|f| {
                             f.error.is_none()
                                 && (family(&f.target_language) != family(culture)
                                     || f.target_language.eq_ignore_ascii_case(culture))
@@ -391,7 +412,7 @@ impl Session {
             .iter()
             .filter(|o| o.kind.extended() == Some(base.kind) && o.extends_id == base.id)
             .filter_map(|o| p.apps.get(o.app as usize))
-            .flat_map(|a| a.translation_files.iter())
+            .flat_map(read_files)
             .any(|f| f.units.iter().any(|(k, _)| k.starts_with("EnumExtension ")))
     }
 
@@ -413,9 +434,9 @@ impl Session {
     /// the unit `TableExtension <ext> - Field <field> - Property Caption`, as for a field of the app's own table
     /// (localization/app-xliff/lt-r7144-ext-caption/R7144ExtFieldCaption.al:68-145, corpus PR 1156, al-runner issue 7144: a table extension of
     /// Base Application's Sales Invoice Header, read with FieldCaption and FieldRef.Caption under 1043; the source caption
-    /// under 1031, which has no file, and 1033). Refused (`why`): an extension of a table of its own app, a field with
-    /// `CaptionML` or `CaptionClass`, and a table another extension in an app that translates into the language extends
-    /// (it could `modify` the caption; not pinned).
+    /// under 1031, which has no file, and 1033). An extension of a table of its own app keeps the source caption (below).
+    /// Refused (`why`): a field with `CaptionML` or `CaptionClass`, and a table another extension in an app that translates
+    /// into the language extends (it could `modify` the caption; not pinned).
     fn extension_field_caption_translation(
         &self,
         t: &al_data::TableDef,
@@ -432,15 +453,27 @@ impl Session {
                 && o.extends_id == e.extends_id
                 && p.apps.get(o.app as usize).is_some_and(|a| translates_into(a, language))
         });
-        // An extension of a table of its own app keeps the source caption on BC with such a unit
-        // (R7144ExtFieldCaption.al:83, :103 own table extension field with unit = 'Extension code'); which unit id BC reads
-        // there is not pinned, so it stays refused.
-        let same_app = p.objects.get(t.object as usize).is_some_and(|b| b.app == e.app);
-        if same_app
-            || self.field_property(t, pos, "CaptionML").is_some()
-            || self.field_property(t, pos, "CaptionClass").is_some()
-        {
+        if self.field_property(t, pos, "CaptionML").is_some() || self.field_property(t, pos, "CaptionClass").is_some() {
             return Err(why);
+        }
+        // An extension of a table of its own app keeps the source caption although its TableExtension unit is in the file
+        // (R7144ExtFieldCaption.al:83, :103: 'Extension code' under 1043). A unit under the table's own id for the field
+        // (`Table <table> - Field <field>`, which the compiler does not write for it) is not pinned: refused.
+        if let Some(base) = p.objects.get(t.object as usize).filter(|b| b.app == e.app) {
+            if other_translating_extension {
+                return Err(why);
+            }
+            let table_unit = format!(
+                "{} - {} - {}",
+                al_ir::xliff_part("Table", &base.name),
+                al_ir::xliff_part("Field", &t.fields[pos].name),
+                al_ir::xliff_part("Property", "Caption")
+            );
+            let what = || format!("the caption of field {} of table {}", t.fields[pos].name, t.name);
+            return match self.app_translation(e.app as usize, &table_unit, &what)? {
+                Some(_) => Err(why),
+                None => Ok(None),
+            };
         }
         let xliff = format!(
             "{} - {} - {}",
@@ -461,6 +494,66 @@ impl Session {
         Ok(unit)
     }
 
+    /// The caption of table `object` in the language in force, for a read step 1 refuses with `why`
+    /// (`Session::caption_refused`): `Ok(None)` for the source caption. The unit `Table <table> - Property Caption` of the
+    /// table's app gives it (localization/app-xliff/TaXliff.al:216 TableCaption and :223 RecordRef.Caption under 1043, the
+    /// source under 1031 at :242). Refused: a table with `CaptionML`, a table an extension extends, and a caption step 1
+    /// refuses for another reason (`al_ir::CAPTION_REFUSED`).
+    pub(crate) fn table_caption_translation(&self, object: usize, why: String) -> Result<Option<String>, String> {
+        let Some(o) = self.engine.program.objects.get(object) else {
+            return Err(why);
+        };
+        let caption = |k: &str| o.properties.iter().any(|(p, _)| p.eq_ignore_ascii_case(k));
+        if o.kind != al_ir::ObjKind::Table
+            || !caption("Caption")
+            || caption("CaptionML")
+            || o.properties
+                .iter()
+                .any(|(k, _)| k == al_ir::CAPTION_REFUSED || k == al_ir::EXT_CAPTION_OVER_OWN)
+            || self.extended(object)
+        {
+            return Err(why);
+        }
+        let xliff = format!(
+            "{} - {}",
+            al_ir::xliff_part("Table", &o.name),
+            al_ir::xliff_part("Property", "Caption")
+        );
+        self.app_translation(o.app as usize, &xliff, &|| format!("the caption of table {}", o.name))
+    }
+
+    /// The OptionCaption of field `pos` of `t` in the language in force, for a read step 1 refuses with `why`: `Ok(None)` for
+    /// the source captions. The unit `Table <table> - Field <field> - Property OptionCaption` of the table's app gives the list
+    /// (localization/app-xliff/TaXliff.al:222 FieldRef.OptionCaption `Eerste,Tweede,Derde` under 1043; :243 the source under
+    /// 1031). Refused: a field with OptionCaptionML, a field a table extension declares, and a table an extension extends.
+    pub(crate) fn option_caption_translation(
+        &self,
+        t: &al_data::TableDef,
+        pos: usize,
+        why: String,
+    ) -> Result<Option<String>, String> {
+        let object = t.object as usize;
+        let Some(o) = self.engine.program.objects.get(object) else {
+            return Err(why);
+        };
+        if o.kind != al_ir::ObjKind::Table
+            || self.declaring_extension(t, pos).is_some()
+            || self.extended(object)
+            || self.field_property(t, pos, "OptionCaptionML").is_some()
+        {
+            return Err(why);
+        }
+        let xliff = format!(
+            "{} - {} - {}",
+            al_ir::xliff_part("Table", &o.name),
+            al_ir::xliff_part("Field", &t.fields[pos].name),
+            al_ir::xliff_part("Property", "OptionCaption")
+        );
+        self.app_translation(o.app as usize, &xliff, &|| {
+            format!("the OptionCaption of field {} of table {}", t.fields[pos].name, t.name)
+        })
+    }
+
     /// A Label of app `app` whose XLIFF unit is `xliff`, in the language in force (`System.TranslatedText#1` with an id).
     pub(crate) fn translated_app_text(&self, app: &str, what: &str, xliff: &str) -> Result<Option<String>, Signal> {
         let Some(index) = self
@@ -474,6 +567,25 @@ impl Session {
         };
         self.app_translation(index, xliff, &|| what.to_string())
             .map_err(Signal::unsupported)
+    }
+}
+
+/// The text unit `unit` gives (`None`: no unit, the source text stays). A unit without a state gives its target
+/// (TaXliff.al:170); one with `state="translated"` does too, unpinned (assumption `xliff-state-translated`); any other state
+/// is refused (`refuse`): which ones BC applies is not pinned (corpus probe TlTranslationCells.al TL_UnitForms_Dutch).
+fn unit_text(
+    unit: Option<(&str, &al_ir::UnitState)>,
+    refuse: &dyn Fn(&str) -> Result<Option<String>, String>,
+) -> Result<Option<String>, String> {
+    use al_builtins::assumptions::{Assumption, assume};
+    match unit {
+        None => Ok(None),
+        Some((text, al_ir::UnitState::Absent)) => Ok(Some(text.to_string())),
+        Some((text, al_ir::UnitState::Translated)) => {
+            assume(Assumption::XliffStateTranslated);
+            Ok(Some(text.to_string()))
+        }
+        Some((_, al_ir::UnitState::Other(state))) => refuse(&format!("the unit's state is {state}")),
     }
 }
 

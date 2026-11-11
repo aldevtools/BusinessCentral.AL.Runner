@@ -390,9 +390,13 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
                 Value::Text(what),
                 Value::Text(xliff),
                 Value::Boolean(true),
-            ] => {
-                c.translated_app_read_unit(app, what, xliff)?;
-                return Ok(value.clone());
+                members @ ..,
+            ] if members.len() <= 1 => {
+                let members = match members.first() {
+                    Some(Value::Text(m)) => Some(m.as_str()),
+                    _ => None,
+                };
+                return translated_option(c, value, (app, what, xliff), members);
             }
             [value, Value::Text(app), Value::Text(what), Value::Text(xliff)] => {
                 return Ok(match c.translated_app_text(app, what, xliff)? {
@@ -635,4 +639,52 @@ pub fn registered_ids() -> Vec<&'static str> {
         .map(|(i, _)| *i)
         .chain(derived().keys().map(String::as_str))
         .collect()
+}
+
+/// An OptionCaption read through `System.TranslatedText#1` with its XLIFF unit id (ADR-053 step 2): with no unit text in the
+/// language in force `value` stays. With one, an Option value takes the translated captions (TaXliff.al:217-218, Format
+/// `Tweede` and `Derde` under 1043); with the field's `members`, `value` is the text an Evaluate reads: a translated caption
+/// becomes its member's name, a member name stays (TaXliff.al:219-220: `Tweede` true|1, `Alpha` true|0). Refused: a caption
+/// list of another length than the members, and any other text (the source caption, an ordinal: not pinned).
+fn translated_option(
+    c: &mut dyn Ctx,
+    value: &Value,
+    (app, what, xliff): (&str, &str, &str),
+    members: Option<&str>,
+) -> Result<Value, Signal> {
+    let Some(list) = c.translated_app_text(app, what, xliff)? else {
+        return Ok(value.clone());
+    };
+    let captions: Vec<String> = list.split(',').map(str::to_string).collect();
+    let length = || {
+        unsupported(format!(
+            "{what} translated with another number of entries than the members (not pinned)"
+        ))
+    };
+    match (value, members) {
+        (Value::Option(o, current), None) => {
+            if captions.len() != current.len() {
+                return length();
+            }
+            Ok(Value::Option(*o, captions.into()))
+        }
+        (Value::Text(text), Some(members)) => {
+            let names: Vec<&str> = members.split(',').collect();
+            if captions.len() != names.len() {
+                return length();
+            }
+            let t = text.trim();
+            let by_caption = captions.iter().position(|c| !t.is_empty() && c.eq_ignore_ascii_case(t));
+            let by_name = names.iter().position(|n| !t.is_empty() && n.eq_ignore_ascii_case(t));
+            match (by_caption, by_name) {
+                (Some(i), None) => Ok(Value::Text(names[i].to_string().into())),
+                (None, Some(_)) => Ok(value.clone()),
+                (Some(i), Some(j)) if i == j => Ok(value.clone()),
+                _ => unsupported(format!(
+                    "Evaluate of `{t}` into an Option field whose OptionCaption a translation file changes (only a translated caption or a member name is pinned)"
+                )),
+            }
+        }
+        _ => unsupported(format!("{what} translated, read from this kind of value (not pinned)")),
+    }
 }

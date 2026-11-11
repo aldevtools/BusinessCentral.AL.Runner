@@ -669,6 +669,19 @@ pub fn package_data_files(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> 
 /// The translation files of the app folder `dir` (`crate::package::is_translation_file`, ADR-053 step 2): name relative to the
 /// app (`/` separators) and the parsed file, or why it could not be read. Sorted by name. A package gives none here.
 pub fn translation_files(dir: &Path) -> Vec<(String, Result<crate::xliff::Xliff, String>)> {
+    translation_file_paths(dir)
+        .into_iter()
+        .map(|(rel, p)| {
+            let parsed = std::fs::read(&p)
+                .map_err(|e| e.to_string())
+                .and_then(|b| crate::xliff::parse(&b));
+            (rel, parsed)
+        })
+        .collect()
+}
+
+/// The translation files of the app folder `dir`: name relative to the app (`/` separators) and path, sorted by name.
+pub(crate) fn translation_file_paths(dir: &Path) -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
     if !dir.is_dir() {
         return out;
@@ -683,10 +696,7 @@ pub fn translation_files(dir: &Path) -> Vec<(String, Result<crate::xliff::Xliff,
             } else if let Ok(rel) = p.strip_prefix(dir) {
                 let rel = rel.to_string_lossy().replace('\\', "/");
                 if crate::package::is_translation_file(&rel) {
-                    let parsed = std::fs::read(&p)
-                        .map_err(|e| e.to_string())
-                        .and_then(|b| crate::xliff::parse(&b));
-                    out.push((rel, parsed));
+                    out.push((rel, p));
                 }
             }
         }

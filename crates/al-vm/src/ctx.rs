@@ -125,9 +125,6 @@ impl al_builtins::native::Ctx for Session {
     fn translated_app_text(&self, app: &str, what: &str, xliff: &str) -> Result<Option<String>, Signal> {
         Session::translated_app_text(self, app, what, xliff)
     }
-    fn translated_app_read_unit(&self, app: &str, what: &str, xliff: &str) -> Result<(), Signal> {
-        Session::translated_app_read_unit(self, app, what, xliff)
-    }
 
     fn http_send(
         &mut self,

@@ -768,6 +768,7 @@ pub(super) fn run_main_on(main: &str, base: &str, opts: &RunOptions) -> CorpusRu
         package_data: false,
         package_data_files: Vec::new(),
         translation_files: Vec::new(),
+        translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
         symbols: vec![],

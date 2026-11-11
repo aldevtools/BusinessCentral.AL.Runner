@@ -255,9 +255,73 @@ pub struct AppInfo {
     #[serde(default)]
     pub package_data_files: Vec<(String, Vec<u8>)>,
     /// The app's translation files as read from an app folder (ADR-053 step 2), applied in a language other than 1033. Empty
-    /// for a package, whose files are not read: its translated reads stay refused when `translations` is set.
+    /// for an app whose files are read on demand (`translation_source`).
     #[serde(default)]
     pub translation_files: Vec<TranslationFile>,
+    /// Reads the translation files of the app's package or dependency folder on demand, for an app whose files are not held in
+    /// `translation_files`. Set by the front end; not part of the cache. Neither: a translated read stays refused when
+    /// `translations` is set.
+    #[serde(skip)]
+    pub translation_source: Option<TranslationSourceRef>,
+}
+
+impl AppInfo {
+    /// The app's translation files, without their units for a package (`translation_source`): name, target language, and why
+    /// the file's header could not be read. The one place that says where an app's translation files come from.
+    pub fn translation_heads(&self) -> &[TranslationFile] {
+        match &self.translation_source {
+            Some(source) => source.0.files(),
+            None => &self.translation_files,
+        }
+    }
+
+    /// File `index` of [`Self::translation_heads`] with its units, read on the first ask for a package; its `error` says why it
+    /// could not be read.
+    pub fn translation_file(&self, index: usize) -> &TranslationFile {
+        match &self.translation_source {
+            Some(source) => source.0.file(index),
+            None => &self.translation_files[index],
+        }
+    }
+}
+
+/// Reads the translation files of an app's package or folder when a translated read needs them (ADR-053 step 2): the BE
+/// Base Application's nl-BE file is 80 MB with 130 000 units, so a run reads a file only on its first translated read, and a
+/// run in 1033 reads none. The front end that loaded the app supplies it (core crates do no OS access, ADR-006).
+pub trait TranslationSource: Send + Sync {
+    /// The translation files (`Translations/*.xlf`, not `*.g.xlf`), sorted by name, without units: name, the target language
+    /// of the file's header, and why the header could not be read.
+    fn files(&self) -> &[TranslationFile];
+    /// File `index` of [`Self::files`] with its units; `error` set when it could not be read.
+    fn file(&self, index: usize) -> &TranslationFile;
+}
+
+/// A [`TranslationSource`] as an app carries it: never serialized, never compared.
+#[derive(Clone)]
+pub struct TranslationSourceRef(pub std::sync::Arc<dyn TranslationSource>);
+
+impl std::fmt::Debug for TranslationSourceRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TranslationSourceRef")
+    }
+}
+
+impl PartialEq for TranslationSourceRef {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+/// The `state` attribute of a unit's `<target>` (XLIFF 1.2), as far as a lookup tells states apart.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UnitState {
+    /// No `state` attribute.
+    #[default]
+    Absent,
+    /// `state="translated"`, as every unit of Microsoft's files.
+    Translated,
+    /// Any other state (`needs-translation`, `final`, ...), as written.
+    Other(String),
 }
 
 /// One translation file of an app (`Translations/<name>.xlf`), ADR-053 step 2.
@@ -271,15 +335,22 @@ pub struct TranslationFile {
     pub units: Vec<(String, String)>,
     /// Why the file could not be read; its language then refuses every translated read.
     pub error: Option<String>,
+    /// The `state` of each unit of `units`, in the same order; empty when no unit has one.
+    #[serde(default)]
+    pub states: Vec<UnitState>,
 }
 
 impl TranslationFile {
     /// The target of unit `id`, when the file gives one.
     pub fn target(&self, id: &str) -> Option<&str> {
-        self.units
-            .binary_search_by(|(k, _)| k.as_str().cmp(id))
-            .ok()
-            .map(|i| self.units[i].1.as_str())
+        self.unit(id).map(|(t, _)| t)
+    }
+
+    /// The target and the state of unit `id`, when the file gives a text for it.
+    pub fn unit(&self, id: &str) -> Option<(&str, &UnitState)> {
+        static ABSENT: UnitState = UnitState::Absent;
+        let i = self.units.binary_search_by(|(k, _)| k.as_str().cmp(id)).ok()?;
+        Some((self.units[i].1.as_str(), self.states.get(i).unwrap_or(&ABSENT)))
     }
 }
 

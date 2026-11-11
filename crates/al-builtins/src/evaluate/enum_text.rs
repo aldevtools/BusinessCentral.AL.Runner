@@ -27,21 +27,24 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt) -> R
         return unsupported(why);
     }
     let captions = c.enum_captions(*id);
-    // Under a translation file (ADR-053 step 2) only a translated caption is accepted, as al-runner issue 5772's real-BC
-    // run shows (`Vrijgegeven` under 2067); whether an ordinal, a member name or the source caption is still accepted,
-    // and what the error lists, is not pinned (ADR-053 P11).
+    // Under a translation file (ADR-053 step 2) a translated caption, a member name and the source caption of a value the
+    // file leaves untranslated are accepted; the source caption of a translated value is not
+    // (localization/app-xliff/TaXliff.al:139-142: `Vrijgegeven` true|1, `Released` false|0, `Rel` true|1, `Finished` true|2
+    // under 1043; al-runner issue 5772 under 2067). An ordinal, and the error a rejected text raises, are not pinned
+    // (ADR-053 P11).
     let mut forced = None;
-    if let Some(source) = c.enum_source_captions(*id) {
+    let source = c.enum_source_captions(*id);
+    let translated_file = source.is_some();
+    if let Some(source) = source {
         let translated = captions.iter().find(|(o, n)| {
             !text.is_empty() && n.eq_ignore_ascii_case(text) && source.iter().any(|(so, sn)| so == o && sn != n)
         });
-        match translated {
-            Some((o, _)) => forced = Some(*o),
-            None => {
-                return unsupported(format!(
-                    "Evaluate of `{text}` into an Enum whose captions a translation file changes (only a translated caption is pinned)"
-                ));
-            }
+        if let Some((o, _)) = translated {
+            forced = Some(*o);
+        } else if ordinal.is_some() {
+            return unsupported(format!(
+                "Evaluate of the ordinal `{text}` into an Enum whose captions a translation file changes (not pinned)"
+            ));
         }
     }
     let found = forced
@@ -80,6 +83,11 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt) -> R
         return unsupported(
             "Evaluate of a blank text into an Enum whose member has a name and a blank caption (not pinned)",
         );
+    }
+    if found.is_none() && translated_file && !c.ret_used() {
+        return unsupported(format!(
+            "the error of Evaluate of `{text}` into an Enum whose captions a translation file changes (not pinned)"
+        ));
     }
     Ok(match found {
         Some(o) => Parsed::Value(Value::Enum(*id, o)),

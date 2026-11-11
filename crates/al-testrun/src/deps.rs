@@ -467,6 +467,12 @@ pub fn load_project_with(
             package_data: d.package_data,
             package_data_files: std::mem::take(&mut d.package_data_files),
             translation_files: Vec::new(),
+            // Read on demand: Base Application's translation files are tens of MB each (ADR-053 step 2).
+            translation_source: d.translations.then(|| {
+                al_ir::TranslationSourceRef(std::sync::Arc::new(al_deps::lazy::PackageTranslations::new(
+                    d.path.clone(),
+                )))
+            }),
             runtime: None,
             app_json_keys: Vec::new(),
         });

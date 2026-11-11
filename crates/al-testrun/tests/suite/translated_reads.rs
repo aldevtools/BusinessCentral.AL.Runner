@@ -355,6 +355,7 @@ fn dutch() -> al_ir::TranslationFile {
         target_language: "nl-BE".into(),
         units,
         error: None,
+        states: Vec::new(),
     }
 }
 
@@ -460,7 +461,7 @@ codeunit 50756 "ALR Translation Repro"
     end;
 
     [Test]
-    procedure Evaluate_Enum_SourceCaption_IsNotPinned()
+    procedure Evaluate_Enum_SourceCaption_IsRejected()
     var
         Status: Enum "ALR Status";
     begin
@@ -469,7 +470,7 @@ codeunit 50756 "ALR Translation Repro"
     end;
 
     [Test]
-    procedure TableCaption_StaysRefused()
+    procedure TableCaption_WithoutAUnit_KeepsTheSource()
     var
         Item: Record "ALR Item";
     begin
@@ -512,6 +513,11 @@ fn run_translated(
 ) -> Vec<(String, Outcome, Vec<al_testrun::assumptions::Assumption>)> {
     let mut m = manifest(true);
     m.translation_files = files;
+    run_with(m)
+}
+
+/// The tests of the second app, whose app has manifest `m`.
+fn run_with(m: Manifest) -> Vec<(String, Outcome, Vec<al_testrun::assumptions::Assumption>)> {
     let rt = CorpusRuntime::try_run_suites_with(
         vec![app("tests", &["app"], TESTS2), app("app", &[], APP2)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Workspace],
@@ -566,18 +572,77 @@ fn a_text_without_a_unit_or_in_1033_keeps_the_source_and_a_field_caption_is_tran
 #[test]
 fn unpinned_reads_under_a_translation_stay_refused() {
     let got = run_translated(vec![dutch()]);
-    for (test, want) in [
-        ("Evaluate_Enum_SourceCaption_IsNotPinned", "Evaluate"),
-        ("TableCaption_StaysRefused", "the caption of table ALR Item"),
-        // A file for nl-BE only, read under nl-NL: which file BC falls back to is not pinned (ADR-053 P3).
-        ("Dutch_OfTheNetherlands_IsNotPinned", "the Label 'Hello world'"),
-    ] {
-        let (_, outcome, _) = find(&got, test);
-        assert!(
-            matches!(outcome, Outcome::NotRun(why) if why.contains(want)),
-            "{test}: want {want:?}, got {outcome:?}"
-        );
+    // A file for nl-BE only, read under nl-NL: only the nl-NL file under nl-BE is pinned (TaXliff.al:146, :176; ADR-053 P3).
+    let (_, outcome, _) = find(&got, "Dutch_OfTheNetherlands_IsNotPinned");
+    assert!(
+        matches!(outcome, Outcome::NotRun(why) if why.contains("the Label 'Hello world'")),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn the_source_caption_of_a_translated_value_is_rejected_and_a_table_caption_without_a_unit_is_the_source() {
+    let got = run_translated(vec![dutch()]);
+    // Pinned: localization/app-xliff/TaXliff.al:140 (`Released` false|0 under 1043) and :216 (the table caption through its
+    // unit; without one the source stays, as for every text: :138, :173).
+    let (_, outcome, _) = find(&got, "Evaluate_Enum_SourceCaption_IsRejected");
+    assert_eq!(outcome, &Outcome::Pass, "{got:?}");
+    let (_, outcome, _) = find(&got, "TableCaption_WithoutAUnit_KeepsTheSource");
+    assert!(matches!(outcome, Outcome::Fail(m) if m.contains("Item")), "{outcome:?}");
+}
+
+#[test]
+fn a_package_gives_its_translation_files_on_demand() {
+    struct Source(Vec<al_ir::TranslationFile>, Vec<al_ir::TranslationFile>);
+    impl al_ir::TranslationSource for Source {
+        fn files(&self) -> &[al_ir::TranslationFile] {
+            &self.0
+        }
+        fn file(&self, index: usize) -> &al_ir::TranslationFile {
+            &self.1[index]
+        }
     }
+    let read = dutch();
+    let head = al_ir::TranslationFile {
+        units: Vec::new(),
+        ..read.clone()
+    };
+    let mut m = manifest(true);
+    m.translation_source = Some(al_ir::TranslationSourceRef(std::sync::Arc::new(Source(
+        vec![head],
+        vec![read],
+    ))));
+    let got = run_with(m);
+    // The same as the app folder's file (TaXliff.al TA_Label_Text, TA_Enum_Format_And_Evaluate).
+    for test in ["Format_Enum_UsesDutchCaption", "Label_UsesDutchText"] {
+        let (_, outcome, _) = find(&got, test);
+        assert_eq!(outcome, &Outcome::Pass, "{test}: {got:?}");
+    }
+}
+
+#[test]
+fn a_unit_with_state_translated_is_flagged_and_another_state_is_refused() {
+    let mut file = dutch();
+    file.states = file
+        .units
+        .iter()
+        .map(|(k, _)| {
+            if k.starts_with("Enum ") {
+                al_ir::UnitState::Other("needs-translation".into())
+            } else {
+                al_ir::UnitState::Translated
+            }
+        })
+        .collect();
+    let got = run_translated(vec![file]);
+    let (_, outcome, assumed) = find(&got, "Label_UsesDutchText");
+    assert_eq!(outcome, &Outcome::Pass, "{got:?}");
+    assert_eq!(assumed, &[al_testrun::assumptions::Assumption::XliffStateTranslated]);
+    let (_, outcome, _) = find(&got, "Format_Enum_UsesDutchCaption");
+    assert!(
+        matches!(outcome, Outcome::NotRun(why) if why.contains("state is needs-translation")),
+        "{outcome:?}"
+    );
 }
 
 #[test]
@@ -706,6 +771,7 @@ fn run_extension_captions() -> Vec<(String, Outcome, Vec<al_testrun::assumptions
             "Betalings-ID".to_string(),
         )],
         error: None,
+        states: Vec::new(),
     }];
     let rt = CorpusRuntime::try_run_suites_with(
         vec![
@@ -747,11 +813,10 @@ fn a_table_extension_field_caption_is_translated_from_the_apps_file() {
             "{test}: a clean pass, R7144ExtFieldCaption.al:9-12, :80-83 and :99-103 pin it (corpus PR 1156)"
         );
     }
-    // An extension of a table of its own app: BC kept the source caption with such a unit (R7144ExtFieldCaption.al:83);
-    // which unit it reads is not pinned.
+    // An extension of a table of its own app keeps the source caption (R7144ExtFieldCaption.al:83, :103).
     let (_, outcome, _) = find(&got, "OwnTableExtensionFieldCaptionInDutch");
     assert!(
-        matches!(outcome, Outcome::NotRun(why) if why.contains("translations are not supported")),
+        matches!(outcome, Outcome::Fail(m) if m == "Own extension"),
         "{outcome:?}"
     );
 }

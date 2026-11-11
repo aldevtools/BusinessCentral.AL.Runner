@@ -94,13 +94,6 @@ pub trait Ctx: FormatCtx {
         Ok(None)
     }
 
-    /// [`Self::translated_app_read`] that lets the read through when no translation file of the app has a unit `xliff`: the
-    /// source text then stays in every language (an OptionCaption read, `System.TranslatedText#1` with a fifth argument).
-    fn translated_app_read_unit(&self, app: &str, what: &str, xliff: &str) -> Result<(), Signal> {
-        let _ = xliff;
-        self.translated_app_read(app, what)
-    }
-
     fn last_error(&self) -> AlError;
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.

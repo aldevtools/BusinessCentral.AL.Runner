@@ -540,19 +540,42 @@ impl Lowerer<'_> {
         Some(format!("{id} - {}", al_ir::xliff_part("NamedType", name)))
     }
 
-    /// `value` through `System.TranslatedText#1`: the same value, refused in a language other than 1033 when the app of
-    /// object `object` ships a translation file (ADR-053 step 1). `what` names the text for the reason.
+    /// `value` through `System.TranslatedText#1` for the OptionCaption whose XLIFF unit is `xliff`: an Option value takes the
+    /// captions the unit gives in the language in force; with `members` (the field's member names), `value` is the text an
+    /// Evaluate reads, and a translated caption becomes its member's name. Without a unit id the read is refused in a
+    /// language other than 1033 when the app of object `object` ships a translation file (ADR-053 step 1). `what` names the
+    /// text for the reason.
     pub(crate) fn translated_option_text(
         &self,
         value: ir::Expr,
         (object, what, xliff): (usize, String, Option<String>),
+        members: Option<&[String]>,
     ) -> L<ir::Expr> {
         let mut read = self.translated_text(value, object, what)?;
         if let (Some(id), ir::Expr::Builtin { args, .. }) = (xliff, &mut read) {
             args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(id))));
             args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(true))));
+            if let Some(members) = members {
+                args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(members.join(",")))));
+            }
         }
         Ok(read)
+    }
+
+    /// The member names of the Option field `arg` names.
+    pub(crate) fn option_field_members(&mut self, arg: &SyntaxNode) -> Option<Vec<String>> {
+        let node = if arg.kind() == SyntaxKind::ScopeExpr {
+            arg.children().next()?
+        } else {
+            arg.clone()
+        };
+        let Some(Res::Field { table, id: field }) = self.res(&node).cloned() else {
+            return None;
+        };
+        match &self.members[table].fields.iter().find(|f| f.id == field)?.ty {
+            Ty::Option(names) => Some(names.to_vec()),
+            _ => None,
+        }
     }
 
     pub(crate) fn translated_text(&self, value: ir::Expr, object: usize, what: String) -> L<ir::Expr> {
@@ -588,7 +611,9 @@ impl Lowerer<'_> {
         captioned.then(|| {
             let owner = f.declared_in.unwrap_or(table);
             let o = &self.ws.objects[owner];
-            let xliff = al_ir::xliff_object_kind(o.kind).map(|kind| {
+            // A caption an extension's `modify` sets is not looked up: which unit BC reads for it is not pinned.
+            let kind = al_ir::xliff_object_kind(o.kind).filter(|_| !f.option_caption_modified);
+            let xliff = kind.map(|kind| {
                 format!(
                     "{} - {} - {}",
                     al_ir::xliff_part(kind, &o.name),

@@ -59,6 +59,12 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         package_data: al_deps::load::ships_package_data(path),
         package_data_files: al_deps::load::package_data_files(path).map_err(|e| e.to_string())?,
         translation_files: Vec::new(),
+        // A package's translation files are read on demand; a folder's are read with its app.json below.
+        translation_source: (path.is_file() && al_deps::load::ships_translations(path)).then(|| {
+            al_ir::TranslationSourceRef(std::sync::Arc::new(al_deps::lazy::PackageTranslations::new(
+                path.to_path_buf(),
+            )))
+        }),
         runtime: None,
         app_json_keys: Vec::new(),
     };

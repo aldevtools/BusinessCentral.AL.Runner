@@ -91,6 +91,7 @@ fn manifest() -> Manifest {
         package_data: false,
         package_data_files: Vec::new(),
         translation_files: Vec::new(),
+        translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
         symbols: vec![],
