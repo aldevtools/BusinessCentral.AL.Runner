@@ -120,7 +120,7 @@ impl Session {
     ) -> Result<(), Signal> {
         let xp = schema.xp();
         // An encoding the triggers set on an import is pinned for a port that declares WINDOWS (`import_encoding`; the source was
-        // decoded with it, XpVarTextWindowsImport.al:339, :351, :387); for other ports it is not (Y67XpSeparators.al pins it on an
+        // decoded with it, XpVarTextWindowsImport.al:337, :349, :385); for other ports it is not (Y67XpSeparators.al pins it on an
         // export only).
         if assigned::set_in_run(inst).is_some() && xp.text_encoding.as_deref() != Some("windows") {
             return unsupported("a VariableText import whose TextEncoding the program set (not pinned)");
@@ -522,7 +522,7 @@ pub(super) fn text_separator(value: Option<&str>, default: &str) -> Result<Strin
 }
 
 /// The text a text element of a VariableText import gets for `v`: the spaces around it are dropped, as a field element's value
-/// drops them (`xp_assign_field_flow_in`): `"say ""hi"""` gives `say`, not `say ` (xmlports/import/XpVarTextWindowsImport.al:397
+/// drops them (`xp_assign_field_flow_in`): `"say ""hi"""` gives `say`, not `say ` (xmlports/import/XpVarTextWindowsImport.al:409
 /// VTW_Columns_WindowsFile_Semicolon_Quotes_Import `1/3=[say {}]`). With PreserveWhiteSpace, and in a FixedText import, the value
 /// stays as it was.
 fn text_element_value(xp: &ir::XmlPort, variable: bool, v: &str) -> String {

@@ -316,8 +316,8 @@ pub(super) fn repeats(schema: &Schema, c: usize) -> bool {
 /// without triggers (al-runner issue 7396; xmlports/shapes-properties/XpRootTableNoChildren.al xmlports 75062-75068). Its export
 /// writes one empty root element per row, `<MyRequest />`, one with the record as it stands when there is no row unless
 /// MinOccurs = Zero, one at most with MaxOccurs = Once, each root declaring the port's namespace prefix or default namespace
-/// (:309-360 RootTableNoChildren_*_Export, :374 RootTableOnlyAttribute_Export_Control, BC 27, 28, 29). Its triggers among
-/// OnPreXmlItem and OnAfterGetRecord run as for any table element (:349 RootTableNoChildren_Triggers_Export
+/// (:302-354 RootTableNoChildren_*_Export, :391 RootTableOnlyAttribute_Export_Control, BC 27, 28, 29). Its triggers among
+/// OnPreXmlItem and OnAfterGetRecord run as for any table element (:367 RootTableNoChildren_Triggers_Export
 /// `pre port;pre;get P1;get P2;post port;`); the import triggers of that port are allowed as no export runs them.
 pub(super) fn childless_table_root(schema: &Schema, top: usize) -> bool {
     const TRIGGERS: [&str; 5] = [

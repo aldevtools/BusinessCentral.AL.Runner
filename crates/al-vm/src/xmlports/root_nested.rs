@@ -60,8 +60,8 @@ fn stores_plainly(n: &ir::XmlNode, allowed: &[&str]) -> bool {
 /// The header table element: temporary, MaxOccurs = Unbounded declared or not, OnAfterInitRecord and OnAfterInsertRecord its only
 /// triggers, its nodes leaf field elements of its own record and leaf text elements without triggers (some MinOccurs = Zero), and
 /// at most one text element that wraps a `line_table` (XpRootTableNested.al:88-185 with the wrapper last). The wrapper may stand
-/// anywhere among the header's nodes: first (XpRootTableNestedVariants.al:593 "XP RTV Wrap First", pinned by :1499, :1513, :1601),
-/// in the middle (:781 "XP RTV Wrap Middle", :1527, :1541) or last (:59 "XP RTV Wrap Last", :1415); the header's fields and text
+/// anywhere among the header's nodes: first (XpRootTableNestedVariants.al:593 "XP RTV Wrap First", pinned by :1499, :1513, :1615),
+/// in the middle (:781 "XP RTV Wrap Middle", :1527, :1541) or last (:61 "XP RTV Wrap Last", :1415); the header's fields and text
 /// elements are read in document order, so a line sees only those read before the wrapper (:1499 `kind=[]/cust=[]`).
 fn header_table(schema: &Schema, head: usize) -> bool {
     let h = schema.node(head);
@@ -105,7 +105,7 @@ fn line_wrap(schema: &Schema, w: usize) -> bool {
 
 /// The line table element: temporary, OnBeforeInsertRecord its only trigger, its nodes leaf field elements of its own record
 /// without triggers (XpRootTableNested.al:134-171, MinOccurs and MaxOccurs not declared). MaxOccurs = Unbounded may be declared
-/// (XpRootTableNestedVariants.al:128-131, pinned by :1415), and MinOccurs = Once or Zero: with Zero a wrapper without lines stores
+/// (XpRootTableNestedVariants.al:122-127, pinned by :1415), and MinOccurs = Once or Zero: with Zero a wrapper without lines stores
 /// the header without lines (:466-470, pinned by :1471, :1485, :1587, :1601); with Once it fails the schema check (:1555, :1571).
 fn line_table(schema: &Schema, line: usize) -> bool {
     let l = schema.node(line);

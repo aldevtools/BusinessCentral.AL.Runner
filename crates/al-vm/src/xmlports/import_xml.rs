@@ -117,7 +117,7 @@ impl Session {
     /// Whether a guarded static `Xmlport.Import` is turned into false because the caller holds an uncommitted write: a guarded
     /// import needs a transaction world of its own, which BC refuses to open then
     /// (xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_WithUncommittedWrite_ReturnsFalse_AndImportsNothing). No
-    /// object trigger runs (xmlports/shapes-properties/XpRootTableNoChildren.al:443 `triggers import log` empty, a port with
+    /// object trigger runs (xmlports/shapes-properties/XpRootTableNoChildren.al:438 `triggers import log` empty, a port with
     /// OnPreXmlPort and OnPostXmlPort): `xp_run_body` asks before OnPreXmlPort.
     pub(super) fn xp_static_import_blocked(&mut self) -> Result<bool, Signal> {
         if !self.in_write_transaction()? {
@@ -568,7 +568,7 @@ impl Session {
             // A document that declares iso-8859-1 is read as Latin-1 (XpTEncoding.al:235 Encoding_ImportXmlDeclaredLatin1: a Windows
             // stream with `Mü` imports as `Mü`). Other declarations are not pinned.
             // A VariableText import under UTF-8 (declared, or set over a declared WINDOWS) reads each byte that is not UTF-8 as
-            // U+FFFD (xmlports/import/XpVarTextWindowsImport.al:387 VTW_Columns_WindowsFile_SetUtf8_Semicolon_Import, :495
+            // U+FFFD (xmlports/import/XpVarTextWindowsImport.al:385 VTW_Columns_WindowsFile_SetUtf8_Semicolon_Import, :481
             // VTW_Fields_Utf8_WindowsFile_Import: `caf� M�ller �5` for the Windows-1252 bytes E9, FC, 80).
             Err(_) if text_encoding == Some(al_builtins::stream::Encoding::Utf8) => {
                 Ok(String::from_utf8_lossy(rest).into_owned())

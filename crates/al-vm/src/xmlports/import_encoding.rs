@@ -11,11 +11,11 @@ const SET_WINDOWS: i64 = 3;
 
 /// The encoding a VariableText import decodes with, for the pinned pairs of declared and set encodings; `None` for a port that
 /// declares no encoding (the source is read as before: UTF-8, UTF-16 by its byte order mark). Pinned pairs:
-/// - declared WINDOWS, nothing set or Windows set in OnPreXmlPort: Windows-1252 (XpVarTextWindowsImport.al:351
-///   VTW_Columns_WindowsFile_SetWindows_Semicolon_Import, :363 VTW_Columns_WindowsFile_Declared_Semicolon_Import, :447
-///   VTW_Fields_Windows_WindowsFile_Import; UTF-8 bytes read one character per byte, :375, :459);
-/// - declared WINDOWS, UTF8 set in OnPreXmlPort (:339, :387, :423) or on the variable before Import (:471): UTF-8;
-/// - declared UTF8, nothing set: UTF-8, U+FFFD for each byte that is not UTF-8 (:483, :495).
+/// - declared WINDOWS, nothing set or Windows set in OnPreXmlPort: Windows-1252 (XpVarTextWindowsImport.al:349
+///   VTW_Columns_WindowsFile_SetWindows_Semicolon_Import, :361 VTW_Columns_WindowsFile_Declared_Semicolon_Import, :433
+///   VTW_Fields_Windows_WindowsFile_Import; UTF-8 bytes read one character per byte, :373, :445);
+/// - declared WINDOWS, UTF8 set in OnPreXmlPort (:337, :385, :421) or on the variable before Import (:457): UTF-8;
+/// - declared UTF8, nothing set: UTF-8, U+FFFD for each byte that is not UTF-8 (:469, :481).
 ///
 /// Declared WINDOWS with MSDos or UTF16 set is refused; every other port reads as before (`None`).
 pub(super) fn text_import_encoding(inst: &Inst, xp: &ir::XmlPort) -> Result<Option<Encoding>, Signal> {
@@ -58,7 +58,7 @@ const RAW_SOURCE: u8 = 18;
 
 /// Whether the import reads its source before OnPreXmlPort (P112XpCsv.al:P112_Import_EmptySource) but decodes it after: a
 /// VariableText port that declares WINDOWS decodes with the encoding in force when it reads, also one OnPreXmlPort set
-/// (XpVarTextWindowsImport.al:339 VTW_Columns_Utf8File_SetUtf8_Semicolon_Import, :387 VTW_Columns_WindowsFile_SetUtf8_Semicolon_Import).
+/// (XpVarTextWindowsImport.al:337 VTW_Columns_Utf8File_SetUtf8_Semicolon_Import, :385 VTW_Columns_WindowsFile_SetUtf8_Semicolon_Import).
 pub(super) fn defers_decoding(xp: &ir::XmlPort) -> bool {
     xp.format == ir::XmlFormat::VariableText && xp.text_encoding.as_deref() == Some("windows")
 }
@@ -96,7 +96,7 @@ pub(super) fn take_raw_decoded(inst: &Inst, xp: &ir::XmlPort) -> Result<Option<S
                     "a VariableText import under TextEncoding UTF8 set over a declared WINDOWS of a source with a byte order mark (not pinned)",
                 );
             }
-            // XpVarTextWindowsImport.al:387: U+FFFD for each byte that is not UTF-8.
+            // XpVarTextWindowsImport.al:385: U+FFFD for each byte that is not UTF-8.
             Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
         }
         _ => unsupported("a VariableText import into a port that declares WINDOWS decoded otherwise (not pinned)"),
