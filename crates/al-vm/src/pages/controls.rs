@@ -997,7 +997,7 @@ impl Session {
                     self.pages.curr_field_no.pop();
                     validated?;
                     let before = before.as_deref().expect("rec-bound");
-                    self.validate_step_begin(st, pos, before, was_dirty, !ext_after.is_empty())?;
+                    self.validate_step_begin(st, pos, before, was_dirty, &ext_after)?;
                 }
                 // The value is dropped: see `ir::EXT_MIRROR_PROPERTY`.
                 ir::Binding::BaseVar(_) if ctl.props.iter().any(|(n, _)| n == ir::EXT_MIRROR_PROPERTY) => {}

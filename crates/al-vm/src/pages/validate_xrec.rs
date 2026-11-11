@@ -15,16 +15,20 @@
 //!   `equal=Yes`; XRecAfterUpdateInPart.al:624-636 `Part_EmptyDocument_F3_Then_F2`: the 7 of F3 is not in `10000: 0 0 5 0 0`;
 //!   XRecAfterUpdateNewRow.al:493-501 and :649-657).
 //!
-//! Pinned pages (`validate_xrec_pinned_page`): a List or a Card opened on its own, and a ListPart with AutoSplitKey and DelayedInsert
-//! inside a Document page (UpdatePropagation not Both) or opened on its own. On those a row stored after `CurrPage.Update(false)` in the same step is refused,
-//! and `CurrPage.Update(false)` on a row that held an unsaved edit before the step keeps the edit as before: no probe shows what
-//! stays then (a probe is queued).
+//! Pinned pages (`validate_xrec_pinned_page`), matched by the shape the probes have: a List or a Card opened on its own with no
+//! page trigger (its own or an extension's), no part, no DelayedInsert and a stored source table, and a ListPart with AutoSplitKey
+//! and DelayedInsert, no page trigger and a stored source table, opened on its own or inside a Document page opened on its own
+//! that has neither (UpdatePropagation not Both). On those a row stored after `CurrPage.Update(false)` in the same step is
+//! refused, and `CurrPage.Update(false)` on a row that held an unsaved edit before the step keeps the edit as before: no probe
+//! shows what stays then (a probe is queued). A save inside the step runs with the xRec the page had before this rule (the row it
+//! read, or the row a save stored): what the table's modify triggers see then is not pinned. After an error in the step the page
+//! holds its former xRec again, so an earlier unsaved edit is still saved.
 //! On every other page the step keeps the former behavior: the page triggers see the xRec the page holds, a save inside the step
 //! makes the stored row xRec at once, and `CurrPage.Update(false)` keeps the edit. The passing corpus cases of those pages run
 //! through it (pages/parts/QjPartPropagation.al QJ_*, QL_*, QN_*, QT_*: a part's Update(false) whose edit stays;
 //! pages/actions/Y45SaveBeforeAction.al NextField_*, pages/modify-denied/Y80ModifyDenied.al and pages/extensions/
 //! Y65CodeChangeNextField.al: a second value on a row of a Worksheet or a Document). Only a row stored inside the step
-//! that a page extension's OnAfterValidate would read is refused there, the shape of al-runner issue 7403.
+//! whose xRec a page extension's OnAfterValidate reads is refused there, the shape of al-runner issue 7403.
 
 use super::*;
 
@@ -33,20 +37,24 @@ use super::*;
 pub(crate) struct ValidateStep {
     /// The page is one the corpus pins (see the module comment).
     pinned: bool,
-    /// The control has a page extension's OnAfterValidate.
-    ext_after: bool,
+    /// The page extensions' OnAfterValidate of the control, as (extension object, routine).
+    ext_after: Vec<(usize, usize)>,
     /// The row held an unsaved edit when the step started.
     was_dirty: bool,
     /// The xRec the page held when the step started.
     held: Vec<Value>,
     /// Rec when the step started, before the table's validation.
     before: Vec<Value>,
+    /// The xRec a save inside the step runs with: the held xRec, then the row the last save stored (as before this rule).
+    save_xrec: Vec<Value>,
     /// `CurrPage.Update(false)` ran in the step.
     update_false: bool,
 }
 
 impl Session {
-    /// Whether `st` is a page the corpus pins the validation step's xRec on (see the module comment).
+    /// Whether `st` is a page the corpus pins the validation step's xRec on (see the module comment). The pinned pages declare
+    /// no page trigger and no SourceTableTemporary, and the List and Card pages no part and no DelayedInsert (Y7403XRecAfterCurrPageUpdate.al:51-316, XRecAfterUpdateNewRow.al:57-323,
+    /// XRecAfterUpdateInPart.al:105-279); a page with one keeps the former behavior.
     fn validate_xrec_pinned_page(&self, st: &St) -> Result<bool, Signal> {
         if !self.has_source(st) || self.is_request_page(st) {
             return Ok(false);
@@ -54,14 +62,24 @@ impl Session {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let page_type = |o: usize| engine.object_facts[o].page_type.clone();
+        let on = |o: usize, name: &str| -> Result<bool, Signal> {
+            Ok(effective_prop(&engine, o, name)?.is_some_and(|v| v.trim().eq_ignore_ascii_case("true")))
+        };
+        // No page trigger of its own or of an extension, and a stored source table.
+        let quiet = |p: &ir::Page, o: usize| -> Result<bool, Signal> {
+            Ok(p.triggers.is_empty() && p.ext_triggers.is_empty() && !on(o, "SourceTableTemporary")?)
+        };
+        let page = page_of(&engine, st);
+        if !quiet(page, object)? {
+            return Ok(false);
+        }
         let host = st.borrow().host.as_ref().map(|(h, c)| h.upgrade().map(|h| (h, *c)));
         match (page_type(object), host) {
-            (Some(al_ir::PageType::List | al_ir::PageType::Card), None) => Ok(true),
+            (Some(al_ir::PageType::List | al_ir::PageType::Card), None) => {
+                Ok(!on(object, "DelayedInsert")? && !page.controls.iter().any(|c| c.kind == ir::ControlKind::Part))
+            }
             (Some(al_ir::PageType::Other(o)), host) if o == "listpart" => {
-                let on = |name: &str| -> Result<bool, Signal> {
-                    Ok(effective_prop(&engine, object, name)?.is_some_and(|v| v.trim().eq_ignore_ascii_case("true")))
-                };
-                if !(on("AutoSplitKey")? && on("DelayedInsert")?) {
+                if !(on(object, "AutoSplitKey")? && on(object, "DelayedInsert")?) {
                     return Ok(false);
                 }
                 Ok(match host {
@@ -69,11 +87,14 @@ impl Session {
                     // With UpdatePropagation = Both the typed new row stays after Update(false) (pages/parts/QjPartPropagation.al
                     // QL_Both_NewPartRow_PartModifiesHost `part-qty-after-part` 5.00): the probe's part has the default.
                     Some(Some((h, c))) => {
-                        let both = matches!(page_of(&engine, &h).controls[c].prop("updatepropagation"),
+                        let host_page = page_of(&engine, &h);
+                        let host_object = h.borrow().object as usize;
+                        let both = matches!(host_page.controls[c].prop("updatepropagation"),
                             Some(ir::PropVal::Lit(v)) if v.eq_ignore_ascii_case("both"));
                         !both
+                            && quiet(host_page, host_object)?
                             && h.borrow().host.is_none()
-                            && page_type(h.borrow().object as usize) == Some(al_ir::PageType::Document)
+                            && page_type(host_object) == Some(al_ir::PageType::Document)
                     }
                     Some(None) => false,
                 })
@@ -83,15 +104,14 @@ impl Session {
     }
 
     /// The step starts its page triggers: the table's validation of field `pos` ran on Rec, which was `before`. On a pinned page
-    /// the page's xRec becomes `before` when the value changed the field; elsewhere a step where that would differ from the xRec
-    /// the page holds is refused.
+    /// the page's xRec becomes `before` when the value changed the field; elsewhere the page keeps the xRec it holds.
     pub(super) fn validate_step_begin(
         &mut self,
         st: &St,
         pos: usize,
         before: &[Value],
         was_dirty: bool,
-        ext_after: bool,
+        ext_after: &[(usize, usize)],
     ) -> Result<(), Signal> {
         let held = self.page_xrec_fields(st);
         let changed = {
@@ -105,8 +125,9 @@ impl Session {
         }
         st.borrow_mut().validate_step = Some(ValidateStep {
             pinned,
-            ext_after,
+            ext_after: ext_after.to_vec(),
             was_dirty,
+            save_xrec: held.clone(),
             held,
             before: before.to_vec(),
             update_false: false,
@@ -114,25 +135,42 @@ impl Session {
         Ok(())
     }
 
-    /// A save of `CurrPage.Update()`, `Update(true)` or `SaveRecord()` inside the step: whether the page keeps its xRec until
-    /// the step ends (the stored row becomes xRec then, `after_validate_rows`). Refuses the shapes no probe shows.
-    pub(super) fn validate_step_keeps_xrec(&self, st: &St) -> Result<bool, Signal> {
+    /// A save of `CurrPage.Update()`, `Update(true)` or `SaveRecord()` inside the step: the xRec the save runs with when the
+    /// page keeps its xRec until the step ends (the stored row becomes xRec then, `after_validate_rows`), else `None`. Refuses
+    /// the shapes no probe shows.
+    pub(super) fn validate_step_save_xrec(&self, st: &St) -> Result<Option<Vec<Value>>, Signal> {
         let s = st.borrow();
         let Some(step) = s.validate_step.as_ref() else {
-            return Ok(false);
+            return Ok(None);
         };
         if step.update_false {
             return unsupported(
                 "a row stored after CurrPage.Update(false) in the same control validation (what stays of the edit is not pinned)",
             );
         }
-        if !step.pinned && step.ext_after {
+        if step.pinned {
+            return Ok(Some(step.save_xrec.clone()));
+        }
+        let engine = self.engine();
+        let base = s.object as usize;
+        if step
+            .ext_after
+            .iter()
+            .any(|&(e, r)| reads_xrec(&engine.program, base, e, r))
+        {
             return unsupported(
-                "a row stored inside a control validation that a page extension's OnAfterValidate reads, outside a List, a Card and \
-                 a ListPart of a Document (which xRec it sees is not pinned)",
+                "a row stored inside a control validation whose xRec a page extension's OnAfterValidate reads, outside a List, a \
+                 Card and a ListPart of a Document without page triggers (which xRec it sees is not pinned)",
             );
         }
-        Ok(step.pinned)
+        Ok(None)
+    }
+
+    /// A save inside the step stored `stored`: the next save of the step runs with it as xRec (`validate_step_save_xrec`).
+    pub(super) fn validate_step_saved(&self, st: &St, stored: &[Value]) {
+        if let Some(step) = st.borrow_mut().validate_step.as_mut() {
+            step.save_xrec = stored.to_vec();
+        }
     }
 
     /// `CurrPage.Update(false)` inside the step: the edit does not stay once the step ends (`validate_step_end`).
@@ -146,7 +184,9 @@ impl Session {
         }
     }
 
-    /// The step ended with `result`: on success see `validate_step_end`; after an error nothing of the step stays.
+    /// The step ended with `result`: on success see `validate_step_end`; after an error nothing of the step stays, and the page
+    /// holds its xRec again (so a later save or Close still writes an earlier unsaved edit, as before this rule; a row a save
+    /// of the step stored becomes xRec in `after_validate_rows`).
     pub(super) fn validate_step_close(
         &mut self,
         st: &St,
@@ -155,7 +195,10 @@ impl Session {
         match result {
             Ok(()) => self.validate_step_end(st),
             Err(e) => {
-                st.borrow_mut().validate_step = None;
+                let step = st.borrow_mut().validate_step.take();
+                if let Some(step) = step.filter(|s| s.pinned) {
+                    self.set_xrec_fields(st, step.held);
+                }
                 Err(e)
             }
         }
@@ -229,5 +272,66 @@ impl Session {
         };
         let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
         triggers(st) || host.is_some_and(|h| triggers(&h))
+    }
+}
+
+/// Whether routine `r` of page extension `e` reads the page's xRec: it names xRec, passes it to a `var` parameter or calls a
+/// procedure of its own object or of the base page `base` that does.
+fn reads_xrec(program: &ir::Program, base: usize, e: usize, r: usize) -> bool {
+    let objects = &program.objects;
+    let base_slot = objects[base].xrec_slot;
+    let mut todo = vec![(e, r)];
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some((o, r)) = todo.pop() {
+        if !seen.insert((o, r)) {
+            continue;
+        }
+        let Some(routine) = objects.get(o).and_then(|x| x.routines.get(r)) else {
+            continue;
+        };
+        let own_slot = objects[o].xrec_slot;
+        let names = |p: &ir::Place| place_names_xrec(p, own_slot, base_slot);
+        let refs = |args: &[ir::Arg]| args.iter().any(|a| matches!(a, ir::Arg::Ref(p) if names(p)));
+        let mut found = false;
+        ir::types::for_each_expr_post(routine.body.stmts(), &mut |x| match x {
+            ir::Expr::Load(p) => found |= names(p),
+            ir::Expr::Call {
+                object,
+                routine,
+                instance,
+                args,
+                ..
+            } => {
+                found |= refs(args);
+                let same_page = matches!(
+                    instance.as_deref(),
+                    None | Some(ir::Expr::ThisInstance | ir::Expr::BaseInstance)
+                );
+                if same_page && (*object == o || *object == base) {
+                    todo.push((*object, *routine));
+                }
+            }
+            ir::Expr::Builtin { receiver, args, .. } => {
+                found |= refs(args) || receiver.as_deref().is_some_and(|a| refs(std::slice::from_ref(a)));
+            }
+            ir::Expr::InterfaceCall { args, .. } | ir::Expr::DotNet { args, .. } => found |= refs(args),
+            _ => {}
+        });
+        if found {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether place `p` is xRec of the running object (`own`) or of the base page (`base`), or a part of it.
+fn place_names_xrec(p: &ir::Place, own: Option<usize>, base: Option<usize>) -> bool {
+    match p {
+        ir::Place::Global(g) => Some(*g) == own,
+        ir::Place::BaseGlobal(g) => Some(*g) == base,
+        ir::Place::Field(inner, _) | ir::Place::Index(inner, _) | ir::Place::RecGlobal(inner, _, _) => {
+            place_names_xrec(inner, own, base)
+        }
+        ir::Place::Local(_) | ir::Place::ExtGlobal(..) => false,
     }
 }

@@ -650,7 +650,8 @@ impl Session {
         // (pages/parts/QjPartPropagation.al:733 QJ_SubformSaveRecord_StoredRow `S.V.after(10000 r=5 x=1 ...)`,
         // :764 QJ_SubformSaveRecord_NewRow `S.V.after(20000 r=5 x=0 x.ln=0 delta=5)`). Pinned for a ListPart only.
         // On the pages `pages/validate_xrec.rs` pins, any save inside a control's validation keeps xRec until the step ends.
-        let keep_xrec = self.validate_step_keeps_xrec(st)?
+        let step_save_xrec = self.validate_step_save_xrec(st)?;
+        let keep_xrec = step_save_xrec.is_some()
             || (method == PageOp::PageSaveRecord
                 && {
                     let s = st.borrow();
@@ -659,9 +660,13 @@ impl Session {
                 && self.is_list(st));
         if keep_xrec {
             let xrec = self.page_xrec_fields(st);
+            if let Some(seen) = step_save_xrec {
+                self.set_xrec_fields(st, seen);
+            }
             self.save_record_now(st)?;
             let stored = self.page_rec(st).borrow().fields.clone();
             self.set_xrec_fields(st, xrec);
+            self.validate_step_saved(st, &stored);
             st.borrow_mut().xrec_after_validate = Some(stored);
         } else {
             self.save_record_now(st)?;
