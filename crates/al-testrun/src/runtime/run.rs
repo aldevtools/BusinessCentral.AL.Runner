@@ -715,10 +715,6 @@ fn run_codeunit_inner(
                         // (corpus tests/al-language-isolation-probe/src/RpReader.Codeunit.al:20-24 P1; ADR-059's Skipped
                         // outcome is not built yet).
                         let mut reset = runner.before_or_skip(session, obj, routine, &mut skipped);
-                        // A session whose platform seed rows were refused runs no test (al-runner issue 7644).
-                        if let (Ok(()), Some(why)) = (&reset, session.seed_refusal()) {
-                            reset = Err(why.to_string());
-                        }
                         // `random.librarySeed` of a stability run (ADR-058, owner decision 2) or `--seed-library`
                         // (ADR-061): after codeunit 130301, the runner calls Microsoft's own `LibraryRandom.SetSeed(n)` with
                         // the variant's seed, else the one derived from the run seed.
