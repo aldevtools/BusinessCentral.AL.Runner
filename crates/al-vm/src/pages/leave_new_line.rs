@@ -29,7 +29,7 @@ impl Session {
     /// comment), `Some(false)` for any other move of that kind, which the caller refuses before it changes anything; `None` when
     /// `st` is not on such a line or `how` is Next (Next keeps the moves of `rows.rs`, testpage/NewRowThenMove.al:498).
     pub(super) fn off_new_line_pinned(&mut self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
-        let (untouched, saved, mode, anchor) = {
+        let (untouched, saved, mode, anchor, by_update) = {
             let s = st.borrow();
             let untouched = s.cursor == Cursor::NewLine
                 && s.draft
@@ -45,7 +45,7 @@ impl Session {
             if !line {
                 return Ok(None);
             }
-            (untouched, saved, s.mode, s.after_new.clone())
+            (untouched, saved, s.mode, s.after_new.clone(), s.after_new_by_update)
         };
         let (agr, agcr) = (
             self.declares(st, "onaftergetrecord"),
@@ -87,20 +87,25 @@ impl Session {
                 &table.primary_key(anchor),
             ))
         };
-        let edit = mode != PageMode::New;
+        // The pins open the page with OpenEdit or OpenNew; OpenView and every other mode are not pinned.
+        let (edit, new) = (mode == PageMode::Edit, mode == PageMode::New);
+        // The one row of the OpenNew pins was typed and saved by CurrPage.Update(true) in the OnValidate of the control typed last,
+        // before New() (:407 TypeOneRowThenNewList, :419 TypeOneRowThenNewPlus; :73, :171 the OnValidate); a row New() saves
+        // itself is not pinned.
+        let one_saved = new && by_update && rows == 1;
         let pinned = match how {
             // :540, :663 OpenEdit, Last, New on two rows; :444, :581 OpenNew with one saved row; :562 OpenEdit on an empty List.
             PageMethod::First if untouched => {
                 (edit && rows == 2 && below(self, "+")?)
-                    || (!edit && rows == 1 && below(self, "+")?)
+                    || (one_saved && below(self, "+")?)
                     || (edit && rows == 0 && list && anchor.is_none())
             }
             // :639 the second typed row saved on a ListPlus opened with OpenNew, New() started below the first.
-            PageMethod::First => saved && list_plus && !edit && rows == 2 && below(self, "-")?,
+            PageMethod::First => saved && list_plus && new && rows == 2 && below(self, "-")?,
             // :480, :617, :462, :599 OpenNew with one saved row.
-            PageMethod::Previous | PageMethod::Last => !edit && rows == 1 && below(self, "+")?,
+            PageMethod::Previous | PageMethod::Last => one_saved && below(self, "+")?,
             // :516 OpenNew with one saved row, a List.
-            PageMethod::GoToKey => list && !edit && rows == 1 && below(self, "+")?,
+            PageMethod::GoToKey => list && one_saved && below(self, "+")?,
             _ => false,
         };
         Ok(Some(pinned))

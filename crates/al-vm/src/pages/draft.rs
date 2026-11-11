@@ -523,7 +523,12 @@ impl Session {
         // A list line started below a stored row: remember the row (see `PageState::after_new`).
         let anchor = (keep_focus && st.borrow().cursor == Cursor::Row && !st.borrow().draft)
             .then(|| rec.borrow().fields.clone());
-        st.borrow_mut().after_new = anchor;
+        {
+            let mut s = st.borrow_mut();
+            s.after_new_by_update = anchor.is_some() && s.saved_by_update;
+            s.saved_by_update = false;
+            s.after_new = anchor;
+        }
         let table = rec.borrow().table as usize;
         let fresh = self.initial_fields(table);
         rec.borrow_mut().fields = fresh;
