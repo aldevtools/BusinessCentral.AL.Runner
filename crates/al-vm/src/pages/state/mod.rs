@@ -408,6 +408,8 @@ pub struct PageState {
     pub read_keeps_xrec: bool,
     /// The row CurrPage.SaveRecord stored inside a control's validation: it becomes xRec once the SetValue returns.
     pub xrec_after_validate: Option<Vec<Value>>,
+    /// The control validation step that runs now and what it asked of the page's xRec (`pages/validate_xrec.rs`).
+    pub validate_step: Option<crate::pages::validate_xrec::ValidateStep>,
     /// Rec as it was when a page variable control started to validate; a change its OnValidate makes in code marks the row
     /// edited (`pages/dirty_step.rs`, al-runner issue 6669).
     pub rec_before_var_validate: Option<Vec<Value>>,
