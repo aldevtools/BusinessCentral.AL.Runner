@@ -225,7 +225,10 @@ pub enum Gate {
     /// The corpus compiles those tests from the BC 28 symbols on (`#if BC28PLUS`), so BC 27.5 is not covered either, and only the
     /// BC 28 and 29 values are pinned. HttpHeaders.al also pins the code of a blank header name per major (27 Format,
     /// 28 Argument, 29 Format). BeEnumSetValueBlank.al pins both sides for a Text in a Variant on an Enum or Option TestPage
-    /// control (27.5 `The type NavOption is unknown.`, NotSupportedType): consumed by `al-vm` pages/controls.rs.
+    /// control (27.5 `The type NavOption is unknown.`, NotSupportedType): consumed by `al-vm` pages/controls.rs. Corpus bump
+    /// 1111a pins the same split for a TestPage SetValue on an Option control with a blank member caption
+    /// (pages/enum-setvalue-blank/BlankMemberCaptionForms.al:179) and on a request page Option field of a global record
+    /// (reports/request-page/RequestPageOptionFieldOfGlobalRecord.al:205).
     ConversionErrorTextsFrom28,
     /// A test codeunit that runs a `List of [Interface ...]` is compiled only for BC 29: on BC 27 the server's generated C# does not
     /// compile and on BC 28 no result comes back (codeunits/interfaces/OjT71052.al, corpus bump 10). Corpus bump 30 adds
@@ -247,7 +250,11 @@ pub enum Gate {
     /// QF_GLSetup_CorpusRow). Corpus bump 1110b: assigning text to an Option FieldRef.Value raises NotSupportedType on BC 27
     /// and an Evaluate:Format error from BC 28 (format-evaluate/format-matrix/FMOptionBlankField.al:254). Corpus bump 1110c: FieldRef.SetFilter errors on an Integer, Blob and other
     /// fields word the failing value differently on BC 27 (recordref-fieldref/fieldref/FieldRefFilterMatrix.al:440,
-    /// FieldRefFilterEmptyText.al:235). Not consumed yet.
+    /// FieldRefFilterEmptyText.al:235). Corpus bump 1111a: a FieldRef filter
+    /// on a MediaSet field with a Text or Guid argument raises `Invalid Conversion. Source: NavVariant, Destination: NavMediaSet.`
+    /// on BC 27 and an Evaluate:Argument error from BC 28 (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:258), and
+    /// Evaluate of a RecordId text with an unqualified or partly qualified table name answers differently on BC 27
+    /// (language/namespaces/RecordIdFormat9Evaluate.al:328,362). Not consumed yet.
     ProbedValuesDifferFrom28,
     /// A BigInteger literal in a Boolean control expression (`Enabled = 0L <> Rec.Big`) compiles on the client and runs.
     /// Before, the page fails to open ("Error compiling dynamic control expression ... Not a valid number."); the runtime
@@ -912,6 +919,14 @@ impl Gate {
                     file: "recordref-fieldref/recordref/RfTValues.al",
                     lines: "178",
                 },
+                Evidence {
+                    file: "pages/enum-setvalue-blank/BlankMemberCaptionForms.al",
+                    lines: "179,224,269",
+                },
+                Evidence {
+                    file: "reports/request-page/RequestPageOptionFieldOfGlobalRecord.al",
+                    lines: "205,267,329,393,460",
+                },
             ],
             Gate::InterfaceListCodeunitFrom29 => &[
                 Evidence {
@@ -1471,6 +1486,14 @@ const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
     Evidence {
         file: "recordref-fieldref/fieldref/FieldRefFilterEmptyText.al",
         lines: "235",
+    },
+    Evidence {
+        file: "recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al",
+        lines: "258,296,336,397,434",
+    },
+    Evidence {
+        file: "language/namespaces/RecordIdFormat9Evaluate.al",
+        lines: "328,362",
     },
     Evidence {
         file: "recordref-fieldref/fieldref/FieldRefFilterMatrix.al",
