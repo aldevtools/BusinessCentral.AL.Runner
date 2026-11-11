@@ -11,10 +11,10 @@
 //!
 //! Pinned by pages/close-errors/ModalCloseSaveErrorShapes.al (BC 27.5, 28.5, 29.0) on pages without OnQueryClosePage: on a List
 //! and a Card run by a static `Page.RunModal(Id, Rec)` whose return value is used (on a List also called as a statement), a TestField error raised in the page's
-//! OnModifyRecord (from a codeunit it runs, the al-runner issue 7400 report, or directly) keeps its text and the code
-//! TestField, and the save runs once more first (:250, :271, :314, :336, `log` twice). A TestField error from the table's
-//! OnModify, after a Page variable's RunModal or on a page with OnQueryClosePage is not measured and refused, and so is every
-//! error after a static `Page.RunModal(Id)` without a record (every pinned static call passes one). An Error()
+//! OnModifyRecord (by a codeunit it runs, the al-runner issue 7400 report, or by the page's own code) keeps its text and the code
+//! TestField, and the save runs once more first (:250, :271, :314, :336, `log` twice). A TestField error raised in a table trigger
+//! (the table's OnModify at the save, or reached by `Modify(true)` in OnModifyRecord), after a Page variable's RunModal or on a
+//! page with OnQueryClosePage is not measured and refused, and so is every error after a static `Page.RunModal(Id)` without a record (every pinned static call passes one). An Error()
 //! gets the code TestWrapped (:292, :356), also on a Worksheet (:376) and on a List run by a Page variable in LookupMode (:419),
 //! where only Error() is measured.
 //! A new row's insert at close (:398 measures one, but the runtime inserts the row at SetValue and no corpus case shows when a
@@ -41,6 +41,12 @@ impl Session {
             .filter(|(o, _)| *o == object)
             .map(|(_, name)| name);
         let saved = std::mem::take(&mut self.pages.close_save_error);
+        // The TestField is pinned raised by the page's own code or by a codeunit it calls (ModalCloseSaveErrorShapes.al:34 the
+        // TableNo codeunit's OnRun, :74 a codeunit procedure); one raised in a table trigger the save reaches is not.
+        let raised_in_page_or_codeunit =
+            self.pages.close_save_raised_in.take().is_some_and(|o| {
+                o == object as usize || self.engine.program.objects[o].kind == al_ir::ObjKind::Codeunit
+            });
         // The save of the edited row raised (OnModifyRecord, OnInsertRecord or the table's trigger), so the page stayed open.
         let raised = st.borrow().open && st.borrow().errors.len() > errors_before;
         if !raised {
@@ -57,6 +63,7 @@ impl Session {
         } else if e.code == "TestField"
             && codes == PinnedCodes::DialogAndTestField
             && origin.as_deref() == Some("onmodifyrecord")
+            && raised_in_page_or_codeunit
             && !self.query_close_code(st)
         {
             // The save runs once more and raises the TestField error again (ModalCloseSaveErrorShapes.al:250 `log` M-list NEW twice).

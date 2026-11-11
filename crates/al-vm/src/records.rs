@@ -33,6 +33,8 @@ mod platform_rows;
 mod stale;
 mod stale_rule;
 pub(crate) use stale_rule::{TrappedRollback, same_key};
+mod guarded_run_body;
+pub(crate) use guarded_run_body::GuardedBody;
 mod locking_read_cells;
 pub(crate) use locking_read_cells::{LockingReadNote, StaleWrite};
 mod write_notes;
@@ -2391,10 +2393,12 @@ impl Session {
         if self.sql.active {
             let r = self.record_op_counted(method, rec, args);
             self.note_locking_read(method, rec, args, &r);
+            self.guarded_body_record_op(method, rec, args, &r);
             return self.note_insert_buffer(method, rec, insert, r);
         }
         let r = self.record_op_tracked(method, rec, args);
         self.note_locking_read(method, rec, args, &r);
+        self.guarded_body_record_op(method, rec, args, &r);
         let r = self.note_insert_buffer(method, rec, insert, r);
         if matches!(r, Ok(Value::Boolean(false)))
             && matches!(method, RecordOp::FindSet | RecordOp::FindFirst | RecordOp::FindLast)

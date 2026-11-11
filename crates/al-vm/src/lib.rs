@@ -802,6 +802,8 @@ pub struct Session {
     /// The routine and current statement position of every frame, parallel to `frames`
     /// (`callstack.rs`).
     pub(crate) call_stack: Vec<CallFrame>,
+    /// The object whose routine raised the last AL error that left a routine (the innermost frame of its call stack).
+    pub(crate) error_raised_in: Option<usize>,
     /// The test runner's frames below a test, in `Callstack` form (`callstack.rs`); empty
     /// outside a test run.
     pub(crate) runner_frames: String,
@@ -1324,6 +1326,7 @@ impl Session {
             var_alias_watch: Vec::new(),
             frames: Vec::new(),
             call_stack: Vec::new(),
+            error_raised_in: None,
             runner_frames: String::new(),
             fault_trace: false,
             fault_site_lost: false,
@@ -1467,6 +1470,7 @@ impl Session {
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
         self.tx.deferred_insert = None;
+        self.guarded_body_commit();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
         self.commits += 1;
@@ -2665,6 +2669,9 @@ impl Session {
         }
         // An error that leaves the routine takes the routine's frame into its call stack.
         if let (Err(Signal::Error(e)), Some(&top)) = (&mut outcome, self.call_stack.last()) {
+            if e.call_stack.is_empty() {
+                self.error_raised_in = Some(object);
+            }
             self.add_frame(e, object, top);
         }
         self.profile_leave();

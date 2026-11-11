@@ -77,6 +77,8 @@ pub(crate) struct TxState {
     pub(crate) used_tries: Vec<transactions::UsedTry>,
     /// For each guarded `Codeunit.Run` running: the call stack depth of its OnRun frame.
     pub(crate) guarded_runs: Vec<usize>,
+    /// For each guarded `Codeunit.Run` running: how far its body got along the pinned steps (`records/guarded_run_body.rs`).
+    pub(crate) guarded_bodies: Vec<crate::records::GuardedBody>,
     /// What `Database.LastUsedRowVersion` reports inside the open transaction (`Session::last_used_row_version`): the
     /// database tables an Insert wrote rows of that nothing has sent to the database yet (table, company, highest row
     /// version), the highest row version a sent write holds, how many database row versions were handed out and how
@@ -194,6 +196,7 @@ impl TxState {
             try_depth: 0,
             used_tries: Vec::new(),
             guarded_runs: Vec::new(),
+            guarded_bodies: Vec::new(),
             row_versions: RowVersionTx::default(),
             xp_export_try_world: None,
             inconsistent: Vec::new(),
@@ -279,6 +282,8 @@ pub(crate) struct PageClients {
     /// The AL Error the save of the close running now failed with (`pages/close_save_failed.rs`,
     /// `pages/modal_close_save_error.rs`).
     pub(crate) close_save_error: Option<al_builtins::native::AlError>,
+    /// The object whose routine raised `close_save_error` (`Session::error_raised_in` when the save failed).
+    pub(crate) close_save_raised_in: Option<usize>,
     /// The TestPage calls running now, innermost last: the root page of the call's page tree and what the pages' own code
     /// did to that tree meanwhile (`pages/shown.rs`).
     pub(crate) shown_frames: Vec<(*const RefCell<crate::pages::PageState>, Vec<crate::pages::ShownNote>)>,

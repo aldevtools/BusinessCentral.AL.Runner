@@ -340,6 +340,7 @@ impl Session {
     /// (record/crud/CodeunitRunTableNoWrites.al:205 Guarded_ModifyCommitError_ThenHandler, :267 _ThenModify; al-runner issue 7795).
     /// An `Error` with a Label, a variable or StrSubstNo (`DialogComputed`) or another error is not measured (docs/probes-needed.md).
     /// A guarded run whose rollback undid a write, and rollbacks of both kinds in one transaction, are not measured.
+    /// A guarded run comes here through `guarded_run_rollback` (`guarded_run_body.rs`), which knows only the run with the pinned body.
     pub(crate) fn trapped_error_rollback(
         &mut self,
         e: &al_builtins::native::AlError,

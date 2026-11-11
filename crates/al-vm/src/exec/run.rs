@@ -462,6 +462,7 @@ impl Session {
             }))),
             Ok(at) => Ok(at),
             Err(Signal::Error(mut e)) => {
+                self.guarded_bodies_leave_pin();
                 self.trapped_error_rollback(&e, crate::records::TrappedRollback::AssertError)?;
                 // The statements the error left open are closed.
                 self.cap_stmt_truncate(open);

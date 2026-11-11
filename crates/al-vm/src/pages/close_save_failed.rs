@@ -22,6 +22,7 @@ impl Session {
         let r = self.save_row(st);
         if let Err(Signal::Error(e)) = &r {
             self.pages.close_save_error = Some((**e).clone());
+            self.pages.close_save_raised_in = self.error_raised_in;
         }
         r
     }

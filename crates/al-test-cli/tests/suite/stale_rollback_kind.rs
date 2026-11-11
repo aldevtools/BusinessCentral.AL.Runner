@@ -3,8 +3,8 @@
 //! PR 7800).
 //!
 //! Measured after a rollback: after `asserterror Error('literal')`, nothing, or a Get and Modify of the row
-//! (StaleRuleMatrix.al:206 Rollback); after a failed guarded `Codeunit.Run` that undid no write, the buffer's Modify() after
-//! nothing or after one Get of the row (record/crud/CodeunitRunTableNoWrites.al:205, :267).
+//! (StaleRuleMatrix.al:206 Rollback); after a failed guarded `Codeunit.Run` whose body is the pinned one (Rec.Modify(), Commit(),
+//! Error('literal') on the record passed to the static call), the buffer's Modify() after nothing or after one Get of the row (record/crud/CodeunitRunTableNoWrites.al:205, :267).
 //! Measured with a locking read: the cells of `LOCKING_READ_CELLS` in al-vm `records/locking_read_cells.rs`
 //! (CodeunitRunTableNoWrites.al:446-541, :629-740), and the four-Commit case of record/WbStaleUpdLockTests.al:16-25
 //! (`stale_updlock_read.rs`).
@@ -21,9 +21,16 @@ codeunit 50102 "P Cfg" { SingleInstance = true; var Mode: Text; procedure Set(M:
 codeunit 50103 "P Fail"
 {
     trigger OnRun()
-    var Cfg: Codeunit "P Cfg"; R: Record "P Row";
+    var Cfg: Codeunit "P Cfg"; R: Record "P Row"; S: Record "P Side"; T: Record "P Row" temporary;
     begin
         case Cfg.Get() of
+            'temp': begin T."No." := 'T'; T.Insert(); end;
+            'subst': Error('x %1', 5);
+            'empty': Error('');
+            'readA': R.Get('A');
+            'commitread': begin Commit(); R.Get('A'); end;
+            'inner': if Codeunit.Run(Codeunit::"P Fail2") then;
+            'sidecommit': begin S.Get('S'); S.Qty += 1; S.Modify(); Commit(); end;
             'modB': begin R.Get('B'); R.Qty += 1; R.Modify(); end;
             'modA': begin R.Get('A'); R.Qty += 1; R.Modify(); end;
             'commitmodB': begin Commit(); R.Get('B'); R.Qty += 1; R.Modify(); end;
@@ -31,8 +38,47 @@ codeunit 50103 "P Fail"
         Error('the work failed');
     end;
 }
+codeunit 50106 "P Fail2" { trigger OnRun() begin Error('inner failed'); end; }
+// The run of record/crud/CodeunitRunTableNoWrites.al:69 (CRT Runner): Rec changed, Rec.Modify(), Commit(), Error('literal'). A
+// mode adds one step the pinned run does not have.
+codeunit 50107 "P Run"
+{
+    TableNo = "P Row";
+    trigger OnRun()
+    var Cfg: Codeunit "P Cfg"; R: Record "P Row"; S: Record "P Side"; T: Record "P Row" temporary;
+    begin
+        case Cfg.Get() of
+            'read': R.Get('B');
+            'temp': begin T."No." := 'T'; T.Insert(); end;
+            'inner': if Codeunit.Run(Codeunit::"P Fail2") then;
+        end;
+        Rec.Qty := 3;
+        if Cfg.Get() = 'true' then Rec.Modify(true) else Rec.Modify();
+        if Cfg.Get() = 'side' then begin S.Get('S'); S.Qty += 1; S.Modify(); end;
+        if Cfg.Get() <> 'nocommit' then Commit();
+        if Cfg.Get() = 'twocommits' then Commit();
+        if Cfg.Get() = 'readafter' then R.Get('B');
+        if Cfg.Get() = 'empty' then Error('');
+        Error('the work failed');
+    end;
+}
 codeunit 50104 "P Help"
 {
+    // The seed of CodeunitRunTableNoWrites.al:103: the caller's buffer holds the stored row.
+    procedure Seed(var Row: Record "P Row")
+    var Old: Record "P Row"; S: Record "P Side";
+    begin
+        Old.DeleteAll(); S.DeleteAll();
+        S."No." := 'S'; S.Insert();
+        Old.Init(); Old."No." := 'B'; Old.Insert();
+        Row.Init(); Row."No." := 'A'; Row.Insert();
+        Commit();
+        Row.Get('A'); Row.Qty := 1; Row.Modify();
+        Commit();
+    end;
+
+    [TryFunction] procedure TryFail() begin Error('t'); end;
+
     procedure MakeStale(var Row: Record "P Row")
     var Old: Record "P Row"; Other: Record "P Row"; S: Record "P Side";
     begin
@@ -108,13 +154,13 @@ fn outcomes(shapes: &[(&str, &str)]) -> Vec<(String, Outcome)> {
     let mut src = OBJECTS.to_string();
     for (i, (name, body)) in shapes.iter().enumerate() {
         // A body that makes the buffer stale itself names the helper.
-        let stale = if body.contains("H.MakeStaleOne(Row);") {
+        let stale = if body.contains("H.MakeStaleOne(Row);") || body.contains("H.Seed(Row);") {
             ""
         } else {
             "H.MakeStale(Row);"
         };
         src.push_str(&format!(
-            "codeunit {} \"{name}\"\n{{\n    Subtype = Test;\n    TestPermissions = Disabled;\n    [Test] procedure {name}()\n    var Row: Record \"P Row\"; Check: Record \"P Row\"; R: Record \"P Row\"; S: Record \"P Side\"; H: Codeunit \"P Help\"; Cfg: Codeunit \"P Cfg\";\n    begin\n        {stale}\n        {body}\n    end;\n}}\n",
+            "codeunit {} \"{name}\"\n{{\n    Subtype = Test;\n    TestPermissions = Disabled;\n    [Test] procedure {name}()\n    var Row: Record \"P Row\"; Check: Record \"P Row\"; R: Record \"P Row\"; S: Record \"P Side\"; H: Codeunit \"P Help\"; Cfg: Codeunit \"P Cfg\"; F: Codeunit \"P Fail\"; FR: Codeunit \"P Run\";\n    begin\n        {stale}\n        {body}\n    end;\n}}\n",
             50200 + i
         ));
     }
@@ -161,21 +207,146 @@ fn the_rollback_kind_decides_what_runs_after_it() {
             "asserterror Error('x'); Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
             "refused",
         ),
-        // A failed guarded run that undid nothing: nothing, or a Get of the row alone (CodeunitRunTableNoWrites.al:205, :267).
+        // A failed guarded run with the pinned body (Rec.Modify(), Commit(), Error('literal') on the record passed to a static
+        // Codeunit.Run): the buffer's Modify() after nothing, or after one Get of the row (CodeunitRunTableNoWrites.al:205, :267).
         (
-            "GuardedNothing",
-            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; H.Finish(Row, 'DB:RecordChanged');",
+            "GuardedPinned",
+            "H.Seed(Row); Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'DB:RecordChanged');",
             "pass",
         ),
         (
-            "GuardedGetAlone",
-            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
+            "GuardedPinnedGet",
+            "H.Seed(Row); Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Run\", Row) then; Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
+            "pass",
+        ),
+        // The run without the Commit undid its Modify: the buffer is not stale and the Modify is written (:280).
+        (
+            "GuardedPinnedNoCommit",
+            "H.Seed(Row); Cfg.Set('nocommit'); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'WRITTEN');",
             "pass",
         ),
         // A Get and Modify of the row is measured after an asserterror only.
         (
             "GuardedGetModify",
-            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; Check.Get('A'); Check.Qty := 9; Check.Modify(); H.Finish(Row, 'WRITTEN');",
+            "H.Seed(Row); Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Run\", Row) then; Check.Get('A'); Check.Qty := 9; Check.Modify(); H.Finish(Row, 'WRITTEN');",
+            "refused",
+        ),
+        // The pinned body with one more step, or run another way, is not measured (round 4 of the review).
+        (
+            "GuardedBody_read",
+            "H.Seed(Row); Cfg.Set('read'); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedBody_temp",
+            "H.Seed(Row); Cfg.Set('temp'); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedBody_inner",
+            "H.Seed(Row); Cfg.Set('inner'); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedBody_true",
+            "H.Seed(Row); Cfg.Set('true'); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedBody_side",
+            "H.Seed(Row); Cfg.Set('side'); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedBody_twocommits",
+            "H.Seed(Row); Cfg.Set('twocommits'); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedBody_readafter",
+            "H.Seed(Row); Cfg.Set('readafter'); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedBody_empty",
+            "H.Seed(Row); Cfg.Set('empty'); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedBodyInstanceForm",
+            "H.Seed(Row); Cfg.Set(''); if FR.Run(Row) then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        // A run that is not the pinned body: an Error alone, or with another step before it (the reviewer's scenarios; all refused
+        // by the binary of main, ca0c74808).
+        (
+            "GuardedNothing",
+            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedGetAlone",
+            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOther_temp",
+            "Cfg.Set('temp'); if Codeunit.Run(Codeunit::\"P Fail\") then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOther_subst",
+            "Cfg.Set('subst'); if Codeunit.Run(Codeunit::\"P Fail\") then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOther_empty",
+            "Cfg.Set('empty'); if Codeunit.Run(Codeunit::\"P Fail\") then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOther_readA",
+            "Cfg.Set('readA'); if Codeunit.Run(Codeunit::\"P Fail\") then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOther_commitread",
+            "Cfg.Set('commitread'); if Codeunit.Run(Codeunit::\"P Fail\") then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOther_inner",
+            "Cfg.Set('inner'); if Codeunit.Run(Codeunit::\"P Fail\") then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOther_sidecommit",
+            "Cfg.Set('sidecommit'); if Codeunit.Run(Codeunit::\"P Fail\") then; H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOtherTwice",
+            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; if Codeunit.Run(Codeunit::\"P Fail\") then; Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOtherInstanceForm",
+            "Cfg.Set(''); if F.Run() then; Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOtherGetLoadFields",
+            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; Check.SetLoadFields(Qty); Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOtherGetReadUncommitted",
+            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; Check.ReadIsolation := IsolationLevel::ReadUncommitted; Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
+            "refused",
+        ),
+        (
+            "GuardedOtherThenTryFails",
+            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; if H.TryFail() then; H.Finish(Row, 'DB:RecordChanged');",
             "refused",
         ),
         // A guarded run whose rollback undid a write is not measured.
@@ -197,22 +368,22 @@ fn the_rollback_kind_decides_what_runs_after_it() {
         // After a guarded run only the buffer's Modify() is measured: a Delete and Modify(true) are not (round 3 of the review).
         (
             "GuardedThenDelete",
-            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; H.FinishDelete(Row, 'DB:RecordChanged');",
+            "H.Seed(Row); Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Run\", Row) then; H.FinishDelete(Row, 'DB:RecordChanged');",
             "refused",
         ),
         (
             "GuardedGetThenDelete",
-            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; Check.Get('A'); H.FinishDelete(Row, 'DB:RecordChanged');",
+            "H.Seed(Row); Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Run\", Row) then; Check.Get('A'); H.FinishDelete(Row, 'DB:RecordChanged');",
             "refused",
         ),
         (
             "GuardedGetThenModifyTrue",
-            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; Check.Get('A'); H.FinishTrue(Row, 'DB:RecordChanged');",
+            "H.Seed(Row); Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Run\", Row) then; Check.Get('A'); H.FinishTrue(Row, 'DB:RecordChanged');",
             "refused",
         ),
         (
             "GuardedTwoGets",
-            "Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Fail\") then; Check.Get('A'); Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
+            "H.Seed(Row); Cfg.Set(''); if Codeunit.Run(Codeunit::\"P Run\", Row) then; Check.Get('A'); Check.Get('A'); H.Finish(Row, 'DB:RecordChanged');",
             "refused",
         ),
         // After an asserterror a Delete follows the rule as before the pin (the binary of main, ca0c74808).

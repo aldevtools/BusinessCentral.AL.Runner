@@ -57,6 +57,7 @@ page 50204 "Q List"
     begin
         Cfg.Add('M');
         if Cfg.Get() = 'testfield' then Rec.TestField(Canceled, false);
+        if Cfg.Get() = 'modify-true' then begin Cfg.Set('table-testfield'); Rec.Modify(true); exit(false); end;
         if Cfg.Get() = 'fielderror' then Rec.FieldError(Canceled);
         if Cfg.Get() = 'error' then Error('the save failed');
         exit(true);
@@ -216,6 +217,14 @@ fn a_testfield_error_of_the_save_at_modal_close_runs_only_in_the_pinned_shape() 
             "CardEdit",
             "table-testfield",
             "card-static",
+            "refused",
+        ),
+        // Not pinned: the page's OnModifyRecord calls Modify(true) and the table's OnModify raises the TestField.
+        (
+            "ListStaticModifyTrueTableTestField",
+            "ListEdit",
+            "modify-true",
+            "list-static",
             "refused",
         ),
         // Not pinned: a static RunModal without a record (every pinned cell passes one), for a TestField and for an Error.
