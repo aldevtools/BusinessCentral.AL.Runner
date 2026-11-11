@@ -34,6 +34,9 @@
 99003 LoadXml_NotXml
 99003 Load_EmptyFileName
 99003 Load_EmptyStream
+99004 Clear_ReferenceAddedToSignedXml_SignatureStillComputes
+99004 Clear_Reference_NeverAdded_NeverAssigned_Twice
+99004 Clear_Reference_OtherHolders
 99100 AL_JsonTextWriter_SimpleObject
 99112 ALTimer_Elapsed
 99112 ALTimer_NoHandler

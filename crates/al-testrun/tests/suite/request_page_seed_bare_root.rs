@@ -1,6 +1,6 @@
-//! `Report.RunRequestPage(Id, Parameters)` with a parameters string whose root has no name and id is refused before the page
-//! opens: only SaveAs with such a root is pinned (reports/layouts-saveas/AMRdlcOutput.al:153), and the seed of a request page
-//! is not (al-runner issue 7590; corpus probe ReportParametersBareRoot.al queued).
+//! `Report.RunRequestPage(Id, Parameters)` with a parameters string whose root has no name and id seeds the request page from
+//! its Options (reports/request-page/ReportParametersBareRoot.al:343-360). A data item view under such a root is pinned for
+//! SaveAs and Execute only (:279-291): given to RunRequestPage it is refused before the handler runs.
 
 use al_sema::workspace::AppSource;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
@@ -20,7 +20,7 @@ codeunit 50521 "T"
     [HandlerFunctions('Ok')]
     procedure SeedWithoutNameAndId()
     begin
-        Report.RunRequestPage(Report::"RSB Report", '<?xml version="1.0" standalone="yes"?><ReportParameters><Options><Field name="StartDate">2026-01-15</Field></Options></ReportParameters>');
+        Report.RunRequestPage(Report::"RSB Report", '<?xml version="1.0" standalone="yes"?><ReportParameters><Options><Field name="StartDate">2026-01-15</Field></Options><DataItems><DataItem name="X">VERSION(1) SORTING(Field1)</DataItem></DataItems></ReportParameters>');
     end;
     [RequestPageHandler]
     procedure Ok(var P: TestRequestPage "RSB Report") begin P.OK().Invoke(); end;
@@ -28,7 +28,7 @@ codeunit 50521 "T"
 "#;
 
 #[test]
-fn run_request_page_with_a_root_without_name_and_id_is_refused() {
+fn run_request_page_with_a_data_item_view_under_a_root_without_name_and_id_is_refused() {
     let rt = CorpusRuntime::run_suites_with(
         vec![AppSource {
             id: "main".into(),
@@ -49,7 +49,7 @@ fn run_request_page_with_a_root_without_name_and_id_is_refused() {
         name: "SeedWithoutNameAndId".into(),
     });
     assert!(
-        matches!(&o, Outcome::NotRun(m) if m.contains("root has no name and id, given to Report.RunRequestPage")),
+        matches!(&o, Outcome::NotRun(m) if m.contains("a data item view in a parameters string whose root has no name and id, given to Report.RunRequestPage")),
         "{o:?}"
     );
 }

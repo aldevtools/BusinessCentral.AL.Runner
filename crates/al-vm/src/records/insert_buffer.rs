@@ -2,7 +2,7 @@
 //!
 //! BC queues the statement-form Inserts AL code makes into a table without a Blob or AutoIncrement field and sends the queue with
 //! its 5th row, with a Commit and with the next access to the table. A duplicate key shows when the queue is sent. Measured on BC 27.5, 28.5 and
-//! 29.0 (corpus pull request 1279, record/duplicate-insert/Y7407DuplicateInsertBuffer.al): a duplicate that is the 5th insert after
+//! 29.0 and pinned by record/duplicate-insert/Y7407DuplicateInsertBuffer.al (:152-330): a duplicate that is the 5th insert after
 //! 4 queued rows raises at that Insert (Dup_5thInsert_OfFirstRow); a duplicate that is the 6th insert after 5 inserts, the 7th
 //! after 6, and one right after a Commit is pending until the next access (Dup_6thInsert_*, Dup_7thInsert_*,
 //! Dup_5thInsert_OfCommittedRow_CommitAfter4, Dup_6thInsert_OfCommittedRow_CommitAfter3); four inserts, then the same four keys
@@ -18,7 +18,6 @@
 //!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused.
 
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 
 /// Rows the queue holds when it is sent.
 const SEND_AT: usize = 5;
@@ -149,10 +148,8 @@ impl Session {
             .as_ref()
             .is_some_and(|(o, _)| *o == table as usize);
         if self.tx.insert_buffer[i].rows < SEND_AT {
-            // A duplicate that stays pending after the queue was sent once in this transaction is the other half of the rule.
-            if pending && self.tx.insert_buffer[i].sent {
-                assume(Assumption::InsertQueueSentAtFifthRow);
-            }
+            // A duplicate that stays pending after the queue was sent once in this transaction is the other half of the rule
+            // (Y7407DuplicateInsertBuffer.al:229 Dup_6thInsert_OfCommittedRow_CommitAfter3).
             return r;
         }
         self.tx.insert_buffer[i].rows = 0;
@@ -166,11 +163,10 @@ impl Session {
         // keeps it when the pending error comes out is not measured.
         if !duplicate {
             return unsupported(format!(
-                "an Insert of a valid row into {} that sends the insert queue (its 5th row) while a duplicate-key Insert is pending: not pinned (probes-needed: insert-queue-sent-at-fifth-row)",
+                "an Insert of a valid row into {} that sends the insert queue (its 5th row) while a duplicate-key Insert is pending: not pinned (docs/probes-needed.md)",
                 t.name
             ));
         }
-        assume(Assumption::InsertQueueSentAtFifthRow);
         // The After event and trigger of the Insert that sent the queue: whether they run is not measured.
         if self.listened(&t, "onafterinsertevent", None)? || !self.ext_triggers(&t, "OnAfterInsert").is_empty() {
             return unsupported(format!(

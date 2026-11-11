@@ -41,9 +41,8 @@ impl Session {
     /// From the untouched new-row line of an empty view to a view that is empty too (a Movement Worksheet switched to a
     /// worksheet without lines, al-runner issue 6924): BC shows the new-row line of the new view. OnNewRecord and
     /// OnAfterGetCurrRecord run twice after the OnValidate, Rec holding the values of the new filters; no row is read or
-    /// stored, and page code that reads Rec next (an action) sees the new view. Measured on BC 27.5, 28.5 and 29.0 by corpus
-    /// pull request 1282, not in the pinned corpus yet (tests/al-language/pages/journal-batch-switch/
-    /// EmptyToEmptyBatchSwitch.al MovementWs_EmptyToEmpty_ThenAction `V:start;V:done;N:B/L2;C:B/L2;N:B/L2;C:B/L2;`, current
+    /// stored, and page code that reads Rec next (an action) sees the new view. Pinned by pages/journal-batch-switch/
+    /// EmptyToEmptyBatchSwitch.al:402 (MovementWs_EmptyToEmpty_ThenAction `V:start;V:done;N:B/L2;C:B/L2;N:B/L2;C:B/L2;`, current
     /// `T1/B/L2/10000`, action `A:B/L2;...`, result `T1/B/L2`; _NoAction; _SecondTest; JournalWs_EmptyToEmpty_ThenAction with
     /// AutoSplitKey, current `T1/B/L2/0`). Microsoft's Tests-SCM 137293 RequisitionLineForItemWithSKU passes through it. A
     /// refresh that leaves OnAfterGetCurrRecord out is not measured and stays refused.
@@ -53,12 +52,11 @@ impl Session {
                 "CurrPage.Update in a control's OnValidate that changed the filters of a list on its new-row line, to a view without rows (whether the new row is read again with the values of the new filters is not pinned)",
             );
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineSwitchToEmptyView);
         Ok(())
     }
 
     /// The same OnValidate when the filters it set are the ones the page had (the name the page already shows): the new-row
-    /// line is shown again all the same, OnNewRecord and OnAfterGetCurrRecord twice (EmptyToEmptyBatchSwitch.al
+    /// line is shown again all the same, OnNewRecord and OnAfterGetCurrRecord twice (EmptyToEmptyBatchSwitch.al:459
     /// MovementWs_SameName_ThenAction `V:start;V:done;N:A/L1;C:A/L1;N:A/L1;C:A/L1;`). `false` for every other page or state:
     /// the refresh runs as before.
     pub(super) fn same_filters_on_empty_new_line(
@@ -78,7 +76,6 @@ impl Session {
         {
             return Ok(false);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineSwitchToEmptyView);
         self.show_new_line_of_empty_view(st, without_parts)?;
         Ok(true)
     }

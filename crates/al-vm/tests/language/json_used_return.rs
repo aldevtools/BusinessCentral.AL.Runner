@@ -1,5 +1,6 @@
 //! JsonObject.Add with a key that exists, and JsonArray.Insert, Set and RemoveAt with an index outside the array, with the
-//! return value used: false, no error, nothing changed (AL Runner issue 6924; the assumption `json-failed-call-result-used`).
+//! return value used: false, no error, nothing changed (AL Runner issue 6924; pinned by json/json/JsonObjectUsedReturn.al and
+//! JsonArrayTokenUsedReturn.al).
 //! As a statement they raise (json/JsonObjectBasics.al:35-55, json/JsonArrayBasics.al:96-99, :155-158, :186-195).
 
 fn run(body: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
@@ -77,38 +78,4 @@ fn insert_and_set_inside_the_array_answer_true_when_the_result_is_used() {
         al_testkit::text(run("S := Format(A.Insert(2, 3)) + Format(A.Set(0, 0));")),
         "YesYes|{\"a\":1}|[0,2,3]|"
     );
-}
-
-#[test]
-fn the_used_forms_mark_their_assumption_and_the_statement_forms_do_not() {
-    use al_builtins::assumptions::{Assumption, take_hits};
-    let mark = Assumption::JsonFailedCallResultUsed;
-    for used in [
-        "Ok := O.Add('a', 2);",
-        "Ok := A.Insert(5, 9);",
-        "Ok := A.Set(2, 9);",
-        "Ok := A.RemoveAt(2);",
-        "Ok := A.Insert(0, 9);",
-        "Ok := A.Set(0, 9);",
-    ] {
-        take_hits();
-        run(used).unwrap();
-        assert!(take_hits().contains(&mark), "{used}");
-    }
-    // Pinned: json/JsonObjectBasics.al:23 `add_returns`, json/json/P88ArrayIndex.al:126 `removeat_1`, and every statement form.
-    for pinned in [
-        "Ok := O.Add('b', 2);",
-        "Ok := A.RemoveAt(0);",
-        "A.Insert(0, 9);",
-        "A.Set(0, 9);",
-        "A.RemoveAt(0);",
-        "O.Add('b', 2);",
-    ] {
-        take_hits();
-        run(pinned).unwrap();
-        assert!(!take_hits().contains(&mark), "{pinned}");
-    }
-    take_hits();
-    assert!(run("O.Add('a', 2);").is_err());
-    assert!(!take_hits().contains(&mark));
 }

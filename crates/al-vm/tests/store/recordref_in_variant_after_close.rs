@@ -1,6 +1,6 @@
 //! al-runner issue 6924: `V := RecRef; RecRef.Close();` leaves the Variant holding the open RecordRef (Format(V) is not
-//! empty, `R := V` gives the table and the row). Not pinned by the corpus: the pass rests on the assumption
-//! `variant-keeps-recordref-after-close` (probe tests/al-language/recordref-fieldref/recordref/RecordRefInVariantAfterClose.al).
+//! empty, `R := V` gives the table and the row), pinned by recordref-fieldref/recordref/RecordRefInVariantAfterClose.al. This
+//! keeps the reporter's repro; no test here may mark an assumption.
 //! Pinned and unchanged: the Variant's RecordRef shares the record buffer with the original (types/variant/CxVariants.al:194-198).
 
 use al_builtins::assumptions::{Assumption, take_hits};
@@ -217,10 +217,10 @@ fn run(routine: &str) -> (String, Vec<Assumption>) {
 }
 
 #[test]
-fn a_variant_keeps_its_recordref_when_the_original_is_closed_and_the_pass_is_flagged() {
+fn a_variant_keeps_its_recordref_when_the_original_is_closed() {
     let (r, hits) = run("ClosedAfterAssign");
     assert_eq!(r, "Yes|51760|seven");
-    assert_eq!(hits, vec![Assumption::VariantKeepsRecordrefAfterClose]);
+    assert!(hits.is_empty(), "{hits:?}");
 }
 
 #[test]

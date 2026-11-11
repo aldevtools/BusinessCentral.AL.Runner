@@ -929,7 +929,7 @@ impl Session {
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
-        if self.ui_state.clientless
+        if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?
         {
             return Ok(answer);
@@ -1071,7 +1071,7 @@ impl Session {
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
-        if self.ui_state.clientless
+        if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?
         {
             return Ok(answer);
