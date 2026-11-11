@@ -1,7 +1,7 @@
 //! `ApplicationArea := <text>` is the call `ApplicationArea(<text>)` (al-runner issue 7597, the reporter's repro: BC 29
 //! compiles and runs both, and `ApplicationArea()` reads the assigned text). The call form is pinned by
-//! pages/application-area/TestPageApplicationAreaControlRemoval.al:87-93; the assignment form marks assumption
-//! `application-area-assign-is-call` until the corpus probe lands.
+//! pages/application-area/TestPageApplicationAreaControlRemoval.al:87-93, the assignment form by
+//! pages/application-area/ApplicationAreaAssignForm.al:36-107. This keeps the reporter's repro unchanged.
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
@@ -47,43 +47,4 @@ fn assigning_the_application_area_calls_its_setter() {
             want("A3_CallForm", "RESULT A3 call form: [#All,#Basic]"),
         ]
     );
-}
-
-const MARKED: &str = r#"
-codeunit 50101 M
-{
-    procedure Assigned(): Text
-    begin
-        ApplicationArea := '#All,#Basic';
-        exit(ApplicationArea());
-    end;
-
-    procedure Called(): Text
-    begin
-        ApplicationArea('#All,#Basic');
-        exit(ApplicationArea());
-    end;
-}
-"#;
-
-fn hits() -> Vec<&'static str> {
-    al_testrun::assumptions::take_hits()
-        .iter()
-        .map(|a| a.info().id)
-        .collect()
-}
-
-#[test]
-fn only_the_assignment_form_marks_the_assumption() {
-    al_testrun::assumptions::clear_hits();
-    assert_eq!(
-        al_testkit::text(al_testkit::run_in(MARKED, "M", "Called")),
-        "#All,#Basic"
-    );
-    assert!(!hits().contains(&"application-area-assign-is-call"));
-    assert_eq!(
-        al_testkit::text(al_testkit::run_in(MARKED, "M", "Assigned")),
-        "#All,#Basic"
-    );
-    assert!(hits().contains(&"application-area-assign-is-call"));
 }
