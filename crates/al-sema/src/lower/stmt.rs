@@ -1596,7 +1596,7 @@ impl Lowerer<'_> {
                 unreachable!()
             };
             let (cond, kind) = variant_into_text_guard(&src_place, &target_ty)?;
-            let converted = self.convert_assigned(&target_ty, &self.ty_ref(&kids[1]).clone(), value)?;
+            let converted = self.convert_assigned(&target_ty, self.ty_ref(&kids[1]), value)?;
             let guarded = ir::Expr::Ternary(
                 Box::new(cond),
                 Box::new(ir::Expr::Fail {
@@ -1711,10 +1711,7 @@ impl Lowerer<'_> {
                 .is_some_and(|b| matches!(self.ty_ref(&b), Ty::Text(_) | Ty::Code(_)));
         let value = match op_kind {
             _ if variant_into_text_field || byte_into_text_char => value,
-            Some(SyntaxKind::Assign) | None => {
-                let src = self.ty_ref(&kids[1]).clone();
-                self.convert_assigned(&target_ty, &src, value)?
-            }
+            Some(SyntaxKind::Assign) | None => self.convert_assigned(&target_ty, self.ty_ref(&kids[1]), value)?,
             Some(_) => ir::Expr::Convert(self.rt(&target_ty)?, Box::new(value)),
         };
         let value = self.guard_var_dotnet_param(&place, &target_ty, value);
