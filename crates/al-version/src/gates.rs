@@ -14,6 +14,30 @@ pub struct Evidence {
     pub lines: &'static str,
 }
 
+/// Evidence of [`Gate::BracketedRecordIdNameWithoutNamespaceFrom28`]; constants so `Gate::evidence` stays under its length cap.
+const BRACKETED_RECORD_ID_NAME_EVIDENCE: &[Evidence] = &[Evidence {
+    file: "language/namespaces/RecordIdFormat9Evaluate.al",
+    lines: "328,362",
+}];
+
+/// Evidence of [`Gate::MediaFieldRefFilterArgumentEvaluateErrorFrom28`].
+const MEDIA_FIELDREF_FILTER_ARGUMENT_EVIDENCE: &[Evidence] = &[Evidence {
+    file: "recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al",
+    lines: "258,296,336,397,434",
+}];
+
+/// Evidence of [`Gate::RecordRefIsDirtyFrom28`].
+const RECORD_REF_IS_DIRTY_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "recordref-fieldref/AsGetTableIsDirty.al",
+        lines: "9",
+    },
+    Evidence {
+        file: "recordref-fieldref/recordref/RecordRefIsDirtyEdges.al",
+        lines: "12",
+    },
+];
+
 /// Evidence of [`Gate::ReportSaveAsInherentPermissionsFrom29`]; a constant so `Gate::evidence` stays under its length cap.
 const REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE: &[Evidence] = &[
     Evidence {
@@ -774,24 +798,9 @@ impl Gate {
                     lines: "165,181",
                 },
             ],
-            Gate::BracketedRecordIdNameWithoutNamespaceFrom28 => &[Evidence {
-                file: "language/namespaces/RecordIdFormat9Evaluate.al",
-                lines: "328,362",
-            }],
-            Gate::MediaFieldRefFilterArgumentEvaluateErrorFrom28 => &[Evidence {
-                file: "recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al",
-                lines: "258,296,336,397,434",
-            }],
-            Gate::RecordRefIsDirtyFrom28 => &[
-                Evidence {
-                    file: "recordref-fieldref/AsGetTableIsDirty.al",
-                    lines: "9",
-                },
-                Evidence {
-                    file: "recordref-fieldref/recordref/RecordRefIsDirtyEdges.al",
-                    lines: "12",
-                },
-            ],
+            Gate::BracketedRecordIdNameWithoutNamespaceFrom28 => BRACKETED_RECORD_ID_NAME_EVIDENCE,
+            Gate::MediaFieldRefFilterArgumentEvaluateErrorFrom28 => MEDIA_FIELDREF_FILTER_ARGUMENT_EVIDENCE,
+            Gate::RecordRefIsDirtyFrom28 => RECORD_REF_IS_DIRTY_EVIDENCE,
             Gate::ReportPartNamePropertiesFrom29 => &[
                 Evidence {
                     file: "metadata/platform-tables/BaLayoutNoSubtype.al",

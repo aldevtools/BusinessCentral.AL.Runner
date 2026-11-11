@@ -2,8 +2,6 @@
 //! (al-runner issue 5987: recordref-fieldref/fieldref/TestFieldRefEnumOrdinalByIndex.al SO_OptionField_ValueAsOrdinalArgument_ReproShape); an ordinal
 //! the field has no member for answers the number as its caption and an empty name (SO_OptionField_IntegerOrdinalArguments).
 
-use al_builtins::native::Signal;
-
 const SRC: &str = "table 50713 OptRow { fields { field(1; EntryNo; Integer) { } field(2; OptionValue; Option) { OptionMembers = Option1, Option2; }
         field(3; E; Enum OrdE) { } } keys { key(PK; EntryNo) { } } }
     enum 50714 OrdE { value(0; A) { } value(1; B) { } }
@@ -28,12 +26,11 @@ fn an_option_value_is_taken_as_its_ordinal() {
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "Name")), "Option2");
 }
 
+/// An Enum value is taken as its ordinal too (al-runner issue 7450: recordref-fieldref/fieldref/FieldRefEnumValueAsInteger.al:194
+/// EnumFieldRefValue_FieldRefEnumMethods_EveryMember).
 #[test]
-fn an_enum_value_stays_refused() {
-    assert!(matches!(
-        al_testkit::run_in(SRC, "C", "EnumArg"),
-        Err(Signal::Unsupported(_))
-    ));
+fn an_enum_value_is_taken_as_its_ordinal() {
+    assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "EnumArg")), "A");
 }
 
 #[test]
