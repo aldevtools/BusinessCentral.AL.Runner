@@ -172,19 +172,33 @@ impl Session {
         if has_repeater && !self.in_repeater(st, idx) {
             return Ok(());
         }
-        let (open, dirty, draft, row) = {
+        let (open, dirty, draft, row, new_document, object) = {
             let s = st.borrow();
-            (s.open, s.dirty, s.draft, s.cursor != Cursor::None)
+            let object = s.object as usize;
+            let new_document = s.mode == PageMode::New
+                && s.host.is_none()
+                && self.engine.object_facts[object].page_type == Some(ir::PageType::Document);
+            (s.open, s.dirty, s.draft, s.cursor != Cursor::None, new_document, object)
         };
-        if !open || !dirty || !row || !self.has_source(st) {
+        if !open || !row || !self.has_source(st) {
             return Ok(());
         }
-        if draft {
-            let object = st.borrow().object as usize;
-            let delayed = engine.program.objects[object]
+        let delayed = draft
+            && engine.program.objects[object]
                 .properties
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case("DelayedInsert") && v.trim().eq_ignore_ascii_case("true"));
+        if !dirty {
+            // testpage/TestPageBlankKeyInsert.al:256: the first variable control can modify the new row.
+            if draft && new_document && !delayed && !flag_denied(&engine, object, "InsertAllowed")? {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::NewDocumentBeforeVariableValidation,
+                );
+                return self.insert_draft(st);
+            }
+            return Ok(());
+        }
+        if draft {
             if delayed || st.borrow().typed_before_key {
                 return unsupported(
                     "SetValue on a page variable control of a new row typed before its key or on a DelayedInsert page (whether the row is inserted first is not pinned)",
