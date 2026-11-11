@@ -40,6 +40,7 @@ pub mod reach;
 pub mod refusals;
 pub mod runtime;
 pub mod seed;
+pub mod shared_pass;
 pub mod stability;
 pub mod target;
 pub mod test_suites;

@@ -402,6 +402,21 @@ pub(crate) fn login_subscribers_reach_without(
     (walk.out, walk.visited.unwrap_or_default())
 }
 
+/// The facts of the joined reach of the routines `roots` (one walk of the union of their reaches, as
+/// [`union_reach_facts_skipping`] with nothing skipped), and every routine the walk entered (`shared_pass.rs`).
+pub(crate) fn union_reach_visited(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+) -> (ReachFacts, Vec<(usize, usize)>) {
+    let mut walk = Walk::new(events, lowered, index);
+    walk.visited = Some(Vec::new());
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|_| false);
+    (walk.out, walk.visited.unwrap_or_default())
+}
+
 /// The facts of the joined reach of the routines `roots`, one walk of the union of their reaches, that does not enter
 /// the routines `skip` (nor what only they reach).
 pub(crate) fn union_reach_facts_skipping(

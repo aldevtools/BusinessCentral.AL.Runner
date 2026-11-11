@@ -209,6 +209,11 @@ pub struct Engine {
     /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
     /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
     pub write_in_try_allowed: bool,
+    /// Apps of the program (indexes in `Program::apps`) whose install code the install baseline on this engine does not
+    /// run, and whose subscribers do not run while it installs the other apps: the app is not on this tenant. The corpus
+    /// job runs the try-write suite's app in the main pass on an engine of its own, and the main suites' engine leaves it
+    /// out (ADR-073 Phase 2: BC's main job does not have that app). Default: none.
+    pub uninstalled_apps: std::collections::BTreeSet<u32>,
     /// `al-runner test --dependencies-published-global`: "Published As" of "NAV App Installed App" is Global for a dependency app
     /// by another publisher than Microsoft (a documented setting, assumption `dependency-published-as-global`). Default
     /// `false`: Dev, as published through the development endpoint (al-runner issue 7169).
@@ -514,6 +519,7 @@ impl Engine {
             license: None,
             license_caps: Default::default(),
             write_in_try_allowed: false,
+            uninstalled_apps: Default::default(),
             dependencies_published_global: false,
             unevaluable_init: Arc::new(unevaluable_init),
             table_facts: table_facts.into(),
@@ -565,6 +571,7 @@ impl Engine {
             license: None,
             license_caps: Default::default(),
             write_in_try_allowed: false,
+            uninstalled_apps: Default::default(),
             dependencies_published_global: false,
             unevaluable_init: self.unevaluable_init.clone(),
             table_facts: self.table_facts.clone(),
@@ -632,6 +639,7 @@ impl Engine {
             license,
             license_caps,
             write_in_try_allowed,
+            uninstalled_apps,
             dependencies_published_global,
             // From the program and the config of `with_config` (and al-testrun's `global_triggers_find_unavailable`,
             // which reads only the compile): the same for every run over this program.
@@ -681,6 +689,7 @@ impl Engine {
         *license = None;
         *license_caps = Default::default();
         *write_in_try_allowed = false;
+        uninstalled_apps.clear();
         *dependencies_published_global = false;
     }
 

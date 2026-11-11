@@ -469,6 +469,9 @@ pub struct Phases {
     pub baseline_source: Option<&'static str>,
     /// One per pass over the test codeunits (one per entry of a server request, else one).
     pub passes: Vec<PassTime>,
+    /// Per suite that ran on an engine of its own for its server setting (ADR-073 Phase 2): whether its apps may share
+    /// the pass (`shared_pass::check`).
+    pub shared_pass: Vec<setting_lanes::SharedPassNote>,
     /// How the test threads took the install baseline: shared (ADR-069), or a copy each and why; `None` with one
     /// test thread or no baseline.
     pub install_snapshot: Option<String>,
@@ -1136,6 +1139,7 @@ mod run_on_client_reach_tests;
 mod runner_frames_tests;
 mod runner_reset;
 mod session_flags;
+pub mod setting_lanes;
 mod single_fresh;
 mod single_lane;
 mod strict_taint;

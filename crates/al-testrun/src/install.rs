@@ -532,7 +532,10 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     // BC's install session has no client (`Session::set_install_without_client`).
     session.set_install_without_client(true);
     let view = InstallView::new(lowered, crate::host::publish_order_known());
-    let under_test = apps_under_test(lowered);
+    // An app the engine leaves uninstalled (`Engine::uninstalled_apps`, ADR-073 Phase 2) does not install, and stays not
+    // installed while the others do: its subscribers do not run.
+    let gone = &engine.uninstalled_apps;
+    let under_test: BTreeSet<u32> = apps_under_test(lowered).difference(gone).copied().collect();
     if under_test.len() > 1 {
         let written = tables_install_code_may_write(lowered, &engine);
         // A table only its own app's install code writes, with the rows constants show (al-runner issue 6971).
@@ -541,9 +544,13 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
         }
         session.set_install_written_tables(written);
     }
-    let plans: Vec<AppInstall> = plan(lowered, &engine.events, false);
+    let plans: Vec<AppInstall> = plan(lowered, &engine.events, false)
+        .into_iter()
+        .filter(|a| !gone.contains(&(a.app as u32)))
+        .collect();
     // Microsoft's apps under test install before the partner apps under test (ADR-046 amendment 7, `install_orders.rs`).
     let (microsoft, partner) = crate::install_orders::split_microsoft(lowered, &view, &under_test);
+    let partner_or_gone: BTreeSet<u32> = partner.union(gone).copied().collect();
     let mut inst = UnderTestInstalls {
         lowered,
         plans: &plans,
@@ -555,13 +562,13 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
             continue;
         }
         // One app at a time: the apps under test after it are not installed yet (`InstallView`).
-        view.apply(session, app.app as u32, &microsoft, &partner);
+        view.apply(session, app.app as u32, &microsoft, &partner_or_gone);
         crate::install_orders::AppInstalls::install(&mut inst, session, app.app as u32);
     }
     let group = crate::install_orders::PartnerGroup {
         view: &view,
         group: partner.clone(),
-        held: BTreeSet::new(),
+        held: gone.clone(),
         apps: plans
             .iter()
             .filter(|a| partner.contains(&(a.app as u32)) && !(a.company.is_empty() && a.database.is_empty()))

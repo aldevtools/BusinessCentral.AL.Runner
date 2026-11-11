@@ -399,6 +399,9 @@ struct Pass {
     /// The service-tier settings of the pass's suites (`SuiteEntry::server_settings`, as written there) and what they ask for.
     server_settings: Vec<String>,
     settings: config::ServerSettings,
+    /// The suites of the pass that run on an engine of their own with DisableWriteInsideTryFunctions = false (ADR-073
+    /// Phase 2: the try-write suite in the main pass).
+    write_in_try_suites: Vec<String>,
 }
 
 impl Pass {
@@ -409,17 +412,48 @@ impl Pass {
     }
 }
 
-/// The passes of `version`, the main one first, each with the version's table narrowed to its suites.
-fn passes(version: &config::VersionEntry) -> Vec<(config::VersionEntry, Pass)> {
+/// Whether a suite whose CI job sets server settings runs in a pass of its own (`AL_SERVER_SETTINGS_OWN_PASS=1`), as before
+/// ADR-073 Phase 2, instead of on an engine of its own in the pass of the suites with its apps: the off switch.
+fn server_settings_own_pass() -> bool {
+    std::env::var_os("AL_SERVER_SETTINGS_OWN_PASS").is_some()
+}
+
+/// ADR-073 Phase 2, point 5: one line per suite that ran on an engine of its own in a shared pass; an error when its apps
+/// may not share the pass (no allow list: the fix is `AL_SERVER_SETTINGS_OWN_PASS=1`, a pass of its own again).
+fn shared_pass_lines(bc: &str, notes: &[runtime::setting_lanes::SharedPassNote]) -> Result<(), String> {
+    for n in notes {
+        match &n.breach {
+            None => println!(
+                "BC {bc} {}: shares the pass (its app has no subscriber, extension or object the other suites reach)",
+                n.suite
+            ),
+            Some(why) => return Err(format!("BC {bc} {}: may not share the pass: {why}", n.suite)),
+        }
+    }
+    Ok(())
+}
+
+/// The passes of `version`, the main one first, each with the version's table narrowed to its suites. A suite that
+/// differs from a pass only in its server settings runs in that pass, on an engine of its own (ADR-073 Phase 2), unless
+/// `own_pass_for_settings`.
+fn passes_with(version: &config::VersionEntry, own_pass_for_settings: bool) -> Vec<(config::VersionEntry, Pass)> {
     let mut groups: Vec<(Vec<config::ExtraApp>, Vec<config::SuiteEntry>)> = vec![(Vec::new(), Vec::new())];
     for suite in &version.suites {
-        // One pass per environment: the same extra apps, the same extra corpus folders and the same server settings.
+        // One pass per environment: the same extra apps and the same extra corpus folders (and, with the off switch, the
+        // same server settings).
+        let settings = |s: &config::SuiteEntry| {
+            if own_pass_for_settings {
+                s.server_settings.clone()
+            } else {
+                Vec::new()
+            }
+        };
         let same_env = |(extra, suites): &&mut (Vec<config::ExtraApp>, Vec<config::SuiteEntry>)| {
             *extra == suite.extra_apps
                 && suites
                     .first()
-                    .map_or(suite.extra_dirs.is_empty() && suite.server_settings.is_empty(), |s| {
-                        s.extra_dirs == suite.extra_dirs && s.server_settings == suite.server_settings
+                    .map_or(suite.extra_dirs.is_empty() && settings(suite).is_empty(), |s| {
+                        s.extra_dirs == suite.extra_dirs && settings(s) == settings(suite)
                     })
         };
         match groups.iter_mut().find(same_env) {
@@ -431,9 +465,15 @@ fn passes(version: &config::VersionEntry) -> Vec<(config::VersionEntry, Pass)> {
         .into_iter()
         .enumerate()
         .map(|(i, (extra, suites))| {
-            let server_settings = suites.first().map(|s| s.server_settings.clone()).unwrap_or_default();
-            // `OracleFile::parse` checked every suite's settings.
-            let settings = suites.first().and_then(|s| s.settings().ok()).unwrap_or_default();
+            // `OracleFile::parse` checked every suite's settings. A pass of its own takes its suites' settings; in a
+            // shared pass the engine has the defaults and the suites that differ run on an engine of their own.
+            let first = suites.first().filter(|_| own_pass_for_settings);
+            let server_settings = first.map(|s| s.server_settings.clone()).unwrap_or_default();
+            let settings = first.and_then(|s| s.settings().ok()).unwrap_or_default();
+            let write_in_try_suites = (suites.iter())
+                .filter(|s| !own_pass_for_settings && s.settings().is_ok_and(|x| x.allow_write_in_try_functions))
+                .map(|s| s.name.clone())
+                .collect();
             let mut view = version.clone();
             view.suites = suites;
             let pass = Pass {
@@ -441,6 +481,7 @@ fn passes(version: &config::VersionEntry) -> Vec<(config::VersionEntry, Pass)> {
                 extra_apps: extra.into_iter().map(|a| (a.id, a.name)).collect(),
                 server_settings,
                 settings,
+                write_in_try_suites,
             };
             (view, pass)
         })
@@ -458,7 +499,7 @@ fn run_version_passes(
     mut awaited: Option<&mut Vec<al_test_cli::awaiting::AwaitedCase>>,
     process_ends_after: bool,
 ) -> Result<VersionRun, String> {
-    let all = passes(version);
+    let all = passes_with(version, server_settings_own_pass());
     let multi = all.len() > 1;
     let last = all.len() - 1;
     let mut joined: Option<VersionRun> = None;
@@ -1222,6 +1263,7 @@ fn run_version_inner(
         permissions_off: false,
         // The suite's CI job sets DisableWriteInsideTryFunctions=false (oracle.toml `server_settings`, job "BC TryWrites").
         allow_write_in_try_functions: pass.settings.allow_write_in_try_functions,
+        write_in_try_suites: pass.write_in_try_suites.clone(), // ADR-073 Phase 2
         // `dev_endpoint_ui` stays off: the corpus runs as Microsoft's Test Runner app does, so unhandled UI is an error.
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
         // Internal, for the ADR-070 step 2 comparison: the whole corpus in BC's order (`AL_STRICT_ORDER_ALL`), and the
@@ -1262,6 +1304,7 @@ fn run_version_inner(
     // Nothing waits for the drop of the runtime after the report is written.
     let rt = runtime::Retiring::new(rt);
     let p = &rt.phases;
+    shared_pass_lines(&version.bc_version, &p.shared_pass)?;
     let sidecar_stats = sidecar_host.stats();
     sidecar_host.shutdown();
     let timings = report::Timings {
@@ -1937,4 +1980,40 @@ fn slowest_and_chain_lines(p: &al_testrun::runtime::Phases) -> Vec<String> {
     let mut lines = vec![format!("slowest test codeunits: {}", slowest.join("; "))];
     lines.extend(p.chain.lines());
     lines
+}
+
+#[cfg(test)]
+mod pass_tests {
+    use super::*;
+
+    fn bc29() -> config::VersionEntry {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/oracle.toml");
+        let cfg = config::OracleFile::parse(&std::fs::read_to_string(path).unwrap()).unwrap();
+        cfg.versions.into_iter().find(|v| v.major == 29).unwrap()
+    }
+
+    // ADR-073 Phase 2: the try-write suite differs from the main environment only in DisableWriteInsideTryFunctions, so it
+    // runs in the main pass, named for an engine of its own; the off switch gives it a pass of its own, as before.
+    #[test]
+    fn a_suite_that_differs_only_in_server_settings_runs_in_the_main_pass() {
+        let shared = passes_with(&bc29(), false);
+        let names = |p: &[(config::VersionEntry, Pass)]| -> Vec<Vec<String>> {
+            p.iter()
+                .map(|(v, _)| v.suites.iter().map(|s| s.name.clone()).collect())
+                .collect()
+        };
+        assert_eq!(names(&shared)[0], ["onprem", "onprem-dotnet", "trywrite-allowed"]);
+        assert_eq!(shared[0].1.write_in_try_suites, ["trywrite-allowed"]);
+        assert!(!shared[0].1.settings.allow_write_in_try_functions && shared[0].1.server_settings.is_empty());
+        assert_eq!(shared.len(), 2, "{:?}", names(&shared));
+
+        let own = passes_with(&bc29(), true);
+        assert_eq!(own.len(), 3, "{:?}", names(&own));
+        let (_, tw) = own
+            .iter()
+            .find(|(v, _)| v.suites.iter().any(|s| s.name == "trywrite-allowed"))
+            .unwrap();
+        assert!(tw.settings.allow_write_in_try_functions && tw.write_in_try_suites.is_empty());
+        assert!(own[0].1.write_in_try_suites.is_empty());
+    }
 }

@@ -87,6 +87,11 @@ fn app(id: &str, publisher: &str, dependency: bool) -> al_ir::AppInfo {
 }
 
 fn built(global: bool) -> al_testkit::Built {
+    built_without(global, &[])
+}
+
+/// [`built`] on an engine that leaves the apps `uninstalled` (indexes) uninstalled.
+fn built_without(global: bool, uninstalled: &[u32]) -> al_testkit::Built {
     let mut l = al_testkit::compile(SRC);
     std::sync::Arc::make_mut(&mut l.program).apps = vec![
         app("aa006438-a411-4309-b899-92353cc12b05", "Repro", false),
@@ -95,9 +100,9 @@ fn built(global: bool) -> al_testkit::Built {
         app("8874ed3a-0643-4247-9ced-7a7002f7135d", "Microsoft", true),
     ];
     let mut engine = al_testkit::engine(&l);
-    std::sync::Arc::get_mut(&mut engine)
-        .unwrap()
-        .dependencies_published_global = global;
+    let e = std::sync::Arc::get_mut(&mut engine).unwrap();
+    e.dependencies_published_global = global;
+    e.uninstalled_apps = uninstalled.iter().copied().collect();
     al_testkit::Built {
         session: al_vm::Session::new(engine),
         lowered: l,
@@ -154,4 +159,15 @@ fn during_an_install_the_own_app_and_the_apps_after_it_have_no_row() {
 #[test]
 fn the_platform_system_app_has_no_row() {
     assert_eq!(al_testkit::text(run("PlatformRow")), "No");
+}
+
+/// ADR-073 Phase 2: an app the engine leaves uninstalled (`Engine::uninstalled_apps`, the try-write suite's app on the main
+/// suites' engine) is not on the tenant and has no row; BC's main job does not have that app, and the main test
+/// R7169DepInstallPublishedAs.al counts the rows of the apps by its publisher.
+#[test]
+fn an_uninstalled_app_has_no_row() {
+    assert_eq!(al_testkit::int(built(false).run_in("C", "Total")), 3);
+    let mut b = built_without(false, &[2]);
+    assert_eq!(al_testkit::int(b.run_in("C", "Total")), 2);
+    assert!(b.run_in("C", "Other").is_err(), "the Partner app (index 2) has no row");
 }

@@ -203,6 +203,10 @@ pub struct RunOptions {
     /// DisableWriteInsideTryFunctions is off, as on Business Central online (`al_vm::Engine::write_in_try_allowed`). Default
     /// `false`: the setting's default, as the corpus CI runs.
     pub allow_write_in_try_functions: bool,
+    /// The suites (`SuiteRun::name`) whose CI job runs on a service tier with DisableWriteInsideTryFunctions = false while
+    /// the run's setting is the default, or with the default while the run allows writes: they run on an engine of their
+    /// own over the same compile (ADR-073 Phase 2, `setting_lanes.rs`). The corpus job names the try-write suite here.
+    pub write_in_try_suites: Vec<String>,
     /// `al-runner test --dependencies-published-global`: "Published As" of "NAV App Installed App" is Global for a dependency
     /// app by another publisher than Microsoft (`al_vm::Engine::dependencies_published_global`). Default `false`: Dev.
     pub dependencies_published_global: bool,
@@ -278,6 +282,7 @@ pub struct EntryRun {
 }
 
 /// One pass of `CorpusRuntime::run_compiled` (an entry, or the whole run), in program order.
+#[derive(Clone)]
 pub(crate) struct Pass {
     pub(crate) only: Option<Vec<(usize, u32)>>,
     pub(crate) run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,

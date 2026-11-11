@@ -2,7 +2,8 @@
 
 - Status: Accepted (owner, 2026-11-11): the shared mechanism and Phases 1, 2 and 4. Phase 2 only with the check
   written into it. Phase 3 is not built; the testlibraries pass gets a term in the budget. A temporary budget limit
-  that only goes down. The decisions are listed at the end.
+  that only goes down. The decisions are listed at the end. Amended 2026-11-11 (see "Amendment 1"): Phases 1 and 4
+  and the shared mechanism are stopped; Phase 2 is built.
 - Date: 2026-11-11
 - Amends: ADR-001 (what the sessions of one engine share), ADR-013 decision 5 and ADR-069 decisions 1 and 6 (what a
   test session starts from), ADR-063 as-built point 8 (the try-write suite stops being a pass).
@@ -437,3 +438,87 @@ Risks:
    not built.
 4. A temporary budget limit at today's 333 G that may only go down, removed once the run is under the real budget:
    yes.
+
+## Amendment 1 (2026-11-11): Phases 1 and 4 stopped, Phase 2 as built
+
+Owner decisions, 2026-11-11, after the measuring step of Phase 1.
+
+### Phases 1 and 4 and the shared mechanism are stopped
+
+The measuring step of Phase 1 ran on BC 29 (full run, `perf stat -e instructions:u`):
+
+| Run | Instructions | Company-open step of the main pass (3,820 sessions) |
+|---|---|---|
+| Recorded runs off, two runs | 335.19 G, 335.46 G | runs in every session |
+| Recorded runs on, as built | 336.64 G | 0 recorded: the session image refuses |
+| On, with the image's blockers skipped (a throwaway build), the corpus clock | 379.86 G | 2,575 recorded, 1,244 replayed |
+| Same, with every test codeunit's clock at noon UTC of its oracle day | 326.19 G (off: 336.76 G) | 12 recorded, 3,807 replayed |
+
+The gate (a saving of at least 5 G) is not met, and the session image cannot meet it alone:
+
+- The corpus job starts each test codeunit at the second of its suite in the oracle JUnit file (`oracle.rs`
+  `parse_clocks`). Microsoft's company-open code reads the clock to the millisecond (the system stamps of the rows it
+  writes, `CurrentDateTime` in the database trigger setup), so the clock position is rightly part of the key, and only
+  sessions that start in the same second share a recorded run: 1,244 of 3,820. The other 2,575 each record a run, which
+  costs more than a replay saves (+44.7 G).
+- The image also fails on what Microsoft's login leaves: temporary record globals of SingleInstance codeunits, filled
+  lists, untouched codeunit variables, and an internal .NET object.
+
+Phase 4 asks through the same database trigger setup, which reads the clock, and through the same temporary record
+globals; by its own rule ("did not read the clock") no ask would be recorded. So Phase 4 is stopped too, and with
+both phases stopped the shared mechanism (decisions 1 to 8 of "The rule every phase follows") has no user. The work is
+kept on the branch `adr073-phase1` and is not merged. `install::LoginMemo` stays as it is.
+
+### Phase 2 as built
+
+The try-write suite runs in the main pass. What was built, against the decision of Phase 2:
+
+1. **Passes** (`al-test-cli` `main.rs` `passes_with`). A suite that differs from a pass only in its server settings
+   runs in that pass. The off switch `AL_SERVER_SETTINGS_OWN_PASS=1` gives such a suite a pass of its own again, as
+   before. `work.json` has no try-write pass any more.
+2. **Engines** (`al-testrun` `runtime/setting_lanes.rs`). The run's own engine runs every suite with the run's settings
+   (lane 0). The suites whose job sets DisableWriteInsideTryFunctions = false (`RunOptions::write_in_try_suites`) run on
+   a sibling engine with the setting (lane 1): it shares the program, the compiled code and the platform listings. Each
+   lane runs its test codeunits through the same walks over its own engine and install baseline.
+3. **Install baselines, built differently from point 4 of the decision.** Lane 0's engine leaves the try-write app
+   uninstalled (`Engine::uninstalled_apps`): its install code does not run there, its subscribers do not run while the
+   other apps install, and the listings of the installed and published apps leave it out. BC's main job does not have
+   that app, so this is closer to BC than installing it with the setting at its default. Lane 1 runs the whole install
+   baseline once more, under its own setting, over the shared program. The capture of point 4 (start lane 1 from the
+   data before the first install step that read the setting) is not built: lane 1's baseline is the reference that a
+   capture would have to equal, and it costs about 2 s of wall time. A capture is a possible later saving. Point 3 (a
+   private `Engine::write_in_try_allowed` that notes when a session reads it) is not built, because only the capture
+   needed that note.
+4. **The check of point 5** (`al-testrun` `shared_pass.rs` `check`), with rules 1 to 3 as written: an event subscriber
+   to an event published outside the app; an extension of another app's object; a routine or table of the app in the
+   joined static reach of the other suites' test codeunits (which follows interface calls, so an implementation of an
+   outside interface counts here). Rule 4 (install code that writes another app's table, a number sequence or isolated
+   storage) has nothing to check: the app's install code never runs on lane 0. The corpus run calls the check after the
+   install baseline and prints a line per suite; a breach marks the suite's tests not run with the reason and fails
+   the run (exit 2). `corpus_harness.rs` `the_try_write_suite_shares_the_main_pass_on_every_version` asserts the line
+   on BC 27, 28 and 29. There is no allow list.
+5. **The listing difference the check cannot rule out happened once.** Before the installed-apps listing left out the
+   uninstalled app, `R7169_Test_ReadsPublishedAsOfDependency` (record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al)
+   counted the apps of the publisher "AL Language" and got one more (a failing case either way; its message changed).
+   With the listing as built, the JUnit differential is zero.
+
+Measured on BC 29 (full run, `perf stat -e instructions:u`, corpus `f2d5ea3`): main 336.62 G, with Phase 2 322.87 G
+and 323.10 G. Saving: 13.75 G of the 19.7 G the pass cost. The conformance checks of Phase 2: the JUnit files of
+every suite on BC 29 equal main's, with messages (`tools/compare_junit.py --reasons`, 0 differences);
+`--baseline-diff` on BC 27, 28 and 29 shows no regression, stale line or case without an outcome;
+`tools/baseline_rule_check.sh run` and `tools/demand_vs_eager.sh run` show no difference.
+
+### The budget as built
+
+- The testlibraries pass has its term, 13.97 G (the pass with no test cost 13.30 G, plus 5 %). A pass without a
+  constant gets 0. The try-write suite has no pass and no term.
+- The temporary allowance over the formula limit is stored as the amount over it, as proposed under "The budget". It
+  started at 52.6 G, became 38.63 G when the testlibraries term was taken off it, and is 27.92 G after Phase 2 (the run
+  at 322.87 G minus the formula limit at 294.96 G, rounded up to 10 M).
+
+### Savings against the limit, now
+
+With Phases 1 and 4 stopped, the run stays about 28 G over the formula limit (322.9 G against 295.0 G). The next
+saving has to come from other work: the login decision's reach walk (about 10 G), the platform listings of the
+testlibraries pass, or a capture for lane 1's install baseline.
+

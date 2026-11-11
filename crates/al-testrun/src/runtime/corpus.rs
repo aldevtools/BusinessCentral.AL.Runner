@@ -1074,6 +1074,9 @@ impl CorpusRuntime {
         let baseline = baseline && !memory.halted(); // A run stopped at its memory limit builds no install baseline.
         let baseline_skipped = baseline_wanted && !baseline;
         let engine_started = std::time::Instant::now();
+        // ADR-073 Phase 2: suites with another server setting run on an engine of their own (`setting_lanes.rs`).
+        let mut lanes = super::setting_lanes::Lanes::of(suites, opts);
+        let uninstalled = lanes.uninstalled.clone();
         let make_engine = || {
             let mut engine = Engine::with_config(
                 lowered.program.clone(),
@@ -1087,7 +1090,7 @@ impl CorpusRuntime {
                 e.license = opts.license.clone();
                 e.write_in_try_allowed = opts.allow_write_in_try_functions;
                 e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
+                (e.skipped_apps, e.uninstalled_apps) = (opts.skipped_dependencies.clone(), uninstalled.clone());
             }
             engine
         };
@@ -1100,7 +1103,7 @@ impl CorpusRuntime {
                 e.license = opts.license.clone();
                 e.write_in_try_allowed = opts.allow_write_in_try_functions;
                 e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
+                (e.skipped_apps, e.uninstalled_apps) = (opts.skipped_dependencies.clone(), uninstalled.clone());
             }
             sibling
         };
@@ -1129,35 +1132,8 @@ impl CorpusRuntime {
         // A kept baseline is taken only when the run clock can start at the instant its run began: the rows carry
         // it. A clock that has started already at another instant (something read it, or an earlier run in this
         // process began later) makes the file unusable here, and the install code runs.
-        let kept = baseline_key
-            .as_ref()
-            .zip(opts.compile_cache.as_ref())
-            // `--rebuild-compile-cache`: the file is not read, and the run writes a new one.
-            .filter(|(_, cc)| !cc.rebuild)
-            // The impact index and an impact run's selection need what the install code raised and touched: the
-            // baseline runs.
-            .filter(|_| !opts.impact_trace && opts.narrow.is_none())
-            // An entry with resource files of its own (issue 5635): whether the install code read resources is known
-            // only when it runs here.
-            .filter(|_| opts.entries.iter().all(|e| e.resources.is_empty()))
-            .and_then(|((key, frame), cc)| {
-                // Over test data the file holds the tables the install code wrote to; the rest is the restored database.
-                let backed = |mut run: crate::baseline::BaselineRun| {
-                    run.baseline = run.baseline.backed_by(&engine);
-                    run
-                };
-                match keep {
-                    // A warm server reads the file once and keeps what it holds, over the test data as far as its
-                    // tests read it (al-runner issue 5856). The test data and the program must be the same.
-                    true => crate::baseline_cache::read_kept(&cc.dir, key, frame, &kept_backing(&engine), backed),
-                    false => crate::baseline_cache::read(&cc.dir, key).map(|(run, at)| (backed(run), at, false)),
-                }
-            })
-            .filter(|(_, at, _)| {
-                crate::host::SystemClock::begin_at(*at)
-                    || (crate::host::SystemClock::started() && crate::host::SystemClock::run_start() == *at)
-            })
-            .map(|(run, _, hit)| (run, hit));
+        // A baseline whose engine leaves an app uninstalled (ADR-073 Phase 2) is not the one its key names: none is read.
+        let kept = kept_baseline(baseline_key.as_ref(), uninstalled.is_empty(), opts, keep, &engine);
         let baseline_kept = kept.as_ref().is_some_and(|(_, hit)| *hit);
         let kept = kept.map(|(run, _)| run);
         let from_cache = kept.is_some();
@@ -1211,7 +1187,7 @@ impl CorpusRuntime {
         // run runs the install code again (`al_vm::dotnet::pure`).
         let install_called_dotnet = engine.dotnet_called.load(std::sync::atomic::Ordering::Relaxed);
         if let (false, false, Some(key), Some(cc), Some(run)) = (
-            from_cache || memory.halted(), // A baseline the memory limit stopped is not kept.
+            from_cache || memory.halted() || !uninstalled.is_empty(), // Not kept: stopped at the memory limit, or ADR-073 Phase 2.
             install_called_dotnet,
             baseline_key.as_ref(),
             opts.compile_cache.as_ref(),
@@ -1367,6 +1343,9 @@ impl CorpusRuntime {
                 opts_only = Some(in_program_order(&only));
             }
         }
+        // ADR-073 Phase 2: the check of the other lane's apps, then its engines and install baseline (`setting_lanes.rs`).
+        #[rustfmt::skip]
+        let () = lanes.start(lowered, suites, opts, &opts_only, (baseline_engine.as_ref().unwrap_or(&engine), &engine), baseline.is_some(), baseline_engine.is_some(), &sibling_of, &|| super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder()), memory.halt_flag());
         // A debugger is told the program (to place its breakpoints) and starts the tests when its client says so.
         if let Some(ready) = &opts.debug_ready {
             (ready.0)(&DebugReady {
@@ -1432,7 +1411,9 @@ impl CorpusRuntime {
         };
         let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
         let mut pass_times: Vec<PassTime> = Vec::new();
-        for pass in &passes {
+        for (lane, pass) in &lanes.split(passes) {
+            let main = (&engine, &baseline, &baseline_engine, &snapshot_once);
+            let (engine, baseline, baseline_engine, snapshot_once) = lanes.pick(*lane, main);
             let start = list.len();
             let pass_started = std::time::Instant::now();
             // The longest time a test thread took to set up its copy of the baseline (`PassTime::reset`), in ns.
@@ -1446,13 +1427,13 @@ impl CorpusRuntime {
             // would be another one, which is not made per entry.
             let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
             "the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()
-        });
+        }).or_else(|| lanes.refusal(*lane));
             let opts_only = &pass.only;
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
             // Codeunits with RequiredTestIsolation = Disabled under the TestRunnerHub that are not run (suite, id, object, why).
             let mut refused_disabled: Vec<(usize, u32, usize, String)> = Vec::new();
-            for (si, suite) in suites.iter().enumerate() {
+            for (si, suite) in suites.iter().enumerate().filter(|(si, _)| lanes.runs(*lane, *si)) {
                 if opts.execute {
                     // A scratch run: the `OnRun` trigger of one codeunit of the suite's app.
                     if let Some(oi) = on_run_target(lowered, suite.app) {
@@ -1481,7 +1462,7 @@ impl CorpusRuntime {
                         Err(why) => Err(why.clone()),
                     };
                     // The runner codeunit the unit runs through (ADR-066), or al-runner's own.
-                    let this = super::al_runner::with_runner(this, opts.test_runner, &engine, hub_path);
+                    let this = super::al_runner::with_runner(this, opts.test_runner, engine, hub_path);
                     match &this {
                         Ok((i, hub, runner)) => units.push(Unit {
                             si,
@@ -1492,7 +1473,7 @@ impl CorpusRuntime {
                             hub_leg: on_hub(lowered, oi, *hub, hub_path),
                             // Under Disabled isolation OnRun's writes are carried with the rest.
                             carry: (*i != TestIsolation::Disabled && !on_hub(lowered, oi, *hub, hub_path))
-                                .then(|| super::chain::carry_why(&engine, lowered, oi))
+                                .then(|| super::chain::carry_why(engine, lowered, oi))
                                 .flatten(),
                             leak: None,
                             without_baseline: false,
@@ -1644,13 +1625,13 @@ impl CorpusRuntime {
             // ADR-070 step 2 (`RunOptions::strict_sequential`): the sequential strict run walks every BC session on a thread of its
             // own (`strict_walk.rs`) and leaves nothing for `note_leaks`, the parallel part and the lane to do.
             #[rustfmt::skip]
-            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: keep_singles || opts.sequential_strict(), fresh_check: opts.single_fresh_check && !opts.sequential_strict(), sequential: opts.sequential_strict() }; if opts.sequential_strict() { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
+            let carried = { let walk = super::chain_walk::ChainWalk { engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: keep_singles || opts.sequential_strict(), fresh_check: opts.single_fresh_check && !opts.sequential_strict(), sequential: opts.sequential_strict() }; if opts.sequential_strict() { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);
             let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
             let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
-                run_serially(&engine, lowered, baseline.as_ref(), &units, &rest, &mut details, opts)
+                run_serially(engine, lowered, baseline.as_ref(), &units, &rest, &mut details, opts)
             } else {
                 // Test codeunits run on a session each and do not share anything (the install baseline is put back for
                 // each), so worker threads take them in turn, each with its own copy of the baseline (`threads.rs`).
@@ -1659,7 +1640,7 @@ impl CorpusRuntime {
                 encode_time += encode_started.elapsed();
                 let own = || thread_baseline(snapshot);
                 let run =
-                    |b: Option<&al_vm::Baseline>, k: usize| run_unit(&engine, lowered, b, &units[rest[k]], None, limit);
+                    |b: Option<&al_vm::Baseline>, k: usize| run_unit(engine, lowered, b, &units[rest[k]], None, limit);
                 super::threads::run_parallel(memory.pool(), rest.len(), baseline.as_ref(), &own, &run)
             };
             for (k, mut r) in rest.into_iter().zip(results) {
@@ -1668,7 +1649,7 @@ impl CorpusRuntime {
                     .rev()
                     .find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
                 let storage = before
-                    .is_some_and(|(_, _, _, c)| c.everything && reaches_session_storage(&engine, lowered, units[k].oi));
+                    .is_some_and(|(_, _, _, c)| c.everything && reaches_session_storage(engine, lowered, units[k].oi));
                 let hit = r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || storage;
                 if let (true, Some((_, _, leg, c))) = (hit, before) {
                     let o = &lowered.program.objects[units[k].oi];
@@ -1703,7 +1684,7 @@ impl CorpusRuntime {
                                 details.insert((si, id, name.to_lowercase()), observed_detail(lowered, seen));
                             };
                             let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
-                            r = run_unit(&engine, lowered, c.baseline.as_ref(), &units[k], trace, limit);
+                            r = run_unit(engine, lowered, c.baseline.as_ref(), &units[k], trace, limit);
                             chain_report.reruns.push(super::ChainEntry {
                                 id,
                                 name: lowered.program.objects[units[k].oi].name.clone(),
@@ -1721,7 +1702,7 @@ impl CorpusRuntime {
                 slots[k] = Some(r);
             }
             #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, bc_order: opts.strict_order, strict: opts.replay_every_dependent, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
+            let lane = super::single_lane::Lane { engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, bc_order: opts.strict_order, strict: opts.replay_every_dependent, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
             (!opts.sequential_strict()).then(|| lane.run(&mut slots, &mut chain_report.single_lane));
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
@@ -1924,7 +1905,8 @@ impl CorpusRuntime {
                 baseline_install_orders: baseline_ids.install_orders,
                 baseline_roots,
                 compile: compile_time,
-                baseline: baseline_time,
+                baseline: baseline_time + lanes.baseline_time,
+                shared_pass: std::mem::take(&mut lanes.notes),
                 tests: tests_time,
                 suites: suite_times,
                 compile_parts,
@@ -2195,6 +2177,46 @@ pub(crate) fn dependency_apps_on_workspace(
             ids.push(apps[i].id.to_ascii_lowercase());
         }
     }
+}
+
+/// The install baseline an earlier run of this program kept in the compile cache under `baseline_key`, and whether a warm
+/// server held it already, when the run may take it (`may_read`; `keep`: a warm server's run).
+fn kept_baseline(
+    baseline_key: Option<&(String, String)>,
+    may_read: bool,
+    opts: &RunOptions,
+    keep: bool,
+    engine: &Arc<Engine>,
+) -> Option<(crate::baseline::BaselineRun, bool)> {
+    baseline_key
+        .filter(|_| may_read)
+        .zip(opts.compile_cache.as_ref())
+        // `--rebuild-compile-cache`: the file is not read, and the run writes a new one.
+        .filter(|(_, cc)| !cc.rebuild)
+        // The impact index and an impact run's selection need what the install code raised and touched: the
+        // baseline runs.
+        .filter(|_| !opts.impact_trace && opts.narrow.is_none())
+        // An entry with resource files of its own (issue 5635): whether the install code read resources is known
+        // only when it runs here.
+        .filter(|_| opts.entries.iter().all(|e| e.resources.is_empty()))
+        .and_then(|((key, frame), cc)| {
+            // Over test data the file holds the tables the install code wrote to; the rest is the restored database.
+            let backed = |mut run: crate::baseline::BaselineRun| {
+                run.baseline = run.baseline.backed_by(engine);
+                run
+            };
+            match keep {
+                // A warm server reads the file once and keeps what it holds, over the test data as far as its
+                // tests read it (al-runner issue 5856). The test data and the program must be the same.
+                true => crate::baseline_cache::read_kept(&cc.dir, key, frame, &kept_backing(engine), backed),
+                false => crate::baseline_cache::read(&cc.dir, key).map(|(run, at)| (backed(run), at, false)),
+            }
+        })
+        .filter(|(_, at, _)| {
+            crate::host::SystemClock::begin_at(*at)
+                || (crate::host::SystemClock::started() && crate::host::SystemClock::run_start() == *at)
+        })
+        .map(|(run, _, hit)| (run, hit))
 }
 
 fn kept_backing(engine: &Engine) -> String {

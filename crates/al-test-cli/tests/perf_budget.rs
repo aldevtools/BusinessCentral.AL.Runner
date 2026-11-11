@@ -187,9 +187,65 @@ const WITH_APPS_LIMIT_INSTRUCTIONS_PER_KIB: u64 = 4_230_000;
 /// The BC major of the budgeted run, and of the suites `run_source_bytes` counts.
 const WITH_APPS_MAJOR: &str = "29";
 
-/// The instruction limit of the full run for `bytes` of corpus source.
-fn with_apps_limit_instructions(bytes: u64) -> u64 {
-    WITH_APPS_LIMIT_FIXED_INSTRUCTIONS + WITH_APPS_LIMIT_INSTRUCTIONS_PER_KIB * bytes / 1024
+/// One term per extra pass (owner, 2026-11-11; ADR-073, "The budget", decision 1). The formula above was set before any
+/// extra pass existed; a pass costs its compile growth, its engine, its install baseline and its listings whatever the
+/// number of its cases. The term of a pass is the cost of the pass with no test, plus 5 %, measured as the fixed part is:
+/// the BC 29 full run with every test codeunit of the pass's suite app deleted (its library codeunits, its extra apps and
+/// folders kept; no test of the pass runs), minus the same run without the pass. Measure it again when Microsoft's build
+/// pin moves or the apps of the pass change; it goes up only with the owner's OK.
+///
+/// The testlibraries pass (Tests-TestLibraries, Data Archive and the cross-app handler fixtures), measured 2026-11-11 at
+/// corpus `f2d5ea3`, BC 29.0.54011.56262, best of 2: with the pass and no test of it 322.46 G, without the
+/// pass 309.16 G; the difference 13.30 G, plus 5 % = 13.97 G. The pass with no test runs no install baseline
+/// (no test can observe it), so its baseline counts in the cases, as for the fixed part.
+const TESTLIBRARIES_PASS_INSTRUCTIONS: u64 = 13_970_000_000;
+/// The term of each extra pass, by the name of its suite in `oracle/oracle.toml`. A pass that has no constant here gets 0,
+/// so a new pass needs the owner.
+const PASS_TERMS: &[(&str, u64)] = &[("testlibraries", TESTLIBRARIES_PASS_INSTRUCTIONS)];
+
+/// The term of the pass of suite `suite` (`PASS_TERMS`), 0 for a suite that has none.
+fn pass_term(suite: &str) -> u64 {
+    PASS_TERMS
+        .iter()
+        .find(|(name, _)| *name == suite)
+        .map_or(0, |&(_, term)| term)
+}
+
+/// The instruction limit of the full run for `bytes` of corpus source and the suites `suites` of the leg.
+fn with_apps_limit_instructions(bytes: u64, suites: &[&str]) -> u64 {
+    WITH_APPS_LIMIT_FIXED_INSTRUCTIONS
+        + WITH_APPS_LIMIT_INSTRUCTIONS_PER_KIB * bytes / 1024
+        + suites.iter().map(|s| pass_term(s)).sum::<u64>()
+}
+
+/// The temporary limit (owner, 2026-11-11; ADR-073, "The budget", decision 2): while the run is over the formula limit,
+/// the test passes when the run is at most this much over it. Stored as the amount over the formula limit, not as a
+/// total, so a corpus bump does not need it raised (the formula grows with the corpus source).
+///
+/// It started at 52.6 G (the run after PR 7754, 333.2 G, minus the formula limit then, 280.6 G). The term of the
+/// testlibraries pass came in with the same pull request and was taken off it, so the sum stayed where it was:
+/// 52.6 G - 13.97 G = 38.63 G. ADR-073 Phase 2 (the try-write suite in the main pass on an engine of its own) lowered the
+/// run, measured 2026-11-11 at corpus `f2d5ea3`, BC 29.0.54011.56262: main 336.62 G, with Phase 2 322.87 G (best of 2;
+/// 323.10 G in the other run), a saving of 13.75 G. The formula limit there is 294.96 G (47 976 757 bytes of corpus source,
+/// the testlibraries term included), so the run is 27.91 G over it: 27.92 G, rounded up to 10 M.
+///
+/// It only goes down: each pull request that lowers the run lowers it to the new measured value in the same pull
+/// request. It is never raised. When the run is under the formula limit, this constant and `within_limit`'s use of it
+/// are deleted.
+const TEMPORARY_OVER_INSTRUCTIONS: u64 = 27_920_000_000;
+
+/// Whether a run of `cost` instructions passes the budget: at most the formula limit `limit`, or, while the temporary
+/// limit lasts, at most `TEMPORARY_OVER_INSTRUCTIONS` over it.
+fn within_limit(cost: u64, limit: u64) -> bool {
+    cost <= limit + TEMPORARY_OVER_INSTRUCTIONS
+}
+
+/// The names of the suites of the `WITH_APPS_MAJOR` leg of `oracle/oracle.toml`, for the pass terms.
+fn run_suites() -> Vec<String> {
+    let oracle = std::fs::read_to_string(root().join("oracle/oracle.toml")).unwrap();
+    let oracle = al_test_cli::config::OracleFile::parse(&oracle).unwrap();
+    let leg = oracle.select(Some(WITH_APPS_MAJOR)).unwrap();
+    leg.suites.iter().map(|s| s.name.clone()).collect()
 }
 
 /// The bytes of corpus source the full run compiles: every `.al` file of the corpus app, the corpus apps it depends on
@@ -282,12 +338,42 @@ fn the_runtime_phases_leave_out_the_load_of_the_apps() {
 #[test]
 fn the_full_run_limit_is_a_fixed_part_plus_a_part_per_kib_of_corpus_source() {
     // Corpus db082fc: 22 797 007 bytes, measured 168.52 G; the limit is that plus 5 %.
-    let limit = with_apps_limit_instructions(22_797_007);
+    let limit = with_apps_limit_instructions(22_797_007, &[]);
     assert_eq!(limit, 82_800_000_000 + 4_230_000 * 22_797_007 / 1024);
     let today = 168_523_144_041f64;
     assert!((limit as f64 / today - 1.05).abs() < 0.001, "{limit}");
     // The fixed part does not grow with the corpus.
-    assert_eq!(with_apps_limit_instructions(0), WITH_APPS_LIMIT_FIXED_INSTRUCTIONS);
+    assert_eq!(with_apps_limit_instructions(0, &[]), WITH_APPS_LIMIT_FIXED_INSTRUCTIONS);
+}
+
+#[test]
+fn the_full_run_limit_has_a_term_per_extra_pass_and_a_pass_without_a_constant_gets_none() {
+    let base = with_apps_limit_instructions(46_770 * 1024, &[]);
+    // The testlibraries pass adds its measured term.
+    assert_eq!(
+        with_apps_limit_instructions(46_770 * 1024, &["testlibraries"]),
+        base + TESTLIBRARIES_PASS_INSTRUCTIONS
+    );
+    // A suite without a constant (the try-write pass, a new pass) adds nothing: a new pass needs the owner.
+    assert_eq!(pass_term("trywrite-allowed"), 0);
+    assert_eq!(pass_term("a-new-pass"), 0);
+    assert_eq!(
+        with_apps_limit_instructions(46_770 * 1024, &["testlibraries", "trywrite-allowed", "a-new-pass"]),
+        base + TESTLIBRARIES_PASS_INSTRUCTIONS
+    );
+}
+
+#[test]
+fn a_run_over_the_temporary_limit_fails_and_one_at_it_passes() {
+    let limit = with_apps_limit_instructions(46_770 * 1024, &["testlibraries"]);
+    assert!(within_limit(limit, limit));
+    assert!(within_limit(limit + TEMPORARY_OVER_INSTRUCTIONS, limit));
+    assert!(!within_limit(limit + TEMPORARY_OVER_INSTRUCTIONS + 1, limit));
+    // ADR-073: the temporary amount started at 52.6 G with no pass term; with the term it may only be lower, and Phase 2
+    // took it under the 38.63 G it had with the term.
+    const STARTED_AT: u64 = 52_600_000_000;
+    const { assert!(TEMPORARY_OVER_INSTRUCTIONS + TESTLIBRARIES_PASS_INSTRUCTIONS <= STARTED_AT) };
+    const { assert!(TEMPORARY_OVER_INSTRUCTIONS <= 38_630_000_000) };
 }
 
 #[test]
@@ -326,7 +412,9 @@ fn a_full_corpus_run_with_the_microsoft_apps_stays_within_its_budget() {
     }
     // Outside the measured region, like the cold compile's `corpus_bytes`.
     let bytes = run_source_bytes();
-    let limit_instructions = with_apps_limit_instructions(bytes);
+    let suites = run_suites();
+    let suite_names: Vec<&str> = suites.iter().map(String::as_str).collect();
+    let limit_instructions = with_apps_limit_instructions(bytes, &suite_names);
     let meter = Meter::new(true);
     let counting = matches!(meter, Meter::Instructions(_));
     let mut runs: Vec<(f64, f64, String)> = Vec::new();
@@ -354,12 +442,11 @@ fn a_full_corpus_run_with_the_microsoft_apps_stays_within_its_budget() {
         assert!(out.status.success(), "{err}");
         let runtime = runtime_phases_secs(&err).expect("a `timings:` line in --timings");
         runs.push((runtime, wall, err));
-        let within = cost
-            <= if counting {
-                limit_instructions
-            } else {
-                WITH_APPS_LIMIT_CPU_NS
-            };
+        let within = if counting {
+            within_limit(cost, limit_instructions)
+        } else {
+            cost <= WITH_APPS_LIMIT_CPU_NS
+        };
         if within {
             break;
         }
@@ -371,9 +458,11 @@ fn a_full_corpus_run_with_the_microsoft_apps_stays_within_its_budget() {
         ("ns of child CPU time", WITH_APPS_LIMIT_CPU_NS)
     };
     meter::print_mode(counting);
+    let terms: u64 = suite_names.iter().map(|s| pass_term(s)).sum();
     eprintln!(
         "full run with the apps: {best} {unit} (limit {limit}; with the counter {WITH_APPS_LIMIT_FIXED_INSTRUCTIONS} + \
-         {WITH_APPS_LIMIT_INSTRUCTIONS_PER_KIB} per KiB x {bytes} bytes of corpus source = {limit_instructions}), samples: {costs:?}"
+         {WITH_APPS_LIMIT_INSTRUCTIONS_PER_KIB} per KiB x {bytes} bytes of corpus source + {terms} for the extra passes = \
+         {limit_instructions}, temporarily {TEMPORARY_OVER_INSTRUCTIONS} more), samples: {costs:?}"
     );
     let (runtime, wall, err) = runs
         .iter()
@@ -424,11 +513,17 @@ fn a_full_corpus_run_with_the_microsoft_apps_stays_within_its_budget() {
             "a .NET sidecar took {max:.1} s to start, over {SIDECAR_START_SECS} s:\n{err}"
         );
     }
+    let over = if counting {
+        !within_limit(best, limit)
+    } else {
+        best > limit
+    };
     meter::enforce(
         counting,
-        best > limit,
+        over,
         &format!(
-            "the run used {best} {unit} at best of {WITH_APPS_RUNS}, over the limit of {limit} \
+            "the run used {best} {unit} at best of {WITH_APPS_RUNS}, over the limit of {limit} (temporarily \
+             {TEMPORARY_OVER_INSTRUCTIONS} more) \
              (runtime phases {runtime:.1} s, for information):\n{err}"
         ),
     );

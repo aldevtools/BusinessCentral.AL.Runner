@@ -87,6 +87,20 @@ impl AllVersions {
     }
 }
 
+// ADR-073 Phase 2, point 5: the try-write suite runs in the main pass on an engine of its own only while its app has no
+// event subscriber to an outside event, no extension of another app's object, and no object or routine in the static
+// reach of a main test (`al_testrun::shared_pass::check`). A corpus bump that breaks a rule fails here with the object
+// and the rule, and the corpus run fails the same way.
+#[test]
+fn the_try_write_suite_shares_the_main_pass_on_every_version() {
+    let r = all_versions();
+    assert_eq!(r.code, 0, "{}", r.err);
+    for bc in ["27.5", "28.5", "29.0"] {
+        let line = format!("BC {bc} trywrite-allowed: shares the pass");
+        assert!(r.out.contains(&line), "no `{line}` in:\n{}", r.out);
+    }
+}
+
 #[test]
 fn every_oracle_case_is_reported_and_attributed_to_an_area() {
     // BC 29: the version a run without `--bc-version` picks.

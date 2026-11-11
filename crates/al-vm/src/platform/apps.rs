@@ -63,16 +63,33 @@ impl Route {
     }
 }
 
+/// The listings of the apps on the tenant, which leave out the engine's uninstalled apps (`Engine::uninstalled_apps`:
+/// the try-write suite's app on the main suites' engine, ADR-073 Phase 2, whose job does not have it; the main test
+/// record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al counts the rows of the apps by its publisher).
+pub(super) fn lists_apps(kind: super::Virtual) -> bool {
+    use super::Virtual as V;
+    matches!(
+        kind,
+        V::NavAppInstalledApp | V::NavAppExtra | V::InstalledApplication | V::PublishedApplication | V::TenantMedia
+    )
+}
+
+/// The apps of the program on the tenant of `p`'s engine (all but `Engine::uninstalled_apps`), with their indexes.
+fn tenant_apps(engine: &crate::Engine) -> impl Iterator<Item = (usize, &al_ir::AppInfo)> {
+    engine
+        .program
+        .apps
+        .iter()
+        .enumerate()
+        .filter(move |(i, _)| !engine.uninstalled_apps.contains(&(*i as u32)))
+}
+
 /// NAV App Installed App: "App ID" (1), "Package ID" (2), Name (3), Publisher (4), version (5 to 8), compatibility (9 to 12),
 /// "Hash Algorithm" (14), "Extension Type" (15), "Published As" (16).
 pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let view = p.install_view();
     let global = p.engine().dependencies_published_global;
-    p.engine()
-        .program
-        .apps
-        .iter()
-        .enumerate()
+    tenant_apps(&p.engine())
         // While an app installs, the apps its install has not reached and its own app have no row
         // (record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al:36-45 `install_own` = `no row`, the install-time filter counts).
         .filter(|(i, _)| !view.not_installed.contains(&(*i as u32)) && view.installing != Some(*i as u32))
@@ -131,12 +148,8 @@ pub(super) fn nav_app_installed_app_rows(p: &Providers, t: &TableDef) -> Vec<Ent
 /// install-upgrade/TestRetenPolAllowedTables_Tests.al needs of the row of the app that registers a table.
 pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let global = p.engine().dependencies_published_global;
-    let mut rows = p
-        .engine()
-        .program
-        .apps
-        .iter()
-        .filter_map(|a| {
+    let mut rows = tenant_apps(&p.engine())
+        .filter_map(|(_, a)| {
             let id = al_builtins::ops::parse_guid(&a.id)?;
             let pkg = ids::package_id(id);
             let mut r = blank(t);
@@ -254,11 +267,8 @@ pub(super) fn published_application_listing(
 /// onprem session-system/UsAppLogo.al:110-116 (a 1 x 1 PNG of 67 bytes) and :140-145 (a 300 x 300 PNG of 90393 bytes, same SHA-256).
 pub(super) fn logo_media_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let field = |name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
-    p.engine()
-        .program
-        .apps
-        .iter()
-        .filter_map(|a| {
+    tenant_apps(&p.engine())
+        .filter_map(|(_, a)| {
             let id = al_builtins::ops::parse_guid(&a.id)?;
             let Some(al_ir::AppLogo::File(bytes)) = &a.logo else {
                 return None;
@@ -281,11 +291,8 @@ pub(super) fn logo_media_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
 /// Booleans true: Published Application looks them up by "Runtime Package ID" and reads true for this app and for the app
 /// it depends on (record/TestPublishedApplicationSysTable.al:294-365).
 pub(super) fn nav_app_extra_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
-    p.engine()
-        .program
-        .apps
-        .iter()
-        .filter_map(|a| {
+    tenant_apps(&p.engine())
+        .filter_map(|(_, a)| {
             let id = al_builtins::ops::parse_guid(&a.id)?;
             let mut r = blank(t);
             r[pos(t, 1)] = Value::Guid(ids::runtime_package_id(id, a.dependency));
@@ -313,11 +320,8 @@ fn application_runtime_row(p: &Providers, t: &TableDef, extra: bool) -> Option<E
 /// Installed Application: "Runtime Package ID" (1). One row per listed app: every app of the run is installed
 /// (record/TestPublishedApplicationSysTable.al:275-290 for this app, :342-365 for the app it depends on).
 pub(super) fn installed_application_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
-    p.engine()
-        .program
-        .apps
-        .iter()
-        .filter_map(|a| {
+    tenant_apps(&p.engine())
+        .filter_map(|(_, a)| {
             let id = al_builtins::ops::parse_guid(&a.id)?;
             let mut r = blank(t);
             r[pos(t, 1)] = Value::Guid(ids::runtime_package_id(id, a.dependency));

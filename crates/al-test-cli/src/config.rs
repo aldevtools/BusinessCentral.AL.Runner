@@ -116,8 +116,9 @@ pub struct SuiteEntry {
     #[serde(default)]
     pub extra_dirs: Vec<String>,
     /// Service-tier settings the corpus CI sets for the job of this suite only, as `Name=value` (corpus
-    /// `.github/workflows/ci.yml`, `server_settings` of that job). A suite with any runs in a pass of its own (each setting
-    /// is per service tier); [`SuiteEntry::settings`] reads them, and a setting the runner does not know is an error.
+    /// `.github/workflows/ci.yml`, `server_settings` of that job). A suite with any runs on an engine of its own (each setting
+    /// is per service tier), in the pass of the suites with its apps (ADR-073 Phase 2; `AL_SERVER_SETTINGS_OWN_PASS=1`: a pass
+    /// of its own); [`SuiteEntry::settings`] reads them, and a setting the runner does not know is an error.
     #[serde(default)]
     pub server_settings: Vec<String>,
 }
