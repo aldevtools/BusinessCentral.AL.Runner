@@ -49,8 +49,8 @@
 //!   either way).
 
 use crate::runtime::written::{
-    ReachFacts, ReachIndex, global_triggers_reach_facts, login_subscriber_reach_facts, login_subscribers_reach_without,
-    state, union_call_reach_facts, union_reach_facts_by_parts, union_reach_facts_without_database_events,
+    JoinedReach, ReachFacts, ReachIndex, global_triggers_reach_facts, login_subscriber_reach_facts,
+    login_subscribers_reach_without, state, union_call_reach_facts, union_reach_facts_without_database_events,
 };
 use al_sema::lower::Lowered;
 use al_vm::Engine;
@@ -122,7 +122,7 @@ pub(crate) const DISABLED: &str = "the login was not raised for this test codeun
 
 /// The login events the apps under test subscribe to ([`own_events`]), their subscribers, and the reach of the
 /// subscribers of the `Global Triggers` database events without them, which the walk of every test codeunit that writes
-/// shares ([`union_reach_facts_by_parts`]). Made once per engine.
+/// shares ([`JoinedReach`]). Made once per engine.
 struct LoginSubscribers {
     own_events: Vec<OwnEvent>,
     subs: Vec<(usize, usize)>,
@@ -396,16 +396,14 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
     // the test can see is what they left before it. The whole reach is put together from the reach without the
     // subscribers of the `Global Triggers` database events (`own`, asked again below) and theirs, walked once per engine.
     let own = union_reach_facts_without_database_events(events, lowered, &index, &roots, subs);
-    let mine = union_reach_facts_by_parts(&own, || {
+    // The questions below go through the few tables and codeunits the login subscribers leave, not through the reach.
+    let mine = JoinedReach::new(&own, || {
         (login.database_events).get_or_init(|| global_triggers_reach_facts(events, lowered, &index, subs))
     });
     // A table the test codeunit writes itself is not one whose rows it can only have from the login: an insert reaches
     // the database trigger subscribers of Microsoft's apps, which write the same tables in both reaches.
-    if mine
-        .touched
-        .iter()
-        .any(|t| writes.contains(t) && !mine.writes.contains(t))
-        || mine.globals_read.iter().any(|g| left.state.contains(&g.0))
+    if writes.iter().any(|&t| mine.touches(t) && !mine.writes_table(t))
+        || left.state.iter().any(|&o| mine.reads_a_global_of(o))
     {
         return Login::Raise;
     }
@@ -417,10 +415,9 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
     // its calls, the objects it runs, the table triggers and the other events still counts as its own. That the row is
     // there before the first test, whoever reads it, is LgnLoginChecklistTests.al:137-138; the read from a page's
     // triggers is the reporter's repro, which passes on BC 29.0.
-    if own
-        .touched
+    if writes
         .iter()
-        .any(|t| writes.contains(t) && !own.writes.contains(t))
+        .any(|t| own.touched.contains(t) && !own.writes.contains(t))
     {
         return Login::Raise;
     }
@@ -437,11 +434,7 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
     // table the subscribers only modify or delete in holds no row of theirs. A record declared temporary and a page over
     // a temporary source insert nothing.
     let calls = union_call_reach_facts(events, lowered, &index, &roots, subs);
-    if calls
-        .touched
-        .iter()
-        .any(|t| left.facts.inserts.contains(t) && !calls.inserts.contains(t))
-    {
+    if (left.facts.inserts.iter()).any(|t| calls.touched.contains(t) && !calls.inserts.contains(t)) {
         return Login::Raise;
     }
     if let Some(why) = watched {
@@ -462,7 +455,7 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
 /// (any event can reach it), a `Random` sequence they reseed (it goes on past the run seed's restart of each test,
 /// ADR-061), code the analysis does not follow (`state::OTHER`), or a global of a SingleInstance codeunit they write that
 /// the test codeunit reads (also through a helper codeunit).
-fn watched_state(lowered: &Lowered, left: &ReachFacts, mine: &ReachFacts) -> Option<&'static str> {
+fn watched_state(lowered: &Lowered, left: &ReachFacts, mine: &JoinedReach) -> Option<&'static str> {
     if left.state_writes & state::BINDING != 0 {
         Some("bind a manual event subscriber")
     } else if left.state_writes & state::RANDOM_SEED != 0 {
@@ -471,7 +464,7 @@ fn watched_state(lowered: &Lowered, left: &ReachFacts, mine: &ReachFacts) -> Opt
         Some(
             "run code the analysis does not follow (a .NET object, a background session or task, an unclassified builtin)",
         )
-    } else if (left.globals_written.iter()).any(|g| mine.globals_read.contains(g) && single_instance(lowered, g.0)) {
+    } else if (left.globals_written.iter()).any(|&g| mine.reads_global(g) && single_instance(lowered, g.0)) {
         Some("write a codeunit global this test codeunit reads")
     } else {
         None

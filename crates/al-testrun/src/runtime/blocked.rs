@@ -58,19 +58,24 @@ pub(crate) fn subscribers_reached(
     object: usize,
     routine: usize,
 ) -> Vec<(usize, usize)> {
-    subscribers_reached_in(&engine.events, lowered, object, routine)
+    subscribers_reached_from(engine, lowered, &[(object, routine)])
+        .into_iter()
+        .collect()
 }
 
-fn subscribers_reached_in(
-    events: &al_vm::events::Registry,
+/// [`subscribers_reached`] of each of the routines `roots`, together: one walk of the union of their reaches. The walk
+/// finds a subscriber from the routine it visits alone, and it visits the routines the walk of some root visits, so it
+/// finds the subscribers the walks of the roots find (the install code of an app shares most of its reach).
+pub(crate) fn subscribers_reached_from(
+    engine: &Engine,
     lowered: &Lowered,
-    object: usize,
-    routine: usize,
-) -> Vec<(usize, usize)> {
+    roots: &[(usize, usize)],
+) -> BTreeSet<(usize, usize)> {
+    let events = &engine.events;
     let objs = &lowered.program.objects;
     let mut seen = BTreeSet::new();
     let mut reached = BTreeSet::new();
-    let mut stack = vec![(object, routine)];
+    let mut stack = roots.to_vec();
     while let Some((o, r)) = stack.pop() {
         if !seen.insert((o, r)) {
             continue;
@@ -105,7 +110,7 @@ fn subscribers_reached_in(
             }
         }
     }
-    reached.into_iter().collect()
+    reached
 }
 
 /// Why routine `routine` of `object` cannot run: the first reason found in

@@ -104,7 +104,6 @@ mod modal_handler_error_close;
 mod modal_parts_veto;
 mod ms_top_refusals_3;
 mod native_not_reached;
-mod new_host_close_part_triggers;
 mod no_microsoft_source_in_repo;
 mod no_workflow_pushes_main;
 mod np_blockers_5;

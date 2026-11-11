@@ -148,9 +148,7 @@ fn install_roots_and_subscribers(
     );
     roots.extend(company_open_subscribers(lowered, &engine.events, of));
     let mut all: BTreeSet<(usize, usize)> = roots.iter().copied().collect();
-    for &(o, r) in &roots {
-        all.extend(crate::runtime::subscribers_reached(engine, lowered, o, r));
-    }
+    all.extend(crate::runtime::subscribers_reached_from(engine, lowered, &roots));
     all
 }
 

@@ -1,0 +1,6 @@
+HiddenPartShownOutsideAction => {
+    id: "hidden-part-shown-outside-action",
+    assumed: "A part that a Visible expression hid when its host opened, on a page without a Provider link, whose expression turns true through the host's own trigger (OnAfterGetCurrRecord during the refresh) or a field's OnValidate, reads its row like a shown part at the host's next refresh, with no extra read first. Pinned only for a turn made by an action's body (testpage/parts/HiddenPartExtensionVariable.al:632: one extra read before the refresh).",
+    tests: "Tests-Workflow WF Demo Customer Approval (134205): the Customer Card's Pending Approval FactBox has Visible = OpenApprovalEntriesExistCurrUser, which the card's OnAfterGetCurrRecord sets after SendApprovalRequest. Tests-Workflow Workflow Additional Scenarios CustomerCardNameFieldRevertedByWorkflow and VendorCardNameFieldRevertedByWorkflow, WF Demo General Journal Batch RequestorCancelsPaymentRequestToDirectApprover: a field OnValidate turns the factbox visible. They pass in Microsoft's CI.",
+    probe: "HiddenPartExtensionVariable.al's host and factbox, the variable set (1) in the host's OnAfterGetCurrRecord armed by an action, (2) in a field's OnValidate: the part's triggers at the SetValue, at the action and at the refresh.",
+}
