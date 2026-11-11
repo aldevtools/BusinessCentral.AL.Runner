@@ -442,8 +442,7 @@ fn run_codeunit_inner(
     let al_runner_object = scratch.runner.filter(|_| data_driven.is_empty());
     // The test codeunit run: called here, or from the OnRun of the test runner codeunit `al_runner_object` when it runs
     // the test codeunit (ADR-066 decision 1, `al_runner.rs`). An error is a result that skips what follows below.
-    let refused_mid_run = std::cell::Cell::new(false);
-    let unfinished_after_start = std::cell::Cell::new(false);
+    let ends = std::cell::Cell::new(super::Ends::default());
     let mut inner = |session: &mut Session,
                      runner: &super::al_runner::Steps|
      -> Result<super::al_runner::Outcomes, super::al_runner::Outcomes> {
@@ -1230,8 +1229,7 @@ fn run_codeunit_inner(
         if panicked {
             not_run_after_panic(obj, &mut queue, &mut out);
         }
-        refused_mid_run.set(unfinished.iter().any(|u| u.ended == Ended::RefusedMidRun));
-        unfinished_after_start.set(unfinished.iter().any(|u| u.ended != Ended::RefusedBeforeStart));
+        ends.set(ends_of(&unfinished, panicked));
         th.end_codeunit(session, lowered, &mut out);
         Ok(out)
     };
@@ -1248,8 +1246,8 @@ fn run_codeunit_inner(
         &refuse,
         &mut inner,
     );
-    scratch.singles_out = ended(&mut session, lowered, object, times, execute, refused_mid_run.get());
-    scratch.unfinished_after_start = unfinished_after_start.get();
+    scratch.note_ended(ends.get());
+    scratch.singles_out = ended(&mut session, lowered, object, times, execute, scratch);
     let out = match ran {
         Ok(out) => out,
         Err(early) => return early,
@@ -1378,10 +1376,19 @@ fn ended(
     object: usize,
     times: &[(String, std::time::Duration)],
     execute: bool,
-    refused_mid_run: bool,
+    scratch: &Scratch,
 ) -> Option<al_vm::single_track::SingleOut> {
     crate::profiling::end(session, &lowered.program, object, times);
-    singles_out(session, execute, refused_mid_run)
+    singles_out(session, execute, scratch.refused_mid_run, scratch.hands_on_none())
+}
+
+/// How the tests of a codeunit ended, from the tests that did not run to their end and whether one panicked.
+fn ends_of(unfinished: &[Unfinished], test_panicked: bool) -> super::Ends {
+    super::Ends {
+        unfinished_after_start: unfinished.iter().any(|u| u.ended != Ended::RefusedBeforeStart),
+        refused_mid_run: unfinished.iter().any(|u| u.ended == Ended::RefusedMidRun),
+        test_panicked,
+    }
 }
 
 /// A codeunit's session from the install baseline; in the lane with the single instances of the codeunit before.
@@ -1429,9 +1436,14 @@ fn start_singles(session: &mut Session, execute: bool, moved: Option<al_vm::sing
 
 /// What the session did with the watched single instances; in the lane, hands the instances to the next codeunit.
 /// `refused`: a test of the codeunit was refused while it ran, so what it left is not what BC's run to the end would
-/// have left (ADR-066 amendment 3, R3): it is no change for the decision, and in the lane it hands nothing on (the next
-/// codeunit starts without single instances).
-fn singles_out(session: &mut Session, execute: bool, refused: bool) -> Option<al_vm::single_track::SingleOut> {
+/// have left (ADR-066 amendment 3, R3): it is no change for the decision. `hands_on_none`: it hands nothing on (the next
+/// codeunit starts without single instances; `Scratch::hands_on_none`).
+fn singles_out(
+    session: &mut Session,
+    execute: bool,
+    refused: bool,
+    hands_on_none: bool,
+) -> Option<al_vm::single_track::SingleOut> {
     let out = session
         .single_out()
         .map(|o| al_vm::single_track::SingleOut { refused, ..o });
@@ -1440,7 +1452,7 @@ fn singles_out(session: &mut Session, execute: bool, refused: bool) -> Option<al
     }
     LANE_SINGLES.with(|c| {
         if let Some(slot) = c.borrow_mut().as_mut() {
-            *slot = (!refused).then(|| session.take_single_instances());
+            *slot = (!hands_on_none).then(|| session.take_single_instances());
         }
     });
     out

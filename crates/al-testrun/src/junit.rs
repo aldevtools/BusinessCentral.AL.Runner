@@ -18,6 +18,9 @@ pub enum Dialect {
     Runner,
 }
 
+/// The properties of a test the Oracle dialect also writes: the observer cell counts (`al-test-cli --cell-report`).
+pub const ORACLE_PROPERTIES: [&str; 3] = ["cellsExpected", "cellsMatched", "firstMismatch"];
+
 /// One test.
 #[derive(Debug, Clone)]
 pub struct Case<'a> {
@@ -146,10 +149,13 @@ pub fn write_with_baseline(
                 prop_list.push_str("<property name=\"disabled_by_microsoft\" value=\"1\" />");
             }
             let mut extra = String::new();
-            if dialect == Dialect::Runner {
-                for (name, value) in &c.properties {
-                    extra.push_str(&format!("<property name=\"{}\" value=\"{}\" />", esc(name), esc(value)));
-                }
+            // The Oracle dialect writes only the cell counts of the corpus job (`ORACLE_PROPERTIES`); its readers ignore them.
+            for (name, value) in c
+                .properties
+                .iter()
+                .filter(|(n, _)| dialect == Dialect::Runner || ORACLE_PROPERTIES.contains(&n.as_str()))
+            {
+                extra.push_str(&format!("<property name=\"{}\" value=\"{}\" />", esc(name), esc(value)));
             }
             prop_list.push_str(&extra);
             let props = if prop_list.is_empty() {
@@ -161,7 +167,13 @@ pub fn write_with_baseline(
                 (_, Outcome::Pass) if props.is_empty() => s.push_str(&format!("{head} />\n")),
                 (_, Outcome::Pass) => s.push_str(&format!("{head}>{props}</testcase>\n")),
                 (Dialect::Oracle, Outcome::Fail(m)) => {
-                    s.push_str(&format!("{head}><failure message=\"{}\" /></testcase>\n", esc(m)))
+                    // A failure carries no assumptions in this dialect, only the extra properties.
+                    let fp = if extra.is_empty() {
+                        String::new()
+                    } else {
+                        format!("<properties>{extra}</properties>")
+                    };
+                    s.push_str(&format!("{head}>{fp}<failure message=\"{}\" /></testcase>\n", esc(m)))
                 }
                 (Dialect::Runner, Outcome::Fail(m)) if c.stack.is_empty() => s.push_str(&format!(
                     "{head}>{props}<failure message=\"{}\" /></testcase>\n",
