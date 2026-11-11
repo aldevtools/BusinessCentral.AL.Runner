@@ -55,6 +55,8 @@ pub(crate) fn manifest_digest(m: &Manifest) -> [u8; 32] {
         package_data,
         package_data_files,
         translation_files,
+        // What the files say is read on demand from the package, whose content the dependency layers' key already holds.
+        translation_source: _,
         runtime,
         app_json_keys,
     } = m;

@@ -292,12 +292,21 @@ impl Lowerer<'_> {
     ///
     /// A member named through the field, `Format(Row.Opt::Two)`, shows its caption too (misc/lt-probes-needed-2/
     /// PnBRecordMisc.al:96, :113: `Dos`).
+    ///
+    /// A translation file of the field's app gives the captions in the language in force, at run time over the source
+    /// captions (localization/app-xliff/TaXliff.al:217-218, `System.TranslatedText#1`; ADR-053).
     pub(crate) fn format_option_field(&mut self, plain: bool, number9: bool, arg: &SyntaxNode) -> L<ir::Expr> {
-        let mut value = self.expr(arg)?;
-        // Its captions are refused where a translation file could change them (ADR-053 step 1).
-        if let Some(owner) = self.option_caption_owner(arg) {
-            value = self.translated_option_text(value, owner)?;
+        let owner = self.option_caption_owner(arg);
+        let value = self.format_option_captions(plain, number9, arg)?;
+        match owner {
+            Some(owner) => self.translated_option_text(value, owner, None),
+            None => Ok(value),
         }
+    }
+
+    /// [`Self::format_option_field`] with the source captions.
+    fn format_option_captions(&mut self, plain: bool, number9: bool, arg: &SyntaxNode) -> L<ir::Expr> {
+        let value = self.expr(arg)?;
         let member = arg.kind() == SyntaxKind::ScopeExpr;
         let field_node = if member {
             match arg.children().next() {

@@ -2066,9 +2066,6 @@
 89270 FieldErrorInfoAndBlankDateTime_ExcludeFlag
 89270 FindNextPreviousAndFilterOnEmptyTable_ExcludeFlag
 89270 InsertDuplicateTemporary_ExcludeFlag
-89733 TA_Captions_And_Options
-89733 TA_Enum_Format_And_Evaluate
-89733 TA_Label_Text
 89775 ActivateAction_Bare
 89775 ActivateAction_Curr
 89950 Layout_F_Execute
@@ -2485,8 +2482,6 @@
 95990 R7142_FixtureApp_CompatibilityColumns
 95990 R7142_SystemApplication_CompatibilityColumns
 95990 R7142_ThisApp_CompatibilityColumns
-95997 R7144_FieldCaption_Dutch
-95997 R7144_FieldRefCaption_Dutch
 96073 R7169_Test_ReadsPublishedAsOfDependency
 96205 WcPageOpen_UndisplayedFieldOfTheSameTable
 96249 WF3_Card_Line2_Action

@@ -2,7 +2,8 @@
 //!
 //! Only what a lookup needs is kept: the file's `target-language` and, for each `<trans-unit>` that gives a text, its `id` and
 //! its `<target>`. A unit with `translate="no"`, without a `<target>` or with an empty one gives no text: the source text
-//! stays (ADR-053 decision 1). The `state` attribute is not read.
+//! stays (ADR-053 decision 1). The `state` attribute of a `<target>` is kept per unit (`al_ir::UnitState`); which states
+//! give the text is decided where a unit is looked up (al-vm `translations.rs`).
 
 /// One parsed translation file.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -11,6 +12,33 @@ pub struct Xliff {
     pub target_language: String,
     /// `(id, target)` of every unit that gives a text, sorted by id.
     pub units: Vec<(String, String)>,
+    /// The state of each unit of `units`, in the same order; empty when no unit has one.
+    pub states: Vec<al_ir::UnitState>,
+}
+
+/// The `target-language` of the first `<file>` of an XLIFF file whose first bytes are `start` (enough to hold the `<file>`
+/// tag): the language of a package's file without reading all of it.
+pub fn target_language(start: &[u8]) -> Result<String, String> {
+    use quick_xml::events::Event;
+    let start = start.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(start);
+    let mut reader = quick_xml::Reader::from_reader(start);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e) | Event::Empty(e)) if e.name().as_ref() == b"file" => {
+                for a in e.attributes() {
+                    let a = a.map_err(|err| err.to_string())?;
+                    if a.key.as_ref() == b"target-language" {
+                        return Ok(a.unescape_value().map_err(|err| err.to_string())?.into_owned());
+                    }
+                }
+                return Err("a <file> without target-language".into());
+            }
+            Ok(Event::Eof) | Err(_) => return Err("no <file target-language> at the start of the file".into()),
+            Ok(_) => {}
+        }
+        buf.clear();
+    }
 }
 
 /// Parses an XLIFF 1.2 file. A file with no `<file target-language>`, two `<file>` elements with different languages,
@@ -34,6 +62,7 @@ pub fn parse(bytes: &[u8]) -> Result<Xliff, String> {
     // The unit being read: its id and whether it is translated.
     let mut unit: Option<(String, bool)> = None;
     let mut target: Option<String> = None;
+    let mut state = al_ir::UnitState::Absent;
     loop {
         match reader.read_event().map_err(|e| e.to_string())? {
             Event::Eof => break,
@@ -63,7 +92,14 @@ pub fn parse(bytes: &[u8]) -> Result<Xliff, String> {
                         let translate = attr(&e, b"translate")?.is_none_or(|v| !v.eq_ignore_ascii_case("no"));
                         unit = Some((id, translate));
                     }
-                    b"target" if !empty && unit.is_some() => target = Some(String::new()),
+                    b"target" if !empty && unit.is_some() => {
+                        target = Some(String::new());
+                        state = match attr(&e, b"state")? {
+                            None => al_ir::UnitState::Absent,
+                            Some(v) if v == "translated" => al_ir::UnitState::Translated,
+                            Some(v) => al_ir::UnitState::Other(v),
+                        };
+                    }
                     _ => {}
                 }
             }
@@ -81,7 +117,7 @@ pub fn parse(bytes: &[u8]) -> Result<Xliff, String> {
                 b"target" => {
                     if let (Some(s), Some((id, true))) = (target.take(), &unit) {
                         if !s.is_empty() {
-                            units.push((id.clone(), s));
+                            units.push((id.clone(), s, std::mem::take(&mut state)));
                         }
                     }
                 }
@@ -92,11 +128,45 @@ pub fn parse(bytes: &[u8]) -> Result<Xliff, String> {
         }
     }
     let target_language = language.ok_or("no <file target-language>")?;
-    units.sort();
+    units.sort_by(|a, b| a.0.cmp(&b.0));
     if let Some(w) = units.windows(2).find(|w| w[0].0 == w[1].0) {
         return Err(format!("two units with id {}", w[0].0));
     }
-    Ok(Xliff { target_language, units })
+    let stated = units.iter().any(|u| u.2 != al_ir::UnitState::Absent);
+    let mut states = Vec::with_capacity(if stated { units.len() } else { 0 });
+    let units = units
+        .into_iter()
+        .map(|(id, text, state)| {
+            if stated {
+                states.push(state);
+            }
+            (id, text)
+        })
+        .collect();
+    Ok(Xliff {
+        target_language,
+        units,
+        states,
+    })
+}
+
+/// The file `name` (relative to its app) as the IR keeps it, from its parse: a file that could not be read keeps the reason,
+/// and its language refuses every translated read.
+pub fn translation_file(name: String, parsed: Result<Xliff, String>) -> al_ir::TranslationFile {
+    match parsed {
+        Ok(x) => al_ir::TranslationFile {
+            name,
+            target_language: x.target_language,
+            units: x.units,
+            error: None,
+            states: x.states,
+        },
+        Err(e) => al_ir::TranslationFile {
+            name,
+            error: Some(e),
+            ..Default::default()
+        },
+    }
 }
 
 #[cfg(test)]
@@ -145,6 +215,36 @@ mod tests {
                 "Hallo & wereld ".to_string()
             )]
         );
+    }
+
+    #[test]
+    fn a_unit_keeps_the_state_of_its_target() {
+        let file = r#"<xliff><file target-language="nl-NL"><body>
+<trans-unit id="b"><source>B</source><target state="translated">Bt</target></trans-unit>
+<trans-unit id="a"><source>A</source><target>At</target></trans-unit>
+<trans-unit id="c"><source>C</source><target state="needs-translation">Ct</target></trans-unit>
+</body></file></xliff>"#;
+        let x = parse(file.as_bytes()).unwrap();
+        let ids: Vec<&str> = x.units.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c"]);
+        assert_eq!(
+            x.states,
+            vec![
+                al_ir::UnitState::Absent,
+                al_ir::UnitState::Translated,
+                al_ir::UnitState::Other("needs-translation".into())
+            ]
+        );
+        // A file whose units have no state keeps no states.
+        assert!(parse(FILE.as_bytes()).unwrap().states.is_empty());
+    }
+
+    #[test]
+    fn the_language_is_read_from_the_start_of_a_file() {
+        let start = &FILE.as_bytes()[..FILE.find("<body>").unwrap()];
+        assert_eq!(target_language(start).unwrap(), "nl-BE");
+        assert_eq!(target_language(FILE.as_bytes()).unwrap(), "nl-BE");
+        assert!(target_language(b"<?xml version=\"1.0\"?><xliff><fi").is_err());
     }
 
     #[test]
