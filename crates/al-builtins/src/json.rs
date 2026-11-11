@@ -16,6 +16,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 mod filter;
+mod read_string;
 mod text_number;
 mod used_return;
 mod walk;
@@ -441,73 +442,6 @@ impl Parser<'_> {
         let h = new_handle(JsonNode::Array(kids));
         adopt_children(&h);
         Ok(h)
-    }
-
-    fn hex4(&mut self) -> PResult<u16> {
-        let h = self.s.get(self.i..self.i + 4).ok_or(ParseError::Invalid)?;
-        let h = std::str::from_utf8(h).map_err(|_| ParseError::Invalid)?;
-        let v = u16::from_str_radix(h, 16).map_err(|_| ParseError::Invalid)?;
-        self.i += 4;
-        Ok(v)
-    }
-
-    fn string(&mut self) -> PResult<String> {
-        // Either quote opens a string and the same one closes it (`{'a':1}`, `single_quotes`).
-        let quote = self.s[self.i];
-        self.i += 1;
-        let mut units: Vec<u16> = Vec::new();
-        loop {
-            let b = *self.s.get(self.i).ok_or(ParseError::Invalid)?;
-            match b {
-                q if q == quote => {
-                    self.i += 1;
-                    break;
-                }
-                b'\\' => {
-                    self.i += 1;
-                    let e = *self.s.get(self.i).ok_or(ParseError::Invalid)?;
-                    self.i += 1;
-                    let c = match e {
-                        b'"' => '"' as u16,
-                        b'\'' => '\'' as u16,
-                        b'\\' => '\\' as u16,
-                        b'/' => '/' as u16,
-                        b'b' => 8,
-                        b'f' => 12,
-                        b'n' => 10,
-                        b'r' => 13,
-                        b't' => 9,
-                        b'u' => self.hex4()?,
-                        _ => return Err(ParseError::Invalid),
-                    };
-                    units.push(c);
-                }
-                0..=0x1f => return Err(ParseError::Invalid),
-                _ => {
-                    // A UTF-8 sequence copied through as UTF-16.
-                    let len = match b {
-                        0..=0x7f => 1,
-                        0xc0..=0xdf => 2,
-                        0xe0..=0xef => 3,
-                        _ => 4,
-                    };
-                    let seq = self.s.get(self.i..self.i + len).ok_or(ParseError::Invalid)?;
-                    let ch = std::str::from_utf8(seq)
-                        .map_err(|_| ParseError::Invalid)?
-                        .chars()
-                        .next()
-                        .ok_or(ParseError::Invalid)?;
-                    let mut buf = [0u16; 2];
-                    units.extend_from_slice(ch.encode_utf16(&mut buf));
-                    self.i += len;
-                }
-            }
-        }
-        // `"\uD800"` alone is half of a surrogate pair. Real BC keeps it; this runtime cannot hold it until ADR-068 is
-        // built, and U+FFFD would be a guessed value (hard rule 4).
-        String::from_utf16(&units).map_err(|_| {
-            ParseError::Unsupported("a JSON \\u escape that ends up with half of a surrogate pair (not pinned)")
-        })
     }
 
     fn number(&mut self) -> PResult<Handle> {

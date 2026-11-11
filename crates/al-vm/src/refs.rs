@@ -1166,7 +1166,7 @@ impl Session {
                     self.permission_from_al = true;
                 }
                 // A RecordRef.Insert of AL code is queued as a Record's (`insert_buffer.rs`).
-                self.record_op_of_al(record_method(method), &rec, args)
+                recordref_find_flag(method, self.record_op_of_al(record_method(method), &rec, args))
             }
             // As Record.Truncate: every row the filters select goes, with or without the argument
             // (recordref-fieldref/recordref/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
@@ -2100,6 +2100,27 @@ impl Session {
 /// The record method a RecordRef method forwards to; the RecordRef arms that forward are listed by name.
 fn record_method(method: &str) -> RecordOp {
     RecordOp::from_name(method).expect("a RecordRef method that forwards to the record")
+}
+
+/// A RecordRef find on an empty set raises the error a Record's find raises (records/op_inner.rs), but what `GetLastErrorText(true)`
+/// gives for it is measured only for a Record (errors/last-error/LastErrorFlagRuntimeCodes.al NothingInsideFilter_*,
+/// FindEmptyTableExcludeFlag.al, format-evaluate/P86LastError.al:339-353). Through a RecordRef the flagged text refuses until the
+/// probe is pinned (al-runner issue 7806; LastErrorFlagRuntimeCodes.al RecordRef_*_ExcludeFlag, corpus pull request 1327). The
+/// error, its code and its unflagged text stay as they are.
+fn recordref_find_flag(method: &str, r: Result<Value, Signal>) -> Result<Value, Signal> {
+    match r {
+        Err(Signal::Error(mut e))
+            if matches!(method, "Find" | "FindFirst" | "FindLast" | "FindSet")
+                && matches!(
+                    e.code.as_str(),
+                    "DB:NothingInsideFilter" | "DB:TableIsEmpty" | "DB:RecordNotFound"
+                ) =>
+        {
+            e.origin = al_builtins::native::ErrorOrigin::Unknown;
+            Err(Signal::Error(e))
+        }
+        r => r,
+    }
 }
 
 /// `RecordRef.GetTable` of a Variant that holds a record: the RecordRef takes a copy of the record with its filters and without its

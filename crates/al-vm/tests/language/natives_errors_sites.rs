@@ -37,6 +37,17 @@ codeunit 69891 "NE C"
     procedure VariantEmptyInt(): Text var V: Variant; I: Integer; begin V := ''; asserterror I := V; exit(Flag()); end;
     procedure DictGetVar(): Text var D: Dictionary of [Text, Integer]; I: Integer; begin asserterror D.Get('missing key', I); exit(Flag()); end;
 
+    // Finds on an empty set: through a Record (measured) and through a RecordRef (not measured, al-runner issue 7806).
+    procedure RecFindFirstFiltered(): Text var Row: Record "NE Row"; begin Row.SetRange(Id, 42); asserterror Row.FindFirst(); exit(Flag()); end;
+    procedure RecFindFirstEmpty(): Text var Row: Record "NE Row"; begin asserterror Row.FindFirst(); exit(Flag()); end;
+    procedure RefFindFirstFiltered(): Text var Ref: RecordRef; begin Ref.Open(69890); Ref.Field(1).SetRange(42); asserterror Ref.FindFirst(); exit(Flag()); end;
+    procedure RefFindSetFiltered(): Text var Ref: RecordRef; begin Ref.Open(69890); Ref.Field(1).SetRange(42); asserterror Ref.FindSet(); exit(Flag()); end;
+    procedure RefFindMinusFiltered(): Text var Ref: RecordRef; begin Ref.Open(69890); Ref.Field(1).SetRange(42); asserterror Ref.Find('-'); exit(Flag()); end;
+    procedure RefFindFirstEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890); asserterror Ref.FindFirst(); exit(Flag()); end;
+    procedure RefFindLastEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890); asserterror Ref.FindLast(); exit(Flag()); end;
+    procedure RefFindEqualEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890); asserterror Ref.Find('='); exit(Flag()); end;
+    procedure RefFindFirstFilteredPlain(): Text var Ref: RecordRef; begin Ref.Open(69890); Ref.Field(1).SetRange(42); asserterror Ref.FindFirst(); exit(GetLastErrorText(false)); end;
+
     // A Variant record slot outside `:=`.
     [TryFunction]
     local procedure TakeRow(Row: Record "NE Row") begin end;
@@ -129,6 +140,32 @@ fn the_flag_refuses_unmeasured_sites_that_share_a_measured_text() {
     ] {
         refused(routine);
     }
+}
+
+#[test]
+fn the_flag_refuses_recordref_finds_on_an_empty_set() {
+    // The Record cells are measured (LastErrorFlagRuntimeCodes.al:NothingInsideFilter_EmptyTable_ExcludeFlag, P86LastError.al:339-353).
+    assert_eq!(
+        text(run("RecFindFirstFiltered")),
+        "There is no NE Row within the filter.\\\\Filters: <redacted>"
+    );
+    assert_eq!(text(run("RecFindFirstEmpty")), "The NE Row table is empty.");
+    // The same finds through a RecordRef are not measured: the flagged text refuses (al-runner issue 7806).
+    for routine in [
+        "RefFindFirstFiltered",
+        "RefFindSetFiltered",
+        "RefFindMinusFiltered",
+        "RefFindFirstEmpty",
+        "RefFindLastEmpty",
+        "RefFindEqualEmpty",
+    ] {
+        refused(routine);
+    }
+    // The error itself and its text without the flag stay as on main.
+    assert_eq!(
+        text(run("RefFindFirstFilteredPlain")),
+        "There is no NE Row within the filter.\\\\Filters: Id: 42"
+    );
 }
 
 #[test]
