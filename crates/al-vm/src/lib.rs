@@ -2143,6 +2143,23 @@ impl Session {
         Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())))
     }
 
+    /// The copy a parameter declared `temporary` (or of a TableType = Temporary table) gets of a record handed by value: an
+    /// empty table of its own, the current values, no filters, the primary key ascending, no marks (see `call_inner`).
+    fn temporary_param_copy(&mut self, rc: &Rc<RefCell<RecordState>>) -> Value {
+        let mut st = rc.borrow().copy_as_new_variable();
+        st.key = 0;
+        st.adhoc = None;
+        st.ascending = true;
+        st.field_descending = 0;
+        st.marks.clear();
+        st.marked_only = false;
+        st.filters.clear();
+        st.filter_group = 0;
+        st.temporary = true;
+        st.temp_id = Some(self.new_temp_id());
+        Value::Record(Rc::new(RefCell::new(st)))
+    }
+
     /// A record passed by value is a copy (ADR-010). A temporary record's copy
     /// gets an independent, empty table of its own (corpus
     /// record/TestTempTableContracts.al:TempVar_PassedByValue_CallerNotAffected).
@@ -2409,18 +2426,7 @@ impl Session {
                         || (rc.borrow().temporary
                             && matches!(r.locals[i].ty, RtType::Record(t, false) if self.engine.object_facts[t as usize].temporary())) =>
                 {
-                    let mut st = rc.borrow().copy_as_new_variable();
-                    st.key = 0;
-                    st.adhoc = None;
-                    st.ascending = true;
-                    st.field_descending = 0;
-                    st.marks.clear();
-                    st.marked_only = false;
-                    st.filters.clear();
-                    st.filter_group = 0;
-                    st.temporary = true;
-                    st.temp_id = Some(self.new_temp_id());
-                    Value::Record(Rc::new(RefCell::new(st)))
+                    self.temporary_param_copy(&rc)
                 }
                 // Rec of a page an action opened through RunPageLink handed to a Variant parameter keeps the link filter: a
                 // RecordRef.GetTable of the Variant carries it (testpage/R7138RunPageLinkCopyGet.al:117-134 `rr[Project Code: P2]

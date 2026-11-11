@@ -3,6 +3,30 @@
 use super::*;
 
 impl Session {
+    /// The checks of a Modify on the buffer's SystemRowVersion against the stored row `stored` (`None`: no row with the key). A
+    /// buffer older than a committed change to its row cannot be saved (record/TestRecordStaleBufferWrite.al); before a commit
+    /// the last writer wins. `Some`: the answer of a Modify whose own write a rollback undid (the two functions below).
+    pub(super) fn modify_version_checks(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        cx: &al_data::AccessContext,
+        pk: &[Value],
+        run: bool,
+        stored: Option<&[Value]>,
+    ) -> Result<Option<Value>, Signal> {
+        let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) else {
+            return Ok(None);
+        };
+        let Some(row) = stored else {
+            return self.modify_own_rolled_back_insert(t, rec, i, run);
+        };
+        let version = |v: &Value| if let Value::BigInteger(n) = v { *n } else { 0 };
+        let v = (version(&rec.borrow().fields[i]), version(&row[i]));
+        self.refuse_stale_modify(t, rec, cx, pk, run, v)?;
+        self.modify_own_rolled_back_write(t, rec, i, v, run)
+    }
+
     /// The buffer still holds what its own last Modify wrote and a rollback undid that write: the Modify answers true and writes
     /// nothing, so the row keeps what the rollback restored (record/StaleBuffer.al:76-86); a buffer changed since writes the whole
     /// row (:167-168), which the caller's normal path does. `versions` are the buffer's and the stored row's SystemRowVersion.
