@@ -354,6 +354,7 @@ impl Session {
         })))
     }
 
+    /// Pending corpus probe record/filters/RelationWhereFlowFilter.al:398, :426, :444.
     /// A source FlowFilter with a default buffer contributes no condition when unset,
     /// or one equality for an exact filter in group 0. The outer None preserves the
     /// existing buffer-based comparison for a field assigned without a filter.

@@ -2489,6 +2489,7 @@ table 69501 Source {
             "default group",
         ),
         ("SetRange(\"Kind Filter\", 'K2');", "", ""),
+        ("\"Kind Filter\" := 'K2';", "", ""),
         (
             "SetRange(\"Kind Filter\", 'K2');",
             "if GetLastErrorCode() = '' then Error('Missing code');",
