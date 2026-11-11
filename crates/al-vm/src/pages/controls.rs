@@ -430,14 +430,15 @@ impl Session {
             if !t.is_empty() && t.chars().all(|c| c == ' ') {
                 let o = &engine.program.objects[*id as usize];
                 // A value without a Caption shows its name (the `" "` member of QzNotBlankEnumList.al, BeEnumSetValueBlank.al:4021);
-                // pinned in that list shape only.
+                // pinned in that list shape and on a card with a row (pages/enum-setvalue-blank/BlankMemberCaptionForms.al:181
+                // BlankMember_NoCaption_ValueAndSetValueInputs `Value := Format(member)` accepted, shows `[ ]/0`).
                 let blank = o
                     .enum_captions
                     .iter()
                     .find(|(_, c)| !c.is_empty() && c.chars().all(|c| c == ' '))
                     .map(|(v, _)| *v)
                     .or_else(|| {
-                        if !pinned_list_not_blank {
+                        if !(pinned_list_not_blank || pinned_card) {
                             return None;
                         }
                         o.enum_values

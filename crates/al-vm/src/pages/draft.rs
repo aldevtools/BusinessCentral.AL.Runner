@@ -718,7 +718,7 @@ impl Session {
             return Err(error_code("Page cannot be saved.", "SaveAbort"));
         }
         // corpus testpage/TestPageTriggerEvents.al (ModifyRecordEvent_RunsAfterThePagesOwnOnModifyRecordTrigger)
-        let keep = self.page_trigger_answer(st, "onmodifyrecord", vec![])?;
+        let keep = self.with_modify_record_xrec(st, |s| s.page_trigger_answer(st, "onmodifyrecord", vec![]))?;
         if keep == Some(false) {
             return Ok(());
         }

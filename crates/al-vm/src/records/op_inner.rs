@@ -2146,9 +2146,12 @@ impl Session {
                     .last()
                     .filter(|(h, d, _)| *h == handle && *d == depth)
                     .map(|(_, _, x)| x.borrow().fields.clone());
+                // In the page's own OnModifyRecord a Validate of the page's Rec takes the page's xRec (pages/modify_record_xrec.rs).
                 let before = match outer.clone() {
                     Some(b) => b,
-                    None => proc_xrec.unwrap_or_else(|| rec.borrow().fields.clone()),
+                    None => proc_xrec
+                        .or_else(|| self.modify_record_validate_xrec(handle))
+                        .unwrap_or_else(|| rec.borrow().fields.clone()),
                 };
                 let old_value = rec.borrow().fields[pos].clone();
                 let snapshot = rec.borrow().fields.clone();

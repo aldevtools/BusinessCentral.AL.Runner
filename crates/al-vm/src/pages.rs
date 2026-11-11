@@ -219,6 +219,7 @@ mod lookup_start;
 mod lookup_trigger;
 mod marked_refill_goto;
 mod modify_denied;
+pub(crate) mod modify_record_xrec;
 mod moved_onto_deleted;
 mod never_run_update;
 mod open;
