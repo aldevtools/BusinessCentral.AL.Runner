@@ -824,8 +824,8 @@ impl Workspace {
     }
 
     /// Whether object `oi` (of an app under test, whose file is parsed) declares a subscriber to a login event the test
-    /// session raises (al-testrun `login.rs`): "System Initialization" (150) `OnAfterLogin` or "Guided Experience" (1990)
-    /// `OnRegisterAssistedSetup`.
+    /// session raises (al-testrun `login.rs`): "System Initialization" (150) `OnAfterLogin`, or "Guided Experience" (1990)
+    /// `OnRegisterAssistedSetup`, `OnRegisterManualSetup` or `OnRegisterGuidedExperienceItem`.
     pub fn declares_login_subscriber(&self, oi: usize) -> bool {
         if self.objects[oi].kind != ObjKind::Codeunit {
             return false;
@@ -837,6 +837,8 @@ impl Workspace {
                     [
                         ("system initialization", "150", "onafterlogin"),
                         ("guided experience", "1990", "onregisterassistedsetup"),
+                        ("guided experience", "1990", "onregistermanualsetup"),
+                        ("guided experience", "1990", "onregisterguidedexperienceitem"),
                     ]
                     .iter()
                     .any(|(name, id, event)| {

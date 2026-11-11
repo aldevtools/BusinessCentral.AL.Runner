@@ -354,6 +354,53 @@ pub(crate) fn call_reach_facts(
     walk.out
 }
 
+/// What a login subscriber (routine `routine` of `object`) leaves through its own code (`login.rs`): its calls, the
+/// objects it runs by a constant id or through a codeunit variable (login code that runs in a codeunit of its own, so an
+/// error cannot stop the login), the triggers of the tables those write, and the subscribers in apps under test of the
+/// events of apps under test those raise, without the subscribers of Microsoft's events (their fan-out writes most of
+/// Base Application). The test side asks its own calls with the objects run ([`union_call_reach_facts`]); the table triggers
+/// and the app's own subscribers are followed here too because what they leave is there before the first test as well
+/// (al-runner issue 7717).
+pub(crate) fn login_subscriber_reach_facts(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    object: usize,
+    routine: usize,
+) -> ReachFacts {
+    let mut walk = Walk::new(events, lowered, index);
+    walk.calls_only = true;
+    walk.runs_in_calls = true;
+    walk.login = true;
+    walk.stack.push((object, routine));
+    walk.run(&|_| false);
+    walk.out
+}
+
+/// [`login_subscriber_reach_facts`] of the login subscribers `roots` together, without entering the routines of the
+/// objects `skip` (`login.rs` asks the calls into those itself), and the routines the walk visited.
+pub(crate) fn login_subscribers_reach_without(
+    events: &al_vm::events::Registry,
+    lowered: &Lowered,
+    index: &ReachIndex,
+    roots: &[(usize, usize)],
+    skip: &[usize],
+) -> (ReachFacts, Vec<(usize, usize)>) {
+    let mut walk = Walk::new(events, lowered, index);
+    walk.calls_only = true;
+    walk.runs_in_calls = true;
+    walk.login = true;
+    walk.visited = Some(Vec::new());
+    for &o in skip {
+        for r in 0..lowered.program.objects[o].routines.len() {
+            walk.first_visit(o, r);
+        }
+    }
+    walk.stack.extend(roots.iter().rev().copied());
+    walk.run(&|_| false);
+    (walk.out, walk.visited.unwrap_or_default())
+}
+
 /// The facts of the joined reach of the routines `roots`, one walk of the union of their reaches, that does not enter
 /// the routines `skip` (nor what only they reach).
 pub(crate) fn union_reach_facts_skipping(
@@ -743,6 +790,11 @@ struct Walk<'a> {
     calls_only: bool,
     /// Whether a walk of calls only also enters the routines of the objects run ([`union_call_reach_facts`]).
     runs_in_calls: bool,
+    /// Whether a walk of calls only also enters the table triggers, without the table's events, and the subscribers in
+    /// apps under test of the events raised ([`login_subscriber_reach_facts`]).
+    login: bool,
+    /// The routines visited, when kept ([`login_subscribers_reach_without`]).
+    visited: Option<Vec<(usize, usize)>>,
 }
 
 impl<'a> Walk<'a> {
@@ -762,6 +814,8 @@ impl<'a> Walk<'a> {
             facts: true,
             calls_only: false,
             runs_in_calls: false,
+            login: false,
+            visited: None,
         }
     }
 
@@ -772,6 +826,9 @@ impl<'a> Walk<'a> {
                 break;
             }
             if self.first_visit(o, r) {
+                if let Some(v) = &mut self.visited {
+                    v.push((o, r));
+                }
                 self.routine(o, r);
             }
         }
@@ -841,8 +898,15 @@ impl<'a> Walk<'a> {
             .unwrap_or_default()
     }
 
-    /// The triggers of table `t` and of its extensions that the operations `ops` (bits of [`ops`]) run.
+    /// The triggers of table `t` and of its extensions that the operations `ops` (bits of [`ops`]) run, and the
+    /// subscribers of the table's events.
     fn table_ops(&mut self, t: usize, ops: u8) {
+        self.table_triggers(t, ops);
+        self.events(t);
+    }
+
+    /// The triggers of table `t` and of its extensions that the operations `ops` (bits of [`ops`]) run.
+    fn table_triggers(&mut self, t: usize, ops: u8) {
         let lowered = self.lowered;
         let objs = &lowered.program.objects;
         for bit in [ops::INSERT, ops::MODIFY, ops::DELETE, ops::RENAME, ops::VALIDATE] {
@@ -871,7 +935,6 @@ impl<'a> Walk<'a> {
                 );
             }
         }
-        self.events(t);
     }
 
     /// What running object `o` reaches: a codeunit's `OnRun`, every routine of a page (and its source table's
@@ -945,9 +1008,26 @@ impl<'a> Walk<'a> {
     /// then its steps in the order the body takes them, so the walk pushes and enters exactly what a walk of the body
     /// would.
     fn routine(&mut self, o: usize, r: usize) {
-        // A walk of calls only does not raise events: a publisher's body is empty, its steps are its subscribers.
-        if self.calls_only && self.events.publishers.contains_key(&(o, r)) {
-            return;
+        // A walk of calls only does not raise events: a publisher's body is empty, its steps are its subscribers. The walk
+        // of a login subscriber enters those in apps under test of an event published in an app under test (an event of
+        // Microsoft's apps reaches telemetry subscribers of the apps under test too, corpus Y64InstallSubscribers.al).
+        if self.calls_only {
+            if let Some(p) = self.events.publishers.get(&(o, r)) {
+                let lowered = self.lowered;
+                if self.login && !lowered.dependency.get(o).copied().unwrap_or(true) {
+                    let subs = self
+                        .events
+                        .subscribers
+                        .get(&(p.object, p.event.clone()))
+                        .into_iter()
+                        .flatten();
+                    self.stack.extend(
+                        subs.filter(|s| !s.manual && !lowered.dependency.get(s.object).copied().unwrap_or(true))
+                            .map(|s| (s.object, s.routine)),
+                    );
+                }
+                return;
+            }
         }
         let index = self.index;
         let fresh;
@@ -981,6 +1061,7 @@ impl<'a> Walk<'a> {
                     }
                 }
                 Step::Run(x) if self.calls_only && self.runs_in_calls => self.run_object(*x),
+                Step::TableOps(t, ops) if self.calls_only && self.login => self.table_triggers(*t, *ops),
                 Step::Events(_) | Step::TableOps(..) | Step::Run(_) if self.calls_only => {}
                 Step::Events(t) => self.events(*t),
                 Step::TableOps(t, ops) => self.table_ops(*t, *ops),

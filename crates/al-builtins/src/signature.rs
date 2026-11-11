@@ -49,6 +49,20 @@ pub struct DocParam {
     pub description: String,
 }
 
+impl Param {
+    /// The argument names a field (of the receiver, a record or a test page's filter) or a query column, so a record
+    /// field written here is passed as its position, not as its value (`R.SetRange(Amount, 1)`). Exactly the
+    /// parameters named `Field`, `Field1`, `Field2`, `Fields`, `FromField` or `Column` whose type is `Any` or
+    /// `TestFilterField` (`tests/field_params.rs` lists every catalog parameter this selects). A parameter whose name
+    /// only starts with `Field` takes a value: `RecordRef.Field(FieldName: Text)` and `FieldExist(FieldName: Text)`
+    /// take the name the field holds, as they take a Text variable's value (recordref-fieldref/P107RecRefNames.al:25,
+    /// :74), and `AddEntityKey(FieldId, FieldValue: Any)` takes the field's value (al-runner issue 7616).
+    pub fn names_field(&self) -> bool {
+        const NAMES: [&str; 6] = ["Field", "Field1", "Field2", "Fields", "FromField", "Column"];
+        matches!(self.ty.as_str(), "Any" | "TestFilterField") && NAMES.iter().any(|n| self.name.eq_ignore_ascii_case(n))
+    }
+}
+
 impl Signature {
     pub fn from_doc(e: &DocEntry) -> Result<Signature, String> {
         // Drop `Ret :=` / `[Ret := ]` before the call.
