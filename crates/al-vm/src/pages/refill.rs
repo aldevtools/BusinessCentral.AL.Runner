@@ -354,7 +354,7 @@ impl Session {
     /// The reads from row `at` of `rows` (the view from its start), then OnAfterGetCurrRecord on it; the client then holds the
     /// rows it read.
     fn read_refilled_rows(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
-        self.read_refilled_rows_as(st, rows, at, false, false)
+        self.read_refilled_rows_as(st, rows, at, Walk::Plain)
     }
 
     /// A ListPart whose control's OnValidate ran `CurrPage.Update` (with or without `false`) on a Document host whose row did not
@@ -364,7 +364,7 @@ impl Session {
     /// TH_Line2_UpdateFalse, :437 TH_Line3_UpdateFalse `R3 R2 R1 R3 R3 C3`, :453 TH_Walk_*; on branch al-runtime-rs-staging-pub-th,
     /// assumption part-keeps-row-after-update-in-validate). `rows` is the view from its start, up to a window.
     pub(super) fn read_part_rows_around(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
-        self.read_refilled_rows_as(st, rows, at, true, false)
+        self.read_refilled_rows_as(st, rows, at, Walk::Part)
     }
 
     /// A ListPart standing on a later row after its host's own `CurrPage.Update`: the part reads its row first, then the same
@@ -375,17 +375,25 @@ impl Session {
         rows: &[Vec<Value>],
         at: usize,
     ) -> Result<(), Signal> {
-        self.read_refilled_rows_as(st, rows, at, true, true)
+        self.read_refilled_rows_as(st, rows, at, Walk::HostUpdate)
     }
 
-    fn read_refilled_rows_as(
-        &mut self,
-        st: &St,
-        rows: &[Vec<Value>],
-        at: usize,
-        part: bool,
-        host_update: bool,
-    ) -> Result<(), Signal> {
+    /// A ListPart without OnAfterGetCurrRecord on the last row of a view of two, after its control's OnValidate ran
+    /// `CurrPage.Update()` on a Document host whose row did not change: it reads the row and the row before it, nothing more; it
+    /// reads its row once more when the host closes, before it saves (pages/parts/PartNewRowPageVariable.al:1218
+    /// Split_NewRow_RecordFieldsThenVariableWithUpdate `... AGR 20000 | AGR 10000`, `closed` `[AGR 20000]`; :1248 the line inserted
+    /// by the update, `closed` `[AGR 20000 | MOD 20000 1 | T-M 20000 1]`; :1470, :1500, :1722, :1752 with DelayedInsert).
+    pub(super) fn read_part_rows_unsettled(&mut self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<(), Signal> {
+        self.read_refilled_rows_as(st, rows, at, Walk::PartUnsettled)?;
+        st.borrow_mut().reread_at_close = true;
+        Ok(())
+    }
+
+    fn read_refilled_rows_as(&mut self, st: &St, rows: &[Vec<Value>], at: usize, walk: Walk) -> Result<(), Signal> {
+        let part = walk != Walk::Plain;
+        // Both end without the two reads of the row; Rec is put back on it unread.
+        let host_update = matches!(walk, Walk::HostUpdate | Walk::PartUnsettled);
+        st.borrow_mut().reread_at_close = false;
         let rec = self.page_rec(st);
         let before = self.xrec_before_move(st);
         let window_end = rows.len().min(at + Self::WINDOW);
@@ -400,7 +408,7 @@ impl Session {
         // rows below it (also on its first row) and once more before the last pair (pinned for the two shapes below).
         let by_order_key = part && self.part_reads_once_more_at(st, &rec, rows.len(), at);
         let mut held = Vec::new();
-        if (at > 0 && !part) || by_order_key || host_update {
+        if (at > 0 && !part) || by_order_key || walk == Walk::HostUpdate {
             self.read_refilled_row(st, &rec, &rows[at])?;
         }
         for r in &rows[at..window_end] {
@@ -510,4 +518,17 @@ impl Session {
         }
         Ok(())
     }
+}
+
+/// Which reads `read_refilled_rows_as` makes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Walk {
+    /// A page of its own.
+    Plain,
+    /// A part after its control's `CurrPage.Update` (`read_part_rows_around`).
+    Part,
+    /// A part after its host's `CurrPage.Update` (`read_part_rows_after_host_update`).
+    HostUpdate,
+    /// `read_part_rows_unsettled`.
+    PartUnsettled,
 }

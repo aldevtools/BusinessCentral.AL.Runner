@@ -705,6 +705,8 @@ pub struct PageState {
     /// The row a part read in another order numbered last with AutoSplitKey, and the number of the row the grid shows after it
     /// (`pages/split_key_view.rs`).
     pub split_view_last: Option<(Vec<Value>, Option<Value>)>,
+    /// The part reads its row once more when its host closes (`read_part_rows_unsettled`).
+    pub reread_at_close: bool,
     /// `OnOpenPage` left filters in `FilterGroup(-1)`: the page dropped them from the rows it shows.
     pub or_group_dropped: bool,
     /// The record handed to the page carried filters in `FilterGroup(-1)`, dropped before OnOpenPage.

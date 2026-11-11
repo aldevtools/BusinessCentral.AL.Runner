@@ -185,12 +185,25 @@ impl Session {
                 .properties
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case("DelayedInsert") && v.trim().eq_ignore_ascii_case("true"));
+            // A new row of a DelayedInsert ListPart on a Document host is not saved first: the control's OnValidate runs on the
+            // typed row, and a CurrPage.Update() in it inserts the row (pages/parts/PartNewRowPageVariable.al:966
+            // Delayed_NewRow_RecordFieldsThenVariableWithUpdate `V-UPD 0 | T-V 0 1 | INS 0 1`; :1023 without the update the row
+            // is inserted at Close; the same with AutoSplitKey :1470 and PopulateAllFields :1722).
+            if delayed && self.list_part_on_document_host(st) {
+                return Ok(());
+            }
             if delayed || st.borrow().typed_before_key {
                 return unsupported(
                     "SetValue on a page variable control of a new row typed before its key or on a DelayedInsert page (whether the row is inserted first is not pinned)",
                 );
             }
         } else if Self::same_values(&self.page_rec(st).borrow().fields, &self.page_xrec_fields(st)) {
+            // A stored row of a ListPart on a Document host set to the values it holds is not saved first, as an untouched one
+            // (PartNewRowPageVariable.al:885 Plain_StoredRow_SameValueThenVariableWithUpdate `V-UPD 10000 | T-V 10000 2 | MOD 10000 2`,
+            // the same with DelayedInsert :1137, AutoSplitKey :1389, both :1641 and PopulateAllFields :1893).
+            if self.list_part_on_document_host(st) {
+                return Ok(());
+            }
             return unsupported(
                 "SetValue on a page variable control of a row set to the values it holds (whether the row is saved first is not pinned)",
             );
@@ -201,6 +214,21 @@ impl Session {
             }
             other => other,
         }
+    }
+
+    /// The page is a ListPart shown in a Document page.
+    pub(super) fn list_part_on_document_host(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let own = &engine.object_facts[st.borrow().object as usize].page_type;
+        matches!(own, Some(al_ir::PageType::Other(o)) if o == "listpart")
+            && st
+                .borrow()
+                .host
+                .as_ref()
+                .and_then(|(h, _)| h.upgrade())
+                .is_some_and(|h| {
+                    engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::Document)
+                })
     }
 
     fn save_before_run_object(&mut self, st: &St, idx: usize) -> Result<(), Signal> {

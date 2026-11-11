@@ -1398,7 +1398,16 @@ impl Session {
                 self.set_xrec(st);
                 return Ok(());
             }
-            if st.borrow().cursor == Cursor::Row {
+            // The same on the new line of a ListPart on a Document host whose code changed Rec (a page variable control's OnValidate
+            // validated it into a field): CurrPage.Update() inserts the line (pages/parts/PartNewRowPageVariable.al:744
+            // Plain_NewRow_VariableWithUpdateFirst `V-UPD 0 | T-V 0 1 | INS 0 1 | T-I 0 1`, :996 DelayedInsert, :1248 AutoSplitKey
+            // `INS 20000 1`, :1500, :1752).
+            let new_line_changed = {
+                let s = st.borrow();
+                s.cursor == Cursor::NewLine && s.draft
+            } && self.list_part_on_document_host(st)
+                && !Self::same_values(&self.page_rec(st).borrow().fields, &self.page_xrec_fields(st));
+            if st.borrow().cursor == Cursor::Row || new_line_changed {
                 st.borrow_mut().dirty = true;
             }
             self.save_row(st)
