@@ -227,10 +227,23 @@ impl Session {
         // DCE_TestPage_OpenView_Rows `OnFindRecord(-)`, DCE_TestPage_OpenEdit_Rows, DCE_TestPage_OpenView_Empty); a list keeps `=><`.
         let r = if !self.is_list(st) && self.declares(st, "onfindrecord") {
             self.page_first_row_from(st, "-", false)
+        } else if self.find_list_part(st) {
+            st.borrow_mut().landed_from_view_start = true;
+            let r = self.page_first_row_from(st, "-", false);
+            let mut s = st.borrow_mut();
+            s.landed_from_view_start = false;
+            // A landing that found no row holds an empty window from the view's start (`end_move_without_read`).
+            if s.cursor != Cursor::Row {
+                s.find_window_at_view_start = true;
+            }
+            r
         } else {
             self.page_first_row(st)
         };
         self.torn_down_on_error(st, r)?;
+        if self.part_filter_runs_fn_on_new_line(st) {
+            self.run_fn_controls_on_new_line(st)?;
+        }
         // A page the filter left without a row shows a blank one, its key pre-filled from a
         // single-valued filter (corpus pages/currpage/TestPageUpdateGoneRow.al:
         // Card_OpenEdit_FilterMatchesNothing_NoOpAction_StaysOpen).

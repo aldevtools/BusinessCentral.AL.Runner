@@ -517,6 +517,7 @@ impl Session {
     }
 
     fn populate_window_in_view(&mut self, st: &St) -> Result<(), Signal> {
+        self.part_window_read_starts(st);
         st.borrow_mut().tree_hidden.clear();
         st.borrow_mut().window_from_start = false;
         st.borrow_mut().window_eof = false;
@@ -614,7 +615,7 @@ impl Session {
             // nothing (AiListOrderTests.al:600, :630 Next_TwoRows_Nav/_NavCurr `next2_log` empty; :843
             // OpenOnRow_SetPositionInOnOpenPage_LastRow).
             st.borrow_mut().view_read_to_end = view_ended_at_open && keys.len() < Self::WINDOW;
-            let stepped_back = self.declares(st, "onnextrecord") && self.nav_next(st, -1)?;
+            let stepped_back = self.open_read_steps_back(st, moved_open)?;
             // On a row set before the open (a temporary Worksheet, `open_on_rec_moved_by_onopenpage`) the client reads each row
             // above it, stepping back with OnNextRecord(-1) until that answers 0, then reads the row again; the rows it holds then
             // start at the first row of the view (QrMovedTests.al:2538 QT_TempWsNext_RunModal_B
@@ -1386,8 +1387,8 @@ impl Session {
         if empty_view_list && how == PageMethod::First {
             return Ok(Value::Boolean(false));
         }
-        if how == PageMethod::First && self.first_on_first_row_of_a_linked_list(st)? {
-            return Ok(Value::Boolean(true));
+        if let Some(answer) = self.end_move_without_read(st, how)? {
+            return Ok(Value::Boolean(answer));
         }
         let answer_used = self.ret_used;
         // A list row whose OnValidate refused an entry: Next() raises nothing, runs no OnModify and stores nothing of the row
@@ -1495,45 +1496,6 @@ impl Session {
             return Err(raised?);
         }
         self.torn_down_on_error(st, r).map(Value::Boolean)
-    }
-
-    /// Whether `First()` on a list an action opened through `RunPageLink` stands on the first row of its view already: it then
-    /// answers Yes and runs no OnAfterGetCurrRecord (testpage/SjRunPageLinkOpenFind.al:337-350, :368-410
-    /// `agcr row=4;agcr row=3;...`: the handler's First() on the row the page opened on adds no `agcr`; :412-425 from another row
-    /// it does). Pinned for a list that declares OnAfterGetCurrRecord and no other row trigger, not a part, whose OnOpenPage
-    /// moved Rec with FindFirst or FindLast, and for one whose OnOpenPage did not move Rec (testpage/R7138RunPageLinkCopyGet.al:210,
-    /// :218 `agcr O3;...;handler;agcr O4`: OnAfterGetCurrRecord runs once at the open, First() on O3 runs it not again).
-    fn first_on_first_row_of_a_linked_list(&mut self, st: &St) -> Result<bool, Signal> {
-        let shape = {
-            let s = st.borrow();
-            s.open
-                && s.run_page_link_opened
-                && s.host.is_none()
-                && s.cursor == Cursor::Row
-                && !s.draft
-                && !s.dirty
-                && !s.new_line
-                && s.after_new.is_none()
-        } && self.is_list(st)
-            && !["onaftergetrecord", "onfindrecord", "onnextrecord"]
-                .iter()
-                .any(|t| self.declares(st, t));
-        if !shape {
-            return Ok(false);
-        }
-        let rec = self.page_rec(st);
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        if !matches!(
-            self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
-            Value::Boolean(true)
-        ) {
-            return Ok(false);
-        }
-        if !Self::same_key(&self.row_key(&probe)?, &self.row_key(&rec)?) {
-            return Ok(false);
-        }
-        Ok(true)
     }
 
     /// An AL error of OnNextRecord on `Next()` of a card opened for editing: "Page <caption> has to close.", the caption with

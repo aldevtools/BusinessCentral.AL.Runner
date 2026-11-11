@@ -254,6 +254,12 @@ pub struct PageState {
     pub window_held_above: Option<usize>,
     /// The page is landing on its first row as it opens (the reads of a view that ends inside the window differ there).
     pub landing_first: bool,
+    /// The landing read started with OnFindRecord(`-`) after a TestPart filter (`find_list_part`): the window starts
+    /// at the first row of the view, so the open read's tail does not step back with OnNextRecord(-1).
+    pub landed_from_view_start: bool,
+    /// The window the page holds starts at the first row of the view: such a landing read, or the open read of the same part
+    /// whose OnNextRecord(-1) answered 0 (`part_filter_find.rs`); cleared by the next window read.
+    pub find_window_at_view_start: bool,
     /// The page opens on the row its OnOpenPage left Rec on, not the first of the view: a list's open read also reads the
     /// rows above it (see `read_rows_above_the_moved_rec`).
     pub open_reads_above: bool,
@@ -636,6 +642,9 @@ pub struct PageState {
     /// Per row of a repeater (its key): what the page variables its controls show held after the row's OnAfterGetRecord, and
     /// for the current row after OnAfterGetCurrRecord: (control index, value) (pages/row-page-variable/QiRowPageVar.al).
     pub row_vars: Vec<RowVars>,
+    /// Code of another page called a procedure of this page through a `Page` value since the page last noted `row_vars`
+    /// (`row_var_outside_call.rs`).
+    pub row_vars_behind_outside_call: bool,
     /// Per row of a repeater (its key): the page variables the Editable and Enabled expressions of its controls read, as the
     /// row's OnAfterGetRecord left them: (global slot, value) (writer RT's testpage/RtRowEditable.al).
     pub row_prop_vars: Vec<RowVars>,

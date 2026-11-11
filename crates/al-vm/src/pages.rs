@@ -164,6 +164,7 @@ type Handler = (usize, usize, Rc<RefCell<al_builtins::value::Instance>>);
 
 mod areas;
 mod background;
+mod end_move_no_read;
 mod flowfield_hidden;
 pub(crate) use background::BgWorker;
 mod filter;
@@ -175,6 +176,7 @@ mod parts;
 mod qualified_name;
 mod read_backwards;
 mod relation_lookup;
+mod row_var_outside_call;
 mod text_control_value;
 use text_control_value::TextConv;
 pub(crate) mod request;
@@ -243,6 +245,7 @@ mod page_get_record;
 mod page_var_modeless_temp;
 mod page_var_view;
 mod pageops;
+mod part_filter_find;
 mod part_filter_unsaved_host;
 mod part_host_update;
 mod part_insert_swallowed;
@@ -631,6 +634,7 @@ impl Session {
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
         let mut s = st.borrow_mut();
+        s.row_vars_behind_outside_call = false;
         match (s.row_vars.iter_mut().find(|(k, _)| Self::same_key(k, &key)), before) {
             (Some((_, held)), Some(before)) => {
                 for ((i, now), (_, was)) in values.into_iter().zip(before) {

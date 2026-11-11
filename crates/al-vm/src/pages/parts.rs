@@ -21,6 +21,12 @@ enum Sync {
     Open,
     /// Every visible part, first to last.
     Plain,
+    /// The host's GoToKey moved it to another row: as `Plain`, except a part without a link that serves its rows from
+    /// OnFindRecord and OnNextRecord (`find_list_part`), which keeps what it shows and runs no trigger
+    /// (testpage/parts/PartFilterExpressionControl.al:392 Periods_ReadBeforeFilter_ThenFilter_ThenFirst `before`
+    /// `expr=0 var=0 item=I1`: the part still shows what it read while the host stood on I1). Another part without a link is not
+    /// pinned and reads as before.
+    GoToKeyMoved,
     /// The host moved with First, Last, Next or Previous: only the linked parts, hidden ones included.
     Move { backward: bool },
     /// The host's GoToKey or GoToRecord stayed on its row: every visible part as `Plain`, except a list part with OnFindRecord, a
@@ -494,6 +500,20 @@ impl Session {
         }
     }
 
+    /// [`Self::sync_parts`] after a host move other than Next, Previous, a First or Last that moved, a GoToKey or GoToRecord that
+    /// stayed and New: a GoToKey that left the row (`left_row`) and walked no parts is `Sync::GoToKeyMoved`.
+    pub(super) fn sync_parts_after_other_move(
+        &mut self,
+        st: &St,
+        name: PageMethod,
+        left_row: bool,
+    ) -> Result<(), Signal> {
+        if name == PageMethod::GoToKey && left_row && !st.borrow().walk_synced_parts {
+            return self.sync_parts_with(st, Sync::GoToKeyMoved);
+        }
+        self.sync_parts(st)
+    }
+
     pub(super) fn sync_parts_stayed(&mut self, st: &St) -> Result<(), Signal> {
         self.sync_parts_with(st, Sync::Stayed)
     }
@@ -520,6 +540,15 @@ impl Session {
             self.read_blank_before_parts_turning_visible(st)?;
         }
         self.note_hidden_part_found_visible(st, &parts, opening)?;
+        if how == Sync::GoToKeyMoved {
+            parts.retain(|(i, child)| {
+                page.controls[*i]
+                    .part_link
+                    .as_ref()
+                    .is_some_and(|l| !l.entries.is_empty())
+                    || !self.find_list_part(child)
+            });
+        }
         if let Sync::Move { .. } = how {
             let mut linked = Vec::new();
             for (i, child) in parts {
@@ -589,10 +618,10 @@ impl Session {
                     // A FactBox part of a Provider chain does not read again when the host it stands on is inserted by the first
                     // call on a part (ProviderLinkedPartsMatrix.al Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew `new`
                     // ends at `detail-row()`, the read follows with the key: `keyed` `lines-row(0)`).
-                    if how == Sync::Plain && child.borrow().chain_refill == 1 {
+                    if matches!(how, Sync::Plain | Sync::GoToKeyMoved) && child.borrow().chain_refill == 1 {
                         continue;
                     }
-                    if how == Sync::Plain && self.chain_part_back_walk(st, *i, child) {
+                    if matches!(how, Sync::Plain | Sync::GoToKeyMoved) && self.chain_part_back_walk(st, *i, child) {
                         child.borrow_mut().read_backwards = Some(crate::pages::ReadBackwards::AfterMove);
                     }
                     // Such a part reads nothing on a host move that keeps its link values, forward or back (PartReadsOpen.al

@@ -221,6 +221,7 @@ impl Session {
     /// `page_first_row`, finding the first row with `which`. With `handed` (a `=><` from a handed record) a row other than the
     /// first of the view starts a window that does not begin at the view's start.
     pub(in crate::pages) fn page_first_row_from(&mut self, st: &St, which: &str, handed: bool) -> Result<(), Signal> {
+        st.borrow_mut().find_window_at_view_start = false;
         // The first row of the view, to tell whether a `=><` landed on it (a copy of the record, so the page's own is not moved).
         let first_key = if handed && self.is_list(st) {
             let rec = self.page_rec(st);

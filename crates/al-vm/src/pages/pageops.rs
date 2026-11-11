@@ -631,7 +631,7 @@ impl Session {
                         false
                     }
                     _ => {
-                        self.sync_parts(st)?;
+                        self.sync_parts_after_other_move(st, name, before.is_some() && !stayed)?;
                         false
                     }
                 };
