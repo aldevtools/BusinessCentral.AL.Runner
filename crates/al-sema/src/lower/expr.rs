@@ -540,19 +540,45 @@ impl Lowerer<'_> {
         Some(format!("{id} - {}", al_ir::xliff_part("NamedType", name)))
     }
 
-    /// `value` through `System.TranslatedText#1`: the same value, refused in a language other than 1033 when the app of
-    /// object `object` ships a translation file (ADR-053 step 1). `what` names the text for the reason.
+    /// `value` through `System.TranslatedText#1` for the OptionCaption of field `owner.field` (table number, field number,
+    /// source caption list): an Option value takes the captions a translation file gives in the language in force; with
+    /// `members` (the field's member names), `value` is the text an Evaluate reads, and a translated caption becomes its
+    /// member's name (al-builtins `translated_option`, al-vm `option_caption_translation`). Without a table number the read is
+    /// refused in a language other than 1033 when the app of object `owner.object` ships a translation file (ADR-053 step 1).
     pub(crate) fn translated_option_text(
         &self,
         value: ir::Expr,
-        (object, what, xliff): (usize, String, Option<String>),
+        owner: OptionCaptionOwner,
+        members: Option<&[String]>,
     ) -> L<ir::Expr> {
-        let mut read = self.translated_text(value, object, what)?;
-        if let (Some(id), ir::Expr::Builtin { args, .. }) = (xliff, &mut read) {
-            args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(id))));
+        let mut read = self.translated_text(value, owner.object, owner.what)?;
+        if let (Some((table, field, source)), ir::Expr::Builtin { args, .. }) = (owner.field, &mut read) {
+            let int = |n: u32| ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(n as i32)));
+            args.push(int(table));
+            args.push(int(field));
+            args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(source))));
             args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(true))));
+            if let Some(members) = members {
+                args.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(members.join(",")))));
+            }
         }
         Ok(read)
+    }
+
+    /// The member names of the Option field `arg` names.
+    pub(crate) fn option_field_members(&mut self, arg: &SyntaxNode) -> Option<Vec<String>> {
+        let node = if arg.kind() == SyntaxKind::ScopeExpr {
+            arg.children().next()?
+        } else {
+            arg.clone()
+        };
+        let Some(Res::Field { table, id: field }) = self.res(&node).cloned() else {
+            return None;
+        };
+        match &self.members[table].fields.iter().find(|f| f.id == field)?.ty {
+            Ty::Option(names) => Some(names.to_vec()),
+            _ => None,
+        }
     }
 
     pub(crate) fn translated_text(&self, value: ir::Expr, object: usize, what: String) -> L<ir::Expr> {
@@ -571,7 +597,7 @@ impl Lowerer<'_> {
 
     /// For an Option field with an `OptionCaption` or `OptionCaptionML`: the object that declares it and what a read of its
     /// captions is called, for [`Self::translated_text`].
-    pub(crate) fn option_caption_owner(&mut self, arg: &SyntaxNode) -> Option<(usize, String, Option<String>)> {
+    pub(crate) fn option_caption_owner(&mut self, arg: &SyntaxNode) -> Option<OptionCaptionOwner> {
         let node = if arg.kind() == SyntaxKind::ScopeExpr {
             arg.children().next()?
         } else {
@@ -587,23 +613,22 @@ impl Lowerer<'_> {
                 .any(|(k, _)| k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML"));
         captioned.then(|| {
             let owner = f.declared_in.unwrap_or(table);
-            let o = &self.ws.objects[owner];
-            let xliff = al_ir::xliff_object_kind(o.kind).map(|kind| {
-                format!(
-                    "{} - {} - {}",
-                    al_ir::xliff_part(kind, &o.name),
-                    al_ir::xliff_part("Field", &f.name),
-                    al_ir::xliff_part("Property", "OptionCaption")
-                )
-            });
-            (
-                owner,
-                format!(
+            // The run decides which unit gives the captions (al-vm `option_caption_translation`, the one owner); the source
+            // captions let it check a member name read by Evaluate.
+            let source = f
+                .properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("OptionCaption"))
+                .and_then(|(_, v)| crate::members::first_string_literal(v))
+                .unwrap_or_default();
+            OptionCaptionOwner {
+                object: owner,
+                what: format!(
                     "the OptionCaption of field {} of table {}",
                     f.name, self.ws.objects[table].name
                 ),
-                xliff,
-            )
+                field: self.ws.objects[table].id.map(|t| (t, field, source)),
+            }
         })
     }
 
@@ -1393,4 +1418,14 @@ fn char_at_expr(base: ir::Expr, index: ir::Expr) -> ir::Expr {
         };
     }
     ir::Expr::CharAt(Box::new(base), Box::new(index))
+}
+
+/// An Option field whose `OptionCaption` or `OptionCaptionML` a read uses (`option_caption_owner`).
+pub(crate) struct OptionCaptionOwner {
+    /// The table or table extension that declares the field.
+    pub object: usize,
+    /// What the read is called in a refusal.
+    pub what: String,
+    /// The table's number, the field's number and its `OptionCaption` list as written; `None` without a table number.
+    pub field: Option<(u32, u32, String)>,
 }

@@ -22,6 +22,7 @@ pub(super) fn apply(
         app.layout_files = m.layout_files.clone();
         (app.translations, app.package_data, app.package_data_files) = m.shipped_files();
         app.translation_files = m.translation_files.clone();
+        app.translation_source = m.translation_source.clone();
     }
     for (id, source) in layout_sources {
         if let Some(app) = program.apps.iter_mut().find(|a| a.id.eq_ignore_ascii_case(id)) {

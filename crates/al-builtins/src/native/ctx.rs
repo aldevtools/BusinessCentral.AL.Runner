@@ -94,11 +94,11 @@ pub trait Ctx: FormatCtx {
         Ok(None)
     }
 
-    /// [`Self::translated_app_read`] that lets the read through when no translation file of the app has a unit `xliff`: the
-    /// source text then stays in every language (an OptionCaption read, `System.TranslatedText#1` with a fifth argument).
-    fn translated_app_read_unit(&self, app: &str, what: &str, xliff: &str) -> Result<(), Signal> {
-        let _ = xliff;
-        self.translated_app_read(app, what)
+    /// The OptionCaption list of field `field` of table `table` in the language in force, when a translation file gives one
+    /// (ADR-053 step 2); `None` keeps the source captions. A context without a program has none.
+    fn translated_option_caption(&self, table: i32, field: i32) -> Result<Option<String>, Signal> {
+        let _ = (table, field);
+        Ok(None)
     }
 
     fn last_error(&self) -> AlError;

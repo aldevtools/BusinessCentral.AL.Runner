@@ -485,6 +485,11 @@ impl Session {
         if self.caption_refused(t.object as usize).is_some() {
             return al_builtins::native::UNPINNED_ERROR.to_string();
         }
+        self.source_caption(t)
+    }
+
+    /// The table's caption as its source declares it: a tableextension's Caption over its own, its Caption, or its name.
+    fn source_caption(&self, t: &TableDef) -> String {
         let o = &self.engine.program.objects[t.object as usize];
         if let Some((_, v)) = o.properties.iter().find(|(k, _)| k == al_ir::EXT_CAPTION_OVER_OWN) {
             return v.trim().trim_matches('\'').to_string();
@@ -506,9 +511,14 @@ impl Session {
     /// The caption a read of it gives (TableCaption, RecordRef.Caption, Format of a RecordId): refused where a
     /// tableextension sets it over another caption (`al_ir::CAPTION_REFUSED`).
     pub(crate) fn caption_checked(&self, t: &TableDef) -> Result<String, Signal> {
-        match self.caption_refused(t.object as usize) {
-            Some(why) => Err(Signal::unsupported(why)),
-            None => Ok(self.caption(t)),
+        let Some(why) = self.caption_refused(t.object as usize) else {
+            return Ok(self.caption(t));
+        };
+        // A caption a translation file of its app gives in the language in force (ADR-053 step 2).
+        match self.table_caption_translation(t.object as usize, why) {
+            Ok(Some(text)) => Ok(text),
+            Ok(None) => Ok(self.source_caption(t)),
+            Err(why) => Err(Signal::unsupported(why)),
         }
     }
 
