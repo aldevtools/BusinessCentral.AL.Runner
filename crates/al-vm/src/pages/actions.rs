@@ -774,63 +774,6 @@ impl Session {
             .ok_or_else(|| Signal::Unsupported("CardPageId names a page outside the workspace".into()))
     }
 
-    /// Whether the card a list's Edit action would open can be edited. Only `Editable = false`
-    /// is pinned (corpus testpage/TestPageModeSwitchAction_Tests.al:
-    /// ListWhoseCardIsReadOnlyLeavesTheEditActionVisibleButNotEnabled); any other restriction is refused.
-    pub(super) fn card_allows_edit(&self, card: usize) -> Result<bool, Signal> {
-        let engine = self.engine();
-        let prop = |n: &str| {
-            engine.program.objects[card]
-                .properties
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(n))
-                .map(|(_, v)| v.trim().to_ascii_lowercase())
-        };
-        if prop("ModifyAllowed").is_some_and(|v| v != "true") {
-            return unsupported("the Edit action of a list whose card sets ModifyAllowed (not pinned)");
-        }
-        match prop("Editable").as_deref() {
-            None | Some("true") => Ok(true),
-            Some("false") => Ok(false),
-            Some(_) => unsupported("the Edit action of a list whose card computes Editable (not pinned)"),
-        }
-    }
-
-    /// The built-in Edit or View action of a list page: opens the page named by the list's
-    /// `CardPageId` on the current row, editable or read-only, as a `RunObject` action would.
-    pub(super) fn list_card_action(&mut self, st: &St, edit: bool) -> Result<Value, Signal> {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
-        let Some(card) = effective_prop(&engine, object, "CardPageId")?.map(|v| v.trim_matches('"').to_string()) else {
-            return unsupported("the built-in Edit/View action of a list page with no CardPageId (not pinned)");
-        };
-        let Some(target) = engine.program.objects.heads().iter().position(|o| {
-            o.is_kind(al_ir::ObjKind::Page)
-                && (o.name.eq_ignore_ascii_case(&card) || o.id.is_some_and(|i| i.to_string() == card))
-        }) else {
-            return unsupported("CardPageId names a page outside the workspace");
-        };
-        // On the line `New()` started of a read-only List the card opens as without a record (`read_only_list_new_line_card`).
-        let new_line_card = st.borrow().cursor != Cursor::Row && self.read_only_list_new_line_card(st);
-        if st.borrow().cursor != Cursor::Row && !new_line_card {
-            return unsupported("the built-in Edit/View action of a list that stands on no stored row (not pinned)");
-        }
-        let ro = ir::RunObject {
-            kind: ir::RunKind::Page,
-            object: Some(target),
-            on_rec: !new_line_card,
-            mode: if edit { ir::RunMode::Edit } else { ir::RunMode::View },
-            link: None,
-            unsupported: None,
-        };
-        st.borrow_mut().refresh = false;
-        let card = self.run_object_page(st, &ro)?;
-        if new_line_card {
-            self.read_only_list_follows_card(st, &card)?;
-        }
-        Ok(Value::Null)
-    }
-
     /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action does nothing and raises nothing
     /// (corpus testpage/TestPageActionEnabledSourceField_Tests.al, TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
     pub(super) fn action_invoke(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {

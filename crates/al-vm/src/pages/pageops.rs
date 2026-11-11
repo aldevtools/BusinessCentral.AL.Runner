@@ -1215,7 +1215,8 @@ impl Session {
             // (pages/currpage/ClosedPageVariableCurrPageClose.al:83-99, Close_NeverRun), and so does
             // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:55
             // Close_AfterModalClosed) and after it closed with OK (pages/run-modal/P82PageVar.al:138 AfterRunModal_Members).
-            PageMethod::Close if method.recv() == PageRecv::Page && self.page_var_not_shown(st) => Ok(Value::Null),
+            // So does `CurrPage.Close()` in OnOpenPage of a Card over no table opened with OpenEdit (`no_source_close_in_open_ignored`).
+            PageMethod::Close if method.recv() == PageRecv::Page && self.close_does_nothing(st) => Ok(Value::Null),
             // In a Page-typed PageHandler of Page.Run the handler's Close does nothing: no trigger, and the handler goes on
             // (pages/page-handler-with-record/Y17PageHandlerRecord.al:301 PageTypedHandler_RunWithRecord_Close `handler;closed;`).
             PageMethod::Close
@@ -1223,7 +1224,6 @@ impl Session {
             {
                 Ok(Value::Null)
             }
-            PageMethod::Close if method.recv() == PageRecv::Page && self.no_source_close_in_open_ignored(st) => Ok(Value::Null),
             PageMethod::Close if method.recv() == PageRecv::Page => {
                 self.require_open(st)?;
                 self.restore_shown_row_on_close(st)?;

@@ -55,7 +55,9 @@ impl Session {
     /// Whether `st` is a page over no table, not a request page (it has its own rules), of a page type in `types`.
     fn no_source_of(&self, st: &St, types: &[&str]) -> bool {
         let object = st.borrow().object as usize;
-        !self.has_source(st) && !self.is_request_page(st) && types.contains(&self.engine.object_facts[object].page_type_lower())
+        !self.has_source(st)
+            && !self.is_request_page(st)
+            && types.contains(&self.engine.object_facts[object].page_type_lower())
     }
 
     /// A page over no table of a page type NoSourcePageEvents.al pins for open and close.
@@ -80,7 +82,12 @@ impl Session {
     /// (NoSourcePageEvents.al:3084 NoSourceCard_Navigate_Next_EventLog, :3104 Previous, :3124 First, :3144 Last `log after Last`
     /// empty; the same for a List, :3186-:3246, and a Worksheet, :3288-:3348). The Boolean they answer is not observed there:
     /// a call that uses it is refused, as is another page type.
-    pub(in crate::pages) fn no_source_move(&mut self, st: &St, how: PageMethod, result_used: bool) -> Result<Value, Signal> {
+    pub(in crate::pages) fn no_source_move(
+        &mut self,
+        st: &St,
+        how: PageMethod,
+        result_used: bool,
+    ) -> Result<Value, Signal> {
         if !self.no_source_of(st, &NAVIGATE_TYPES) || result_used {
             return unsupported(format!("{how}() on a page without a source table (not pinned)"));
         }
@@ -128,7 +135,9 @@ impl Session {
     /// `AllowClose`, as on a page with a source table; the other three hand nothing.
     pub(super) fn no_source_page_event(&mut self, st: &St, event: &str, allow: Option<bool>) -> Result<bool, Signal> {
         if !RAISED.contains(&event) {
-            return unsupported(format!("page event {event} on a page without a source table (not pinned)"));
+            return unsupported(format!(
+                "page event {event} on a page without a source table (not pinned)"
+            ));
         }
         let object = st.borrow().object as usize;
         let (names, mut args): (Vec<String>, Vec<Value>) = if event == "onqueryclosepageevent" {
@@ -273,5 +282,11 @@ impl Session {
         }
         parts.reverse();
         Ok(())
+    }
+
+    /// `CurrPage.Close()` or a Page variable's `Close()` that does nothing: a Page variable not shown (`page_var_not_shown`) or
+    /// the close in OnOpenPage `no_source_close_in_open_ignored` names.
+    pub(in crate::pages) fn close_does_nothing(&self, st: &St) -> bool {
+        self.page_var_not_shown(st) || self.no_source_close_in_open_ignored(st)
     }
 }

@@ -883,7 +883,8 @@ impl Session {
         let has_source = self.has_source(st);
         if !has_source {
             // OpenNew of a page over no table: by page type (`no_source_open_new`).
-            if mode == PageMode::New && !self.is_request_page(st) && self.no_source_open_new(st)? == NoSourceNew::Denied {
+            if mode == PageMode::New && !self.is_request_page(st) && self.no_source_open_new(st)? == NoSourceNew::Denied
+            {
                 return Err(self.no_source_open_new_denied(st)?);
             }
             // A page over no table shows its one implicit row: the expressions, then OnAfterGetCurrRecord. A card runs no

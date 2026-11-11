@@ -221,6 +221,7 @@ mod lookup_refresh;
 mod lookup_start;
 mod lookup_trigger;
 mod marked_refill_goto;
+mod modal_answer;
 mod modify_denied;
 pub(crate) mod modify_record_xrec;
 mod moved_onto_deleted;
@@ -236,17 +237,17 @@ mod validation_text;
 pub(crate) use open::written_by_routine;
 mod action_body;
 mod card_part_new_host;
+mod list_card_action;
 mod other_record_no_row;
 mod page_get_record;
-mod page_var_view;
 mod page_var_modeless_temp;
+mod page_var_view;
 mod pageops;
 mod part_filter_unsaved_host;
 mod part_host_update;
 mod part_insert_swallowed;
 mod part_visible_gate;
 mod provider_hidden;
-mod read_only_list_card;
 mod refill;
 mod refresh_new_line;
 mod rows;
@@ -958,7 +959,11 @@ impl Session {
             // A page over no table of a pinned page type never raises OnAfterGetRecordEvent, nor OnDeleteRecordEvent
             // (`no_source_events`).
             let no_source_pinned = !self.has_source(st) && self.no_source_type_pinned(st);
-            if *o == object && ev == "onaftergetrecordevent" && !self.declares(st, "onaftergetrecord") && !no_source_pinned {
+            if *o == object
+                && ev == "onaftergetrecordevent"
+                && !self.declares(st, "onaftergetrecord")
+                && !no_source_pinned
+            {
                 return unsupported(
                     "page event onaftergetrecordevent on a page that does not declare OnAfterGetRecord: when the test client \
                      raises it is not pinned"

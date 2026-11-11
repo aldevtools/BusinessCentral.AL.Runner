@@ -1448,9 +1448,7 @@ impl Session {
                 // OK and Yes confirm, Cancel and No cancel; a refused save keeps the page open
                 // (corpus testpage/lifecycle/TestPageClosingActions.al).
                 if name == "Cancel" {
-                    self.cancel_reads_card_row(st)?;
-                    self.cancel_refinds_static_lookup_row(st)?;
-                    self.no_source_lookup_cancel_reads(st)?;
+                    self.cancel_reads(st)?;
                 }
                 // Yes on a ConfirmationDialog whose control still holds a refused entry closes it as Cancel; the values it took stay
                 // (pages/values-allowed-set-value/Y37ValuesAllowedSetValue.al:193-196, :225-226; without a refused entry Yes reports Yes,
@@ -1985,6 +1983,14 @@ impl Session {
             self.populate_current(st)?;
         }
         Ok(())
+    }
+
+    /// What the client reads before Cancel closes the page: the row of a card, the row a static lookup finds again, and the
+    /// current record of a page over no table in lookup mode (`no_source_lookup_cancel_reads`).
+    fn cancel_reads(&mut self, st: &St) -> Result<(), Signal> {
+        self.cancel_reads_card_row(st)?;
+        self.cancel_refinds_static_lookup_row(st)?;
+        self.no_source_lookup_cancel_reads(st)
     }
 
     /// Before Cancel the client reads the row of a card.

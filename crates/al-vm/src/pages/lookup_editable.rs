@@ -29,9 +29,8 @@ impl Session {
         match self.engine.object_facts[object].page_type_lower() {
             "list" | "listpart" => Some(LookupLock::Everything),
             "cardpart" => Some(LookupLock::RecControls),
-            "" | "card" | "worksheet" | "document" | "listplus" | "standarddialog" | "navigatepage" | "confirmationdialog" => {
-                Some(LookupLock::Nothing)
-            }
+            "" | "card" | "worksheet" | "document" | "listplus" | "standarddialog" | "navigatepage"
+            | "confirmationdialog" => Some(LookupLock::Nothing),
             _ => None,
         }
     }
@@ -64,6 +63,9 @@ impl Session {
     /// NoSourceCardPart_RunModal_Cancel_EventLog `The built-in action = Cancel is not found on the page.`, :1549 ListPart).
     pub(super) fn lookup_part_without_cancel(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
-        matches!(self.engine.object_facts[object].page_type_lower(), "listpart" | "cardpart")
+        matches!(
+            self.engine.object_facts[object].page_type_lower(),
+            "listpart" | "cardpart"
+        )
     }
 }
