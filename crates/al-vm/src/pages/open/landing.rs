@@ -100,6 +100,29 @@ impl Session {
         page_of(&engine, st).triggers.iter().any(|(n, _)| n == name)
     }
 
+    /// Whether the only code that runs when the client reads a row is the page's own OnAfterGetRecord: the page declares it and
+    /// none of OnAfterGetCurrRecord, OnFindRecord, OnNextRecord and OnNewRecord, no page extension declares any of the five, and
+    /// no subscriber listens to the page's OnAfterGetRecordEvent, OnAfterGetCurrRecordEvent or OnNewRecordEvent. The pages of
+    /// the read pins in `long_view.rs` and `temp_ws_preloaded.rs` have that shape (LastOnLongList.al:92 page 63432, :120 page
+    /// 63433; PageVarOpenRow.al:402 page 63427); a page with more runs code those pins do not show.
+    pub(in crate::pages) fn reads_run_only_own_after_get_record(&self, st: &St) -> bool {
+        const ROW: [&str; 5] = [
+            "onaftergetrecord",
+            "onaftergetcurrrecord",
+            "onfindrecord",
+            "onnextrecord",
+            "onnewrecord",
+        ];
+        const EVENTS: [&str; 3] = ["onaftergetrecordevent", "onaftergetcurrrecordevent", "onnewrecordevent"];
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let object = st.borrow().object as usize;
+        self.declares(st, "onaftergetrecord")
+            && ROW[1..].iter().all(|t| !self.declares(st, t))
+            && !page.ext_triggers.iter().any(|(n, _, _)| ROW.contains(&n.as_str()))
+            && EVENTS.iter().all(|e| !engine.events.is_subscribed(object, e))
+    }
+
     /// FindFirst (`which` "-") or FindLast ("+") of the page's rowset. A page that declares
     /// OnFindRecord serves its rows from the trigger, which receives `Which` and answers whether it
     /// found a row (corpus pages/triggers/TestPageFindRecord.al:112, :160). The strings the client

@@ -234,6 +234,8 @@ pub struct PageState {
     pub temp_ws_preloaded: bool,
     /// The page runs from `CurrPage.Run()` in its own procedure (`run_page_var`), not from a Page variable's `Run()`.
     pub run_by_currpage: bool,
+    /// A `TestPage.Next()` on this page is running (`test_page_op_held`).
+    pub next_running: bool,
     /// A read of a list that serves its rows from OnFindRecord and OnNextRecord ran to the end of the view (an open whose view
     /// ends inside the window, a GoToKey that read on to the end): Next on the last row then answers false without asking the
     /// page (see `move_in_client_rows`).

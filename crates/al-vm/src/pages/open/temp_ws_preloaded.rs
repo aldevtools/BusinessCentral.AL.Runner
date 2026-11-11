@@ -7,7 +7,8 @@ use al_builtins::record_op::RecordOp;
 impl Session {
     /// The page's shape as page 63427 of PageVarOpenRow.al:402 has it: a Worksheet over a temporary source whose rows were set
     /// before the open (`temp_worksheet_set_before_open`), in a key other than the primary key, InsertAllowed = false, no
-    /// OnOpenPage, OnAfterGetRecord as its only row trigger, outside lookup mode, on its own, not a tree.
+    /// OnOpenPage (its own or an extension's), reads that run only its own OnAfterGetRecord
+    /// (`reads_run_only_own_after_get_record`), outside lookup mode, on its own, not a tree.
     pub(super) fn temp_ws_preloaded_without_onopenpage(&self, st: &St) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
         let shape = st.borrow().host.is_none()
@@ -16,10 +17,7 @@ impl Session {
             && rec.borrow().key != 0
             && self.tree_indentation(st).is_none()
             && !self.declares_or_ext_declares(st, "onopenpage")
-            && self.declares(st, "onaftergetrecord")
-            && ["onaftergetcurrrecord", "onfindrecord", "onnextrecord"]
-                .iter()
-                .all(|t| !self.declares(st, t));
+            && self.reads_run_only_own_after_get_record(st);
         Ok(shape && super::super::flag_denied(&self.engine(), st.borrow().object as usize, "InsertAllowed")?)
     }
 
@@ -94,10 +92,11 @@ impl Session {
     }
 
     /// `CurrPage.Update` on that page, standing on the first row of the view: the client reads the row, then every row from it
-    /// to the end of the view, then the row again (PageVarOpenRow.al:947 `log of the edit` `R:B R:B R:D R:A R:C R:B `, :975 run
+    /// to the end of the view, then the row again (PageVarOpenRow.al:947, after `Update(false)` in the OnValidate, `log of the edit` `R:B R:B R:D R:A R:C R:B `, :975 run
     /// modally, :1003 two rows `R:B R:B R:A R:B `). From another row it is not pinned. False when the page is not that page.
     pub(in crate::pages) fn refresh_temp_ws_preloaded(&mut self, st: &St) -> Result<bool, Signal> {
-        if !st.borrow().temp_ws_preloaded {
+        // Pinned for `CurrPage.Update(false)` only; after `Update(true)` the refresh is main's (not measured on this page).
+        if !st.borrow().temp_ws_preloaded || !st.borrow().refresh_update_false {
             return Ok(false);
         }
         let rec = self.page_rec(st);

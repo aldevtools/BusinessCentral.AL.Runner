@@ -12,14 +12,10 @@ impl Session {
     /// block of 20 new rows, a descending view of a page with OnFindRecord, and a list with the blank line are not pinned.
     pub(super) fn last_past_the_window(&mut self, st: &St, find_page: bool) -> Result<Option<bool>, Signal> {
         let rec = self.page_rec(st);
-        let whole = self.last_reads_long_view_pinned(st, find_page);
-        // An OpenEdit of the long list reads the same (LastOnLongList.al:306 OpenEdit_100Rows_Last `81: 20..100`); its page
-        // has no OnNewRecord, so whether the blank line is passed on the way is not seen there and is not pinned with one.
-        let new_line_unseen = whole && !self.declares(st, "onnewrecord");
-        if (st.borrow().new_line && !new_line_unseen)
-            || st.borrow().window_eof
-            || (find_page && !rec.borrow().ascending)
-        {
+        let whole = self.last_reads_long_view_pinned(st, find_page)?;
+        // On the pinned page an OpenEdit reads the same (LastOnLongList.al:306 OpenEdit_100Rows_Last `81: 20..100`): that page
+        // has no OnNewRecord, so the blank line is not seen on the way. Every other list with the blank line keeps main's move.
+        if (st.borrow().new_line && !whole) || st.borrow().window_eof || (find_page && !rec.borrow().ascending) {
             return Ok(None);
         }
         let before = self.xrec_before_move(st);
@@ -80,28 +76,29 @@ impl Session {
         Ok(())
     }
 
-    /// `Last` past a full window reads the last row it holds again, then every row after it in one go, however many blocks of 20
-    /// that is (corpus pages/long-list-open/LastOnLongList.al: 41 rows `reads of Last` `22: 20..41` (:253), 61 rows
-    /// `42: 20..61` (:269), 100 rows `81: 20..100` (:285), opened with OpenView, OpenEdit (:306), in a lookup-mode modal run of a
-    /// Page variable (:341, :362, :383) and by Page.RunModal (:411)). Pinned only for that page's shape: a List over a stored table in its
-    /// primary key, ascending, with OnAfterGetRecord as its only row trigger, opened on its own; every other shape keeps the
-    /// refusal of a second block.
-    fn last_reads_long_view_pinned(&self, st: &St, find_page: bool) -> bool {
+    /// `Last` past a full window reads the last row it holds again, then every row after it in one go (corpus
+    /// pages/long-list-open/LastOnLongList.al: 41 rows `reads of Last` `22: 20..41` (:253), 61 rows `42: 20..61` (:269), 100
+    /// rows `81: 20..100` (:285), opened with OpenView, OpenEdit (:306), in a lookup-mode modal run of a Page variable (:341,
+    /// :362, :383) and by Page.RunModal (:411)). The entry condition, all of it measured there: a List over a stored table in its
+    /// primary key, ascending, opened on its own and not for a new row, whose reads run only its own OnAfterGetRecord
+    /// (`reads_run_only_own_after_get_record`, page 63432 at :92), and a view of 41 to 100 rows. Every other shape keeps main's
+    /// behavior: the refusal of a second block, or the move of a list with the blank line.
+    fn last_reads_long_view_pinned(&mut self, st: &St, find_page: bool) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
-        let r = rec.borrow();
-        let s = st.borrow();
-        // LastOnLongList.al:92 page 63432: PageType = List, SourceTable over a stored table, only OnAfterGetRecord.
-        self.is_list_page(st)
-            && self.tree_indentation(st).is_none()
-            && s.host.is_none()
-            && !find_page
-            && !r.temporary
-            && r.key == 0
-            && r.ascending
-            && self.declares(st, "onaftergetrecord")
-            && ["onaftergetcurrrecord", "onfindrecord", "onnextrecord"]
-                .iter()
-                .all(|t| !self.declares(st, t))
+        let shape = {
+            let r = rec.borrow();
+            let s = st.borrow();
+            self.is_list_page(st)
+                && self.tree_indentation(st).is_none()
+                && s.host.is_none()
+                && s.mode != PageMode::New
+                && !find_page
+                && !r.temporary
+                && r.key == 0
+                && r.ascending
+                && self.reads_run_only_own_after_get_record(st)
+        };
+        Ok(shape && (41..=100).contains(&self.view_row_count(st)?))
     }
 
     /// The open of a collapsed tree over a temporary source whose view is longer than the window: after the window and the row
@@ -139,19 +136,22 @@ impl Session {
         Ok(())
     }
 
-    /// LastOnLongList.al:120 page 63433: a List page, ShowAsTree over an Integer field of a temporary source, OnAfterGetRecord
-    /// as its only row trigger, opened on its own.
-    fn tree_open_reads_on_pinned(&self, st: &St) -> Result<bool, Signal> {
+    /// The entry condition of the tree rule, all of it measured by LastOnLongList.al:482 Tree_TempSource_60Rows_OpenView_Walk:
+    /// page 63433 (:120), a List page with Editable = false, ShowAsTree over an Integer field of a temporary source, opened on
+    /// its own with OpenView, whose reads run only its own OnAfterGetRecord (`reads_run_only_own_after_get_record`), and a view
+    /// of 60 rows. OpenEdit, an editable tree and other row counts keep main's open (the window only).
+    fn tree_open_reads_on_pinned(&mut self, st: &St) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
-        Ok(self.is_list_page(st)
+        let object = st.borrow().object as usize;
+        let shape = self.is_list_page(st)
             && st.borrow().host.is_none()
+            && st.borrow().mode == PageMode::View
+            && super::flag_denied(&self.engine(), object, "Editable")?
             && rec.borrow().temporary
             && rec.borrow().key == 0
             && rec.borrow().ascending
             && self.tree_level_field(st)?.is_some()
-            && self.declares(st, "onaftergetrecord")
-            && ["onaftergetcurrrecord", "onfindrecord", "onnextrecord"]
-                .iter()
-                .all(|t| !self.declares(st, t)))
+            && self.reads_run_only_own_after_get_record(st);
+        Ok(shape && self.view_row_count(st)? == 60)
     }
 }

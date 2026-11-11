@@ -256,8 +256,17 @@ impl Session {
         s.host.is_none() && s.dirty && !s.trigger_errors.is_empty() && !s.errors.is_empty()
     }
 
-    /// `TestPage.*` with the rules above in front.
+    /// `TestPage.*` with the rules above in front. While a `Next` runs the page notes it (`PageState::next_running`), so a save
+    /// knows the call that asked for it (`typed_key_dropped_on_currpage_run`).
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
+        let next = method.method() == PageMethod::Next;
+        let before = std::mem::replace(&mut st.borrow_mut().next_running, next);
+        let r = self.test_page_op_rules(method, st, args);
+        st.borrow_mut().next_running = before;
+        r
+    }
+
+    fn test_page_op_rules(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         // Any TestPage method ends the shape `next_held_row_read` reads in; a `Next` notes its row again.
         st.borrow_mut().next_held_row = None;
         let name = method.method();

@@ -21,29 +21,6 @@ impl Session {
         Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound"))
     }
 
-    /// GoToKey with a lowercase text for a Code key field, or a value that is no value of the key's type: no row has that key
-    /// (pages/run-modal/P82TestPage.al:105 `lowercase` = No, the row shown stays (:106); :111 `wrong-type` raises the row
-    /// error). Pinned on a List with no row trigger (page 71188, P82Fixtures.al:381), where a miss reads nothing; on a page with
-    /// OnAfterGetRecord, OnAfterGetCurrRecord, OnFindRecord or OnNextRecord the walk a miss makes is not pinned for these key
-    /// forms, and neither is a part or another page type (al-runner issue 7757): refused.
-    pub(super) fn go_to_key_form_miss(&self, st: &St, result_used: bool) -> Result<Value, Signal> {
-        self.refuse_statement_miss_off_list(st, result_used)?;
-        let row_triggers = [
-            "onaftergetrecord",
-            "onaftergetcurrrecord",
-            "onfindrecord",
-            "onnextrecord",
-        ]
-        .iter()
-        .any(|t| self.declares(st, t));
-        if row_triggers || st.borrow().host.is_some() || !self.is_list_page(st) {
-            return unsupported(
-                "GoToKey with a lowercase Code key or a key value of another type, on a page with row triggers, a part or a page that is not a List (not pinned)",
-            );
-        }
-        self.go_to_key_miss(st, result_used)
-    }
-
     /// A page that is neither a list nor a part (a Card, a Document) is pinned for a miss whose result is used only
     /// (pages/W1Navigation.al:284 GoToKey_Card_WhichRowsAreRead `goto_99_miss` `No ... id=4`). Whether the statement form
     /// raises the row error there, as it does on a list, nothing pins: refused, before the walk back to the row it started from.
