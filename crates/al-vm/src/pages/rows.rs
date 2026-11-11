@@ -1347,6 +1347,7 @@ impl Session {
 
     /// Moves the cursor; the Boolean the move methods return.
     pub(super) fn page_move(&mut self, st: &St, how: PageMethod) -> Result<Value, Signal> {
+        let result_used = self.ret_used;
         if !(how == PageMethod::Next || how == PageMethod::Previous && st.borrow().cursor == Cursor::NewLine) {
             st.borrow_mut().refreshed_after_gone_move = false;
         }
@@ -1354,7 +1355,7 @@ impl Session {
             return Ok(answer);
         }
         if !self.has_source(st) {
-            return unsupported(format!("{how}() on a page without a source table"));
+            return self.no_source_move(st, how, result_used);
         }
         if let Some(moved) = self.move_off_untouched_new_line(st, how)? {
             return Ok(Value::Boolean(moved));
@@ -2784,6 +2785,7 @@ impl Session {
             return "Cancel".into();
         }
         match (requested, modal, lookup) {
+            ("OK", true, true) if self.lookup_reads_plain_ok(st) => "OK".into(),
             ("OK", true, true) => "LookupOK".into(),
             ("Cancel", true, true) => "LookupCancel".into(),
             ("Close", true, true) => "LookupCancel".into(),
@@ -2803,6 +2805,7 @@ impl Session {
         let page_type = self.engine.object_facts[object].page_type_lower().to_string();
         match page_type.as_str() {
             "standarddialog" | "promptdialog" | "confirmationdialog" => "Cancel",
+            _ if lookup && self.lookup_reads_plain_ok(st) => "OK",
             _ if lookup => "LookupCancel",
             _ => "OK",
         }
@@ -3214,6 +3217,9 @@ impl Session {
         // Kept, not pinned: a page without open parts closes without its close triggers, as before (handlers/
         // TestPageModalQueryClose_Tests.al PlainModal_HasNoBuiltInCancelAction, codeunit 60338's dialog cases,
         // TestPageQueryCloseError_Tests.al ErrorInQueryClosePage_*, P106RunInstance.al P106_Inst_RunModal_List pass through it).
+        if parts.is_empty() && self.no_source_type_pinned(st) {
+            return self.close_no_source_modal_after_handler_error(st);
+        }
         let asks = self.declares(st, "onqueryclosepage") || parts.iter().any(|p| self.declares(p, "onqueryclosepage"));
         if !asks || parts.is_empty() {
             return Ok(());

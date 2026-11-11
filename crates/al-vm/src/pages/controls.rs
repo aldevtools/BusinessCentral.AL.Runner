@@ -26,6 +26,7 @@ impl Session {
         .transpose()?;
         // The rows of a tree the client had expanded: putting the cut back after OnValidate may expand the parent of Rec's row.
         let expanded = st.borrow().expanded.clone();
+        self.read_held_row_before_set_value(st, idx)?;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
             if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
@@ -1447,6 +1448,7 @@ impl Session {
                 if name == "Cancel" {
                     self.cancel_reads_card_row(st)?;
                     self.cancel_refinds_static_lookup_row(st)?;
+                    self.no_source_lookup_cancel_reads(st)?;
                 }
                 // Yes on a ConfirmationDialog whose control still holds a refused entry closes it as Cancel; the values it took stay
                 // (pages/values-allowed-set-value/Y37ValuesAllowedSetValue.al:193-196, :225-226; without a refused entry Yes reports Yes,
@@ -1512,6 +1514,7 @@ impl Session {
             || self.control_eliminated(st, idx)
             || self.off_page(st, idx)
             || self.action_without_behaviour(st, idx)
+            || self.no_source_dialog_action_absent(st, idx)
         {
             let engine = self.engine();
             let ctl = &page_of(&engine, st).controls[idx];

@@ -1223,6 +1223,7 @@ impl Session {
             {
                 Ok(Value::Null)
             }
+            PageMethod::Close if method.recv() == PageRecv::Page && self.no_source_close_in_open_ignored(st) => Ok(Value::Null),
             PageMethod::Close if method.recv() == PageRecv::Page => {
                 self.require_open(st)?;
                 self.restore_shown_row_on_close(st)?;

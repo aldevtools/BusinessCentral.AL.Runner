@@ -882,25 +882,22 @@ impl Session {
     ) -> Result<(), Signal> {
         let has_source = self.has_source(st);
         if !has_source {
-            // A card over no table: OpenNew fails with DB:ClientInsertDenied after OnOpenPage, and no other trigger runs
-            // (testpage/P146PageExprSetValue.al:460 QG_NoSource_OpenNew_StepLog `qg open;`). Another
-            // page type is not pinned.
-            if mode == PageMode::New && !self.is_request_page(st) {
-                if !self.is_card(st) {
-                    return unsupported("OpenNew of a page without a source table other than a card (not pinned)");
-                }
+            // OpenNew of a page over no table: by page type (`no_source_open_new`).
+            if mode == PageMode::New && !self.is_request_page(st) && self.no_source_open_new(st)? == NoSourceNew::Denied {
                 return Err(self.no_source_open_new_denied(st)?);
             }
             // A page over no table shows its one implicit row: the expressions, then OnAfterGetCurrRecord. A card runs no
             // OnAfterGetRecord (P146PageExprSetValue.al:420 QG_NoSource_OpenEdit_StepLog, :440 QG_NoSource_OpenView_StepLog
-            // `qg open;qg agcr;`); for another page type it is not pinned and stays as it was.
+            // `qg open;qg agcr;`), nor does any page type `no_source_type_pinned` names (events/page-events/NoSourcePageEvents.al:257
+            // NoSourceList_OpenView_EventLog `List.page.OnOpenPage;List.OnOpenPageEvent;List.page.OnAfterGetCurrRecord;...`, and the
+            // same log for every page type there); for another page type it is not pinned and stays as it was.
             st.borrow_mut().cursor = Cursor::Row;
             self.populate_expressions(st)?;
-            if !self.is_card(st) || self.is_request_page(st) {
+            if (!self.is_card(st) || self.is_request_page(st)) && !self.no_source_type_pinned(st) {
                 self.page_trigger(st, "onaftergetrecord", vec![])?;
             }
             self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
-            self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+            self.no_source_open_current_record_event(st)?;
             return Ok(());
         }
         if mode == PageMode::New {

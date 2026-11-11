@@ -214,6 +214,8 @@ mod inserted_rows;
 mod leave_new_line;
 mod list_refresh;
 mod list_view_switch;
+mod lookup_editable;
+use lookup_editable::LookupLock;
 mod lookup_next;
 mod lookup_refresh;
 mod lookup_start;
@@ -223,6 +225,9 @@ mod modify_denied;
 pub(crate) mod modify_record_xrec;
 mod moved_onto_deleted;
 mod never_run_update;
+mod next_held_row_read;
+mod no_source_events;
+use no_source_events::NoSourceNew;
 mod open;
 mod ui_caption_translate;
 mod update_refresh_card;
@@ -808,7 +813,7 @@ impl Session {
             return Ok(allow.unwrap_or(true));
         }
         if engine.program.objects[object].rec_slot.is_none() {
-            return unsupported(format!("page event {event} on a page without a source table"));
+            return self.no_source_page_event(st, event, allow);
         }
         let rec = Value::Record(self.page_rec(st));
         let xobj = &engine.program.objects[object];
@@ -922,26 +927,6 @@ impl Session {
         self.raise(&call, &mut args)
     }
 
-    /// The reason to refuse the open of a page without a source table that a subscriber of a platform page event listens to.
-    /// No corpus test pins which of these events BC raises on such a page, in which order, or what `Rec` holds in the
-    /// subscriber (every pinned page event test has a SourceTable; docs/probes-needed.md "page events without a source
-    /// table"), so the page is refused before any of its code runs, whatever its type.
-    fn no_source_event_refusal(&self, engine: &Engine, st: &St, o: usize, ev: &str) -> Option<String> {
-        let object = st.borrow().object as usize;
-        let is_platform_event = al_ir::RAISED_PAGE_EVENTS.contains(&ev) || ev == "ondeleterecordevent";
-        let action_event = matches!(ev, "onbeforeactionevent" | "onafteractionevent");
-        if o != object || !is_platform_event || action_event || engine.program.objects[object].rec_slot.is_some() {
-            return None;
-        }
-        let kind = engine.object_facts[object]
-            .page_type
-            .as_ref()
-            .map_or("card", |k| k.lower());
-        Some(format!(
-            "page event {ev} on a page without a source table (PageType {kind}): when the test client raises it there is not pinned"
-        ))
-    }
-
     /// Refuses a page some subscriber listens to for an event the client does not raise yet.
     fn check_page_events(&self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
@@ -968,7 +953,10 @@ impl Session {
             // The action events are checked when an action is invoked (`refuse_unpinned_action_subscribers`): a page that
             // nothing invokes opens (events/page-events/PageActionEventsWithoutTrigger.al:
             // ActionEvents_OpenWithoutInvoke_SubscribersOfTriggerlessActions).
-            if *o == object && ev == "onaftergetrecordevent" && !self.declares(st, "onaftergetrecord") {
+            // A page over no table of a pinned page type never raises OnAfterGetRecordEvent, nor OnDeleteRecordEvent
+            // (`no_source_events`).
+            let no_source_pinned = !self.has_source(st) && self.no_source_type_pinned(st);
+            if *o == object && ev == "onaftergetrecordevent" && !self.declares(st, "onaftergetrecord") && !no_source_pinned {
                 return unsupported(
                     "page event onaftergetrecordevent on a page that does not declare OnAfterGetRecord: when the test client \
                      raises it is not pinned"
@@ -988,7 +976,7 @@ impl Session {
                 // Application subscribes to it on General Journal and the other journals (88 tests of
                 // Tests-General Journal were refused at the open).
                 && !(ev == "ondeleterecordevent"
-                    && al_builtins::assumptions::hit(al_builtins::assumptions::Assumption::PageRowDeleteEventNotRaised))
+                    && (no_source_pinned || al_builtins::assumptions::hit(al_builtins::assumptions::Assumption::PageRowDeleteEventNotRaised)))
             {
                 // Events a page publishes itself (IntegrationEvent) are ordinary routines.
                 let published = engine

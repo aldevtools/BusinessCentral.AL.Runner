@@ -1490,9 +1490,10 @@ impl Session {
             // A card without a source table runs OnAfterGetCurrRecord once after each action, also after one that called
             // CurrPage.Update(false) (testpage/P146PageExprSetValue.al:351
             // P146_NoSourceTable_SetValue_And_Action `log after bump`, :420 QG_NoSource_OpenEdit_StepLog `qg action;qg agcr;`,
-            // `qg update;qg update done;qg agcr;`). Another page type is not pinned.
+            // `qg update;qg update done;qg agcr;`); so do the page types `no_source_action_refresh_pinned` names. Another page
+            // type is not pinned.
             if !self.has_source(st) && st.borrow().open && !self.is_request_page(st) {
-                if !self.is_card(st) {
+                if !self.is_card(st) && !self.no_source_action_refresh_pinned(st) {
                     if self.declares(st, "onaftergetcurrrecord") {
                         return unsupported(
                             "an action on a page without a source table other than a card that declares OnAfterGetCurrRecord (not pinned)",
