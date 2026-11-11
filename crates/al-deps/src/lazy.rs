@@ -132,6 +132,139 @@ impl al_ir::LayoutSource for PackageFiles {
     }
 }
 
+/// How many inflated bytes of a translation file [`PackageTranslations`] reads for its `<file target-language>`.
+const XLIFF_HEAD: usize = 16 << 10;
+
+/// Where one translation file of a [`PackageTranslations`] lives.
+enum XliffAt {
+    Entry(Entry),
+    File(std::path::PathBuf),
+}
+
+/// The translation files of a dependency app's package or folder (`al_ir::TranslationSource`), ADR-053 step 2. The first
+/// ask reads the zip directory and the start of each file for its language; a file's units are read on the first ask for
+/// that file. A wrapper package, or a file that is not a zip, gives no files (its translated reads stay refused).
+pub struct PackageTranslations {
+    path: std::path::PathBuf,
+    open: std::sync::OnceLock<OpenTranslations>,
+}
+
+struct OpenTranslations {
+    file: Option<(File, u64)>,
+    at: Vec<XliffAt>,
+    heads: Vec<al_ir::TranslationFile>,
+    read: Vec<std::sync::OnceLock<al_ir::TranslationFile>>,
+}
+
+impl PackageTranslations {
+    pub fn new(path: std::path::PathBuf) -> PackageTranslations {
+        PackageTranslations {
+            path,
+            open: std::sync::OnceLock::new(),
+        }
+    }
+
+    fn open(&self) -> &OpenTranslations {
+        self.open.get_or_init(|| {
+            let (file, mut found) = if self.path.is_dir() {
+                let found = crate::load::translation_file_paths(&self.path)
+                    .into_iter()
+                    .map(|(name, p)| (name, XliffAt::File(p)))
+                    .collect();
+                (None, found)
+            } else {
+                match open_directory(&self.path) {
+                    Some((file, base, entries)) => {
+                        let app = entries.iter().any(|e| e.name == "NavxManifest.xml");
+                        let found = entries
+                            .into_iter()
+                            .filter_map(|e| {
+                                let name = if app {
+                                    percent_decode_once(&e.name)
+                                } else {
+                                    e.name.clone()
+                                };
+                                crate::package::is_translation_file(&name).then_some((name, XliffAt::Entry(e)))
+                            })
+                            .collect();
+                        (Some((file, base)), found)
+                    }
+                    None => (None, Vec::new()),
+                }
+            };
+            found.sort_by(|a: &(String, XliffAt), b| a.0.cmp(&b.0));
+            let mut heads = Vec::with_capacity(found.len());
+            let mut at = Vec::with_capacity(found.len());
+            for (name, place) in found {
+                let start = xliff_start(file.as_ref(), &place);
+                let mut head = al_ir::TranslationFile {
+                    name,
+                    ..Default::default()
+                };
+                match start.and_then(|b| crate::xliff::target_language(&b)) {
+                    Ok(l) => head.target_language = l,
+                    Err(e) => head.error = Some(e),
+                }
+                heads.push(head);
+                at.push(place);
+            }
+            let read = heads.iter().map(|_| std::sync::OnceLock::new()).collect();
+            OpenTranslations { file, at, heads, read }
+        })
+    }
+}
+
+/// The first [`XLIFF_HEAD`] inflated bytes (or fewer) of a translation file.
+fn xliff_start(file: Option<&(File, u64)>, at: &XliffAt) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    match (at, file) {
+        (XliffAt::File(p), _) => {
+            let mut out = Vec::new();
+            File::open(p)
+                .and_then(|f| f.take(XLIFF_HEAD as u64).read_to_end(&mut out))
+                .map_err(|e| e.to_string())?;
+            Ok(out)
+        }
+        (XliffAt::Entry(e), Some((f, base))) => {
+            let at = base + e.local_offset() as u64;
+            let mut head = [0u8; 30];
+            read_exact_at(f, at, &mut head).map_err(|err| err.to_string())?;
+            let skip = local_header_len(&head, &e.name).map_err(|err| err.to_string())?;
+            let mut raw = vec![0u8; e.compressed_size().min(XLIFF_HEAD)];
+            read_exact_at(f, at + skip as u64, &mut raw).map_err(|err| err.to_string())?;
+            let mut out = Vec::new();
+            let mut decoder = e.decoder().map_err(|err| err.to_string())?;
+            // The stored bytes are cut, so the inflater stops where they end: what it gave so far is the start.
+            let _ = decoder.push::<crate::zip::ZipError>(&raw, &mut |piece| {
+                out.extend_from_slice(piece);
+                Ok(())
+            });
+            out.truncate(XLIFF_HEAD);
+            Ok(out)
+        }
+        (XliffAt::Entry(_), None) => Err("the package cannot be read".into()),
+    }
+}
+
+impl al_ir::TranslationSource for PackageTranslations {
+    fn files(&self) -> &[al_ir::TranslationFile] {
+        &self.open().heads
+    }
+
+    fn file(&self, index: usize) -> &al_ir::TranslationFile {
+        let open = self.open();
+        open.read[index].get_or_init(|| {
+            let head = &open.heads[index];
+            let bytes = match (&open.at[index], &open.file) {
+                (XliffAt::File(p), _) => std::fs::read(p).map_err(|e| e.to_string()),
+                (XliffAt::Entry(e), Some((f, base))) => entry_bytes(f, *base, e),
+                (XliffAt::Entry(_), None) => Err("the package cannot be read".into()),
+            };
+            crate::xliff::translation_file(head.name.clone(), bytes.and_then(|b| crate::xliff::parse(&b)))
+        })
+    }
+}
+
 /// Reads the manifest and the central directory of the package at `path`. `None`: the package
 /// cannot be read lazily (a wrapper around an inner `.app`, an unreadable or unusual file); the
 /// caller reads it as usual and gets the error, if there is one, from that.
@@ -258,6 +391,60 @@ mod tests {
         );
         std::fs::write(dir.path().join("w.app"), wrapper).unwrap();
         assert!(read_lazy(&dir.path().join("w.app"), &Vars::default()).is_none());
+    }
+
+    const XLF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<xliff version="1.2"><file datatype="xml" source-language="en-US" target-language="LANG" original="App"><body><group id="body">
+<trans-unit id="Codeunit 1 - NamedType 2"><source>Hello</source><target state="translated">TEXT</target></trans-unit>
+</group></body></file></xliff>"#;
+
+    #[test]
+    fn package_translations_name_the_files_first_and_read_one_when_asked() {
+        use al_ir::TranslationSource;
+        let dir = tempfile::tempdir().unwrap();
+        let nl = XLF.replace("LANG", "nl-BE").replace("TEXT", "Hallo");
+        let fr = XLF.replace("LANG", "fr-BE").replace("TEXT", "Bonjour");
+        let path = write(
+            dir.path(),
+            "t.app",
+            &[
+                ("Translations/App%2520X.nl-BE.xlf", nl.as_str()),
+                ("Translations/App%2520X.fr-BE.xlf", fr.as_str()),
+                ("Translations/App%2520X.g.xlf", "not read"),
+                ("Translations/Broken.de-DE.xlf", "<xliff><nothing/></xliff>"),
+            ],
+        );
+        let t = PackageTranslations::new(path);
+        let heads: Vec<(&str, &str, bool)> = t
+            .files()
+            .iter()
+            .map(|f| (f.name.as_str(), f.target_language.as_str(), f.error.is_some()))
+            .collect();
+        assert_eq!(
+            heads,
+            [
+                ("Translations/App%20X.fr-BE.xlf", "fr-BE", false),
+                ("Translations/App%20X.nl-BE.xlf", "nl-BE", false),
+                ("Translations/Broken.de-DE.xlf", "", true),
+            ]
+        );
+        assert!(t.files().iter().all(|f| f.units.is_empty()));
+        assert_eq!(t.file(1).target("Codeunit 1 - NamedType 2"), Some("Hallo"));
+        assert_eq!(
+            t.file(0).unit("Codeunit 1 - NamedType 2").unwrap().1,
+            &al_ir::UnitState::Translated
+        );
+        assert!(t.file(2).error.is_some());
+        // A folder of a dependency app gives the same.
+        let folder = dir.path().join("app");
+        std::fs::create_dir_all(folder.join("Translations")).unwrap();
+        std::fs::write(folder.join("Translations/App.nl-NL.xlf"), XLF.replace("LANG", "nl-NL")).unwrap();
+        let t = PackageTranslations::new(folder);
+        assert_eq!(t.files()[0].target_language, "nl-NL");
+        assert_eq!(t.file(0).target("Codeunit 1 - NamedType 2"), Some("TEXT"));
+        // A file that is not a package gives no files.
+        std::fs::write(dir.path().join("junk.app"), b"not a zip").unwrap();
+        assert!(PackageTranslations::new(dir.path().join("junk.app")).files().is_empty());
     }
 
     #[test]

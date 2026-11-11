@@ -1005,7 +1005,14 @@ fn format_of_an_option_field_with_captions_formats_the_caption() {
             return None;
         };
         let ir::Arg::Value(v) = &args[0] else { return None };
-        Some(v.clone())
+        // The captions go through `System.TranslatedText#1` last, which a translation file can change at run time (ADR-053).
+        match v {
+            ir::Expr::Builtin { args, .. } if args.len() >= 3 => match &args[0] {
+                ir::Arg::Value(inner) => Some(inner.clone()),
+                _ => None,
+            },
+            v => Some(v.clone()),
+        }
     };
     let want = RtType::Option(vec!["Draft".into(), "Validation in Process".into()].into());
     assert!(

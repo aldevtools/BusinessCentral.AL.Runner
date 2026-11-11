@@ -355,6 +355,7 @@ fn dutch() -> al_ir::TranslationFile {
         target_language: "nl-BE".into(),
         units,
         error: None,
+        states: Vec::new(),
     }
 }
 
@@ -460,7 +461,7 @@ codeunit 50756 "ALR Translation Repro"
     end;
 
     [Test]
-    procedure Evaluate_Enum_SourceCaption_IsNotPinned()
+    procedure Evaluate_Enum_SourceCaption_IsRejected()
     var
         Status: Enum "ALR Status";
     begin
@@ -469,7 +470,7 @@ codeunit 50756 "ALR Translation Repro"
     end;
 
     [Test]
-    procedure TableCaption_StaysRefused()
+    procedure TableCaption_WithoutAUnit_KeepsTheSource()
     var
         Item: Record "ALR Item";
     begin
@@ -512,8 +513,18 @@ fn run_translated(
 ) -> Vec<(String, Outcome, Vec<al_testrun::assumptions::Assumption>)> {
     let mut m = manifest(true);
     m.translation_files = files;
+    run_with(m)
+}
+
+/// The tests of the second app, whose app has manifest `m`.
+fn run_with(m: Manifest) -> Vec<(String, Outcome, Vec<al_testrun::assumptions::Assumption>)> {
+    run_src(APP2, TESTS2, m)
+}
+
+/// The tests `tests` of an app with source `src` and manifest `m`.
+fn run_src(src: &str, tests: &str, m: Manifest) -> Vec<(String, Outcome, Vec<al_testrun::assumptions::Assumption>)> {
     let rt = CorpusRuntime::try_run_suites_with(
-        vec![app("tests", &["app"], TESTS2), app("app", &[], APP2)],
+        vec![app("tests", &["app"], tests), app("app", &[], src)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Workspace],
         &[manifest(false), m],
         &Default::default(),
@@ -566,17 +577,196 @@ fn a_text_without_a_unit_or_in_1033_keeps_the_source_and_a_field_caption_is_tran
 #[test]
 fn unpinned_reads_under_a_translation_stay_refused() {
     let got = run_translated(vec![dutch()]);
-    for (test, want) in [
-        ("Evaluate_Enum_SourceCaption_IsNotPinned", "Evaluate"),
-        ("TableCaption_StaysRefused", "the caption of table ALR Item"),
-        // A file for nl-BE only, read under nl-NL: which file BC falls back to is not pinned (ADR-053 P3).
-        ("Dutch_OfTheNetherlands_IsNotPinned", "the Label 'Hello world'"),
-    ] {
+    // A file for nl-BE only, read under nl-NL: only the nl-NL file under nl-BE is pinned (TaXliff.al:146, :176; ADR-053 P3).
+    let (_, outcome, _) = find(&got, "Dutch_OfTheNetherlands_IsNotPinned");
+    assert!(
+        matches!(outcome, Outcome::NotRun(why) if why.contains("the Label 'Hello world'")),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn the_source_caption_of_a_translated_value_is_rejected_and_a_table_caption_without_a_unit_is_the_source() {
+    let got = run_translated(vec![dutch()]);
+    // Pinned: localization/app-xliff/TaXliff.al:140 (`Released` false|0 under 1043) and :216 (the table caption through its
+    // unit; without one the source stays, as for every text: :138, :173).
+    let (_, outcome, _) = find(&got, "Evaluate_Enum_SourceCaption_IsRejected");
+    assert_eq!(outcome, &Outcome::Pass, "{got:?}");
+    let (_, outcome, _) = find(&got, "TableCaption_WithoutAUnit_KeepsTheSource");
+    assert!(matches!(outcome, Outcome::Fail(m) if m.contains("Item")), "{outcome:?}");
+}
+
+#[test]
+fn a_package_gives_its_translation_files_on_demand() {
+    struct Source(Vec<al_ir::TranslationFile>, Vec<al_ir::TranslationFile>);
+    impl al_ir::TranslationSource for Source {
+        fn files(&self) -> &[al_ir::TranslationFile] {
+            &self.0
+        }
+        fn file(&self, index: usize) -> &al_ir::TranslationFile {
+            &self.1[index]
+        }
+    }
+    let read = dutch();
+    let head = al_ir::TranslationFile {
+        units: Vec::new(),
+        ..read.clone()
+    };
+    let mut m = manifest(true);
+    m.translation_source = Some(al_ir::TranslationSourceRef(std::sync::Arc::new(Source(
+        vec![head],
+        vec![read],
+    ))));
+    let got = run_with(m);
+    // The same as the app folder's file (TaXliff.al TA_Label_Text, TA_Enum_Format_And_Evaluate).
+    for test in ["Format_Enum_UsesDutchCaption", "Label_UsesDutchText"] {
         let (_, outcome, _) = find(&got, test);
-        assert!(
-            matches!(outcome, Outcome::NotRun(why) if why.contains(want)),
-            "{test}: want {want:?}, got {outcome:?}"
+        assert_eq!(outcome, &Outcome::Pass, "{test}: {got:?}");
+    }
+}
+
+#[test]
+fn a_unit_with_any_state_gives_its_target_flagged() {
+    let mut file = dutch();
+    file.states = file
+        .units
+        .iter()
+        .map(|(k, _)| {
+            if k.starts_with("Enum ") {
+                al_ir::UnitState::Other("needs-review-translation".into())
+            } else {
+                al_ir::UnitState::Translated
+            }
+        })
+        .collect();
+    let got = run_translated(vec![file]);
+    // Every state gives the target as main did (ADR-053 decision 1), flagged until corpus probe TlTranslationCells.al
+    // TL_UnitForms_Dutch pins the states.
+    for test in ["Label_UsesDutchText", "Format_Enum_UsesDutchCaption"] {
+        let (_, outcome, assumed) = find(&got, test);
+        assert_eq!(outcome, &Outcome::Pass, "{test}: {got:?}");
+        assert_eq!(
+            assumed,
+            &[al_testrun::assumptions::Assumption::XliffUnitState],
+            "{test}"
         );
+    }
+}
+
+#[test]
+fn the_exact_culture_file_wins_over_a_sibling_file_that_has_the_unit() {
+    let mut sibling = dutch();
+    sibling.name = "Translations/AL Runner Repros.nl-NL.xlf".into();
+    sibling.target_language = "nl-NL".into();
+    for (_, t) in &mut sibling.units {
+        *t = format!("{t} NL");
+    }
+    let got = run_translated(vec![dutch(), sibling]);
+    let (_, outcome, assumed) = find(&got, "Label_UsesDutchText");
+    assert_eq!(outcome, &Outcome::Pass, "{got:?}");
+    assert_eq!(
+        assumed,
+        &[al_testrun::assumptions::Assumption::XliffExactCultureOverSibling]
+    );
+}
+
+const OPT_APP: &str = r#"
+table 50790 "ALR Opt"
+{
+    Caption = 'Opt';
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Kind; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'Alpha,Second,Third'; }
+    }
+    keys { key(PK; "No.") { } }
+}
+table 50791 "ALR Opt Base"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+tableextension 50792 "ALR Opt Ext" extends "ALR Opt Base"
+{
+    fields { field(50792; ExtKind; Option) { OptionMembers = One,Two; OptionCaption = 'One,Two'; } }
+}
+"#;
+
+const OPT_TESTS: &str = r#"
+codeunit 50793 "ALR Opt Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure MemberNameEqualToItsCaption()
+    var
+        R: Record "ALR Opt";
+    begin
+        GlobalLanguage(1043);
+        if not Evaluate(R.Kind, 'Alpha') then Error('no');
+        GlobalLanguage(1033);
+        if R.Kind <> R.Kind::Alpha then Error('wrong');
+    end;
+
+    [Test]
+    procedure MemberNameOtherThanItsCaption()
+    var
+        R: Record "ALR Opt";
+    begin
+        GlobalLanguage(1043);
+        if Evaluate(R.Kind, 'Gamma') then;
+    end;
+
+    [Test]
+    procedure FormatOfAnExtensionOptionField()
+    var
+        R: Record "ALR Opt Base";
+    begin
+        R.ExtKind := R.ExtKind::Two;
+        GlobalLanguage(1043);
+        Error(Format(R.ExtKind));
+    end;
+}
+"#;
+
+#[test]
+fn option_captions_run_only_in_the_pinned_shapes() {
+    let mut m = manifest(true);
+    m.translation_files = vec![al_ir::TranslationFile {
+        name: "Translations/App.nl-NL.xlf".into(),
+        target_language: "nl-NL".into(),
+        units: {
+            let mut u = vec![
+                (
+                    unit(&[("Table", "ALR Opt"), ("Field", "Kind"), ("Property", "OptionCaption")]),
+                    "Eerste,Tweede,Derde".to_string(),
+                ),
+                (
+                    unit(&[
+                        ("TableExtension", "ALR Opt Ext"),
+                        ("Field", "ExtKind"),
+                        ("Property", "OptionCaption"),
+                    ]),
+                    "Een,Twee".to_string(),
+                ),
+            ];
+            u.sort();
+            u
+        },
+        error: None,
+        states: Vec::new(),
+    }];
+    let got = run_src(OPT_APP, OPT_TESTS, m);
+    // TaXliff.al:220: a member name that is also its source caption evaluates.
+    let (_, outcome, _) = find(&got, "MemberNameEqualToItsCaption");
+    assert_eq!(outcome, &Outcome::Pass, "{got:?}");
+    // Not pinned: a member name that differs from its source caption, and a field a table extension declares.
+    for test in ["MemberNameOtherThanItsCaption", "FormatOfAnExtensionOptionField"] {
+        let (_, outcome, _) = find(&got, test);
+        assert!(matches!(outcome, Outcome::NotRun(_)), "{test}: {outcome:?}");
     }
 }
 
@@ -706,6 +896,7 @@ fn run_extension_captions() -> Vec<(String, Outcome, Vec<al_testrun::assumptions
             "Betalings-ID".to_string(),
         )],
         error: None,
+        states: Vec::new(),
     }];
     let rt = CorpusRuntime::try_run_suites_with(
         vec![
@@ -747,11 +938,111 @@ fn a_table_extension_field_caption_is_translated_from_the_apps_file() {
             "{test}: a clean pass, R7144ExtFieldCaption.al:9-12, :80-83 and :99-103 pin it (corpus PR 1156)"
         );
     }
-    // An extension of a table of its own app: BC kept the source caption with such a unit (R7144ExtFieldCaption.al:83);
-    // which unit it reads is not pinned.
+    // An extension of a table of its own app keeps the source caption (R7144ExtFieldCaption.al:83, :103).
     let (_, outcome, _) = find(&got, "OwnTableExtensionFieldCaptionInDutch");
     assert!(
-        matches!(outcome, Outcome::NotRun(why) if why.contains("translations are not supported")),
+        matches!(outcome, Outcome::Fail(m) if m == "Own extension"),
         "{outcome:?}"
     );
+}
+
+/// The exact culture's file decides even when it lacks the unit and a sibling file of the same language has it: the source
+/// text stays, as the runtime gave before, flagged under `xliff-exact-culture-over-sibling`.
+#[test]
+fn the_exact_culture_file_without_the_unit_keeps_the_source_beside_a_sibling_that_has_it() {
+    let mut own = dutch();
+    let hello = unit(&[("Codeunit", "ALR Labels"), ("NamedType", "HelloLbl")]);
+    own.units.retain(|(k, _)| *k != hello);
+    let mut sibling = dutch();
+    sibling.name = "Translations/AL Runner Repros.nl-NL.xlf".into();
+    sibling.target_language = "nl-NL".into();
+    let got = run_translated(vec![own, sibling]);
+    let (_, outcome, assumed) = find(&got, "Label_UsesDutchText");
+    assert!(
+        matches!(outcome, Outcome::Fail(m) if m.contains("Label under 2067: Hello world")),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        assumed,
+        &[al_testrun::assumptions::Assumption::XliffExactCultureOverSibling]
+    );
+}
+
+const OPT_BASE_APP: &str = r#"
+table 50820 "ALR Opt Owner"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Kind; Option) { OptionMembers = Alpha,Beta; OptionCaption = 'First,Second'; }
+    }
+    keys { key(PK; "No.") { } }
+}
+"#;
+
+const OPT_EXT_APP: &str = r#"
+tableextension 50821 "ALR Opt Owner Ext" extends "ALR Opt Owner"
+{
+    fields { field(50821; Note; Text[30]) { Caption = 'Note'; } }
+}
+"#;
+
+const OPT_EXT_TESTS: &str = r#"
+codeunit 50822 "ALR Opt Owner Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FormatOfAnOptionOfAnAppWithoutAFile()
+    var
+        R: Record "ALR Opt Owner";
+    begin
+        R.Kind := R.Kind::Beta;
+        GlobalLanguage(1031);
+        Error(Format(R.Kind));
+    end;
+}
+"#;
+
+/// A table of an app with no translation file, extended by an app with a de-DE file: the option field has no unit, so
+/// Format keeps its own caption under 1031 (a value without a unit keeps its source, TaXliff.al:138).
+#[test]
+fn an_option_without_a_unit_of_an_extended_table_keeps_its_caption() {
+    let mut m = manifest(true);
+    m.translation_files = vec![al_ir::TranslationFile {
+        name: "Translations/Ext.de-DE.xlf".into(),
+        target_language: "de-DE".into(),
+        units: vec![(
+            unit(&[
+                ("TableExtension", "ALR Opt Owner Ext"),
+                ("Field", "Note"),
+                ("Property", "Caption"),
+            ]),
+            "Notiz".to_string(),
+        )],
+        error: None,
+        states: Vec::new(),
+    }];
+    let rt = CorpusRuntime::try_run_suites_with(
+        vec![
+            app("tests", &["ext", "base"], OPT_EXT_TESTS),
+            app("ext", &["base"], OPT_EXT_APP),
+            app("base", &[], OPT_BASE_APP),
+        ],
+        vec![al_sema::AppKind::Workspace; 3],
+        &[manifest(false), m, manifest(false)],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    )
+    .expect("the run starts");
+    let got: Vec<_> = rt
+        .results()
+        .iter()
+        .map(|r| (r.test.clone(), r.outcome.clone(), r.assumptions.clone()))
+        .collect();
+    let (_, outcome, _) = find(&got, "FormatOfAnOptionOfAnAppWithoutAFile");
+    assert!(matches!(outcome, Outcome::Fail(m) if m == "Second"), "{outcome:?}");
 }

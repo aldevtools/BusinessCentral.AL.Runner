@@ -860,9 +860,10 @@ impl Lowerer<'_> {
                 // translation file could change them (ADR-053 step 1).
                 if id == "System.Evaluate#1" && matches!(out.get(1), Some(ir::Arg::Value(_))) {
                     if let Some(owner) = args.first().and_then(|a| self.option_caption_owner(a)) {
+                        let members = self.option_field_members(&args[0]).unwrap_or_default();
                         let placeholder = ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0)));
                         if let ir::Arg::Value(v) = std::mem::replace(&mut out[1], placeholder) {
-                            out[1] = ir::Arg::Value(self.translated_option_text(v, owner)?);
+                            out[1] = ir::Arg::Value(self.translated_option_text(v, owner, Some(&members))?);
                         }
                     }
                 }
