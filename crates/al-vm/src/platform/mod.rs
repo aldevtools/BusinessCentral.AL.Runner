@@ -190,7 +190,7 @@ struct SharedListings {
 struct ProgramListings {
     program: std::sync::Weak<al_ir::Program>,
     target: Option<al_version::Target>,
-    /// By kind, and for a listing of the apps the engine's uninstalled apps (`apps::lists_apps`).
+    /// By kind and the engine's uninstalled apps (`Engine::app_installed`).
     tables: HashMap<(Virtual, Vec<u32>), ListingSlot>,
 }
 
@@ -234,11 +234,9 @@ impl SharedListings {
             // The program asked for last is the last to go.
             let last = programs.len() - 1;
             programs.swap(at, last);
-            // A listing of the apps leaves out the engine's uninstalled apps (ADR-073 Phase 2): kept per set of them.
-            let apps = match apps::lists_apps(kind) {
-                true => engine.uninstalled_apps.iter().copied().collect(),
-                false => Vec::new(),
-            };
+            // A listing leaves out the objects and apps the engine's tenant does not have (`Engine::app_installed`,
+            // ADR-073 Phase 2): kept per set of them.
+            let apps = engine.uninstalled_apps.iter().copied().collect();
             programs[last].tables.entry((kind, apps)).or_default().clone()
         };
         slot.get_or_init(|| mat::SharedMat::try_new(build()).ok().map(Arc::new))

@@ -63,25 +63,15 @@ impl Route {
     }
 }
 
-/// The listings of the apps on the tenant, which leave out the engine's uninstalled apps (`Engine::uninstalled_apps`:
-/// the try-write suite's app on the main suites' engine, ADR-073 Phase 2, whose job does not have it; the main test
-/// record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al counts the rows of the apps by its publisher).
-pub(super) fn lists_apps(kind: super::Virtual) -> bool {
-    use super::Virtual as V;
-    matches!(
-        kind,
-        V::NavAppInstalledApp | V::NavAppExtra | V::InstalledApplication | V::PublishedApplication | V::TenantMedia
-    )
-}
-
-/// The apps of the program on the tenant of `p`'s engine (all but `Engine::uninstalled_apps`), with their indexes.
+/// The apps of the program on the tenant of the engine (`Engine::app_installed`), with their indexes. The main test
+/// record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al counts the rows of the apps by its publisher (ADR-073 Phase 2).
 fn tenant_apps(engine: &crate::Engine) -> impl Iterator<Item = (usize, &al_ir::AppInfo)> {
     engine
         .program
         .apps
         .iter()
         .enumerate()
-        .filter(move |(i, _)| !engine.uninstalled_apps.contains(&(*i as u32)))
+        .filter(move |(i, _)| engine.app_installed(*i as u32))
 }
 
 /// NAV App Installed App: "App ID" (1), "Package ID" (2), Name (3), Publisher (4), version (5 to 8), compatibility (9 to 12),

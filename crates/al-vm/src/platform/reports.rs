@@ -39,9 +39,7 @@ pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     // (record/TestEventSubscriptionColumnsReportLayoutListContracts.al:131-165).
     // The layouts are in the objects themselves: only the reports and report extensions are made.
     for o in c
-        .objects
-        .iter()
-        .enumerate()
+        .installed_indexed()
         .filter(|(_, o)| matches!(o.kind, al_ir::ObjKind::Report | al_ir::ObjKind::ReportExtension))
         .map(|(i, _)| &c.full[i])
     {
@@ -443,9 +441,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let mut out = Vec::new();
     // The data items are in the reports themselves: only the reports are made.
     for o in c
-        .objects
-        .iter()
-        .enumerate()
+        .installed_indexed()
         .filter(|(_, o)| o.kind == al_ir::ObjKind::Report)
         .map(|(i, _)| &c.full[i])
     {
@@ -744,12 +740,7 @@ pub(super) fn report_data_item_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
-    for (oi, _) in c
-        .objects
-        .iter()
-        .enumerate()
-        .filter(|(_, o)| o.kind == al_ir::ObjKind::Report)
-    {
+    for (oi, _) in c.installed_indexed().filter(|(_, o)| o.kind == al_ir::ObjKind::Report) {
         // The data items are in the report itself: only the reports are made.
         let o = &c.full[oi];
         let Some(id) = o.id else { continue };

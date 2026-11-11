@@ -1075,7 +1075,7 @@ impl CorpusRuntime {
         let baseline_skipped = baseline_wanted && !baseline;
         let engine_started = std::time::Instant::now();
         // ADR-073 Phase 2: suites with another server setting run on an engine of their own (`setting_lanes.rs`).
-        let mut lanes = super::setting_lanes::Lanes::of(suites, opts);
+        let mut lanes = super::setting_lanes::Lanes::of(suites, opts, &lowered.program.apps);
         let uninstalled = lanes.uninstalled.clone();
         let make_engine = || {
             let mut engine = Engine::with_config(
@@ -1086,11 +1086,7 @@ impl CorpusRuntime {
             );
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                (e.skipped_apps, e.uninstalled_apps) = (opts.skipped_dependencies.clone(), uninstalled.clone());
+                set_run_config(e, opts, &uninstalled);
             }
             engine
         };
@@ -1099,18 +1095,14 @@ impl CorpusRuntime {
         let sibling_of = |engine: &Arc<Engine>| {
             let mut sibling = engine.sibling();
             if let Some(e) = Arc::get_mut(&mut sibling) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                (e.skipped_apps, e.uninstalled_apps) = (opts.skipped_dependencies.clone(), uninstalled.clone());
+                set_run_config(e, opts, &uninstalled);
             }
             sibling
         };
         // A warm server's engines of the last request over this compile, set again for this one (al-runner issue 5856).
         let engine_key = keep.then(|| kept_engine_key(target, &dotnet, opts));
         let (reused_install, mut reused_tests) = match &engine_key {
-            Some(key) => take_kept_engines(kept_engines, key, &dotnet, opts),
+            Some(key) => take_kept_engines(kept_engines, key, &dotnet, opts, &uninstalled),
             None => (None, None),
         };
         let engine_kept = reused_install.is_some();
@@ -1345,7 +1337,8 @@ impl CorpusRuntime {
         }
         // ADR-073 Phase 2: the check of the other lane's apps, then its engines and install baseline (`setting_lanes.rs`).
         #[rustfmt::skip]
-        let () = lanes.start(lowered, suites, opts, &opts_only, (baseline_engine.as_ref().unwrap_or(&engine), &engine), baseline.is_some(), baseline_engine.is_some(), &sibling_of, &|| super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder()), memory.halt_flag());
+        let () = lanes.start(lowered, suites, opts, (baseline_engine.as_ref().unwrap_or(&engine), &engine), baseline.is_some(), baseline_engine.is_some(), &sibling_of, &|| super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder()), memory.halt_flag());
+        let baseline_rows = baseline_rows.map(|r| r + lanes.merge_baseline(&mut baseline_ids, opts)); // Lane 1's.
         // A debugger is told the program (to place its breakpoints) and starts the tests when its client says so.
         if let Some(ready) = &opts.debug_ready {
             (ready.0)(&DebugReady {
@@ -1892,7 +1885,8 @@ impl CorpusRuntime {
             baseline.as_ref().and_then(|b| b.workspace_installs.as_deref()),
             engine_key.map(|key| (key, kept_engines)),
             opts.process_ends_after,
-        );
+        )
+        .or(lanes.take_install());
         CorpusRuntime {
             outcomes,
             times: times_by_case,
@@ -2259,11 +2253,22 @@ fn shared_test_rows_meter(engine: &Arc<Engine>, install: Option<&Arc<Engine>>) -
     Arc::new(move || tests() + others.as_ref().map_or(0, |m| m()))
 }
 
+/// What a run sets on each of its engines after `Engine::with_config`: the test data, the license, the server setting, how
+/// dependencies were published, the skipped apps and the apps the engine leaves uninstalled (ADR-073 Phase 2).
+fn set_run_config(e: &mut Engine, opts: &RunOptions, uninstalled: &BTreeSet<u32>) {
+    (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+    e.license = opts.license.clone();
+    e.write_in_try_allowed = opts.allow_write_in_try_functions;
+    e.dependencies_published_global = opts.dependencies_published_global;
+    (e.skipped_apps, e.uninstalled_apps) = (opts.skipped_dependencies.clone(), uninstalled.clone());
+}
+
 fn take_kept_engines(
     kept: &std::sync::Mutex<Option<KeptEngines>>,
     key: &str,
     dotnet: &al_vm::dotnet::DotNetConfig,
     opts: &RunOptions,
+    uninstalled: &BTreeSet<u32>,
 ) -> (Option<Arc<Engine>>, Option<Arc<Engine>>) {
     let Some(k) = kept.lock().ok().and_then(|mut k| k.take()) else {
         return (None, None);
@@ -2277,11 +2282,7 @@ fn take_kept_engines(
         // Every field a run sets, back to what `Engine::with_config` makes; then what `make_engine` sets.
         e.reset_run_state();
         e.dotnet = dotnet.clone();
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        set_run_config(e, opts, uninstalled);
         Some(engine)
     };
     let install = reset(k.install);

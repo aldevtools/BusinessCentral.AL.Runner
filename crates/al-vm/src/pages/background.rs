@@ -105,12 +105,7 @@ impl Session {
     /// are not pinned and end the run as unsupported.
     fn bg_run_worker(&mut self, codeunit: i32, params: V) -> Result<Result<V, AlError>, Signal> {
         let engine = self.engine();
-        let Some(object) = engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Codeunit) && o.id == Some(codeunit as u32))
+        let Some(object) = engine.find_object(|o| o.is_kind(al_ir::ObjKind::Codeunit) && o.id == Some(codeunit as u32))
         else {
             // A codeunit of a dependency app that nothing reached is not compiled (ADR-013); BC has it.
             if engine

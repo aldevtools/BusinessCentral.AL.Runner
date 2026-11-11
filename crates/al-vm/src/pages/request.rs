@@ -1047,11 +1047,8 @@ impl Session {
             if let Some(other) = other {
                 if Some(other) != o.id
                     && engine
-                        .program
-                        .objects
-                        .heads()
-                        .iter()
-                        .any(|x| x.is_kind(ir::ObjKind::Report) && x.id == Some(other))
+                        .find_object(|x| x.is_kind(ir::ObjKind::Report) && x.id == Some(other))
+                        .is_some()
                 {
                     return Ok(());
                 }

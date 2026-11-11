@@ -160,7 +160,7 @@ pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let user_name_fields = al_version::gate_on(engine.target.as_ref(), al_version::Gate::PlatformMetadataColumnsFrom29);
     let system_ids = al_version::gate_on(engine.target.as_ref(), al_version::Gate::FieldRowSystemIdFrom28);
     let mut out = Vec::new();
-    for o in c.objects {
+    for o in c.installed() {
         table_entries(&c, o, t, &blank, (user_name_fields, system_ids), None, &mut out);
     }
     out
@@ -182,10 +182,8 @@ pub(super) fn field_key_rows(p: &Providers, t: &TableDef, pk: &[Value]) -> Optio
     let mut out = Vec::new();
     // Every row of a table holds the table's id as TableNo (`table_entries`), so only the tables of that id can hold it.
     // Found by the heads, so that one lookup makes only those objects, not every object a cache supplies (ADR-054).
-    let heads = c.objects;
-    for (i, _) in heads
-        .iter()
-        .enumerate()
+    for (i, _) in c
+        .installed_indexed()
         .filter(|(_, h)| h.kind == al_ir::ObjKind::Table && h.id.is_some_and(|id| id as i32 == *tid))
     {
         table_entries(
@@ -723,7 +721,7 @@ pub(super) fn key_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let c = Catalog::new(&engine);
     let blank = Blank::new(t);
     let mut out = Vec::new();
-    for (i, o) in c.objects.iter().enumerate() {
+    for (i, o) in c.installed_indexed() {
         let (Some(tid), al_ir::ObjKind::Table) = (o.id, o.kind) else {
             continue;
         };

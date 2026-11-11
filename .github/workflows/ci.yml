@@ -419,6 +419,21 @@ jobs:
               i=$((i + 1))
             done
             tools/fresh_vs_grown.sh compare . || status=1
+            # ADR-073 Phase 2: a suite that differs from a pass only in its server settings shares that pass on an engine
+            # of its own. One run per version that gives it a pass of its own again (AL_SERVER_SETTINGS_OWN_PASS=1) must
+            # report the same outcomes and reasons for every suite. The three runs go side by side; each stays under 3 GB.
+            own_pids=()
+            for v in 27 28 29; do
+              AL_SERVER_SETTINGS_OWN_PASS=1 ./target/release/al-test-cli --bc-version $v --require-dotnet --no-ratchet \
+                --junit own-junit-$v.xml > own-$v.log 2>&1 &
+              own_pids+=($!)
+            done
+            i=0
+            for v in 27 28 29; do
+              wait "${own_pids[$i]}" || { echo "::error::the run that gives the try-write suite its own pass failed for BC $v"; status=1; }
+              i=$((i + 1))
+            done
+            tools/shared_vs_own_pass.sh compare . || status=1
           fi
           step_end=$(date +%s)
 
@@ -428,7 +443,7 @@ jobs:
             echo
             echo "- The normal run of all versions, alone on the runner: $((normal_end - step_start)) s."
             echo "- The three runs that compile every dependency, side by side: $((eager_end - normal_end)) s."
-            echo "- The comparison of the two, and the three runs that compile every pass from source with theirs: $((step_end - eager_end)) s."
+            echo "- The comparison of the two, the three runs that compile every pass from source and the three that give the try-write suite its own pass, with theirs: $((step_end - eager_end)) s."
             echo "- The step in total: $((step_end - step_start)) s."
             echo
             echo "The times without the compile cache are from the normal run, which had the runner to itself."

@@ -462,12 +462,7 @@ impl Session {
             if only.as_ref().is_some_and(|o| !o.contains(&(s.object, s.routine))) {
                 continue;
             }
-            if self
-                .events
-                .not_installed_apps
-                .as_ref()
-                .is_some_and(|apps| apps.contains(&engine.program.objects[s.object].app))
-            {
+            if self.object_app_not_installed(s.object) {
                 continue;
             }
             if object == engine.events.global_key {

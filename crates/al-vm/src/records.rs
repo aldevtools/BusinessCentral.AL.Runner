@@ -409,11 +409,19 @@ impl Session {
 
     /// Whether object `o` belongs to an app that is not installed yet while an app installs (`Session::set_apps_not_installed`).
     pub(crate) fn object_app_not_installed(&self, o: usize) -> bool {
-        let app = self.engine.program.objects[o].app;
-        self.events
-            .not_installed_apps
-            .as_ref()
-            .is_some_and(|a| a.contains(&app))
+        self.app_not_installed(self.engine.program.objects.heads()[o].app)
+    }
+
+    /// Whether app `app` is not installed for this session: not on the engine's tenant (`Engine::app_installed`), or not
+    /// installed yet while an app installs (`Session::set_apps_not_installed`).
+    pub(crate) fn app_not_installed(&self, app: u32) -> bool {
+        !self.engine.app_installed(app) || (self.events.not_installed_apps.as_ref()).is_some_and(|a| a.contains(&app))
+    }
+
+    /// Whether some app is not installed for this session ([`Session::app_not_installed`]).
+    pub(crate) fn some_app_not_installed(&self) -> bool {
+        !self.engine.uninstalled_apps.is_empty()
+            || (self.events.not_installed_apps.as_ref()).is_some_and(|a| !a.is_empty())
     }
 
     /// Whether object `o` belongs to an app with no known install order to the app that installs
@@ -430,7 +438,7 @@ impl Session {
     /// default (install-upgrade/install-order/Y8InstallOrderTests.al:88-110, row 1 that XApp A's install writes has an empty
     /// "Y8 XB Mark", XApp B's InitValue 'B init' applies to B's own install row and at test time).
     fn clear_uninstalled_init_values(&mut self, table: usize, fields: &mut [Value]) {
-        if self.events.not_installed_apps.as_ref().is_none_or(|a| a.is_empty()) {
+        if !self.some_app_not_installed() {
             return;
         }
         let engine = self.engine.clone();

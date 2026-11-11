@@ -387,7 +387,7 @@ impl Session {
                 .heads()
                 .iter()
                 .enumerate()
-                .filter(|(_, o)| o.table.is_some() && o.id == Some(id))
+                .filter(|(_, o)| o.table.is_some() && o.id == Some(id) && self.engine.app_installed(o.app))
                 .map(|(i, _)| i)
                 .collect(),
             _ => tables,
@@ -520,13 +520,10 @@ impl Session {
     /// (metadata/platform-tables/AwTests.al:426-442), so it is never the answer.
     pub(crate) fn table_object(&self, no: i64) -> Option<usize> {
         let no = u32::try_from(no).ok()?;
-        self.engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .enumerate()
-            .position(|(i, o)| o.table.is_some() && o.id == Some(no) && !self.engine.object_facts[i].moved)
+        let engine = &self.engine;
+        (engine.program.objects.heads().iter().enumerate()).position(|(i, o)| {
+            o.table.is_some() && o.id == Some(no) && !engine.object_facts[i].moved && engine.app_installed(o.app)
+        })
     }
 
     /// The manifest `target` of the app whose code is running now.

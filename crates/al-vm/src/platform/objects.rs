@@ -150,9 +150,11 @@ const TEST_ISOLATIONS: &[&str] = &["None", "Disabled", "Codeunit", "Function"];
 
 /// What the program says about each object, by name and by owner.
 pub(super) struct Catalog<'a> {
-    /// The heads of the objects: what a pass over all of them reads, so a run over a compile cache makes no object
-    /// for it (ADR-054).
+    /// The heads of the objects, by object index: what a pass over all of them reads, so a run over a compile cache makes
+    /// no object for it (ADR-054). A listing walks [`Catalog::installed`], not this.
     pub objects: &'a [ObjectHead],
+    /// The engine, whose tenant has the apps a listing lists ([`al_vm::Engine::app_installed`]).
+    engine: &'a Engine,
     /// The objects themselves, for what a head does not hold (made on first touch).
     pub full: &'a al_ir::Objects,
     pub apps: &'a [al_ir::AppInfo],
@@ -182,6 +184,7 @@ impl<'a> Catalog<'a> {
         let program = &engine.program;
         Catalog {
             objects: program.objects.heads(),
+            engine,
             full: &program.objects,
             apps: &program.apps,
             maps: &engine.catalog_maps,
@@ -219,15 +222,37 @@ impl<'a> Catalog<'a> {
         })
     }
 
-    /// The page extensions of page `id`, in program order (none for `None`).
-    pub(super) fn page_extensions_of(&self, id: Option<u32>) -> Vec<&'a Object> {
-        id.and_then(|id| self.maps().page_extensions.get(&id))
-            .map_or_else(Vec::new, |v| v.iter().map(|&i| &self.full[i]).collect())
+    /// The objects of the apps on the engine's tenant, in program order (ADR-073 Phase 2: an app the engine leaves
+    /// uninstalled has no row in any listing).
+    pub(super) fn installed(&self) -> impl Iterator<Item = &'a ObjectHead> + use<'a> {
+        let engine = self.engine;
+        self.objects.iter().filter(move |o| engine.app_installed(o.app))
     }
 
-    /// The first table object with this id.
+    /// [`Catalog::installed`] with each object's index.
+    pub(super) fn installed_indexed(&self) -> impl Iterator<Item = (usize, &'a ObjectHead)> + use<'a> {
+        let engine = self.engine;
+        self.objects
+            .iter()
+            .enumerate()
+            .filter(move |(_, o)| engine.app_installed(o.app))
+    }
+
+    /// The page extensions of page `id` on the engine's tenant, in program order (none for `None`).
+    pub(super) fn page_extensions_of(&self, id: Option<u32>) -> Vec<&'a Object> {
+        id.and_then(|id| self.maps().page_extensions.get(&id))
+            .map_or_else(Vec::new, |v| {
+                (v.iter().filter(|&&i| self.engine.object_installed(i)))
+                    .map(|&i| &self.full[i])
+                    .collect()
+            })
+    }
+
+    /// The first table object with this id, on the engine's tenant.
     pub(super) fn table_by_id(&self, id: u32) -> Option<&'a ObjectHead> {
-        self.maps().tables.get(&id).map(|&i| &self.objects[i])
+        (self.maps().tables.get(&id))
+            .filter(|&&i| self.engine.object_installed(i))
+            .map(|&i| &self.objects[i])
     }
 
     /// The manifest id of the app that owns `o`; empty for the platform's own objects, which no
@@ -477,7 +502,7 @@ pub(super) fn entries(
 ) -> Vec<Entry> {
     let mut out = Vec::new();
     let blank = Blank::new(t);
-    for o in c.objects {
+    for o in c.installed() {
         let Some(key) = wanted(o) else { continue };
         let mut r = blank.row();
         for (id, v) in &key {
@@ -582,7 +607,7 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     // Contact) and the platform's (Company, the virtual Integer and AllObj) (metadata/session-system/AllObjNamespace.al:
     // 143-218 PW_AllObj_*, :220-262 UG_AllObj_TableDataRow_OfContact_AllColumns). A table declared Moved has no Table row, and
     // so none here.
-    for o in c.objects {
+    for o in c.installed() {
         if let (Some(id), al_ir::ObjKind::Table) = (o.id, o.kind)
             && !moved(o)
         {

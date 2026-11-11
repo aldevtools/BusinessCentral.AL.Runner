@@ -478,29 +478,46 @@ The try-write suite runs in the main pass. What was built, against the decision 
    before. `work.json` has no try-write pass any more.
 2. **Engines** (`al-testrun` `runtime/setting_lanes.rs`). The run's own engine runs every suite with the run's settings
    (lane 0). The suites whose job sets DisableWriteInsideTryFunctions = false (`RunOptions::write_in_try_suites`) run on
-   a sibling engine with the setting (lane 1): it shares the program, the compiled code and the platform listings. Each
-   lane runs its test codeunits through the same walks over its own engine and install baseline.
-3. **Install baselines, built differently from point 4 of the decision.** Lane 0's engine leaves the try-write app
-   uninstalled (`Engine::uninstalled_apps`): its install code does not run there, its subscribers do not run while the
-   other apps install, and the listings of the installed and published apps leave it out. BC's main job does not have
-   that app, so this is closer to BC than installing it with the setting at its default. Lane 1 runs the whole install
-   baseline once more, under its own setting, over the shared program. The capture of point 4 (start lane 1 from the
-   data before the first install step that read the setting) is not built: lane 1's baseline is the reference that a
-   capture would have to equal, and it costs about 2 s of wall time. A capture is a possible later saving. Point 3 (a
-   private `Engine::write_in_try_allowed` that notes when a session reads it) is not built, because only the capture
-   needed that note.
-4. **The check of point 5** (`al-testrun` `shared_pass.rs` `check`), with rules 1 to 3 as written: an event subscriber
-   to an event published outside the app; an extension of another app's object; a routine or table of the app in the
-   joined static reach of the other suites' test codeunits (which follows interface calls, so an implementation of an
-   outside interface counts here). Rule 4 (install code that writes another app's table, a number sequence or isolated
-   storage) has nothing to check: the app's install code never runs on lane 0. The corpus run calls the check after the
-   install baseline and prints a line per suite; a breach marks the suite's tests not run with the reason and fails
-   the run (exit 2). `corpus_harness.rs` `the_try_write_suite_shares_the_main_pass_on_every_version` asserts the line
-   on BC 27, 28 and 29. There is no allow list.
+   a sibling engine with the setting (lane 1): it shares the program and the compiled code. Each lane runs its test
+   codeunits through the same walks over its own engine and install baseline. Both lanes' tests engines get the unseeded
+   tables, the demo tables and the company refusal, also with one test thread and when the install baseline is skipped.
+3. **Which apps each lane has, built differently from point 4 of the decision.** An app is not installed for a lane when
+   only the other lane's suite apps need it: the dependency closure of the other lane's suite apps less the closure of
+   its own. Lane 0 leaves the try-write app uninstalled; lane 1 leaves the OnPrem suite apps uninstalled, so its tenant
+   has the apps of the try-write suite's own pass (the main corpus app, the try-write app and their dependencies). One
+   owner says whether an app is installed: `al_vm::Engine::app_installed`. Its install code does not run; its event
+   subscribers (manual ones too) and table extension triggers do not run; the listings (AllObj, AllObjWithCaption,
+   Field, Key, the metadata tables, the permission sets, the profiles, the installed and published apps) have no row
+   of it; `NavApp.GetModuleInfo` does not find it; and a lookup by an id known at run time (`Codeunit.Run`, `Page.Run`,
+   `Report.Run`, an XmlPort or Query by id, `RecordRef.Open`) does not find its objects. The platform listings are kept
+   per set of uninstalled apps. This answers the reverse direction of "What the check cannot rule out": the OnPrem
+   suite apps have manual subscribers on table User (TestUserDeleteCascadeOrder.al:134), so the check of point 5 run
+   for them against the try-write tests would fail rule 1; lane 1 does not install them, and none of their code runs
+   there. Lane 1 runs the whole install baseline once more, under its own setting. The capture of point 4 is not
+   built: lane 1's baseline is the reference that a capture would have to equal, and it costs about 2 s of wall time.
+   Point 3 (a private `Engine::write_in_try_allowed` that notes when a session reads it) is not built, because only the
+   capture needed that note. Lane 1's baseline notes, assumptions, install orders, rows (in `work.json`) and what its
+   engines met that the compile left out are merged into the run's.
+4. **The check of point 5** (`al-testrun` `shared_pass.rs` `check`). Rule 1: an event subscriber to an event published
+   outside the app. Rule 2: an extension of another app's object (table, page, report, enum, permission set, profile),
+   or an object of a kind the program does not model (a page customization). Rule 3: a routine or table of the app in
+   the joined static reach of every object of the other suites' apps (test codeunits, their helpers, install code),
+   which follows interface calls, so an implementation of an outside interface counts here. Rule 4 (install code that
+   writes another app's table, a number sequence or isolated storage) has nothing to check: the app's install code never
+   runs on lane 0. The reach the walk cannot follow (code of a dependency app that was not compiled, an object run by an
+   id known only at run time; today the first is `Forward Link Mgt..OnLoadHelpArticleCodes`, not compiled) is printed,
+   not taken as a breach: such code reaches the app only through one of its subscribers or by an id known at run time,
+   and lane 0's engine runs none of its subscribers and finds none of its objects by such an id (point 3). The corpus
+   run calls the check after the install baseline and prints a line per suite; a breach marks the suite's tests not run
+   with the reason and fails the run (exit 2). `corpus_harness.rs`
+   `the_try_write_suite_shares_the_main_pass_on_every_version` asserts the line on BC 27, 28 and 29. There is no allow
+   list.
 5. **The listing difference the check cannot rule out happened once.** Before the installed-apps listing left out the
    uninstalled app, `R7169_Test_ReadsPublishedAsOfDependency` (record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al)
    counted the apps of the publisher "AL Language" and got one more (a failing case either way; its message changed).
-   With the listing as built, the JUnit differential is zero.
+   With every listing reading `Engine::app_installed`, the JUnit differential is zero.
+6. **The differential as a tool** (`tools/shared_vs_own_pass.sh`, in CI's nightly set): one run per version with
+   `AL_SERVER_SETTINGS_OWN_PASS=1` against the normal run, every suite, outcomes and messages.
 
 Measured on BC 29 (full run, `perf stat -e instructions:u`, corpus `f2d5ea3`): main 336.62 G, with Phase 2 322.87 G
 and 323.10 G. Saving: 13.75 G of the 19.7 G the pass cost. The conformance checks of Phase 2: the JUnit files of
@@ -515,6 +532,16 @@ every suite on BC 29 equal main's, with messages (`tools/compare_junit.py --reas
 - The temporary allowance over the formula limit is stored as the amount over it, as proposed under "The budget". It
   started at 52.6 G, became 38.63 G when the testlibraries term was taken off it, and is 27.92 G after Phase 2 (the run
   at 322.87 G minus the formula limit at 294.96 G, rounded up to 10 M).
+
+### Open: the cost of the per-lane listings (fix round 2, 2026-11-11)
+
+With every listing reading `Engine::app_installed` (point 3), the platform listings are kept per set of uninstalled
+apps, so lane 1 builds again every listing its install code and tests read. Measured on BC 29 (three runs,
+`perf stat -e instructions:u`): 325.73 G, 326.60 G, 326.68 G (noise 0.95 G). The same build with the listings shared
+across lanes as before: 322.87 G. The run is 30.77 G over the formula limit, above the 27.92 G allowance, which stays
+as it is (it only goes down). Not merged until this is solved: a listing built once over every app, with the rows of an
+app the engine does not have left out when a lane reads it, would keep both the sharing and the one owner. Rule 3's
+wider roots (every object of the other suites' apps) cost nothing measurable (326.64 G with only test codeunits).
 
 ### Savings against the limit, now
 

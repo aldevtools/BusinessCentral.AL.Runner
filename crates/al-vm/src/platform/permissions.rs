@@ -44,8 +44,7 @@ fn upper_trunc(s: &str, max: usize) -> String {
 pub(super) fn sets(p: &Providers) -> Vec<PSet> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
-    c.objects
-        .iter()
+    c.installed()
         .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some())
         .map(|o| {
             let role = o.name.to_uppercase();
@@ -460,8 +459,7 @@ impl Grants {
                     let mut sets = Vec::new();
                     let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
                     for o in c
-                        .objects
-                        .iter()
+                        .installed()
                         .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some())
                     {
                         let role = o.name.to_uppercase();
@@ -775,15 +773,13 @@ pub(crate) fn raw_sets(engine: &crate::Engine) -> (Vec<RawSet>, HashMap<String, 
     let ids_from = |app: u32| move |ty: al_ir::ObjKind, name: &str| c.id_of_from(ty, name, Some(app));
     // An extension whose base set the program does not hold extends none of the sets composed here.
     let extensions: Vec<&al_ir::ObjectHead> = c
-        .objects
-        .iter()
+        .installed()
         .filter(|o| o.kind == al_ir::ObjKind::PermissionSetExtension && o.extends_id.is_some())
         .collect();
     let mut sets = Vec::new();
     let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
     for o in c
-        .objects
-        .iter()
+        .installed()
         .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some())
     {
         let mut includes = name_list(o, "IncludedPermissionSets");

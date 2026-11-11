@@ -461,11 +461,8 @@ impl Session {
         let known = match args.first() {
             Some(Value::Integer(id)) => self
                 .engine
-                .program
-                .objects
-                .heads()
-                .iter()
-                .any(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok()),
+                .find_object(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok())
+                .is_some(),
             _ => return unsupported("Query.SaveAsXml with an id that is not an integer"),
         };
         // Of a query: the file of the instance call with no filters, and Yes
@@ -493,11 +490,7 @@ impl Session {
         };
         let engine = self.engine.clone();
         let def = engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok())
+            .find_object(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok())
             .and_then(|o| engine.program.objects[o].query.as_ref())
             .expect("a known query");
         for a in &def.assumes {
@@ -514,12 +507,7 @@ impl Session {
             other => return unsupported(format!("Query.SaveAsCsv with {}", other.describe())),
         };
         let engine = self.engine.clone();
-        let Some(object) = engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(id).ok())
+        let Some(object) = engine.find_object(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(id).ok())
         else {
             return Ok(Value::Boolean(false));
         };

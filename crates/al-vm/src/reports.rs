@@ -240,7 +240,7 @@ impl Session {
                 let Some(Value::Integer(n)) = args.first() else {
                     return unsupported(format!("Report.{kind}Layout with an id that is not an integer"));
                 };
-                let found = self.engine.program.objects.heads().iter().position(|o| {
+                let found = self.engine.find_object(|o| {
                     (o.is_kind(al_ir::ObjKind::Report) || o.is_shell_of(al_ir::ObjKind::Report))
                         && o.id == u32::try_from(*n).ok()
                 });
@@ -973,10 +973,8 @@ impl Session {
     fn report_print_runs_as_execute(&self, arg: Option<&Value>) -> bool {
         let Some(Value::Integer(n)) = arg else { return false };
         let objects = &self.engine.program.objects;
-        objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
+        (self.engine)
+            .find_object(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
             .is_some_and(|i| {
                 objects[i].report.as_ref().is_some_and(|r| r.processing_only)
                     && self.object_property(i, "UseSystemPrinter").is_some()
@@ -989,11 +987,7 @@ impl Session {
         };
         let Some(object) = self
             .engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
+            .find_object(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
         else {
             // A report of a dependency app that nothing reached is not compiled (ADR-013); BC has it.
             if self

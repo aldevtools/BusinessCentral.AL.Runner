@@ -4,7 +4,7 @@
 # the limit in the same file. A function may not grow past its cap. When one shrinks, lower its cap;
 # at 250 lines or fewer, delete the row. Never raise a cap or add a row: extract steps into functions
 # of their own. Owner decides otherwise.
-"crates/al-builtins/src/format.rs::format_value" = 295
+"crates/al-builtins/src/format.rs::format_value" = 294
 "crates/al-builtins/src/ops.rs::arith_general" = 294
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 432
 "crates/alrunner-cli/src/args.rs::parse" = 472
@@ -40,4 +40,3 @@
 "crates/al-vm/src/reports.rs::report_builtin" = 509
 "crates/al-vm/src/reports.rs::report_save_core" = 371
 "crates/al-vm/src/sessionops.rs::session_op" = 312
-"crates/al-vm/src/xmlports/mod.rs::xmlport_builtin" = 263

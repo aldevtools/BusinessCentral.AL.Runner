@@ -209,8 +209,9 @@ pub struct Engine {
     /// issue 7143), as on Business Central online. Default `false`: the setting at its default, as on a BC container and the
     /// corpus CI, where a write inside a TryFunction whose result is used raises TryFunctionWrite.
     pub write_in_try_allowed: bool,
-    /// Apps of the program (indexes in `Program::apps`) whose install code the install baseline on this engine does not
-    /// run, and whose subscribers do not run while it installs the other apps: the app is not on this tenant. The corpus
+    /// Apps of the program (indexes in `Program::apps`) that are not on this engine's tenant: read only through
+    /// [`Engine::app_installed`]. Their install code does not run, their subscribers and table extension triggers do not
+    /// run, and the listings and the lookups by run-time id do not find their objects. The corpus
     /// job runs the try-write suite's app in the main pass on an engine of its own, and the main suites' engine leaves it
     /// out (ADR-073 Phase 2: BC's main job does not have that app). Default: none.
     pub uninstalled_apps: std::collections::BTreeSet<u32>,
@@ -696,12 +697,35 @@ impl Engine {
     /// The first compiled codeunit with this id, in program order: the object `Codeunit.Run(Id)` runs. Found in an index
     /// built with the engine; the test runner runs codeunits by id around every test method (al-testrun runner_reset.rs).
     pub fn compiled_codeunit(&self, id: Option<u32>) -> Option<usize> {
-        self.codeunits.get(&id).and_then(|c| c.compiled)
+        (self.codeunits.get(&id).and_then(|c| c.compiled)).filter(|&o| self.object_installed(o))
     }
 
     /// The first codeunit with this id in program order, compiled or a shell of a dependency app that was not compiled.
     pub fn codeunit_object(&self, id: Option<u32>) -> Option<usize> {
-        self.codeunits.get(&id).and_then(|c| c.any)
+        (self.codeunits.get(&id).and_then(|c| c.any)).filter(|&o| self.object_installed(o))
+    }
+
+    /// Whether app `app` (an index in `Program::apps`) is on this engine's tenant: every app of the program but
+    /// `uninstalled_apps` (ADR-073 Phase 2). The one answer that the listings of apps and objects, the lookups of an object
+    /// by an id known at run time, `NavApp.GetModuleInfo`, event dispatch and table extension triggers read.
+    #[inline]
+    pub fn app_installed(&self, app: u32) -> bool {
+        self.uninstalled_apps.is_empty() || !self.uninstalled_apps.contains(&app)
+    }
+
+    /// Whether object `object` (an object index) belongs to an app on this engine's tenant ([`Engine::app_installed`]).
+    #[inline]
+    pub fn object_installed(&self, object: usize) -> bool {
+        self.uninstalled_apps.is_empty()
+            || (self.program.objects.heads().get(object)).is_none_or(|h| self.app_installed(h.app))
+    }
+
+    /// The first object in program order on this engine's tenant ([`Engine::object_installed`]) that `wanted` takes: an
+    /// object looked up by an id known only at run time (`Page.Run(Id)`, `Report.Run(Id)`, a RecordRef opened by id).
+    pub fn find_object(&self, wanted: impl Fn(&ir::ObjectHead) -> bool) -> Option<usize> {
+        (self.program.objects.heads().iter().enumerate())
+            .find(|(_, h)| wanted(h) && self.app_installed(h.app))
+            .map(|(i, _)| i)
     }
 
     /// The value of type `T` made from this engine's program, made by `make` the first time it is asked for and shared

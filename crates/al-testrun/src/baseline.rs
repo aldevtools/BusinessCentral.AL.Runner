@@ -116,6 +116,20 @@ pub struct NoteFacts {
 }
 
 impl NoteFacts {
+    /// Adds the facts of `other` that this does not hold yet (the install baseline of another engine of the run).
+    pub fn merge(&mut self, other: NoteFacts) {
+        for (mine, theirs) in [
+            (&mut self.assumptions, other.assumptions),
+            (&mut self.install_orders, other.install_orders),
+        ] {
+            for x in theirs {
+                if !mine.contains(&x) {
+                    mine.push(x);
+                }
+            }
+        }
+    }
+
     pub fn of(notes: &[String]) -> NoteFacts {
         NoteFacts {
             assumptions: assumption_ids(notes),

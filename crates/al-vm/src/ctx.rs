@@ -418,11 +418,7 @@ impl al_builtins::native::Ctx for Session {
             // While an app installs, an app installed after it is not found (corpus branch al-runtime-rs-staging-y3,
             // install-upgrade/install-order/InstallOrderSubscriberTests.al:90-91: getModuleInfo=No during XApp A's install).
             let events = &self.events;
-            if events
-                .not_installed_apps
-                .as_ref()
-                .is_some_and(|a| a.contains(&(i as u32)))
-            {
+            if self.app_not_installed(i as u32) {
                 return ModuleLookup::NotInstalled;
             }
             if events
@@ -530,6 +526,7 @@ impl al_builtins::native::Ctx for Session {
             .enumerate()
             .filter(|(_, o)| {
                 o.is_kind(al_ir::ObjKind::Table)
+                    && self.engine.app_installed(o.app)
                     && match number {
                         Some(n) => o.id == Some(n),
                         None => o.name.eq_ignore_ascii_case(table),

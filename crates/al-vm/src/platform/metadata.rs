@@ -145,7 +145,7 @@ pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
     let engine = p.engine();
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
-    for o in c.objects {
+    for o in c.installed() {
         let Some(id) = o.id else { continue };
         if o.is_shell_of(al_ir::ObjKind::Codeunit) {
             let mut k = blank(t);
@@ -415,7 +415,7 @@ pub(super) fn page_action_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
-    for (i, h) in c.objects.iter().enumerate() {
+    for (i, h) in c.installed_indexed() {
         let (Some(id), al_ir::ObjKind::Page) = (h.id, h.kind) else {
             continue;
         };
@@ -541,7 +541,7 @@ pub(super) fn table_relations_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
-    for o in c.objects {
+    for o in c.installed() {
         let (Some(id), al_ir::ObjKind::Table) = (o.id, o.kind) else {
             continue;
         };

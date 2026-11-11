@@ -62,7 +62,8 @@ impl Session {
         // only: found once per engine, not by every session scanning every object for each profile.
         let seeds = engine.profile_seeds.get_or_init(|| profile_seeds(&engine.program));
         let mut out = Vec::with_capacity(seeds.len());
-        for &(oi, role_center_id, enabled) in seeds {
+        // A profile of an app the engine's tenant does not have has no row (`Engine::app_installed`, ADR-073 Phase 2).
+        for &(oi, role_center_id, enabled) in seeds.iter().filter(|(oi, ..)| engine.object_installed(*oi)) {
             let o = &engine.program.objects[oi];
             let prop = |n: &str| super::objects::prop(o, n);
             let app = engine.program.apps.get(o.app as usize);

@@ -190,6 +190,7 @@ mod testpage_action_without_parentheses;
 mod this_in_objects;
 mod typed_handler_set_up_variable;
 mod typed_handler_temp_stored_source;
+mod uninstalled_app_listings;
 mod unpinned_error_result;
 mod update_draft_row;
 mod update_never_run_new_record;

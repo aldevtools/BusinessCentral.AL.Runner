@@ -19,7 +19,7 @@
       "tests_run": 53
     },
     "main": {
-      "baseline_rows": 2798,
+      "baseline_rows": 5631,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 1,
@@ -33,10 +33,10 @@
       "objects_loaded": 23041,
       "objects_lowered": 13063,
       "routines_lowered": 62000,
-      "tests_run": 25310
+      "tests_run": 25321
     },
     "total": {
-      "baseline_rows": 5530,
+      "baseline_rows": 8363,
       "cache_layers_built": 0,
       "cache_layers_hit": 0,
       "compiles": 2,
@@ -50,7 +50,7 @@
       "objects_loaded": 45985,
       "objects_lowered": 16617,
       "routines_lowered": 62158,
-      "tests_run": 25363
+      "tests_run": 25374
     }
   }
 }

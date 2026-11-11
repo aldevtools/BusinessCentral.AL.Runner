@@ -123,10 +123,7 @@ impl Session {
     fn xp_static_object(&self, id: al_ir::BuiltinId, n: i32) -> Result<usize, Signal> {
         let heads = self.engine.program.objects.heads();
         let want = u32::try_from(n).ok();
-        if let Some(object) = heads
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::XmlPort) && o.id == want)
-        {
+        if let Some(object) = (self.engine).find_object(|o| o.is_kind(al_ir::ObjKind::XmlPort) && o.id == want) {
             return Ok(object);
         }
         if heads
@@ -386,11 +383,7 @@ impl Session {
                 };
                 let Some(object) = self
                     .engine
-                    .program
-                    .objects
-                    .heads()
-                    .iter()
-                    .position(|o| o.is_kind(al_ir::ObjKind::XmlPort) && o.id == u32::try_from(*n).ok())
+                    .find_object(|o| o.is_kind(al_ir::ObjKind::XmlPort) && o.id == u32::try_from(*n).ok())
                 else {
                     if self
                         .engine

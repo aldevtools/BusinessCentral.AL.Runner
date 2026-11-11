@@ -341,7 +341,7 @@ pub(super) fn page_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
     let blank = Blank::new(t);
-    for (i, h) in c.objects.iter().enumerate() {
+    for (i, h) in c.installed_indexed() {
         let (Some(id), al_ir::ObjKind::Page) = (h.id, h.kind) else {
             continue;
         };
@@ -547,7 +547,7 @@ pub(super) fn page_control_field_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
     let c = Catalog::new(&engine);
     let mut out = Vec::new();
     let blank = Blank::new(t);
-    for (i, h) in c.objects.iter().enumerate() {
+    for (i, h) in c.installed_indexed() {
         let (Some(id), al_ir::ObjKind::Page) = (h.id, h.kind) else {
             continue;
         };

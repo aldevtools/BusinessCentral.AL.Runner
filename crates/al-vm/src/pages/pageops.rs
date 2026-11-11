@@ -186,13 +186,7 @@ impl Session {
                         }
                     }
                 }
-                let Some(object) = engine
-                    .program
-                    .objects
-                    .heads()
-                    .iter()
-                    .position(|o| o.is_kind(al_ir::ObjKind::Page) && o.id == Some(id))
-                else {
+                let Some(object) = engine.find_object(|o| o.is_kind(al_ir::ObjKind::Page) && o.id == Some(id)) else {
                     // A page of a dependency app that nothing reached is not compiled (ADR-013); BC has it.
                     if engine
                         .program

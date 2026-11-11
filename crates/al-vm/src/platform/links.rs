@@ -75,11 +75,7 @@ impl Session {
     /// The object index of the table with platform id `id`, if the program compiled it.
     pub(crate) fn compiled_table(&self, id: u32) -> Option<usize> {
         self.engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Table) && o.id == Some(id) && o.table.is_some())
+            .find_object(|o| o.is_kind(al_ir::ObjKind::Table) && o.id == Some(id) && o.table.is_some())
     }
 
     pub(crate) fn record_links(
