@@ -124,7 +124,10 @@ impl Session {
             tx: std::mem::replace(&mut self.tx, tx),
             tx_model: std::mem::take(&mut self.tx_model),
             in_test_codeunit: std::mem::replace(&mut self.in_test_codeunit, false),
-            test_object: self.test_object.take(),
+            test_object: {
+                self.note_test_object_read();
+                self.test_object.take()
+            },
             hub_disabled: std::mem::replace(&mut self.hub_disabled, false),
             isolation_from_hub: std::mem::replace(&mut self.isolation_from_hub, false),
             error_scopes: std::mem::take(&mut self.error_scopes),

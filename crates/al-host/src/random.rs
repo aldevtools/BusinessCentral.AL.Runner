@@ -11,7 +11,7 @@
 const MBIG: i32 = i32::MAX;
 const MSEED: i32 = 161_803_398;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NetRandom {
     seed_array: [i32; 56],
     inext: usize,

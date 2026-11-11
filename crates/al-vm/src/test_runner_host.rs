@@ -47,6 +47,14 @@ pub(crate) struct RunnerHost {
     base: usize,
 }
 
+impl RunnerHost {
+    /// No test runner codeunit runs under a host (ADR-073).
+    pub(crate) fn holds_nothing(&self) -> bool {
+        let RunnerHost { host, runners, base: _ } = self;
+        host.is_none() && runners.is_empty()
+    }
+}
+
 impl Session {
     /// Runs `f` with `host` installed: while `f` runs, `Codeunit.Run` of a test codeunit from a test runner
     /// codeunit's OnRun goes to `host` (ADR-066 decision 1).

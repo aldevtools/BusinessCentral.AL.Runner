@@ -162,7 +162,7 @@ fn kind(m: RecordOp) -> Kind {
 }
 
 /// Where a counter was last read.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct Cursor {
     read: bool,
     n: i64,
@@ -1242,5 +1242,128 @@ mod tests {
             panic!()
         };
         assert_ne!(a.form, b.form, "a new epoch after the log was dropped");
+    }
+}
+
+/// The SQL counters as plain data, for a recorded run (ADR-073, `recorded/image.rs`). The store operation counts are
+/// kept as the operations since them, as the counter they are compared with counts per thread.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SqlImage {
+    active: bool,
+    base: usize,
+    commit_mark: Option<usize>,
+    resets: u64,
+    inside: u64,
+    stmt: Cursor,
+    rows: Cursor,
+    ops_since_commit: Option<u64>,
+    chains: u32,
+    buffer: Buffer,
+    buffer_outside: u64,
+    muted_calls: u64,
+    muted_dirty: u64,
+    muted_rec_ops: u64,
+    muted_bad: u64,
+    inserted: std::collections::BTreeSet<u32>,
+    written_since_read: std::collections::BTreeSet<u32>,
+    found_nothing: std::collections::BTreeSet<(u32, u8, u64)>,
+    ops_since_pre_insert: Option<u64>,
+}
+
+impl SqlCounters {
+    /// The counters as plain data; `None` while a record method or a measurement runs, or while the log holds a row key
+    /// (a measurement started: the session read a counter).
+    pub(crate) fn image(&self) -> Option<SqlImage> {
+        let SqlCounters {
+            active,
+            log,
+            base,
+            commit_mark,
+            resets,
+            inside,
+            open,
+            stmt,
+            rows,
+            ops_at_commit,
+            chains,
+            buffer,
+            buffer_outside,
+            mute,
+            muted_calls,
+            muted_dirty,
+            muted_rec_ops,
+            muted_bad,
+            mute_open,
+            inserted,
+            written_since_read,
+            reads_since_write,
+            found_nothing,
+            prev_db,
+            pre_ops,
+        } = self;
+        if !log.is_empty()
+            || *open != 0
+            || *mute != 0
+            || *mute_open != 0
+            || !reads_since_write.is_empty()
+            || prev_db.is_some()
+        {
+            return None;
+        }
+        let now = al_data::memory::store_ops();
+        Some(SqlImage {
+            active: *active,
+            base: *base,
+            commit_mark: *commit_mark,
+            resets: *resets,
+            inside: *inside,
+            stmt: stmt.clone(),
+            rows: rows.clone(),
+            ops_since_commit: ops_at_commit.map(|o| now.wrapping_sub(o)),
+            chains: *chains,
+            buffer: *buffer,
+            buffer_outside: *buffer_outside,
+            muted_calls: *muted_calls,
+            muted_dirty: *muted_dirty,
+            muted_rec_ops: *muted_rec_ops,
+            muted_bad: *muted_bad,
+            inserted: inserted.iter().copied().collect(),
+            written_since_read: written_since_read.iter().copied().collect(),
+            found_nothing: found_nothing.iter().copied().collect(),
+            // 0: no Insert was followed before the first read.
+            ops_since_pre_insert: (*pre_ops != 0).then(|| now.wrapping_sub(*pre_ops)),
+        })
+    }
+
+    /// The counters [`SqlCounters::image`] imaged, on this thread now.
+    pub(crate) fn from_image(i: &SqlImage) -> SqlCounters {
+        let now = al_data::memory::store_ops();
+        SqlCounters {
+            active: i.active,
+            log: Vec::new(),
+            base: i.base,
+            commit_mark: i.commit_mark,
+            resets: i.resets,
+            inside: i.inside,
+            open: 0,
+            stmt: i.stmt.clone(),
+            rows: i.rows.clone(),
+            ops_at_commit: i.ops_since_commit.map(|o| now.wrapping_sub(o)),
+            chains: i.chains,
+            buffer: i.buffer,
+            buffer_outside: i.buffer_outside,
+            mute: 0,
+            muted_calls: i.muted_calls,
+            muted_dirty: i.muted_dirty,
+            muted_rec_ops: i.muted_rec_ops,
+            muted_bad: i.muted_bad,
+            mute_open: 0,
+            inserted: i.inserted.iter().copied().collect(),
+            written_since_read: i.written_since_read.iter().copied().collect(),
+            reads_since_write: Default::default(),
+            found_nothing: i.found_nothing.iter().copied().collect(),
+            prev_db: None,
+            pre_ops: i.ops_since_pre_insert.map_or(0, |o| now.wrapping_sub(o)),
+        }
     }
 }

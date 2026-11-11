@@ -50,7 +50,7 @@ pub(crate) const COVERAGE_TABLES: [u32; 3] = [CODE_COVERAGE, TEST_LOOKUP, TESTS_
 const NO_SOURCE: &str = "The extension that declares this object has its manifest property ShowMyCode (being deprecated) or IncludeSourceInSymbolFile set to false. This means that the source code cannot be viewed.";
 
 /// What recording noted since the tables were last emptied.
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub(crate) struct Recorder {
     /// Hits per position id (`Program::positions`), grown when the first statement runs.
     hits: Vec<u32>,

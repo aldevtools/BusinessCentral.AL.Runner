@@ -16,7 +16,7 @@ use al_builtins::value::Value;
 use crate::Session;
 
 /// The minimum active row version of the running test codeunit ([`Session::freeze_min_active_row_version`]).
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub(crate) struct IsoMin {
     /// The value, once taken.
     value: Option<i64>,

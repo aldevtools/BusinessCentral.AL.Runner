@@ -237,10 +237,10 @@ impl Session {
         let program = &self.engine.program;
         // A subscriber the test cannot see (it names neither the subscriber's codeunit nor a SingleInstance codeunit the
         // subscriber holds) cannot tell whether the event ran, as for CaptionClassTranslate (`Registry::unraised_subscriber`).
-        let test = self.test_object.and_then(|t| program.objects.get(t));
+        let test_object = self.test_object_read();
+        let test = test_object.and_then(|t| program.objects.get(t));
         for (key, name) in LAYOUT_EVENTS {
-            if let Some((_, sub)) = events.unraised_subscriber("reporting triggers", Some(key), test, self.test_object)
-            {
+            if let Some((_, sub)) = events.unraised_subscriber("reporting triggers", Some(key), test, test_object) {
                 return Some(format!("a subscriber to {name} ({sub})"));
             }
             let key = (crate::events::REPORTING_TRIGGERS, key.to_string());
@@ -253,7 +253,7 @@ impl Session {
         }
         REPORT_MANAGEMENT_EVENTS.iter().find_map(|e| {
             events
-                .unraised_subscriber("reportmanagement", Some(e), test, self.test_object)
+                .unraised_subscriber("reportmanagement", Some(e), test, test_object)
                 .map(|(_, sub)| format!("a subscriber to ReportManagement's {e} ({sub})"))
         })
     }

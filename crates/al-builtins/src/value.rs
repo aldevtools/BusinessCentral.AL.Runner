@@ -727,6 +727,18 @@ impl TableGlobals {
     }
 
     /// Every instance created so far.
+    /// Whether any instance is held here or in the xRec's globals, without making the shared data (ADR-073: a record
+    /// variable whose table globals hold an instance has no image).
+    pub fn holds_instances(&self) -> bool {
+        match &*self.data.borrow() {
+            Some(d) => {
+                let d = d.borrow();
+                !d.instances.is_empty() || d.xrec.holds_instances()
+            }
+            None => false,
+        }
+    }
+
     pub fn instances(&self) -> Vec<(u32, Rc<RefCell<Instance>>)> {
         match &*self.data.borrow() {
             Some(d) => d.borrow().instances.clone(),

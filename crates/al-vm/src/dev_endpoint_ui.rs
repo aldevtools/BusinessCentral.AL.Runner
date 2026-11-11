@@ -12,7 +12,7 @@ use al_builtins::assumptions::{self, Assumption};
 use al_builtins::value::Value;
 
 /// What the dev-endpoint mode needs in the session.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct DevEndpointUi {
     /// The flag is on.
     pub(crate) on: bool,

@@ -27,9 +27,7 @@ struct Rows {
 /// ([`Baseline::row_delta_from`], [`Baseline::with_row_delta`]).
 #[derive(Clone, Debug)]
 pub struct RowDelta {
-    tables: Vec<Rows>,
-    gone: Vec<(String, u32)>,
-    emptied: Vec<(String, u32)>,
+    changes: EncodedChanges,
     next_guid: u64,
     next_row_version: i64,
     committed_row_version: i64,
@@ -48,6 +46,93 @@ pub struct RowDelta {
 impl RowDelta {
     /// About how many bytes the delta holds (its encoded rows).
     pub fn size(&self) -> usize {
+        self.changes.size()
+    }
+}
+
+/// Committed row changes (`al_data::memory::RowChanges`) encoded, so they can go to another thread: a [`RowDelta`]'s
+/// rows, and a recorded run's (ADR-073, `recorded/mod.rs`).
+#[derive(Clone, Debug)]
+pub(crate) struct EncodedChanges {
+    tables: Vec<Rows>,
+    gone: Vec<(String, u32)>,
+    emptied: Vec<(String, u32)>,
+}
+
+impl EncodedChanges {
+    /// `changes` encoded; `None` when a row holds a value that is not plain.
+    pub(crate) fn encode(changes: al_data::memory::RowChanges) -> Option<EncodedChanges> {
+        let mut tables = Vec::with_capacity(changes.tables.len());
+        for t in changes.tables {
+            let mut put = Vec::new();
+            put_u32(&mut put, t.put.len() as u32);
+            for (k, r) in &t.put {
+                if !encode_row(k, &mut put) || !encode_row(r, &mut put) {
+                    return None;
+                }
+            }
+            let mut gone = Vec::new();
+            put_u32(&mut gone, t.gone.len() as u32);
+            for k in &t.gone {
+                if !encode_row(k, &mut gone) {
+                    return None;
+                }
+            }
+            tables.push(Rows {
+                company: t.company,
+                object: t.object,
+                whole: t.whole,
+                pk_storage: t.pk_storage,
+                put,
+                gone,
+            });
+        }
+        Some(EncodedChanges {
+            tables,
+            gone: changes.gone,
+            emptied: changes.emptied,
+        })
+    }
+
+    /// The changes [`EncodedChanges::encode`] encoded; `None` when the rows do not read back.
+    pub(crate) fn decode(&self) -> Option<al_data::memory::RowChanges> {
+        let mut tables = Vec::with_capacity(self.tables.len());
+        for t in &self.tables {
+            let mut r = Reader::new(&t.put);
+            let mut put = Vec::new();
+            for _ in 0..r.u32()? {
+                let k = decode_row(&mut r)?;
+                put.push((k, decode_row(&mut r)?));
+            }
+            if !r.is_empty() {
+                return None;
+            }
+            let mut r = Reader::new(&t.gone);
+            let mut gone = Vec::new();
+            for _ in 0..r.u32()? {
+                gone.push(decode_row(&mut r)?);
+            }
+            if !r.is_empty() {
+                return None;
+            }
+            tables.push(al_data::memory::TableRows {
+                company: t.company.clone(),
+                object: t.object,
+                whole: t.whole,
+                pk_storage: t.pk_storage.clone(),
+                put,
+                gone,
+            });
+        }
+        Some(al_data::memory::RowChanges {
+            tables,
+            gone: self.gone.clone(),
+            emptied: self.emptied.clone(),
+        })
+    }
+
+    /// About how many bytes the encoded rows hold.
+    pub(crate) fn size(&self) -> usize {
         self.tables.iter().map(|t| t.put.len() + t.gone.len()).sum()
     }
 }
@@ -92,35 +177,9 @@ impl Baseline {
             Some(x == y)
         };
         let changes = self.store.committed_row_changes_from(&base.store, &mut same)?;
-        let mut tables = Vec::with_capacity(changes.tables.len());
-        for t in changes.tables {
-            let mut put = Vec::new();
-            put_u32(&mut put, t.put.len() as u32);
-            for (k, r) in &t.put {
-                if !encode_row(k, &mut put) || !encode_row(r, &mut put) {
-                    return None;
-                }
-            }
-            let mut gone = Vec::new();
-            put_u32(&mut gone, t.gone.len() as u32);
-            for k in &t.gone {
-                if !encode_row(k, &mut gone) {
-                    return None;
-                }
-            }
-            tables.push(Rows {
-                company: t.company,
-                object: t.object,
-                whole: t.whole,
-                pk_storage: t.pk_storage,
-                put,
-                gone,
-            });
-        }
+        let changes = EncodedChanges::encode(changes)?;
         Some(RowDelta {
-            tables,
-            gone: changes.gone,
-            emptied: changes.emptied,
+            changes,
             next_guid: self.next_guid,
             next_row_version: self.next_row_version,
             committed_row_version: self.committed_row_version,
@@ -140,39 +199,7 @@ impl Baseline {
     /// This baseline with `delta` put on top ([`Baseline::row_delta_from`]): the baseline the delta was taken from,
     /// with its origin. `None` when the rows do not read back or a table to change is not held here.
     pub fn with_row_delta(&self, delta: &RowDelta) -> Option<Baseline> {
-        let mut tables = Vec::with_capacity(delta.tables.len());
-        for t in &delta.tables {
-            let mut r = Reader::new(&t.put);
-            let mut put = Vec::new();
-            for _ in 0..r.u32()? {
-                let k = decode_row(&mut r)?;
-                put.push((k, decode_row(&mut r)?));
-            }
-            if !r.is_empty() {
-                return None;
-            }
-            let mut r = Reader::new(&t.gone);
-            let mut gone = Vec::new();
-            for _ in 0..r.u32()? {
-                gone.push(decode_row(&mut r)?);
-            }
-            if !r.is_empty() {
-                return None;
-            }
-            tables.push(al_data::memory::TableRows {
-                company: t.company.clone(),
-                object: t.object,
-                whole: t.whole,
-                pk_storage: t.pk_storage.clone(),
-                put,
-                gone,
-            });
-        }
-        let changes = al_data::memory::RowChanges {
-            tables,
-            gone: delta.gone.clone(),
-            emptied: delta.emptied.clone(),
-        };
+        let changes = delta.changes.decode()?;
         let mut b = self.clone();
         b.store = b.store.with_committed_row_changes(changes)?;
         b.next_guid = delta.next_guid;

@@ -10,6 +10,7 @@ use crate::Session;
 mod install_orders;
 mod row_delta;
 mod shared;
+pub(crate) use row_delta::EncodedChanges;
 pub use row_delta::RowDelta;
 pub use shared::{NotShared, SharedBaseline};
 

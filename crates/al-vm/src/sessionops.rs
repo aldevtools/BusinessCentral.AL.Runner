@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 /// A sequence a session restarted or deleted: as it was just before the first of those, and which of them it saw
 /// (`Session::carry_numbers_taken`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SequenceChange {
     pub before: Sequence,
     pub restarted: bool,

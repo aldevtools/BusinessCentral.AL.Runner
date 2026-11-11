@@ -38,6 +38,12 @@ pub(crate) struct Tasks {
 }
 
 impl Tasks {
+    /// No task was created (ADR-073: a recorded run must leave none).
+    pub(crate) fn holds_nothing(&self) -> bool {
+        let Tasks { open, committed } = self;
+        open.is_empty() && committed.is_empty()
+    }
+
     pub(crate) fn commit(&mut self) {
         let open = std::mem::take(&mut self.open);
         self.committed.extend(open);

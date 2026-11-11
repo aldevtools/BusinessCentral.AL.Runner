@@ -261,12 +261,13 @@ impl Session {
     /// area 3 included (events/platform-triggers/P114GlobalTriggerEvents.al:301, :304, :323-327). The runtime does
     /// not raise it, so a translation while a subscriber listens is refused.
     pub(crate) fn refuse_caption_class_translate(&self) -> Result<(), Signal> {
-        let test = self.test_object.and_then(|t| self.engine.program.objects.get(t));
+        let test_object = self.test_object_read();
+        let test = test_object.and_then(|t| self.engine.program.objects.get(t));
         match self.engine.events.unraised_subscriber(
             "ui helper triggers",
             Some("captionclasstranslate"),
             test,
-            self.test_object,
+            test_object,
         ) {
             Some((_, sub)) => unsupported(format!(
                 "a caption class is translated while {sub} subscribes to CaptionClassTranslate of UI Helper Triggers, which the runtime does not raise"

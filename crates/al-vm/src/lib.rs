@@ -21,6 +21,8 @@ mod clientless;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
+mod recorded;
+pub use recorded::{NotRecorded, RecordedRun, Recording, SessionImage};
 mod run_restore;
 pub mod single_track;
 mod state;

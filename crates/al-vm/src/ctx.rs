@@ -243,6 +243,7 @@ impl al_builtins::native::Ctx for Session {
         Session::collect_error(self, info)
     }
     fn fs_exists(&mut self, path: &str) -> Result<bool, Signal> {
+        self.note_file();
         // Whether a file of carried content exists is no look at it (owner decision 2026-10-23 "Carry bytes unread").
         if self.fs_carried_mark(path).is_none() {
             self.refuse_pending_file(path)?;
@@ -250,10 +251,12 @@ impl al_builtins::native::Ctx for Session {
         Ok(self.host.files.exists(path))
     }
     fn fs_read(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
+        self.note_file();
         self.refuse_pending_file(path)?;
         Ok(self.host.files.read(path))
     }
     fn fs_write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
+        self.note_file();
         // A write by AL over the path ends the mark: the file is what AL wrote.
         if !self.render_pending_files.is_empty() {
             self.render_pending_files.remove(&pending_key(path));
@@ -261,6 +264,7 @@ impl al_builtins::native::Ctx for Session {
         self.host.files.write(path, bytes)
     }
     fn fs_remove(&mut self, path: &str) -> Result<bool, Signal> {
+        self.note_file();
         if self.fs_carried_mark(path).is_some() {
             self.render_pending_files.remove(&pending_key(path));
         } else {
@@ -290,17 +294,21 @@ impl al_builtins::native::Ctx for Session {
         Session::dotnet_clear_is_inert(self, handle, clr_type)
     }
     fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
+        self.note_file();
         self.host.files.write(path, &[])?;
         self.render_pending_files.insert(pending_key(path), mark.into());
         Ok(())
     }
     fn fs_serves_path(&self, path: &str) -> bool {
+        self.note_file();
         self.host.files.serves_path(path)
     }
     fn fs_dir_exists(&self, path: &str) -> bool {
+        self.note_file();
         self.host.files.dir_exists(path)
     }
     fn fs_temp_name(&mut self) -> String {
+        self.note_file();
         self.temp_files += 1;
         format!("{}{}.tmp", al_builtins::file::TEMP_DIR, self.temp_files)
     }

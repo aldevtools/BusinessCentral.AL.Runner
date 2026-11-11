@@ -26,16 +26,12 @@ impl Session {
         // A subscriber the test cannot see (it holds no variable of the subscriber's codeunit or of a SingleInstance codeunit
         // the subscriber logs to) changes nothing the test can observe: the translation runs as it did before the event was
         // raised (decided without owner review, 2026-10-19, `Registry::unraised_subscriber`).
-        let test = self.test_object.and_then(|t| self.engine.program.objects.get(t));
+        let test_object = self.test_object_read();
+        let test = test_object.and_then(|t| self.engine.program.objects.get(t));
         let visible = self
             .engine
             .events
-            .unraised_subscriber(
-                "ui helper triggers",
-                Some("captionclasstranslate"),
-                test,
-                self.test_object,
-            )
+            .unraised_subscriber("ui helper triggers", Some("captionclasstranslate"), test, test_object)
             .is_some();
         if !visible {
             return self.caption_class_translate(text);

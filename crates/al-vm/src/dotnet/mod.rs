@@ -116,6 +116,38 @@ pub struct DotNetState {
 }
 
 impl DotNetState {
+    /// No .NET object or helper session is held (ADR-073: a recorded run must leave none). `available` is a cached
+    /// answer of the engine's configuration, `result_ty` and `null_string` plumbing of a member call.
+    pub(crate) fn holds_nothing(&self) -> bool {
+        let DotNetState {
+            session,
+            release,
+            available: _,
+            bridges,
+            open_workbooks,
+            closed_workbooks,
+            worksheets,
+            workbook_readers,
+            worksheet_readers,
+            cleared,
+            entry_streams,
+            result_ty: _,
+            null_string: _,
+            password_rng,
+        } = self;
+        session.is_none()
+            && release.borrow().is_empty()
+            && bridges.is_empty()
+            && open_workbooks.is_empty()
+            && closed_workbooks.is_empty()
+            && worksheets.is_empty()
+            && workbook_readers.is_empty()
+            && worksheet_readers.is_empty()
+            && cleared.is_empty()
+            && entry_streams.is_empty()
+            && password_rng.is_none()
+    }
+
     pub(crate) fn clear_null_string(&mut self) {
         self.null_string = false;
     }

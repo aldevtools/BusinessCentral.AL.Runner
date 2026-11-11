@@ -494,3 +494,148 @@ impl TxState {
         }
     }
 }
+
+/// ADR-073: whether a sub-state holds only what a new session holds (a recorded run must leave it so). Each
+/// destructures its struct without `..`, so a new field needs a decision here.
+impl PageClients {
+    pub(crate) fn holds_nothing(&self) -> bool {
+        let PageClients {
+            saved_values,
+            saved_values_committed,
+            traps,
+            scope_unpinned,
+            bg_worker,
+            bg_drain_after_call,
+            page_xrec,
+            curr_field_no,
+            lenient_bind,
+            failed_trigger,
+            ext_answers,
+            ext_vetoed,
+            test_open,
+            run_page_link_open_moved,
+            run_page_link_opening,
+            test_close,
+            close_save_error,
+            shown_frames,
+            shown_controls: _, // not state: a cache of the controls a page shows, by page
+            trigger_kinds,
+            client_depth,
+            code_close_vetoes,
+            open_vetoed,
+        } = self;
+        saved_values.is_empty()
+            && saved_values_committed.is_empty()
+            && traps.is_empty()
+            && scope_unpinned.is_empty()
+            && bg_worker.is_none()
+            && bg_drain_after_call.is_none()
+            && page_xrec.is_none()
+            && curr_field_no.iter().all(|(w, _)| w.strong_count() == 0)
+            && !lenient_bind
+            && failed_trigger.is_none()
+            && ext_answers.is_empty()
+            && !ext_vetoed
+            && !test_open
+            && !run_page_link_open_moved
+            && *run_page_link_opening == 0
+            && !test_close
+            && !close_save_error
+            && shown_frames.is_empty()
+            && trigger_kinds.is_empty()
+            && *client_depth == 0
+            && code_close_vetoes.is_empty()
+            && open_vetoed.iter().all(|w| w.strong_count() == 0)
+    }
+}
+
+impl CoverageState {
+    pub(crate) fn holds_nothing(&self) -> bool {
+        let CoverageState {
+            code_coverage,
+            coverage_counts,
+            recorder,
+            impact,
+            impact_on,
+            cells,
+            profiler,
+        } = self;
+        !code_coverage
+            && coverage_counts.is_none()
+            && *recorder == platform::coverage::Recorder::default()
+            && impact.borrow().is_none()
+            && !impact_on
+            && cells.is_none()
+            && profiler.is_none()
+    }
+}
+
+impl ReportState {
+    pub(crate) fn holds_nothing(&self) -> bool {
+        let ReportState {
+            rebind_after_run,
+            curr_report_language,
+            format_region,
+            variable_culture,
+            run_language,
+            variable_region,
+            region_property,
+            region_in_init,
+            report_init_depth,
+            report_quit,
+            report_trigger,
+            report_flow,
+            flow_unwind,
+            request_only_page,
+            zero_date_view_failed,
+            report_executed,
+            execute_parameters,
+            report_run_modal_done,
+            report_running,
+            request_captions,
+            print_only_if_detail,
+            csv_written,
+            report_save_tried,
+            prepared,
+            caller_writes,
+            rp_init_done,
+            rp_init_by_handler,
+            report_preview_pinned,
+            run_modal,
+            set_view_filters,
+            dataset,
+        } = self;
+        let dead = |v: &Vec<std::rc::Weak<RefCell<Instance>>>| v.iter().all(|w| w.strong_count() == 0);
+        !rebind_after_run
+            && curr_report_language.is_none()
+            && format_region.is_none()
+            && variable_culture.iter().all(|c| c.inst.strong_count() == 0)
+            && run_language.is_none()
+            && !variable_region
+            && !region_property
+            && region_in_init.is_none()
+            && report_init_depth.is_none()
+            && !report_quit
+            && report_trigger.is_none()
+            && report_flow.is_none()
+            && flow_unwind.is_none()
+            && !request_only_page
+            && !zero_date_view_failed
+            && dead(report_executed)
+            && execute_parameters.is_none()
+            && dead(report_run_modal_done)
+            && dead(report_running)
+            && request_captions.iter().all(|(w, _, _)| w.strong_count() == 0)
+            && !print_only_if_detail
+            && csv_written.is_none()
+            && dead(report_save_tried)
+            && dead(prepared)
+            && caller_writes.iter().all(|(w, _)| w.strong_count() == 0)
+            && dead(rp_init_done)
+            && dead(rp_init_by_handler)
+            && report_preview_pinned.is_empty()
+            && !run_modal
+            && set_view_filters.iter().all(|(w, _)| w.strong_count() == 0)
+            && dataset.is_none()
+    }
+}

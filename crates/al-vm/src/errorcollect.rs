@@ -27,6 +27,12 @@ pub(crate) struct Scopes {
 }
 
 impl Scopes {
+    /// No collecting scope is open and no error is held (ADR-073).
+    pub(crate) fn holds_nothing(&self) -> bool {
+        let Scopes { starts, held } = self;
+        starts.is_empty() && held.is_empty()
+    }
+
     pub(crate) fn open(&mut self) {
         self.starts.push(self.held.len());
     }

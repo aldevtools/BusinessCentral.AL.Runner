@@ -39,6 +39,12 @@ pub struct Touches {
     pub dotnet: bool,
     /// The routines that were called, as (object, routine). Not a raise or a touch: `is_empty` leaves it out.
     pub routines: HashSet<(usize, usize)>,
+    /// AL code read, wrote or asked for a file (ADR-073 decision 5: a recorded run that used one is not recorded). Not
+    /// part of [`Touches::is_empty`].
+    pub files: bool,
+    /// AL code's run read which test codeunit runs (`Session::test_object_read`): a recorded run that did not is keyed
+    /// without it (ADR-073). Not part of [`Touches::is_empty`].
+    pub test_object: bool,
 }
 
 impl Touches {
@@ -118,6 +124,32 @@ impl crate::Session {
         }
         if let Some(t) = self.coverage.impact.borrow_mut().as_mut() {
             t.entered.insert(object);
+        }
+    }
+
+    /// AL code used a file (`ctx.rs`).
+    #[inline]
+    pub(crate) fn note_file(&self) {
+        if !self.coverage.impact_on {
+            return;
+        }
+        if let Some(t) = self.coverage.impact.borrow_mut().as_mut() {
+            t.files = true;
+        }
+    }
+
+    /// The test codeunit that runs, as code that depends on it reads it (see [`Touches::test_object`]).
+    pub(crate) fn test_object_read(&self) -> Option<usize> {
+        self.note_test_object_read();
+        self.test_object
+    }
+
+    pub(crate) fn note_test_object_read(&self) {
+        if !self.coverage.impact_on {
+            return;
+        }
+        if let Some(t) = self.coverage.impact.borrow_mut().as_mut() {
+            t.test_object = true;
         }
     }
 
