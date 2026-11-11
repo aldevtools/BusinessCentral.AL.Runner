@@ -85,6 +85,7 @@ impl Session {
 
     /// A buffer whose Insert failed on the existing key and whose row another writer changed since it was read cannot be saved,
     /// with no Commit in between (Y71FailedInsertModify.al:FailedInsert_ThenModify_*). A buffer never read (version 0) writes.
+    /// A buffer whose version came from its own Modify of another row is refused.
     pub(crate) fn check_failed_insert_stale(
         &self,
         t: &TableDef,
@@ -99,6 +100,19 @@ impl Session {
         let mine = version(&rec.borrow().fields[i]);
         // Only while the buffer still holds the version it had at the failed Insert (a Get since gives it a new one).
         if failed.is_some_and(|v| v != 0 && v == mine && v < version(&row[i])) {
+            // Every measured cell read or wrote the row of this key; a version the buffer's own Modify of another row gave it
+            // (the key changed before the Insert: `if not Insert then Modify` over two rows, al-runner issue 7798) is not measured
+            // (corpus PR 1323 record/crud/CodeunitRunTableNoWrites.al, codeunit 76718).
+            let other_row = rec.borrow().last_modify.as_ref().is_some_and(|img| {
+                version(&img[i]) == mine
+                    && !crate::records::same_key(&t.primary_key(img), &t.primary_key(&rec.borrow().fields))
+            });
+            if other_row {
+                return al_builtins::native::unsupported(format!(
+                    "a Modify of a {} buffer whose Insert failed on the existing key, holding the row version its own Modify of another row gave it, older than the row (not pinned)",
+                    t.name
+                ));
+            }
             return Err(self.record_changed(t, rec)?);
         }
         Ok(())
