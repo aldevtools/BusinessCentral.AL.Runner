@@ -1128,7 +1128,7 @@ pub struct Session {
     /// The row `load` is about to read came from `Get` (partial.rs: a `Get` of the row the buffer holds keeps what is loaded).
     pub(crate) get_load: bool,
     /// The row `load` is about to read came from `GetBySystemId` (al-runner issue 5913: a read in the transaction that wrote
-    /// the row's version, assumption stale-get-buffer-in-write-transaction).
+    /// the row's version, record/crud/SbStaleOwnModify.al:467-640).
     pub(crate) sysid_load: bool,
     /// The row `load` is about to read came from `Find`, `FindFirst`, `FindLast` or `FindSet`: its buffer gets the origin a Get
     /// buffer gets (record/crud/Y76StaleBuffers.al Y76_Part1_FindFirst_FindLast, Y76_Part1_FindSet_Assign).
@@ -1386,7 +1386,6 @@ impl Session {
             application_areas: String::new(),
             tx: TxState {
                 committed_row_version: restored_row_version,
-                prior_committed_row_version: restored_row_version,
                 ..TxState::fresh()
             },
             ui_state: UiState::default(),
@@ -1462,25 +1461,17 @@ impl Session {
         self.sql.committed();
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
-        self.tx.prior_committed_row_version = self.tx.committed_row_version;
         self.tx.committed_row_version = self.next_row_version;
-        let closed = (!self.tx.rolled_back && self.writes_all_noted()).then(|| {
-            self.tx
-                .writes
-                .iter()
-                .map(|w| (w.table, w.company.clone(), w.pk.clone()))
-                .collect()
-        });
-        self.tx.closed_tx_rows_before = std::mem::replace(&mut self.tx.closed_tx_rows, closed);
         self.tx.row_versions = Default::default();
         self.tx.rows_touched.clear();
         self.tx.tables_inserted.clear();
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
         self.tx.insert_buffer.clear();
-        self.tx.find_set_tables.clear();
         self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = false;
+        self.tx.reads_after_rollback.clear();
+        self.tx.rollback_unpinned = None;
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
         self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
         self.isolated_committed = self.isolated_storage.clone();
@@ -1570,6 +1561,7 @@ impl Session {
     }
 
     pub fn rollback_transaction(&mut self) {
+        self.note_rollback_for_stale_rule();
         self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
         self.crm_rolled_back();
@@ -1580,9 +1572,9 @@ impl Session {
         self.tx.locked_tables.clear();
         self.tx.writes.clear();
         self.tx.insert_buffer.clear();
-        self.tx.find_set_tables.clear();
         self.tx.commit_counter = self.store.change_counter();
         self.tx.rolled_back = true;
+        self.tx.reads_after_rollback.clear();
         self.isolated_storage = self.isolated_committed.clone();
         // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
         // asserterror under TestIsolation = Codeunit (one transaction for the codeunit) takes back what an earlier test stored

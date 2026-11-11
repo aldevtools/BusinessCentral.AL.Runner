@@ -48,6 +48,20 @@ impl Lowerer<'_> {
         parts.into_iter().flatten().collect()
     }
 
+    /// The table numbers of an arm condition `const(Database::"X")` or `filter(Database::A | Database::B)` on an Integer field,
+    /// joined by `|` (al-runner issue 7365; record/table-relation/RelationIfDatabaseConst.al: an own table and one of another app,
+    /// an if / else if chain, a plain else, the table form without a field, a where() beside it). `None` for any other text or
+    /// field type.
+    fn database_condition_text(&self, file: usize, raw: &str, ty: &Ty) -> Option<String> {
+        let database_terms = raw.split('|').all(|term| {
+            term.split_once("::")
+                .is_some_and(|(q, _)| q.trim().trim_matches('"').eq_ignore_ascii_case("Database"))
+        });
+        (matches!(ty, Ty::Integer) && database_terms)
+            .then(|| self.where_qualified_text(file, raw, ty))
+            .flatten()
+    }
+
     /// The filter text of a where() value written with `::`. `Database::"X"` / `Report::"X"` etc. is the object's id, as for a
     /// CalcFormula const (corpus record/CdcOwner.Table.al:67,79); `"Enum"::Member` on a field of that enum names the member as
     /// `const(Member)` does; `filter(A | B)` of such terms is each term joined by `|` (al-runner issue 6999,
@@ -115,9 +129,20 @@ impl Lowerer<'_> {
                 let Some(pos) = field_pos(own, name) else {
                     return Vec::new();
                 };
+                let raw_text = a.condition_raw.get(k).map(String::as_str).unwrap_or_default();
+                let table_numbers = self.database_condition_text(file, raw_text, &own.fields[pos].ty);
                 if a.filter_conditions.get(k).copied().unwrap_or(false) {
+                    // `filter(Database::A | Database::B)` on an Integer field: the table numbers (RelationIfDatabaseConst.al:69).
+                    if let Some(numbers) = table_numbers {
+                        conditions.push(ir::RelationCond {
+                            field: pos,
+                            value: ir::Const::Text(numbers),
+                            filter: true,
+                        });
+                        continue;
+                    }
                     // The filter text as written; AL quotes an identifier with `"`, the filter grammar with `'`.
-                    let raw = a.condition_raw.get(k).cloned().unwrap_or_default();
+                    let raw = raw_text.to_string();
                     // `filter(Type::Parent)`, one member qualified with the condition's own field, is `filter(Parent)`
                     // (record/table-relation/Y65RenameConstRelation.al RefFilter).
                     let raw = match field_qualified_member(&raw, name) {
@@ -174,7 +199,11 @@ impl Lowerer<'_> {
                     }
                     _ => None,
                 };
-                let value = qualified.as_deref().unwrap_or(value);
+                // `const(Database::"X")` on an Integer field is the table's number (RelationIfDatabaseConst.al:60, :79, :84, :89).
+                let value = match (&table_numbers, raw_text.contains('|')) {
+                    (Some(number), false) => number.as_str(),
+                    _ => qualified.as_deref().unwrap_or(value),
+                };
                 let Some(value) = self.condition_const(file, value, &own.fields[pos].ty) else {
                     return Vec::new();
                 };
@@ -210,11 +239,22 @@ impl Lowerer<'_> {
                 (Some(ws), Some(t)) => ws
                     .iter()
                     .map(|w| match w {
-                        crate::relation::ParsedWhere::Value { related, text } => {
+                        crate::relation::ParsedWhere::Value { related, text, filter } => {
                             let p = field_pos(&self.members[t], related)?;
+                            let date = matches!(self.members[t].fields[p].ty, Ty::Date);
                             // `Database::"X"` / `Report::"X"` etc.: the object's id, as for a
                             // CalcFormula const (corpus record/CdcOwner.Table.al:67,79).
-                            let text = if !text.starts_with('\'') && text.contains("::") {
+                            // `filter(0D)` and `filter(<> 0D)` on a Date field select the empty date or the others, as `''` and `<>''`
+                            // do (al-runner issue 7459; record/table-relation/RelationWhereEmptyValueFilter.al:232-239). `const(0D)`
+                            // raises an Evaluate error on BC (:252-255): not built, it stays refused.
+                            let zero_date = date && *filter && text.trim() == "0D";
+                            let not_zero_date =
+                                date && *filter && text.trim().strip_prefix("<>").is_some_and(|r| r.trim() == "0D");
+                            let text = if zero_date {
+                                "''".to_string()
+                            } else if not_zero_date {
+                                "<>''".to_string()
+                            } else if !text.starts_with('\'') && text.contains("::") {
                                 self.where_qualified_text(file, text, &self.members[t].fields[p].ty)?
                             } else if text.contains('"') {
                                 // `filter(Inventory | "Non-Inventory")`: AL quotes an identifier with `"`,
@@ -236,16 +276,33 @@ impl Lowerer<'_> {
                             Some(ir::RelationWhere::Value { related: p, text })
                         }
                         // One AL string with a doubled quote in it is the filter its content spells: `filter('<>''''')` is
-                        // `<>''` (not empty), on a field of the related table and on one a tableextension adds, and
-                        // `filter('''''')` is `''` (the empty value); `filter('<>''')` raises InvalidFilterExpression on BC
-                        // and every other content is not measured, so both stay refused (al-runner issue 6924;
+                        // `<>''` (not empty), on a field of the related table and on one a tableextension adds,
+                        // `filter('''''')` is `''` (the empty value) and `filter('=''''')` is `=''` (equal to the empty value),
+                        // each read as a SetFilter text on the related field's type: Date, Time, DateTime, Code, Text, Duration
+                        // and DateFormula select the empty value or the others, Integer, Decimal, Guid and Option raise the filter
+                        // error of that type (al-runner issue 7459; record/table-relation/RelationWhereEmptyValueFilter.al:47-79,
+                        // :203-214, :278-473, :488-494). `filter('<>''')` raises InvalidFilterExpression on BC and every other
+                        // content is not measured, so both stay refused (al-runner issue 6924;
                         // record/table-relation/TableRelationQuotes.al:1188-1189 conditional arm, :1203-1204 extension and
                         // own field, :1225 `''`, :1221 `<>'''`; objects TableRelationExtFieldFilter.Objects.al:57-66).
+                        // `=''` is built only on the types RelationWhereEmptyValueFilter.al:47-79 pins it for; on any other type
+                        // (Enum, an Option with a blank first member, RecordId, ...) it stays refused.
                         crate::relation::ParsedWhere::QuotedFilter { related, text }
-                            if matches!(text.as_str(), "<>''" | "''") =>
+                            if matches!(text.as_str(), "<>''" | "''" | "=''") =>
                         {
-                            Some(ir::RelationWhere::Value {
-                                related: field_pos(&self.members[t], related)?,
+                            let p = field_pos(&self.members[t], related)?;
+                            let equal_empty_pinned = matches!(
+                                self.members[t].fields[p].ty,
+                                Ty::Date
+                                    | Ty::Time
+                                    | Ty::DateTime
+                                    | Ty::Code(_)
+                                    | Ty::Text(_)
+                                    | Ty::Duration
+                                    | Ty::DateFormula
+                            );
+                            (text != "=''" || equal_empty_pinned).then(|| ir::RelationWhere::Value {
+                                related: p,
                                 text: text.clone(),
                             })
                         }
@@ -266,7 +323,7 @@ impl Lowerer<'_> {
             // RelQuotedEnum.al:36, :235), and the ranges and `&` forms of `quoted_relation_text_pinned`
             // (TableRelationQuotes.al:279-397). Any other form stays under the assumption.
             let quoted = a.wheres.iter().flatten().any(|w| {
-                matches!(w, crate::relation::ParsedWhere::Value { related, text }
+                matches!(w, crate::relation::ParsedWhere::Value { related, text, .. }
                     if !text.starts_with('\'') && !text.contains("::") && text.contains('"')
                         && !table
                             .and_then(|t| field_pos(&self.members[t], related).map(|p| &self.members[t].fields[p].ty))
@@ -275,7 +332,10 @@ impl Lowerer<'_> {
                 |((raw, filter), (name, _))| {
                     *filter
                         && raw.contains('"')
-                        && !field_pos(own, name).is_some_and(|p| quoted_condition_text_pinned(raw, &own.fields[p].ty))
+                        && !field_pos(own, name).is_some_and(|p| {
+                            quoted_condition_text_pinned(raw, &own.fields[p].ty)
+                                || self.database_condition_text(file, raw, &own.fields[p].ty).is_some()
+                        })
                 },
             );
             arms.push(ir::RelationArm {
@@ -1047,7 +1107,73 @@ fn quoted_condition_text_pinned(text: &str, ty: &Ty) -> bool {
         });
     }
     let terms: Vec<&str> = text.split('|').map(str::trim).collect();
-    terms.len() >= 2 && terms.iter().all(|t| quoted(t) || plain(t))
+    (terms.len() >= 2 && terms.iter().all(|t| quoted(t) || plain(t))) || y76_quoted_form(text, ty, Y76_ARM_FORMS)
+}
+
+/// The quoted forms writer Y76 measured on an Enum and an Option field (record/table-relation/TableRelationQuotes.al:126-199,
+/// Y76_* tests :734-1066), each as the shape of its terms: `Q` a member quoted with `"`, `B` the quoted blank member `" "` (an
+/// Option whose first member is blank), `P` a plain member, joined as written. `E`/`O` say on which field type.
+const Y76_WHERE_FORMS: &[(&str, &str)] = &[
+    ("EO", "..Q"),
+    ("EO", "Q..Q="),
+    ("EO", "<>P&<>Q&<>P"),
+    ("E", "Q|P.."),
+    ("O", "Q.."),
+    ("O", "B"),
+    ("O", "B|P"),
+    ("O", "<>B"),
+    ("O", "B..P"),
+    ("O", "B..Q"),
+];
+
+/// The forms of an arm's if (...) condition writer Y76 measured on an Option field whose first member is blank
+/// (TableRelationQuotes.al:177-199).
+const Y76_ARM_FORMS: &[(&str, &str)] = &[("O", "<>B"), ("O", "..Q"), ("O", "Q.."), ("O", "B..Q")];
+
+/// Whether `text` on a field of type `ty` has one of `forms` (see [`Y76_WHERE_FORMS`]). `Q..Q=` is a range whose two quoted bounds
+/// are the same member.
+fn y76_quoted_form(text: &str, ty: &Ty, forms: &[(&str, &str)]) -> bool {
+    let kind = match ty {
+        Ty::Enum(_) => 'E',
+        Ty::Option(members) if members.first().is_some_and(|m| m.trim().is_empty()) || !text.contains("\" \"") => 'O',
+        _ => return false,
+    };
+    // The shape: each quoted member becomes Q (B when blank), each plain word P, blanks dropped.
+    let mut shape = String::new();
+    let mut quoted_members = Vec::new();
+    let mut rest = text.trim();
+    while let Some(c) = rest.chars().next() {
+        if c == '"' {
+            let Some(end) = rest[1..].find('"') else {
+                return false;
+            };
+            let member = &rest[1..1 + end];
+            shape.push(if member.trim().is_empty() { 'B' } else { 'Q' });
+            quoted_members.push(member);
+            rest = &rest[end + 2..];
+        } else if c.is_alphanumeric() || c == '_' {
+            let end = rest
+                .find(|ch: char| !(ch.is_alphanumeric() || ch == '_'))
+                .unwrap_or(rest.len());
+            shape.push('P');
+            rest = &rest[end..];
+        } else if c.is_whitespace() {
+            rest = &rest[c.len_utf8()..];
+        } else if "|&<>.".contains(c) {
+            shape.push(c);
+            rest = &rest[1..];
+        } else {
+            return false;
+        }
+    }
+    let same_bounds = quoted_members.len() == 2 && quoted_members[0] == quoted_members[1];
+    forms.iter().any(|(kinds, form)| {
+        kinds.contains(kind)
+            && match form.strip_suffix('=') {
+                Some(f) => same_bounds && shape == f,
+                None => shape == *form,
+            }
+    })
 }
 
 fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
@@ -1065,6 +1191,9 @@ fn quoted_relation_text_pinned(text: &str, ty: &Ty) -> bool {
     let plain = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_');
     // A range with one quoted and one plain bound (`A .. "B C"`, `"B C" .. D`, on an Enum and an Option field), and a quoted
     // lower bound with no upper one on an Enum field (`"B C" ..`): TableRelationQuotes.al:279-363, :383-397 (corpus bump 45).
+    if y76_quoted_form(text, ty, Y76_WHERE_FORMS) {
+        return true;
+    }
     if let Some((l, r)) = text.split_once("..") {
         let (l, r) = (l.trim(), r.trim());
         if r.is_empty() {

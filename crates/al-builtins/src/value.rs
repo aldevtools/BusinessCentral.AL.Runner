@@ -471,7 +471,7 @@ pub struct RowOrigin {
     /// The session's commit count at that moment.
     pub commits: u64,
     /// `own_write` holds because the buffer read, by Get or GetBySystemId, a version written in the transaction that was open
-    /// then, not because the variable wrote it (assumption stale-get-buffer-in-write-transaction, al-runner issue 5913).
+    /// then, not because the variable wrote it (record/crud/SbStaleOwnModify.al:467-640, al-runner issue 5913).
     pub read_in_write_tx: bool,
     /// The buffer got its row version from a TransferFields out of a record, not from a read: only a LockTable and Get of the row
     /// in the new transaction lets its stale write through, a Modify of the row does not
@@ -480,6 +480,8 @@ pub struct RowOrigin {
     /// The variable's own Modify followed its Insert or Get in the same transaction (a buffer with a Modify and one without are
     /// told apart by record/crud/Y76StaleBuffers.al Y76_Part2_*).
     pub own_modified: bool,
+    /// A read by a Find, FindFirst, FindLast, FindSet or Next, not by Get, gave the buffer its committed version.
+    pub from_find: bool,
 }
 
 impl RowOrigin {
@@ -492,6 +494,7 @@ impl RowOrigin {
             read_in_write_tx: false,
             lock_only: false,
             own_modified: false,
+            from_find: false,
         }
     }
 }
