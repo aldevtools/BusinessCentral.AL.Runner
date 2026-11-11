@@ -1693,8 +1693,6 @@
 77522 AC_NavApp_GetResource_AppId_Errors
 77522 AC_NavApp_ListAppsWithPublicResources
 77522 AC_NavApp_ListResources_AppId
-77537 SF_ArrayAndTemporaryVariable
-77537 SF_ObjectGlobals
 78000 Letters_2030_A
 78000 Letters_2030_B
 78000 Letters_Dec31_B

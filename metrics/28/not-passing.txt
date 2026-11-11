@@ -1664,8 +1664,6 @@
 77099 ReqPagePlainReportOkWithExtensionTriggers
 77323 LoginChecklist_FirstTest_WhatTheSessionSaw
 77323 LoginChecklist_SecondTest_NotRaisedAgain
-77537 SF_ArrayAndTemporaryVariable
-77537 SF_ObjectGlobals
 78000 Letters_2030_A
 78000 Letters_2030_B
 78000 Letters_Dec31_B
