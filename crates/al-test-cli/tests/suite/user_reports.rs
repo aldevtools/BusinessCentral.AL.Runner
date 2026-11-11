@@ -2472,6 +2472,13 @@ fn issue_7771_empty_modal_worksheet_refuses_unmeasured_shapes() {
             static_run,
         ),
         (delayed, exact, "Window.RunModal();"),
+        (delayed, exact, "Page.RunModal(Page::Worksheet, Input);"),
+        (delayed, exact, "Input.Get(1); Page.RunModal(Page::Worksheet, Input);"),
+        (
+            delayed,
+            exact,
+            "Response := Page.RunModal(Page::Worksheet); if Response = Action::OK then;",
+        ),
     ] {
         let test = format!(
             r#"
@@ -2492,7 +2499,7 @@ page 69501 Worksheet {{
 }}
 codeunit 69502 T {{ Subtype = Test;
     [Test] [HandlerFunctions('HandleWorksheet')]
-    procedure P() var Row: Record Row; Window: Page Worksheet; begin
+    procedure P() var Row: Record Row; Input: Record Row; Window: Page Worksheet; Response: Action; begin
         Row.Id := 1; Row.Name := 'HIDDEN'; Row.Insert(); {run}
     end;
     [ModalPageHandler] procedure HandleWorksheet(var Window: TestPage Worksheet) begin
