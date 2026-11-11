@@ -818,8 +818,25 @@ impl Warm {
             slot.compiled.set_resources(resources);
         }
         let compile_time = compile_started.elapsed();
-        let rt = CorpusRuntime::run_compiled_kept(&slot.compiled, target, dotnet.clone(), opts, true);
-        let mut rt = self.settle(
+        // A run that may be redone tells its tests only once it stands: a client is told one line per test, by the run
+        // that counts (docs/manual/tool-protocol.md section 4b). The full run's compile streams them as they finish.
+        let held: Arc<std::sync::Mutex<Vec<crate::events::TestEvent>>> = Default::default();
+        let hold = super::narrowing::Narrowing::may_redo(&slot.compiled) && opts.hooks.on_test.is_some();
+        let first_opts = match hold {
+            true => std::borrow::Cow::Owned(RunOptions {
+                hooks: crate::events::Hooks {
+                    on_test: Some({
+                        let held = held.clone();
+                        Arc::new(move |e| held.lock().unwrap_or_else(|p| p.into_inner()).push(e))
+                    }),
+                    ..opts.hooks.clone()
+                },
+                ..opts.clone()
+            }),
+            false => std::borrow::Cow::Borrowed(opts),
+        };
+        let rt = CorpusRuntime::run_compiled_kept(&slot.compiled, target, dotnet.clone(), &first_opts, true);
+        let (mut rt, redone) = self.settle(
             rt,
             (build, kept_manifests),
             resources,
@@ -827,13 +844,21 @@ impl Warm {
             suites,
             opts,
         )?;
+        if let (false, Some(on_test)) = (redone, &opts.hooks.on_test) {
+            for e in std::mem::take(&mut *held.lock().unwrap_or_else(|p| p.into_inner())) {
+                on_test(e);
+            }
+        }
+        // A redone request compiled the whole workspace again.
+        let used = if redone { WarmUse::Compiled } else { used };
         rt.phases.warm_compile = Some(compile_time);
         Ok((rt, used))
     }
 
     /// A request whose run met what the kept compile left out runs again on the full run's compile, as a one-shot run
     /// does (`narrowing::settle`); the slot keeps that compile for the next requests. `apps` gives the apps again: `build`
-    /// when it was not called, else the kept compile's apps with the manifests `build` gave.
+    /// when it was not called, else the kept compile's apps with the manifests `build` gave. Also says whether the request
+    /// was redone.
     #[allow(clippy::type_complexity)]
     fn settle(
         &mut self,
@@ -850,11 +875,11 @@ impl Warm {
         ),
         suites: &[SuiteRun],
         opts: &RunOptions,
-    ) -> Result<CorpusRuntime, String> {
+    ) -> Result<(CorpusRuntime, bool), String> {
         use super::narrowing::{Met, Narrowing, Settled};
         let slot = self.slot.as_ref().expect("a compile is kept");
         if Narrowing::of(&slot.compiled).next(Met::of(&rt)).is_none() {
-            return Ok(rt);
+            return Ok((rt, false));
         }
         let WarmSlot {
             key, files, compiled, ..
@@ -885,15 +910,15 @@ impl Warm {
             |c| CorpusRuntime::run_compiled_kept(c, target, dotnet.clone(), opts, true),
         )?;
         match settled {
-            Settled::Stopped(rt) => Ok(rt),
-            Settled::Ran { compiled, rt, .. } => {
+            Settled::Stopped(rt) => Ok((rt, true)),
+            Settled::Ran { compiled, rt, redone } => {
                 self.slot = Some(WarmSlot {
                     key,
                     files,
                     compiled_for: None,
                     compiled: *compiled,
                 });
-                Ok(rt)
+                Ok((rt, redone))
             }
         }
     }

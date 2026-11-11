@@ -1554,5 +1554,15 @@ code and is removed.
 4. A run that may be redone keeps its engines and frees them, so the next compile does not stand beside leaked engines
    (`--max-memory`).
 
-**Cost.** One more compile, of the whole workspace, for a selection that met what it left out. `NOT_REACHED` alone starts
-none.
+5. A warm server's request on a compile that may be redone holds its `test` events until its outcomes stand and sends
+   them only when it was not redone; a redone request streams the full run's events as they finish. A client gets one
+   line per test (`docs/manual/tool-protocol.md` section 4b), and a redone request reports that it compiled.
+
+**Cost.**
+
+- One more compile, of the whole workspace, for a selection that met what it left out. `NOT_REACHED` alone starts none.
+- `al-runner debug` and any selection run with `--files-dir` compile every test codeunit from the start, as the full run
+  does. The table above puts a selection's compile at about 17.7-91.8 G instructions and a whole-workspace compile in the
+  170 G class, so such a run can start up to about twice as slow on a large app.
+- A warm server's request on a narrowed compile sends its `test` lines at the end of its run, not as each test finishes.
+  The first redone request leaves the full run's compile in the slot, which then streams as before.
