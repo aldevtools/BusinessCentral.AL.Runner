@@ -264,10 +264,15 @@ fn facade_calls(lowered: &Lowered, visited: &[(usize, usize)], facades: &[usize]
 }
 
 /// Whether a call of routine `routine` of `object` passes, for a parameter whose name holds "ObjectID", a constant
-/// naming an object of an app under test.
+/// naming an object of an app under test. Not `Run`: it runs that object (System Application's
+/// `GuidedExperienceImpl.RunObject`), whose reach the walk does not follow, so Raise decides (review of al-runner issue
+/// 7717, round five, LOW 1).
 fn keyed_on_own_object(lowered: &Lowered, object: usize, routine: usize, args: &[al_ir::Arg]) -> bool {
     let objects = &lowered.program.objects;
     let callee = &objects[object].routines[routine];
+    if callee.name.eq_ignore_ascii_case("Run") {
+        return false;
+    }
     let Some(at) = (callee.locals[..callee.params].iter()).position(|p| p.name.to_lowercase().contains("objectid"))
     else {
         return false;

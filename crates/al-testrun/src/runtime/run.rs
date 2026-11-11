@@ -989,14 +989,18 @@ fn run_codeunit_inner(
             let drew_carried = session.carried_random_draws() > carried_before;
             // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
             // (al-runner issue 5641), or one a watched login wrote (`login.rs`): what it found there is not pinned.
-            let hit = company_open.watch_hit(session, began);
-            let outcome = match (hit, hit.and_then(|t| company_open.touched(t, lowered))) {
-                (_, Some(why)) => Outcome::NotRun(why),
-                (Some(t), None) if leak.contains(&t) => {
-                    scratch.leak_hit = true;
+            // A read or write of any table an earlier Disabled codeunit left rows in sets `leak_hit`, whatever watched
+            // table the test touched first (review of al-runner issue 7717, round five, probe p13).
+            let touched = session.store_mut().watch_hits();
+            let hit = company_open.watch_hit(&touched, began);
+            let outcome = match hit.and_then(|t| company_open.touched(t, lowered)) {
+                Some(why) => Outcome::NotRun(why),
+                None => {
+                    if began && !leak.is_disjoint(&touched) {
+                        scratch.leak_hit = true;
+                    }
                     outcome
                 }
-                _ => outcome,
             };
             session.store_mut().watch(Default::default());
             // A test the time limit stopped started from the same state as a failure does, so it is judged alike (al-runner

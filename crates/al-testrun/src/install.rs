@@ -1071,20 +1071,20 @@ impl CompanyOpenWrites {
         out
     }
 
-    /// After a test that `began`: the watched table it touched that decides its outcome ([`CompanyOpenWrites::touched`]),
-    /// else the first one it touched. A test that touched a table of `own_login` marks
-    /// `login-own-registration-reads-alone`.
-    pub fn watch_hit(&self, session: &mut Session, began: bool) -> Option<u32> {
+    /// After a test that `began`, of the watched tables it touched (`hits`): the one that decides its outcome
+    /// ([`CompanyOpenWrites::touched`]), if any. A test that touched a table of `own_login` marks
+    /// `login-own-registration-reads-alone`. The other watched tables (an earlier Disabled codeunit's, `run.rs`) are the
+    /// caller's to judge on the whole of `hits`: the first table touched can be one of `own_login`.
+    pub fn watch_hit(&self, hits: &BTreeSet<u32>, began: bool) -> Option<u32> {
         if !began {
             return None;
         }
-        let hits = session.store_mut().watch_hits();
-        if !self.own_login.is_disjoint(&hits) {
+        if !self.own_login.is_disjoint(hits) {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LoginOwnRegistrationReadsAlone);
         }
-        let deciding = (hits.iter())
-            .find(|t| self.tables.contains(t) || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t)));
-        deciding.copied().or_else(|| session.store_mut().watch_hit())
+        (hits.iter())
+            .find(|t| self.tables.contains(t) || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t)))
+            .copied()
     }
 
     /// Why a test that read or wrote table `t` while it ran is not run: `None` when `t` is not watched.

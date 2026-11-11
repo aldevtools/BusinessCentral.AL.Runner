@@ -1139,6 +1139,26 @@ fn outcomes_in(
     isolation: TestIsolation,
     no_client: bool,
 ) -> Vec<(String, Outcome)> {
+    let mut scratch = Scratch {
+        flags: super::session_flags::SessionFlags::of(&RunOptions {
+            no_client,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    outcomes_with(main, dep, codeunit, isolation, &mut scratch, &[])
+}
+
+/// [`outcomes_in`] with the caller's `scratch`, whose `leak` is set to the tables named in `leak` when that is not empty
+/// (an earlier codeunit with RequiredTestIsolation = Disabled left rows there).
+fn outcomes_with(
+    main: &str,
+    dep: &str,
+    codeunit: &str,
+    isolation: TestIsolation,
+    scratch: &mut Scratch,
+    leak: &[&str],
+) -> Vec<(String, Outcome)> {
     let (ws, l) = al_sema::lower::compile_apps(
         [("main", vec!["dep".to_string()], main), ("dep", vec![], dep)]
             .into_iter()
@@ -1159,25 +1179,21 @@ fn outcomes_in(
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let engine = Engine::new(l.program.clone(), blocked);
-    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
-    let mut scratch = Scratch {
-        flags: super::session_flags::SessionFlags::of(&RunOptions {
-            no_client,
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+    let index = |name: &str| l.program.objects.iter().position(|o| o.name == name).unwrap();
+    if !leak.is_empty() {
+        scratch.leak = Some(Arc::new(leak.iter().map(|t| index(t) as u32).collect()));
+    }
     run_codeunit_core(
         &engine,
         &l,
-        oi,
+        index(codeunit),
         None,
         isolation,
         None,
         &mut Vec::new(),
         &mut Vec::new(),
         &mut Vec::new(),
-        &mut scratch,
+        scratch,
         None,
         false,
     )
@@ -1831,4 +1847,105 @@ fn a_failing_after_login_subscriber_is_rolled_back_alone_after_a_registration() 
             false,
         ));
     }
+}
+
+// Round six (review of issue 7717, round five).
+
+/// MEDIUM 1 (probe p13): the app's OnRegisterAssistedSetup subscriber registers its own wizard (keyed on its own object),
+/// and the tests register it too, so the login runs Own. An earlier codeunit with RequiredTestIsolation = Disabled left a
+/// row in "M Data". One test touches the registration's table first, the other "M Data" first.
+const OWN_LOGIN_THEN_LEAK: &str = r#"
+table 51970 "M Data" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+page 51970 "M Wizard" { PageType = NavigatePage; layout { area(Content) { group(S) { InstructionalText = 'Step 1'; } } } }
+codeunit 51970 "M Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure Register() begin Reg(); end;
+    procedure Reg() var G: Codeunit "Guided Experience";
+    begin
+        if not G.AssistedSetupExistsAndIsNotComplete(Page::"M Wizard") then G.InsertAssistedSetup(Page::"M Wizard");
+    end;
+}
+codeunit 51971 "MB Login Row First"
+{
+    Subtype = Test;
+    [Test]
+    procedure B1() var D: Record "M Data"; L: Codeunit "M Login"; begin L.Reg(); Error('COUNT %1', D.Count()); end;
+}
+codeunit 51972 "MC Data First"
+{
+    Subtype = Test;
+    [Test]
+    procedure C1() var D: Record "M Data"; L: Codeunit "M Login"; N: Integer; begin N := D.Count(); L.Reg(); Error('COUNT %1', N); end;
+}
+"#;
+
+// In both orders the test is noted as reading what the Disabled codeunit left, so the caller runs it again from there
+// (`corpus.rs`, `single_lane.rs`): touching an own-login table first does not hide the read of "M Data".
+#[test]
+fn a_test_that_touches_an_own_login_table_first_still_notes_the_disabled_codeunits_rows() {
+    for codeunit in ["MB Login Row First", "MC Data First"] {
+        let (_, hits) = outcomes_and_hits(OWN_LOGIN_THEN_LEAK, DEP, codeunit);
+        assert!(
+            hits.iter()
+                .any(|(_, h)| h.contains(&"login-own-registration-reads-alone")),
+            "{codeunit} does not run the login Own: {hits:?}"
+        );
+        let mut scratch = Scratch::default();
+        let o = outcomes_with(
+            OWN_LOGIN_THEN_LEAK,
+            DEP,
+            codeunit,
+            TestIsolation::Codeunit,
+            &mut scratch,
+            &["M Data"],
+        );
+        assert!(scratch.leak_hit, "{codeunit}: {o:?}");
+    }
+}
+
+/// LOW 1 (review round five): an OnAfterLogin subscriber runs a codeunit of its app through "Guided Experience".Run with
+/// a constant object id. Run runs that object (System Application: `GuidedExperienceImpl.RunObject`, after it reads the
+/// object's row), and the codeunit asks `SystemInitialization.IsInProgress()`, which only Microsoft's login sets.
+const RUNS_OWN_OBJECT: &str = r#"
+table 51980 "N Row" { fields { field(1; Code; Code[20]) { } field(2; Txt; Text[50]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 51980 "N State" { SingleInstance = true; var InProgress: Boolean; procedure Set(V: Boolean) begin InProgress := V; end; procedure Get(): Boolean begin exit(InProgress); end; }
+codeunit 51981 "N Init"
+{
+    trigger OnRun() var S: Codeunit "N State"; I: Codeunit "System Initialization"; begin S.Set(I.IsInProgress()); end;
+}
+codeunit 51982 "N Login"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure AfterLogin() var G: Codeunit "Guided Experience"; S: Codeunit "N State"; N: Record "N Row";
+    begin
+        G.Run(Codeunit::"N Init");
+        N.Code := 'AFTER';
+        N.Txt := Format(S.Get());
+        N.Insert();
+    end;
+}
+codeunit 51983 "NB Inserts"
+{
+    Subtype = Test;
+    [Test]
+    procedure B1() var N: Record "N Row"; begin N.Code := 'OWN'; N.Insert(); N.Get('AFTER'); if N.Txt <> 'Yes' then Error('SAW %1', N.Txt); end;
+}
+"#;
+
+// The call is not taken as keyed on the app's own object, so the login is raised through Microsoft's code and the
+// codeunit it runs sees the login in progress.
+#[test]
+fn a_guided_experience_run_of_an_own_object_gets_the_login_raised() {
+    let dep = format!("{DEP}{DEP_REGISTRATION}").replace(
+        "    procedure Register() begin",
+        "    procedure Run(ObjectID: Integer) var G: Record \"Guided Experience Item\"; begin if G.Get(ObjectID) then; Codeunit.Run(ObjectID); end;\n    procedure Register() begin",
+    );
+    assert_all_pass(&outcomes_in(
+        RUNS_OWN_OBJECT,
+        &dep,
+        "NB Inserts",
+        TestIsolation::Codeunit,
+        false,
+    ));
 }
