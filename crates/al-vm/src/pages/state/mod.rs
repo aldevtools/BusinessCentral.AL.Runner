@@ -702,6 +702,9 @@ pub struct PageState {
     pub placeholder_line: bool,
     /// The current new row was started by `New()` from the placeholder line: AutoSplitKey counts one interval more.
     pub split_burned: bool,
+    /// The row a part read in another order numbered last with AutoSplitKey, and the number of the row the grid shows after it
+    /// (`pages/split_key_view.rs`).
+    pub split_view_last: Option<(Vec<Value>, Option<Value>)>,
     /// `OnOpenPage` left filters in `FilterGroup(-1)`: the page dropped them from the rows it shows.
     pub or_group_dropped: bool,
     /// The record handed to the page carried filters in `FilterGroup(-1)`, dropped before OnOpenPage.

@@ -177,6 +177,7 @@ mod qualified_name;
 mod read_backwards;
 mod relation_lookup;
 mod row_var_outside_call;
+mod split_key_view;
 mod text_control_value;
 use text_control_value::TextConv;
 pub(crate) mod request;

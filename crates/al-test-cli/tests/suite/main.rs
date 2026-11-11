@@ -177,6 +177,7 @@ mod saveasxml_y67_columns;
 mod savevalues_open_page_order;
 mod selection_filter_linked_part_no_row;
 mod single_instance_test_codeunit;
+mod split_key_view_refusals;
 mod stale_delete_triggers;
 mod stale_updlock_read;
 mod static_runmodal_find_record;

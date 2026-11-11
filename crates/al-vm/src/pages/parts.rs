@@ -2682,7 +2682,10 @@ impl Session {
         if !on_row && !on_blank {
             return Ok(None);
         }
-        let last = st.borrow().window.last().map(|w| w.stored.clone());
+        let last = match self.split_view_last_row(st)? {
+            Some(row) => Some(row),
+            None => st.borrow().window.last().map(|w| w.stored.clone()),
+        };
         if let Some(last) = last {
             // Every part shape: AutoSplitKey and DelayedInsert (the `LT QJ Save Lines` part), DelayedInsert only, AutoSplitKey
             // only, neither, with OnAfterGetRecord, without OnAfterGetCurrRecord (QjPartPropagation.al:2921
