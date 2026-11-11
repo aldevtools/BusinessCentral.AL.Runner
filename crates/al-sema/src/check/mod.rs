@@ -115,6 +115,12 @@ pub const NOT_REACHED: &str = "not compiled: no code reached it while compiling 
 /// (al-testrun `runtime/narrowing.rs`).
 pub const UNSELECTED: &str = "not compiled: the compile for the selected tests left it out (a test codeunit they do not keep, or a procedure they do not name)";
 
+/// Whether `reason` says the routine was not compiled ([`LEFT_OUT`], [`NOT_REACHED`], [`UNSELECTED`]): a call of it is
+/// refused, it never runs in part.
+pub fn is_not_compiled(reason: &str) -> bool {
+    [LEFT_OUT, NOT_REACHED, UNSELECTED].contains(&reason)
+}
+
 /// The routine offset of a [`CheckResult::panicked`] entry that covers every routine of the object.
 pub const ANY_ROUTINE: usize = usize::MAX;
 

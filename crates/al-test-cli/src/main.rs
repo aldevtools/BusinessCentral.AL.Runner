@@ -427,13 +427,15 @@ fn shared_pass_lines(bc: &str, notes: &[runtime::setting_lanes::SharedPassNote])
                 "BC {bc} {}: shares the pass (its app has no subscriber to an outside event, no extension of another app's \
                  object and no object in the static reach of the other suites' apps{})",
                 n.suite,
-                match &n.unknown {
-                    // `shared_pass::check`: such a reach finds the app only by an id known at run time or through a
-                    // subscriber, and the other suites' engine leaves the app uninstalled (`Engine::app_installed`).
-                    Some(why) => format!(
-                        "; their reach the walk cannot follow (first: {why}) does not find the app: their engine leaves it uninstalled"
+                // `shared_pass::check`: the only part of their reach the walk may not follow is a routine that is not
+                // compiled, whose call is refused (owner, 2026-11-11).
+                match n.not_compiled.as_slice() {
+                    [] => String::new(),
+                    all => format!(
+                        "; {} part(s) of their reach are not compiled, a call of which is refused: {}",
+                        all.len(),
+                        all.join("; ")
                     ),
-                    None => String::new(),
                 }
             ),
             Some(why) => return Err(format!("BC {bc} {}: may not share the pass: {why}", n.suite)),

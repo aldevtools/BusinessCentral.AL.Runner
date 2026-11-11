@@ -409,12 +409,36 @@ pub(crate) fn union_reach_visited(
     lowered: &Lowered,
     index: &ReachIndex,
     roots: &[(usize, usize)],
-) -> (ReachFacts, Vec<(usize, usize)>) {
+) -> UnionReach {
     let mut walk = Walk::new(events, lowered, index);
     walk.visited = Some(Vec::new());
+    walk.unknowns = Some(BTreeSet::new());
     walk.stack.extend(roots.iter().rev().copied());
     walk.run(&|_| false);
-    (walk.out, walk.visited.unwrap_or_default())
+    UnionReach {
+        visited: walk.visited.take().unwrap_or_default(),
+        unknowns: walk.unknowns.take().unwrap_or_default(),
+        facts: walk.out,
+    }
+}
+
+/// What [`union_reach_visited`] found.
+pub(crate) struct UnionReach {
+    pub facts: ReachFacts,
+    /// The routines visited.
+    pub visited: Vec<(usize, usize)>,
+    /// Every reason the walk could not follow part of the reach (each routine's first of each kind), with its kind.
+    pub unknowns: BTreeSet<(Unknown, String)>,
+}
+
+/// The kind of a part of the reach the walk cannot follow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Unknown {
+    /// A routine that is not compiled (`al_sema::check::is_not_compiled`), or the triggers or the run of an object that
+    /// is not compiled: a call of it is refused, so it never runs in part.
+    NotCompiled,
+    /// Anything else: a refused construct, a run by an id known only at run time, a report that cannot run.
+    Other,
 }
 
 /// The facts of the joined reach of the routines `roots`, one walk of the union of their reaches, that does not enter
@@ -766,7 +790,7 @@ pub(crate) fn remainder_reach_facts(
         index,
         out: ReachFacts::default(),
         summary: Summary::default(),
-        unknown: false,
+        unknown: [false; 2],
     };
     for (&(global, i), &(uses, _)) in &named {
         let slot = if global { obj.globals.get(i) } else { rt.locals.get(i) };
@@ -896,6 +920,8 @@ struct Walk<'a> {
     login: bool,
     /// The routines visited, when kept ([`login_subscribers_reach_without`]).
     visited: Option<Vec<(usize, usize)>>,
+    /// Every reason of `unknown`, when kept ([`union_reach_visited`]).
+    unknowns: Option<BTreeSet<(Unknown, String)>>,
 }
 
 impl<'a> Walk<'a> {
@@ -917,6 +943,7 @@ impl<'a> Walk<'a> {
             runs_in_calls: false,
             login: false,
             visited: None,
+            unknowns: None,
         }
     }
 
@@ -971,9 +998,20 @@ impl<'a> Walk<'a> {
 
     /// Part of the reach is not known: a refused routine or construct (owner's priority, coordinator's decision
     /// 2026-10-19: it counts as "may change anything"), or a run by an id known only at run time.
-    fn unknown(&mut self, why: impl FnOnce() -> String) {
+    fn unknown(&mut self, kind: Unknown, why: impl FnOnce() -> String) {
+        if self.out.unknown.is_none() || self.unknowns.is_some() {
+            let why: String = why().chars().take(160).collect();
+            self.note_unknown(kind, &why);
+        }
+    }
+
+    /// Notes a reason of `unknown` of kind `kind`: the walk's first, and every one when they are kept.
+    fn note_unknown(&mut self, kind: Unknown, why: &str) {
         if self.out.unknown.is_none() {
-            self.out.unknown = Some(why().chars().take(160).collect());
+            self.out.unknown = Some(why.to_string());
+        }
+        if let Some(all) = &mut self.unknowns {
+            all.insert((kind, why.to_string()));
         }
     }
 
@@ -1017,7 +1055,9 @@ impl<'a> Walk<'a> {
             for o in std::iter::once(t).chain(self.extensions_of(t)) {
                 let obj = &objs[o];
                 if obj.uncompiled {
-                    self.unknown(|| format!("the triggers of {} are not compiled", obj.name));
+                    self.unknown(Unknown::NotCompiled, || {
+                        format!("the triggers of {} are not compiled", obj.name)
+                    });
                     continue;
                 }
                 let word = match bit {
@@ -1047,12 +1087,14 @@ impl<'a> Walk<'a> {
         let lowered = self.lowered;
         let obj = &lowered.program.objects[o];
         if obj.uncompiled {
-            self.unknown(|| format!("runs {}, which is not compiled", obj.name));
+            self.unknown(Unknown::NotCompiled, || {
+                format!("runs {}, which is not compiled", obj.name)
+            });
             return;
         }
         // A report the runtime refuses when it runs (`Session::report_schema`): what the test does before it is not followed.
         if let Some(why) = obj.report.as_ref().and_then(|r| r.unsupported.first()) {
-            self.unknown(|| format!("runs {}, which cannot run: {why}", obj.name));
+            self.unknown(Unknown::Other, || format!("runs {}, which cannot run: {why}", obj.name));
             if self.out.report_cannot_run.is_none() {
                 self.out.report_cannot_run = Some(format!("runs {}, which cannot run: {why}", obj.name));
             }
@@ -1156,11 +1198,7 @@ impl<'a> Walk<'a> {
         for step in &s.steps {
             match step {
                 Step::Push(a, b) => self.stack.extend_from_slice(&s.pushes[*a as usize..*b as usize]),
-                Step::Unknown(why) => {
-                    if self.out.unknown.is_none() {
-                        self.out.unknown = Some(why.to_string());
-                    }
-                }
+                Step::Unknown(why, kind) => self.note_unknown(*kind, why),
                 Step::Run(x) if self.calls_only && self.runs_in_calls => self.run_object(*x),
                 Step::TableOps(t, ops) if self.calls_only && self.login => self.table_triggers(*t, *ops),
                 Step::Events(_) | Step::TableOps(..) | Step::Run(_) if self.calls_only => {}
@@ -1193,9 +1231,9 @@ pub(crate) struct Summary {
 enum Step {
     /// Push `pushes[a..b]`.
     Push(u32, u32),
-    /// Part of the reach is not known, for this reason (cut to 160 characters). Only the routine's first is kept: once
-    /// it is taken the walk's reason is set.
-    Unknown(Box<str>),
+    /// Part of the reach is not known, for this reason (cut to 160 characters), of this kind. Only the routine's first of
+    /// each kind is kept: once it is taken the walk's reason is set.
+    Unknown(Box<str>, Unknown),
     /// [`Walk::events`].
     Events(usize),
     /// [`Walk::table_ops`].
@@ -1214,7 +1252,8 @@ struct Rec<'a> {
     /// The facts the body names; only the fields [`Summary`] keeps are set.
     out: ReachFacts,
     summary: Summary,
-    unknown: bool,
+    /// A reason of `unknown` was recorded: of kind [`Unknown::NotCompiled`], of kind [`Unknown::Other`].
+    unknown: [bool; 2],
 }
 
 impl Rec<'_> {
@@ -1225,7 +1264,7 @@ impl Rec<'_> {
             index,
             out: ReachFacts::default(),
             summary: Summary::default(),
-            unknown: false,
+            unknown: [false; 2],
         };
         rec.routine(o, r);
         rec.finish()
@@ -1247,7 +1286,7 @@ impl Rec<'_> {
     /// A step that depends on the walk. One the routine already took is left out: what a walk entered stays entered,
     /// so taking it again changes nothing (a routine names the tables of its object's globals once per slot).
     fn step(&mut self, step: Step) {
-        if matches!(step, Step::Push(..) | Step::Unknown(_)) || !self.summary.steps.contains(&step) {
+        if matches!(step, Step::Push(..) | Step::Unknown(..)) || !self.summary.steps.contains(&step) {
             self.summary.steps.push(step);
         }
     }
@@ -1266,9 +1305,14 @@ impl Rec<'_> {
     }
 
     fn unknown(&mut self, why: impl FnOnce() -> String) {
-        if !self.unknown {
-            self.unknown = true;
-            self.step(Step::Unknown(why().chars().take(160).collect::<String>().into()));
+        self.unknown_of(Unknown::Other, why);
+    }
+
+    fn unknown_of(&mut self, kind: Unknown, why: impl FnOnce() -> String) {
+        let seen = &mut self.unknown[kind as usize];
+        if !*seen {
+            *seen = true;
+            self.step(Step::Unknown(why().chars().take(160).collect::<String>().into(), kind));
         }
     }
 
@@ -1309,7 +1353,12 @@ impl Rec<'_> {
         // The routine that writes an expression-bound page control is optional (`blocked_site`).
         if !rt.name.starts_with("__sourceset_") {
             if let Some(reason) = lowered.unsupported[o][r].first() {
-                self.unknown(|| format!("{}.{}: {reason}", obj.name, rt.name));
+                let kind = if al_sema::check::is_not_compiled(reason.reason()) {
+                    Unknown::NotCompiled
+                } else {
+                    Unknown::Other
+                };
+                self.unknown_of(kind, || format!("{}.{}: {reason}", obj.name, rt.name));
             }
         }
         // The event this routine publishes, when it is a publisher.

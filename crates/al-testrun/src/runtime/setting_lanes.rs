@@ -28,8 +28,9 @@ use std::sync::Arc;
 pub struct SharedPassNote {
     pub suite: String,
     pub breach: Option<String>,
-    /// The first part of lane 0's reach the check's walk cannot follow (`shared_pass::Reach::unknown`).
-    pub unknown: Option<String>,
+    /// The parts of lane 0's reach the check's walk cannot follow because they are not compiled
+    /// (`shared_pass::Reach::not_compiled`), printed as information.
+    pub not_compiled: Vec<String>,
 }
 
 /// The engine, install baseline and snapshots one lane's tests run on.
@@ -157,17 +158,22 @@ impl Lanes {
         let checked: Result<Vec<_>, _> = (self.uninstalled.iter())
             .map(|&app| crate::shared_pass::check(install, lowered, app, &main_roots))
             .collect();
-        let (breach, unknown) = match (&self.shared_app, checked) {
-            (Some(why), _) => (Some(why.clone()), None),
-            (None, Err(b)) => (Some(b.0), None),
-            (None, Ok(r)) => (None, r.into_iter().find_map(|r| r.unknown)),
+        let (breach, not_compiled) = match (&self.shared_app, checked) {
+            (Some(why), _) => (Some(why.clone()), Vec::new()),
+            (None, Err(b)) => (Some(b.0), Vec::new()),
+            (None, Ok(r)) => {
+                let mut all: Vec<String> = r.into_iter().flat_map(|r| r.not_compiled).collect();
+                all.sort();
+                all.dedup();
+                (None, all)
+            }
         };
         let notes: Vec<SharedPassNote> = (suites.iter().enumerate())
             .filter(|(si, _)| self.runs(1, *si))
             .map(|(_, s)| SharedPassNote {
                 suite: s.name.clone(),
                 breach: breach.clone(),
-                unknown: unknown.clone(),
+                not_compiled: not_compiled.clone(),
             })
             .collect();
         self.notes = notes;

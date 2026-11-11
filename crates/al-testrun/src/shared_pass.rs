@@ -19,16 +19,17 @@
 //! The ADR's fourth rule (install code that writes another app's table, a number sequence or isolated storage) has no
 //! case to look at: the install code of `app` never runs on the other suites' engine.
 //!
-//! What the walk cannot follow (code of a dependency app that was not compiled, an object run by an id known only at run
-//! time) is reported in [`Reach::unknown`], not taken as a breach: it reaches `app` only through a subscriber of `app` or
-//! by an id known at run time, and the other suites' engine leaves `app` uninstalled (`Engine::app_installed`: none of its
-//! subscribers runs, no lookup by run-time id finds its objects, no listing has its rows). The SystemId and row version
-//! counters stay outside this check; the outcome differential covers them for today's cases.
+//! What the walk cannot follow fails the check, with one exception (owner, 2026-11-11): a routine that is not compiled
+//! (`al_sema::check::is_not_compiled`, or the triggers or the run of an object that is not compiled). A call of such a
+//! routine is refused, so it cannot run in part and change a result silently; it is reported in [`Reach::not_compiled`].
+//! Any other reason (an object run by an id known only at run time, a refused construct, a report that cannot run) is
+//! a breach. The SystemId and row version counters stay outside this check; the outcome differential covers them for
+//! today's cases.
 //!
 //! There is no allow list. A breach is fixed by giving the suite its own pass again (`AL_SERVER_SETTINGS_OWN_PASS=1`
 //! in the corpus job), never by an exception.
 
-use crate::runtime::written::{ReachIndex, union_reach_visited};
+use crate::runtime::written::{ReachIndex, Unknown, union_reach_visited};
 use al_ir::ObjKind;
 use al_sema::lower::Lowered;
 use std::collections::BTreeSet;
@@ -46,8 +47,8 @@ impl std::fmt::Display for Breach {
 /// What the check found when the app may share the pass.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Reach {
-    /// The first part of the other suites' reach that the walk cannot follow, if any.
-    pub unknown: Option<String>,
+    /// The parts of the other suites' reach the walk cannot follow because they are not compiled (each a reason, in order).
+    pub not_compiled: Vec<String>,
 }
 
 /// Whether program app `app` may share a pass with the test codeunits `others` (object indices) of suites whose CI job
@@ -129,8 +130,8 @@ pub fn check(engine: &al_vm::Engine, lowered: &Lowered, app: u32, others: &[usiz
         .iter()
         .flat_map(|&o| (0..heads[o].routine_count as usize).map(move |r| (o, r)))
         .collect();
-    let (facts, visited) = union_reach_visited(events, lowered, &index, &roots);
-    if let Some(&(o, r)) = visited.iter().find(|(o, _)| in_app(*o)) {
+    let reach = union_reach_visited(events, lowered, &index, &roots);
+    if let Some(&(o, r)) = reach.visited.iter().find(|(o, _)| in_app(*o)) {
         let routine = lowered.program.objects[o]
             .routines
             .get(r)
@@ -140,17 +141,29 @@ pub fn check(engine: &al_vm::Engine, lowered: &Lowered, app: u32, others: &[usiz
             named(o)
         )));
     }
-    if let Some(&t) = facts.touched.iter().find(|&&t| in_app(t as usize)) {
+    if let Some(&t) = reach.facts.touched.iter().find(|&&t| in_app(t as usize)) {
         return Err(Breach(format!(
             "{} is in the static reach of a test codeunit of another suite of the pass (ADR-073 Phase 2, point 5, rule 3)",
             named(t as usize)
         )));
     }
-    // What the walk cannot follow (code of a dependency app that was not compiled, an object run by an id known only at
-    // run time) can reach the app only through an event it subscribes to (rule 1 has none outside it) or by an id known
-    // at run time; the other suites' engine runs no subscriber of the app and finds no object of it by such an id
-    // (`Engine::app_installed`). So it is reported, not a breach.
-    Ok(Reach { unknown: facts.unknown })
+    // What the walk cannot follow: only a routine that is not compiled is allowed (owner, 2026-11-11), as a call of it is
+    // refused.
+    judge_unknown(&reach.unknowns)
+}
+
+/// The check's answer on the parts of the reach the walk cannot follow: a breach for the first that is not a routine
+/// that is not compiled; else the reasons of those that are not compiled.
+fn judge_unknown(unknowns: &BTreeSet<(Unknown, String)>) -> Result<Reach, Breach> {
+    if let Some((_, why)) = unknowns.iter().find(|(kind, _)| *kind != Unknown::NotCompiled) {
+        return Err(Breach(format!(
+            "the static reach of the other suites of the pass has a part the walk cannot follow: {why} (ADR-073 Phase 2, \
+             point 5: only a routine that is not compiled may be unknown)"
+        )));
+    }
+    Ok(Reach {
+        not_compiled: unknowns.iter().map(|(_, why)| why.clone()).collect(),
+    })
 }
 
 /// The name of the profile that profile `h` extends, if it is a profile extension.
@@ -219,13 +232,69 @@ mod tests {
         assert_eq!(check_of("", CLEAN), Ok(Reach::default()));
     }
 
-    /// A codeunit run by an id known only at run time: the walk cannot follow it, and the check says so (the engine of
-    /// the other suites does not find an object of the app by such an id, `Engine::app_installed`).
+    /// A codeunit run by an id known only at run time: the walk cannot follow it, so the check fails (owner, 2026-11-11:
+    /// only a routine that is not compiled may be unknown).
     #[test]
-    fn a_reach_the_walk_cannot_follow_is_reported() {
-        let r = check_of("Codeunit.Run(R.K);", CLEAN).unwrap();
-        let why = r.unknown.expect("the reach is not known");
+    fn a_run_by_an_id_known_only_at_run_time_breaks_the_check() {
+        let why = check_of("Codeunit.Run(R.K);", CLEAN).unwrap_err().0;
         assert!(why.contains("known only at run time"), "{why}");
+    }
+
+    /// A routine of a dependency app that no code reached while compiling (`al_sema::check::NOT_REACHED`): a call of it is
+    /// refused, so the check reports it and passes (owner, 2026-11-11).
+    #[test]
+    fn a_dependency_routine_that_is_not_compiled_is_reported_and_allowed() {
+        let app = |id: &str, deps: &[&str], src: &str| al_sema::workspace::AppSource {
+            id: id.into(),
+            name: id.into(),
+            dependencies: deps.iter().map(|d| d.to_string()).collect(),
+            files: vec![(format!("{id}.al"), src.into())],
+        };
+        use al_sema::workspace::AppKind::{Dependency, Workspace};
+        let (_, l) = al_sema::lower::compile_apps(
+            vec![
+                app(
+                    "dep",
+                    &[],
+                    "codeunit 10 Lib { procedure Used() begin end; procedure Unused() begin end; }",
+                ),
+                app(
+                    "main",
+                    &["dep"],
+                    &main_app(
+                        "",
+                        "codeunit 50105 MainUsesLib { procedure Go() var D: Codeunit Lib; begin D.Used(); end; }",
+                    ),
+                ),
+                app("tw", &["main"], CLEAN),
+            ],
+            vec![Dependency, Workspace, Workspace],
+            &Default::default(),
+        );
+        let heads = l.program.objects.heads();
+        let of = |name: &str| heads.iter().position(|h| h.name == name).unwrap();
+        let engine = al_vm::Engine::new(l.program.clone(), vec![]);
+        // The dependency codeunit is a root: its routine Used is compiled (the main app calls it), Unused is not.
+        let r = check(&engine, &l, heads[of("TwTests")].app, &[of("MainTests"), of("Lib")]).unwrap();
+        assert!(
+            r.not_compiled
+                .iter()
+                .any(|why| why.starts_with("Lib.Unused: not compiled")),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_reach_that_is_not_a_routine_not_compiled_breaks_the_check() {
+        let of = |v: &[(Unknown, &str)]| v.iter().map(|(k, w)| (*k, w.to_string())).collect::<BTreeSet<_>>();
+        let only = of(&[(Unknown::NotCompiled, "A.B: not compiled")]);
+        assert_eq!(judge_unknown(&only).unwrap().not_compiled, ["A.B: not compiled"]);
+        let mixed = of(&[
+            (Unknown::NotCompiled, "A.B: not compiled"),
+            (Unknown::Other, "C.D: refused"),
+        ]);
+        let why = judge_unknown(&mixed).unwrap_err().0;
+        assert!(why.contains("C.D: refused"), "{why}");
     }
 
     #[test]
