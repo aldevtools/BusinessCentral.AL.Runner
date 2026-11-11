@@ -56,7 +56,10 @@ impl Session {
     fn modal_close_save_pinned(&self, st: &St) -> bool {
         let s = st.borrow();
         s.modal
-            && matches!(self.engine.object_facts[s.object as usize].page_type, Some(al_ir::PageType::Card | al_ir::PageType::List))
+            && matches!(
+                self.engine.object_facts[s.object as usize].page_type,
+                Some(al_ir::PageType::Card | al_ir::PageType::List)
+            )
             && s.parts.is_empty()
             && s.hidden_parts.is_empty()
             && s.host.is_none()

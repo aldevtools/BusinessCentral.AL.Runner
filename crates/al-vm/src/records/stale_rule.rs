@@ -282,6 +282,16 @@ impl Session {
         Err("after a rollback, then a read, a write or a lock other than a Get and Modify of its row")
     }
 
+    /// The rollback of a failed `if Codeunit.Run` (the run's error trapped), named in the refusal of a later write through a
+    /// stale buffer: no measured cell has it (al-runner issue 7795; record/crud/CodeunitRunTableNoWrites.al, corpus pull request
+    /// 1323, observes it).
+    pub(crate) fn note_failed_guarded_run_rollback(&mut self) {
+        self.tx.rollback_unpinned = self
+            .tx
+            .rollback_unpinned
+            .or(Some("after the rollback of a failed `if Codeunit.Run`"));
+    }
+
     /// A rollback ends the open transaction (`rollback_transaction` calls this first): the stale-buffer rule knows it only when it
     /// is an `asserterror` of an `Error` statement (`assert_error_rollback`) and the transaction held no lock.
     pub(crate) fn note_rollback_for_stale_rule(&mut self) {
