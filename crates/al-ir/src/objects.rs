@@ -6,6 +6,10 @@
 //! make it once and see the same object). A slot's content does not depend on when it is made, so the order of the
 //! reads is not observable.
 //!
+//! An object is shared (`Arc`): a copy of the list, and a later compile that takes an object of an earlier one (ADR-063,
+//! a kept compile), share it instead of copying it. A change through `&mut` copies only the object it changes, and only
+//! while another list shares it.
+//!
 //! [`Objects::iter`] reads every slot. A pass over all objects that only needs what an object's head holds must not
 //! use it on a lazy list: [`Objects::made`] counts the objects a source made, so a test can fail when a start-up pass
 //! makes every object.
@@ -20,13 +24,20 @@ pub trait ObjectSource: Send + Sync {
     /// The object of slot `i`. A source that cannot make it (a damaged cache block whose start check passed) panics:
     /// an internal error of the test that touched it (ADR-054 owner decision 2).
     fn object(&self, i: usize) -> Object;
+
+    /// [`ObjectSource::object`] as a shared object. A source that already holds the object shared gives it without a
+    /// copy.
+    fn shared(&self, i: usize) -> Arc<Object> {
+        Arc::new(self.object(i))
+    }
 }
 
 /// The objects of a program, in program order.
 #[derive(Default)]
 pub struct Objects {
-    /// Boxed: an object is about 1.5 KB, and a list over a compile cache has about ten thousand slots, most never made.
-    slots: Vec<OnceLock<Box<Object>>>,
+    /// Behind a pointer: an object is about 1.5 KB, and a list over a compile cache has about ten thousand slots, most
+    /// never made. Shared: see the module comment.
+    slots: Vec<OnceLock<Arc<Object>>>,
     /// Makes the objects of the empty slots.
     source: Option<Arc<dyn ObjectSource>>,
     /// How many objects the source made.
@@ -48,7 +59,7 @@ impl Objects {
             .map(|o| {
                 let slot = OnceLock::new();
                 if let Some(o) = o {
-                    let _ = slot.set(Box::new(o));
+                    let _ = slot.set(Arc::new(o));
                 }
                 slot
             })
@@ -98,19 +109,26 @@ impl Objects {
     /// The object of slot `i`, made now if it is not yet.
     #[inline]
     pub fn get(&self, i: usize) -> Option<&Object> {
+        self.get_shared(i).map(|o| &**o)
+    }
+
+    /// The object of slot `i` as it is shared, made now if it is not yet: for another list that takes the object as it
+    /// is (ADR-063, a kept compile).
+    #[inline]
+    pub fn get_shared(&self, i: usize) -> Option<&Arc<Object>> {
         let slot = self.slots.get(i)?;
         Some(slot.get_or_init(|| {
             let source = self.source.as_ref().expect("an empty slot has a source");
             self.made.fetch_add(1, Ordering::Relaxed);
-            Box::new(source.object(i))
+            source.shared(i)
         }))
     }
 
-    /// The object of slot `i` for change, made now if it is not yet.
+    /// The object of slot `i` for change, made now if it is not yet. Copied first when another list shares it.
     pub fn get_mut(&mut self, i: usize) -> Option<&mut Object> {
         self.get(i)?;
         self.heads = OnceLock::new();
-        self.slots[i].get_mut().map(|o| &mut **o)
+        self.slots[i].get_mut().map(Arc::make_mut)
     }
 
     /// Whether slot `i` holds its object (finished from the start, or made by an earlier read).
@@ -136,7 +154,9 @@ impl Objects {
     pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut Object> + ExactSizeIterator {
         self.make_all();
         self.heads = OnceLock::new();
-        self.slots.iter_mut().map(|s| &mut **s.get_mut().expect("made above"))
+        self.slots
+            .iter_mut()
+            .map(|s| Arc::make_mut(s.get_mut().expect("made above")))
     }
 
     /// Makes every object not yet made.
@@ -149,7 +169,7 @@ impl Objects {
     pub fn push(&mut self, object: Object) {
         self.heads = OnceLock::new();
         let slot = OnceLock::new();
-        let _ = slot.set(Box::new(object));
+        let _ = slot.set(Arc::new(object));
         self.slots.push(slot);
     }
 
@@ -167,7 +187,7 @@ impl Objects {
         self.make_all();
         self.slots
             .into_iter()
-            .map(|s| *s.into_inner().expect("made above"))
+            .map(|s| Arc::unwrap_or_clone(s.into_inner().expect("made above")))
             .collect()
     }
 }
@@ -282,7 +302,7 @@ impl IntoIterator for Objects {
 }
 
 impl Clone for Objects {
-    /// A copy shares the source; slots made later are made in each copy on its own.
+    /// A copy shares the source and the objects made so far; slots made later are made in each copy on its own.
     fn clone(&self) -> Objects {
         Objects {
             slots: self.slots.clone(),
@@ -346,6 +366,17 @@ mod tests {
         let list = Objects::lazy_with_heads(vec![None, None, None], Arc::new(Counting(AtomicUsize::new(0))), heads);
         assert_eq!(list.heads()[2].name, "C2");
         assert_eq!(list.made(), 0);
+    }
+
+    /// A copy of a list shares its objects; a change copies only the object it changes.
+    #[test]
+    fn a_copy_shares_the_objects_until_one_is_changed() {
+        let list = Objects::from(vec![object(0), object(1)]);
+        let mut copy = list.clone();
+        assert!(std::ptr::eq(&list[0], &copy[0]) && std::ptr::eq(&list[1], &copy[1]));
+        copy[1].name = "Changed".into();
+        assert!(std::ptr::eq(&list[0], &copy[0]), "an object not changed stays shared");
+        assert_eq!((list[1].name.as_str(), copy[1].name.as_str()), ("C1", "Changed"));
     }
 
     #[test]

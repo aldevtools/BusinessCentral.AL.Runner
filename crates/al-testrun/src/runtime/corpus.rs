@@ -241,6 +241,8 @@ impl CorpusRuntime {
         }) = compiled.grow_kept.take()
         {
             let Compiled { mut ws, lowered, .. } = compiled;
+            // The program the run used goes with the kept compile: the later run grows it.
+            let program = lowered.program.clone();
             retire(lowered);
             // The apps of this run alone leave the compile (they come last).
             retire(growable.truncate(&mut ws, shared));
@@ -248,6 +250,7 @@ impl CorpusRuntime {
             let kept = KeptCompile {
                 ws,
                 growable,
+                program,
                 app_symbols,
                 symbols: symbols.clone(),
                 target: target.cloned(),
@@ -907,7 +910,8 @@ impl CorpusRuntime {
                 eprintln!("{}", crate::reach::report(&ws, &lowered));
             }
         }
-        // Nothing else holds the program yet, so this does not copy it.
+        // Nothing else holds the program yet (a kept compile leaves it to the run, `al_sema::lower::Growable`), so this
+        // does not copy it.
         super::apply_manifests::apply(&mut lowered.program, manifests, &opts.layout_sources);
         // The source lines of an app that includes its source in the symbols (the Code Coverage `Line`).
         {
@@ -2508,6 +2512,7 @@ fn grow_from_kept(
     let (ws, lowered, growable) = grow(
         kept.ws,
         kept.growable,
+        kept.program,
         more,
         kinds[n_kept..].to_vec(),
         symbols,
@@ -2529,6 +2534,7 @@ fn grow_from_kept(
 fn grow_only(
     ws: al_sema::Workspace,
     kept: al_sema::lower::Growable,
+    program: Arc<al_ir::Program>,
     apps: Vec<al_sema::workspace::AppSource>,
     kinds: Vec<al_sema::AppKind>,
     symbols: &BTreeSet<String>,
@@ -2536,7 +2542,8 @@ fn grow_only(
     catalog: &al_builtins::catalog::Catalog,
     roots: al_sema::check::Roots,
 ) -> al_sema::lower::Grown {
-    al_sema::lower::grow(ws, kept, apps, kinds, symbols, app_symbols, catalog, roots).map(|(ws, l)| (ws, l, None))
+    al_sema::lower::grow(ws, kept, program, apps, kinds, symbols, app_symbols, catalog, roots)
+        .map(|(ws, l)| (ws, l, None))
 }
 
 /// Each unit that comes after a carry-chain member (`sees`) notes the tables the last such member left rows in

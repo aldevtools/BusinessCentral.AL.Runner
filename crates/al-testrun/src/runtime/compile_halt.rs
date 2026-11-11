@@ -30,6 +30,7 @@ impl CorpusRuntime {
     ) -> Result<Result<Compiled, CorpusRuntime>, String> {
         let Some(mut watch) = super::memory::CompileWatch::start(opts.memory.as_ref()) else {
             return Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, lean, grow)
+                .map(Compiled::for_one_run)
                 .map(Ok);
         };
         let started = std::time::Instant::now();
@@ -56,7 +57,7 @@ impl CorpusRuntime {
         drop(pool);
         let message = watch.stop();
         match (compiled, message) {
-            (Ok(compiled), None) => compiled.map(Ok),
+            (Ok(compiled), None) => compiled.map(Compiled::for_one_run).map(Ok),
             // Stopped at the limit, or passed it after the compile's last check: the run does not go on.
             (Ok(compiled), Some(message)) => {
                 if let Ok(c) = compiled {

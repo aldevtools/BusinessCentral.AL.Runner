@@ -166,7 +166,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 
 ### al-ir
 
-- `body.rs` (270): `Body`, the statements of a routine: a compact form (postcard) stores a body as its own byte string, and a body read from it is decoded on first read, with the link work kept for that moment (`BodyFixup`). Entry: `Body`, `Body::fix`, `BodyFixup`.
+- `body.rs` (320): `Body`, the statements of a routine: a compact form (postcard) stores a body as its own byte string, and a body read from it is decoded on first read, with the link work kept for that moment (`BodyFixup`). The lowering keeps the bodies it lowered compact (`Body::compact`, called by `lower/assemble.rs` `compact_bodies`); a static walk reads a body without keeping it decoded (`Body::read`). Entry: `Body`, `Body::fix`, `Body::compact`, `Body::read`, `BodyFixup`.
 - `head.rs` (110): `ObjectHead`, what a pass over all objects reads of an object (ADR-054 decision 2): kind, id, name, app, properties, the linked table, routine count and the event routines. Entry: `ObjectHead::of`.
 - `lib.rs` (1067): The typed IR (ADR-011): Program, Object, Routine, Stmt, Expr. Plain serde data, no syntax nodes. Entry: `Program` 8, `Object` 150, `Routine` 747, `Stmt` 937, `Expr` 844, `SrcPos` 85, `NO_POS` 79.
 
@@ -224,7 +224,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `relation.rs` (359): `TableRelation` property text → arms (before names are resolved). Entry: `ParsedArm` 13, `ParsedWhere` 23, `parse` 262.
 - `reports.rs` (1035): Report objects: dataset walk, columns, and the IR it lowers to. Entry: `layout` 159, `request_layout` 318, `build` 794, `build_ext` 848.
 - `types.rs` (240): Semantic types (Ty) and their display names. Entry: `Ty` 7, `display_name` 66, `from_type_ref` 71.
-- `workspace.rs` (1561): A set of apps: parse every file, build the object table, resolve names across apps. Entry: `Workspace` 192, `load_apps` 236, `ObjKind` 10, `ObjectSym` 155, `AppSource` 30, `AppKind` 40, `restrict_to` 535, `subscribers_of` 433, `resolve_ref` 682.
+- `workspace.rs` (1561): A set of apps: parse every file, build the object table, resolve names across apps. A run's compile drops the parse trees once lowered (`drop_trees`, from al-testrun `Compiled::for_one_run`) and `green` parses a file again when a tree is needed. Entry: `Workspace` 192, `load_apps` 236, `ObjKind` 10, `ObjectSym` 155, `AppSource` 30, `AppKind` 40, `restrict_to` 535, `subscribers_of` 433, `resolve_ref` 682.
 - `xmlports.rs` (712): XmlPort objects (Format = Xml). Entry: `RawNode` 24, `Layout` 33, `layout` 97, `Context` 248.
 
 ### al-syntax
