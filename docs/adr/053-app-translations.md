@@ -79,6 +79,11 @@ and ids per app to test a hash function against (used locally only, never commit
 - Two files of one app for the same language are refused at load (which one BC uses is not pinned).
 - A unit with `translate="no"`, no `<target>`, or an empty `<target>` gives the source text. A `state` attribute
   (`needs-translation`, `translated`, ...) is ignored unless a probe shows that BC reads it (P8).
+  Note (2026-11-11, area translations): until P8 is pinned, a unit without a state gives its target, and a unit with
+  any state gives it as a flagged pass (assumption `xliff-unit-state`). The files of a package and of a dependency folder
+  are read on the first translated read (`al_ir::TranslationSource`), the same as an app folder's. P3 is pinned for one
+  direction: the nl-NL file under 2067 (`localization/app-xliff/TaXliff.al:146`, `:176`). The culture's own file wins
+  over a sibling file that also has the unit, flagged (`xliff-exact-culture-over-sibling`); other fallbacks stay refused.
 - A malformed file: the app is refused at load with the file name and the parser's message. Whether BC refuses
   the publish of such an app is probe P9.
 
