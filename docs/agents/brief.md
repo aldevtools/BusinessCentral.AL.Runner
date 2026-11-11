@@ -9,7 +9,10 @@ Your task prompt holds only the task. Read both files from YOUR worktree: the ma
 2. Run nothing in the main checkout. Every build, test and script runs in your worktree.
    Logs and scratch files go to your session's scratch folder, never into the repository.
 3. Read `docs/codemap.md` for your crates and the ADR your task names. Do not read all docs.
-   Use the LSP tool (`documentSymbol`, `findReferences`) before you read a file over 500 lines.
+   In a worktree, search with `grep -rn` on a real folder (`crates/`) and read with line ranges: the LSP tool's
+   rust-analyzer indexes only the main checkout, so `findReferences` and call queries return nothing or wrong results
+   in a worktree (measured 2026-11-11). Read-only work in the main checkout may use the LSP tool (`documentSymbol`,
+   `findReferences`): it is exact and reads far less than grep, but the line and column must land exactly on the name.
 4. Build once: `cargo build --release`. Use the binary. `al-test-cli --help` lists every flag.
 5. Once per machine: `./target/release/al-test-cli --root . --all-versions --fetch-deps` fills the artifact cache with
    Microsoft's apps of the pinned builds (`~/.cache/al-runtime/artifacts`, shared by every worktree). Corpus runs and
