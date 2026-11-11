@@ -518,6 +518,8 @@ impl Session {
         if opening {
             self.refuse_factbox_vs_extension_chain(st)?;
             self.read_blank_before_parts_turning_visible(st)?;
+        } else {
+            self.note_hidden_part_found_visible(st, &parts)?;
         }
         if let Sync::Move { .. } = how {
             let mut linked = Vec::new();

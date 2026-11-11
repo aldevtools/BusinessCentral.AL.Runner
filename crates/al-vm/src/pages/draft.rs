@@ -469,7 +469,11 @@ impl Session {
         if !self.has_source(st) {
             return unsupported("a new record on a page without a source table");
         }
-        st.borrow_mut().blank_after_empty_last = false;
+        {
+            let mut s = st.borrow_mut();
+            s.blank_after_empty_last = false;
+            s.draft_from_open = false;
+        }
         let rec = self.page_rec(st);
         let part_xrec = if keep_focus { self.part_new_xrec(st)? } else { None };
         self.set_xrec(st);
@@ -777,34 +781,41 @@ impl Session {
 
     /// Close inserts a new host whose key was typed, over a part that shows no row, declares OnNewRecord or OnAfterGetCurrRecord
     /// and that the test never called: the part does not read again after the insert, so neither trigger runs (pages/parts/
-    /// PartLineBeforeHostKey.al:1702 QH_EmptyPart_OpenNew_KeyTyped, a list part, `close` = `[H.OnInsert:Q1]`; testpage/parts/
-    /// HiddenPartOutsideChain.al:335 Chain_FbShown_OpenNewTypeKey, a CardPart whose link finds the inserted row, `closed`
-    /// `docs=3 log=[]`, hidden or shown, with or without a Provider link: :321, :349, :363). Returns those parts, shown and
-    /// hidden, marked `quiet_at_close`; the caller clears the mark. A key given by the table's OnInsert, a part the test called
-    /// or a typed line relinks as before.
+    /// PartLineBeforeHostKey.al:1702 QH_EmptyPart_OpenNew_KeyTyped, a Document host with a list part, `close` =
+    /// `[H.OnInsert:Q1]`; testpage/parts/HiddenPartOutsideChain.al:335 Chain_FbShown_OpenNewTypeKey, a Card host with a CardPart
+    /// whose link finds the inserted row, `closed` `docs=3 log=[]`, hidden or shown, with or without a Provider link: :321, :349,
+    /// :363). Pinned for a top-level Card or Document page whose key a SetValue changed since the row started
+    /// (`PageState::draft_start`): those parts, shown and hidden, are returned marked `quiet_at_close`, and the caller clears the
+    /// mark. On another page, or with a key the row started with (from a filter or OnNewRecord), such a part is refused. A part
+    /// the test called or a typed line relinks as before.
     pub(super) fn quiet_parts_at_new_host_close(&mut self, st: &St) -> Result<Vec<St>, Signal> {
-        {
+        let start = {
             let s = st.borrow();
             if !(s.draft && s.dirty && s.host.is_none()) {
                 return Ok(Vec::new());
             }
-        }
+            s.draft_start.clone()
+        };
         let parts: Vec<St> = Self::open_parts_with_hidden(st).into_iter().map(|(_, c)| c).collect();
         if parts.is_empty() {
             return Ok(Vec::new());
         }
         let rec = self.page_rec(st);
-        let key_typed = {
-            let initial = self.initial_fields(rec.borrow().table as usize);
-            let table = self.table(&rec)?;
+        let table = self.table(&rec)?;
+        let differs = |base: &[Value]| {
             let r = rec.borrow();
             table.keys[0]
                 .iter()
-                .any(|&p| al_builtins::ops::compare(&r.fields[p], &initial[p]).ok() != Some(std::cmp::Ordering::Equal))
+                .any(|&p| al_builtins::ops::compare(&r.fields[p], &base[p]).ok() != Some(std::cmp::Ordering::Equal))
         };
-        if !key_typed {
+        if !differs(&self.initial_fields(rec.borrow().table as usize)) {
             return Ok(Vec::new());
         }
+        let card_or_document = matches!(
+            self.engine.object_facts[st.borrow().object as usize].page_type,
+            Some(al_ir::PageType::Card | al_ir::PageType::Document)
+        );
+        let pinned = card_or_document && start.as_deref().is_some_and(differs);
         let mut quiet = Vec::new();
         for c in parts {
             if c.borrow().part_accessed || (c.borrow().draft && c.borrow().dirty) {
@@ -818,6 +829,11 @@ impl Session {
                     .iter()
                     .any(|t| self.engine().events.is_subscribed(object, t));
             if observes && c.borrow().cursor != Cursor::Row && self.has_source(&c) {
+                if !pinned {
+                    return unsupported(
+                        "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
+                    );
+                }
                 c.borrow_mut().quiet_at_close = true;
                 quiet.push(c);
             }

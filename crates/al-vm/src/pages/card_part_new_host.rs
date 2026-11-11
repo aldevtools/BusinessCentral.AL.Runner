@@ -32,18 +32,31 @@ impl Session {
             .any(|c| c.kind == ir::ControlKind::Repeater)
     }
 
-    /// Whether `st` is a part without a repeater whose host is a top-level Card or Document page on a new, unsaved row.
+    /// Whether `st` is a part without a repeater, linked by a SubPageLink, whose host is a top-level Card or Document page on the
+    /// new row TestPage.OpenNew started and nobody stored yet. Every pin is that shape; after a New() on an open host the part
+    /// reads as before (not pinned).
     pub(super) fn card_part_of_new_host(&self, st: &St) -> bool {
-        let new_host = st
+        let Some((host, control)) = st
             .borrow()
             .host
             .as_ref()
-            .and_then(|(h, _)| h.upgrade())
-            .is_some_and(|h| h.borrow().draft && !h.borrow().draft_stored);
-        new_host && self.part_on_card_or_document_host(st) && self.has_source(st) && !self.has_repeater(st)
+            .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
+        else {
+            return false;
+        };
+        let new_host = {
+            let h = host.borrow();
+            h.draft && !h.draft_stored && h.draft_from_open
+        };
+        let linked = page_of(&self.engine(), &host).controls[control]
+            .part_link
+            .as_ref()
+            .is_some_and(|l| !l.entries.is_empty());
+        new_host && linked && self.part_on_card_or_document_host(st) && self.has_source(st) && !self.has_repeater(st)
     }
 
-    /// The blank record of such a part: its OnAfterGetCurrRecord and that event's subscribers run once.
+    /// The blank record of such a part: Rec is blank, and its OnAfterGetCurrRecord and that event's subscribers run once
+    /// (HiddenPartOutsideChain.al:320 `keyed` `fb-row()` after the key typed, a blank record again).
     pub(super) fn card_part_blank_on_new_host(&mut self, st: &St) -> Result<(), Signal> {
         let object = st.borrow().object as usize;
         if self.declares_or_ext_declares(st, "onnewrecord")
@@ -53,6 +66,9 @@ impl Session {
                 "OnNewRecord of a part without a repeater that shows no row of a new host row (whether BC runs it is not pinned)",
             );
         }
+        let rec = self.page_rec(st);
+        let fresh = self.initial_fields(rec.borrow().table as usize);
+        rec.borrow_mut().fields = fresh;
         self.populate_expressions(st)?;
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;

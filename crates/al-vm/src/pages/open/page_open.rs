@@ -911,7 +911,9 @@ impl Session {
             self.ret_used = true;
             let rec = self.page_rec(st);
             self.record_op(RecordOp::FindLast, &rec, &mut [])?;
-            return self.start_draft(st, false);
+            self.start_draft(st, false)?;
+            st.borrow_mut().draft_from_open = true;
+            return Ok(());
         }
         if with_record {
             // The page opens on the record the caller handed it, when that row exists

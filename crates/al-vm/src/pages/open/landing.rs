@@ -485,6 +485,9 @@ impl Session {
                 "the blank new-row line of a list whose repeater's Editable is an expression other than page variables (whether it shows is not pinned)",
             );
         }
+        // A new line is not a row `start_draft` started: no typed key is told from it (`PageState::draft_start`).
+        st.borrow_mut().draft_start = None;
+        st.borrow_mut().draft_from_open = false;
         st.borrow_mut().blank_after_empty_last = false;
         let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;

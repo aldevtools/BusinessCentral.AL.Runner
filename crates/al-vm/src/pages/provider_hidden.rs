@@ -228,51 +228,82 @@ impl Session {
                 .is_some_and(|p| !matches!(p.borrow().cursor, Cursor::Row))
     }
 
-    /// The Visible values of the parts a Visible expression hid that run record triggers, on a page without a Provider link, as
+    /// The Visible values of the parts that run record triggers, shown or hidden at open, on a page without a Provider link, as
     /// (control, visible), for `read_hidden_parts_the_action_showed`.
     pub(super) fn unchained_hidden_part_visibility(&mut self, st: &St) -> Result<Vec<(usize, bool)>, Signal> {
-        let hidden = st.borrow().hidden_parts.clone();
-        if hidden.is_empty() || self.page_has_provider_link(st) {
+        if self.page_has_provider_link(st) {
             return Ok(Vec::new());
         }
         let mut out = Vec::new();
-        for (i, c) in hidden {
-            if c.borrow().open && !self.part_eliminated(st, i) && self.runs_record_triggers(&c) {
+        for (i, c) in Self::open_parts_with_hidden(st) {
+            if !self.part_eliminated(st, i) && self.runs_record_triggers(&c) {
                 out.push((i, self.control_visible(st, i)?));
             }
         }
         Ok(out)
     }
 
-    /// A hidden part that the action's body made visible (its Visible expression false before the body, true after it) reads its
-    /// row once more before the host's refresh: a part without a repeater on a top-level Card or Document page
-    /// (testpage/parts/HiddenPartExtensionVariable.al:632 Hidden_OpenEdit_FlipTheVariable_ThenActions `flip` `act-flip(Yes)
-    /// fb-agr(H1) fb-agcr(H1) host-agcr(H1) ext-agcr(H1) fb-agr(H1) fb-agcr(H1)`). A part with a repeater or another host is not
-    /// pinned: refused. A Visible value the host's own triggers change during the refresh is not this shape and runs as before.
+    /// A part that the action's body made visible (its Visible expression false before the body, true after it). Pinned: the
+    /// first turn of a part without a repeater that a Visible expression hid at open, on a top-level Card or Document page that
+    /// stands on a stored row: it reads its row once more before the host's refresh (testpage/parts/
+    /// HiddenPartExtensionVariable.al:632 Hidden_OpenEdit_FlipTheVariable_ThenActions `flip` `act-flip(Yes) fb-agr(H1) fb-agcr(H1)
+    /// host-agcr(H1) ext-agcr(H1) fb-agr(H1) fb-agcr(H1)`). Every other turn is refused: a second turn, a part shown at open, a
+    /// part with a repeater, another host, a host on a new or no row. A Visible value the host's own triggers or an OnValidate
+    /// change is not this shape (`note_hidden_part_found_visible`).
     pub(super) fn read_hidden_parts_the_action_showed(
         &mut self,
         st: &St,
         before: &[(usize, bool)],
     ) -> Result<(), Signal> {
         for &(i, was_visible) in before {
-            let Some(child) = st
+            if was_visible || !self.control_visible(st, i)? {
+                continue;
+            }
+            let hidden = st
                 .borrow()
                 .hidden_parts
                 .iter()
                 .find(|(h, _)| *h == i)
-                .map(|(_, c)| c.clone())
-            else {
-                continue;
+                .map(|(_, c)| c.clone());
+            let host_on_stored_row = {
+                let s = st.borrow();
+                s.cursor == Cursor::Row && !s.draft
             };
-            if was_visible || !child.borrow().open || !self.control_visible(st, i)? {
-                continue;
-            }
-            if !self.part_on_card_or_document_host(&child) || self.has_repeater(&child) {
+            let pinned = hidden.filter(|c| {
+                c.borrow().open
+                    && !c.borrow().turned_visible
+                    && host_on_stored_row
+                    && self.part_on_card_or_document_host(c)
+                    && !self.has_repeater(c)
+            });
+            let Some(child) = pinned else {
                 return unsupported(
-                    "an action that makes a part hidden by a Visible expression visible, a part with a repeater or on a host other than a Card or Document page (not pinned)",
+                    "an action that makes a part visible again, a part shown at open, with a repeater, on a host other than a Card or Document page, or on a host without a stored row (not pinned)",
                 );
-            }
+            };
+            child.borrow_mut().turned_visible = true;
             self.sync_part(st, i, &child)?;
+        }
+        Ok(())
+    }
+
+    /// A part a Visible expression hid at open, on a page without a Provider link, found visible at a later sync without the
+    /// action's read (its host's trigger or an OnValidate set the expression): it reads like a shown part, which no probe pins
+    /// for that turn. Marks the assumption `hidden-part-shown-outside-action`.
+    pub(super) fn note_hidden_part_found_visible(&mut self, st: &St, parts: &[(usize, St)]) -> Result<(), Signal> {
+        if st.borrow().hidden_parts.is_empty() || self.page_has_provider_link(st) {
+            return Ok(());
+        }
+        for (i, c) in parts {
+            let hidden = st.borrow().hidden_parts.iter().any(|(_, h)| Rc::ptr_eq(h, c));
+            if hidden
+                && c.borrow().open
+                && !c.borrow().turned_visible
+                && self.runs_record_triggers(c)
+                && self.control_visible(st, *i)?
+            {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::HiddenPartShownOutsideAction);
+            }
         }
         Ok(())
     }
