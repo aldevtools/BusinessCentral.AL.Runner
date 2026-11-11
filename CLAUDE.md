@@ -158,7 +158,7 @@ question, choose the better long-term solution over the quicker one.
   bump also regenerates the golden files (`pinned_columns.rs`, `expected-unresolved.txt`; commit them with the bump),
   prunes the lists again, runs `cargo test -p al-version`, and prints what a person must fix (a regression, a case
   without an outcome, a gate to extend) as a to-do list before it exits 1.
-- Perf budgets (cold compile of the corpus ≤ 695 000 instructions per KiB of corpus source; the full corpus run with Microsoft's apps ≤ 83.2 G instructions for the Microsoft apps plus 4 210 000 per KiB of the corpus source it compiles; wall time printed for information only; parser ≥ 50 MB/s) are
+- Perf budgets (cold compile of the corpus ≤ 695 000 instructions per KiB of corpus source; the full corpus run with Microsoft's apps ≤ 82.8 G instructions for the Microsoft apps plus 4 230 000 per KiB of the corpus source it compiles; wall time printed for information only; parser ≥ 50 MB/s) are
   `#[ignore]`d tests that need release:
   `cargo test --release --no-fail-fast -p al-syntax --test perf_parse_throughput -p al-test-cli --test perf_budget -p al-test-cli --test perf_vm -p al-data --lib -- --ignored --nocapture`.
   CI runs them nightly (and on manual dispatch and before a numbered release), not on a pull request or a push to main (owner, 2026-11-04; from 2026-10-31 they also ran on every push to main). CI has no instruction counter, so there the CPU-time fallback only warns; with a counter (locally) the instruction budgets fail as before. `cargo run --release -p al-test-cli --example phases` prints
