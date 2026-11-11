@@ -1400,6 +1400,19 @@ impl Session {
         if worksheet_type && !rec.borrow().temporary && rec.borrow().key != 0 && !self.declares(st, "onnextrecord") {
             return Ok(true);
         }
+        // A StandardDialog over a database table whose procedure put Rec on a row before a Page variable ran it modally opens on
+        // that row as a Card does (pages/run-modal/PageVarOpenRow.al:512 Dialog_GetThirdRowInProcedure_RunModal `O:C R:C C:C`,
+        // shown C; al-runner issue 7474). In lookup mode, from Page.Run or with OnNextRecord it is not pinned.
+        let dialog_run_modal = self.engine.object_facts[st.borrow().object as usize].page_type
+            == Some(al_ir::PageType::StandardDialog)
+            && !rec.borrow().temporary
+            && st.borrow().modal
+            && !st.borrow().lookup
+            && st.borrow().run_static == Some(false)
+            && !self.declares(st, "onnextrecord");
+        if dialog_run_modal {
+            return Ok(true);
+        }
         if !pinned_type || (st.borrow().lookup && !pinned_lookup) || self.declares(st, "onnextrecord") {
             return unsupported(
                 "a page opened without a record whose OnOpenPage left Rec on a row other than the first of its view (which row it opens on is not pinned)",

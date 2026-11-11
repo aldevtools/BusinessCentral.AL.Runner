@@ -810,26 +810,34 @@ impl Session {
         }) else {
             return unsupported("CardPageId names a page outside the workspace");
         };
-        if st.borrow().cursor != Cursor::Row {
+        // On the line `New()` started of a read-only List the card opens as without a record (`read_only_list_new_line_card`).
+        let new_line_card = st.borrow().cursor != Cursor::Row && self.read_only_list_new_line_card(st);
+        if st.borrow().cursor != Cursor::Row && !new_line_card {
             return unsupported("the built-in Edit/View action of a list that stands on no stored row (not pinned)");
         }
         let ro = ir::RunObject {
             kind: ir::RunKind::Page,
             object: Some(target),
-            on_rec: true,
+            on_rec: !new_line_card,
             mode: if edit { ir::RunMode::Edit } else { ir::RunMode::View },
             link: None,
             unsupported: None,
         };
         st.borrow_mut().refresh = false;
-        self.run_object_page(st, &ro)?;
+        let card = self.run_object_page(st, &ro)?;
+        if new_line_card {
+            self.read_only_list_follows_card(st, &card)?;
+        }
         Ok(Value::Null)
     }
 
     /// `TestAction.Invoke`: runs the action's OnAction when it is enabled; a disabled action does nothing and raises nothing
     /// (corpus testpage/TestPageActionEnabledSourceField_Tests.al, TPAE_ActionEnabledBoolField_FalseRow_IsDisabledAndItsTriggerIsSkipped).
     pub(super) fn action_invoke(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
-        if st.borrow().expr_set_no_source {
+        // A Card and the page types `no_source_action_refresh_pinned` names run OnAfterGetCurrRecord after the action and read their
+        // expression controls live (pages/W1Controls.al:424 TempRecordControl_SetValue `buf_log` = `buf=changed;AGCR;`,
+        // testpage/no-source-controls/NoSourceArrayAndWizard.al:302 Wizard_SetValues_ThenNextAction_EnabledAndVisible on a NavigatePage).
+        if st.borrow().expr_set_no_source && !self.no_source_action_refresh_pinned(st) {
             return unsupported(
                 "an action after a SetValue on a control bound to an expression of a page with no source table (the refresh after the action is not modelled)",
             );

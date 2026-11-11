@@ -274,8 +274,8 @@ impl Session {
         // A control bound to an expression that can be written, on a page with no source table: the write itself is pinned
         // (testpage/PnGTempControl.al, pages/W1Controls.al:424 TempRecordControl_SetValue `set_log`, `c_after`;
         // pages/array-element-fields/PageArrayPathSetValue.al:91-200 ArrayElementField_*), with the type of the value it gives now
-        // (as `control_type` on a page with a source table; a Decimal or a Text). The page also refreshes after a later action there (AGCR,
-        // W1Controls.al:453 `buf_log`), which is not modelled: `action_invoke` refuses an action after such a write.
+        // (as `control_type` on a page with a source table; a Decimal, a Text or a Date). The page also refreshes after a later action
+        // there (AGCR, W1Controls.al:453 `buf_log`), which `action_invoke` serves for the page types whose refresh is pinned.
         let no_source_expr = matches!(ctl.binding, ir::Binding::Expr(_))
             && ctl.trigger("__sourceset").is_some()
             && !self.has_source(st)
@@ -289,6 +289,8 @@ impl Session {
                 Value::Decimal(_) if no_source_expr => Some(RtType::Decimal),
                 Value::Text(_) if no_source_expr => Some(RtType::Text(None)),
                 Value::Enum(id, _) if no_source_expr => Some(RtType::Enum(*id)),
+                // A Date array element (testpage/no-source-controls/NoSourceArrayAndWizard.al:259 `date control, Date`).
+                Value::Date(..) if no_source_expr => Some(RtType::Date),
                 _ => None,
             });
         let Some(ty) = ty else {
