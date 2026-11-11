@@ -263,6 +263,9 @@ impl Session {
                 let st = st_of(st).clone();
                 self.refuse_held_part_page_method(&st, method)?;
                 self.pending_add_in_reread(&st, method.method())?;
+                if method.method() != PageMethod::New {
+                    st.borrow_mut().saved_by_update = false;
+                }
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
                 self.lookup_refresh_deferred_call(method, &st, None)?;
                 let moved = self.code_close_client_call(method, &st, |s| {
@@ -277,6 +280,7 @@ impl Session {
                 let c = control_of(c).clone();
                 let page = c.page.clone();
                 self.pending_add_in_reread(&page, method.method())?;
+                page.borrow_mut().saved_by_update = false;
                 self.lookup_refresh_deferred_call(method, &page, Some(&c.target))?;
                 self.code_close_client_call(method, &page, |s| {
                     s.marked_only_unshown_call(method, &page, |s| {
@@ -635,6 +639,31 @@ impl Session {
             }
         }
         Ok(r)
+    }
+    /// The save of `CurrPage.Update(true)`, `CurrPage.Update()` and `CurrPage.SaveRecord()` on an open page.
+    fn save_from_update(&mut self, method: PageOp, st: &St) -> Result<Value, Signal> {
+        // CurrPage.SaveRecord() in the OnValidate of a part's control changes neither Rec nor xRec of the stored row; a new
+        // row gets its inserted key in Rec while xRec stays the blank new row
+        // (pages/parts/QjPartPropagation.al:733 QJ_SubformSaveRecord_StoredRow `S.V.after(10000 r=5 x=1 ...)`,
+        // :764 QJ_SubformSaveRecord_NewRow `S.V.after(20000 r=5 x=0 x.ln=0 delta=5)`). Pinned for a ListPart only.
+        let keep_xrec = method == PageOp::PageSaveRecord
+            && {
+                let s = st.borrow();
+                s.validating_control && s.host.is_some()
+            }
+            && self.is_list(st);
+        if keep_xrec {
+            let xrec = self.page_xrec_fields(st);
+            let r = self.save_record_now(st);
+            let stored = self.page_rec(st).borrow().fields.clone();
+            self.set_xrec_fields(st, xrec);
+            st.borrow_mut().xrec_after_validate = Some(stored);
+            return r.map(|_| Value::Null);
+        }
+        self.save_record_now(st)?;
+        // What `CurrPage.Update(true)` saved (al-vm pages/leave_new_line.rs, testpage/NewRowThenMove.al:73).
+        st.borrow_mut().saved_by_update = method != PageOp::PageSaveRecord;
+        Ok(Value::Null)
     }
 
     pub(super) fn test_page_op_inner(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
@@ -1285,26 +1314,7 @@ impl Session {
                 if !save {
                     return Ok(Value::Null);
                 }
-                // CurrPage.SaveRecord() in the OnValidate of a part's control changes neither Rec nor xRec of the stored row; a new
-                // row gets its inserted key in Rec while xRec stays the blank new row
-                // (pages/parts/QjPartPropagation.al:733 QJ_SubformSaveRecord_StoredRow `S.V.after(10000 r=5 x=1 ...)`,
-                // :764 QJ_SubformSaveRecord_NewRow `S.V.after(20000 r=5 x=0 x.ln=0 delta=5)`). Pinned for a ListPart only.
-                let keep_xrec = method == PageOp::PageSaveRecord
-                    && {
-                        let s = st.borrow();
-                        s.validating_control && s.host.is_some()
-                    }
-                    && self.is_list(st);
-                if keep_xrec {
-                    let xrec = self.page_xrec_fields(st);
-                    let r = self.save_record_now(st);
-                    let stored = self.page_rec(st).borrow().fields.clone();
-                    self.set_xrec_fields(st, xrec);
-                    st.borrow_mut().xrec_after_validate = Some(stored);
-                    return r.map(|_| Value::Null);
-                }
-                self.save_record_now(st)?;
-                Ok(Value::Null)
+                self.save_from_update(method, st)
             }
             // `Page.Activate([Refresh])` answers Yes and raises nothing where the test client shows no page:
             // - a Page variable that never ran, with and without Refresh, called directly and from its own procedure
