@@ -49,6 +49,18 @@ impl Body {
         })
     }
 
+    /// The statements, for one read that keeps nothing: a body not decoded yet is decoded for this call and the
+    /// statements are dropped after it, so the body stays compact. For a static walk over many routines that runs none
+    /// of them; a reader that comes back to the body uses [`Body::stmts`].
+    pub fn read<R>(&self, f: impl FnOnce(&[Stmt]) -> R) -> R {
+        match self.done.get() {
+            Some(stmts) => f(stmts),
+            None => f(&decode(
+                self.pending.as_ref().expect("a body is either decoded or pending"),
+            )),
+        }
+    }
+
     /// The statements for change, decoded now if they are not yet.
     pub fn stmts_mut(&mut self) -> &mut Vec<Stmt> {
         if self.done.get().is_none() {
@@ -290,6 +302,18 @@ mod tests {
         let mut shifted = stmts();
         crate::shift_stmts(&mut shifted, 2);
         assert_eq!(*body, shifted);
+    }
+
+    /// A static walk over many routines that runs none of them (al-testrun `written.rs`) reads a compact body without
+    /// keeping it decoded.
+    #[test]
+    fn a_read_that_keeps_nothing_leaves_a_compact_body_compact() {
+        let mut body = Body::new(stmts());
+        body.compact();
+        assert_eq!(body.read(|s| s.to_vec()), stmts());
+        assert!(!body.is_loaded(), "the read kept nothing");
+        let decoded = Body::new(stmts());
+        assert_eq!(decoded.read(<[Stmt]>::len), 3);
     }
 
     #[test]
