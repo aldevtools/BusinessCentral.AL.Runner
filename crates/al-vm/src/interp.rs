@@ -1659,11 +1659,16 @@ impl Session {
         // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_AssignedToVariantVariable and :TempRecord_VariantModifiedAfterAssign).
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => self.record_by_value(rc),
-            // A RecordRef assigned to a Variant: the Variant holds a RecordRef of its own (`recordref_variant.rs`).
+            // A RecordRef assigned to a Variant or to another RecordRef: a RecordRef of its own on the same buffer
+            // (`recordref_variant.rs`). A builtin's write-back of the receiver keeps its handle.
             Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h)
-                if matches!(self.place_type(p, f), RtType::Variant) =>
+                if match self.place_type(p, f) {
+                    RtType::Variant => true,
+                    RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef) => assign,
+                    _ => false,
+                } =>
             {
-                self.variant_refs.hold(h.clone())
+                crate::recordref_variant::own_copy(h)
             }
             _ => v,
         };

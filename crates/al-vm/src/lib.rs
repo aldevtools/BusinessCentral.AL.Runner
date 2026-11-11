@@ -2446,6 +2446,16 @@ impl Session {
                     }
                     v
                 }
+                // A RecordRef handed by value to a RecordRef or Variant parameter: a RecordRef of its own on the same buffer, so the
+                // callee's Close leaves the caller's open (`recordref_variant.rs`).
+                (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), false)
+                    if matches!(
+                        r.locals[i].ty,
+                        RtType::Variant | RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef)
+                    ) =>
+                {
+                    crate::recordref_variant::own_copy(&h)
+                }
                 // A Variant holding a RecordRef handed by value to a Record parameter: see `record_ref_into_record_param`.
                 (Value::Library(name, h), false)
                     if name.eq_ignore_ascii_case("RecordRef") && matches!(r.locals[i].ty, RtType::Record(..)) =>
