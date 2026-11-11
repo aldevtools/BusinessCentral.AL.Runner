@@ -23,6 +23,10 @@ pub(crate) struct Entry {
     pub name_set: bool,
     /// The row rests on an unprobed assumption: a read that returns or counts it marks it.
     pub assumed: Option<al_builtins::assumptions::Assumption>,
+    /// The app (an index in `Program::apps`) whose object the row lists ([`Entry::of_app`]); `None`: no app's, a row
+    /// every engine has. A listing built over every app leaves out the rows of the apps an engine does not have
+    /// ([`Mat::view`]).
+    pub app: Option<u32>,
 }
 
 impl Entry {
@@ -35,6 +39,7 @@ impl Entry {
             name_only: None,
             name_set: false,
             assumed: None,
+            app: None,
         }
     }
     pub(crate) fn poisoned(key_only: Row, why: String) -> Entry {
@@ -46,6 +51,7 @@ impl Entry {
             name_only: None,
             name_set: false,
             assumed: None,
+            app: None,
         }
     }
     /// A poisoned row of which only the first `known` primary key columns are real: it stands for
@@ -59,6 +65,7 @@ impl Entry {
             name_only: None,
             name_set: false,
             assumed: None,
+            app: None,
         }
     }
     /// The positions of the columns of a poisoned row that hold real values.
@@ -87,6 +94,11 @@ impl Entry {
     /// A row whose values rest on assumption `a`: every read that returns or counts it marks `a`.
     pub(crate) fn assuming(mut self, a: al_builtins::assumptions::Assumption) -> Entry {
         self.assumed = Some(a);
+        self
+    }
+    /// A row of an object of app `app`: an engine whose tenant does not have the app does not see it ([`Mat::view`]).
+    pub(crate) fn of_app(mut self, app: u32) -> Entry {
+        self.app = Some(app);
         self
     }
 }
@@ -124,6 +136,12 @@ pub(crate) struct Mat {
     name_set: Vec<bool>,
     /// Per row: the assumption a read of it marks ([`Entry::assuming`]); empty when no row has one.
     assumed: Vec<Option<al_builtins::assumptions::Assumption>>,
+    /// Per row: the app whose object it lists ([`Entry::of_app`]); empty when no row has one.
+    apps: Vec<Option<u32>>,
+    /// The apps a view cannot leave out by rows ([`Mat::view`]): two entries of one key that were made for different
+    /// apps (the first stays, so the other app's row is lost), and the apps a builder marked with [`Mat::mixed_with`]
+    /// (an object of the app changes the row of an object of another app, as a page extension changes its page's row).
+    unviewable: Vec<u32>,
     /// No row is poisoned. Only then are the values of the key columns all real, so the rows are in the order of
     /// the key and the filters on its leading columns bound a scan (`band`).
     clean: bool,
@@ -253,7 +271,14 @@ impl Mat {
         // 37,000-row listing. The sort is stable and the first of equal keys stays, as before.
         let mut keyed: Vec<(Vec<Value>, Entry)> = entries.drain(..).map(|e| (t.primary_key(&e.row), e)).collect();
         keyed.sort_by(|a, b| key_cmp(&a.0, &b.0));
-        keyed.dedup_by(|a, b| key_cmp(&a.0, &b.0) == Ordering::Equal);
+        let mut unviewable = Vec::new();
+        keyed.dedup_by(|a, b| {
+            let same = key_cmp(&a.0, &b.0) == Ordering::Equal;
+            if same && a.1.app != b.1.app {
+                unviewable.extend(a.1.app.into_iter().chain(b.1.app));
+            }
+            same
+        });
         let mut rows = Vec::new();
         let mut poison = Vec::new();
         let mut known = Vec::new();
@@ -261,8 +286,10 @@ impl Mat {
         let mut name_only = Vec::new();
         let mut name_set = Vec::new();
         let mut assumed = Vec::new();
+        let mut apps = Vec::new();
         for (_, e) in keyed {
             assumed.push(e.assumed);
+            apps.push(e.app);
             rows.push(e.row);
             poison.push(e.poison);
             known.push(e.known);
@@ -278,6 +305,11 @@ impl Mat {
         if assumed.iter().all(Option::is_none) {
             assumed = Vec::new();
         }
+        if apps.iter().all(Option::is_none) {
+            apps = Vec::new();
+        }
+        unviewable.sort_unstable();
+        unviewable.dedup();
         Mat {
             rows,
             poison,
@@ -286,6 +318,8 @@ impl Mat {
             name_only,
             name_set,
             assumed,
+            apps,
+            unviewable,
             clean,
             unknown_cols,
             memo: Default::default(),
@@ -317,10 +351,77 @@ impl Mat {
             name_only: self.name_only.clone(),
             name_set: self.name_set.clone(),
             assumed: self.assumed.clone(),
+            apps: self.apps.clone(),
+            unviewable: self.unviewable.clone(),
             clean: self.clean,
             unknown_cols: self.unknown_cols.clone(),
             memo: Default::default(),
         }
+    }
+
+    /// Marks `apps` as apps whose objects change rows of other apps' objects: a view that leaves one of them out is not
+    /// made from this listing ([`Mat::view`]).
+    pub(crate) fn mixed_with(mut self, apps: impl IntoIterator<Item = u32>) -> Mat {
+        self.unviewable.extend(apps);
+        self.unviewable.sort_unstable();
+        self.unviewable.dedup();
+        self
+    }
+
+    /// Whether a row of an app that `installed` leaves out is in this listing.
+    pub(crate) fn lists_other_apps(&self, installed: impl Fn(u32) -> bool) -> bool {
+        self.apps.iter().flatten().any(|&a| !installed(a)) || self.unviewable.iter().any(|&a| !installed(a))
+    }
+
+    /// This listing without the rows of the apps that `installed` leaves out (ADR-073 Phase 2: an engine's tenant
+    /// does not have them, `Engine::app_installed`), in the same order. `None` when the rows cannot be left out one by
+    /// one: an app left out is one of [`Mat::unviewable`]'s. Its rows are the rows the builder makes over the apps
+    /// `installed` keeps, as every row is made from one object alone.
+    pub(crate) fn view(&self, t: &TableDef, installed: impl Fn(u32) -> bool) -> Option<Mat> {
+        if self.unviewable.iter().any(|&a| !installed(a)) {
+            return None;
+        }
+        let keep: Vec<usize> = (0..self.rows.len())
+            .filter(|&i| self.apps.get(i).copied().flatten().is_none_or(&installed))
+            .collect();
+        fn pick<T: Clone>(v: &[T], keep: &[usize]) -> Vec<T> {
+            if v.is_empty() {
+                Vec::new()
+            } else {
+                keep.iter().map(|&i| v[i].clone()).collect()
+            }
+        }
+        let (rows, poison, name_only) = (
+            pick(&self.rows, &keep),
+            pick(&self.poison, &keep),
+            pick(&self.name_only, &keep),
+        );
+        let mut name_set = pick(&self.name_set, &keep);
+        if !name_set.contains(&true) {
+            name_set = Vec::new();
+        }
+        let mut assumed = pick(&self.assumed, &keep);
+        if assumed.iter().all(Option::is_none) {
+            assumed = Vec::new();
+        }
+        let mut apps = pick(&self.apps, &keep);
+        if apps.iter().all(Option::is_none) {
+            apps = Vec::new();
+        }
+        Some(Mat {
+            clean: poison.iter().all(Option::is_none),
+            unknown_cols: unknown_cols(t, &rows, &poison, &name_only),
+            known: pick(&self.known, &keep),
+            known_cols: pick(&self.known_cols, &keep),
+            rows,
+            poison,
+            name_only,
+            name_set,
+            assumed,
+            apps,
+            unviewable: self.unviewable.clone(),
+            memo: Default::default(),
+        })
     }
 
     /// Row `i` in key order, poisoned or not (a test walks the keys of a listing).

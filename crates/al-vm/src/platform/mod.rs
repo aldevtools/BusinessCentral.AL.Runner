@@ -175,6 +175,14 @@ impl Ident {
 /// own and several of them read it, and the install baseline's engine and the tests' engine of a
 /// run are two engines of one program.
 ///
+/// The one thing a listing depends on that a run sets on its engine is which apps its tenant has
+/// (`Engine::app_installed`, ADR-073 Phase 2: the two lanes of a shared pass leave different apps
+/// out). So a listing is built once over every app of the program, each row marked with the app of
+/// the object it lists, and an engine without some apps reads a view without their rows
+/// (`Mat::view`), made once per set of such apps. Where an app changes another app's rows (a page
+/// extension changes its page's Page Metadata row), a view cannot leave it out, and that engine
+/// builds the listing over its own apps instead.
+///
 /// Shared by all threads: the first thread that needs a table builds it, the others wait for it
 /// instead of building it again (a builder reads the program and the host, never another listing,
 /// so two builders cannot wait for each other). The two programs used last keep their listings,
@@ -190,7 +198,8 @@ struct SharedListings {
 struct ProgramListings {
     program: std::sync::Weak<al_ir::Program>,
     target: Option<al_version::Target>,
-    /// By kind and the engine's uninstalled apps (`Engine::app_installed`).
+    /// By kind and a set of uninstalled apps (`Engine::app_installed`): with none, the listing over every app; with
+    /// some, the view of an engine whose tenant does not have them.
     tables: HashMap<(Virtual, Vec<u32>), ListingSlot>,
 }
 
@@ -209,38 +218,59 @@ const PROGRAMS_KEPT: usize = 2;
 static SHARED: LazyLock<SharedListings> = LazyLock::new(SharedListings::default);
 
 impl SharedListings {
-    /// The listing of `kind` for the program and target of `engine`, built by `build` if no thread
-    /// has built it yet. `None` when the listing holds a handle and cannot be shared: each session
-    /// then lists it itself.
-    fn listing(&self, engine: &Engine, kind: Virtual, build: impl FnOnce() -> mat::Mat) -> Option<Arc<mat::SharedMat>> {
-        let slot = {
-            let mut programs = self.programs.lock().unwrap_or_else(|e| e.into_inner());
-            // A dropped program's listings can never be asked for again.
-            programs.retain(|p| p.program.strong_count() > 0);
-            let at = match programs.iter().position(|p| p.of(engine)) {
-                Some(at) => at,
-                None => {
-                    if programs.len() == PROGRAMS_KEPT {
-                        programs.remove(0);
-                    }
-                    programs.push(ProgramListings {
-                        program: Arc::downgrade(&engine.program),
-                        target: engine.target.clone(),
-                        tables: HashMap::new(),
-                    });
-                    programs.len() - 1
-                }
-            };
-            // The program asked for last is the last to go.
-            let last = programs.len() - 1;
-            programs.swap(at, last);
-            // A listing leaves out the objects and apps the engine's tenant does not have (`Engine::app_installed`,
-            // ADR-073 Phase 2): kept per set of them.
-            let apps = engine.uninstalled_apps.iter().copied().collect();
-            programs[last].tables.entry((kind, apps)).or_default().clone()
-        };
-        slot.get_or_init(|| mat::SharedMat::try_new(build()).ok().map(Arc::new))
+    /// The listing of `kind` for the program and target of `engine`. `every` builds it over every app of the program,
+    /// once for all engines of the program (the first thread that needs it builds it); an engine whose tenant does not
+    /// have some of the apps (`Engine::app_installed`, ADR-073 Phase 2) reads a view of it without their rows, made once
+    /// per set of such apps (`Mat::view`), or, where a view cannot leave them out, the listing `own` builds over its
+    /// own apps. `None` when the listing holds a handle and cannot be shared: each session then lists it itself.
+    fn listing(
+        &self,
+        engine: &Engine,
+        t: &TableDef,
+        kind: Virtual,
+        every: impl FnOnce() -> mat::Mat,
+        own: impl FnOnce() -> mat::Mat,
+    ) -> Option<Arc<mat::SharedMat>> {
+        let full = self
+            .slot(engine, (kind, Vec::new()))
+            .get_or_init(|| mat::SharedMat::try_new(every()).ok().map(Arc::new))
+            .clone()?;
+        let installed = |app| engine.app_installed(app);
+        if !full.lists_other_apps(installed) {
+            return Some(full);
+        }
+        let apps = engine.uninstalled_apps.iter().copied().collect();
+        self.slot(engine, (kind, apps))
+            .get_or_init(|| {
+                let m = full.view(t, installed).unwrap_or_else(own);
+                mat::SharedMat::try_new(m).ok().map(Arc::new)
+            })
             .clone()
+    }
+
+    /// The slot of listing `key` for the program and target of `engine`.
+    fn slot(&self, engine: &Engine, key: (Virtual, Vec<u32>)) -> ListingSlot {
+        let mut programs = self.programs.lock().unwrap_or_else(|e| e.into_inner());
+        // A dropped program's listings can never be asked for again.
+        programs.retain(|p| p.program.strong_count() > 0);
+        let at = match programs.iter().position(|p| p.of(engine)) {
+            Some(at) => at,
+            None => {
+                if programs.len() == PROGRAMS_KEPT {
+                    programs.remove(0);
+                }
+                programs.push(ProgramListings {
+                    program: Arc::downgrade(&engine.program),
+                    target: engine.target.clone(),
+                    tables: HashMap::new(),
+                });
+                programs.len() - 1
+            }
+        };
+        // The program asked for last is the last to go.
+        let last = programs.len() - 1;
+        programs.swap(at, last);
+        programs[last].tables.entry(key).or_default().clone()
     }
 }
 
@@ -272,6 +302,10 @@ pub(crate) struct Providers {
     served: Arc<[Option<Virtual>]>,
     /// Tables listed in full, once (they depend on the program and the host only).
     listed: RefCell<HashMap<Virtual, Listed>>,
+    /// Set while this session builds a listing to share, over every app of the program (`Catalog::listing`).
+    over_every_app: std::cell::Cell<bool>,
+    /// While `over_every_app`: the apps whose objects changed a row of another object so far (`Mat::mixed_with`).
+    mixed_apps: RefCell<Vec<u32>>,
     /// The Aggregate Permission Set rows with the tenant's own sets in them, and the stamp of the
     /// stored Tenant Permission Set table they were composed at.
     aggregate: permissions::Cache,
@@ -328,6 +362,8 @@ impl Providers {
             ident,
             served,
             listed: RefCell::default(),
+            over_every_app: Default::default(),
+            mixed_apps: RefCell::default(),
             aggregate: RefCell::default(),
             grants: Default::default(),
             tenant_composed: Default::default(),
@@ -412,6 +448,28 @@ impl Providers {
 
     pub(super) fn engine(&self) -> Arc<Engine> {
         self.engine.upgrade().expect("a session outlives its provider's reads")
+    }
+
+    /// While a listing to share is built over every app: where the builder notes the apps that change other objects' rows.
+    pub(super) fn every_app(&self) -> Option<&RefCell<Vec<u32>>> {
+        self.over_every_app.get().then_some(&self.mixed_apps)
+    }
+
+    /// Whether a listing lists app `app`: every app while a listing to share is built, else the apps of the engine's
+    /// tenant (`Engine::app_installed`).
+    pub(super) fn lists_app(&self, engine: &Engine, app: u32) -> bool {
+        self.over_every_app.get() || engine.app_installed(app)
+    }
+
+    /// The rows of `kind` over every app of the program, each marked with its app (`Entry::of_app`), and the apps that
+    /// change other objects' rows: the listing that engines with other uninstalled apps share (`SharedListings`).
+    fn list_over_every_app(&self, t: &TableDef, kind: Virtual) -> mat::Mat {
+        self.over_every_app.set(true);
+        self.mixed_apps.borrow_mut().clear();
+        let rows = self.list_rows(t, kind);
+        self.over_every_app.set(false);
+        let mixed = std::mem::take(&mut *self.mixed_apps.borrow_mut());
+        mat::Mat::new(t, rows).mixed_with(mixed)
     }
 
     /// The Aggregate Permission Set rows as of now: composed again when the stored tenant sets changed.
@@ -650,7 +708,7 @@ impl Providers {
         // A listing that holds a handle is the session's own; it is built once (Published Application's descriptions are
         // Blobs).
         let m = if Self::shares(kind) {
-            match SHARED.listing(&self.engine(), kind, build) {
+            match SHARED.listing(&self.engine(), t, kind, || self.list_over_every_app(t, kind), build) {
                 Some(m) => Listed::Shared(m),
                 None => Listed::Own(Rc::new(build())),
             }
@@ -1158,6 +1216,18 @@ mod tests {
         mat::Mat::new(&some_def(), Vec::new())
     }
 
+    /// The listing of `kind` for `engine`, built by `build` over every app.
+    fn list(
+        shared: &SharedListings,
+        engine: &Engine,
+        kind: Virtual,
+        build: impl FnOnce() -> mat::Mat,
+    ) -> Option<Arc<mat::SharedMat>> {
+        shared.listing(engine, &some_def(), kind, build, || {
+            panic!("an engine without uninstalled apps builds no own listing")
+        })
+    }
+
     #[test]
     fn engines_have_their_own_uid() {
         assert_ne!(engine().uid, engine().uid);
@@ -1167,14 +1237,14 @@ mod tests {
     fn sessions_of_one_engine_share_a_listing_and_other_programs_do_not() {
         let shared = SharedListings::default();
         let (one, two) = (engine(), engine());
-        let a = shared.listing(&one, Virtual::Field, some_mat).unwrap();
+        let a = list(&shared, &one, Virtual::Field, some_mat).unwrap();
         assert!(Arc::ptr_eq(
             &a,
-            &shared.listing(&one, Virtual::Field, || panic!("built twice")).unwrap()
+            &list(&shared, &one, Virtual::Field, || panic!("built twice")).unwrap()
         ));
-        let other_kind = shared.listing(&one, Virtual::AllObj, some_mat).unwrap();
+        let other_kind = list(&shared, &one, Virtual::AllObj, some_mat).unwrap();
         assert!(!Arc::ptr_eq(&a, &other_kind));
-        let other_program = shared.listing(&two, Virtual::Field, some_mat).unwrap();
+        let other_program = list(&shared, &two, Virtual::Field, some_mat).unwrap();
         assert!(!Arc::ptr_eq(&a, &other_program));
     }
 
@@ -1187,11 +1257,116 @@ mod tests {
             Engine::new(program.clone(), Vec::new()),
             Engine::new(program, Vec::new()),
         );
-        let a = shared.listing(&baseline, Virtual::Field, some_mat).unwrap();
-        let b = shared
-            .listing(&tests, Virtual::Field, || panic!("built again"))
-            .unwrap();
+        let a = list(&shared, &baseline, Virtual::Field, some_mat).unwrap();
+        let b = list(&shared, &tests, Virtual::Field, || panic!("built again")).unwrap();
         assert!(Arc::ptr_eq(&a, &b));
+    }
+
+    /// An engine of `program` whose tenant does not have `apps` (`Engine::app_installed`).
+    fn without_apps(program: &Arc<al_ir::Program>, apps: &[u32]) -> Arc<Engine> {
+        let mut e = Engine::new(program.clone(), Vec::new());
+        Arc::get_mut(&mut e).unwrap().uninstalled_apps = apps.iter().copied().collect();
+        e
+    }
+
+    /// A table keyed by one integer field.
+    fn keyed_def() -> TableDef {
+        let mut t = some_def();
+        t.fields.push(al_data::FieldDef {
+            id: 1,
+            name: "No.".into(),
+            ty: al_builtins::value::RtType::Integer,
+            stored: true,
+            code_storage: Default::default(),
+        });
+        t.keys = vec![vec![0]];
+        t
+    }
+
+    /// Row 1 of no app, row 2 of app 1, row 3 of app 2.
+    fn rows_of_apps() -> mat::Mat {
+        let row = |n: i32| mat::Entry::ok(vec![Value::Integer(n)]);
+        mat::Mat::new(&keyed_def(), vec![row(1), row(2).of_app(1), row(3).of_app(2)])
+    }
+
+    fn keys(m: &mat::Mat) -> Vec<i32> {
+        (0..)
+            .map_while(|i| m.row_at(i))
+            .map(|r| match r[0] {
+                Value::Integer(n) => n,
+                _ => unreachable!(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn engines_with_other_uninstalled_apps_share_one_build() {
+        // ADR-073 Phase 2: lane 0 leaves the try-write app out, lane 1 the OnPrem suite apps; the listing is built once.
+        let shared = SharedListings::default();
+        let program = Arc::new(al_ir::Program::default());
+        let t = keyed_def();
+        let builds = std::cell::Cell::new(0);
+        let every = || {
+            builds.set(builds.get() + 1);
+            rows_of_apps()
+        };
+        let no_own = || panic!("a view leaves the apps out");
+        let all = shared
+            .listing(&without_apps(&program, &[]), &t, Virtual::AllObj, every, no_own)
+            .unwrap();
+        let lane0 = shared
+            .listing(&without_apps(&program, &[2]), &t, Virtual::AllObj, every, no_own)
+            .unwrap();
+        let lane1 = shared
+            .listing(&without_apps(&program, &[1]), &t, Virtual::AllObj, every, no_own)
+            .unwrap();
+        let again = shared
+            .listing(&without_apps(&program, &[1]), &t, Virtual::AllObj, every, no_own)
+            .unwrap();
+        assert_eq!(builds.get(), 1);
+        assert_eq!(keys(&all), [1, 2, 3]);
+        assert_eq!(keys(&lane0), [1, 2]);
+        assert_eq!(keys(&lane1), [1, 3]);
+        assert!(
+            Arc::ptr_eq(&lane1, &again),
+            "a view is made once per set of uninstalled apps"
+        );
+        // An engine that has every app whose rows are listed reads the listing itself.
+        let unrelated = shared
+            .listing(&without_apps(&program, &[7]), &t, Virtual::AllObj, every, no_own)
+            .unwrap();
+        assert!(Arc::ptr_eq(&all, &unrelated));
+    }
+
+    #[test]
+    fn an_app_that_changes_another_apps_rows_is_not_left_out_by_a_view() {
+        // A page extension changes its page's Page Metadata row: an engine without the extension's app builds its own.
+        let shared = SharedListings::default();
+        let program = Arc::new(al_ir::Program::default());
+        let t = keyed_def();
+        let every = || rows_of_apps().mixed_with([2]);
+        let own = || mat::Mat::new(&keyed_def(), vec![mat::Entry::ok(vec![Value::Integer(9)])]);
+        let lane0 = shared
+            .listing(&without_apps(&program, &[2]), &t, Virtual::PageMetadata, every, own)
+            .unwrap();
+        assert_eq!(keys(&lane0), [9]);
+        let lane1 = shared
+            .listing(&without_apps(&program, &[1]), &t, Virtual::PageMetadata, every, || {
+                panic!("a view")
+            })
+            .unwrap();
+        assert_eq!(keys(&lane1), [1, 3]);
+    }
+
+    #[test]
+    fn two_apps_rows_of_one_key_are_not_left_out_by_a_view() {
+        // The first of two entries of one key stays: a view without its app would lose the other app's row.
+        let t = keyed_def();
+        let row = |app: u32| mat::Entry::ok(vec![Value::Integer(1)]).of_app(app);
+        let m = mat::Mat::new(&t, vec![row(1), row(2)]);
+        assert!(m.view(&t, |a| a != 1).is_none());
+        assert!(m.view(&t, |a| a != 2).is_none());
+        assert_eq!(keys(&m.view(&t, |_| true).unwrap()), [1]);
     }
 
     #[test]
@@ -1205,8 +1380,8 @@ mod tests {
             Vec::new(),
             Some(al_version::Target::for_bc(al_version::BcVersion::new(27, 0))),
         );
-        let a = shared.listing(&newest, Virtual::FeatureKey, some_mat).unwrap();
-        let b = shared.listing(&older, Virtual::FeatureKey, some_mat).unwrap();
+        let a = list(&shared, &newest, Virtual::FeatureKey, some_mat).unwrap();
+        let b = list(&shared, &older, Virtual::FeatureKey, some_mat).unwrap();
         assert!(!Arc::ptr_eq(&a, &b));
     }
 
@@ -1215,17 +1390,20 @@ mod tests {
         // `Arc::make_mut` on a program nothing else holds: its listings must not be taken for the changed one.
         let shared = SharedListings::default();
         let mut program = Arc::new(al_ir::Program::default());
-        let a = shared
-            .listing(&Engine::new(program.clone(), Vec::new()), Virtual::Field, some_mat)
-            .unwrap();
+        let a = list(
+            &shared,
+            &Engine::new(program.clone(), Vec::new()),
+            Virtual::Field,
+            some_mat,
+        )
+        .unwrap();
         Arc::make_mut(&mut program).apps.clear();
         let rebuilt = std::cell::Cell::new(false);
-        let b = shared
-            .listing(&Engine::new(program, Vec::new()), Virtual::Field, || {
-                rebuilt.set(true);
-                some_mat()
-            })
-            .unwrap();
+        let b = list(&shared, &Engine::new(program, Vec::new()), Virtual::Field, || {
+            rebuilt.set(true);
+            some_mat()
+        })
+        .unwrap();
         assert!(rebuilt.get());
         assert!(!Arc::ptr_eq(&a, &b));
     }
@@ -1234,19 +1412,17 @@ mod tests {
     fn only_the_two_programs_used_last_keep_their_listings() {
         let shared = SharedListings::default();
         let (one, two, three) = (engine(), engine(), engine());
-        let first = shared.listing(&one, Virtual::Field, some_mat).unwrap();
-        shared.listing(&two, Virtual::Field, some_mat);
+        let first = list(&shared, &one, Virtual::Field, some_mat).unwrap();
+        list(&shared, &two, Virtual::Field, some_mat);
         // Program one is asked for again before a third comes.
         assert!(Arc::ptr_eq(
             &first,
-            &shared
-                .listing(&one, Virtual::Field, || panic!("dropped too early"))
-                .unwrap()
+            &list(&shared, &one, Virtual::Field, || panic!("dropped too early")).unwrap()
         ));
-        shared.listing(&three, Virtual::Field, some_mat);
+        list(&shared, &three, Virtual::Field, some_mat);
         // Program two was used before program one was asked again, so program two is the one that went.
         let rebuilt = std::cell::Cell::new(false);
-        shared.listing(&two, Virtual::Field, || {
+        list(&shared, &two, Virtual::Field, || {
             rebuilt.set(true);
             some_mat()
         });
@@ -1264,7 +1440,7 @@ mod tests {
                 .map(|_| {
                     scope.spawn(|| {
                         barrier.wait();
-                        shared.listing(&e, Virtual::Field, || {
+                        list(&shared, &e, Virtual::Field, || {
                             builds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                             std::thread::sleep(std::time::Duration::from_millis(20));
                             some_mat()
@@ -1290,14 +1466,14 @@ mod tests {
             code_storage: Default::default(),
         });
         let with_handle = || mat::Mat::new(&t, vec![mat::Entry::ok(vec![Value::List(Default::default())])]);
-        assert!(shared.listing(&engine(), Virtual::Field, with_handle).is_none());
+        assert!(list(&shared, &engine(), Virtual::Field, with_handle).is_none());
     }
 
     #[test]
     fn a_listing_does_not_stop_arc_get_mut_on_its_engine() {
         // The runner sets `unseeded` on the engine after the install baseline listed tables.
         let mut a = engine();
-        SHARED.listing(&a, Virtual::Field, some_mat);
+        list(&SHARED, &a, Virtual::Field, some_mat);
         assert!(Arc::get_mut(&mut a).is_some());
     }
 

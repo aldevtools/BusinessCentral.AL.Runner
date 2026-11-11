@@ -30,6 +30,8 @@ const TENANT_PERMISSION_SET: u32 = 2_000_000_165;
 /// A permission set object of the program.
 pub(super) struct PSet {
     pub app: [u8; 16],
+    /// The app (an index in `Program::apps`) that declares the set: its rows are that app's (`Entry::of_app`).
+    pub of: u32,
     /// Upper-case object name.
     pub role: String,
     pub name: String,
@@ -43,7 +45,7 @@ fn upper_trunc(s: &str, max: usize) -> String {
 
 pub(super) fn sets(p: &Providers) -> Vec<PSet> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     c.installed()
         .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some())
         .map(|o| {
@@ -53,6 +55,7 @@ pub(super) fn sets(p: &Providers) -> Vec<PSet> {
             let caption = prop(o, "Caption").and_then(string_lit);
             PSet {
                 app,
+                of: o.app,
                 name: caption.unwrap_or_else(|| role.clone()),
                 app_name: c.apps.get(o.app as usize).map(|a| a.name.clone()).unwrap_or_default(),
                 role,
@@ -73,7 +76,7 @@ pub(super) fn metadata_permission_set_rows(p: &Providers, t: &TableDef) -> Vec<E
             r[pos(t, 2)] = Value::Code(upper_trunc(&s.role, 30).into());
             r[pos(t, 3)] = Value::Text(s.name.chars().take(30).collect());
             r[pos(t, 4)] = Value::Boolean(s.assignable);
-            Entry::ok(r)
+            Entry::ok(r).of_app(s.of)
         })
         .collect()
 }
@@ -87,7 +90,7 @@ pub(super) fn permission_set_rows(p: &Providers, t: &TableDef, assignable_only: 
             let mut r = blank(t);
             r[pos(t, 1)] = Value::Code(upper_trunc(&s.role, 20).into());
             r[pos(t, 2)] = Value::Text(s.name.chars().take(30).collect());
-            Entry::ok(r)
+            Entry::ok(r).of_app(s.of)
         })
         .collect()
 }

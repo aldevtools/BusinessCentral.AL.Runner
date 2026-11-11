@@ -155,6 +155,9 @@ pub(super) struct Catalog<'a> {
     pub objects: &'a [ObjectHead],
     /// The engine, whose tenant has the apps a listing lists ([`al_vm::Engine::app_installed`]).
     engine: &'a Engine,
+    /// Set while a listing is built over every app of the program ([`Catalog::listing`]): the apps whose objects
+    /// changed a row of another object (a page extension), which a view of the listing cannot leave out by rows.
+    every_app: Option<&'a std::cell::RefCell<Vec<u32>>>,
     /// The objects themselves, for what a head does not hold (made on first touch).
     pub full: &'a al_ir::Objects,
     pub apps: &'a [al_ir::AppInfo],
@@ -185,10 +188,27 @@ impl<'a> Catalog<'a> {
         Catalog {
             objects: program.objects.heads(),
             engine,
+            every_app: None,
             full: &program.objects,
             apps: &program.apps,
             maps: &engine.catalog_maps,
         }
+    }
+
+    /// The catalog a listing builder reads: over every app of the program while `p` builds a listing to share
+    /// ([`Providers::every_app`]), each row marked with its object's app (`Entry::of_app`), so that a view leaves out
+    /// the apps an engine does not have; else over the apps of the engine's tenant.
+    pub(super) fn listing(p: &'a Providers, engine: &'a Engine) -> Catalog<'a> {
+        Catalog {
+            every_app: p.every_app(),
+            ..Catalog::new(engine)
+        }
+    }
+
+    /// Whether a listing lists app `app`: every app while the listing is built over every app, else the apps of the
+    /// engine's tenant.
+    pub(super) fn lists(&self, app: u32) -> bool {
+        self.every_app.is_some() || self.engine.app_installed(app)
     }
 
     fn maps(&self) -> &Maps {
@@ -225,33 +245,58 @@ impl<'a> Catalog<'a> {
     /// The objects of the apps on the engine's tenant, in program order (ADR-073 Phase 2: an app the engine leaves
     /// uninstalled has no row in any listing).
     pub(super) fn installed(&self) -> impl Iterator<Item = &'a ObjectHead> + use<'a> {
-        let engine = self.engine;
-        self.objects.iter().filter(move |o| engine.app_installed(o.app))
+        let (engine, every) = (self.engine, self.every_app.is_some());
+        self.objects
+            .iter()
+            .filter(move |o| every || engine.app_installed(o.app))
     }
 
     /// [`Catalog::installed`] with each object's index.
     pub(super) fn installed_indexed(&self) -> impl Iterator<Item = (usize, &'a ObjectHead)> + use<'a> {
-        let engine = self.engine;
+        let (engine, every) = (self.engine, self.every_app.is_some());
         self.objects
             .iter()
             .enumerate()
-            .filter(move |(_, o)| engine.app_installed(o.app))
+            .filter(move |(_, o)| every || engine.app_installed(o.app))
     }
 
-    /// The page extensions of page `id` on the engine's tenant, in program order (none for `None`).
+    /// Calls `each` with every object a listing lists ([`Catalog::installed_indexed`]) and marks the entries it adds as
+    /// rows of the object's app (`Entry::of_app`): a view of a listing over every app leaves them out for an engine whose
+    /// tenant does not have the app (`Mat::view`).
+    pub(super) fn each_listed(
+        &self,
+        out: &mut Vec<Entry>,
+        mut each: impl FnMut(usize, &'a ObjectHead, &mut Vec<Entry>),
+    ) {
+        for (i, o) in self.installed_indexed() {
+            let from = out.len();
+            each(i, o, out);
+            for e in &mut out[from..] {
+                e.app = Some(o.app);
+            }
+        }
+    }
+
+    /// The page extensions of page `id` on the engine's tenant, in program order (none for `None`). Over every app,
+    /// their apps change the page's row: a view that leaves one out is not made by rows (`Mat::view`).
     pub(super) fn page_extensions_of(&self, id: Option<u32>) -> Vec<&'a Object> {
-        id.and_then(|id| self.maps().page_extensions.get(&id))
-            .map_or_else(Vec::new, |v| {
-                (v.iter().filter(|&&i| self.engine.object_installed(i)))
-                    .map(|&i| &self.full[i])
-                    .collect()
-            })
+        let found: Vec<&'a Object> =
+            id.and_then(|id| self.maps().page_extensions.get(&id))
+                .map_or_else(Vec::new, |v| {
+                    (v.iter().filter(|&&i| self.lists(self.objects[i].app)))
+                        .map(|&i| &self.full[i])
+                        .collect()
+                });
+        if let Some(mixed) = self.every_app {
+            mixed.borrow_mut().extend(found.iter().map(|e| e.app));
+        }
+        found
     }
 
     /// The first table object with this id, on the engine's tenant.
     pub(super) fn table_by_id(&self, id: u32) -> Option<&'a ObjectHead> {
         (self.maps().tables.get(&id))
-            .filter(|&&i| self.engine.object_installed(i))
+            .filter(|&&i| self.lists(self.objects[i].app))
             .map(|&i| &self.objects[i])
     }
 
@@ -502,8 +547,8 @@ pub(super) fn entries(
 ) -> Vec<Entry> {
     let mut out = Vec::new();
     let blank = Blank::new(t);
-    for o in c.installed() {
-        let Some(key) = wanted(o) else { continue };
+    c.each_listed(&mut out, |_, o, out| {
+        let Some(key) = wanted(o) else { return };
         let mut r = blank.row();
         for (id, v) in &key {
             r[pos(t, *id)] = v.clone();
@@ -518,7 +563,7 @@ pub(super) fn entries(
                 out.push(Entry::poisoned(k, why));
             }
         }
-    }
+    });
     out
 }
 
@@ -557,7 +602,7 @@ fn moved(o: &ObjectHead) -> bool {
 
 pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let mut out = entries(
         &c,
         t,
@@ -607,7 +652,7 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     // Contact) and the platform's (Company, the virtual Integer and AllObj) (metadata/session-system/AllObjNamespace.al:
     // 143-218 PW_AllObj_*, :220-262 UG_AllObj_TableDataRow_OfContact_AllColumns). A table declared Moved has no Table row, and
     // so none here.
-    for o in c.installed() {
+    c.each_listed(&mut out, |_, o, out| {
         if let (Some(id), al_ir::ObjKind::Table) = (o.id, o.kind)
             && !moved(o)
         {
@@ -620,13 +665,13 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             k[pos(t, 62)] = Value::Text(namespace(o).into());
             out.push(Entry::ok(k));
         }
-    }
+    });
     out
 }
 
 pub(super) fn all_obj_with_caption_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let key = |o: &ObjectHead, ty: i32| Some(vec![(1, option(t, 1, ty)), (3, Value::Integer(o.id? as i32))]);
     let mut out = entries(&c, t, |o| key(o, object_type(o.kind)?), |o, r| caption_row(&c, t, o, r));
     // Every table has a TableData row next to its Table row, with its name, caption and subtype (metadata/session-system/
@@ -680,7 +725,7 @@ fn caption_row(c: &Catalog, t: &TableDef, o: &ObjectHead, r: &mut Row) -> Result
 /// any other object type is refused: nothing pins what it holds.
 pub(super) fn application_object_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     entries(
         &c,
         t,
@@ -718,7 +763,7 @@ pub(super) fn application_object_metadata_rows(p: &Providers, t: &TableDef) -> V
 
 pub(super) fn codeunit_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     entries(
         &c,
         t,
@@ -836,7 +881,7 @@ fn data_caption_field_ids(o: &ObjectHead) -> Result<String, String> {
 
 pub(super) fn table_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     entries(
         &c,
         t,

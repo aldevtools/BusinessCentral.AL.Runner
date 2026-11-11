@@ -154,15 +154,15 @@ pub(super) fn field_get(t: &TableDef, mut r: al_data::Row) -> al_data::Row {
 
 pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let blank = Blank::new(t);
     // Four more system fields per table from the gate on (see [`USER_NAME_SYSTEM_FIELDS`]).
     let user_name_fields = al_version::gate_on(engine.target.as_ref(), al_version::Gate::PlatformMetadataColumnsFrom29);
     let system_ids = al_version::gate_on(engine.target.as_ref(), al_version::Gate::FieldRowSystemIdFrom28);
     let mut out = Vec::new();
-    for o in c.installed() {
-        table_entries(&c, o, t, &blank, (user_name_fields, system_ids), None, &mut out);
-    }
+    c.each_listed(&mut out, |_, o, out| {
+        table_entries(&c, o, t, &blank, (user_name_fields, system_ids), None, out)
+    });
     out
 }
 
@@ -718,89 +718,92 @@ fn field_row(
 
 pub(super) fn key_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let blank = Blank::new(t);
     let mut out = Vec::new();
-    for (i, o) in c.installed_indexed() {
-        let (Some(tid), al_ir::ObjKind::Table) = (o.id, o.kind) else {
-            continue;
+    c.each_listed(&mut out, |i, o, out| table_key_entries(&c, i, o, t, &blank, out));
+    out
+}
+
+/// The Key rows of object `o` (index `i`; none for another kind of object).
+fn table_key_entries(c: &Catalog, i: usize, o: &Object, t: &TableDef, blank: &Blank, out: &mut Vec<Entry>) {
+    let (Some(tid), al_ir::ObjKind::Table) = (o.id, o.kind) else {
+        return;
+    };
+    let Some((_, schema)) = table_of(c, i) else {
+        out.push(shell_entries(o, t, &|id| {
+            vec![(1, Value::Integer(id as i32)), (2, Value::Integer(1))]
+        }));
+        return;
+    };
+    for (n, key) in schema.keys.iter().enumerate() {
+        let props = schema.key_props.get(n).map_or(&[][..], Vec::as_slice);
+        let kprop = |name: &str| {
+            props
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.trim())
         };
-        let Some((_, schema)) = table_of(&c, i) else {
-            out.push(shell_entries(o, t, &|id| {
-                vec![(1, Value::Integer(id as i32)), (2, Value::Integer(1))]
-            }));
-            continue;
-        };
-        for (n, key) in schema.keys.iter().enumerate() {
-            let props = schema.key_props.get(n).map_or(&[][..], Vec::as_slice);
-            let kprop = |name: &str| {
-                props
-                    .iter()
-                    .find(|(k, _)| k.eq_ignore_ascii_case(name))
-                    .map(|(_, v)| v.trim())
-            };
-            let mut r = blank.row();
-            r[pos(t, 1)] = Value::Integer(tid as i32);
-            r[pos(t, 2)] = Value::Integer(n as i32 + 1);
-            // The fields, comma-separated in declaration order (TestKeyVirtualTable.al:73-82).
-            r[pos(t, 4)] = Value::Text(
-                key.iter()
-                    .map(|&f| schema.fields[f].name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(",")
-                    .into(),
-            );
-            // SumIndexFields: the names of the property, comma-joined without the blanks and quotes
-            // (metadata/platform-tables/PlatformMetadataColumnValues.al:KeyTable_SumIndexFields_OwnTable, _BaseApp).
-            if let (Some(col), Some(sum)) = (
-                t.fields.iter().position(|x| x.name == "SumIndexFields"),
-                kprop("SumIndexFields"),
-            ) {
-                let names: Vec<String> = sum.split(',').map(|n| n.trim().trim_matches('"').to_string()).collect();
-                r[col] = Value::Text(names.join(",").into());
-            }
-            r[pos(t, 7)] = Value::Boolean(kprop("Enabled").is_none_or(truthy));
-            r[pos(t, 10)] = Value::Boolean(n == 0 || kprop("Clustered").is_some_and(truthy));
-            // True only for a key that has SumIndexFields and does not say `MaintainSIFTIndex = false`
-            // (record/TestPlatformMetadataDeclarationContracts.al:269-280).
-            r[pos(t, 9)] =
-                Value::Boolean(kprop("SumIndexFields").is_some() && kprop("MaintainSIFTIndex").is_none_or(truthy));
-            let state = match kprop("ObsoleteState") {
-                None => 0,
-                Some(v) => match ordinal_of(OBSOLETE_STATES, v) {
-                    Some(i) => i,
-                    None => {
-                        out.push(Entry::poisoned(
-                            {
-                                let mut k = blank.row();
-                                k[pos(t, 1)] = Value::Integer(tid as i32);
-                                k[pos(t, 2)] = Value::Integer(n as i32 + 1);
-                                k
-                            },
-                            format!(
-                                "key {} of table '{}': ObsoleteState `{v}` is not understood",
-                                n + 1,
-                                o.name
-                            ),
-                        ));
-                        continue;
-                    }
-                },
-            };
-            r[pos(t, 11)] = blank.option(t, 11, state);
-            r[pos(t, 13)] = Value::Boolean(schema.unique_keys.get(n).copied().unwrap_or(false));
-            out.push(Entry::ok(r));
-        }
-        // BC adds a unique key on the SystemId after the declared ones (TestKeyVirtualTable.al:50-56).
         let mut r = blank.row();
         r[pos(t, 1)] = Value::Integer(tid as i32);
-        r[pos(t, 2)] = Value::Integer(schema.keys.len() as i32 + 1);
-        r[pos(t, 4)] = Value::Text("$systemId".into());
-        r[pos(t, 7)] = Value::Boolean(true);
-        r[pos(t, 13)] = Value::Boolean(true);
+        r[pos(t, 2)] = Value::Integer(n as i32 + 1);
+        // The fields, comma-separated in declaration order (TestKeyVirtualTable.al:73-82).
+        r[pos(t, 4)] = Value::Text(
+            key.iter()
+                .map(|&f| schema.fields[f].name.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+                .into(),
+        );
+        // SumIndexFields: the names of the property, comma-joined without the blanks and quotes
+        // (metadata/platform-tables/PlatformMetadataColumnValues.al:KeyTable_SumIndexFields_OwnTable, _BaseApp).
+        if let (Some(col), Some(sum)) = (
+            t.fields.iter().position(|x| x.name == "SumIndexFields"),
+            kprop("SumIndexFields"),
+        ) {
+            let names: Vec<String> = sum.split(',').map(|n| n.trim().trim_matches('"').to_string()).collect();
+            r[col] = Value::Text(names.join(",").into());
+        }
+        r[pos(t, 7)] = Value::Boolean(kprop("Enabled").is_none_or(truthy));
+        r[pos(t, 10)] = Value::Boolean(n == 0 || kprop("Clustered").is_some_and(truthy));
+        // True only for a key that has SumIndexFields and does not say `MaintainSIFTIndex = false`
+        // (record/TestPlatformMetadataDeclarationContracts.al:269-280).
+        r[pos(t, 9)] =
+            Value::Boolean(kprop("SumIndexFields").is_some() && kprop("MaintainSIFTIndex").is_none_or(truthy));
+        let state = match kprop("ObsoleteState") {
+            None => 0,
+            Some(v) => match ordinal_of(OBSOLETE_STATES, v) {
+                Some(i) => i,
+                None => {
+                    out.push(Entry::poisoned(
+                        {
+                            let mut k = blank.row();
+                            k[pos(t, 1)] = Value::Integer(tid as i32);
+                            k[pos(t, 2)] = Value::Integer(n as i32 + 1);
+                            k
+                        },
+                        format!(
+                            "key {} of table '{}': ObsoleteState `{v}` is not understood",
+                            n + 1,
+                            o.name
+                        ),
+                    ));
+                    continue;
+                }
+            },
+        };
+        r[pos(t, 11)] = blank.option(t, 11, state);
+        r[pos(t, 13)] = Value::Boolean(schema.unique_keys.get(n).copied().unwrap_or(false));
         out.push(Entry::ok(r));
     }
-    out
+    // BC adds a unique key on the SystemId after the declared ones (TestKeyVirtualTable.al:50-56).
+    let mut r = blank.row();
+    r[pos(t, 1)] = Value::Integer(tid as i32);
+    r[pos(t, 2)] = Value::Integer(schema.keys.len() as i32 + 1);
+    r[pos(t, 4)] = Value::Text("$systemId".into());
+    r[pos(t, 7)] = Value::Boolean(true);
+    r[pos(t, 13)] = Value::Boolean(true);
+    out.push(Entry::ok(r));
 }
 
 /// Whether a `TableRelation` text starts with an `if` condition.

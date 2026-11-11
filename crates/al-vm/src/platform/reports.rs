@@ -33,22 +33,22 @@ const FORMATS: &[&str] = &["RDLC", "Word", "Excel", "Custom"];
 /// a non-null guid other than the app id (metadata/platform-tables/UgReportLayoutList.al:101, :135).
 pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let mut out = Vec::new();
     // A reportextension's layouts are rows of the report it extends, owned by the extension's app
     // (record/TestEventSubscriptionColumnsReportLayoutListContracts.al:131-165).
     // The layouts are in the objects themselves: only the reports and report extensions are made.
-    for o in c
-        .installed_indexed()
-        .filter(|(_, o)| matches!(o.kind, al_ir::ObjKind::Report | al_ir::ObjKind::ReportExtension))
-        .map(|(i, _)| &c.full[i])
-    {
+    c.each_listed(&mut out, |i, h, out| {
+        if !matches!(h.kind, al_ir::ObjKind::Report | al_ir::ObjKind::ReportExtension) {
+            return;
+        }
+        let o = &c.full[i];
         let id = if o.kind == al_ir::ObjKind::Report {
             o.id
         } else {
             o.extends_id
         };
-        let Some(id) = id else { continue };
+        let Some(id) = id else { return };
         let pkg = ids::package_id(c.owner(o));
         // A layout of the legacy RDLCLayout, WordLayout or ExcelLayout property is a row named with the LayoutFile as written
         // (reports/layouts-saveas/Y17LayoutExportTests.al:105 Export_LegacyProperties, corpus master: `rows 1`, layout name
@@ -90,7 +90,7 @@ pub(super) fn layout_list_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 }
             }
         }
-    }
+    });
     out
 }
 
@@ -437,15 +437,15 @@ fn layout_row(
 /// FirstDataItemTableID (18). Needs the data items, so a report nothing compiled is poisoned.
 pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let mut out = Vec::new();
     // The data items are in the reports themselves: only the reports are made.
-    for o in c
-        .installed_indexed()
-        .filter(|(_, o)| o.kind == al_ir::ObjKind::Report)
-        .map(|(i, _)| &c.full[i])
-    {
-        let Some(id) = o.id else { continue };
+    c.each_listed(&mut out, |i, h, out| {
+        if h.kind != al_ir::ObjKind::Report {
+            return;
+        }
+        let o = &c.full[i];
+        let Some(id) = o.id else { return };
         let mut key = blank(t);
         key[pos(t, 1)] = Value::Integer(id as i32);
         let Some(rep) = &o.report else {
@@ -453,7 +453,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 key,
                 format!("report '{}' was not compiled, so its data items are not known", o.name),
             ));
-            continue;
+            return;
         };
         let mut r = key.clone();
         r[pos(t, 2)] = Value::Text(o.name.clone().into());
@@ -463,7 +463,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             Ok(c) => r[pos(t, 3)] = Value::Text(c.chars().take(250).collect()),
             Err(why) => {
                 out.push(Entry::poisoned(key, format!("report '{}': {why}", o.name)));
-                continue;
+                return;
             }
         }
         // UseRequestPage defaults to true, ProcessingOnly to false (TestReportMetadataColumns.al:30-60).
@@ -548,7 +548,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
         }
         if let Some(why) = unpinned {
             out.push(Entry::poisoned(key, why));
-            continue;
+            return;
         }
         // EnableHyperLinks (7) No, ShowPrintStatus (10) Yes and PreviewMode (15) Normal for a report that declares none of
         // them (metadata/platform-tables/ReportMetadata.al:206, :209, :214; ReportMetadataWord.al:66, :69, :74).
@@ -559,7 +559,7 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             (15, "PreviewMode", "Normal"),
         ] {
             let Some(i) = t.fields.iter().position(|f| f.id == col) else {
-                continue;
+                return;
             };
             r[i] = match (prop(o, name), &r[i]) {
                 (Some(v), _) => unknown(
@@ -658,11 +658,11 @@ pub(super) fn report_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                     key,
                     format!("report '{}': the table of its first data item is not compiled", o.name),
                 ));
-                continue;
+                return;
             }
         }
         out.push(Entry::ok(r));
-    }
+    });
     out
 }
 
@@ -738,12 +738,15 @@ fn join(ids: &[u32]) -> String {
 /// 201-249), and the rows come in the order of the ids: Rw, Rw3, Rw2 (reports/runtime/YReportPropsTests.al:272).
 pub(super) fn report_data_item_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let mut out = Vec::new();
-    for (oi, _) in c.installed_indexed().filter(|(_, o)| o.kind == al_ir::ObjKind::Report) {
+    c.each_listed(&mut out, |oi, h, out| {
+        if h.kind != al_ir::ObjKind::Report {
+            return;
+        }
         // The data items are in the report itself: only the reports are made.
         let o = &c.full[oi];
-        let Some(id) = o.id else { continue };
+        let Some(id) = o.id else { return };
         let Some(rep) = &o.report else {
             let mut k = blank(t);
             k[pos(t, 1)] = Value::Integer(id as i32);
@@ -752,7 +755,7 @@ pub(super) fn report_data_item_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 1,
                 format!("report '{}' was not compiled, so its data items are not known", o.name),
             ));
-            continue;
+            return;
         };
         for (n, item) in rep.items.iter().enumerate() {
             let Some(item_id) = data_item_id(&item.name) else {
@@ -804,7 +807,7 @@ pub(super) fn report_data_item_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 Err(why) => out.push(Entry::poisoned(key, why)),
             }
         }
-    }
+    });
     out
 }
 

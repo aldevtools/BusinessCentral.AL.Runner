@@ -338,12 +338,12 @@ fn caption_fields(o: &Object, table: Option<&al_ir::ObjectHead>) -> Result<Strin
 
 pub(super) fn page_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let mut out = Vec::new();
     let blank = Blank::new(t);
-    for (i, h) in c.installed_indexed() {
+    c.each_listed(&mut out, |i, h, out| {
         let (Some(id), al_ir::ObjKind::Page) = (h.id, h.kind) else {
-            continue;
+            return;
         };
         // A row reads the page's controls: only the pages are made.
         let o = &c.full[i];
@@ -354,7 +354,7 @@ pub(super) fn page_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             Ok((r, Some(a))) => out.push(Entry::ok(r).assuming(a)),
             Err(why) => out.push(Entry::poisoned(key, why)),
         }
-    }
+    });
     out
 }
 
@@ -544,12 +544,12 @@ fn bool_prop(o: &Object, ctl: &al_ir::Control, name: &str, default: &str) -> Res
 
 pub(super) fn page_control_field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let mut out = Vec::new();
     let blank = Blank::new(t);
-    for (i, h) in c.installed_indexed() {
+    c.each_listed(&mut out, |i, h, out| {
         let (Some(id), al_ir::ObjKind::Page) = (h.id, h.kind) else {
-            continue;
+            return;
         };
         // The controls are in the page itself: only the pages are made.
         let o = &c.full[i];
@@ -561,7 +561,7 @@ pub(super) fn page_control_field_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
                 1,
                 format!("page '{}' was not compiled, so its controls are not known", o.name),
             ));
-            continue;
+            return;
         };
         let src = source_table(&c, o);
         let mut sequence = 0;
@@ -589,7 +589,7 @@ pub(super) fn page_control_field_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
                 }
             }
         }
-    }
+    });
     out
 }
 

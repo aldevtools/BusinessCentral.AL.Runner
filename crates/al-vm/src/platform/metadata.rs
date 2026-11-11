@@ -39,7 +39,7 @@ const FORMATS: &[&str] = &["Xml", "VariableText", "FixedText"];
 /// Direction (6), Encoding (7), TextEncoding (8), Format (9), "App ID" (10).
 pub(super) fn xmlport_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     entries(
         &c,
         t,
@@ -95,7 +95,7 @@ pub(super) fn xmlport_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
 /// version is not pinned and is refused.
 pub(super) fn query_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     entries(
         &c,
         t,
@@ -143,10 +143,10 @@ pub(super) fn query_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
 /// answered, any other read is refused.
 pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let mut out = Vec::new();
-    for o in c.installed() {
-        let Some(id) = o.id else { continue };
+    c.each_listed(&mut out, |_, o, out| {
+        let Some(id) = o.id else { return };
         if o.is_shell_of(al_ir::ObjKind::Codeunit) {
             let mut k = blank(t);
             k[pos(t, 1)] = Value::Integer(id as i32);
@@ -158,10 +158,10 @@ pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
                     o.name
                 ),
             ));
-            continue;
+            return;
         }
         if !o.is_kind(al_ir::ObjKind::Codeunit) {
-            continue;
+            return;
         }
         // The head lists every routine with an event attribute, `EventSubscriber` among them, in routine order.
         for r in &o.events {
@@ -186,7 +186,7 @@ pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
                 }
             }
         }
-    }
+    });
     out
 }
 
@@ -413,11 +413,11 @@ fn is_trigger_event(event: &str) -> bool {
 /// parent 0 (docs/probes-needed.md).
 pub(super) fn page_action_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let mut out = Vec::new();
-    for (i, h) in c.installed_indexed() {
+    c.each_listed(&mut out, |i, h, out| {
         let (Some(id), al_ir::ObjKind::Page) = (h.id, h.kind) else {
-            continue;
+            return;
         };
         // The actions are in the page itself: only the pages are made.
         let o = &c.full[i];
@@ -429,13 +429,13 @@ pub(super) fn page_action_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 1,
                 format!("page '{}' was not compiled, so its actions are not known", o.name),
             ));
-            continue;
+            return;
         };
         match page_actions(&c, o, page, t, &key) {
             Ok(rows) => out.extend(rows),
             Err(why) => out.push(Entry::poisoned_prefix(key, 1, why)),
         }
-    }
+    });
     out
 }
 
@@ -539,11 +539,11 @@ fn page_actions(
 /// and a row with no condition reports "Condition Field No." 0 (not pinned: docs/probes-needed.md).
 pub(super) fn table_relations_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
-    let c = Catalog::new(&engine);
+    let c = Catalog::listing(p, &engine);
     let mut out = Vec::new();
-    for o in c.installed() {
+    c.each_listed(&mut out, |_, o, out| {
         let (Some(id), al_ir::ObjKind::Table) = (o.id, o.kind) else {
-            continue;
+            return;
         };
         let mut key = blank(t);
         key[pos(t, 1)] = Value::Integer(id as i32);
@@ -556,7 +556,7 @@ pub(super) fn table_relations_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                     o.name
                 ),
             ));
-            continue;
+            return;
         };
         for f in &table.fields {
             // SystemCreatedBy and SystemModifiedBy relate to the User table (field 1), tested and not
@@ -588,7 +588,7 @@ pub(super) fn table_relations_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 Err(why) => out.push(Entry::poisoned_prefix(fkey, 2, why)),
             }
         }
-    }
+    });
     out
 }
 
