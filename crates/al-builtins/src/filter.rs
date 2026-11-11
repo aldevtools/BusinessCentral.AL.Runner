@@ -1498,6 +1498,14 @@ impl Parser<'_> {
                 }
                 let v = match self.value() {
                     Some(v) => self.typed(v)?,
+                    // `<>` as the whole filter on a Code or Text field raises the filter error (recordref-fieldref/fieldref/
+                    // FieldRefFilterMatrix.al:1140 `bare.Code`, :1310 `bare.Text`).
+                    None if op == "<>"
+                        && self.toks.len() == 1
+                        && matches!(self.ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) =>
+                    {
+                        return Err(format!("{FILTER_SYNTAX}A value is expected after the '<>'."));
+                    }
                     None if matches!(self.ty, crate::value::RtType::Text(_) | crate::value::RtType::Code(_)) => {
                         Value::Text(String::new().into())
                     }
