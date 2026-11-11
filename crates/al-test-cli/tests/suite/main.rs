@@ -238,4 +238,5 @@ mod issue_6922_record_substitution_arg;
 mod issue_6924_record_copy_blob;
 mod no_source_page_neighbors;
 mod pageext_temp_worksheet_set_before_open;
+mod pages_p4_allowlists;
 mod read_only_temp_list_gone_row;

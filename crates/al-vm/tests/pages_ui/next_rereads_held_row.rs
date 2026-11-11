@@ -176,6 +176,17 @@ codeunit 50174 "R918 NB Tests"
         exit(Report());
     end;
 
+    procedure TermAfterOpenEditNextWithoutFirst(): Text
+    var Sheet: TestPage "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.Next();
+        Log.Clear();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
     procedure TermAfterNextNextPrevious(): Text
     var Sheet: TestPage "R918 NB Worksheet";
     begin
@@ -310,13 +321,15 @@ codeunit 50174 "R918 NB Tests"
 /// a Previous, a GoToKey or a First after the Next (the read ran on a row no Next had reached); a Next that did not move (one
 /// row, or after Last); the row modified or deleted through another record variable after the Next; a control read between the Next
 /// and the SetValue; a Next that saved the row it left; a page a Page variable ran
-/// and the test trapped, with and without a procedure call through that variable after the Next.
+/// and the test trapped, with and without a procedure call through that variable after the Next; OpenEdit then Next with no
+/// First before it (al-runner issue 7799).
 #[test]
 fn set_value_neighbors_of_the_held_row_read_keep_the_earlier_behavior() {
     use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
     let mut wrong = Vec::new();
     for (routine, want) in [
         ("NameThenTermAfterNext", "V:2/5 R:2 | DB 1=a 2=X 3=c "),
+        ("TermAfterOpenEditNextWithoutFirst", "V:2/5 R:2 | DB 1=a 2=b 3=c "),
         ("TermAfterNextNextPrevious", "V:2/5 R:2 | DB 1=a 2=b 3=c "),
         ("TermAfterNextGoToKey", "V:3/5 R:3 | DB 1=a 2=b 3=c "),
         ("TermAfterNextFirst", "V:1/5 R:1 | DB 1=a 2=b 3=c "),

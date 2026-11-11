@@ -73,6 +73,20 @@ impl Session {
         });
     }
 
+    /// Whether `st` is the only page of its page object that has an instance and still lives (open, or held by a variable). `run_by_currpage` tells
+    /// `CurrPage.Run()` from a Page variable's `Run()` by the object of the calling code alone; with a second page of the same
+    /// object alive, the caller can be that other page running a variable of its own type.
+    pub(crate) fn only_live_page_of_its_object(&self, st: &St) -> bool {
+        let object = st.borrow().object;
+        self.events
+            .pages_with_instance
+            .iter()
+            .filter_map(Weak::upgrade)
+            // As `drop_finished_pages` counts: a closed page no variable holds any more is gone.
+            .filter(|p| p.try_borrow().map_or(true, |b| b.open) || page_outside_refs(p) > 1)
+            .all(|p| Rc::ptr_eq(&p, st) || p.try_borrow().is_ok_and(|b| b.object != object))
+    }
+
     /// A Page variable's `Run` or `RunModal` (`modal`) shows `st`, with the record `SetRecord` gave it.
     pub(crate) fn run_page_var(&mut self, st: &St, modal: bool) -> Result<Value, Signal> {
         let record = st.borrow().set_record.clone();
@@ -80,6 +94,7 @@ impl Session {
         // `CurrPage.Run()` runs from the page's own code; a Page variable's `Run()` from other code.
         let object = st.borrow().object as usize;
         let variable_run = !modal && self.frames.last() != Some(&object);
+        st.borrow_mut().run_by_currpage = !modal && !variable_run;
         let r = self.run_page_ui(st, record, modal)?;
         if variable_run {
             self.empty_temp_rec_after_variable_run(st)?;

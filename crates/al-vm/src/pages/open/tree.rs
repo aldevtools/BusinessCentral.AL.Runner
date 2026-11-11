@@ -90,7 +90,7 @@ impl Session {
     }
 
     /// Every row of the tree's view with its level, in the page's order, the tree's own cut left out.
-    pub(super) fn tree_rows(&mut self, rec: &Rec, level: usize) -> Result<Vec<(Vec<Value>, i32)>, Signal> {
+    pub(in crate::pages) fn tree_rows(&mut self, rec: &Rec, level: usize) -> Result<Vec<(Vec<Value>, i32)>, Signal> {
         let all = Rc::new(RefCell::new(rec.borrow().clone()));
         all.borrow_mut().filters.retain(|f| f.group != TREE_GROUP);
         let mut rows: Vec<(Vec<Value>, i32)> = Vec::new();
