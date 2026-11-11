@@ -256,7 +256,7 @@ first. The Pdf of a processing-only report goes on to its pinned answer (false, 
 About 215 Microsoft test methods (BC 29) reach a PDF save, most through `Library - Post Inventory to G/L`.PostInvtCostToGL
 or through request page handlers. None reads the PDF bytes; 2 need a non-empty file and 2 need the file to exist.
 
-## Amendment 2026-11-11: placeholder Word, Excel and Html outputs, and a run without output (Proposed)
+## Amendment 2026-11-11: placeholder Word, Excel and Html outputs, and a run without output (Accepted, owner 2026-11-11)
 
 ### Decision
 
