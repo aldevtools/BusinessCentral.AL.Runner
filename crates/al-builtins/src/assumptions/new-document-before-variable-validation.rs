@@ -1,7 +1,7 @@
 NewDocumentBeforeVariableValidation => {
     id: "new-document-before-variable-validation",
     assumed: "On an insert-allowed Document opened with OpenNew, a clean draft with DelayedInsert disabled is inserted before a variable-backed control validates.",
-    tests: "External repro in al-runner issue 7770, measured on real BC 27.5, 28.5 and 29.0.",
+    tests: "External repro in al-runner issue 7770, measured on every supported BC major.",
     probe: "The same tests in the pinned corpus.",
     awaiting: Awaiting {
         issues: &[7770],
