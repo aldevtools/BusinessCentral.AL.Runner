@@ -63,6 +63,16 @@ fn precision(e: &str) -> Option<String> {
     (a.trim().parse::<u32>().is_ok() && b.trim().parse::<u32>().is_ok()).then(|| places.to_string())
 }
 
+/// The `DecimalPlaces` of field `pos` of table object `table` (`ReportColumn::places_table`, `places_field`).
+pub(crate) fn field_places(program: &al_ir::Program, (table, pos): (usize, usize)) -> Option<String> {
+    let field = program.objects.get(table)?.table.as_ref()?.fields.get(pos)?;
+    field
+        .properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("DecimalPlaces"))
+        .map(|(_, v)| v.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,14 +104,4 @@ mod tests {
         assert_eq!(f(None, Some("1"), Some("'GBP'")), "#,##0.00");
         assert_eq!(f(None, Some("10"), Some("'x'")), "#,##0.00");
     }
-}
-
-/// The `DecimalPlaces` of field `pos` of table object `table` (`ReportColumn::places_table`, `places_field`).
-pub(crate) fn field_places(program: &al_ir::Program, (table, pos): (usize, usize)) -> Option<String> {
-    let field = program.objects.get(table)?.table.as_ref()?.fields.get(pos)?;
-    field
-        .properties
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case("DecimalPlaces"))
-        .map(|(_, v)| v.clone())
 }
