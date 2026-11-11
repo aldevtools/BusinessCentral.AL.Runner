@@ -4,8 +4,9 @@
 //!   Code field (record/filters/PlaceholderWildcardValue.al:225-293); elsewhere it stays a wildcard, and on an Integer field the
 //!   value raises the evaluate error as before.
 //! - GetFilter of a wildcard text written as a literal (`=A*B`, `>A*B`, `A*B..AXB`, `..A*`) is not pinned and stays refused;
-//!   the placeholder and SetRange forms read back quoted (PlaceholderWildcardValue.al:249-262, :413). So is `<>'A *'`, a
-//!   quoted pattern with a space (only `<>'A*B'` and such without one are pinned, :363-377).
+//!   the placeholder and SetRange forms read back quoted (PlaceholderWildcardValue.al:249-262, :413).
+//! - `<>'A *'`, a quoted pattern with blank space, is refused as a filter (only `<>'A*B'` and such without one are pinned,
+//!   :363-377).
 //! - Record.SetFilter with a text placeholder argument on a MediaSet field is not pinned (only the written Guid text and the
 //!   FieldRef argument error are, recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:227-296).
 //! - `<>` with blank space around it is not pinned; `<>` alone raises the filter error (FieldRefFilterMatrix.al:1140, :1310).
@@ -153,7 +154,7 @@ fn a_question_mark_placeholder_on_an_integer_raises_the_evaluate_error() {
 
 #[test]
 fn the_read_back_of_a_written_literal_wildcard_text_is_refused() {
-    for which in ["w eq", "w gt", "w range", "w upto", "ne quoted space"] {
+    for which in ["w eq", "w gt", "w range", "w upto"] {
         refused("ReadBack", which);
     }
     // Its rows are read as before.
@@ -162,8 +163,10 @@ fn the_read_back_of_a_written_literal_wildcard_text_is_refused() {
     // The pinned forms (PlaceholderWildcardValue.al:249-262, :413).
     assert_eq!(call("ReadBack", "ph eq"), "Name: ='A*B'");
     assert_eq!(call("ReadBack", "setrange"), "Name: ='A*B'");
-    // `<>'A*B'` written reads back as the pattern (PlaceholderWildcardValue.al:363-377); with a space it is not pinned.
+    // `<>'A*B'` written reads back as the pattern (PlaceholderWildcardValue.al:363-377); with a space nothing pins it, and the
+    // filter itself is refused, as before.
     assert_eq!(call("ReadBack", "ne quoted"), "Name: <>A*B");
+    refused("Rows", "ne quoted space");
 }
 
 #[test]

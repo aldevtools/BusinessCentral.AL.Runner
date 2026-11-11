@@ -42,9 +42,8 @@ pub enum FilterExpr {
     /// refuses a read that selects rows through it ([`FilterExpr::unpinned_match`]).
     UnpinnedMatch(Box<FilterExpr>, String),
     /// A filter that selects rows as `inner` does, but whose text (GetFilter, GetFilters, a view) is not pinned: a wildcard text
-    /// written as a literal value (`=A*B`, `>A*B`, `A*B..AXB`, `..A*`), and a quoted pattern with blank space after `<>`
-    /// (`<>'A *'`). Only the placeholder and SetRange forms of such a value, and `<>'A*B'`, read back pinned
-    /// (record/filters/PlaceholderWildcardValue.al:249-262, :300-325, :363-377, :413).
+    /// written as a literal value (`=A*B`, `>A*B`, `A*B..AXB`, `..A*`). Only the placeholder and SetRange forms of such a value
+    /// read back pinned (record/filters/PlaceholderWildcardValue.al:249-262, :300-325, :413).
     UnpinnedText(Box<FilterExpr>),
 }
 
@@ -1427,6 +1426,7 @@ impl Parser<'_> {
         }
         let ci = self.peek_op() == Some("@");
         let at = self.i + usize::from(ci);
+        let quoted = matches!(self.toks.get(at), Some(Tok::Quoted(_)));
         let wild = |s: &str| s.contains(['*', '?']);
         match self.toks.get(at) {
             Some(Tok::Raw(s)) if wild(s) => {
@@ -1457,12 +1457,10 @@ impl Parser<'_> {
             }
             _ if ci => Err("`<>@` before a value without a wildcard (not pinned)".into()),
             // A substituted text with a filter operator arrives quoted (`tokenize`), so a plain `Arg` holds none.
-            Some(t @ (Tok::Arg(s) | Tok::Quoted(s))) if wild(s) && plain_pattern(s) => {
-                // A written quoted pattern with blank space in it (`<>'A *'`) is not pinned as text: GetFilter refuses it
-                // (`FilterExpr::UnpinnedText`), as it refused the filter before.
-                if matches!(t, Tok::Quoted(_)) && s.contains(char::is_whitespace) {
-                    self.written_wildcard = true;
-                }
+            // A quoted pattern with blank space in it (`<>'A *'`) is pinned by no case: refused below, as before.
+            Some(Tok::Arg(s) | Tok::Quoted(s))
+                if wild(s) && plain_pattern(s) && !(quoted && s.contains(char::is_whitespace)) =>
+            {
                 let p = if matches!(self.ty, T::Code(_)) {
                     filter_upper(s)?
                 } else {
