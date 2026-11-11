@@ -684,16 +684,28 @@ pub struct ReportColumn {
     pub auto_format_type: Option<String>,
     #[serde(default)]
     pub auto_format_expression: Option<String>,
-    /// The source is a name: a variable, a field, or `Record.Field` (no operator, call or literal). A Decimal value of such a
-    /// column is written without trailing zeros; an expression column keeps the scale of its arithmetic (al-vm `reports.rs`).
+    /// The syntax of the source expression; with the lowered routine it decides whether a Decimal is written without trailing
+    /// zeros (al-vm `decimal_column.rs`).
     #[serde(default)]
-    pub name_source: bool,
+    pub source_syntax: SourceSyntax,
     /// The table (object index) and field position whose `DecimalPlaces` decide the `decimalformatter` when the column states
     /// none: the field the source names (bare, `Item.Field` of the own item, or `Global.Field` of a global Record variable).
     #[serde(default)]
     pub places_table: Option<usize>,
     #[serde(default)]
     pub places_field: Option<usize>,
+}
+
+/// The syntax tree of a report column's source expression, as written: parentheses, operators, indexes and calls with an
+/// argument list are `Other`. A name may still lower to a call (a procedure without parentheses); the lowered routine tells.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SourceSyntax {
+    #[default]
+    Other,
+    /// One name: `D05`, `"Quantity Invoiced"`, `VarRounded`.
+    Name,
+    /// Two names joined by one dot: `Row.D05`, `RecLiteral.D05`.
+    Member,
 }
 
 /// What a reportextension adds to a run of the report it extends.

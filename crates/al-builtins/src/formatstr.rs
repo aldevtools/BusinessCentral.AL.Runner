@@ -1164,7 +1164,12 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
     if let Some((base, width)) = code.split_once(',') {
         if matches!(base, "Month Text" | "Weekday Text") {
             if let (Ok(w), Some(_)) = (width.trim().parse::<usize>(), date) {
-                let name = code_name(base, date, day_no, ctx.language())?;
+                // The Dutch names cut or padded to a width are not pinned (only `<Month Text> <Weekday Text>`,
+                // reports/runtime/ReportLanguageNotRunFormats.al:242).
+                if ctx.language() == 2067 {
+                    return Err(format!("{base},{w} in the language 2067 (not pinned)"));
+                }
+                let name = code_name(base, date, day_no, ctx.language(), ctx.dutch_report_language())?;
                 if w == 0 {
                     return Ok(name);
                 }
@@ -1213,10 +1218,18 @@ fn code(v: &Value, code: &str, numeric: Option<&Numeric>, ctx: &dyn FormatCtx) -
         ("Year", Some((y, _, _)), _) => year_natural(y),
         ("Month", Some((_, m, _)), _) => format!("{m}"),
         ("Month,2", Some((_, m, _)), _) => format!("{m:02}"),
-        ("Month Text", Some(_), _) => code_name("Month Text", date, day_no, ctx.language())?,
+        ("Month Text", Some(_), _) => {
+            code_name("Month Text", date, day_no, ctx.language(), ctx.dutch_report_language())?
+        }
         ("Day", Some((_, _, d)), _) => format!("{d}"),
         ("Day,2", Some((_, _, d)), _) => format!("{d:02}"),
-        ("Weekday Text", Some(_), _) => code_name("Weekday Text", date, day_no, ctx.language())?,
+        ("Weekday Text", Some(_), _) => code_name(
+            "Weekday Text",
+            date,
+            day_no,
+            ctx.language(),
+            ctx.dutch_report_language(),
+        )?,
         // A Time with an hour of 1 to 9 is padded with a space: 09:00 is ` 9` (errors/PnBDateFormat.al:
         // PictureCodes_Numbers `hours24`). A DateTime keeps the zero (types/date-time RoundTrip_AndFormatCodes,
         // codeunit 70120: `02:30:00`); midnight of a Time is not pinned and stays `00`.
@@ -1462,10 +1475,17 @@ fn iso_week(day: i32) -> i32 {
 }
 
 /// The name `<Month Text>` or `<Weekday Text>` shows.
-fn code_name(base: &str, date: Option<(i32, u32, u32)>, day_no: Option<i32>, language: i32) -> Result<String, String> {
+/// `dutch`: the language 2067 was set by `CurrReport.Language` in a running report (`FormatCtx::dutch_report_language`).
+fn code_name(
+    base: &str,
+    date: Option<(i32, u32, u32)>,
+    day_no: Option<i32>,
+    language: i32,
+    dutch: bool,
+) -> Result<String, String> {
     // The month names follow `GlobalLanguage`: German is pinned (metadata/platform-tables/PlTSession.al:
-    // GlobalLanguage_SetAndRestore, `März`); another language than English and German is not.
-    if !matches!(language, 1033 | 1031 | 2067) {
+    // GlobalLanguage_SetAndRestore, `März`); Dutch only as a report's language (below); another language is not.
+    if !(matches!(language, 1033 | 1031) || language == 2067 && dutch) {
         return Err(format!("{base} in the language {language} (not pinned)"));
     }
     let weekday = (day_no.unwrap_or(1) - 1).rem_euclid(7);
@@ -2135,14 +2155,33 @@ mod tests {
         let mon = day_from_civil(2027, 3, 15);
         let tue = mon + 1;
         assert_eq!(
-            code_name("Weekday Text", Some((2027, 3, 15)), Some(mon), 1031).unwrap(),
+            code_name("Weekday Text", Some((2027, 3, 15)), Some(mon), 1031, false).unwrap(),
             "Montag"
         );
         assert_eq!(
-            code_name("Weekday Text", Some((2027, 3, 18)), Some(mon + 3), 1031).unwrap(),
+            code_name("Weekday Text", Some((2027, 3, 18)), Some(mon + 3), 1031, false).unwrap(),
             "Donnerstag"
         );
-        assert!(code_name("Weekday Text", Some((2027, 3, 16)), Some(tue), 1031).is_err());
+        assert!(code_name("Weekday Text", Some((2027, 3, 16)), Some(tue), 1031, false).is_err());
+    }
+    // reports/runtime/ReportLanguageNotRunFormats.al:242: Dutch December and Wednesday as a report's language; the other months
+    // and days, and 2067 that is not a report's language, are refused.
+    #[test]
+    fn dutch_names_that_are_pinned() {
+        use super::code_name;
+        let wed = day_from_civil(2024, 12, 25);
+        let dec = Some((2024, 12, 25));
+        assert_eq!(code_name("Month Text", dec, Some(wed), 2067, true).unwrap(), "december");
+        assert_eq!(
+            code_name("Weekday Text", dec, Some(wed), 2067, true).unwrap(),
+            "woensdag"
+        );
+        let tue = day_from_civil(2024, 12, 24);
+        assert!(code_name("Weekday Text", Some((2024, 12, 24)), Some(tue), 2067, true).is_err());
+        let mar = day_from_civil(2024, 3, 13);
+        assert!(code_name("Month Text", Some((2024, 3, 13)), Some(mar), 2067, true).is_err());
+        assert!(code_name("Month Text", dec, Some(wed), 2067, false).is_err());
+        assert!(code_name("Weekday Text", dec, Some(wed), 2067, false).is_err());
     }
     #[test]
     fn decimals_of_width_one_on_a_value_with_decimals_is_a_star() {

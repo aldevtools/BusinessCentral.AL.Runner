@@ -19,6 +19,12 @@ pub trait FormatCtx {
     fn language(&self) -> i32 {
         1033
     }
+    /// Whether the language in force is a `CurrReport.Language := 2067` set in a running report (SaveAs, Execute, Run), the one
+    /// place the Dutch month and weekday names are pinned (reports/runtime/ReportLanguageNotRunFormats.al:242, :370).
+    /// `GlobalLanguage(2067)` is not.
+    fn dutch_report_language(&self) -> bool {
+        false
+    }
     /// The format region a report set with `CurrReport.FormatRegion` while it runs (None: the session's own).
     fn region(&self) -> Option<String> {
         None
@@ -82,6 +88,9 @@ impl FormatCtx for WithoutRegion<'_> {
     }
     fn language(&self) -> i32 {
         self.0.language()
+    }
+    fn dutch_report_language(&self) -> bool {
+        self.0.dutch_report_language()
     }
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         self.0.record_id_table(table)

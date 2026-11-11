@@ -871,32 +871,6 @@ impl Dataset {
     }
 }
 
-/// The text of a Decimal column. An expression column writes the decimal as it is, scale and all: `12.345678 * 1.5` is
-/// `18.5185170` (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309); Format would trim the zero. A column whose
-/// source is a name (field, variable, `Rec.Field`) writes it without trailing zeros, whatever the value's origin and the
-/// DecimalPlaces (reports/dataset/DatasetDecimalPlacesValueOrigins.al:241-247 stored fields, :365 fields of a global record
-/// never stored, :398 global variables: `Round(1, 0.00001)`, `0.5 * 2` and `Evaluate(.., '1.00000')` are all `1`; al-runner
-/// issue 7440).
-pub(crate) fn decimal_text(d: rust_decimal::Decimal, name_source: bool) -> String {
-    if name_source {
-        d.normalize().to_string()
-    } else {
-        d.to_string()
-    }
-}
-
-/// The fields of a data item's row as it is read: a Decimal read from the database carries no trailing zeros. An expression
-/// column over a stored field that held `Round(1, 0.00001)` writes `1` (reports/dataset/DatasetDecimalPlacesValueOrigins.al:
-/// 241-247, column D05Times1), while the scale of the arithmetic on it stays (`12.345678 * 1.5` is `18.5185170`,
-/// reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309).
-pub(crate) fn normalize_read_decimals(fields: &mut [al_builtins::value::Value]) {
-    for f in fields {
-        if let al_builtins::value::Value::Decimal(d) = f {
-            *d = d.normalize();
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

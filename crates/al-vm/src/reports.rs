@@ -2254,7 +2254,7 @@ impl Session {
         let mut iterations = 0u32;
         'rows: while more {
             iterations += 1;
-            dataset::normalize_read_decimals(&mut rec.borrow_mut().fields);
+            crate::decimal_column::normalize_read_row(&mut rec.borrow_mut());
             // The CalcFields property: the listed FlowFields of the row, before its triggers. Pinned for one field of a
             // top-level item (reports/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField) and for two
             // fields of a nested item a report extension adds (reports/AqTests.al:184 CalcFields_ExtensionDataItem_Values);
@@ -4156,7 +4156,7 @@ impl Session {
                 let Value::Decimal(d) = &value else {
                     unreachable!("matched a Decimal")
                 };
-                dataset::decimal_text(*d, c.name_source)
+                crate::decimal_column::text(&self.engine.program, object, c, *d)
             }
             // The column's OptionCaptionML: the caption of the session language, ENU where it has none
             // (record/table-properties/XTablePropsTests.al:741-785, `EnuOnly` shows `Only B` in 1031).

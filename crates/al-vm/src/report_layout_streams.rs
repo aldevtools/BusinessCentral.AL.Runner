@@ -112,8 +112,15 @@ impl Session {
         let Some(file) = file else {
             // As a statement the call fills the stream without an error on BC (reports/layouts-saveas/
             // UserDefinedLayoutAppIdAndNames.al:146-157, UserDefinedWordExcelLayoutRows.al:60, :94): the compiler generated the
-            // file, whose bytes the stream carries unread.
-            if !self.ret_used {
+            // file, whose bytes the stream carries unread. Only an app built from source: an app read from a package holds its
+            // layout files there (`App::layout_source`), and a file the runner does not hold there was not generated.
+            let from_source = self
+                .engine
+                .program
+                .apps
+                .get(app)
+                .is_some_and(|a| a.layout_source.is_none());
+            if !self.ret_used && from_source {
                 let mark = al_builtins::stream::layout_file_generated_mark(kind);
                 return if al_builtins::stream::create_in_pending(stream, &mark) {
                     Ok(Value::Boolean(true))

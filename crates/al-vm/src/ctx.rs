@@ -20,6 +20,15 @@ impl al_builtins::format::FormatCtx for Session {
     fn region(&self) -> Option<String> {
         self.report.format_region.clone()
     }
+    /// `CurrReport.Language := 2067` in a report started by SaveAs or Execute (reports/runtime/ReportLanguageNotRunFormats.al:
+    /// 228-355) or by Run and RunModal (:358-372).
+    fn dutch_report_language(&self) -> bool {
+        self.report.curr_report_language == Some(2067)
+            && matches!(
+                self.report.report_preview_pinned.last(),
+                Some(ReportStart::Execute | ReportStart::SaveAs | ReportStart::Run)
+            )
+    }
     fn key_ref_fields(
         &self,
         rec: &std::rc::Rc<std::cell::RefCell<al_builtins::value::RecordState>>,

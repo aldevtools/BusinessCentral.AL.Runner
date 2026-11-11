@@ -1144,7 +1144,7 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         option_caption_ml: _,
         auto_format_type: _,
         auto_format_expression: _,
-        name_source: _,
+        source_syntax: _,
         places_table,
         places_field,
     } = c;

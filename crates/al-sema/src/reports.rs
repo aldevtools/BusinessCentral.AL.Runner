@@ -902,6 +902,8 @@ struct Owner<'a> {
     column_starts: Vec<usize>,
     /// (ordinal, routine index) of the synthetic routine of each column that has one.
     column_routines: HashMap<usize, usize>,
+    /// The syntax of each column's source expression, by column ordinal.
+    column_syntax: HashMap<usize, ir::SourceSyntax>,
     /// The table of each global `Record` variable the object declares, by lower-case name.
     record_globals: HashMap<String, usize>,
 }
@@ -925,11 +927,13 @@ impl<'a> Owner<'a> {
             .map(|(i, _)| (crate::pages::column_name(i), i))
             .collect();
         let mut column_routines = HashMap::default();
+        let mut column_syntax = HashMap::default();
         for r in ast::routines_in(obj.syntax()) {
             if let Some(&ordinal) = names.get(&r.name()) {
                 if let Some(idx) = routine_at.get(&(oi, usize::from(r.syntax().text_range().start()))) {
                     column_routines.insert(ordinal, idx);
                 }
+                column_syntax.insert(ordinal, source_syntax(&r));
             }
         }
         let mut record_globals = HashMap::default();
@@ -951,6 +955,7 @@ impl<'a> Owner<'a> {
             routine_at,
             column_starts,
             column_routines,
+            column_syntax,
             record_globals,
         }
     }
@@ -1067,7 +1072,9 @@ impl<'a> Owner<'a> {
                     option_caption_ml,
                     auto_format_type,
                     auto_format_expression,
-                    name_source: args.get(1).is_some_and(|s| is_name_source(s)),
+                    source_syntax: ordinal
+                        .and_then(|o| self.column_syntax.get(&o).copied())
+                        .unwrap_or_default(),
                     places_table: places.map(|p| p.0),
                     places_field: places.map(|p| p.1),
                 }
@@ -1076,21 +1083,29 @@ impl<'a> Owner<'a> {
     }
 }
 
-/// A column source that is a name: one identifier, or two joined by one dot (`Var`, `"Quantity Invoiced"`, `Rec.D05`). Each part
-/// is a plain identifier or a double-quoted name without a quote inside.
-fn is_name_source(source: &str) -> bool {
-    let part = |p: &str| {
-        let p = p.trim();
-        match p.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
-            Some(inner) => !inner.is_empty() && !inner.contains('"'),
-            None => {
-                p.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
-                    && p.chars().all(|c| c.is_alphanumeric() || c == '_')
+/// The syntax of the source expression of a column routine (`exit(<source>)`, `pages.rs`): one name, two names joined by a dot,
+/// or anything else (parentheses, an operator, an index, a call with an argument list, a literal).
+fn source_syntax(r: &ast::Routine) -> ir::SourceSyntax {
+    let source = r
+        .body()
+        .and_then(|b| b.children().find(|n| n.kind() == SyntaxKind::ExitStmt))
+        .and_then(|e| e.children().next());
+    let Some(source) = source else {
+        return ir::SourceSyntax::Other;
+    };
+    let is_name = |n: &al_syntax::SyntaxNode| n.kind() == SyntaxKind::NameRef;
+    match source.kind() {
+        SyntaxKind::NameRef => ir::SourceSyntax::Name,
+        SyntaxKind::MemberExpr => {
+            let parts: Vec<_> = source.children().collect();
+            if parts.len() == 2 && parts.iter().all(is_name) {
+                ir::SourceSyntax::Member
+            } else {
+                ir::SourceSyntax::Other
             }
         }
-    };
-    let parts = split_outside_quotes(source.trim());
-    (1..=2).contains(&parts.len()) && parts.iter().all(|p| part(p))
+        _ => ir::SourceSyntax::Other,
+    }
 }
 
 /// `s` split at each dot outside double quotes.
@@ -1765,5 +1780,50 @@ mod tests {
         assert!(all.contains("property caption of modify(A)"), "{all}");
         assert!(all.contains("trigger onfoo"), "{all}");
         assert!(all.contains("trigger oninitreport"), "{all}");
+    }
+
+    fn syntax_of(source: &str) -> ir::SourceSyntax {
+        let src = format!("codeunit 50100 C {{ procedure __column_0(): Variant begin exit({source}); end; }}");
+        let parse = al_syntax::parse(&src, &Default::default());
+        let root = ast::SourceFile::cast(parse.syntax()).unwrap();
+        let obj = root.objects().next().unwrap();
+        let r = ast::routines_in(obj.syntax()).into_iter().next().unwrap();
+        source_syntax(&r)
+    }
+
+    /// The syntax of a column source (reports/dataset/DatasetDecimalPlacesValueOrigins.al:47 `D05`, :52 `Row.D05`, :71
+    /// `RecLiteral.D05`, :79 `VarLiteral`; :53 `D05 * 1` is an expression). A name may still lower to a call; al-vm
+    /// `decimal_column.rs` reads the routine for that.
+    #[test]
+    fn a_column_source_is_a_name_two_names_or_other() {
+        use ir::SourceSyntax::{Member, Name, Other};
+        for (source, want) in [
+            ("D05", Name),
+            ("\"Quantity Invoiced\"", Name),
+            ("GetV", Name),
+            ("Row.D05", Member),
+            ("\"My Rec\".\"Unit Price\"", Member),
+            ("Helper.GetV", Member),
+            ("D05 * 1", Other),
+            ("(V)", Other),
+            ("-V", Other),
+            ("Arr[1]", Other),
+            ("GetV()", Other),
+            ("Helper.GetV()", Other),
+            ("A.B.C", Other),
+            ("1.5", Other),
+            ("'text'", Other),
+        ] {
+            assert_eq!(syntax_of(source), want, "{source}");
+        }
+    }
+
+    /// `Global.Field` split at the dot, a dot inside a quoted name kept.
+    #[test]
+    fn a_source_splits_at_dots_outside_quotes() {
+        assert_eq!(split_outside_quotes("Rec.D05"), ["Rec", "D05"]);
+        assert_eq!(split_outside_quotes("\"A.B\".\"C.D\""), ["\"A.B\"", "\"C.D\""]);
+        assert_eq!(split_outside_quotes("D05"), ["D05"]);
+        assert_eq!(split_outside_quotes("A.B.C"), ["A", "B", "C"]);
     }
 }
