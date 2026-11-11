@@ -1,15 +1,8 @@
-//! The import of a root table element that holds a nested table element of headers (al-runner issue 6924, the reporter's repro;
-//! measured in corpus PR 1308, xmlports/shapes-properties/XpRootTableNested.al, BC 27.5, 28.5 and 29.0, not yet in the pinned
-//! oracle: assumption `xmlport-root-table-nested`). The rows are read by `xp_import_record` as any table element's; this module
-//! only says which ports take that path and what a failed import may leave behind.
+//! The import of a root table element that holds a nested table element of headers (al-runner issue 6924; pinned by
+//! xmlports/shapes-properties/XpRootTableNested.al, 11 tests :475-701). The rows are read by `xp_import_record` as any table
+//! element's; this module only says which ports take that path and what a failed import may leave behind.
 
 use super::*;
-use al_builtins::assumptions::{self, Assumption};
-
-/// Marks the assumption this module's shape runs under (a flagged pass).
-pub(super) fn mark_root_table_nested() {
-    assumptions::assume(Assumption::XmlportRootTableNested);
-}
 
 /// Whether the port's only top-level element is a `root_holding_table`.
 pub(super) fn port_with_root_holding_table(schema: &Schema) -> bool {
@@ -124,7 +117,6 @@ impl Session {
         top: usize,
         root: &Elem,
     ) -> Result<(), Signal> {
-        mark_root_table_nested();
         let result = self.xp_import_record(inst, schema, top, root, true, false);
         if let Err(Signal::Error(_)) = &result {
             for node in schema.xp().nodes.iter().filter(|n| n.kind == ir::XmlNodeKind::Table) {

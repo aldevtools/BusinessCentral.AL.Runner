@@ -722,7 +722,6 @@ impl Session {
                 // without a read (the static form with a pending write, `xp_import`) is not pinned.
                 let read_failed = inst.borrow().xp_text.iter().any(|(k, _)| *k == XP_IMPORT_FAILED);
                 if dir == Dir::Import && read_failed && port_with_root_holding_table(&schema) {
-                    mark_root_table_nested();
                     return Ok(result);
                 }
                 return unsupported("OnPostXmlPort after a guarded run that returned false (not pinned)");
