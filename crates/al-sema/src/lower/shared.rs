@@ -248,6 +248,29 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
     }
 }
 
+/// Records what a global's type says about its text: label text and XLIFF id, textconst, languages, `Locked`, `MaxLength`.
+fn note_global_label_facts(lw: &mut Lowerer<'_>, v: &ast::VarDecl, n: &str, label: Option<&String>) {
+    let key = n.to_lowercase();
+    if let Some(l) = label {
+        lw.global_labels.insert(key.clone(), l.clone());
+        if let Some(id) = lw.label_xliff_id(None, n) {
+            lw.global_label_xliff.insert(key.clone(), id);
+        }
+    }
+    if is_textconst(v.type_ref().as_ref()) {
+        lw.global_textconsts.insert(key.clone());
+    }
+    if let Some(texts) = v.type_ref().as_ref().and_then(textconst_languages) {
+        lw.global_textconst_languages.insert(key.clone(), texts);
+    }
+    if v.type_ref().as_ref().is_some_and(label_locked) {
+        lw.global_locked_labels.insert(key.clone());
+    }
+    if v.type_ref().as_ref().is_some_and(label_maxlength) {
+        lw.global_maxlength_labels.insert(key);
+    }
+}
+
 /// Lowers object `oi`. `positions` and `line_cache` are the source positions and file line tables
 /// of the objects lowered so far on this thread.
 pub(crate) fn lower_object<'a>(
@@ -472,24 +495,7 @@ pub(crate) fn lower_object<'a>(
             if let Some(Err(e)) = &declared {
                 global_reasons.push(format!("global `{n}`: {e}"));
             }
-            if let Some(l) = &label {
-                lw.global_labels.insert(n.to_lowercase(), l.clone());
-                if let Some(id) = lw.label_xliff_id(None, &n) {
-                    lw.global_label_xliff.insert(n.to_lowercase(), id);
-                }
-            }
-            if is_textconst(v.type_ref().as_ref()) {
-                lw.global_textconsts.insert(n.to_lowercase());
-            }
-            if let Some(texts) = v.type_ref().as_ref().and_then(textconst_languages) {
-                lw.global_textconst_languages.insert(n.to_lowercase(), texts);
-            }
-            if v.type_ref().as_ref().is_some_and(label_locked) {
-                lw.global_locked_labels.insert(n.to_lowercase());
-            }
-            if v.type_ref().as_ref().is_some_and(label_maxlength) {
-                lw.global_maxlength_labels.insert(n.to_lowercase());
-            }
+            note_global_label_facts(&mut lw, &v, &n, label.as_ref());
             if let Some(why) = refusal {
                 global_reasons.push(format!("global `{n}`: {why}"));
             }
