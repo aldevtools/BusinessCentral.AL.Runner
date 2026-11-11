@@ -276,18 +276,14 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
             name.clone(),
             std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Empty)),
         ),
+        Value::Library(name, _) if matches!(name.as_str(), "OutStream" | "InStream") => Value::Library(
+            name.clone(),
+            std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::ClearedStream)),
+        ),
         Value::Library(name, _)
             if matches!(
                 name.as_str(),
-                "OutStream"
-                    | "InStream"
-                    | "FileUpload"
-                    | "HttpClient"
-                    | "HttpHeaders"
-                    | "SecretText"
-                    | "ModuleInfo"
-                    | "BigText"
-                    | "DataTransfer"
+                "FileUpload" | "HttpClient" | "HttpHeaders" | "SecretText" | "ModuleInfo" | "BigText" | "DataTransfer"
             ) =>
         {
             Value::Library(

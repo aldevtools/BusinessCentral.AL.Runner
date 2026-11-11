@@ -922,10 +922,7 @@
 70974 P189_FldRefMismatch_OnGuidField
 70974 P189_FldRefMismatch_OnIntegerField
 70974 P189_FldRefMismatch_OnTemporalAndBool
-71033 EmptyVariant_To_Types
-71033 IntegerVariant_To_Other_Types
 71033 Param_Variant_Into_Integer_Text
-71033 RecordVariant_To_Other_Types
 71033 TextVariant_To_Record_RecordRef_Codeunit_List
 71035 Evaluate_Into_Variant_Is_Rejected_Or_Typed
 71037 PW_TextConst_In_Variant_OtherIsTests
@@ -1057,7 +1054,6 @@
 72433 Record_Validate_SourceFlowFilterUnset_AcceptsExistingNonDefaultKind
 72501 IndexOfAndClone
 72502 BooleanGetters
-72502 DateTimeGetters
 72502 NullGetters
 72502 NumberGetters
 72502 NumberRanges
@@ -2554,7 +2550,6 @@
 97435 GetTable_UnassignedVariant_OnAnOpenRecordRef
 97435 GetTable_UnassignedVariant_TryFunction
 97435 GetTable_VariantWithAValue_TryFunction
-97435 RecordFromVariant_UnassignedVariant
 97444 Consistent_FalseOnOneVariable_TrueOnAnother_GuardedRun
 97444 Consistent_False_GuardedRun_InnerFails
 97444 Consistent_False_GuardedRun_InsertsMarkedTable

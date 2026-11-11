@@ -508,15 +508,20 @@ fn get_resource_as_text(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
     let bytes = resource(c, &name)?;
     let enc = encoding_arg(a, 1, &name, &bytes)?;
     // Without an encoding BC reads one character per byte (corpus al-language-testlibraries/test-framework/data-driven-tests-and-handlers/
-    // BiDataDriven.al:481-482: 47 characters for the 45 of UTF-8, corpus PR 861). Which character a byte from 128 up
-    // becomes is not pinned.
+    // BiDataDriven.al:481-482: 47 characters for the 45 of UTF-8, corpus PR 861), as Windows-1252: the bytes 80..FF and the
+    // UTF-8 and Windows-1252 forms of a text read as the Windows encoding does (session-system/NavAppResourceAsTextHighBytes.al:
+    // GetResourceAsText_NoEncoding_HighBytes, _Windows1252Text; the same as Y18NavAppResourceEncodings.al:HighBytesWindows).
+    // A resource that starts with a byte order mark is not pinned.
     if a.get(1).is_none() {
-        if !bytes.is_ascii() {
+        if bytes.starts_with(&[0xEF, 0xBB, 0xBF])
+            || bytes.starts_with(&[0xFF, 0xFE])
+            || bytes.starts_with(&[0xFE, 0xFF])
+        {
             return unsupported(format!(
-                "GetResourceAsText of `{name}` without a text encoding: one character per byte is pinned, which characters the bytes from 128 up become is not pinned"
+                "GetResourceAsText of `{name}` without a text encoding, which starts with a byte order mark (not pinned)"
             ));
         }
-        return Ok(Value::Text(String::from_utf8_lossy(&bytes).into_owned().into()));
+        return Ok(Value::Text(crate::stream::Encoding::Windows.decode(&bytes).into()));
     }
     Ok(Value::Text(enc.decode(&bytes).into()))
 }
