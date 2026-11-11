@@ -267,7 +267,7 @@ impl Session {
                 ));
             }
             let view = crate::views::property_view(raw);
-            let lower = view.to_ascii_lowercase();
+            let clauses = crate::views::view_clauses(&view);
             // A filter on an element without LinkTable (QrXpContainerOccurs.al TS_View_FirstExport on branch
             // al-runtime-rs-staging-pub-ts): the rows of the filter in the view's key, combined with the code's filters.
             // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_View_FirstExport, TS_View_SecondExport (was assumption `xmlport-view-filter-unlinked`).
@@ -283,7 +283,7 @@ impl Session {
                         "XmlPort export after SetView on a table element record an earlier export on the same instance left (not pinned)",
                     );
                 }
-                if lower.contains("order") {
+                if clauses.order {
                     return unsupported(
                         "a later XmlPort export on the same instance of a table element whose SourceTableView has an ORDER (not pinned)",
                     );
@@ -302,12 +302,12 @@ impl Session {
             };
             self.set_view_in(&rec, &t, &view, Some(XP_VIEW_GROUP), false, false, false)?;
             let mut r = rec.borrow_mut();
-            if lower.contains("sorting") {
+            if clauses.sorting {
                 keys.push((i, (r.key, r.adhoc.clone())));
             }
-            if again || !lower.contains("sorting") {
+            if again || !clauses.sorting {
                 (r.key, r.adhoc, r.ascending, r.field_descending) = kept_order;
-            } else if !lower.contains("order") {
+            } else if !clauses.order {
                 // A sorting without order is ascending, also after a SetTableView with Ascending(false) (:654 `SetTableView
                 // sorting(Seq) descending`).
                 r.ascending = true;

@@ -27,12 +27,28 @@ pub fn record_into_recordref(v: &Value) -> Result<Value, Signal> {
             rec.table
         )));
     }
-    let mut copy = rec.clone();
-    own_unloaded_blobs(&mut copy);
+    let copy = recordref_copy(&rec);
     Ok(Value::Library(
         LibraryKind::RecordRef,
         Rc::new(RefCell::new(LibraryValue::RecordRef(Rc::new(RefCell::new(copy))))),
     ))
+}
+
+/// The record a RecordRef holds when it takes a copy of `rec` (a conversion, RecordRef.GetTable): its own Blobs
+/// ([`own_unloaded_blobs`]). The ref's SecurityFiltering() reads Validated, also when the record was declared with or set to
+/// another value (queued probe al-language/reports/runtime/SFSecurityFilteringFlow.al:226-234, :257-260, corpus PR 1310;
+/// assumption `security-filtering-flow`). Microsoft code reads it: Sales-Post, Purch.-Post and Service-Post call
+/// `GetLastEntryNo` on their `[SecurityFiltering(SecurityFilter::Ignored)] GLEntry` in LockTables (legacy posting with
+/// Automatic Cost Posting), and Find Record Management.FindLastEntryIgnoringSecurityFilter reads `RecRef.SecurityFiltering`
+/// of the RecordRef it took through a Variant.
+pub fn recordref_copy(rec: &RecordState) -> RecordState {
+    let mut copy = rec.clone();
+    own_unloaded_blobs(&mut copy);
+    if copy.security_filtering != 0 {
+        copy.security_filtering = 0;
+        copy.security_filtering_assumed = true;
+    }
+    copy
 }
 
 /// A Blob of a stored row whose bytes were not read yet gets its own copy, so the copy and the record do not share it (as

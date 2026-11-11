@@ -934,8 +934,7 @@ impl Session {
                     },
                     other => return unsupported(format!("RecordRef.GetTable of {}", other.describe())),
                 };
-                let mut copy = src.borrow().clone();
-                own_unloaded_blobs(&mut copy);
+                let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
                 // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
                 // as any RecordRef: GetView, SetView, SetFilter, FindFirst (corpus
                 // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
@@ -1416,8 +1415,8 @@ impl Session {
         // permanent on the table's rows, a permanent one set into a temporary record leaves it temporary and empty of them; only the
         // current record and the filters pass (recordref-fieldref/recordref/SetTableTemporaryToPermanent.al:
         // SetTable_TempIntoPermanent_State, _Insert, _ModifyDelete, _FilteredSource, SetTable_PermanentIntoTemporary_State).
-        // Whether SecurityFiltering passes is not pinned (ReadIsolation does, below): the next read of it refuses.
-        dst.borrow_mut().security_filtering_unpinned = Some("after a RecordRef.SetTable into it");
+        // The record keeps its own SecurityFiltering (ReadIsolation passes, below).
+        dst.borrow_mut().security_filtering_kept_through_fill();
         if !Rc::ptr_eq(rec, dst) {
             let s = rec.borrow();
             // SetTable does not move the target either (:123-127); GetTable takes the company.
@@ -2102,7 +2101,7 @@ fn record_method(method: &str) -> RecordOp {
 /// Get of the current row and of a row outside the link (testpage/R7138RunPageLinkCopyGet.al:117-134, :218 `rr[Project Code: P2]
 /// n=2;rr.get own O3;rr.get O1 O1`). A by-value copy of that Rec put into a Variant some other way is not pinned.
 fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<Value, Signal> {
-    let mut copy = src.borrow().clone();
+    let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
     match copy.unpinned_buffer {
         Some(crate::records::RUN_PAGE_LINK_VARIANT) => copy.unpinned_buffer = None,
         Some(w @ (crate::records::RUN_PAGE_LINK_COPY | crate::records::RUN_PAGE_LINK_OPEN_COPY)) => {
@@ -2111,7 +2110,6 @@ fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<
         _ => {}
     }
     copy.company = None;
-    own_unloaded_blobs(&mut copy);
     *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
     Ok(Value::Null)
 }
