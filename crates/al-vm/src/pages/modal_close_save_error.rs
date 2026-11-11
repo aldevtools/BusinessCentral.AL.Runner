@@ -13,7 +13,8 @@
 //! and a Card run by a static `Page.RunModal(Id, Rec)` whose return value is used (on a List also called as a statement), a TestField error raised in the page's
 //! OnModifyRecord (from a codeunit it runs, the al-runner issue 7400 report, or directly) keeps its text and the code
 //! TestField, and the save runs once more first (:250, :271, :314, :336, `log` twice). A TestField error from the table's
-//! OnModify, after a Page variable's RunModal or on a page with OnQueryClosePage is not measured and refused. An Error()
+//! OnModify, after a Page variable's RunModal or on a page with OnQueryClosePage is not measured and refused, and so is every
+//! error after a static `Page.RunModal(Id)` without a record (every pinned static call passes one). An Error()
 //! gets the code TestWrapped (:292, :356), also on a Worksheet (:376) and on a List run by a Page variable in LookupMode (:419),
 //! where only Error() is measured.
 //! A new row's insert at close (:398 measures one, but the runtime inserts the row at SetValue and no corpus case shows when a
@@ -105,19 +106,45 @@ impl Session {
             return None;
         }
         let page_type = self.engine.object_facts[s.object as usize].page_type.clone();
-        let static_statement = s.run_static == Some(true) && !s.lookup;
-        match (page_type, s.lookup.then_some(s.lookup_kind)) {
-            (Some(al_ir::PageType::Card | al_ir::PageType::List), Some(LookupKind::StaticRunModal)) => {
+        // How the page was run. Every pinned static `Page.RunModal` passes a record (ModalCloseSaveErrorShapes.al:258, :321,
+        // :343, :384; CemModalHandlerTests.al: all 66 calls are `Page.RunModal(Id, Row)`); one without a record is no pinned
+        // shape and keeps the refusal.
+        let run = match (s.run_static, s.static_run_record, s.lookup.then_some(s.lookup_kind)) {
+            (Some(true), true, Some(LookupKind::StaticRunModal)) => Run::StaticRecordUsed,
+            (Some(true), true, None) => Run::StaticRecordStatement,
+            (Some(true), ..) => return None,
+            (_, _, None) => Run::NoLookup,
+            (_, _, Some(LookupKind::Variable)) => Run::VariableLookup,
+            _ => return None,
+        };
+        match (page_type?, run) {
+            (al_ir::PageType::Card | al_ir::PageType::List, Run::StaticRecordUsed) => {
                 Some(PinnedCodes::DialogAndTestField)
             }
             // ModalCloseSaveErrorShapes.al:314 List_CodeunitTestField_LastErrorCode: `asserterror Page.RunModal(Id, Rec)`.
-            (Some(al_ir::PageType::List), None) if static_statement => Some(PinnedCodes::DialogAndTestField),
-            (Some(al_ir::PageType::Card | al_ir::PageType::List), None)
-            | (Some(al_ir::PageType::Worksheet), Some(LookupKind::StaticRunModal))
-            | (Some(al_ir::PageType::List), Some(LookupKind::Variable)) => Some(PinnedCodes::Dialog),
+            (al_ir::PageType::List, Run::StaticRecordStatement) => Some(PinnedCodes::DialogAndTestField),
+            // CemModalHandlerTests.al:900, :1743 (`Page.RunModal(Id, Row)` as a statement) and the CardVariableRunModal and
+            // ListVariableRunModal cells; ModalCloseSaveErrorShapes.al:376 the Worksheet, :419 the List in LookupMode.
+            (al_ir::PageType::Card, Run::StaticRecordStatement)
+            | (al_ir::PageType::Card | al_ir::PageType::List, Run::NoLookup)
+            | (al_ir::PageType::Worksheet, Run::StaticRecordUsed)
+            | (al_ir::PageType::List, Run::VariableLookup) => Some(PinnedCodes::Dialog),
             _ => None,
         }
     }
+}
+
+/// How a modal page whose save error at close is pinned was run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Run {
+    /// A static `Page.RunModal(Id, Rec)` whose return value is used (the page is a lookup).
+    StaticRecordUsed,
+    /// A static `Page.RunModal(Id, Rec)` called as a statement.
+    StaticRecordStatement,
+    /// Not a static RunModal and not in lookup mode (a Page variable's RunModal).
+    NoLookup,
+    /// A Page variable in lookup mode by `LookupMode(true)`.
+    VariableLookup,
 }
 
 impl Session {

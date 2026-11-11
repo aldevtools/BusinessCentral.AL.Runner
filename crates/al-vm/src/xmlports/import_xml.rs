@@ -1307,7 +1307,7 @@ impl Session {
                 n.name
             ));
         }
-        self.record_op(RecordOp::Validate, rec, &mut [Value::Integer(pos as i32), value])?;
+        self.platform_validate(crate::records::ValidateSite::XmlPortField, rec, pos, value)?;
         Ok(())
     }
 }

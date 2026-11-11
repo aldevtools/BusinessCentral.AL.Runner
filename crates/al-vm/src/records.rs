@@ -26,12 +26,15 @@ mod insert_buffer;
 mod setrange_filter;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 mod nested_validate;
+pub(crate) use nested_validate::ValidateSite;
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
 mod stale_rule;
-pub(crate) use stale_rule::{LockingRead, TrappedRollback, same_key};
+pub(crate) use stale_rule::{TrappedRollback, same_key};
+mod locking_read_cells;
+pub(crate) use locking_read_cells::{LockingReadNote, StaleWrite};
 mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
@@ -1118,7 +1121,7 @@ impl Session {
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
             let i = t.fields.iter().position(|f| f.id == 2_000_000_005).expect("checked");
             if let Some(Value::BigInteger(theirs)) = stored.as_ref().map(|r| r[i].clone()) {
-                let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs)?;
+                let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs, StaleWrite::Delete)?;
                 if verdict != StaleVerdict::Fresh {
                     let mut ext = false;
                     for n in ["OnBeforeDelete", "OnDelete", "OnAfterDelete"] {
@@ -2387,9 +2390,11 @@ impl Session {
         self.note_read_after_rollback(method, rec, args);
         if self.sql.active {
             let r = self.record_op_counted(method, rec, args);
+            self.note_locking_read(method, rec, args, &r);
             return self.note_insert_buffer(method, rec, insert, r);
         }
         let r = self.record_op_tracked(method, rec, args);
+        self.note_locking_read(method, rec, args, &r);
         let r = self.note_insert_buffer(method, rec, insert, r);
         if matches!(r, Ok(Value::Boolean(false)))
             && matches!(method, RecordOp::FindSet | RecordOp::FindFirst | RecordOp::FindLast)

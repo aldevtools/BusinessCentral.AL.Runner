@@ -1,6 +1,6 @@
 use super::*;
+use crate::records::ValidateSite;
 use al_builtins::page_op::{PageMethod, PageOp};
-use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// `TestField.SetValue`: activates the control, turns the value into what the control would
@@ -992,7 +992,7 @@ impl Session {
                     // globals, and leaves the page's record with fresh globals (ADR-021 decision 8;
                     // corpus probes TableGlobals_PageFieldValidate_*, TableGlobals_PageRec_ActionGlobalsAreLostAfterPageFieldValidation).
                     self.reset_table_globals(&rec);
-                    let validated = self.control_validate(&rec, pos, parsed.clone());
+                    let validated = self.platform_validate(ValidateSite::TestPageControl, &rec, pos, parsed.clone());
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
@@ -2011,15 +2011,5 @@ impl Session {
             }
         }
         Ok(())
-    }
-}
-
-impl Session {
-    /// The Validate of field `pos` of `rec` that a TestPage write runs, noted in `PageClients::control_validates` while it runs.
-    fn control_validate(&mut self, rec: &Rec, pos: usize, value: Value) -> Result<Value, Signal> {
-        self.pages.control_validates.push(Rc::as_ptr(rec) as usize);
-        let validated = self.record_op(RecordOp::Validate, rec, &mut [Value::Integer(pos as i32), value]);
-        self.pages.control_validates.pop();
-        validated
     }
 }

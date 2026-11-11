@@ -14,6 +14,8 @@
 //!    (`Session::stale_own_insert_modify_refused`).
 //!
 //! Every input the measured cells did not cover is refused (`OpenTxShape::unknown`), never decided by the rule.
+//! After a locking ReadIsolation read in the open transaction the rule decides one shape only (`read_of_others_only`); the other
+//! measured shapes are single cells (`locking_read_cells.rs`).
 
 use super::*;
 use crate::state::{TxWrite, TxWriteKind};
@@ -36,28 +38,6 @@ pub(crate) enum TrappedRollback {
     GuardedRun,
 }
 
-/// The form of a database read under a locking ReadIsolation (RepeatableRead or UpdLock), as the rule reads it
-/// (`Session::locking_reads_measured`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LockingRead {
-    Get,
-    FindSet,
-    FindFirst,
-    /// Any other read: Find, FindLast, Next, Count, IsEmpty, CalcFields, CalcSums, GetBySystemId.
-    Other,
-}
-
-impl LockingRead {
-    pub(crate) fn of(method: RecordOp) -> LockingRead {
-        match method {
-            RecordOp::Get => LockingRead::Get,
-            RecordOp::FindSet => LockingRead::FindSet,
-            RecordOp::FindFirst => LockingRead::FindFirst,
-            _ => LockingRead::Other,
-        }
-    }
-}
-
 /// What the open transaction did to a stale buffer's row and table, as the rule reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Contact {
@@ -70,7 +50,7 @@ pub(crate) enum Contact {
 }
 
 impl Session {
-    /// Whether a Modify or Delete through `rec` of the stored row `pk` (whose row version is now `theirs`) may write. See the
+    /// Whether the Modify or Delete `write` through `rec` of the stored row `pk` (whose row version is now `theirs`) may write. See the
     /// module comment for the rule. A buffer newer than the row (a rollback to the last Commit after the buffer's own Modify, as an
     /// asserterror does) is not stale (record/StaleBuffer.al P98_Stale_AfterAsserterror_SameBuffer,
     /// P98_Stale_CommitThenErrorThenModify_Rec).
@@ -81,6 +61,7 @@ impl Session {
         cx: &al_data::AccessContext,
         pk: &[Value],
         theirs: i64,
+        write: StaleWrite,
     ) -> Result<StaleVerdict, Signal> {
         let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) else {
             return Ok(StaleVerdict::Fresh);
@@ -118,7 +99,7 @@ impl Session {
             // Rule steps 2 to 5: the variable's own Insert, its own Modify or Rename after its Insert or Get in that transaction
             // (SbStaleOwnModify.al:132-448), or a Get or Find of a row written in the transaction then open
             // (SbStaleOwnModify.al:467-640; StaleRuleMatrix.al GetUncommitted_2C, GetThenOwnModify_2C).
-            Some(o) if o.own_write => match self.open_tx_contact(t, &company, pk, o, theirs) {
+            Some(o) if o.own_write => match self.open_tx_contact(t, &company, pk, o, theirs, write) {
                 Ok(Contact::Row | Contact::Table) => Ok(StaleVerdict::Written),
                 Ok(Contact::Nothing) => Ok(StaleVerdict::Refused),
                 Err(why) => unsupported(format!(
@@ -158,7 +139,7 @@ impl Session {
             .any(|(o, c, k)| *o == t.object && c == company && same_key(k, pk))
     }
 
-    /// Rule steps 2 to 5 for a buffer of origin `o`. `Err` names an input no measured cell covers.
+    /// Rule steps 2 to 5 for the `write` through a buffer of origin `o`. `Err` names an input no measured cell covers.
     pub(crate) fn open_tx_contact(
         &self,
         t: &TableDef,
@@ -166,6 +147,7 @@ impl Session {
         pk: &[Value],
         o: RowOrigin,
         theirs: i64,
+        write: StaleWrite,
     ) -> Result<Contact, &'static str> {
         let tx = &self.tx;
         let row_touched = self.row_touched(t, company, pk);
@@ -185,7 +167,7 @@ impl Session {
             return Err("after a lock other than LockTable or a ReadIsolation read in the open transaction");
         }
         if tx.rolled_back {
-            return Self::after_rollback(tx, t, company, pk, row_touched, read_lock);
+            return Self::after_rollback(tx, (t, company, pk), row_touched, read_lock, write);
         }
         let read_lock_on_table = tx
             .isolation_lock_tables
@@ -201,9 +183,13 @@ impl Session {
             }
             return Ok(Contact::Row);
         }
-        // Without row contact a locking ReadIsolation read changes nothing in the measured shapes: steps 4 and 5 decide.
-        if read_lock && !self.locking_reads_measured(t, company, pk, o, read_lock_on_table) {
-            return Err("after a ReadIsolation read that locks, beside a read, write or lock no measured cell covers");
+        // Without row contact a locking read is measured four Commits after the buffer's own write, as a read of another table
+        // beside writes of other tables: it changes nothing and steps 4 and 5 decide (WbStaleUpdLockTests.al:16-25, al-runner
+        // issue 6287). Else only the single cells of `locking_read_cells.rs`, each with its own result.
+        if read_lock && (read_lock_on_table || !self.read_of_others_only(t, o)) {
+            return self
+                .locking_read_cell(t, company, pk, o, write)
+                .ok_or("after a ReadIsolation read that locks, beside a read, write or lock no measured cell covers");
         }
         // Rule step 4 (StaleRuleMatrix.al TableContact_*, BulkSameTable_*, RowReadUnderLock lf_2c; SbStaleOwnModify.al TE_*,
         // TH_*, Y2_*; Y76StaleBuffers.al Y76_Part2_*; Y89StaleFind.al Y89_Part2_*).
@@ -215,45 +201,13 @@ impl Session {
         Ok(Contact::Nothing)
     }
 
-    /// Whether the locking ReadIsolation reads of the open transaction, without contact with the buffer's row, are a measured
-    /// shape: then they change nothing and rule steps 4 and 5 decide.
-    /// - One or two Commits after the buffer's own write, Gets or FindSets of its table and FindFirsts of other tables, with no
-    ///   LockTable, beside nothing or beside Inserts and Modifies of other rows of its table (record/crud/
-    ///   CodeunitRunTableNoWrites.al:446-545 OwnModify_*/OwnInsert_*: DB:RecordChanged; :629-741 PartialWrite_OtherRow_*:
-    ///   written, PartialWrite_NoOtherRow_*: DB:RecordChanged).
-    /// - Four Commits after the buffer's own write, reads of other tables only beside writes of other tables only, as No. Series
-    ///   takes a number: DB:RecordChanged (record/WbStaleUpdLockTests.al:16-25, contrast :29-38; al-runner issue 6287).
-    fn locking_reads_measured(
-        &self,
-        t: &TableDef,
-        company: &Option<String>,
-        pk: &[Value],
-        o: RowOrigin,
-        own_table: bool,
-    ) -> bool {
+    /// Four Commits after the buffer's own write, a read under ReadIsolation UpdLock (Find, as No. Series takes a number) of
+    /// another table only, beside writes of other tables only, decides as the same writes after a plain Get: DB:RecordChanged
+    /// (record/WbStaleUpdLockTests.al:16-25 UpdLockReadOfAnotherTableFourCommitsLaterRecordChanged, contrast :29-38; al-runner
+    /// issue 6287). The lock then comes from ReadIsolation alone (no LockTable), on other tables only (the caller checks that).
+    fn read_of_others_only(&self, t: &TableDef, o: RowOrigin) -> bool {
         let tx = &self.tx;
-        let mine = |table: u32, c: &Option<String>| table == t.object && c == company;
-        // A lock a read noted without a read (UpdLock assigned only) is not measured.
-        let every_lock_read = tx
-            .isolation_lock_tables
-            .iter()
-            .all(|(ob, c)| tx.locking_reads.iter().any(|(rt, rc, _)| rt == ob && rc == c));
-        if !every_lock_read || !tx.locked_tables.is_empty() {
-            return false;
-        }
-        let one_commit_cells = matches!(self.commits.saturating_sub(o.commits), 1 | 2)
-            && tx.locking_reads.iter().all(|(rt, rc, form)| match form {
-                LockingRead::Get | LockingRead::FindSet => mine(*rt, rc),
-                LockingRead::FindFirst => !mine(*rt, rc),
-                LockingRead::Other => false,
-            })
-            && tx.writes.iter().all(|w| {
-                matches!(w.kind, TxWriteKind::Insert | TxWriteKind::Modify)
-                    && mine(w.table, &w.company)
-                    && !same_key(&w.pk, pk)
-            });
-        let four_commits = o.commits + 4 == self.commits && !own_table && tx.writes.iter().all(|w| w.table != t.object);
-        one_commit_cells || four_commits
+        o.commits + 4 == self.commits && tx.locked_tables.is_empty() && tx.writes.iter().all(|w| w.table != t.object)
     }
 
     /// Whether the open transaction wrote another row of `t` by a write the rule knows. `Err` for a write it does not know: one
@@ -316,24 +270,26 @@ impl Session {
         at == self.store.change_counter()
     }
 
-    /// The open transaction began at a rollback of `Error('literal')` in a transaction that held no lock. Measured:
+    /// The open transaction began at a rollback of `Error('literal')` in a transaction that held no lock; `row` is the buffer's
+    /// table, company and key. Measured:
     /// - after `asserterror` (StaleRuleMatrix.al:206 Rollback): nothing after it refuses (rm_rb_1c, rm_rb_2c, om_rb_2c: contact
     ///   before the rollback does not count), a Get and Modify of the row after it writes (rm_rb_rm_2c);
-    /// - after a failed guarded `Codeunit.Run` whose rollback undid no write: nothing after it refuses
-    ///   (record/crud/CodeunitRunTableNoWrites.al:267 Guarded_ModifyCommitError_ThenModify), and so does a Get of the row alone
-    ///   through another variable (:205 Guarded_ModifyCommitError_ThenHandler: `stored after run` reads the row).
+    /// - after a failed guarded `Codeunit.Run` whose rollback undid no write, for the buffer's `Modify()` only: nothing after it
+    ///   refuses (record/crud/CodeunitRunTableNoWrites.al:267 Guarded_ModifyCommitError_ThenModify), and so does one Get of the
+    ///   row through another variable (:205 Guarded_ModifyCommitError_ThenHandler: `stored after run` reads the row, then the
+    ///   handler codeunit's `Rec.Modify()`).
     ///
-    /// Any other rollback or anything else after it (a Get alone after an asserterror, a Get and Modify after a guarded run, a
-    /// Find, another read) is not measured (corpus PR 1313 StaleEdge_LockThenRollback, StaleEdge_DatabaseErrorRollback;
-    /// docs/probes-needed.md).
+    /// Any other rollback or anything else after it (a Get alone after an asserterror; after a guarded run a Delete, a
+    /// Modify(true), a second Get, a Get and Modify; a Find, another read) is not measured (corpus PR 1313
+    /// StaleEdge_LockThenRollback, StaleEdge_DatabaseErrorRollback; docs/probes-needed.md).
     fn after_rollback(
         tx: &crate::state::TxState,
-        t: &TableDef,
-        company: &Option<String>,
-        pk: &[Value],
+        row: (&TableDef, &Option<String>, &[Value]),
         row_touched: bool,
         read_lock: bool,
+        write: StaleWrite,
     ) -> Result<Contact, &'static str> {
+        let (t, company, pk) = row;
         if let Some(why) = tx.rollback_unpinned {
             return Err(why);
         }
@@ -343,9 +299,14 @@ impl Session {
             .iter()
             .all(|(o, c, k)| *o == t.object && c == company && k.as_deref().is_some_and(|k| same_key(k, pk)));
         let nothing_written = no_lock && tx.writes.is_empty() && tx.rows_touched.is_empty();
+        let plain_modify = write == StaleWrite::Modify { run_trigger: false };
         match tx.rollback_kind {
             Some(TrappedRollback::AssertError) if nothing_written && reads.is_empty() => return Ok(Contact::Nothing),
-            Some(TrappedRollback::GuardedRun) if nothing_written && row_got_only => return Ok(Contact::Nothing),
+            Some(TrappedRollback::GuardedRun)
+                if plain_modify && nothing_written && reads.len() <= 1 && row_got_only =>
+            {
+                return Ok(Contact::Nothing);
+            }
             Some(TrappedRollback::AssertError) => {
                 let row_modified_only = tx.writes.iter().all(|w| {
                     w.kind == TxWriteKind::Modify && w.table == t.object && w.company == *company && same_key(&w.pk, pk)

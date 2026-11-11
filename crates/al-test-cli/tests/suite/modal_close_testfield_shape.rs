@@ -1,8 +1,8 @@
 //! The save at the close of a modal page a ModalPageHandler left open, when it raises a TestField error (al-runner issue 7400).
 //! Pinned only on a Card or List run by a static `Page.RunModal(Id, Rec)` whose return value is used, the error raised in the
 //! page's OnModifyRecord, the page without OnQueryClosePage (pages/close-errors/ModalCloseSaveErrorShapes.al:250, :271, :314,
-//! :336). A Page variable's RunModal, the table's OnModify and a page with OnQueryClosePage keep the refusal (review of runner
-//! PR 7800). Each shape runs in its own codeunit: a refusal in one test of a codeunit stops the rest of it.
+//! :336). A Page variable's RunModal, a static RunModal without a record, the table's OnModify and a page with OnQueryClosePage
+//! keep the refusal (review of runner PR 7800). Each shape runs in its own codeunit: a refusal in one test of a codeunit stops the rest of it.
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
@@ -58,6 +58,7 @@ page 50204 "Q List"
         Cfg.Add('M');
         if Cfg.Get() = 'testfield' then Rec.TestField(Canceled, false);
         if Cfg.Get() = 'fielderror' then Rec.FieldError(Canceled);
+        if Cfg.Get() = 'error' then Error('the save failed');
         exit(true);
     end;
 }
@@ -112,6 +113,9 @@ codeunit 50208 "Q Help"
                 'listqc-static': if Page.RunModal(Page::"Q List QC", Row) = Action::LookupOK then;
                 'card-static': if Page.RunModal(Page::"Q Card", Row) = Action::LookupOK then;
                 'list-static-stmt': Page.RunModal(Page::"Q List", Row);
+                'list-static-norec': if Page.RunModal(Page::"Q List") = Action::LookupOK then;
+                'card-static-norec': if Page.RunModal(Page::"Q Card") = Action::LookupOK then;
+                'list-static-norec-stmt': Page.RunModal(Page::"Q List");
                 'card-static-stmt': Page.RunModal(Page::"Q Card", Row);
                 'card-var': begin C.SetTableView(Row); C.RunModal(); end;
                 'card-var-lookup': begin C.SetTableView(Row); C.LookupMode(true); C.RunModal(); end;
@@ -212,6 +216,35 @@ fn a_testfield_error_of_the_save_at_modal_close_runs_only_in_the_pinned_shape() 
             "CardEdit",
             "table-testfield",
             "card-static",
+            "refused",
+        ),
+        // Not pinned: a static RunModal without a record (every pinned cell passes one), for a TestField and for an Error.
+        (
+            "ListStaticNoRecTestField",
+            "ListEdit",
+            "testfield",
+            "list-static-norec",
+            "refused",
+        ),
+        (
+            "CardStaticNoRecTestField",
+            "CardEdit",
+            "testfield",
+            "card-static-norec",
+            "refused",
+        ),
+        (
+            "ListStaticNoRecStatementTestField",
+            "ListEdit",
+            "testfield",
+            "list-static-norec-stmt",
+            "refused",
+        ),
+        (
+            "ListStaticNoRecError",
+            "ListEdit",
+            "error",
+            "list-static-norec",
             "refused",
         ),
         // Not pinned: a page with OnQueryClosePage.

@@ -3270,10 +3270,11 @@ impl Session {
             // _BatchMissing).
             for pos in related {
                 self.ret_used = false;
-                match self.record_op(
-                    RecordOp::Validate,
+                match self.platform_validate(
+                    crate::records::ValidateSite::ActionStamp,
                     rec,
-                    &mut [Value::Integer(pos as i32), stamped[pos].clone()],
+                    pos,
+                    stamped[pos].clone(),
                 ) {
                     Ok(_) => {}
                     Err(Signal::Error(_)) => return self.blank_rec_relation_failed(st, rec),

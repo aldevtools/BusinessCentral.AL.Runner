@@ -53,7 +53,8 @@ impl Session {
             Some(o) if !o.own_write && run && trigger.is_some() && !hooks => {
                 // With a locking ReadIsolation read in the open transaction the order is measured for own-write buffers only
                 // (record/crud/CodeunitRunTableNoWrites.al:629-741).
-                let contact = match self.open_tx_contact(t, &company, pk, o, theirs) {
+                let write = crate::records::StaleWrite::Modify { run_trigger: run };
+                let contact = match self.open_tx_contact(t, &company, pk, o, theirs, write) {
                     Ok(_) if self.locking_read_in_tx() => Err("after a ReadIsolation read that locks"),
                     c => c,
                 };
@@ -141,7 +142,8 @@ impl Session {
             .borrow()
             .row_origin
             .is_some_and(|o| o.version == versions.0 && !o.own_write && o.from_find);
-        let refused = self.stale_verdict(t, rec, cx, pk, versions.1)? == crate::records::StaleVerdict::Refused;
+        let write = crate::records::StaleWrite::Modify { run_trigger: run };
+        let refused = self.stale_verdict(t, rec, cx, pk, versions.1, write)? == crate::records::StaleVerdict::Refused;
         if refused && run && find_buffer {
             return al_builtins::native::unsupported(format!(
                 "Modify(true) of a stale committed-read {} buffer from a Find (not pinned)",

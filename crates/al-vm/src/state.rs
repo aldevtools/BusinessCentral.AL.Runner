@@ -100,9 +100,10 @@ pub(crate) struct TxState {
     /// The tables (object index, company) a locking ReadIsolation locked since the last Commit: UpdLock set on a database
     /// table, or a read under RepeatableRead or UpdLock.
     pub(crate) isolation_lock_tables: Vec<(u32, Option<String>)>,
-    /// The reads under a locking ReadIsolation since the last Commit or rollback: table object, company and the read's form
-    /// (`Session::locking_reads_measured`).
-    pub(crate) locking_reads: Vec<(u32, Option<String>, crate::records::LockingRead)>,
+    /// The database reads under a locking ReadIsolation since the last Commit or rollback (`Session::locking_read_cell`).
+    pub(crate) locking_reads: Vec<crate::records::LockingReadNote>,
+    /// How many database reads (record methods that read a table that is not temporary) ran since the last Commit or rollback.
+    pub(crate) db_reads: u32,
     /// A read under UpdLock or RepeatableRead whose effect on the write transaction is not pinned ran since the last Commit
     /// (a FindFirst, FindSet, FindLast or another Find under an isolation set in an earlier transaction): `lock_unpinned`
     /// then refuses IsInWriteTransaction. Without it, the pinned reads that set `lock_unpinned` open no write transaction.
@@ -201,6 +202,7 @@ impl TxState {
             recref_lock_tx: false,
             isolation_lock_tables: Vec::new(),
             locking_reads: Vec::new(),
+            db_reads: 0,
             locking_read_tx_unpinned: false,
         }
     }
@@ -253,8 +255,6 @@ pub(crate) struct PageClients {
     /// code), with the field's number: what `CurrFieldNo` reads. Held weakly: the entry keeps the record's
     /// allocation, so a later record cannot get the same address and inherit the number.
     pub(crate) curr_field_no: Vec<(std::rc::Weak<RefCell<RecordState>>, i32)>,
-    /// The records (by handle) a TestPage write is validating now, innermost last (`Session::table_proc_xrec`).
-    pub(crate) control_validates: Vec<usize>,
     /// The report instances that `Execute` has run: a second `Execute` on one is refused.
     /// A page opened for a `RunObject` action looks its handler up without failing when there is
     /// none (al-vm pages/runobject.rs).
