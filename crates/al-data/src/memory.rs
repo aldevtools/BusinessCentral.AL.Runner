@@ -9,6 +9,8 @@ use std::cmp::Ordering;
 
 mod frozen;
 mod key;
+#[cfg(test)]
+mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
@@ -39,15 +41,22 @@ impl Rows {
         self.1
     }
 
-    /// The table `rows` make. Two rows with the same primary key are an error carrying how many
-    /// rows were lost to it: a table is never built from rows that overwrite each other.
-    pub fn from_rows(t: &TableDef, rows: Vec<Row>) -> Result<Rows, usize> {
+    /// The table `rows` make. `Err`: why it is refused. Two rows with the same primary key are refused with how many rows
+    /// were lost to it: a table is never built from rows that overwrite each other. A row with a value in a key field that the
+    /// key order cannot place is refused too ([`TableDef::check_key_values`]).
+    pub fn from_rows(t: &TableDef, rows: Vec<Row>) -> Result<Rows, String> {
+        if let Some(Err(e)) = rows.iter().map(|r| t.check_key_values(r)).find(Result::is_err) {
+            return Err(e.to_string());
+        }
         let n = rows.len();
         let map: Table = rows.into_iter().map(|r| (Key::of(t, t.primary_key(&r)), r)).collect();
         if map.len() == n {
             Ok(Rows(map, 0))
         } else {
-            Err(n - map.len())
+            Err(format!(
+                "{} rows share a primary key of the compiled table",
+                n - map.len()
+            ))
         }
     }
 
@@ -1452,6 +1461,7 @@ pub fn store_ops() -> u64 {
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
         bump();
+        t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             if !v.takes_inserts(t) {
                 return Err(self.read_only(t, "Insert"));
@@ -1479,6 +1489,7 @@ impl Store for MemStore {
 
     fn get(&self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
         bump();
+        t.check_primary_key(pk)?;
         if let Some(v) = self.virtual_of(t) {
             return v.get(self, cx, t, pk);
         }
@@ -1487,6 +1498,7 @@ impl Store for MemStore {
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
         bump();
+        t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             let k = Key::of(t, t.primary_key(&row));
             if v.takes_inserts(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k)) {
@@ -1563,6 +1575,7 @@ impl Store for MemStore {
 
     fn delete(&mut self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<WriteOutcome, StoreError> {
         bump();
+        t.check_primary_key(pk)?;
         if let Some(v) = self.virtual_of(t) {
             let k = Key::of(t, pk.to_vec());
             if !(v.takes_inserts(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k))) {
@@ -1590,6 +1603,8 @@ impl Store for MemStore {
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
         bump();
+        t.check_primary_key(old)?;
+        t.check_key_values(&row)?;
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "Rename"));
         }

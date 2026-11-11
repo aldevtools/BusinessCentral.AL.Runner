@@ -157,3 +157,72 @@ fn datatransfer_with_table_extension_fields_of_the_same_app() {
     );
     assert_eq!(o, Outcome::Pass, "{o:?}");
 }
+
+// al-runner issue 7644: a join of a Guid field against a Code field that holds no Guid counted the failed comparison as "no
+// match" and changed nothing. Only a join of two Code[20] fields is pinned (install-upgrade/AsDtInstaller.al:163, :195,
+// record/Y47DtInstall.al:350); any other pair of field types is refused before CopyFields writes a row.
+const JOIN_SRC: &str = r#"
+table 50586 "DTJ Src" { fields { field(1; Id; Guid) { } field(2; Name; Text[30]) { } field(3; Txt; Text[20]) { } } keys { key(PK; Id) { } } }
+table 50587 "DTJ Dest" { fields { field(1; "Code"; Code[20]) { } field(2; Name; Text[30]) { } field(3; Txt; Text[20]) { } } keys { key(PK; "Code") { } } }
+codeunit 50586 "DTJ Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany()
+    var S: Record "DTJ Src"; D: Record "DTJ Dest"; DT: DataTransfer;
+    begin
+        S.Id := CreateGuid(); S.Name := 'from source'; S.Txt := 'k'; S.Insert();
+        D."Code" := 'X'; D.Name := 'kept'; D.Txt := 'K'; D.Insert();
+        DT.SetTables(Database::"DTJ Src", Database::"DTJ Dest");
+        DT.AddJoin(S.FieldNo(JOINFIELD), D.FieldNo(JOINDEST));
+        DT.AddFieldValue(S.FieldNo(Name), D.FieldNo(Name));
+        DT.CopyFields();
+    end;
+}
+codeunit 50588 "DTJ Test"
+{
+    Subtype = Test;
+    [Test]
+    procedure TheJoinRan()
+    var D: Record "DTJ Dest";
+    begin
+        D.Get('X');
+        if D.Name <> 'kept' then Error('%1', D.Name);
+    end;
+}
+"#;
+
+fn join_outcome(source_field: &str, dest_field: &str) -> Outcome {
+    let src = JOIN_SRC
+        .replace("JOINFIELD", source_field)
+        .replace("JOINDEST", dest_field);
+    let rt = CorpusRuntime::run_suites_with(
+        vec![AppSource {
+            id: "main".into(),
+            name: "main".into(),
+            dependencies: vec![],
+            files: vec![("main.al".into(), src)],
+        }],
+        vec![al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    );
+    rt.first_outcome(&CaseId {
+        codeunit: 50588,
+        name: "TheJoinRan".into(),
+    })
+}
+
+#[test]
+fn a_datatransfer_join_of_field_types_nothing_pins_is_refused() {
+    for (s, d) in [("Id", "\"Code\""), ("Txt", "Txt")] {
+        let o = join_outcome(s, d);
+        assert!(
+            matches!(&o, Outcome::NotRun(why) if why.contains("AddJoin")),
+            "{s} against {d}: {o:?}"
+        );
+    }
+}

@@ -1222,7 +1222,7 @@ impl Session {
                             .get(&cx, &t, &pk)
                             .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         match row {
-                            Some(row) if self.row_passes(rec, &t, &row)? || Self::on_own_row(rec, &pk) => Some(row),
+                            Some(row) if self.row_passes(rec, &t, &row)? || Self::on_own_row(rec, &pk)? => Some(row),
                             _ => None,
                         }
                     }
@@ -2160,7 +2160,7 @@ impl Session {
                 }
                 // A rename to the key the row has succeeds and writes the row again, which is what
                 // stamps it (record/TestRecordSystemId.al:752-775).
-                let same_key = ops::compare_keys(&old_pk, &Self::sql_key(rec, &t, &row));
+                let same_key = ops::compare_keys(&old_pk, &Self::sql_key(rec, &t, &row))?;
                 let before_store = self.store.change_counter();
                 let outcome = if same_key {
                     match self

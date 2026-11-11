@@ -1628,10 +1628,14 @@ pub fn row_passes_checked(row: &[Value], filters: &[FieldFilter]) -> bool {
     !or_seen || or_matched
 }
 
-/// Total order on key tuples (field-wise `compare`; incomparable counts as equal).
+/// Total order on key tuples (field-wise [`crate::ops::compare_key_value`]). It takes only values that
+/// [`crate::ops::key_orderable`] lets into a key, which always compare (the store refuses the others, al-runner issue 7644); a
+/// comparison that fails all the same counts as equal in a release build.
 pub fn key_cmp(a: &[Value], b: &[Value]) -> Ordering {
     for (x, y) in a.iter().zip(b) {
-        match crate::ops::compare_key_value(x, y).unwrap_or(Ordering::Equal) {
+        let o = crate::ops::compare_key_value(x, y);
+        debug_assert!(o.is_ok(), "key values that do not compare: {x:?} and {y:?}");
+        match o.unwrap_or(Ordering::Equal) {
             Ordering::Equal => continue,
             o => return o,
         }

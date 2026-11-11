@@ -3,7 +3,15 @@
 
 use super::*;
 use crate::Store;
-use crate::contract::{cx, row, table};
+use crate::contract::{cx, row};
+
+/// The contract table without its secondary key: these tests put a handle (a List, a Blob, a RecordId) into field 2, which
+/// AL does not allow in a key, and the store refuses a key value whose order is not pinned (al-runner issue 7644).
+fn table() -> crate::TableDef {
+    let mut t = crate::contract::table();
+    t.keys.truncate(1);
+    t
+}
 
 fn base() -> MemStore {
     let (c, t) = (cx("C"), table());

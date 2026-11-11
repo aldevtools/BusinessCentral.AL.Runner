@@ -14,6 +14,7 @@
 
 use crate::Session;
 use al_builtins::datatransfer::Plan;
+use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{LibraryValue, RtType, Value};
@@ -52,6 +53,42 @@ fn pos(t: &TableDef, no: i32) -> Result<usize, Signal> {
             },
             Ok,
         )
+}
+
+/// The positions of the fields of an `AddJoin`. Only a join of two Code[20] fields is pinned (install-upgrade/
+/// AsDtInstaller.al:163, :195 and record/Y47DtInstall.al:350, read back by AsDtInstallRead.al and Y47DtInstallRead.al); any
+/// other pair of field types is refused before a row is written (al-runner issue 7644: a Guid against a Code that holds no
+/// Guid counted as no match). How the database matches other types (a Text's collation, a Guid against its text) is not
+/// pinned.
+fn join_fields(st: &TableDef, s: i32, dt: &TableDef, d: i32) -> Result<(usize, usize), Signal> {
+    let (sp, dp) = (pos(st, s)?, pos(dt, d)?);
+    let (a, b) = (&st.fields[sp].ty, &dt.fields[dp].ty);
+    if *a != RtType::Code(Some(20)) || a != b {
+        return refuse(format!(
+            "DataTransfer.AddJoin of {} field {} with {} field {} (only a join of two Code[20] fields is pinned)",
+            st.name, st.fields[sp].name, dt.name, dt.fields[dp].name
+        ));
+    }
+    Ok((sp, dp))
+}
+
+/// Whether the source row `s` matches the destination row `d` on every join field. Two values that do not compare refuse:
+/// they are neither a match nor no match (al-runner issue 7644).
+fn joined(joins: &[(usize, usize)], s: &[Value], d: &[Value]) -> Result<bool, Signal> {
+    for &(sp, dp) in joins {
+        match al_builtins::ops::compare(&s[sp], &d[dp]) {
+            Ok(o) if o.is_eq() => {}
+            Ok(_) => return Ok(false),
+            Err(_) => {
+                return refuse(format!(
+                    "DataTransfer.AddJoin comparing {} with {} (not pinned)",
+                    s[sp].describe(),
+                    d[dp].describe()
+                ));
+            }
+        }
+    }
+    Ok(true)
 }
 
 impl Session {
@@ -249,18 +286,16 @@ impl Session {
             let joins: Vec<(usize, usize)> = plan
                 .joins
                 .iter()
-                .map(|(s, d)| Ok((pos(&st, *s)?, pos(&dt, *d)?)))
+                .map(|(s, d)| join_fields(&st, *s, &dt, *d))
                 .collect::<Result<_, Signal>>()?;
             let mut out = Vec::new();
             for row in rows {
-                let matches: Vec<&Vec<Value>> = sources
-                    .iter()
-                    .filter(|s| {
-                        joins
-                            .iter()
-                            .all(|&(sp, dp)| al_builtins::ops::compare(&s[sp], &row[dp]).is_ok_and(|o| o.is_eq()))
-                    })
-                    .collect();
+                let mut matches: Vec<&Vec<Value>> = Vec::new();
+                for s in &sources {
+                    if joined(&joins, s, &row)? {
+                        matches.push(s);
+                    }
+                }
                 match matches.as_slice() {
                     [] => {}
                     [source] => {

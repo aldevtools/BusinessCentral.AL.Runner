@@ -424,6 +424,17 @@ impl Session {
     }
 
     /// `ReadIsolation` and `SecurityFiltering`, read (no argument) or set (an option member).
+    /// Where the record's marks hold the primary key `pk`. A mark whose key does not compare with it refuses (al-runner
+    /// issue 7644).
+    fn mark_index(rec: &Rec, pk: &[Value]) -> Result<Option<usize>, Signal> {
+        for (i, m) in rec.borrow().marks.iter().enumerate() {
+            if ops::compare_keys(m, pk)? {
+                return Ok(Some(i));
+            }
+        }
+        Ok(None)
+    }
+
     fn isolation_or_security_filtering(
         &mut self,
         method: RecordOp,
@@ -523,7 +534,7 @@ impl Session {
             // What the call returns then (the previous state?) is not pinned, so a used result is refused.
             RecordOp::Mark => {
                 let pk = t.primary_key(&rec.borrow().fields);
-                let at = rec.borrow().marks.iter().position(|m| ops::compare_keys(m, &pk));
+                let at = Self::mark_index(rec, &pk)?;
                 match args.first() {
                     None => Ok(Value::Boolean(at.is_some())),
                     // Mark(SetMark) returns the new state

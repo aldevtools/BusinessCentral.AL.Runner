@@ -28,11 +28,6 @@ type JoinedRow = Vec<Vec<Value>>;
 /// (table object, version) of each table a query reads.
 type Stamps = Vec<(u32, u64)>;
 
-thread_local! {
-    /// Set when a sort compared texts that have no pinned collation order.
-    static COLLATION_FAILED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
 /// `ColumnNo`: the FNV-1a 32 hash of the column's name in UTF-16LE, read as a signed 32-bit
 /// number, without its sign (record/PnAQueryFiltersColumnNo.al:143-150 for
 /// four columns and a filter element, :168-175 for seven aggregated columns). The one hash whose
@@ -58,21 +53,30 @@ fn arg_col(args: &[Value], i: usize) -> Result<usize, Signal> {
 }
 
 /// Compares two sort keys: the first `dirs.len()` entries in the given directions, the rest
-/// ascending.
-fn key_cmp(a: &[Value], b: &[Value], dirs: &[bool]) -> Ordering {
+/// ascending. Two values that do not compare refuse (al-runner issue 7644: they counted as equal).
+fn key_cmp(a: &[Value], b: &[Value], dirs: &[bool]) -> Result<Ordering, Signal> {
     for (i, (x, y)) in a.iter().zip(b).enumerate() {
         // Text sorts and groups by the database collation (case sensitive), not by code point
         // (queries/TestQueryRuntimeContracts.al:Query_OrderByText_UsesTheDatabaseCollation_NotOrdinalOrder).
         let o = match (text_of(x), text_of(y)) {
-            (Some(s), Some(t)) if matches!(x, Value::Text(_) | Value::Code(_)) => match collation::compare(&s, &t) {
+            (Some(s), Some(t)) if matches!(x, Value::Text(_) | Value::Code(_)) => {
+                collation::compare(&s, &t).map_err(|_| {
+                    Signal::unsupported(
+                        "sorting or grouping text with characters whose database collation order is not pinned",
+                    )
+                })?
+            }
+            _ => match ops::compare(x, y) {
                 Ok(o) => o,
-                // A character without a weight: the caller refuses the result.
+                Err(e @ Signal::Unsupported(_)) => return Err(e),
                 Err(_) => {
-                    COLLATION_FAILED.with(|f| f.set(true));
-                    s.cmp(&t)
+                    return unsupported(format!(
+                        "sorting or grouping a query by {} and {} (not pinned)",
+                        x.describe(),
+                        y.describe()
+                    ));
                 }
             },
-            _ => ops::compare(x, y).unwrap_or(Ordering::Equal),
         };
         let o = if dirs.get(i).copied().unwrap_or(true) {
             o
@@ -80,10 +84,22 @@ fn key_cmp(a: &[Value], b: &[Value], dirs: &[bool]) -> Ordering {
             o.reverse()
         };
         if o != Ordering::Equal {
-            return o;
+            return Ok(o);
         }
     }
-    Ordering::Equal
+    Ok(Ordering::Equal)
+}
+
+/// Sorts `items` by the sort key `key` gives ([`key_cmp`]); the first comparison that refuses is the answer.
+fn sort_by_key<T>(items: &mut [T], key: impl Fn(&T) -> &[Value], dirs: &[bool]) -> Result<(), Signal> {
+    let mut refused = None;
+    items.sort_by(|a, b| {
+        key_cmp(key(a), key(b), dirs).unwrap_or_else(|e| {
+            refused.get_or_insert(e);
+            Ordering::Equal
+        })
+    });
+    refused.map_or(Ok(()), Err)
 }
 
 fn negate(v: Value) -> Result<Value, Signal> {
@@ -861,7 +877,13 @@ impl Session {
             let mut q = qs.borrow_mut();
             let run = q.run.as_mut().expect("open");
             if let Some(last) = &run.last_key {
-                rows.retain(|r| key_cmp(&r.key, last, &dirs) == Ordering::Greater);
+                let mut after = Vec::with_capacity(rows.len());
+                for r in rows {
+                    if key_cmp(&r.key, last, &dirs)? == Ordering::Greater {
+                        after.push(r);
+                    }
+                }
+                rows = after;
             }
             run.rows = rows;
             run.next = 0;
@@ -907,7 +929,6 @@ impl Session {
             self.permission_gate_object_read(self.query_object, &tables)?;
         }
         let stamps = self.query_stamps(def);
-        COLLATION_FAILED.with(|f| f.set(false));
         let plan = self.query_plan(def, runtime)?;
         // The joined rows: one row of each dataitem's table.
         let mut joined: Vec<JoinedRow> = Vec::new();
@@ -955,12 +976,7 @@ impl Session {
         // declares them (corpus queries/PWQueryContracts.al:165-178: grouping by Grp2 then Grp1 gives
         // `A 1`, `A 2`, `B 2`, `C 1`), which `group_rows` already does; grouping columns that start
         // with the root key give that key's order (queries/TestQueryCrossJoinContracts.al:202-213).
-        rows.sort_by(|a, b| key_cmp(&a.key, &b.key, &dirs));
-        if COLLATION_FAILED.with(|f| f.replace(false)) {
-            return unsupported(
-                "sorting or grouping text with characters whose database collation order is not pinned",
-            );
-        }
+        sort_by_key(&mut rows, |r| &r.key, &dirs)?;
         // Rows that tie on every OrderBy column and still differ are ordered by the primary key
         // ascending (corpus queries/TestQueryOrderAfterWrite.al:92-104, ascending only); grouped rows
         // as below. Ties under a descending OrderBy still ascend by primary key
@@ -1394,11 +1410,11 @@ impl Session {
             keyed.push((key, j));
         }
         // Rows with the same group columns form one group (SQL's GROUP BY).
-        keyed.sort_by(|a, b| key_cmp(&a.0, &b.0, &[]));
+        sort_by_key(&mut keyed, |k| &k.0, &[])?;
         let mut groups: Vec<(Vec<Value>, Vec<JoinedRow>)> = Vec::new();
         for (key, j) in keyed {
             match groups.last_mut() {
-                Some((k, rows)) if key_cmp(k, &key, &[]) == Ordering::Equal => rows.push(j),
+                Some((k, rows)) if key_cmp(k, &key, &[])? == Ordering::Equal => rows.push(j),
                 _ => groups.push((key, vec![j])),
             }
         }
@@ -1579,5 +1595,37 @@ fn sum_fits_column(ty: &RtType, sum: Decimal) -> bool {
         RtType::Integer => i32::try_from(whole).is_ok(),
         RtType::BigInteger | RtType::Duration => i64::try_from(whole).is_ok(),
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // al-runner issue 7644: two sort values that do not compare counted as equal, and a text the collation has no weight for
+    // was only reported through a flag one caller never read.
+    #[test]
+    fn sort_keys_that_do_not_compare_refuse() {
+        let unknown = Value::Unknown("a column nothing pins".into());
+        assert!(matches!(
+            key_cmp(&[unknown], &[Value::Integer(1)], &[]),
+            Err(Signal::Unsupported(_))
+        ));
+        assert_eq!(
+            key_cmp(&[Value::Integer(2)], &[Value::Integer(1)], &[false]).unwrap(),
+            Ordering::Less
+        );
+        let mut rows = vec![
+            vec![Value::Integer(2)],
+            vec![Value::Guid([0; 16])],
+            vec![Value::Integer(1)],
+        ];
+        assert!(matches!(
+            sort_by_key(&mut rows, |r| r, &[]),
+            Err(Signal::Unsupported(_))
+        ));
+        let mut rows = vec![vec![Value::Integer(2)], vec![Value::Integer(1)]];
+        sort_by_key(&mut rows, |r| r, &[]).unwrap();
+        assert!(matches!(rows[0][0], Value::Integer(1)));
     }
 }

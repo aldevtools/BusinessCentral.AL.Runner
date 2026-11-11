@@ -1742,12 +1742,59 @@ fn guid_of_text(t: &str) -> Result<[u8; 16], Signal> {
     ))
 }
 
-/// Whether two primary keys are the same value for value.
-pub fn compare_keys(a: &[Value], b: &[Value]) -> bool {
-    a.len() == b.len()
-        && a.iter()
-            .zip(b)
-            .all(|(x, y)| compare(x, y).ok() == Some(Ordering::Equal))
+/// Whether two primary keys are the same value for value. Two values that [`compare`] cannot order (an unknown column, a
+/// text holding a marker, two kinds that do not compare) refuse: such keys are neither the same nor different, and counting
+/// them as different hid the refusal (al-runner issue 7644). A comparison that raises an AL error refuses too: no key
+/// comparison of the runtime's own raises one in BC.
+pub fn compare_keys(a: &[Value], b: &[Value]) -> Result<bool, Signal> {
+    if a.len() != b.len() {
+        return Ok(false);
+    }
+    for (x, y) in a.iter().zip(b) {
+        match compare(x, y) {
+            Ok(Ordering::Equal) => {}
+            Ok(_) => return Ok(false),
+            Err(e @ Signal::Unsupported(_)) => return Err(e),
+            Err(_) => {
+                return unsupported(format!(
+                    "a comparison of the key values {} and {} (not pinned)",
+                    x.describe(),
+                    y.describe()
+                ));
+            }
+        }
+    }
+    Ok(true)
+}
+
+/// Why the order of a key cannot place `v`, when it cannot (al-runner issue 7644). The store orders its rows with
+/// [`compare_key_value`] and counts a comparison that fails as equal, so it takes only values whose comparison with any other
+/// value of the same field answers: the scalar kinds a key field holds, a text without a marker and a RecordId of such values.
+/// Anything else (a text holding a marker, an unknown column, any other kind) is refused where it would enter a key.
+pub fn key_orderable(v: &Value) -> Result<(), String> {
+    use Value as V;
+    match v {
+        V::Integer(_)
+        | V::BigInteger(_)
+        | V::Decimal(_)
+        | V::Boolean(_)
+        | V::Date(..)
+        | V::Time(_)
+        | V::DateTime(_)
+        | V::Duration(_)
+        | V::Guid(_)
+        | V::DateFormula(_)
+        | V::Option(..)
+        | V::Enum(..) => Ok(()),
+        V::Text(t) | V::Code(t) if !t.has_marker() => Ok(()),
+        V::Unknown(why) => Err(why.to_string()),
+        V::Library(_, l) => match &*l.borrow() {
+            LibraryValue::Empty => Ok(()),
+            LibraryValue::RecordId { key, .. } => key.iter().try_for_each(key_orderable),
+            _ => Err(format!("{} in a key (its order is not pinned)", v.describe())),
+        },
+        _ => Err(format!("{} in a key (its order is not pinned)", v.describe())),
+    }
 }
 
 pub fn truthy(v: &Value) -> Result<bool, Signal> {
@@ -2786,6 +2833,47 @@ mod tests {
                 assert_eq!(e.code, "ConversionCast");
             }
             other => panic!("{other:?}"),
+        }
+    }
+    #[test]
+    fn keys_that_do_not_compare_refuse_instead_of_counting_as_different() {
+        // al-runner issue 7644: a failed comparison was "not the same key".
+        use super::compare_keys;
+        let pk = |v: Value| vec![Value::Code("A".into()), v];
+        assert!(compare_keys(&pk(Value::Integer(1)), &pk(Value::Integer(1))).unwrap());
+        assert!(!compare_keys(&pk(Value::Integer(1)), &pk(Value::Integer(2))).unwrap());
+        assert!(!compare_keys(&[Value::Integer(1)], &pk(Value::Integer(1))).unwrap());
+        let unknown = Value::Unknown("a column nothing pins".into());
+        assert!(matches!(
+            compare_keys(&pk(unknown), &pk(Value::Integer(1))),
+            Err(Signal::Unsupported(_))
+        ));
+        // A Guid against a text that holds none raises InvalidGuidFormat in AL; between two keys it refuses.
+        assert!(matches!(
+            compare_keys(&[Value::Guid([1; 16])], &[Value::Code("X".into())]),
+            Err(Signal::Unsupported(_))
+        ));
+    }
+    #[test]
+    fn a_key_takes_the_scalar_kinds_and_refuses_a_marked_text_and_an_unknown_column() {
+        use super::key_orderable;
+        for v in [
+            Value::Integer(1),
+            Value::Code("A".into()),
+            Value::Text("a".into()),
+            Value::Guid([0; 16]),
+            Value::Date(5, false),
+            Value::Enum(3, 1),
+        ] {
+            assert!(key_orderable(&v).is_ok(), "{v:?}");
+        }
+        let marked = format!("a{}", crate::native::CALL_STACK_MARK);
+        for v in [
+            Value::Text(marked.as_str().into()),
+            Value::Unknown("not pinned".into()),
+            Value::Null,
+        ] {
+            assert!(key_orderable(&v).is_err(), "{v:?}");
         }
     }
     #[test]

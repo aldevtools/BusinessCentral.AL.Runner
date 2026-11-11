@@ -53,10 +53,46 @@ impl TableDef {
     pub fn cmp_key_field(&self, i: usize, a: &Value, b: &Value) -> std::cmp::Ordering {
         match self.fields[i].code_storage {
             CodeStorage::Text | CodeStorage::Other => {
-                al_builtins::ops::compare_key_value(a, b).unwrap_or(std::cmp::Ordering::Equal)
+                let o = al_builtins::ops::compare_key_value(a, b);
+                // `check_key_values` keeps every value that does not compare out of the store (al-runner issue 7644).
+                debug_assert!(o.is_ok(), "key values that do not compare: {a:?} and {b:?}");
+                o.unwrap_or(std::cmp::Ordering::Equal)
             }
             s => code_storage::cmp_code(s, a, b),
         }
+    }
+
+    /// Refuses a row with a value in a key field that the key order cannot place ([`al_builtins::ops::key_orderable`]; al-runner
+    /// issue 7644): the comparators above count a failed comparison as equal, so such a value never enters the store. An
+    /// unknown column outside the primary key passes: the store refuses a read that sorts or filters by it
+    /// (`MemStore::unknown_read`).
+    pub fn check_key_values(&self, row: &[Value]) -> Result<(), StoreError> {
+        for (j, key) in self.keys.iter().enumerate() {
+            for &i in key {
+                if j > 0 && row[i].unknown().is_some() {
+                    continue;
+                }
+                self.check_key_value(i, &row[i])?;
+            }
+        }
+        Ok(())
+    }
+
+    /// [`TableDef::check_key_values`] for the primary key values `pk` a lookup goes by.
+    pub fn check_primary_key(&self, pk: &[Value]) -> Result<(), StoreError> {
+        self.keys[0]
+            .iter()
+            .zip(pk)
+            .try_for_each(|(&i, v)| self.check_key_value(i, v))
+    }
+
+    fn check_key_value(&self, i: usize, v: &Value) -> Result<(), StoreError> {
+        al_builtins::ops::key_orderable(v).map_err(|why| {
+            StoreError::Refused(format!(
+                "field {} of a key of table {}: {why}",
+                self.fields[i].name, self.name
+            ))
+        })
     }
 
     pub fn primary_key(&self, row: &[Value]) -> Vec<Value> {
@@ -93,6 +129,13 @@ impl std::fmt::Display for StoreError {
             StoreError::ChangedByAnotherUser => f.write_str("ChangedByAnotherUser"),
             StoreError::Refused(why) => f.write_str(why),
         }
+    }
+}
+
+/// A store error reaches AL code as a refusal with its text: the runtime models no database error (`?` on a store call).
+impl From<StoreError> for al_builtins::native::Signal {
+    fn from(e: StoreError) -> Self {
+        al_builtins::native::Signal::unsupported(e.to_string())
     }
 }
 

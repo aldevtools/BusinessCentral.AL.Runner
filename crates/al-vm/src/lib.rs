@@ -937,6 +937,8 @@ pub struct Session {
     /// The origin of the baseline the session restored and the store's change counter right after
     /// (`Session::baseline_origin`).
     pub(crate) baseline_origin: Option<(u64, u64)>,
+    /// Why a write of the platform's seed rows was refused (`platform::seed`); the session then refuses every test.
+    pub(crate) seed_refusal: Option<String>,
     /// Whether the builtin being called has its result used (ADR-011 `ret_used`).
     pub(crate) ret_used: bool,
     /// The form of the text of the `FieldError` being called, for the text `GetLastErrorText(true)` answers
@@ -1308,6 +1310,7 @@ impl Session {
             },
             baseline_rows: Default::default(),
             baseline_origin: None,
+            seed_refusal: None,
             ret_used: true,
             field_error_form: None,
             error_finals: None,

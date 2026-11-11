@@ -128,7 +128,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 ### al-data
 
 - `contract.rs` (220): The conformance suite every `Store` must pass (ADR-003). Entry: `table` 7, `cx` 36, `row` 43, `scan_all` 59.
-- `lib.rs` (153): The Store trait and table definitions (TableDef, Row, AccessContext). Entry: `Store` 120, `TableDef` 21, `FieldDef` 12, `AccessContext` 40, `InsertOutcome` 58.
+- `lib.rs` (153): The Store trait and table definitions (TableDef, Row, AccessContext). Owns which values may enter a key: `TableDef::check_key_values` (writes, `Rows::from_rows`) and `check_primary_key` (lookups) refuse a value `al_builtins::ops::key_orderable` rejects, so the key comparators never meet values that do not compare (al-runner issue 7644). Entry: `Store` 120, `TableDef` 21, `FieldDef` 12, `AccessContext` 40, `InsertOutcome` 58.
 - `memory.rs` (640): In-memory store on persistent maps; a `Backing` gives untouched tables their restored rows (test data). Entry: `MemStore` 33, `with_virtual_tables` 63, `detached` 72, `attached` 83.
 - `memory/key.rs`: The primary-key tuple `Key` and its table's order: every key of a table carries the storage of the primary key fields (`PkStorage`, Code stored as a number orders by number), and an export, freeze or row delta carries it with the rows (al-runner issue 7618). Entry: `Key::of`, `Key::in_table`, `table_storage`.
 - `memory/order_carry.rs`: Keeps a cached secondary-key order (`order_of`) through an Insert, a Delete or a Modify that moves a row, by a binary-search insert instead of a new sort (al-runner issue 6924). Entry: `carry_orders`, `carry_moved`.

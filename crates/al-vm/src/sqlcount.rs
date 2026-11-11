@@ -586,9 +586,10 @@ impl SqlCounters {
         let cost = match kind {
             Kind::Get if ok && !trigger => {
                 let key = key?;
-                let other_gets = reads
-                    .iter()
-                    .all(|r| r.as_ref().is_some_and(|k| !al_builtins::ops::compare_keys(k, key)));
+                let mut other_gets = true;
+                for r in reads {
+                    other_gets &= r.is_some() && !same_key(r.as_deref()?, key)?;
+                }
                 other_gets.then_some(Cost::Exact(1, 1))?
             }
             Kind::FindSet if no_reads && !trigger => {
@@ -617,9 +618,7 @@ impl SqlCounters {
             Kind::Modify if ok && !trigger => {
                 let key = key?;
                 match &self.prev_db {
-                    Some((Kind::Get, t, true, Some(k))) if *t == table && al_builtins::ops::compare_keys(k, key) => {
-                        Cost::Exact(1, 1)
-                    }
+                    Some((Kind::Get, t, true, Some(k))) if *t == table && same_key(k, key)? => Cost::Exact(1, 1),
                     _ => return None,
                 }
             }
@@ -908,7 +907,7 @@ impl SqlCounters {
             match want {
                 Kind::Insert => inserted = step[0].key.as_ref(),
                 Kind::Modify | Kind::Delete => match (step[0].key.as_ref(), inserted) {
-                    (Some(a), Some(b)) if al_builtins::ops::compare_keys(a, b) => {}
+                    (Some(a), Some(b)) if same_key(a, b)? => {}
                     _ => return None,
                 },
                 _ => {}
@@ -1002,6 +1001,12 @@ const INSERT_COUNT_STATEMENTS: [i64; 5] = [2, 3, 2, 3, 5];
 /// - N Gets of distinct rows: N/N; N Gets of one row: 1/1; a FindSet with Next to the end: 1/(N+1);
 /// - N times Get and Modify of distinct rows: 2N/2N; Get and Delete: 2N/N; a DeleteAll: 1/0; a Count: 1/1.
 ///
+/// Whether two primary keys are the same ([`al_builtins::ops::compare_keys`]); `None` when they do not compare, which leaves
+/// the cost or the segment unknown instead of guessing "different keys" (al-runner issue 7644).
+fn same_key(a: &[Value], b: &[Value]) -> Option<bool> {
+    al_builtins::ops::compare_keys(a, b).ok()
+}
+
 /// Every event is a method that succeeded, without RunTrigger and without AL code inside, on one table of the measured
 /// shape ([`Event::rows_before`]). Anything else (another N, order, mix, table or record state) is not sized.
 fn sized(seg: &[Event]) -> Option<(i64, i64)> {
@@ -1015,8 +1020,15 @@ fn sized(seg: &[Event]) -> Option<(i64, i64)> {
         return None;
     }
     let index = |n: usize| SIZED_N.iter().position(|&m| m == n);
+    // Keys that do not compare leave the segment not sized (al-runner issue 7644).
+    if seg.iter().any(|a| {
+        seg.iter()
+            .any(|b| matches!((&a.key, &b.key), (Some(x), Some(y)) if same_key(x, y).is_none()))
+    }) {
+        return None;
+    }
     let same_key = |a: &Event, b: &Event| match (&a.key, &b.key) {
-        (Some(x), Some(y)) => al_builtins::ops::compare_keys(x, y),
+        (Some(x), Some(y)) => same_key(x, y) == Some(true),
         _ => false,
     };
     let distinct = |evs: &[&Event]| {
@@ -1119,7 +1131,10 @@ fn sized_copy(seg: &[Event]) -> Option<(i64, i64)> {
             && inserted.first().is_none_or(|f| f.table == ins.table)
             && inserted
                 .iter()
-                .all(|p| !al_builtins::ops::compare_keys(p.key.as_ref().unwrap(), ins.key.as_ref().unwrap()));
+                .map(|p| same_key(p.key.as_ref()?, ins.key.as_ref()?))
+                .collect::<Option<Vec<bool>>>()?
+                .iter()
+                .all(|same| !same);
         if !insert_ok || next.kind != Kind::Next || !next.temp || next.table != first.table {
             return None;
         }
