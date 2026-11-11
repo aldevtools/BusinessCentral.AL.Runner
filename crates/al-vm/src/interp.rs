@@ -1442,7 +1442,6 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::unsupported(why.to_string()));
                 }
-                self.note_task_company_field(r.table, *pos);
                 if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
                     return Err(Signal::unsupported(why));
                 }
@@ -1642,6 +1641,9 @@ impl Session {
                 Value::Record(rc) => {
                     self.connection_check(&rc)?;
                     let mut r = rc.borrow_mut();
+                    if let Some(why) = r.unpinned_buffer {
+                        crate::records::held_part_field_write(why)?;
+                    }
                     let v = field_blob(&r.fields[*pos], v, assign);
                     r.before_field_write();
                     r.fields[*pos] = v;
