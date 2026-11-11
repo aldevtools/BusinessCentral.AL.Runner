@@ -902,6 +902,8 @@ struct Owner<'a> {
     column_starts: Vec<usize>,
     /// (ordinal, routine index) of the synthetic routine of each column that has one.
     column_routines: HashMap<usize, usize>,
+    /// The table of each global `Record` variable the object declares, by lower-case name.
+    record_globals: HashMap<String, usize>,
 }
 
 impl<'a> Owner<'a> {
@@ -930,6 +932,17 @@ impl<'a> Owner<'a> {
                 }
             }
         }
+        let mut record_globals = HashMap::default();
+        for d in obj.var_decls() {
+            let Some(t) = d.type_ref().filter(|t| t.type_name().eq_ignore_ascii_case("record")) else {
+                continue;
+            };
+            if let Resolution::Found(table) = ws.resolve_ref(file, ObjKind::Table, &t.object_name_parts()) {
+                for name in d.names() {
+                    record_globals.insert(name.to_lowercase(), table);
+                }
+            }
+        }
         Owner {
             ws,
             members,
@@ -938,7 +951,25 @@ impl<'a> Owner<'a> {
             routine_at,
             column_starts,
             column_routines,
+            record_globals,
         }
+    }
+
+    /// `(table, field position)` of a source `Global.Field`, where `Global` is a global Record variable of the object.
+    fn global_record_field(&self, source: &str) -> Option<(usize, usize)> {
+        let parts = split_outside_quotes(source.trim());
+        let [var, member] = parts.as_slice() else {
+            return None;
+        };
+        let table = *self
+            .record_globals
+            .get(&crate::scan::unquote_double(var).to_lowercase())?;
+        let member = crate::scan::unquote_double(member);
+        let pos = self.members[table]
+            .fields
+            .iter()
+            .position(|f| f.name.eq_ignore_ascii_case(&member))?;
+        Some((table, pos))
     }
 
     /// The columns declared directly in `sec` (a `dataitem` or an extension's `add`).
@@ -1013,6 +1044,13 @@ impl<'a> Owner<'a> {
                         .iter()
                         .position(|f| f.name.eq_ignore_ascii_case(&member))
                 });
+                // The field whose DecimalPlaces decide the `decimalformatter`: the bare field, `Item.Field` of the own item, or
+                // `Global.Field` of a global Record variable of the object (reports/dataset/DatasetDecimalPlacesValueOrigins.al:241
+                // `Row.D05`, :365 `RecLiteral.D05`). A field of another data item keeps the default.
+                let places = match (field, item_field) {
+                    (Some(f), _) | (None, Some(f)) => table.map(|t| (t, f)),
+                    _ => self.global_record_field(args.get(1).map(String::as_str).unwrap_or_default()),
+                };
                 ir::ReportColumn {
                     name,
                     routine,
@@ -1029,10 +1067,48 @@ impl<'a> Owner<'a> {
                     option_caption_ml,
                     auto_format_type,
                     auto_format_expression,
+                    name_source: args.get(1).is_some_and(|s| is_name_source(s)),
+                    places_table: places.map(|p| p.0),
+                    places_field: places.map(|p| p.1),
                 }
             })
             .collect()
     }
+}
+
+/// A column source that is a name: one identifier, or two joined by one dot (`Var`, `"Quantity Invoiced"`, `Rec.D05`). Each part
+/// is a plain identifier or a double-quoted name without a quote inside.
+fn is_name_source(source: &str) -> bool {
+    let part = |p: &str| {
+        let p = p.trim();
+        match p.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
+            Some(inner) => !inner.is_empty() && !inner.contains('"'),
+            None => {
+                p.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+                    && p.chars().all(|c| c.is_alphanumeric() || c == '_')
+            }
+        }
+    };
+    let parts = split_outside_quotes(source.trim());
+    (1..=2).contains(&parts.len()) && parts.iter().all(|p| part(p))
+}
+
+/// `s` split at each dot outside double quotes.
+fn split_outside_quotes(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let (mut start, mut quoted) = (0, false);
+    for (i, c) in s.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            '.' if !quoted => {
+                out.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&s[start..]);
+    out
 }
 
 /// An enclosing data item a `DataItemLinkReference` names: its index and its table.

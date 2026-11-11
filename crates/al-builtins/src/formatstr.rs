@@ -1465,11 +1465,21 @@ fn iso_week(day: i32) -> i32 {
 fn code_name(base: &str, date: Option<(i32, u32, u32)>, day_no: Option<i32>, language: i32) -> Result<String, String> {
     // The month names follow `GlobalLanguage`: German is pinned (metadata/platform-tables/PlTSession.al:
     // GlobalLanguage_SetAndRestore, `März`); another language than English and German is not.
-    if language != 1033 && language != 1031 {
+    if !matches!(language, 1033 | 1031 | 2067) {
         return Err(format!("{base} in the language {language} (not pinned)"));
     }
     let weekday = (day_no.unwrap_or(1) - 1).rem_euclid(7);
     Ok(match (base, date) {
+        // Dutch (Belgium): December `december` and Wednesday `woensdag` are pinned (reports/runtime/
+        // ReportLanguageNotRunFormats.al:242 `mw=december woensdag`); the other months and days are not.
+        ("Month Text", Some((_, 12, _))) if language == 2067 => "december".to_string(),
+        ("Weekday Text", Some(_)) if language == 2067 && weekday == 2 => "woensdag".to_string(),
+        (_, Some((_, m, _))) if language == 2067 => {
+            return Err(format!(
+                "{base} in the language {language} for month {m}, weekday {} (not pinned)",
+                weekday + 1
+            ));
+        }
         ("Month Text", Some((_, m, _))) if language == 1031 => MONTHS_DE[m as usize - 1].to_string(),
         // German weekday names: Monday `Montag` and Thursday `Donnerstag` are pinned (format-evaluate/
         // P144DateTextWidth.al:165-180); the other days are not.

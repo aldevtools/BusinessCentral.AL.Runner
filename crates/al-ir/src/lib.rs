@@ -684,6 +684,16 @@ pub struct ReportColumn {
     pub auto_format_type: Option<String>,
     #[serde(default)]
     pub auto_format_expression: Option<String>,
+    /// The source is a name: a variable, a field, or `Record.Field` (no operator, call or literal). A Decimal value of such a
+    /// column is written without trailing zeros; an expression column keeps the scale of its arithmetic (al-vm `reports.rs`).
+    #[serde(default)]
+    pub name_source: bool,
+    /// The table (object index) and field position whose `DecimalPlaces` decide the `decimalformatter` when the column states
+    /// none: the field the source names (bare, `Item.Field` of the own item, or `Global.Field` of a global Record variable).
+    #[serde(default)]
+    pub places_table: Option<usize>,
+    #[serde(default)]
+    pub places_field: Option<usize>,
 }
 
 /// What a reportextension adds to a run of the report it extends.

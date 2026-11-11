@@ -95,3 +95,13 @@ mod tests {
         assert_eq!(f(None, Some("10"), Some("'x'")), "#,##0.00");
     }
 }
+
+/// The `DecimalPlaces` of field `pos` of table object `table` (`ReportColumn::places_table`, `places_field`).
+pub(crate) fn field_places(program: &al_ir::Program, (table, pos): (usize, usize)) -> Option<String> {
+    let field = program.objects.get(table)?.table.as_ref()?.fields.get(pos)?;
+    field
+        .properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("DecimalPlaces"))
+        .map(|(_, v)| v.clone())
+}

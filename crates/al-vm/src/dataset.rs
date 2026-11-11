@@ -116,13 +116,14 @@ pub(crate) fn data_item_name(name: &str) -> Result<String, Signal> {
 
 /// A digit that starts an XML element name of a report (a dataset data item, a Word XML part element or namespace),
 /// written as its character code: `1` is `_x0031_` (reports/WordXmlPartNames.al:450 `_x0031_LT_WXP_Digit_Under__x`),
-/// `2` is `_x0032_` (the same line, `_x0032_nd_Item`; reports/W3ReportDataset.al:395 `_x0032_nd_item`). Only these two
-/// digits are pinned; the others are refused.
+/// `2` is `_x0032_` (the same line, `_x0032_nd_Item`; reports/W3ReportDataset.al:395 `_x0032_nd_item`), `0`, `3` and `9` the
+/// same (reports/dataset/DataItemNamesLeadingDigit.al:62, :93, :103 `_x0030_x_item`, `_x0033_x_item`, `_x0039_x`, in the
+/// dataset and in the plain and extended Word XML part). The digits 4 to 8 are not pinned and are refused.
 pub(crate) fn leading_digit(d: char, name: &str) -> Result<String, Signal> {
     match d {
-        '1' | '2' => Ok(format!("_x{:04X}_", u32::from(d))),
+        '0'..='3' | '9' => Ok(format!("_x{:04X}_", u32::from(d))),
         _ => unsupported(format!(
-            "the XML name of `{name}`, which starts with the digit {d} (only 1 and 2 are pinned)"
+            "the XML name of `{name}`, which starts with the digit {d} (only 0 to 3 and 9 are pinned)"
         )),
     }
 }
@@ -561,8 +562,13 @@ impl Dataset {
         }
         self.body.push_str(&format!(" name=\"{name}\""));
         // From BC 28 (`Gate::ReportSaveAsDataItemIdentity`): the data item's table id and a GUID.
+        // A data item over the Integer table writes no systemId (reports/runtime/ReportLanguageNotRunFormats.al:245,
+        // reports/dataset/DataItemNamesLeadingDigit.al:84): `dataset_identity` gives it an empty one.
         if let Some((table, guid)) = identity {
-            self.body.push_str(&format!(" tableId=\"{table}\" systemId=\"{guid}\""));
+            self.body.push_str(&format!(" tableId=\"{table}\""));
+            if !guid.is_empty() {
+                self.body.push_str(&format!(" systemId=\"{guid}\""));
+            }
         }
         self.body.push_str(">\r\n");
         self.pad(at + 2);
@@ -1273,9 +1279,12 @@ mod tests {
         // reports/W3ReportDataset.al:395.
         assert_eq!(dataset_name("Child-Item.1").unwrap(), "Child_Item_1");
         assert_eq!(data_item_name("2nd item").unwrap(), "_x0032_nd_item");
-        // A leading digit is pinned for 1 and 2 only (WordXmlPartNames.al:450, W3ReportDataset.al:395).
+        // A leading digit is pinned for 0 to 3 and 9 (WordXmlPartNames.al:450, W3ReportDataset.al:395,
+        // reports/dataset/DataItemNamesLeadingDigit.al:84); 4 to 8 are not.
         assert_eq!(data_item_name("1st item").unwrap(), "_x0031_st_item");
-        for name in ["0 item", "9th item"] {
+        assert_eq!(data_item_name("0 item").unwrap(), "_x0030__item");
+        assert_eq!(data_item_name("9th item").unwrap(), "_x0039_th_item");
+        for name in ["4 item", "8th item"] {
             assert!(matches!(data_item_name(name), Err(Signal::Unsupported(_))), "{name}");
         }
         assert_eq!(data_item_name("My Item (x)").unwrap(), "My_Item_x");
@@ -1296,5 +1305,31 @@ mod tests {
     fn text_is_escaped() {
         assert_eq!(escape("one <&>").unwrap(), "one &lt;&amp;&gt;");
         assert!(escape("a\u{1}b").is_err());
+    }
+}
+
+/// The text of a Decimal column. An expression column writes the decimal as it is, scale and all: `12.345678 * 1.5` is
+/// `18.5185170` (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309); Format would trim the zero. A column whose
+/// source is a name (field, variable, `Rec.Field`) writes it without trailing zeros, whatever the value's origin and the
+/// DecimalPlaces (reports/dataset/DatasetDecimalPlacesValueOrigins.al:241-247 stored fields, :365 fields of a global record
+/// never stored, :398 global variables: `Round(1, 0.00001)`, `0.5 * 2` and `Evaluate(.., '1.00000')` are all `1`; al-runner
+/// issue 7440).
+pub(crate) fn decimal_text(d: rust_decimal::Decimal, name_source: bool) -> String {
+    if name_source {
+        d.normalize().to_string()
+    } else {
+        d.to_string()
+    }
+}
+
+/// The fields of a data item's row as it is read: a Decimal read from the database carries no trailing zeros. An expression
+/// column over a stored field that held `Round(1, 0.00001)` writes `1` (reports/dataset/DatasetDecimalPlacesValueOrigins.al:
+/// 241-247, column D05Times1), while the scale of the arithmetic on it stays (`12.345678 * 1.5` is `18.5185170`,
+/// reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309).
+pub(crate) fn normalize_read_decimals(fields: &mut [al_builtins::value::Value]) {
+    for f in fields {
+        if let al_builtins::value::Value::Decimal(d) = f {
+            *d = d.normalize();
+        }
     }
 }
