@@ -16,6 +16,7 @@ struct Rows {
     company: String,
     object: u32,
     whole: bool,
+    pk_storage: al_data::memory::PkStorage,
     /// The rows to put: count, then key and row of each.
     put: Vec<u8>,
     /// The keys of the rows that are gone: count, then each key.
@@ -111,6 +112,7 @@ impl Baseline {
                 company: t.company,
                 object: t.object,
                 whole: t.whole,
+                pk_storage: t.pk_storage,
                 put,
                 gone,
             });
@@ -161,6 +163,7 @@ impl Baseline {
                 company: t.company.clone(),
                 object: t.object,
                 whole: t.whole,
+                pk_storage: t.pk_storage.clone(),
                 put,
                 gone,
             });
@@ -209,6 +212,7 @@ mod tests {
 
     fn rows(object: u32, keys: impl Iterator<Item = i32>, v: i32) -> ExportedTable {
         ExportedTable {
+            pk_storage: None,
             company: "CRONUS".into(),
             object,
             rows: keys

@@ -28,9 +28,11 @@ pub struct FrozenStore {
     held: Vec<Held>,
 }
 
-/// A table held as bytes: its place, its rows written with `value_codec::encode_row` (key, then row), and how many.
+/// A table held as bytes: its place, the order of its keys, its rows written with `value_codec::encode_row` (key, then
+/// row), and how many.
 struct Held {
     slot: Slot,
+    pk_storage: super::PkStorage,
     bytes: Vec<u8>,
     rows: usize,
 }
@@ -181,6 +183,7 @@ impl FrozenStore {
             }
             held.push(Held {
                 slot: slot.clone(),
+                pk_storage: super::table_storage(rows),
                 bytes,
                 rows: rows.len(),
             });
@@ -203,8 +206,7 @@ impl FrozenStore {
 
     /// A store of this thread's own holding the frozen tables, committed, with fresh caches and no provider or backing
     /// (`MemStore::with_backing` adds one). A clone of the maps' roots: no row is copied.
-    /// A table held as bytes is read into a copy of this thread's own; its key's code storage is empty, as in a store
-    /// read from bytes (`MemStore::from_exported`), which is what `Baseline::freeze` freezes.
+    /// A table held as bytes is read into a copy of this thread's own, its keys in the order it had.
     pub fn thaw(&self) -> MemStore {
         let mut tables = self.tables.clone();
         for h in &self.held {
@@ -213,7 +215,7 @@ impl FrozenStore {
                 .map(|_| {
                     let k = al_builtins::value_codec::decode_row(&mut r).expect("bytes `freeze` wrote");
                     let row = al_builtins::value_codec::decode_row(&mut r).expect("bytes `freeze` wrote");
-                    (super::Key(k, None), row)
+                    (super::Key::in_table(k, &h.pk_storage), row)
                 })
                 .collect();
             tables.insert(h.slot.clone(), table);

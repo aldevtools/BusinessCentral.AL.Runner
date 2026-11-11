@@ -227,7 +227,7 @@ fn a_scan_through_another_keys_band_follows_writes_between_the_steps() {
                 .unwrap();
             let expect = reference(&s, &t, key, &filters, ascending).into_iter().find(|r| {
                 after.as_ref().is_none_or(|a| {
-                    let o = key_cmp(&crate::position(&t, key, r), a);
+                    let o = al_builtins::filter::key_cmp(&crate::position(&t, key, r), a);
                     if ascending {
                         o == Ordering::Greater
                     } else {
