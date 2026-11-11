@@ -58,7 +58,9 @@ pub(crate) fn subscribers_reached(
     object: usize,
     routine: usize,
 ) -> Vec<(usize, usize)> {
-    subscribers_reached_from(engine, lowered, &[(object, routine)]).into_iter().collect()
+    subscribers_reached_from(engine, lowered, &[(object, routine)])
+        .into_iter()
+        .collect()
 }
 
 /// [`subscribers_reached`] of each of the routines `roots`, together: one walk of the union of their reaches. The walk

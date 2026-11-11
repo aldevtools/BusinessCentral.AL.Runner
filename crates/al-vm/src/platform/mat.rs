@@ -159,11 +159,11 @@ pub(crate) struct SharedMat(Mat);
 impl SharedMat {
     /// The listing for sharing, or the listing back when a row holds a handle (a provider listed
     /// something that cannot be shared between threads).
-    pub(crate) fn try_new(m: Mat) -> Result<SharedMat, Mat> {
+    pub(crate) fn try_new(m: Mat) -> Result<SharedMat, Box<Mat>> {
         if m.rows.iter().all(|row| row.iter().all(Value::is_plain)) {
             Ok(SharedMat(m))
         } else {
-            Err(m)
+            Err(Box::new(m))
         }
     }
 }

@@ -650,12 +650,12 @@ impl Providers {
         } else if kind == Virtual::PublishedApplication {
             match apps::published_application_listing(self, build) {
                 Ok(m) => Listed::Shared(m),
-                Err(m) => Listed::Own(Rc::new(m)),
+                Err(m) => Listed::Own(Rc::new(*m)),
             }
         } else {
             match mat::SharedMat::try_new(build()) {
                 Ok(m) => Listed::Shared(Arc::new(m)),
-                Err(m) => Listed::Own(Rc::new(m)),
+                Err(m) => Listed::Own(Rc::new(*m)),
             }
         };
         self.listed.borrow_mut().insert(kind, m.clone());

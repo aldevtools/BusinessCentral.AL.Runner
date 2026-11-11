@@ -534,7 +534,8 @@ impl<'a> JoinedReach<'a> {
 
     /// Whether a global of object `o` is in [`ReachFacts::globals_read`] of the joined reach.
     pub fn reads_a_global_of(&self, o: usize) -> bool {
-        self.parts().any(|f| f.globals_read.range((o, 0)..=(o, usize::MAX)).next().is_some())
+        self.parts()
+            .any(|f| f.globals_read.range((o, 0)..=(o, usize::MAX)).next().is_some())
     }
 
     /// The facts of the joined reach, built.
@@ -1966,13 +1967,27 @@ mod tests {
                     "{roots:?} skipping {skip:?}:\n{full:?}\n{built:?}"
                 );
                 // The questions asked of the parts give the answers of the full walk.
-                let tables = (full.touched.iter()).chain(&database_events.touched).chain(&database_events.writes);
+                let tables = (full.touched.iter())
+                    .chain(&database_events.touched)
+                    .chain(&database_events.writes);
                 for &t in tables {
-                    assert_eq!(joined.touches(t), full.touched.contains(&t), "{roots:?} {skip:?} table {t}");
-                    assert_eq!(joined.writes_table(t), full.writes.contains(&t), "{roots:?} {skip:?} table {t}");
+                    assert_eq!(
+                        joined.touches(t),
+                        full.touched.contains(&t),
+                        "{roots:?} {skip:?} table {t}"
+                    );
+                    assert_eq!(
+                        joined.writes_table(t),
+                        full.writes.contains(&t),
+                        "{roots:?} {skip:?} table {t}"
+                    );
                 }
                 for &g in full.globals_read.iter().chain(&database_events.globals_read) {
-                    assert_eq!(joined.reads_global(g), full.globals_read.contains(&g), "{roots:?} {skip:?} {g:?}");
+                    assert_eq!(
+                        joined.reads_global(g),
+                        full.globals_read.contains(&g),
+                        "{roots:?} {skip:?} {g:?}"
+                    );
                     let of = full.globals_read.iter().any(|x| x.0 == g.0);
                     assert_eq!(joined.reads_a_global_of(g.0), of, "{roots:?} {skip:?} {g:?}");
                 }

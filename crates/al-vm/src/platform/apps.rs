@@ -220,15 +220,27 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
 /// program ([`published_application_rows`]): the run's setting for dependency apps and the tenant id. Every test codeunit
 /// has a session of its own, and Microsoft's code reads the table in many of them.
 #[derive(Default)]
-struct PublishedListings(Mutex<Vec<((bool, String), Arc<SharedMat>)>>);
+struct PublishedListings(Mutex<Vec<(ListingKey, Arc<SharedMat>)>>);
+
+/// The run's setting for dependency apps and the tenant id ([`PublishedListings`]).
+type ListingKey = (bool, String);
 
 /// The Published Application listing of the session `p`, shared with the engine's other sessions with the same setting and
 /// tenant id; `Err` with the listing `build` made when it holds a handle (a description Blob) and stays the session's own.
-pub(super) fn published_application_listing(p: &Providers, build: impl FnOnce() -> Mat) -> Result<Arc<SharedMat>, Mat> {
+pub(super) fn published_application_listing(
+    p: &Providers,
+    build: impl FnOnce() -> Mat,
+) -> Result<Arc<SharedMat>, Box<Mat>> {
     let engine = p.engine();
     let key = (engine.dependencies_published_global, p.ident.tenant_id.clone());
     let kept = engine.derived(PublishedListings::default);
-    if let Some((_, m)) = kept.0.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(k, _)| *k == key) {
+    if let Some((_, m)) = kept
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(k, _)| *k == key)
+    {
         return Ok(m.clone());
     }
     let m = Arc::new(SharedMat::try_new(build())?);

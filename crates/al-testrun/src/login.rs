@@ -415,7 +415,10 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
     // its calls, the objects it runs, the table triggers and the other events still counts as its own. That the row is
     // there before the first test, whoever reads it, is LgnLoginChecklistTests.al:137-138; the read from a page's
     // triggers is the reporter's repro, which passes on BC 29.0.
-    if writes.iter().any(|t| own.touched.contains(t) && !own.writes.contains(t)) {
+    if writes
+        .iter()
+        .any(|t| own.touched.contains(t) && !own.writes.contains(t))
+    {
         return Login::Raise;
     }
     // A write that cannot add a row does not give the test a row of its own (al-runner issue 7605, whose repro passes on
