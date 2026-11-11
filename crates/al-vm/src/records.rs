@@ -2342,8 +2342,6 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        self.login_guard_read(method, rec)?;
-        self.note_task_table_read(method, rec);
         if self.coverage.profiler.is_some() {
             return self.record_op_profiled(method, rec, args);
         }
