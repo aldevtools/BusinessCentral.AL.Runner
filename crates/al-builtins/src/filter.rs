@@ -761,7 +761,35 @@ pub fn parse_filter_with(
     if unclosed_after_at {
         return Ok(FilterExpr::UnpinnedMatch(Box::new(e), text.trim().to_string()));
     }
+    if media_guid_order(ty, &e) {
+        return Err(
+            "a range or `<`, `>` filter of a Guid on a Media or MediaSet field (the order of Guids is not pinned)"
+                .into(),
+        );
+    }
     Ok(e)
+}
+
+/// Whether `e` on a Media or MediaSet field orders Guids: a range or `<`, `<=`, `>`, `>=`. BC orders them otherwise than by their
+/// text: the range `{11F319D9-...-6E725A266949}..{F1F319D9-...-6E725A266949}` keeps no row that holds a new media id
+/// (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:244, :383), which the text order would keep most of the time, and
+/// `<` and `>` against such an id change from run to run (`gt` and `lt` are ignored there). That order is not pinned.
+fn media_guid_order(ty: &crate::value::RtType, e: &FilterExpr) -> bool {
+    use crate::library_kind::LibraryKind as K;
+    if !matches!(ty, crate::value::RtType::Library(K::Media | K::MediaSet)) {
+        return false;
+    }
+    fn orders(e: &FilterExpr) -> bool {
+        match e {
+            FilterExpr::Range(a, b) => [a, b].iter().any(|v| matches!(v, Some(Value::Guid(_)))),
+            FilterExpr::Lt(v) | FilterExpr::Le(v) | FilterExpr::Gt(v) | FilterExpr::Ge(v) => {
+                matches!(v, Value::Guid(_))
+            }
+            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().any(orders),
+            _ => false,
+        }
+    }
+    orders(e)
 }
 
 #[derive(Debug, Clone)]
@@ -986,7 +1014,9 @@ fn tokenize(
                         "placeholder %{n} holds a text with the filter character `@`: how BC quotes it is not pinned"
                     ));
                 }
-                if t == "*" {
+                // The text `?` alone is the literal text too: `%1` reads back `='?'` and keeps only the row `?`, `<>%1` reads
+                // back `<>'?'` (record/filters/PlaceholderWildcardValue.al:226, :236, :262; FieldRef :650).
+                if t == "*" || t == "?" {
                     out.push(Tok::Typed(arg.clone()));
                     i += 2;
                     continue;
@@ -1267,14 +1297,19 @@ impl Parser<'_> {
                     _ => return Err(format!("text filter value `{text}` for Media: not pinned")),
                 }
             }
-            // The null Guid as text on a MediaSet field compares with the field's set id: an empty set equals it, so `<>` keeps no
-            // empty row (streams/media/SoMediaFilter.al:246-250, SO_MediaSetFilter_NullGuidForms). Another Guid, and a text
-            // that is no Guid, are not pinned on a MediaSet field: refused below.
-            T::Library(crate::library_kind::LibraryKind::MediaSet)
-                if !text.trim().starts_with('(')
-                    && matches!(crate::evaluate::read_text(&T::Guid, text.trim()), Some(Value::Guid(g)) if g == [0; 16]) =>
-            {
-                Value::Guid([0; 16])
+            // A Guid text on a MediaSet field compares with the field's set id: an empty set equals the null Guid, so `<>` keeps no
+            // empty row (streams/media/SoMediaFilter.al:246-250, SO_MediaSetFilter_NullGuidForms). Any other Guid, braced, bare,
+            // in lower case or quoted, with `=`, `<>`, `|`, `..` and `&`, the id of the stored set and that of the item inside it,
+            // which matches no row (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:227-251, :288-365;
+            // al-runner issue 7461). GetFilter writes the Guid braced in upper case. A text that is no Guid is not pinned on a
+            // MediaSet field: refused below.
+            T::Library(crate::library_kind::LibraryKind::MediaSet) if !text.trim().starts_with('(') => {
+                match crate::evaluate::read_text(&T::Guid, text.trim()) {
+                    Some(v @ Value::Guid(_)) => v,
+                    _ => {
+                        return Err(format!("text filter value `{text}` for MediaSet: not pinned"));
+                    }
+                }
             }
             other => {
                 return Err(format!(
@@ -1319,9 +1354,13 @@ impl Parser<'_> {
     }
 
     /// `<>` before a wildcard pattern on a Text or Code field (record/filters/WildcardGetFilter.al:106-202):
-    /// `<>A*`, `<>*`, `<>?` and `<>@a*` keep the texts the pattern does not match; a placeholder that holds exactly `*` is the
-    /// literal text (`<>%1` with `*` reads back as `<>'*'` and keeps every row). A quoted pattern, a placeholder holding another
-    /// wildcard text and `<>@` before a text without a wildcard are not pinned. `None`: not a pattern, read as before.
+    /// `<>A*`, `<>*`, `<>?` and `<>@a*` keep the texts the pattern does not match; a placeholder that holds exactly `*` or `?` is
+    /// the literal text (`<>%1` with `*` reads back as `<>'*'` and keeps every row; substituted as a typed value). A placeholder
+    /// holding another wildcard text, and the pattern written in quotes, are the pattern too and read back without quotes
+    /// (record/filters/PlaceholderWildcardValue.al:215-228 `<>%1` with `A*B`, `A?B`, `A*`, `*B`, `A*B?` and the reporter's
+    /// value, :363-377 `<>'A*B'`, :424-436 on a Code field, :633-657 through a FieldRef; al-runner issue 7460). A quoted pattern
+    /// that holds a filter operator, an apostrophe or a double quote or starts with `@`, and `<>@` before a text without a
+    /// wildcard, are not pinned. `None`: not a pattern, read as before.
     fn not_pattern(&mut self) -> Result<Option<FilterExpr>, String> {
         use crate::value::RtType as T;
         if !matches!(self.ty, T::Text(_) | T::Code(_)) {
@@ -1358,7 +1397,16 @@ impl Parser<'_> {
                 Ok(Some(FilterExpr::AtSignAlone(true)))
             }
             _ if ci => Err("`<>@` before a value without a wildcard (not pinned)".into()),
-            Some(Tok::Arg(s)) if s == "*" => Ok(None),
+            // A substituted text with a filter operator arrives quoted (`tokenize`), so a plain `Arg` holds none.
+            Some(Tok::Arg(s) | Tok::Quoted(s)) if wild(s) && plain_pattern(s) => {
+                let p = if matches!(self.ty, T::Code(_)) {
+                    filter_upper(s)?
+                } else {
+                    s.clone()
+                };
+                self.i = at + 1;
+                Ok(Some(FilterExpr::NotLike(p, false)))
+            }
             Some(Tok::Arg(s)) if wild(s) => Err(format!("`<>%n` with the wildcard text `{s}` (not pinned)")),
             Some(Tok::Quoted(s)) if wild(s) || s.starts_with('@') => {
                 Err(format!("`<>` before the quoted pattern `{s}` (not pinned)"))
@@ -1519,6 +1567,16 @@ impl Parser<'_> {
                     {
                         return Ok(FilterExpr::RangeSame(lo));
                     }
+                    // GetFilter writes a range of one wildcard text as SetRange does (`='A*B'`, record/filters/
+                    // PlaceholderWildcardValue.al:413); whether a written range with two equal ends reads back the same is not
+                    // pinned.
+                    if matches!(&lo, Value::Text(t) | Value::Code(t) if t.contains(['*', '?']))
+                        && hi
+                            .as_ref()
+                            .is_some_and(|h| compare(h, &lo).ok() == Some(Ordering::Equal))
+                    {
+                        return Err("a filter range whose two ends are the same wildcard text (not pinned)".into());
+                    }
                     return Ok(FilterExpr::Range(Some(lo), hi));
                 }
                 if let Some(day) = self.day_alone(&lo) {
@@ -1535,6 +1593,12 @@ impl Parser<'_> {
             }
         }
     }
+}
+
+/// Whether the wildcard text `s` holds no filter operator, quote or leading `@`: the pattern forms that
+/// record/filters/PlaceholderWildcardValue.al pins after `<>` (`Parser::not_pattern`).
+fn plain_pattern(s: &str) -> bool {
+    !s.contains(['&', '|', '(', ')', '<', '>', '=', '\'', '"', '@']) && !s.contains("..")
 }
 
 /// A filter on the field at position `field` of the table's field list.

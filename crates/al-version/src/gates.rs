@@ -128,6 +128,15 @@ pub enum Gate {
     /// `RecordRef.IsDirty` exists from BC 28; the corpus probe is compiled only from BC 28
     /// (recordref-fieldref/recordref/RecordRefIsDirtyEdges.al, corpus bump 22). Not consumed yet.
     RecordRefIsDirtyFrom28,
+    /// `Evaluate` of a RecordId text whose brackets hold a table name without its namespace (`[R7003Row]: 7`) reads that table
+    /// from BC 28; BC 27 reads no table (language/namespaces/RecordIdFormat9Evaluate.al:328,362, corpus bump 1111a). Consumed
+    /// by al-vm recordid_table_name.rs.
+    BracketedRecordIdNameWithoutNamespaceFrom28,
+    /// `FieldRef.SetFilter` with a placeholder argument and `FieldRef.SetRange` on a Media or MediaSet field raise `The value
+    /// "<Guid>" can't be evaluated into type MediaSet.` (Evaluate:Argument) from BC 28 and `Invalid Conversion. Source:
+    /// NavVariant, Destination: NavMediaSet.` (Argument) on BC 27 (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al,
+    /// corpus bump 1111a). Consumed by al-vm fieldref_media_filter.rs.
+    MediaFieldRefFilterArgumentEvaluateErrorFrom28,
     /// `GetLastErrorText(true)` after a Find of an empty table (`table is empty`, `does not exist` of `Find('=')`) is probed
     /// only from BC 28: the corpus test is guarded with `#if BC28PLUS` (errors/last-error/
     /// FindEmptyTableExcludeFlag.al:76). BC 27 keeps the refusal.
@@ -250,11 +259,7 @@ pub enum Gate {
     /// QF_GLSetup_CorpusRow). Corpus bump 1110b: assigning text to an Option FieldRef.Value raises NotSupportedType on BC 27
     /// and an Evaluate:Format error from BC 28 (format-evaluate/format-matrix/FMOptionBlankField.al:254). Corpus bump 1110c: FieldRef.SetFilter errors on an Integer, Blob and other
     /// fields word the failing value differently on BC 27 (recordref-fieldref/fieldref/FieldRefFilterMatrix.al:440,
-    /// FieldRefFilterEmptyText.al:235). Corpus bump 1111a: a FieldRef filter
-    /// on a MediaSet field with a Text or Guid argument raises `Invalid Conversion. Source: NavVariant, Destination: NavMediaSet.`
-    /// on BC 27 and an Evaluate:Argument error from BC 28 (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:258), and
-    /// Evaluate of a RecordId text with an unqualified or partly qualified table name answers differently on BC 27
-    /// (language/namespaces/RecordIdFormat9Evaluate.al:328,362). Corpus bump 1111b: a card edited and left open at the end of a
+    /// FieldRefFilterEmptyText.al:235). Corpus bump 1111b: a card edited and left open at the end of a
     /// test, whose OnClosePage asks a Confirm nobody handles, fails that test on BC 27 and not from BC 28
     /// (pages/close-errors/CemTestPageCloseTests.al:869). Not consumed yet.
     ProbedValuesDifferFrom28,
@@ -447,6 +452,8 @@ impl Gate {
         Gate::QueryAggregateOverBigInteger,
         Gate::PartLineBeforeHostKeyFrom28,
         Gate::RecordRefIsDirtyFrom28,
+        Gate::BracketedRecordIdNameWithoutNamespaceFrom28,
+        Gate::MediaFieldRefFilterArgumentEvaluateErrorFrom28,
         Gate::EmptyTableFindExcludeFlagFrom28,
         Gate::FieldRowSystemIdFrom28,
         Gate::ThreeLineLeavesKeyOnceFrom28,
@@ -566,6 +573,8 @@ impl Gate {
             | Gate::PermissionShapeProbesFrom28
             | Gate::GetTextArgumentEvaluateErrorFrom28
             | Gate::RecordRefIsDirtyFrom28
+            | Gate::BracketedRecordIdNameWithoutNamespaceFrom28
+            | Gate::MediaFieldRefFilterArgumentEvaluateErrorFrom28
             | Gate::ThreeLineLeavesKeyOnceFrom28
             | Gate::MovedOntoDeletedStaysFrom28
             | Gate::ExtControlBareQuotedSourceNotFoundFrom28
@@ -765,6 +774,14 @@ impl Gate {
                     lines: "165,181",
                 },
             ],
+            Gate::BracketedRecordIdNameWithoutNamespaceFrom28 => &[Evidence {
+                file: "language/namespaces/RecordIdFormat9Evaluate.al",
+                lines: "328,362",
+            }],
+            Gate::MediaFieldRefFilterArgumentEvaluateErrorFrom28 => &[Evidence {
+                file: "recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al",
+                lines: "258,296,336,397,434",
+            }],
             Gate::RecordRefIsDirtyFrom28 => &[
                 Evidence {
                     file: "recordref-fieldref/AsGetTableIsDirty.al",
@@ -1488,14 +1505,6 @@ const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
     Evidence {
         file: "recordref-fieldref/fieldref/FieldRefFilterEmptyText.al",
         lines: "235",
-    },
-    Evidence {
-        file: "recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al",
-        lines: "258,296,336,397,434",
-    },
-    Evidence {
-        file: "language/namespaces/RecordIdFormat9Evaluate.al",
-        lines: "328,362",
     },
     Evidence {
         file: "recordref-fieldref/fieldref/FieldRefFilterMatrix.al",
