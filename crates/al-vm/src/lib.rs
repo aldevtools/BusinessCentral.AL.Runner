@@ -1638,8 +1638,9 @@ impl Session {
                     // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
                     security_filtering: 0,
                     declared_security_filtering: 0,
-                    declared_security_filtering_assumed: false,
-                    security_filtering_assumed: false,
+                    declared_security_filtering_unpinned: false,
+                    security_filtering_unpinned: false,
+                    security_filtering_array: false,
                     key: 0,
                     adhoc: None,
                     ascending: true,
@@ -2202,6 +2203,48 @@ impl Session {
         Value::Record(Rc::new(RefCell::new(st)))
     }
 
+    /// [`Session::record_by_value`] for a copy whose SecurityFiltering the corpus does not measure: an event argument, a
+    /// record handed to StartSession, a Variant's record, an array element passed by value
+    /// (`RecordState::security_filtering_unmeasured_copy`).
+    pub(crate) fn record_by_value_unmeasured(&mut self, rc: &Rc<RefCell<RecordState>>) -> Value {
+        let v = self.record_by_value(rc);
+        if let Value::Record(copy) = &v {
+            copy.borrow_mut().security_filtering_unmeasured_copy(&rc.borrow());
+        }
+        v
+    }
+
+    /// The by-value copy of `rc` for a parameter of type `param`: a Variant parameter's copy is one whose SecurityFiltering
+    /// the corpus does not measure ([`Session::record_by_value_unmeasured`]).
+    fn record_by_value_into(&mut self, rc: &Rc<RefCell<RecordState>>, param: &RtType) -> Value {
+        if matches!(param, RtType::Variant) {
+            self.record_by_value_unmeasured(rc)
+        } else {
+            self.record_by_value(rc)
+        }
+    }
+
+    /// An array passed by value is a copy: the callee's writes and Clear do not reach the caller
+    /// (format-evaluate/W5Clear.al:Clear_ArrayPassedByValue). The SecurityFiltering of an array declared with the attribute is
+    /// not measured there (SFSecurityFilteringFlow.al:429-459 reads its elements only directly).
+    fn array_by_value(&mut self, a: &Rc<RefCell<Vec<Value>>>) -> Value {
+        let items: Vec<Value> = a
+            .borrow()
+            .iter()
+            .map(|v| match v {
+                Value::Record(rc) => {
+                    let copy = self.record_by_value_unmeasured(rc);
+                    if let (Value::Record(c), true) = (&copy, rc.borrow().security_filtering_array) {
+                        c.borrow_mut().security_filtering_not_measured();
+                    }
+                    copy
+                }
+                other => other.clone(),
+            })
+            .collect();
+        Value::Array(Rc::new(RefCell::new(items)))
+    }
+
     pub(crate) fn ensure_initialized(&mut self, inst: &Rc<RefCell<Instance>>) {
         if inst.borrow().initialized {
             return;
@@ -2395,7 +2438,7 @@ impl Session {
                 // Assigning the record to a Variant variable is a by-value copy
                 // (:TempRecord_AssignedToVariantVariable).
                 (Value::Record(rc), false) if matches!(r.locals[i].ty, RtType::Variant) && rc.borrow().temporary => {
-                    let st = rc.borrow().copy_as_new_variable();
+                    let st = rc.borrow().copy_as_unmeasured_variable();
                     Value::Record(Rc::new(RefCell::new(st)))
                 }
                 // A temporary record handed by value to a parameter that is NOT declared temporary gives the callee a record of the
@@ -2440,7 +2483,7 @@ impl Session {
                 (Value::Record(rc), false)
                     if matches!(r.locals[i].ty, RtType::Variant) && rc.borrow().run_page_link.is_some() =>
                 {
-                    let mut st = rc.borrow().copy_as_new_variable();
+                    let mut st = rc.borrow().copy_as_unmeasured_variable();
                     st.run_page_link = None;
                     st.unpinned_buffer = Some(crate::records::RUN_PAGE_LINK_VARIANT);
                     Value::Record(Rc::new(RefCell::new(st)))
@@ -2448,7 +2491,7 @@ impl Session {
                 // The copy keeps what Record.IsDirty compares with (record/Y8RecordIsDirtyShapes.al:321-324 `by_value_dirty` Yes,
                 // `by_value_clean` No).
                 (Value::Record(rc), false) => {
-                    let v = self.record_by_value(&rc);
+                    let v = self.record_by_value_into(&rc, &r.locals[i].ty);
                     if let Value::Record(copy) = &v {
                         copy.borrow_mut().is_dirty_base = rc.borrow().is_dirty_base.copy();
                     }
@@ -2473,19 +2516,8 @@ impl Session {
                     };
                     self.record_ref_into_record_param(&h, *table)?
                 }
-                // An array passed by value is a copy: the callee's writes and Clear do not reach the caller
-                // (format-evaluate/W5Clear.al:Clear_ArrayPassedByValue).
-                (Value::Array(a), false) => {
-                    let items: Vec<Value> = a
-                        .borrow()
-                        .iter()
-                        .map(|v| match v {
-                            Value::Record(rc) => self.record_by_value(rc),
-                            other => other.clone(),
-                        })
-                        .collect();
-                    Value::Array(Rc::new(RefCell::new(items)))
-                }
+                // An array passed by value is a copy (`array_by_value`).
+                (Value::Array(a), false) => self.array_by_value(&a),
                 // A Notification passed by value is the caller's own notification: the callee's SetData and Message reach the caller
                 // (events/binding-senders/NotificationByValue.al:ByValue_CalleeSetsDataAndMessage, ByValue_CalleeSetsData_CallerHadData,
                 // ByValue_CalleeReads; an event argument: Event_ByValueArgument_SubscriberChanges). An assignment copies

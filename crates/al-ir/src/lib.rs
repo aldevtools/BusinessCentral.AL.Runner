@@ -1499,9 +1499,16 @@ pub enum CalcValue {
 pub struct Slot {
     pub name: String,
     pub ty: RtType,
-    /// A record variable declared with `[SecurityFiltering(SecurityFilter::X)]`: the member index of X. The variable starts
+    /// A record variable (or a one-dimension array of records) declared with `[SecurityFiltering(SecurityFilter::X)]`: the
+    /// member index of X. The variable starts
     /// with it, and `Clear` and `ClearAll` set it back (al-vm `Session::slot_default`). `None` for every other slot.
     pub security_filtering: Option<i32>,
+    /// A variable declared with `[SecurityFiltering(...)]` whose declared value the runtime does not keep (a global array, a
+    /// global of an object that is no codeunit, table, page or report, an array of more dimensions): every record it holds
+    /// reads as not pinned, so a read through a `var` parameter is refused as the direct read is (al-sema
+    /// `Lowerer::security_filtering_read_refusal`).
+    #[serde(default)]
+    pub security_filtering_not_kept: bool,
 }
 
 impl Slot {
@@ -1511,6 +1518,7 @@ impl Slot {
             name: name.into(),
             ty,
             security_filtering: None,
+            security_filtering_not_kept: false,
         }
     }
 }
