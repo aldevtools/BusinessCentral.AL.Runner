@@ -504,10 +504,12 @@ The try-write suite runs in the main pass. What was built, against the decision 
    the joined static reach of every object of the other suites' apps (test codeunits, their helpers, install code),
    which follows interface calls, so an implementation of an outside interface counts here. Rule 4 (install code that
    writes another app's table, a number sequence or isolated storage) has nothing to check: the app's install code never
-   runs on lane 0. The reach the walk cannot follow (code of a dependency app that was not compiled, an object run by an
-   id known only at run time; today the first is `Forward Link Mgt..OnLoadHelpArticleCodes`, not compiled) is printed,
-   not taken as a breach: such code reaches the app only through one of its subscribers or by an id known at run time,
-   and lane 0's engine runs none of its subscribers and finds none of its objects by such an id (point 3). The corpus
+   runs on lane 0. The reach the walk cannot follow fails the check, with one exception (owner, 2026-11-11, fix round
+   3): a routine that is not compiled (`al_sema::check::is_not_compiled`, or the triggers or the run of an object that
+   is not compiled), since a call of it is refused and it cannot run in part. The walk keeps every such reason with its
+   kind (`written.rs` `Unknown`); the not-compiled ones are printed as information (today
+   `Forward Link Mgt..OnLoadHelpArticleCodes`), any other (an object run by an id known only at run time, a refused
+   construct, a report that cannot run) is a breach. The corpus
    run calls the check after the install baseline and prints a line per suite; a breach marks the suite's tests not run
    with the reason and fails the run (exit 2). `corpus_harness.rs`
    `the_try_write_suite_shares_the_main_pass_on_every_version` asserts the line on BC 27, 28 and 29. There is no allow
@@ -533,15 +535,29 @@ every suite on BC 29 equal main's, with messages (`tools/compare_junit.py --reas
   started at 52.6 G, became 38.63 G when the testlibraries term was taken off it, and is 27.92 G after Phase 2 (the run
   at 322.87 G minus the formula limit at 294.96 G, rounded up to 10 M).
 
-### Open: the cost of the per-lane listings (fix round 2, 2026-11-11)
+### The per-lane listings (fix rounds 2 and 3, 2026-11-11)
 
-With every listing reading `Engine::app_installed` (point 3), the platform listings are kept per set of uninstalled
-apps, so lane 1 builds again every listing its install code and tests read. Measured on BC 29 (three runs,
-`perf stat -e instructions:u`): 325.73 G, 326.60 G, 326.68 G (noise 0.95 G). The same build with the listings shared
-across lanes as before: 322.87 G. The run is 30.77 G over the formula limit, above the 27.92 G allowance, which stays
-as it is (it only goes down). Not merged until this is solved: a listing built once over every app, with the rows of an
-app the engine does not have left out when a lane reads it, would keep both the sharing and the one owner. Rule 3's
-wider roots (every object of the other suites' apps) cost nothing measurable (326.64 G with only test codeunits).
+With every listing reading `Engine::app_installed` (point 3), fix round 2 kept the platform listings per set of
+uninstalled apps, so lane 1 built again every listing its install code and tests read (AllObj, AllObjWithCaption,
+Field, Table and Codeunit Metadata on BC 29). Fix round 3 builds each listing once over every app of the program,
+each row marked with the app of the object it lists, and an engine without some apps reads a view without their rows
+(`Mat::view`), made once per set of such apps. Where an app changes another app's rows (a page extension's page row)
+or two apps' rows share a key, the view is not made and that engine builds the listing over its own apps. A throwaway
+build that built every engine's own listing next to its view on every read found every view equal on BC 27, 28 and 29,
+and no fallback.
+
+Measured on BC 29 the same afternoon (`perf stat -e instructions:u`, three runs each, the shared-pass check's breach
+switched off for the measurement so that lane 1 runs): fix round 2 325.21 G, 325.78 G, 328.21 G; fix round 3 323.02 G,
+323.77 G, 327.35 G. The noise between runs of one build is up to 4.3 G this afternoon. Best of three is 0.14 G over
+the limit of 322.88 G (294.96 G plus the 27.92 G allowance); the allowance stays as it is.
+
+### Unknown reach (owner, fix round 3, 2026-11-11)
+
+Only a routine that is not compiled may be unknown (point 4). On the pinned corpus the main suites' reach on BC 29
+holds 920 reasons of other kinds (refused builtins and constructs in Microsoft's apps, 40 runs by an id known only at
+run time) and 152 not compiled, so the check refuses the try-write suite: its tests are not run and the run exits 2.
+Phase 2 cannot land under this rule until the owner decides how the try-write suite runs (its own pass again, or a
+narrower rule).
 
 ### Savings against the limit, now
 
