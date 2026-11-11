@@ -698,7 +698,7 @@ impl Session {
             && !self.source_view_filters(st)
             && props
                 .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("SourceTableView") && v.to_ascii_lowercase().contains("sorting"))
+                .any(|(k, v)| k.eq_ignore_ascii_case("SourceTableView") && crate::views::view_clauses(v).sorting)
             && props
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"))
@@ -741,7 +741,7 @@ impl Session {
             .properties
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("SourceTableView"))
-            .is_some_and(|(_, v)| v.to_ascii_lowercase().contains("where"))
+            .is_some_and(|(_, v)| crate::views::view_clauses(v).filters)
     }
 
     /// Whether the blank row of a page run on `rec` fails one of `rec`'s filters on a field the new row does not take from the
@@ -1049,7 +1049,11 @@ impl Session {
                         .iter()
                         .any(|(k, v)| {
                             k.eq_ignore_ascii_case("SourceTableView")
-                                && v.to_ascii_lowercase().replace(' ', "").contains("order(descending)")
+                                && crate::views::view_parts(v).is_some_and(|parts| {
+                                    parts
+                                        .iter()
+                                        .any(|(w, body)| w == "ORDER" && body.trim().eq_ignore_ascii_case("descending"))
+                                })
                         })
                 {
                     let rec = self.page_rec(st);
