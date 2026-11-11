@@ -7,7 +7,7 @@
 //! chain differ in the few rows one member wrote; the persistent maps share every entry the member did not touch, so
 //! the difference is found by comparing pointers, and only the rows that differ are compared by value.
 
-use super::{Key, MemStore, Row, Slot, Table};
+use super::{Key, MemStore, PkStorage, Row, Slot, Table, table_storage};
 use crate::{Store, Value};
 
 /// One table's rows in a [`RowChanges`].
@@ -18,6 +18,8 @@ pub struct TableRows {
     /// The table is new (the other store holds no entry for it) or its keys order otherwise: `put` holds all of its
     /// rows and replaces what the other store holds.
     pub whole: bool,
+    /// How the table's primary key fields are stored: the order of its keys (`memory/key.rs`).
+    pub pk_storage: PkStorage,
     /// The rows that are new or hold other values, with their primary keys, in key order.
     pub put: Vec<(Vec<Value>, Row)>,
     /// The primary keys of the rows that are gone.
@@ -42,15 +44,6 @@ fn name(s: &Slot) -> (String, u32) {
     (s.0.to_string(), s.1)
 }
 
-/// Whether the keys of the two tables order the same way: a table built from exported rows has no Code storage on its
-/// keys, one written by a session has (`Key::cmp`).
-fn same_order(a: &Table, b: &Table) -> bool {
-    match (a.keys().next(), b.keys().next()) {
-        (Some(x), Some(y)) => x.1.is_some() == y.1.is_some(),
-        _ => true,
-    }
-}
-
 impl MemStore {
     /// The committed rows of this store apart from `base`'s, row by row: the tables whose rows differ, with the rows
     /// that are new or changed and the keys of those that are gone, and the tables `base` holds that this store does
@@ -73,10 +66,6 @@ impl MemStore {
                 continue;
             };
             if table.ptr_eq(old) || self.committed_versions.get(slot) == base.committed_versions.get(slot) {
-                continue;
-            }
-            if !same_order(table, old) {
-                out.tables.push(whole(slot, table));
                 continue;
             }
             let mut put = Vec::new();
@@ -120,6 +109,7 @@ impl MemStore {
                     company,
                     object,
                     whole: false,
+                    pk_storage: table_storage(table),
                     put,
                     gone,
                 });
@@ -154,10 +144,10 @@ impl MemStore {
                 self.tables.get(&slot)?.clone()
             };
             for k in t.gone {
-                table.remove(&Key(k, None));
+                table.remove(&Key::in_table(k, &t.pk_storage));
             }
             for (k, r) in t.put {
-                table.insert(Key(k, None), r);
+                table.insert(Key::in_table(k, &t.pk_storage), r);
             }
             self.counter = super::next_stamp();
             self.versions.insert(slot.clone(), self.counter);
@@ -181,6 +171,7 @@ fn whole(slot: &Slot, table: &Table) -> TableRows {
         company,
         object,
         whole: true,
+        pk_storage: table_storage(table),
         put: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
         gone: Vec::new(),
     }
@@ -195,6 +186,7 @@ mod tests {
         ExportedTable {
             company: "CRONUS".into(),
             object: 18,
+            pk_storage: None,
             rows: (1..=n)
                 .map(|k| (vec![Value::Integer(k)], vec![Value::Integer(k), Value::Integer(0)]))
                 .collect(),
@@ -210,12 +202,12 @@ mod tests {
         let slot: Slot = (std::sync::Arc::from("CRONUS"), 18);
         let mut t = later.committed.get(&slot).unwrap().clone();
         t.insert(
-            Key(vec![Value::Integer(5)], None),
+            Key::in_table(vec![Value::Integer(5)], &None),
             vec![Value::Integer(5), Value::Integer(9)],
         );
-        t.remove(&Key(vec![Value::Integer(6)], None));
+        t.remove(&Key::in_table(vec![Value::Integer(6)], &None));
         t.insert(
-            Key(vec![Value::Integer(3000)], None),
+            Key::in_table(vec![Value::Integer(3000)], &None),
             vec![Value::Integer(3000), Value::Integer(1)],
         );
         later.counter = super::super::next_stamp();

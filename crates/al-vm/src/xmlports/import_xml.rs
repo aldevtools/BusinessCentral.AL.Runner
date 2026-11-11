@@ -176,13 +176,25 @@ impl Session {
                 "XmlPort import of a root table element with a leaf text element and a table element right below it (not pinned)",
             );
         }
-        let table_root = root_table_element(schema, top) || plain_tree_root(schema, top);
-        if table_root && !root_table_element(schema, top) && !plain_import_root(schema, top) {
+        let nested_root = root_holding_table(schema, top);
+        let table_root = nested_root || root_table_element(schema, top) || plain_tree_root(schema, top);
+        if table_root && !nested_root && !root_table_element(schema, top) && !plain_import_root(schema, top) {
             return unsupported(
                 "XmlPort import of a root table element with a field element beside a text element, or without MaxOccurs = Once (not pinned)",
             );
         }
         Self::xp_root_triggers_pinned(schema, top)?;
+        if !table_root
+            && xp.nodes[top].kind == ir::XmlNodeKind::Table
+            && schema
+                .children(top)
+                .iter()
+                .any(|&c| xp.nodes[c].kind == ir::XmlNodeKind::Table)
+        {
+            return unsupported(
+                "XmlPort import of a root table element holding a table element, in a shape other than the measured one (not pinned)",
+            );
+        }
         if !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty()) {
             return unsupported("XmlPort import whose root is not a text element with content (not pinned)");
         }
@@ -338,6 +350,9 @@ impl Session {
         }
         // A table element as the root is one row: its fields are validated and the row is inserted, an empty element
         // fails the schema check (metadata/platform-tables/AgXmlPortImport.al:514 QX_RootTableElement_Import).
+        if nested_root {
+            return self.xp_import_root_holding_table(inst, schema, top, &root);
+        }
         if table_root {
             return self.xp_import_record(inst, schema, top, &root, true, false);
         }

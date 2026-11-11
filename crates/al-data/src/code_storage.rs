@@ -52,6 +52,29 @@ pub fn pk_storage(t: &TableDef) -> Option<Arc<[CodeStorage]>> {
         .then(|| t.keys[0].iter().map(|&i| t.fields[i].code_storage).collect())
 }
 
+/// `s` as one byte, for a table's key order written with its rows ([`storage_from_byte`] reads it back).
+pub fn storage_byte(s: CodeStorage) -> u8 {
+    match s {
+        CodeStorage::Text => 0,
+        CodeStorage::Integer => 1,
+        CodeStorage::BigInteger => 2,
+        CodeStorage::Variant => 3,
+        CodeStorage::Other => 4,
+    }
+}
+
+/// The storage [`storage_byte`] wrote; `None` for any other byte.
+pub fn storage_from_byte(b: u8) -> Option<CodeStorage> {
+    Some(match b {
+        0 => CodeStorage::Text,
+        1 => CodeStorage::Integer,
+        2 => CodeStorage::BigInteger,
+        3 => CodeStorage::Variant,
+        4 => CodeStorage::Other,
+        _ => return None,
+    })
+}
+
 /// The order of two primary key tuples of a table whose key fields are stored as `storage`.
 pub fn cmp_pk(storage: &[CodeStorage], a: &[Value], b: &[Value]) -> Ordering {
     for ((x, y), s) in a.iter().zip(b).zip(storage) {
