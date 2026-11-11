@@ -4729,3 +4729,11 @@ fn recordref_open_of_server_instance_from_an_app_that_is_not_onprem_is_refused()
         "{why}"
     );
 }
+
+// Local real-BC DirectTenantMediaInsert.al probe over the actual system table.
+#[test]
+fn measured_tenant_media_insert_false_stores_description() {
+    let result = outcomes(include_str!("fixtures/tenant-media-description-insert.al"));
+    assert_eq!(result.len(), 1, "{result:?}");
+    assert_eq!(result[0].1, Outcome::Pass, "{result:?}");
+}

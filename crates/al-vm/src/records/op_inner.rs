@@ -438,6 +438,9 @@ impl Session {
                     self.auto_increment_field(&t)?
                 };
                 let run = arg_bool(args, 0)?;
+                if !rec.borrow().temporary && self.engine.program.objects[t.object as usize].id == Some(2_000_000_184) {
+                    self.check_tenant_media_description_insert(&t, rec, run, args.len())?;
+                }
                 // A duplicate key does not skip the Before event and the trigger: they run, then
                 // the write fails and the After event does not (corpus record/TestTableEventSequenceContracts.al:
                 // FailingWrites_RaiseTheBeforeEventAndTheTrigger_ThenTheError).
@@ -1067,7 +1070,15 @@ impl Session {
                 let tenant_media =
                     self.engine.program.objects.get(t.object as usize).and_then(|o| o.id) == Some(2_000_000_184);
                 if tenant_media && !rec.borrow().temporary {
-                    return self.delete_tenant_media(&t, rec, run);
+                    let key = t.primary_key(&rec.borrow().fields);
+                    if !self
+                        .store
+                        .stored_rows(&cx, &t)
+                        .iter()
+                        .any(|row| super::stale_rule::same_key(&t.primary_key(row), &key))
+                    {
+                        return self.delete_tenant_media(&t, rec, run);
+                    }
                 }
                 if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;

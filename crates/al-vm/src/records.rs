@@ -1023,6 +1023,47 @@ impl Session {
         Ok(())
     }
 
+    /// Locally measured streams/media/Y48TenantMediaRows.al:634: Insert(false) stores a description-only
+    /// row at the caller's nonzero GUID. The ordinary store handles duplicates and rollback.
+    fn check_tenant_media_description_insert(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        run: bool,
+        arguments: usize,
+    ) -> Result<(), Signal> {
+        if run
+            || arguments != 1
+            || self.listened(t, "onbeforeinsertevent", None)?
+            || self.listened(t, "onafterinsertevent", None)?
+            || self.global_enabled(t, GlobalOp::Insert)?
+        {
+            return unsupported("a direct Tenant Media insert outside the measured Insert(false) call (not pinned)");
+        }
+        let record = rec.borrow();
+        let measured = t
+            .fields
+            .iter()
+            .zip(&record.fields)
+            .all(|(field, value)| match (field.id, value) {
+                (1, Value::Guid(id)) => *id != [0; 16],
+                (2, Value::Text(text)) => !text.is_empty(),
+                (3, Value::Blob(blob)) => {
+                    let content = blob.borrow();
+                    content.bytes.is_empty() && content.render_pending.is_none()
+                }
+                (id, _) if id >= 2_000_000_000 => true,
+                (_, value) => ops::compare(value, &Value::default_for(&field.ty)).is_ok_and(|order| order.is_eq()),
+            });
+        if !measured {
+            return unsupported(
+                "a direct Tenant Media insert with a zero GUID, content or other metadata (not pinned)",
+            );
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TenantMediaDescriptionInsert);
+        Ok(())
+    }
+
     /// `Delete()` and `Delete(true)` of a Tenant Media row (streams/media/TestMediaPngImport.al TP_TenantMedia_Delete,
     /// TQ_TenantMedia_DeleteTrue_Statement, _Used, _SharedMedia, _Missing_Statement): the media leaves Tenant Media and Delete
     /// returns true (the statement form raises no error); every row that holds it, also two rows, keeps the MediaId with
