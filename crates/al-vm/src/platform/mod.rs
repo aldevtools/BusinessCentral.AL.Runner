@@ -232,7 +232,7 @@ impl SharedListings {
             programs.swap(at, last);
             programs[last].tables.entry(kind).or_default().clone()
         };
-        slot.get_or_init(|| mat::SharedMat::try_new(build()).map(Arc::new))
+        slot.get_or_init(|| mat::SharedMat::try_new(build()).ok().map(Arc::new))
             .clone()
     }
 }
@@ -423,7 +423,8 @@ impl Providers {
     }
 
     /// Whether the listing of `kind` is the same for every session of the engine. Session, Active
-    /// Session and Time Zone list the host's identity of this session, and Published Application its tenant id.
+    /// Session and Time Zone list the host's identity of this session, and Published Application its tenant id and the
+    /// engine's setting for dependency apps (kept per engine by those, `apps::published_application_listing`).
     fn shares(kind: Virtual) -> bool {
         !matches!(
             kind,
@@ -602,9 +603,11 @@ impl Providers {
             )));
         }
         // The list of installed apps follows the install in progress and the run's setting for dependency apps: listed per read.
-        if (kind == Virtual::NavAppInstalledApp
-            && (self.events.install_view.borrow().active() || self.engine().dependencies_published_global))
-            || (kind == Virtual::PublishedApplication && self.engine().dependencies_published_global)
+        // Published Application follows that setting too, but the setting does not change while a session lives (it is
+        // set on the engine before its sessions start, `Engine::dependencies_published_global`), so the session keeps its
+        // listing as for every other table.
+        if kind == Virtual::NavAppInstalledApp
+            && (self.events.install_view.borrow().active() || self.engine().dependencies_published_global)
         {
             return Ok(Listed::Own(Rc::new(mat::Mat::new(t, self.list_rows(t, kind)))));
         }
@@ -637,14 +640,23 @@ impl Providers {
             _ => {}
         }
         let build = || mat::Mat::new(t, self.list_rows(t, kind));
-        let shared = if Self::shares(kind) {
-            SHARED.listing(&self.engine(), kind, build)
+        // A listing that holds a handle is the session's own; it is built once (Published Application's descriptions are
+        // Blobs).
+        let m = if Self::shares(kind) {
+            match SHARED.listing(&self.engine(), kind, build) {
+                Some(m) => Listed::Shared(m),
+                None => Listed::Own(Rc::new(build())),
+            }
+        } else if kind == Virtual::PublishedApplication {
+            match apps::published_application_listing(self, build) {
+                Ok(m) => Listed::Shared(m),
+                Err(m) => Listed::Own(Rc::new(*m)),
+            }
         } else {
-            mat::SharedMat::try_new(build()).map(Arc::new)
-        };
-        let m = match shared {
-            Some(m) => Listed::Shared(m),
-            None => Listed::Own(Rc::new(build())),
+            match mat::SharedMat::try_new(build()) {
+                Ok(m) => Listed::Shared(Arc::new(m)),
+                Err(m) => Listed::Own(Rc::new(*m)),
+            }
         };
         self.listed.borrow_mut().insert(kind, m.clone());
         Ok(m)

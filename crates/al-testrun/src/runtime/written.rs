@@ -465,7 +465,7 @@ pub(crate) fn union_reach_facts_without_database_events(
 }
 
 /// The facts of the reach of the subscribers of the `Global Triggers` database events, not entering the routines `skip`:
-/// what a walk of [`union_reach_facts_skipping`] adds at its first write ([`union_reach_facts_by_parts`]). It depends on
+/// what a walk of [`union_reach_facts_skipping`] adds at its first write ([`JoinedReach`]). It depends on
 /// the program and `skip` only, so a caller that asks it for many roots with the same `skip` keeps it per engine.
 pub(crate) fn global_triggers_reach_facts(
     events: &al_vm::events::Registry,
@@ -484,30 +484,69 @@ pub(crate) fn global_triggers_reach_facts(
     walk.out
 }
 
-/// The facts of [`union_reach_facts_skipping`] of some roots and `skip`, put together from two walks: `own`, the
+/// The reach of [`union_reach_facts_skipping`] of some roots and `skip`, kept as two walks instead of joined: `own`, the
 /// [`union_reach_facts_without_database_events`] of the same roots and `skip`, and `database_events`, the
 /// [`global_triggers_reach_facts`] of the same `skip`, asked only when `own` writes. The second is the same for every
 /// root, so a caller that walks the reach of many test codeunits walks the database event fan-out (in Microsoft's apps,
-/// much of Base Application) once instead of once per codeunit.
+/// much of Base Application) once instead of once per codeunit, and a question is answered from the two parts without
+/// copying that fan-out into each codeunit's facts.
 ///
-/// Why the facts are the same: a walk visits the routines reachable from its roots, not entering `skip`, over edges that
-/// the program fixes (a routine's [`Summary`] steps, a table's triggers, an object's event subscribers, the routines of
-/// an object run). What the walk has already entered only decides whether it pushes an edge again, never where an edge
-/// leads. The one edge that depends on the walk is the push of the `Global Triggers` subscribers at the first write
-/// (`Walk::note_table_write`). So the full reach is the reach without that edge, plus, when that reach writes (a known
-/// table or `writes_any`), the reach of those subscribers; a write inside their reach adds nothing, since they are pushed
-/// already. Every fact is a union over the routines visited (sets and bits), so it is the union of the two parts' facts.
-/// Only `unknown` and `report_cannot_run`, which keep the first reason a walk meets, can name another reason than the
-/// full walk does; whether there is one is the same.
-pub(crate) fn union_reach_facts_by_parts<'a>(
-    own: &ReachFacts,
-    database_events: impl FnOnce() -> &'a ReachFacts,
-) -> ReachFacts {
-    let mut full = own.clone();
-    if !own.writes.is_empty() || own.writes_any {
-        full.absorb(database_events());
+/// Why the answers are those of the full walk: a walk visits the routines reachable from its roots, not entering `skip`,
+/// over edges that the program fixes (a routine's [`Summary`] steps, a table's triggers, an object's event subscribers,
+/// the routines of an object run). What the walk has already entered only decides whether it pushes an edge again, never
+/// where an edge leads. The one edge that depends on the walk is the push of the `Global Triggers` subscribers at the
+/// first write (`Walk::note_table_write`). So the full reach is the reach without that edge, plus, when that reach writes
+/// (a known table or `writes_any`), the reach of those subscribers; a write inside their reach adds nothing, since they
+/// are pushed already. Every fact is a union over the routines visited (sets and bits), so it holds of the full reach
+/// exactly when it holds of one of the parts.
+pub(crate) struct JoinedReach<'a> {
+    own: &'a ReachFacts,
+    database_events: Option<&'a ReachFacts>,
+}
+
+impl<'a> JoinedReach<'a> {
+    pub fn new(own: &'a ReachFacts, database_events: impl FnOnce() -> &'a ReachFacts) -> JoinedReach<'a> {
+        let writes = !own.writes.is_empty() || own.writes_any;
+        JoinedReach {
+            own,
+            database_events: writes.then(database_events),
+        }
     }
-    full
+
+    fn parts(&self) -> impl Iterator<Item = &'a ReachFacts> {
+        std::iter::once(self.own).chain(self.database_events)
+    }
+
+    /// Whether table `t` is in [`ReachFacts::touched`] of the joined reach.
+    pub fn touches(&self, t: u32) -> bool {
+        self.parts().any(|f| f.touched.contains(&t))
+    }
+
+    /// Whether table `t` is in [`ReachFacts::writes`] of the joined reach.
+    pub fn writes_table(&self, t: u32) -> bool {
+        self.parts().any(|f| f.writes.contains(&t))
+    }
+
+    /// Whether global `g` (object, slot) is in [`ReachFacts::globals_read`] of the joined reach.
+    pub fn reads_global(&self, g: (usize, usize)) -> bool {
+        self.parts().any(|f| f.globals_read.contains(&g))
+    }
+
+    /// Whether a global of object `o` is in [`ReachFacts::globals_read`] of the joined reach.
+    pub fn reads_a_global_of(&self, o: usize) -> bool {
+        self.parts()
+            .any(|f| f.globals_read.range((o, 0)..=(o, usize::MAX)).next().is_some())
+    }
+
+    /// The facts of the joined reach, built.
+    #[cfg(test)]
+    fn facts(&self) -> ReachFacts {
+        let mut full = self.own.clone();
+        if let Some(d) = self.database_events {
+            full.absorb(d);
+        }
+        full
+    }
 }
 
 /// Whether `fact` holds of the joined reach of the routines `roots`: one walk of the union of their reaches, which
@@ -1921,11 +1960,37 @@ mod tests {
             for roots in [vec![(o, a)], vec![(o, b)], vec![(o, c)], vec![(o, a), (o, b), (o, c)]] {
                 let full = union_reach_facts_skipping(&events, &l, &index, &roots, &skip);
                 let own = union_reach_facts_without_database_events(&events, &l, &index, &roots, &skip);
-                let built = union_reach_facts_by_parts(&own, || &database_events);
+                let joined = JoinedReach::new(&own, || &database_events);
+                let built = joined.facts();
                 assert!(
                     same_facts(&full, &built),
                     "{roots:?} skipping {skip:?}:\n{full:?}\n{built:?}"
                 );
+                // The questions asked of the parts give the answers of the full walk.
+                let tables = (full.touched.iter())
+                    .chain(&database_events.touched)
+                    .chain(&database_events.writes);
+                for &t in tables {
+                    assert_eq!(
+                        joined.touches(t),
+                        full.touched.contains(&t),
+                        "{roots:?} {skip:?} table {t}"
+                    );
+                    assert_eq!(
+                        joined.writes_table(t),
+                        full.writes.contains(&t),
+                        "{roots:?} {skip:?} table {t}"
+                    );
+                }
+                for &g in full.globals_read.iter().chain(&database_events.globals_read) {
+                    assert_eq!(
+                        joined.reads_global(g),
+                        full.globals_read.contains(&g),
+                        "{roots:?} {skip:?} {g:?}"
+                    );
+                    let of = full.globals_read.iter().any(|x| x.0 == g.0);
+                    assert_eq!(joined.reads_a_global_of(g.0), of, "{roots:?} {skip:?} {g:?}");
+                }
                 if full.touched.len() > own.touched.len() {
                     subscribed += 1;
                 }
