@@ -2446,3 +2446,69 @@ codeunit 50000 T { Subtype = Test;
         );
     }
 }
+
+/// Issue 7770: only the focus move on an unfiltered OpenNew Document without parts
+/// is covered by TestPageBlankKeyInsert.al. The neighboring shapes must refuse.
+#[test]
+fn issue_7770_document_variable_validation_refuses_unmeasured_shapes() {
+    let key = "field(Id; Rec.Id) { ApplicationArea = All; }";
+    let scan = "field(Scan; Input) { ApplicationArea = All; trigger OnValidate() begin Rec.Payload := Input; Rec.Modify(); end; }";
+    for (controls, part, open, extra, insert, refusal) in [
+        (format!("{scan} {key}"), "", "", "", "", "OpenNew focus move"),
+        (format!("{key} {scan}"), "", "Doc.New();", "", "", "OpenNew focus move"),
+        (
+            format!("{key} {scan}"),
+            "part(Lines; Lines) { ApplicationArea = All; }",
+            "",
+            "",
+            "",
+            "OpenNew focus move",
+        ),
+        (
+            format!("{key} {scan}"),
+            "",
+            "",
+            "trigger OnOpenPage() begin Rec.SetRange(Id, 3); end;",
+            "",
+            "OpenNew focus move",
+        ),
+        (
+            format!("{key} {scan}"),
+            "",
+            "",
+            "",
+            "Error('Insert rejected');",
+            "an insert error",
+        ),
+    ] {
+        let test = format!(
+            r#"
+table 69500 Row {{
+    fields {{ field(1; Id; Integer) {{ }} field(2; Payload; Text[20]) {{ }} }}
+    keys {{ key(PK; Id) {{ Clustered = true; }} }}
+    trigger OnInsert() begin {insert} Id := 2; end;
+}}
+page 69501 Doc {{
+    PageType = Document; SourceTable = Row;
+    layout {{ area(Content) {{ group(General) {{ {controls} }} {part} }} }}
+    {extra}
+    var Input: Text[20];
+}}
+page 69502 Lines {{
+    PageType = ListPart; SourceTable = Row;
+    layout {{ area(Content) {{ repeater(Lines) {{ field(Id; Rec.Id) {{ ApplicationArea = All; }} }} }} }}
+}}
+codeunit 69503 T {{ Subtype = Test;
+    [Test] procedure P() var Doc: TestPage Doc; begin
+        Doc.OpenNew(); {open} Doc.Scan.SetValue('SCANNED');
+    end;
+}}
+"#
+        );
+        let outcomes = run_with_deps(&[], &test);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains(refusal)),
+            "{outcomes:?}"
+        );
+    }
+}
