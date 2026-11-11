@@ -260,14 +260,11 @@ fn a_stale_own_insert_buffer_is_written_beside_a_delete_a_rename_or_another_tabl
     }
 }
 
-// Not pinned: a Rename at three Commits for a buffer without an own Modify.
+// Another row inserted and another renamed, three Commits after an own Insert: table contact writes
+// (record/crud/StaleRuleMatrix.al TableContact_4C_B `oi_od_on`, TableContact_2C_B `oi_od_on`).
 #[test]
-fn the_unmeasured_own_insert_shapes_are_refused() {
-    let src = format!(
-        "{SRC}\ncodeunit 69962 Caller {{ procedure Go(): Text var C: Codeunit C; begin exit(C.Part2(false, 3, 'rename')); end; }}"
-    );
-    let r = al_testkit::run_in(&src, "Caller", "Go");
-    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
+fn a_stale_own_insert_buffer_three_commits_back_is_written_beside_a_rename() {
+    assert_eq!(part2(false, 3, "rename"), "ok stored6=start|5");
 }
 
 // Every other form of Find follows the rule of FindFirst, and a TransferFields out of a record one read follows the rule of a

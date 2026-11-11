@@ -8,7 +8,7 @@ use al_testkit::{run, text};
 
 const SRC: &str = r#"
 table 69980 "QL Target" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { } } }
-tableextension 69981 "QL Target Ext" extends "QL Target" { fields { field(50; "Ext Code"; Code[10]) { } } }
+tableextension 69981 "QL Target Ext" extends "QL Target" { fields { field(50; "Ext Code"; Code[10]) { } field(51; "Ext Kind"; Option) { OptionMembers = " ",A; } } }
 table 69982 "QL Line"
 {
     fields
@@ -17,6 +17,7 @@ table 69982 "QL Line"
         field(2; Kind; Option) { OptionMembers = A,Target; }
         field(4; Empty; Code[20]) { TableRelation = "QL Target" where("Ext Code" = filter('''''')); }
         field(5; Bad; Code[20]) { TableRelation = "QL Target" where("Ext Code" = filter('<>''')); }
+        field(6; EqEnum; Code[20]) { TableRelation = "QL Target" where("Ext Kind" = filter('=''''')); }
         field(3; Ref; Code[20])
         {
             TableRelation = if (Kind = const(A)) "QL Line" else
@@ -58,6 +59,12 @@ codeunit 69983 C
         T.Code := 'FILLED'; T."Ext Code" := 'X'; T.Insert();
         L.Validate(Bad, 'FILLED');
     end;
+    procedure EqOnOption()
+    var T: Record "QL Target"; L: Record "QL Line";
+    begin
+        T.Code := 'FILLED'; T.Insert();
+        L.Validate(EqEnum, 'FILLED');
+    end;
 }
 "#;
 
@@ -80,5 +87,13 @@ fn a_quoted_empty_literal_filter_selects_the_empty_row() {
 #[test]
 fn another_quoted_literal_filter_is_refused() {
     let r = run(SRC, "B");
+    assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
+// `filter('=''''')` is pinned on Date, Time, DateTime, Code, Text, Duration and DateFormula fields only
+// (record/table-relation/RelationWhereEmptyValueFilter.al:47-79); on an Option with a blank first member it stays refused.
+#[test]
+fn an_equal_empty_quoted_filter_on_an_option_field_is_refused() {
+    let r = run(SRC, "EqOnOption");
     assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
 }

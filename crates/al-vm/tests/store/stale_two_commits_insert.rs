@@ -1,10 +1,9 @@
 //! A stale buffer from the variable's own Insert and Modify, made stale before two Commits, is written whole once the
 //! transaction after the second Commit inserted another row of the table (al-runner issue 5954, the reporter's repro on
 //! real BC; pinned by record/crud/SbStaleOwnModify.al:666-745 and :2484-2580). Without that Insert BC
-//! refuses it. Other writes beside the Insert (a Delete of another row, say) stay on assumption
-//! `stale-own-insert-two-commits-other-insert`.
+//! refuses it. Other writes beside the Insert follow the same rule, table contact (record/crud/StaleRuleMatrix.al TableContact_*).
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::{clear_hits, take_hits};
 
 const SRC: &str = r#"
 table 50150 "Repro Row" { fields { field(1; "No."; Code[20]) { } field(2; Note; Text[30]) { } field(3; Qty; Integer) { } }
@@ -62,7 +61,7 @@ codeunit 50150 C
 fn the_stale_buffer_is_written_after_an_insert_of_another_row() {
     clear_hits();
     assert_eq!(text(al_testkit::run_in(SRC, "C", "Written")), "start|5");
-    assert!(!take_hits().contains(&Assumption::StaleOwnInsertTwoCommitsOtherInsert));
+    assert!(take_hits().is_empty());
 }
 
 /// A Delete of another row beside the Insert is pinned (Y76StaleBuffers.al Y76_Part2_*): the same verdict, no assumption.
@@ -70,7 +69,7 @@ fn the_stale_buffer_is_written_after_an_insert_of_another_row() {
 fn a_delete_beside_the_insert_is_pinned() {
     clear_hits();
     assert_eq!(text(al_testkit::run_in(SRC, "C", "WrittenBesideDelete")), "start|5");
-    assert!(!take_hits().contains(&Assumption::StaleOwnInsertTwoCommitsOtherInsert));
+    assert!(take_hits().is_empty());
 }
 
 #[test]

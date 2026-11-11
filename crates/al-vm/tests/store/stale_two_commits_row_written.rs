@@ -294,15 +294,19 @@ fn a_modify_of_the_row_beside_an_insert_of_another_row_writes_the_buffer() {
     );
 }
 
-/// Shapes no test pins stay refused.
+/// Row contact writes whatever else the open transaction did and however many Commits came before
+/// (record/crud/StaleRuleMatrix.al Beside_InsertModify_D `rm_lk`, RowContact_History `two_back_empty`, RowContact_CommitCount `4c`).
 #[test]
-fn other_writes_a_lock_or_more_commits_stay_refused() {
+fn row_contact_writes_beside_a_lock_and_after_more_commits() {
     for p in [
         "ModifiesUnderLock",
         "ModifiesThreeCommitsOneEmpty",
         "ModifiesFourCommits",
     ] {
-        let r = run(p, None);
-        assert!(matches!(r, Err(Signal::Unsupported(_))), "{p}: {r:?}");
+        assert_eq!(
+            text(run(p, None)),
+            "Changed|100|1|1|100|Changed / Changed|100|1|1|100|Changed|rows 1",
+            "{p}"
+        );
     }
 }
