@@ -1,8 +1,19 @@
 //! Parts a Visible expression hid as the host opened. Inside a Provider chain (testpage/parts/ProviderLinkedPartsMatrix.al) what
 //! the runner reads is derived from that file's expectations; the shapes it does not pin are refused as the page opens. Outside
-//! every chain: the turns to visible (`read_hidden_parts_the_action_showed`, `note_hidden_part_found_visible`).
+//! every chain: the turns to visible (`read_hidden_parts_the_action_showed`, which runs one pinned shape and refuses the
+//! rest, and `note_hidden_part_found_visible`).
 
 use super::*;
+
+/// The page before an action's body ran, for the turn of a hidden part to visible (`Session::before_action_body`).
+#[derive(Default)]
+pub(super) struct BeforeActionBody {
+    /// The Visible value of each part that runs record triggers, shown or hidden at open, as (control, visible). Empty on a
+    /// page with a Provider link.
+    visible: Vec<(usize, bool)>,
+    /// Rec's fields, when the host is the one of the pinned turn (`Session::first_turn_as_pinned`).
+    pinned_host_rec: Option<Vec<Value>>,
+}
 
 impl Session {
     /// Whether part `i` of the host page takes its link from a Provider or is the Provider of another part.
@@ -228,56 +239,50 @@ impl Session {
                 .is_some_and(|p| !matches!(p.borrow().cursor, Cursor::Row))
     }
 
-    /// The Visible values of the parts that run record triggers, shown or hidden at open, on a page without a Provider link, as
-    /// (control, visible), for `read_hidden_parts_the_action_showed`.
-    pub(super) fn unchained_hidden_part_visibility(&mut self, st: &St) -> Result<Vec<(usize, bool)>, Signal> {
+    /// What `read_hidden_parts_the_action_showed` compares with after the body of an action of page `st`. `no_edit`: the page
+    /// and its parts held no unsaved edit when the action was invoked (`holds_no_edit`, before the client saved anything).
+    pub(super) fn before_action_body(&mut self, st: &St, no_edit: bool) -> Result<BeforeActionBody, Signal> {
+        let mut before = BeforeActionBody::default();
         if self.page_has_provider_link(st) {
-            return Ok(Vec::new());
+            return Ok(before);
         }
-        let mut out = Vec::new();
         for (i, c) in Self::open_parts_with_hidden(st) {
             if !self.part_eliminated(st, i) && self.runs_record_triggers(&c) {
-                out.push((i, self.control_visible(st, i)?));
+                let visible = self.control_visible(st, i)?;
+                c.borrow_mut().seen_visible |= visible;
+                before.visible.push((i, visible));
             }
         }
-        Ok(out)
+        let host_as_pinned = no_edit && before.visible.iter().any(|(_, visible)| !visible) && {
+            let s = st.borrow();
+            s.opened_by_test
+                && s.mode == PageMode::Edit
+                && s.host.is_none()
+                && s.cursor == Cursor::Row
+                && !s.draft
+                && self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Document)
+        };
+        before.pinned_host_rec = host_as_pinned.then(|| self.page_rec(st).borrow().fields.clone());
+        Ok(before)
     }
 
-    /// A part that the action's body made visible (its Visible expression false before the body, true after it). Pinned: the
-    /// first time a part without a repeater that a Visible expression hid at open shows (`PageState::seen_visible`), on a
-    /// top-level Document page that stands on a stored row: it reads its row once more before the host's refresh (testpage/parts/
-    /// HiddenPartExtensionVariable.al:632 Hidden_OpenEdit_FlipTheVariable_ThenActions `flip` `act-flip(Yes) fb-agr(H1) fb-agcr(H1)
-    /// host-agcr(H1) ext-agcr(H1) fb-agr(H1) fb-agcr(H1)`). Every other turn is refused: a part that showed before, a part shown
-    /// at open, a part with a repeater, another host (a Card too: the pin is a Document page), a host on a new or no row. A
-    /// Visible value the host's own triggers change is `note_hidden_part_found_visible`.
+    /// A part that the action's body made visible (its Visible expression false before the body, true after it). One shape is
+    /// pinned, and only that shape runs (`first_turn_as_pinned`): the part reads its row once more before the host's refresh
+    /// (testpage/parts/HiddenPartExtensionVariable.al:632 Hidden_OpenEdit_FlipTheVariable_ThenActions `flip` `act-flip(Yes)
+    /// fb-agr(H1) fb-agcr(H1) host-agcr(H1) ext-agcr(H1) fb-agr(H1) fb-agcr(H1)`). Every other turn by an action body is refused.
+    /// A Visible value the host's own triggers change is `note_hidden_part_found_visible`.
     pub(super) fn read_hidden_parts_the_action_showed(
         &mut self,
         st: &St,
-        before: &[(usize, bool)],
+        before: &BeforeActionBody,
     ) -> Result<(), Signal> {
-        for &(i, was_visible) in before {
+        for &(i, was_visible) in &before.visible {
             if was_visible || !self.control_visible(st, i)? {
                 continue;
             }
-            let hidden = st
-                .borrow()
-                .hidden_parts
-                .iter()
-                .find(|(h, _)| *h == i)
-                .map(|(_, c)| c.clone());
-            let document_on_stored_row = {
-                let s = st.borrow();
-                s.cursor == Cursor::Row
-                    && !s.draft
-                    && s.host.is_none()
-                    && self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Document)
-            };
-            let pinned = hidden.filter(|c| {
-                c.borrow().open && !c.borrow().seen_visible && document_on_stored_row && !self.has_repeater(c)
-            });
-            let Some(child) = pinned else {
+            let Some(child) = self.first_turn_as_pinned(st, i, before) else {
                 return unsupported(
-                    "an action that makes a part visible that showed before, a part shown at open, with a repeater, on a host other than a Document page, or on a host without a stored row (not pinned)",
+                    "an action that makes a part visible, other than the pinned shape: a Document page opened with OpenEdit, on a stored row without an unsaved edit, whose action body only sets the variable, shows a linked part without a repeater that was hidden since the page opened (not pinned)",
                 );
             };
             {
@@ -290,6 +295,52 @@ impl Session {
         Ok(())
     }
 
+    /// The part of control `i` when its turn to visible has every condition of the pin (HiddenPartExtensionVariable.al:632), else
+    /// `None`:
+    /// - the host is a top-level Document page the test opened with OpenEdit, on a stored row, and neither it nor a part held
+    ///   an unsaved edit when the action was invoked (`before_action_body`);
+    /// - the body did what the pinned one does, set the variable: the page stands on the same row with the same Rec, and
+    ///   neither it nor a part was asked for CurrPage.Update or CurrPage.SaveRecord;
+    /// - the part has no repeater, takes its rows through a SubPageLink of `field` terms, and a Visible expression hid it from
+    ///   the open on (`PageState::seen_visible`).
+    fn first_turn_as_pinned(&self, st: &St, i: usize, before: &BeforeActionBody) -> Option<St> {
+        let rec_before = before.pinned_host_rec.as_ref()?;
+        let body_only_set_the_variable = {
+            let s = st.borrow();
+            s.open
+                && s.cursor == Cursor::Row
+                && !s.draft
+                && !s.refresh
+                && !s.save_record_called
+                && Self::same_values(&self.page_rec(st).borrow().fields, rec_before)
+                && Self::open_parts_with_hidden(st)
+                    .iter()
+                    .all(|(_, c)| !c.borrow().refresh && !c.borrow().save_record_called)
+        };
+        let linked_by_fields = {
+            let engine = self.engine();
+            page_of(&engine, st).controls[i]
+                .part_link
+                .as_ref()
+                .is_some_and(|l| l.provider.is_none() && !l.entries.is_empty())
+                && self.link_by_fields_only(st, i)
+        };
+        let hidden = st
+            .borrow()
+            .hidden_parts
+            .iter()
+            .find(|(h, _)| *h == i)
+            .map(|(_, c)| c.clone())?;
+        let never_shown = hidden.borrow().open && !hidden.borrow().seen_visible;
+        (body_only_set_the_variable && linked_by_fields && never_shown && !self.has_repeater(&hidden)).then_some(hidden)
+    }
+
+    /// Whether page `st` and its parts hold no unsaved edit.
+    pub(super) fn holds_no_edit(st: &St) -> bool {
+        let s = st.borrow();
+        !s.dirty && s.parts.iter().chain(&s.hidden_parts).all(|(_, c)| !c.borrow().dirty)
+    }
+
     /// A part a Visible expression hid at open, on a page without a Provider link, that runs record triggers and was hidden at
     /// the host's last refill but is visible now, without the action's read: the host's own trigger or a field's OnValidate set
     /// the expression. Microsoft's tests need both turns: the Customer Card's Pending Approval FactBox (`Visible =
@@ -298,22 +349,32 @@ impl Session {
     /// CustomerCardNameFieldRevertedByWorkflow, VendorCardNameFieldRevertedByWorkflow; WF Demo General Journal Batch
     /// RequestorCancelsPaymentRequestToDirectApprover). The part reads like a shown part, which no probe pins for these turns:
     /// marks the assumption `hidden-part-shown-outside-action`.
-    pub(super) fn note_hidden_part_found_visible(&mut self, st: &St, parts: &[(usize, St)]) -> Result<(), Signal> {
+    /// The refill as the page opens (`opening`) only records that the part showed (`PageState::seen_visible`), so that a later
+    /// turn by an action body is not taken for the first one; the assumption is marked at the next refill, as before.
+    pub(super) fn note_hidden_part_found_visible(
+        &mut self,
+        st: &St,
+        parts: &[(usize, St)],
+        opening: bool,
+    ) -> Result<(), Signal> {
         if st.borrow().hidden_parts.is_empty() || self.page_has_provider_link(st) {
             return Ok(());
         }
         for (i, c) in parts {
             let hidden = st.borrow().hidden_parts.iter().any(|(_, h)| Rc::ptr_eq(h, c));
-            if !hidden || !c.borrow().open || !self.runs_record_triggers(c) {
+            if !hidden || !(opening || c.borrow().open) || !self.runs_record_triggers(c) {
                 continue;
             }
             let visible = self.control_visible(st, *i)?;
-            if visible && !c.borrow().visible_at_sync {
+            let mut c = c.borrow_mut();
+            c.seen_visible |= visible;
+            if opening {
+                continue;
+            }
+            if visible && !c.visible_at_sync {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::HiddenPartShownOutsideAction);
             }
-            let mut c = c.borrow_mut();
             c.visible_at_sync = visible;
-            c.seen_visible |= visible;
         }
         Ok(())
     }

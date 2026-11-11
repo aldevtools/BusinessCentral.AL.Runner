@@ -212,7 +212,8 @@ pub struct PageState {
     /// The new row is the one TestPage.OpenNew started (not a later New() or a filter's new row): its parts' blank reads are
     /// pinned (`card_part_new_host.rs`).
     pub draft_from_open: bool,
-    /// A part a Visible expression hid at open has been visible since (`provider_hidden.rs`).
+    /// A part a Visible expression hid at open has been visible since, at one of the times the runner looks: the refill as
+    /// the host opens, a later refill, before or after an action's body (`provider_hidden.rs`).
     pub seen_visible: bool,
     /// Such a part was visible at its host's last refill (`provider_hidden.rs`).
     pub visible_at_sync: bool,

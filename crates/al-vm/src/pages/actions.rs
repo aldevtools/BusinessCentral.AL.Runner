@@ -933,6 +933,7 @@ impl Session {
             return Ok(Value::Null);
         }
         let engine = self.engine();
+        let no_edit = Self::holds_no_edit(st);
         self.save_before_action(st, idx)?;
         // A client sends the row it stands on to the server before it runs an action (corpus
         // testpage/TestPageAutoSplitKey_Tests.al:TestPage_ActionInvoke_OnANewSubpageRow_*).
@@ -1205,7 +1206,6 @@ impl Session {
             }
             // Subscribers to the action's events (`run_action_body`): what they write to Rec the trigger reads and the page
             // saves, because `before` was taken first.
-            let element = page_of(&engine, st).controls[idx].name.clone();
             let shown_outer = {
                 let shown = if self.is_list(st) && st.borrow().host.is_none() {
                     before.clone()
@@ -1214,7 +1214,7 @@ impl Session {
                 };
                 std::mem::replace(&mut st.borrow_mut().action_shown_row, shown)
             };
-            let r = self.run_action_body(st, idx, r, &element, &before_ext, &after, shown_outer);
+            let r = self.run_action_body(st, idx, r, &element, &before_ext, &after, shown_outer, no_edit);
             // An error an action raises comes out of the test page's Invoke with the test framework's prefix on its code.
             let r = match r {
                 Err(Signal::Error(mut e)) => {

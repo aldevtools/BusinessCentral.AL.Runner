@@ -10,7 +10,8 @@ type ExtTriggers<'a> = &'a [(usize, usize)];
 impl Session {
     /// Runs OnBeforeActionEvent and the extensions' OnBeforeAction, OnAction (routine `r` of control `idx`), the extensions'
     /// OnAfterAction, puts `shown_outer` back as the row the action shows, then OnAfterActionEvent. Subscribers run before the
-    /// trigger (what they write to Rec the trigger reads) and after it when it did not fail.
+    /// trigger (what they write to Rec the trigger reads) and after it when it did not fail. `no_edit`: the page and its parts
+    /// held no unsaved edit when the action was invoked.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run_action_body(
         &mut self,
@@ -21,8 +22,9 @@ impl Session {
         before_ext: ExtTriggers,
         after: ExtTriggers,
         shown_outer: Option<Vec<Value>>,
+        no_edit: bool,
     ) -> Result<Value, Signal> {
-        let hidden_before = self.unchained_hidden_part_visibility(st)?;
+        let hidden_before = self.before_action_body(st, no_edit)?;
         let v = match self
             .page_action_event(st, "onbeforeactionevent", element)
             .and_then(|()| self.run_ext_after_action(st, before_ext))

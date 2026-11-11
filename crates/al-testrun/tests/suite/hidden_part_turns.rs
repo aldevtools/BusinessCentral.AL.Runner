@@ -27,17 +27,21 @@ codeunit 71001 "TF Log"
         Entries: Text;
         ShowPart: Boolean;
         HostArmed: Boolean;
+        HostHides: Boolean;
 
     procedure Reset(Show: Boolean)
     begin
         Entries := '';
         ShowPart := Show;
         HostArmed := false;
+        HostHides := false;
     end;
 
     procedure Show(): Boolean begin exit(ShowPart); end;
     procedure Arm(On: Boolean) begin HostArmed := On; end;
     procedure Armed(): Boolean begin exit(HostArmed); end;
+    procedure ArmHide(On: Boolean) begin HostArmed := false; HostHides := On; end;
+    procedure Hides(): Boolean begin exit(HostHides); end;
 
     procedure Add(Line: Text)
     begin
@@ -102,6 +106,9 @@ page 71003 "TF Doc Page"
         {
             action(Plain) { trigger OnAction() begin Log.Add('act-plain'); end; }
             action(Flip) { trigger OnAction() begin FbVisible := not FbVisible; Log.Add('act-flip(' + Format(FbVisible) + ')'); end; }
+            action(FlipUpd) { trigger OnAction() begin FbVisible := not FbVisible; CurrPage.Update(false); end; }
+            action(FlipSave) { trigger OnAction() begin FbVisible := not FbVisible; Rec.Name := 'saved'; CurrPage.Update(true); end; }
+            action(FlipWrite) { trigger OnAction() begin FbVisible := not FbVisible; Rec.Name := 'written'; end; }
             action(ArmHost) { trigger OnAction() begin Log.Arm(true); Log.Add('act-arm'); end; }
             action(DisarmHide) { trigger OnAction() begin Log.Arm(false); FbVisible := false; Log.Add('act-hide'); end; }
         }
@@ -114,6 +121,8 @@ page 71003 "TF Doc Page"
     begin
         if Log.Armed() then
             FbVisible := true;
+        if Log.Hides() then
+            FbVisible := false;
         Log.Add('host-agcr(' + Rec."No." + ')');
     end;
 }
@@ -152,6 +161,26 @@ page 71005 "TF Card Unlinked"
     {
         area(Content) { field("No."; Rec."No.") { } }
         area(FactBoxes) { part(Fb; "TF Fb") { Visible = FbVisible; } }
+    }
+    var
+        FbVisible: Boolean;
+}
+
+page 71007 "TF Doc Unlinked"
+{
+    PageType = Document;
+    SourceTable = "TF Doc";
+    layout
+    {
+        area(Content) { field("No."; Rec."No.") { } }
+        area(FactBoxes) { part(Fb; "TF Fb") { Visible = FbVisible; } }
+    }
+    actions
+    {
+        area(Processing)
+        {
+            action(Flip) { trigger OnAction() begin FbVisible := not FbVisible; end; }
+        }
     }
     var
         FbVisible: Boolean;
@@ -247,13 +276,63 @@ const TESTS: &[(u32, &str, &str)] = &[
         "UnlinkedHiddenPartOpenNew",
         "Seed.Seed(); Unlinked.OpenNew(); Unlinked.Close();",
     ),
+    // The host's OnAfterGetCurrRecord shows the part while the page opens, an action hides it, an action shows it again: the
+    // part showed since the open, so this is not a first turn.
+    (
+        71111,
+        "DocOpenTurnHideActionShow",
+        "Seed.Seed(); Log.Reset(false); Log.Arm(true); Doc.OpenEdit(); Doc.DisarmHide.Invoke(); Doc.Flip.Invoke();",
+    ),
+    // The same turn while the page opens, hidden again by the host's trigger at a Next: only the refill of the open saw the
+    // part visible.
+    (
+        71118,
+        "DocOpenTurnHostHidesActionShow",
+        "Seed.Seed(); Log.Reset(false); Log.Arm(true); Doc.OpenEdit(); Log.ArmHide(true); Doc.Next(); Log.ArmHide(false);
+         Doc.Flip.Invoke();",
+    ),
+    // The pin opens the page with OpenEdit; OpenView is refused.
+    (
+        71112,
+        "DocOpenViewTurnByAction",
+        "Seed.Seed(); Log.Reset(false); Doc.OpenView(); Doc.GoToKey('H1'); Doc.Flip.Invoke();",
+    ),
+    // The pinned part has a SubPageLink; a part without one is refused.
+    (
+        71113,
+        "DocUnlinkedTurnByAction",
+        "Seed.Seed(); DocUnlinked.OpenEdit(); DocUnlinked.GoToKey('H1'); DocUnlinked.Flip.Invoke();",
+    ),
+    // The pinned action body only sets the variable: a body that also runs CurrPage.Update(false), writes Rec and runs
+    // CurrPage.Update(true), or writes Rec is refused.
+    (
+        71114,
+        "DocTurnByActionWithUpdateFalse",
+        "Seed.Seed(); Log.Reset(false); Doc.OpenEdit(); Doc.GoToKey('H1'); Doc.FlipUpd.Invoke();",
+    ),
+    (
+        71115,
+        "DocTurnByActionWithSave",
+        "Seed.Seed(); Log.Reset(false); Doc.OpenEdit(); Doc.GoToKey('H1'); Doc.FlipSave.Invoke();",
+    ),
+    (
+        71116,
+        "DocTurnByActionWithRecWrite",
+        "Seed.Seed(); Log.Reset(false); Doc.OpenEdit(); Doc.GoToKey('H1'); Doc.FlipWrite.Invoke();",
+    ),
+    // The pinned host holds no unsaved edit when the action is invoked; after a SetValue it is refused.
+    (
+        71117,
+        "DocDirtyHostTurnByAction",
+        "Seed.Seed(); Log.Reset(false); Doc.OpenEdit(); Doc.GoToKey('H1'); Doc.Name.SetValue('x'); Doc.Flip.Invoke();",
+    ),
 ];
 
 fn source() -> String {
     let mut src = FIXTURES.to_string();
     for (id, name, body) in TESTS {
         src.push_str(&format!(
-            "codeunit {id} \"TF T{id}\"\n{{\n    Subtype = Test;\n    TestPermissions = Disabled;\n    [Test]\n    procedure {name}()\n    var\n        Seed: Codeunit \"TF Seed\";\n        Log: Codeunit \"TF Log\";\n        Doc: TestPage \"TF Doc Page\";\n        Card: TestPage \"TF Card Page\";\n        Unlinked: TestPage \"TF Card Unlinked\";\n    begin\n        {body}\n    end;\n}}\n"
+            "codeunit {id} \"TF T{id}\"\n{{\n    Subtype = Test;\n    TestPermissions = Disabled;\n    [Test]\n    procedure {name}()\n    var\n        Seed: Codeunit \"TF Seed\";\n        Log: Codeunit \"TF Log\";\n        Doc: TestPage \"TF Doc Page\";\n        Card: TestPage \"TF Card Page\";\n        Unlinked: TestPage \"TF Card Unlinked\";\n        DocUnlinked: TestPage \"TF Doc Unlinked\";\n    begin\n        {body}\n    end;\n}}\n"
         ));
     }
     src
@@ -324,6 +403,14 @@ fn hidden_part_turns_and_new_row_shapes() {
         ("DocShownAtOpenTurnedAgain", Want::Refused(turn)),
         ("DocActionTurnAfterHostTriggerTurn", Want::Refused(turn)),
         ("CardTurnByAction", Want::Refused(turn)),
+        ("DocOpenTurnHideActionShow", Want::Refused(turn)),
+        ("DocOpenTurnHostHidesActionShow", Want::Refused(turn)),
+        ("DocOpenViewTurnByAction", Want::Refused(turn)),
+        ("DocUnlinkedTurnByAction", Want::Refused(turn)),
+        ("DocTurnByActionWithUpdateFalse", Want::Refused(turn)),
+        ("DocTurnByActionWithSave", Want::Refused(turn)),
+        ("DocTurnByActionWithRecWrite", Want::Refused(turn)),
+        ("DocDirtyHostTurnByAction", Want::Refused(turn)),
         ("DocTurnByOnValidate", Want::Pass { flagged: true }),
         // New() on an open host keeps main's behavior: no trigger of the part, and main's refusal at Close.
         ("CardNewOnOpenHostAsMain", Want::Pass { flagged: false }),
