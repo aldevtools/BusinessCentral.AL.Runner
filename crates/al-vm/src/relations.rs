@@ -354,10 +354,11 @@ impl Session {
         })))
     }
 
-    /// Pending corpus probe record/filters/RelationWhereFlowFilter.al:398, :426, :444.
-    /// A source FlowFilter with a default buffer contributes no condition when unset,
-    /// or one equality for an exact filter in group 0. The outer None preserves the
-    /// existing buffer-based comparison for a field assigned without a filter.
+    /// A source FlowFilter with a default buffer contributes no condition when unset
+    /// (record/filters/RelationWhereFlowFilter.al:398-412), or one equality for an exact
+    /// filter in group 0 (RelationWhereFlowFilter.al:426-441 accepts a match, :444-459
+    /// rejects a mismatch; BC 27, 28, 29). The outer None preserves the existing
+    /// buffer-based comparison for a field assigned without a filter.
     fn source_relation_flowfilter(
         &self,
         rec: &Rec,
@@ -390,7 +391,6 @@ impl Session {
                 );
             }
         };
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ExactSourceFlowFilterRelation);
         Ok(Some(exact))
     }
 
