@@ -124,9 +124,11 @@ impl Lowerer<'_> {
                 if let Some(why) = refusal {
                     self.reasons.push(format!("`{n}`: {why}"));
                 }
+                let before = locals.len();
                 add(self, n, ty.clone(), &mut locals);
-                if let (Some(Ok(m)), Some(slot)) = (&declared, locals.last_mut()) {
-                    slot.security_filtering = Some(*m);
+                if let Some(slot) = locals.get_mut(before) {
+                    slot.security_filtering = declared.clone().and_then(Result::ok);
+                    slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
                 }
             }
         }
@@ -1255,6 +1257,9 @@ impl Lowerer<'_> {
     pub(crate) fn assign(&mut self, n: &SyntaxNode, kids: &[SyntaxNode]) -> L<ir::Stmt> {
         if self.bare_this_of_record(&kids[0]) {
             return Err("assignment to `this` of a table (not pinned)".into());
+        }
+        for k in kids.iter().take(2) {
+            self.security_filtering_array_refusal(k, "an array assignment")?;
         }
         // `CurrFieldNo := FieldNo(X)` in table code sets the field number of the implicit Rec. Base Application's
         // `SelltoContactLookup` does it before it validates a field. The corpus pins reading CurrFieldNo

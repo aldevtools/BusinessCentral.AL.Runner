@@ -402,6 +402,11 @@ pub struct RecordState {
     /// StartSession, a Variant's record and an array element passed by value, each of a record whose current value is not
     /// its declared one, are not measured.
     pub security_filtering_unpinned: bool,
+    /// Whether the record is an element of a local array declared with `[SecurityFiltering(x)]`, whose direct reads,
+    /// Clear of the element and Clear of the array are pinned (al-language/reports/runtime/SFSecurityFilteringFlow.al:429-459).
+    /// A by-value copy of such an element is not measured ([`RecordState::copy_as_new_variable`]), nor is the array passed
+    /// whole by value (al-vm `call_inner`).
+    pub security_filtering_array: bool,
     /// Index of the current key in the table's keys.
     pub key: usize,
     /// `SetCurrentKey` on fields no key of the table starts with: the key index it stands for (one
@@ -576,11 +581,25 @@ impl RecordState {
     /// original's DECLARED value, not its current one, and `Clear` on it goes back to that value; the original keeps its
     /// current value (al-language/reports/runtime/ACAttributes.al:397, :411-414; al-language/reports/runtime/
     /// SFSecurityFilteringFlow.al:279-306, :341-349, :371-373). A copy the corpus does not measure goes through
-    /// [`RecordState::security_filtering_unmeasured_copy`] as well.
+    /// [`RecordState::security_filtering_unmeasured_copy`] as well, and so does a copy of an element of an array declared with
+    /// the attribute (the probe reads such elements only directly). Going back to the declared value is what `Clear` does, so a
+    /// declared value that came with an unmeasured copy stays unpinned here too.
     pub fn copy_as_new_variable(&self) -> RecordState {
         let mut st = self.clone();
-        st.security_filtering = st.declared_security_filtering;
+        st.security_filtering_clear();
+        st.security_filtering_array = false;
+        if self.security_filtering_array {
+            st.security_filtering_unmeasured_copy(self);
+        }
         st
+    }
+
+    /// What `SecurityFiltering()` reads and what `Clear` gives are not pinned at all: an element of an array declared with
+    /// the attribute that went whole into a by-value parameter, and a variable declared with the attribute whose declared value
+    /// the runtime does not keep (al-ir `Slot::security_filtering_not_kept`). Both reads are refused.
+    pub fn security_filtering_not_measured(&mut self) {
+        self.security_filtering_unpinned = true;
+        self.declared_security_filtering_unpinned = true;
     }
 
     /// The copy of `original` is an event argument, a record handed to StartSession, a Variant's record or an array element
@@ -609,7 +628,7 @@ impl RecordState {
     pub fn security_filtering_read(&self) -> Result<i32, crate::native::Signal> {
         if self.security_filtering_unpinned {
             return Err(crate::native::Signal::unsupported(
-                "SecurityFiltering() of a copy of a record (an event argument, a session's record, a Variant's record or an array element) whose value is not its declared one, or after Clear on such a copy of a record declared with another value than Validated (not pinned)",
+                "SecurityFiltering() of a record whose value the corpus does not pin: a copy (an event argument, a session's record, a Variant's record or an array element) whose value is not its declared one, Clear on such a copy of a record declared with another value than Validated, an element of an array declared with the attribute that was passed whole by value, or a variable declared with the attribute whose value the runtime does not keep (not pinned)",
             ));
         }
         Ok(self.security_filtering)

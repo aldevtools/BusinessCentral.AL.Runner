@@ -1640,6 +1640,7 @@ impl Session {
                     declared_security_filtering: 0,
                     declared_security_filtering_unpinned: false,
                     security_filtering_unpinned: false,
+                    security_filtering_array: false,
                     key: 0,
                     adhoc: None,
                     ascending: true,
@@ -2223,6 +2224,27 @@ impl Session {
         }
     }
 
+    /// An array passed by value is a copy: the callee's writes and Clear do not reach the caller
+    /// (format-evaluate/W5Clear.al:Clear_ArrayPassedByValue). The SecurityFiltering of an array declared with the attribute is
+    /// not measured there (SFSecurityFilteringFlow.al:429-459 reads its elements only directly).
+    fn array_by_value(&mut self, a: &Rc<RefCell<Vec<Value>>>) -> Value {
+        let items: Vec<Value> = a
+            .borrow()
+            .iter()
+            .map(|v| match v {
+                Value::Record(rc) => {
+                    let copy = self.record_by_value_unmeasured(rc);
+                    if let (Value::Record(c), true) = (&copy, rc.borrow().security_filtering_array) {
+                        c.borrow_mut().security_filtering_not_measured();
+                    }
+                    copy
+                }
+                other => other.clone(),
+            })
+            .collect();
+        Value::Array(Rc::new(RefCell::new(items)))
+    }
+
     pub(crate) fn ensure_initialized(&mut self, inst: &Rc<RefCell<Instance>>) {
         if inst.borrow().initialized {
             return;
@@ -2494,19 +2516,8 @@ impl Session {
                     };
                     self.record_ref_into_record_param(&h, *table)?
                 }
-                // An array passed by value is a copy: the callee's writes and Clear do not reach the caller
-                // (format-evaluate/W5Clear.al:Clear_ArrayPassedByValue).
-                (Value::Array(a), false) => {
-                    let items: Vec<Value> = a
-                        .borrow()
-                        .iter()
-                        .map(|v| match v {
-                            Value::Record(rc) => self.record_by_value_unmeasured(rc),
-                            other => other.clone(),
-                        })
-                        .collect();
-                    Value::Array(Rc::new(RefCell::new(items)))
-                }
+                // An array passed by value is a copy (`array_by_value`).
+                (Value::Array(a), false) => self.array_by_value(&a),
                 // A Notification passed by value is the caller's own notification: the callee's SetData and Message reach the caller
                 // (events/binding-senders/NotificationByValue.al:ByValue_CalleeSetsDataAndMessage, ByValue_CalleeSetsData_CallerHadData,
                 // ByValue_CalleeReads; an event argument: Event_ByValueArgument_SubscriberChanges). An assignment copies

@@ -511,6 +511,7 @@ pub(crate) fn lower_object<'a>(
                     lw.globals.insert(n.to_lowercase(), globals.len());
                     let mut slot = ir::Slot::new(n, rt);
                     slot.security_filtering = declared.clone().and_then(Result::ok);
+                    slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
                     globals.push(slot);
                 }
                 Err(e) => global_reasons.push(format!("global `{n}`: {e}")),
@@ -1262,13 +1263,26 @@ pub(crate) fn declared_security_filtering(
     )
 }
 
-/// The attributes the lowering still reads for a variable with `attrs`: SecurityFiltering drops out when its value is kept.
+/// The attributes the lowering still reads for a variable with `attrs`: SecurityFiltering becomes [`SECURITY_FILTERING_KEPT`]
+/// when its value is kept.
 pub(crate) fn attrs_left(attrs: &[String], declared: &Option<Result<i32, String>>) -> Vec<String> {
     let mut attrs = attrs.to_vec();
     if declared.is_some() {
-        attrs.retain(|a| a != "securityfiltering");
+        for a in attrs.iter_mut().filter(|a| *a == "securityfiltering") {
+            *a = SECURITY_FILTERING_KEPT.into();
+        }
     }
     attrs
+}
+
+/// The name [`attrs_left`] gives the attribute SecurityFiltering of a variable whose declared value the runtime keeps: its
+/// read is not refused, an array assignment or CopyArray of it is (`Lowerer::security_filtering_array_refusal`).
+pub(crate) const SECURITY_FILTERING_KEPT: &str = "securityfiltering-kept";
+
+/// Whether a variable with the attribute names `attrs` ([`var_attribute_names`]) was declared with SecurityFiltering, but
+/// the runtime does not keep its declared value (al-ir `Slot::security_filtering_not_kept`).
+pub(crate) fn security_filtering_not_kept(attrs: &[String], declared: &Option<Result<i32, String>>) -> bool {
+    declared.is_none() && attrs.iter().any(|a| a == "securityfiltering")
 }
 
 /// [`over_max_length`] of object `oi`, without a walk of its properties when its file names no `MaxLength` at all (nearly

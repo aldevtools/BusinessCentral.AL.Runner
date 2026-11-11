@@ -45,6 +45,38 @@ impl Lowerer<'_> {
         Ok(())
     }
 
+    /// `n` names a whole array declared with `[SecurityFiltering(...)]` in an array assignment (`what`) or a CopyArray. The
+    /// probe al-language/reports/runtime/SFSecurityFilteringFlow.al:429-459 reads the elements of such an array only directly
+    /// (and after Clear of an element and of the array); what an element reads after the array was assigned or copied, in
+    /// either direction, is not measured, so the routine is refused.
+    pub(crate) fn security_filtering_array_refusal(&self, n: &SyntaxNode, what: &str) -> L<()> {
+        let n = match n.kind() {
+            SyntaxKind::ParenExpr => match n.children().next() {
+                Some(inner) => inner,
+                None => return Ok(()),
+            },
+            _ => n.clone(),
+        };
+        if n.kind() != SyntaxKind::NameRef || !matches!(self.ty_ref(&n), crate::types::Ty::Array(..)) {
+            return Ok(());
+        }
+        let attrs = match self.res(&n) {
+            Some(Res::Local(name)) => self.local_var_attrs.get(name),
+            Some(Res::Global(name)) => self.global_var_attrs.get(name),
+            _ => None,
+        };
+        if attrs.is_some_and(|a| {
+            a.iter()
+                .any(|a| a == "securityfiltering" || a == SECURITY_FILTERING_KEPT)
+        }) {
+            return Err(format!(
+                "{what} of the array `{}`, declared with the attribute SecurityFiltering: what its elements read is not pinned",
+                n.text_string().trim()
+            ));
+        }
+        Ok(())
+    }
+
     /// Whether `field` (the receiver of a Media method, `X.Layout`) is a field of a Report Layout List record.
     fn report_layout_list_field(&self, field: &SyntaxNode) -> bool {
         if field.kind() != SyntaxKind::MemberExpr {
@@ -148,6 +180,11 @@ impl Lowerer<'_> {
             return self.dotnet_member(node, callee, &name, op, args);
         }
         self.security_filtering_read_refusal(callee, args)?;
+        if callee.kind() == SyntaxKind::NameRef && callee.text_string().trim().eq_ignore_ascii_case("CopyArray") {
+            for a in args.iter().take(2) {
+                self.security_filtering_array_refusal(a, "CopyArray")?;
+            }
+        }
         // A control add-in as an argument (`BusinessChartBuffer.UpdateChart(CurrPage.BusinessChart)`, by `var` or by value)
         // refuses when the call runs, as a call of its methods does below: Base Application's chart pages make it on a path a
         // flag guards. Control add-ins are not modelled; no corpus test passes one.

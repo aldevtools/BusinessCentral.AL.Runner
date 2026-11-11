@@ -100,9 +100,9 @@ fn a_local_record_declared_with_security_filtering_starts_with_the_declared_valu
     }
     assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "N")), "Filtered");
     refused(al_testkit::run_in(src, "C", "NA"), "SecurityFiltering");
-    // An array element passed by value holding its declared value reads it (ACAttributes.al:397, :411-414); one whose
-    // value is not its declared one is not measured (SFSecurityFilteringFlow.al asks only a Record parameter): refused.
-    assert_eq!(al_testkit::text(al_testkit::run_in(src, "C", "A1")), "Filtered");
+    // The whole array passed by value is not measured (SFSecurityFilteringFlow.al:429-459 reads its elements only directly;
+    // ACAttributes.al:397, :411-414 pin a Record parameter, not an array parameter): refused, whatever its elements hold.
+    refused(al_testkit::run_in(src, "C", "A1"), "SecurityFiltering");
     refused(al_testkit::run_in(src, "C", "A2"), "SecurityFiltering");
     // TransferFields and RecordRef.SetTable into the record keep its value, and Clear of a by-value copy goes back to the
     // argument's declared value (SFSecurityFilteringFlow.al, see the next test).
@@ -188,4 +188,55 @@ fn security_filtering_through_transfer_fields_set_table_and_by_value_copies() {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+// A by-value copy of a copy the corpus does not measure (here an event argument of a record declared Filtered) goes back to the
+// declared value, which came with the unmeasured copy: what it reads is not pinned, as after Clear on that copy (`Clear` and a
+// by-value copy both go back to the declared value: ACAttributes.al:388-397). Both are refused.
+#[test]
+fn a_by_value_copy_of_an_unmeasured_copy_is_refused_like_clear() {
+    let src = "table 50100 T { fields { field(1; Id; Integer) { } } } \
+        codeunit 50101 Pub { [IntegrationEvent(false, false)] procedure OnRow(Row: Record T; var Result: Text) begin end; } \
+        codeunit 50102 Sub { EventSubscriberInstance = StaticAutomatic; \
+        [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnRow', '', false, false)] \
+        local procedure OnRow(Row: Record T; var Result: Text) begin \
+            Row.SecurityFiltering(SecurityFilter::Ignored); \
+            if Result = 'clear' then begin Clear(Row); Result := Format(Row.SecurityFiltering()); end else Result := ReadByValue(Row); end; \
+        local procedure ReadByValue(X: Record T): Text begin exit(Format(X.SecurityFiltering())); end; } \
+        codeunit 50100 C { \
+        procedure ByValue(): Text var Pub: Codeunit Pub; [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; Result: Text; begin Pub.OnRow(R, Result); exit(Result); end; \
+        procedure Cleared(): Text var Pub: Codeunit Pub; [SecurityFiltering(SecurityFilter::Filtered)] R: Record T; Result: Text; begin Result := 'clear'; Pub.OnRow(R, Result); exit(Result); end; }";
+    refused(al_testkit::run_in(src, "C", "Cleared"), "SecurityFiltering");
+    refused(al_testkit::run_in(src, "C", "ByValue"), "SecurityFiltering");
+}
+
+// Array shapes the probe al-language/reports/runtime/SFSecurityFilteringFlow.al:429-459 does not ask (it reads the elements of a
+// local array declared with the attribute directly, after SecurityFiltering(x), Clear of an element and Clear of the array): an
+// element passed by value whose value is not the declared one, an array assignment in either direction, CopyArray in either
+// direction, the whole array passed by value, and an element of a global array (whose declared value the runtime does not keep)
+// passed through a var parameter. What SecurityFiltering() reads there is not pinned: each read is refused.
+#[test]
+fn security_filtering_of_array_shapes_outside_the_probe_is_refused() {
+    let src = "table 50100 T { fields { field(1; Id; Integer) { } } } \
+        codeunit 50100 C { var [SecurityFiltering(SecurityFilter::Filtered)] GA: array[2] of Record T; \
+        procedure E1(): Text var [SecurityFiltering(SecurityFilter::Filtered)] Rows: array[2] of Record T; begin Rows[1].SecurityFiltering(SecurityFilter::Ignored); exit(ReadByValue(Rows[1])); end; \
+        procedure E2(): Text var [SecurityFiltering(SecurityFilter::Filtered)] Rows: array[2] of Record T; Plain: array[2] of Record T; begin Plain := Rows; exit(Format(Plain[1].SecurityFiltering())); end; \
+        procedure E3(): Text var [SecurityFiltering(SecurityFilter::Filtered)] Rows: array[2] of Record T; Plain: array[2] of Record T; begin CopyArray(Plain, Rows, 1); exit(Format(Plain[1].SecurityFiltering())); end; \
+        procedure E4(): Text var [SecurityFiltering(SecurityFilter::Filtered)] Rows: array[2] of Record T; Plain: array[2] of Record T; begin Rows := Plain; exit(Format(Rows[1].SecurityFiltering())); end; \
+        procedure E5(): Text var [SecurityFiltering(SecurityFilter::Filtered)] Rows: array[2] of Record T; Plain: array[2] of Record T; begin CopyArray(Rows, Plain, 1); exit(Format(Rows[1].SecurityFiltering())); end; \
+        procedure E6(): Text var [SecurityFiltering(SecurityFilter::Filtered)] Rows: array[2] of Record T; begin exit(ReadArray(Rows)); end; \
+        procedure E7(): Text begin exit(ReadVar(GA[1])); end; \
+        procedure E8(): Text var [SecurityFiltering(SecurityFilter::Filtered)] Rows: array[2] of Record T; Plain: array[2] of Record T; begin Plain := Rows; Clear(Plain); exit(Format(Plain[1].SecurityFiltering())); end; \
+        procedure ReadArray(X: array[2] of Record T): Text begin exit(Format(X[1].SecurityFiltering())); end; \
+        procedure ReadByValue(X: Record T): Text begin exit(Format(X.SecurityFiltering())); end; \
+        procedure ReadVar(var X: Record T): Text begin exit(Format(X.SecurityFiltering())); end; }";
+    let mut b = al_testkit::Built::from_source(src);
+    let mut answered = Vec::new();
+    for p in ["E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"] {
+        match b.run_in("C", p) {
+            Err(Signal::Unsupported(why)) if why.contains("SecurityFiltering") => {}
+            other => answered.push(format!("{p}: {other:?}")),
+        }
+    }
+    assert!(answered.is_empty(), "not refused:\n{}", answered.join("\n"));
 }

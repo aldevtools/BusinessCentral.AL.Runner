@@ -286,6 +286,7 @@ mod tests {
             declared_security_filtering: 0,
             declared_security_filtering_unpinned: false,
             security_filtering_unpinned: false,
+            security_filtering_array: false,
             key: 0,
             adhoc: None,
             ascending: true,
