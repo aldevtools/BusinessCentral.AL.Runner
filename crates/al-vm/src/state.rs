@@ -266,8 +266,9 @@ pub(crate) struct PageClients {
     pub(crate) run_page_link_opening: u32,
     /// The close that starts next is a TestPage's own Close() (taken by `close_with`).
     pub(crate) test_close: bool,
-    /// The save of the close running now failed with an AL Error (`pages/close_save_failed.rs`).
-    pub(crate) close_save_error: bool,
+    /// The AL Error the save of the close running now failed with (`pages/close_save_failed.rs`,
+    /// `pages/modal_close_save_error.rs`).
+    pub(crate) close_save_error: Option<al_builtins::native::AlError>,
     /// The TestPage calls running now, innermost last: the root page of the call's page tree and what the pages' own code
     /// did to that tree meanwhile (`pages/shown.rs`).
     pub(crate) shown_frames: Vec<(*const RefCell<crate::pages::PageState>, Vec<crate::pages::ShownNote>)>,
