@@ -1,7 +1,7 @@
-//! Platform page events on pages without a source table (issue 7430). No corpus test pins when BC raises them there
-//! (every event subscriber test of the corpus is on a page with SourceTable: events/platform-triggers/PageTriggerEventRows.al,
-//! testpage/ABTests.al, events/ClEventLeads.al:530), so a page with such a subscriber is refused when it opens, before any
-//! of its code runs, whatever the page type and the event. Probe spec: probe-page-events-no-source.md.
+//! Platform page events on pages without a source table (issue 7430). events/page-events/NoSourcePageEvents.al pins them for a
+//! Card, a List, a Worksheet, a ListPlus, a StandardDialog, a NavigatePage, a CardPart and a ListPart (the corpus runs them); a
+//! Role Center opens its parts in its own order there (NoSourcePageEvents.al:1628), which the client does not build, so a Role
+//! Center with such a subscriber is still refused when it opens, before any of its code runs, whatever the event.
 
 use al_builtins::native::Signal;
 
@@ -44,7 +44,7 @@ codeunit 69983 C
 
 #[test]
 fn a_subscriber_on_a_page_without_source_refuses_the_open_before_its_code_runs() {
-    for page_type in ["RoleCenter", "Card", "NavigatePage", "Worksheet", "ListPlus"] {
+    for page_type in ["RoleCenter"] {
         for event in [
             "OnOpenPageEvent",
             "OnClosePageEvent",

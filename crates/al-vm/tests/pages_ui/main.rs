@@ -84,6 +84,7 @@ mod moved_onto_deleted_y80;
 mod new_card_descr_then_key;
 mod new_line_move_unpinned_mode;
 mod new_record_key_xrec;
+mod next_rereads_held_row;
 mod no_source_card;
 mod no_source_page_events;
 mod open_moved_find_which;

@@ -158,7 +158,8 @@ mod tests {
                 Value::List(Default::default()),
                 Value::Integer(1),
             ];
-            Some(Rows::from_rows(&table(), vec![r]).unwrap())
+            // A List is not allowed in a key: the table without its secondary key (al-runner issue 7644).
+            Some(Rows::from_rows(&al_data::contract::table_without_secondary_key(), vec![r]).unwrap())
         };
         assert_eq!(cache.get(1, 7, build).map(|r| r.len()), Some(1));
         assert_eq!(cache.get(1, 7, build).map(|r| r.len()), Some(1));

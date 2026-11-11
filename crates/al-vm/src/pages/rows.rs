@@ -1347,6 +1347,7 @@ impl Session {
 
     /// Moves the cursor; the Boolean the move methods return.
     pub(super) fn page_move(&mut self, st: &St, how: PageMethod) -> Result<Value, Signal> {
+        let result_used = self.ret_used;
         if !(how == PageMethod::Next || how == PageMethod::Previous && st.borrow().cursor == Cursor::NewLine) {
             st.borrow_mut().refreshed_after_gone_move = false;
         }
@@ -1354,7 +1355,7 @@ impl Session {
             return Ok(answer);
         }
         if !self.has_source(st) {
-            return unsupported(format!("{how}() on a page without a source table"));
+            return self.no_source_move(st, how, result_used);
         }
         if let Some(moved) = self.move_off_untouched_new_line(st, how)? {
             return Ok(Value::Boolean(moved));
@@ -1481,7 +1482,7 @@ impl Session {
             s.field_captions_quiet = how == PageMethod::Previous;
             s.field_captions_pinned_move = matches!(how, PageMethod::First | PageMethod::Last);
         }
-        let (r, origin) = self.traced(st, |s| s.page_move_noting_server_row(st, how));
+        let (r, origin) = self.traced(st, |s| s.page_move_noting_server_row(st, how, writes));
         {
             let mut s = st.borrow_mut();
             s.field_captions_quiet = false;
@@ -2769,45 +2770,6 @@ impl Session {
 
     // ---- pages opened by AL code ----------------------------------------------------------
 
-    /// The built-in action name `close_with` is asked for, as the `Action` the page reports. A
-    /// lookup-mode modal reads OK and Cancel as LookupOK and LookupCancel; a page closing itself
-    /// (`CurrPage.Close()`) reads as OK in a plain modal and as LookupCancel in lookup mode (corpus
-    /// ui-handlers/TestPageModalQueryClose_Tests.al, TestPageModalSelfClose_Tests.al).
-    pub(super) fn close_action(&self, st: &St, requested: &str) -> String {
-        let (modal, lookup, object) = {
-            let s = st.borrow();
-            (s.modal, s.lookup, s.object as usize)
-        };
-        // A confirmation dialog stays Cancel even where the lookup form reads Cancel as LookupCancel (misc/lt-probes-needed-7/
-        // PnGActionOrdinals.al:ModalResultsOfAConfirmationDialog `nothing-invoked`).
-        if requested == "Cancel" && self.engine.object_facts[object].page_type_lower() == "confirmationdialog" {
-            return "Cancel".into();
-        }
-        match (requested, modal, lookup) {
-            ("OK", true, true) => "LookupOK".into(),
-            ("Cancel", true, true) => "LookupCancel".into(),
-            ("Close", true, true) => "LookupCancel".into(),
-            ("Close", true, false) => "OK".into(),
-            ("Close", false, _) => "OK".into(),
-            (other, _, _) => other.into(),
-        }
-    }
-
-    /// What a modal page reports when its handler invoked nothing: the page type decides (corpus
-    /// ui-handlers/TestPageBuiltInActions_Tests.al (i)-(k), TestPageModalQueryClose_Tests.al (b) and (e)).
-    pub(super) fn unattended_action(&self, st: &St) -> &'static str {
-        let (lookup, object) = {
-            let s = st.borrow();
-            (s.lookup, s.object as usize)
-        };
-        let page_type = self.engine.object_facts[object].page_type_lower().to_string();
-        match page_type.as_str() {
-            "standarddialog" | "promptdialog" | "confirmationdialog" => "Cancel",
-            _ if lookup => "LookupCancel",
-            _ => "OK",
-        }
-    }
-
     /// `Page.Run` / `Page.RunModal` (static and on a `Page` variable): opens the page for the
     /// calling AL, hands it to the bound handler (or to the `TestPage.Trap()` variable for a plain
     /// run), and for a modal run reports how it closed.
@@ -3214,6 +3176,9 @@ impl Session {
         // Kept, not pinned: a page without open parts closes without its close triggers, as before (handlers/
         // TestPageModalQueryClose_Tests.al PlainModal_HasNoBuiltInCancelAction, codeunit 60338's dialog cases,
         // TestPageQueryCloseError_Tests.al ErrorInQueryClosePage_*, P106RunInstance.al P106_Inst_RunModal_List pass through it).
+        if parts.is_empty() && self.no_source_handler_error_close_pinned(st) {
+            return self.close_no_source_modal_after_handler_error(st);
+        }
         let asks = self.declares(st, "onqueryclosepage") || parts.iter().any(|p| self.declares(p, "onqueryclosepage"));
         if !asks || parts.is_empty() {
             return Ok(());

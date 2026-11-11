@@ -77,7 +77,14 @@ impl Session {
     pub(crate) fn run_page_var(&mut self, st: &St, modal: bool) -> Result<Value, Signal> {
         let record = st.borrow().set_record.clone();
         self.note_page_var_run(st, !modal);
-        self.run_page_ui(st, record, modal)
+        // `CurrPage.Run()` runs from the page's own code; a Page variable's `Run()` from other code.
+        let object = st.borrow().object as usize;
+        let variable_run = !modal && self.frames.last() != Some(&object);
+        let r = self.run_page_ui(st, record, modal)?;
+        if variable_run {
+            self.empty_temp_rec_after_variable_run(st)?;
+        }
+        Ok(r)
     }
 
     /// A Page variable's `Run` (`modeless`) or `RunModal` shows `st`.

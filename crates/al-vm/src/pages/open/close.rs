@@ -347,7 +347,8 @@ impl Session {
                 "closing a host with a shown part and a part hidden by a Visible expression that both have close triggers (order not pinned)",
             );
         }
-        let open_parts: Vec<St> = open_parts.into_iter().map(|(_, c, _)| c).collect();
+        let mut open_parts: Vec<St> = open_parts.into_iter().map(|(_, c, _)| c).collect();
+        self.no_source_host_part_close_order(st, &mut open_parts)?;
         let none_ordinal = al_builtins::value::ACTION_MEMBERS
             .iter()
             .position(|m| *m == "None")
@@ -588,7 +589,7 @@ impl Session {
         // A lookup-mode modal offers OK and Cancel whatever its type (corpus
         // ui-handlers/TestPageModalQueryClose_Tests.al (b2) and (d)).
         if !dialog && matches!(which, "OK" | "Cancel") && st.borrow().modal && st.borrow().lookup {
-            return true;
+            return !(which == "Cancel" && self.lookup_part_without_cancel(st));
         }
         match (page_type.as_str(), which) {
             ("confirmationdialog", "Yes" | "No") => true,
@@ -608,7 +609,7 @@ impl Session {
 
     /// Whether closing part page `st` runs AL code: its or a page extension's OnQueryClosePage or OnClosePage, or a subscriber
     /// of their events.
-    fn runs_close_code(&self, st: &St) -> bool {
+    pub(in crate::pages) fn runs_close_code(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
         ["onqueryclosepage", "onclosepage"]
             .iter()

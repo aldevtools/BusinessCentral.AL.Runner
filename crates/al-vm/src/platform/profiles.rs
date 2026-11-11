@@ -49,7 +49,7 @@ impl Session {
             if let Some(p) = system_id {
                 r[p] = Value::Guid(self.new_guid());
             }
-            let _ = self.store.insert(&self.cx, t, r);
+            self.store_seed(t, r);
         }
         !rows.is_empty()
     }
