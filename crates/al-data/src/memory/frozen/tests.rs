@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::Store;
-use crate::contract::{cx, row, table};
+use crate::contract::{cx, row, table_without_secondary_key as table};
 
 fn base() -> MemStore {
     let (c, t) = (cx("C"), table());

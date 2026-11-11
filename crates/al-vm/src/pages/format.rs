@@ -1459,11 +1459,10 @@ impl Session {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let props = &engine.program.objects[object].properties;
-        // A list handed over in lookup mode is read-only, page-variable controls included
-        // (corpus testpage/TestPageControlEditableRoutes.al:446 List_RunModal_LookupMode).
+        // What lookup mode locks depends on the page type (`lookup_lock`).
         st.borrow().mode != PageMode::View
             && !(st.borrow().editable_off && self.open_lock(st) != Some(PageMode::New))
-            && !(st.borrow().lookup && self.is_list_page(st))
+            && matches!(self.lookup_lock(st), Some(LookupLock::Nothing) | None)
             && !props
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case("Editable") && v.trim().eq_ignore_ascii_case("false"))
@@ -1481,6 +1480,7 @@ impl Session {
     /// Editable and Enabled follow the page state live (corpus
     /// testpage/TestPageControlPropertyLiveness_Tests.al:73, TestPageEditable_Tests.al).
     pub(super) fn control_editable(&mut self, st: &St, idx: usize) -> Result<bool, Signal> {
+        self.refuse_unpinned_lookup_editable(st)?;
         // A control bound to a page variable stays editable on a read-only page (corpus
         // testpage/TestPageReadOnlySetValue.al:365 OpenView_PageVariableControl_StaysEditable).
         let engine = self.engine();
@@ -1510,7 +1510,7 @@ impl Session {
         }
         let rec_bound = !var_bound
             || (page_says_read_only && !self.is_request_page(st))
-            || (st.borrow().lookup && self.is_list_page(st))
+            || self.lookup_lock(st) == Some(LookupLock::Everything)
             || (st.borrow().editable_off && open_lock != Some(PageMode::View))
             // A request page that says `Editable = false` makes its variable-bound fields read No too
             // (reports/PSRequestPageEditable.al Editable_RequestPageEditableFalse).

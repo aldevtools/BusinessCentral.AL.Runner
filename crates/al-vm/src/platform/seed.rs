@@ -288,7 +288,25 @@ impl Session {
         if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
             r[p] = Value::Guid(self.fresh_system_id());
         }
-        let _ = self.store.insert(&self.cx, t, r);
+        self.store_seed(t, r);
+    }
+
+    /// Writes one seed row. A row that is there already is left alone. A write the store refuses is kept as the session's
+    /// seed refusal (al-runner issue 7644: its result was dropped), so that no test runs against a table without its seed.
+    pub(super) fn store_seed(&mut self, t: &TableDef, r: Row) {
+        if let Err(e) = self.store.insert(&self.cx, t, r) {
+            self.refuse_seed(t, &e);
+        }
+    }
+
+    fn refuse_seed(&mut self, t: &TableDef, e: &al_data::StoreError) {
+        self.seed_refusal
+            .get_or_insert_with(|| format!("the platform rows of table {} could not be written: {e}", t.name));
+    }
+
+    /// Why a write of the platform's seed rows was refused, when one was: every test of the session is refused with it.
+    pub fn seed_refusal(&self) -> Option<&str> {
+        self.seed_refusal.as_deref()
     }
 
     /// Writes the platform's seed rows into the tables the program compiled, then commits.
@@ -380,7 +398,7 @@ impl Session {
                         if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
                             r[p] = Value::Guid(self.fresh_system_id());
                         }
-                        let _ = self.store.insert(&self.cx, t, r);
+                        self.store_seed(t, r);
                     }
                     wrote = true;
                     continue;
@@ -451,7 +469,7 @@ impl Session {
             if let Some(p) = t.fields.iter().position(|f| f.id == 2_000_000_000) {
                 row[p] = Value::Guid(self.fresh_system_id());
             }
-            let _ = self.store.insert(&self.cx, t, row);
+            self.store_seed(t, row);
             wrote = true;
         }
         wrote |= self.restore_company_rows();
@@ -474,13 +492,21 @@ impl Session {
         let (fields, restored) = crate::testdata::TestBacking::new(&self.engine, td).company_rows(t.object, &t);
         let mut changed = false;
         for b in restored {
-            let Ok(Some(mut row)) = self.store.get(&self.cx, &t, std::slice::from_ref(&b[name_at])) else {
-                continue;
+            let mut row = match self.store.get(&self.cx, &t, std::slice::from_ref(&b[name_at])) {
+                Ok(Some(row)) => row,
+                Ok(None) => continue,
+                Err(e) => {
+                    self.refuse_seed(&t, &e);
+                    continue;
+                }
             };
             for &f in &fields {
                 row[f] = b[f].clone();
             }
-            changed |= self.store.modify(&self.cx, &t, row).is_ok();
+            match self.store.modify(&self.cx, &t, row) {
+                Ok(_) => changed = true,
+                Err(e) => self.refuse_seed(&t, &e),
+            }
         }
         changed
     }
@@ -527,5 +553,50 @@ profile "P Two" { RoleCenter = 9006; Enabled = false; }
         let second = crate::Session::new(engine.clone());
         assert!(std::ptr::eq(at, engine.seed_rows.get().unwrap().as_ref().unwrap()));
         drop((first, second));
+    }
+
+    /// A seed row the store refuses (al-runner issue 7644: the result of the write was dropped) leaves the session refusing
+    /// every test with the store's reason, instead of running them against a table without its platform rows. A Blob in the
+    /// key is the one way to make the store refuse a seed row from AL source.
+    #[test]
+    fn a_seed_row_the_store_refuses_makes_the_session_refuse() {
+        let src = SRC
+            .replace(
+                "field(16; Caption; Text[100]) { }",
+                "field(16; Caption; Text[100]) { } field(18; Pic; Blob) { }",
+            )
+            .replace(
+                "key(PK; Scope, \"App ID\", \"Profile ID\")",
+                "key(PK; Scope, \"App ID\", \"Profile ID\", Pic)",
+            );
+        let (ws, l) = al_sema::lower::compile(
+            vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), src)],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let engine = crate::Engine::new(l.program, Vec::new());
+        let session = crate::Session::new(engine.clone());
+        let why = session.seed_refusal().expect("the seed of All Profile was refused");
+        assert!(why.contains("All Profile"), "{why}");
+        // The program without the Blob seeds without a refusal.
+        let (_, l) = al_sema::lower::compile(
+            vec![AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), SRC.into())],
+            }],
+            &Default::default(),
+        );
+        assert!(
+            crate::Session::new(crate::Engine::new(l.program, Vec::new()))
+                .seed_refusal()
+                .is_none()
+        );
     }
 }

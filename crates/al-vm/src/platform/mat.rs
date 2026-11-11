@@ -130,6 +130,10 @@ pub(crate) struct Mat {
     /// Per column: some row leaves it unknown (`Value::Unknown`). A filter on such a column, or an order by it, is
     /// refused for a row that leaves it unknown, since whether that row passes or where it sorts is not known.
     unknown_cols: Box<[bool]>,
+    /// Why every read refuses: a row's key holds a value the key order cannot place (`TableDef::check_primary_key`, the
+    /// check every stored key passes; al-runner issue 7644). The rows are sorted and searched in that order, where such a
+    /// value counts as equal, so no answer of the listing can be trusted.
+    key_refusal: Option<String>,
     /// The rows that passed a set of filters, for a set seen before (`passing`): a lookup that scans a big listing
     /// on a column the key does not cover (the fields that relate to a table) repeats with the same filters.
     memo: Box<std::sync::Mutex<Memo>>,
@@ -252,8 +256,16 @@ impl Mat {
         // Each row's key is built once: building it per comparison was most of the time of a
         // 37,000-row listing. The sort is stable and the first of equal keys stays, as before.
         let mut keyed: Vec<(Vec<Value>, Entry)> = entries.drain(..).map(|e| (t.primary_key(&e.row), e)).collect();
-        keyed.sort_by(|a, b| key_cmp(&a.0, &b.0));
-        keyed.dedup_by(|a, b| key_cmp(&a.0, &b.0) == Ordering::Equal);
+        // Only the known prefix of a poisoned row's key is a key value; the rest are placeholders.
+        let key_refusal = keyed
+            .iter()
+            .find_map(|(pk, e)| t.check_primary_key(&pk[..e.known.min(pk.len())]).err())
+            .map(|e| e.to_string());
+        // A listing that refuses every read is not sorted: its keys do not compare.
+        if key_refusal.is_none() {
+            keyed.sort_by(|a, b| key_cmp(&a.0, &b.0));
+            keyed.dedup_by(|a, b| key_cmp(&a.0, &b.0) == Ordering::Equal);
+        }
         let mut rows = Vec::new();
         let mut poison = Vec::new();
         let mut known = Vec::new();
@@ -288,8 +300,16 @@ impl Mat {
             assumed,
             clean,
             unknown_cols,
+            key_refusal,
             memo: Default::default(),
         }
+    }
+
+    /// Refuses every read of a listing whose keys the key order cannot place ([`Mat::key_refusal`]).
+    fn refuse_unordered(&self) -> Result<(), StoreError> {
+        self.key_refusal
+            .as_ref()
+            .map_or(Ok(()), |why| Err(StoreError::Refused(why.clone())))
     }
 
     /// Whether a filter of the set reads a column some row leaves unknown: only then are the rows checked one by one.
@@ -319,6 +339,7 @@ impl Mat {
             assumed: self.assumed.clone(),
             clean: self.clean,
             unknown_cols: self.unknown_cols.clone(),
+            key_refusal: self.key_refusal.clone(),
             memo: Default::default(),
         }
     }
@@ -329,6 +350,7 @@ impl Mat {
     }
 
     pub(crate) fn get(&self, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
+        self.refuse_unordered()?;
         // A poisoned row known only by a key prefix stands for every key that starts with it: a Get of such a key cannot
         // answer that the row is missing (al-runner issue 5790: the one Feature Key row of a minor not measured).
         if !self.clean {
@@ -481,6 +503,7 @@ impl Mat {
     }
 
     pub(crate) fn next(&self, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+        self.refuse_unordered()?;
         super::refuse_unpinned(scan.filters)?;
         let later = |r: &Row| match scan.after {
             None => true,
@@ -664,6 +687,7 @@ impl Mat {
     }
 
     pub(crate) fn count(&self, t: &TableDef, filters: &[FieldFilter]) -> Result<usize, StoreError> {
+        self.refuse_unordered()?;
         super::refuse_unpinned(filters)?;
         let mut n = 0;
         let band = self.band(t, filters);
@@ -735,6 +759,34 @@ mod tests {
                 Entry::poisoned(row(2, ""), "row 2 is not understood".into()),
             ],
         )
+    }
+
+    /// A listing with a row whose key holds a value the key order cannot place (a marked text, an unknown column) is sorted
+    /// and searched in that order, where such a value counts as equal: every read of it refuses (al-runner issue 7644).
+    #[test]
+    fn a_listing_with_a_key_value_no_key_order_places_refuses_every_read() {
+        let t = TableDef {
+            keys: vec![vec![0, 1]],
+            ..table()
+        };
+        let marked = format!("b{}", al_builtins::native::CALL_STACK_MARK);
+        for bad in [Value::Text(marked.as_str().into()), Value::Unknown("not pinned".into())] {
+            let mut r = row(2, "");
+            r[1] = bad;
+            let m = Mat::new(&t, vec![Entry::ok(row(1, "a")), Entry::ok(r)]);
+            let pk = [Value::Integer(1), Value::Text("a".into())];
+            assert!(m.get(&t, &pk).is_err());
+            assert!(m.next(&t, &scan(&[], None, true)).is_err());
+            assert!(m.count(&t, &[]).is_err());
+        }
+        // A placeholder past the known prefix of a poisoned row is not a key value: it is not checked.
+        let mut r = row(2, "");
+        r[1] = Value::Unknown("placeholder".into());
+        let m = Mat::new(
+            &t,
+            vec![Entry::ok(row(1, "a")), Entry::poisoned_prefix(r, 1, "not known".into())],
+        );
+        assert_eq!(m.count(&t, &[id_filter(1, 1)]).unwrap(), 1);
     }
 
     /// A row built on an assumption marks it when a read returns or counts it, and only then.
