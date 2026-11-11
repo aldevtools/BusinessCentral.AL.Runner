@@ -31,6 +31,7 @@ fn freeze_refuses_a_value_that_is_not_plain() {
     let mut b = sample();
     let list = Value::List(Default::default());
     b.store = al_data::memory::MemStore::from_exported(vec![ExportedTable {
+        pk_storage: None,
         company: "CRONUS".into(),
         object: 311,
         rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), list])],
@@ -59,6 +60,7 @@ fn a_write_on_one_thread_never_reaches_the_base_or_another_thread() {
         let mut b = s.thaw(None);
         let row = vec![Value::Code("".into()), Value::Integer(99)];
         let t = ExportedTable {
+            pk_storage: None,
             company: "CRONUS".into(),
             object: 311,
             rows: vec![(vec![Value::Code("".into())], row)],
@@ -91,6 +93,7 @@ fn a_baseline_that_cannot_be_written_as_bytes_names_the_value() {
     );
     let json = Value::Library("JsonObject".into(), Default::default());
     b.store = al_data::memory::MemStore::from_exported(vec![ExportedTable {
+        pk_storage: None,
         company: "CRONUS".into(),
         object: 311,
         rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), rid, json])],
@@ -126,6 +129,7 @@ fn a_baseline_with_a_record_id_and_a_table_filter_is_shared() {
     );
     b.store = al_data::memory::MemStore::from_exported(vec![
         ExportedTable {
+            pk_storage: None,
             company: "CRONUS".into(),
             object: 311,
             rows: vec![(
@@ -134,6 +138,7 @@ fn a_baseline_with_a_record_id_and_a_table_filter_is_shared() {
             )],
         },
         ExportedTable {
+            pk_storage: None,
             company: "CRONUS".into(),
             object: 472,
             rows: vec![(vec![Value::Integer(1)], vec![Value::Integer(1), rid, filter])],
