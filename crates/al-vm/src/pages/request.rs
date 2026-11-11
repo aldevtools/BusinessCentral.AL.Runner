@@ -304,6 +304,12 @@ impl Session {
         if let Some(why) = page.unsupported.first() {
             return unsupported(format!("the request page of report \"{name}\": {why}"));
         }
+        // A parameters string without the XML declaration fails before the page opens: no handler is needed, and a bound one
+        // does not run (reports/request-page/ReportParametersBareRoot.al:362-376 RPB_RunRequestPage_NoDeclaration).
+        if let Some(xml) = seed.filter(|x| !x.is_empty() && !x.starts_with(PARAMETERS_DECLARATION)) {
+            let call = super::request_options::ParamsCall::RunRequestPage;
+            return Err(super::request_options::no_declaration_error(xml, call).unwrap_or_else(Signal::unsupported));
+        }
         // reports/TestReportRuntimeContracts.al:425-429: with no [RequestPageHandler] the page
         // opens and the run is refused with "Unhandled UI: RequestPage <report id>".
         if !self.has_page_handler(UiKind::RequestPage, object as u32) {
@@ -1006,9 +1012,9 @@ impl Session {
     }
 
     /// Loads a parameters string into the request page before it opens: the report's options and
-    /// the view of every data item. Understood: the text this runtime hands out (its own `RunRequestPage` result), and
-    /// under SaveAs a root without name and id holding Options (`ParamsCall::accepts_root_without_name`). A string in
-    /// another form is refused
+    /// the view of every data item. Understood: the text this runtime hands out (its own `RunRequestPage` result), a root
+    /// without name and id holding Options (`request_options::bare_root_options`), and the error of a string without the XML
+    /// declaration (`request_options::no_declaration_error`). A string in another form is refused
     /// (reports/TestReportInstanceRunReqPage.al:TestReport_InstanceRunRequestPage_SeededWithParameters_StillRunsTheHandler
     /// pins only that the handler still runs and its own filter comes back).
     pub(crate) fn apply_request_parameters(
@@ -1055,20 +1061,12 @@ impl Session {
         if head.strip_suffix("\">").is_some_and(|h| xml == format!("{h}\" />")) {
             return Ok(());
         }
-        let bare = super::request_options::bare_root_options(xml);
+        let bare = super::request_options::bare_root_options(xml, call);
         let options = match bare {
-            Some(_) if !call.accepts_root_without_name() => {
-                return unsupported(format!(
-                    "a parameters string whose root has no name and id, given to {} (not pinned)",
-                    call.method_name()
-                ));
-            }
             Some(Err(why)) => return unsupported(why),
             Some(Ok(options)) => options,
             None if !xml.starts_with(PARAMETERS_DECLARATION) => {
-                return unsupported(
-                    "a parameters string without the XML declaration (BC raises an error whose text the corpus does not have)",
-                );
+                return Err(super::request_options::no_declaration_error(xml, call).unwrap_or_else(Signal::unsupported));
             }
             None if !xml.starts_with(&head) || !xml.ends_with("</ReportParameters>") => {
                 return unsupported(
@@ -1118,17 +1116,16 @@ impl Session {
                             .is_some_and(|g| g.name == name)
                     })
             }) else {
-                match call.unknown_field(bare.is_some()) {
-                    UnknownField::Skip => continue,
-                    // Only a name the report has nowhere, as the reporter measured (al-runner issue 7590): a name that
-                    // matches a control or a global of the report in another letter case is not measured.
-                    UnknownField::SkipAssumed if !names_report_member(&engine, object, &name) => {
-                        al_builtins::assumptions::assume(
-                            al_builtins::assumptions::Assumption::ReportSaveAsUnknownFieldIgnored,
-                        );
-                        continue;
+                let skip = match call.unknown_field(bare.is_some()) {
+                    UnknownField::Skip => true,
+                    UnknownField::SkipUnlessExtension => !names_extension_member(&engine, object, &name),
+                    UnknownField::SkipIfNowhere => {
+                        !names_own_member(&engine, object, &name) && !names_extension_member(&engine, object, &name)
                     }
-                    _ => {}
+                    UnknownField::Refuse => false,
+                };
+                if skip {
+                    continue;
                 }
                 return unsupported(format!(
                     "a parameter for the variable {name}, which no control of the request page shows"
@@ -1423,15 +1420,33 @@ pub(crate) fn xml_unescape(s: &str) -> String {
 /// Splits `Field1=1(a),Field2=1(b)` at the commas outside parentheses.
 /// Whether `name` matches, in any letter case, a control of the report's request page or a global of the report or of an
 /// extension of its request page.
-fn names_report_member(engine: &crate::Engine, object: usize, name: &str) -> bool {
+/// Whether `name` is, in any letter case, a control of the request page that the report itself declares or a global of the
+/// report.
+fn names_own_member(engine: &crate::Engine, object: usize, name: &str) -> bool {
+    let o = &engine.program.objects[object];
+    let control = o.page.as_ref().is_some_and(|p| {
+        p.controls
+            .iter()
+            .any(|c| c.owner.is_none() && c.name.eq_ignore_ascii_case(name))
+    });
+    control || o.globals.iter().any(|g| g.name.eq_ignore_ascii_case(name))
+}
+
+/// Whether `name` is, in any letter case, a control or a global of a report extension of the request page.
+fn names_extension_member(engine: &crate::Engine, object: usize, name: &str) -> bool {
     let objects = &engine.program.objects;
-    let o = &objects[object];
-    let page = o.page.as_ref();
-    let control = page.is_some_and(|p| p.controls.iter().any(|c| c.name.eq_ignore_ascii_case(name)));
-    let global = std::iter::once(object)
-        .chain(page.into_iter().flat_map(|p| p.extensions.iter().copied()))
-        .any(|i| objects[i].globals.iter().any(|g| g.name.eq_ignore_ascii_case(name)));
-    control || global
+    let Some(page) = objects[object].page.as_ref() else {
+        return false;
+    };
+    let control = page
+        .controls
+        .iter()
+        .any(|c| c.owner.is_some() && c.name.eq_ignore_ascii_case(name));
+    control
+        || page
+            .extensions
+            .iter()
+            .any(|&i| objects[i].globals.iter().any(|g| g.name.eq_ignore_ascii_case(name)))
 }
 
 fn split_conditions(s: &str) -> Vec<&str> {

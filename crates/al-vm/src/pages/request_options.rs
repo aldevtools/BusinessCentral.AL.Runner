@@ -1,12 +1,12 @@
 //! The `<Options>` of a report parameters text: its `Field` elements and the value each one gives the variable a request page
-//! control shows (`apply_request_parameters`). Pinned by reports/runtime/Y68SelfClosingParams.al (corpus
+//! control shows (`apply_request_parameters`). Pinned by reports/request-page/ReportParametersBareRoot.al, reports/runtime/Y68SelfClosingParams.al (corpus
 //! master 0d01b0cc, BC 27.5, 28.5, 29.0) and reports/request-page/RptRequestPage.al:878-893; the rest is refused.
 
 use super::*;
 use al_builtins::describe::Describe;
 
 /// The XML declaration a parameters string starts with: RunRequestPage writes it, and a string without it is not read as XML
-/// by BC (al-runner issue 7590: BC raises an error whose text the corpus does not have).
+/// by BC ([`no_declaration_error`]).
 pub(crate) const PARAMETERS_DECLARATION: &str = "<?xml version=\"1.0\" standalone=\"yes\"?>";
 
 /// The call that hands a report its parameters string. Each rule that differs between the calls is a method here.
@@ -25,8 +25,11 @@ pub(crate) enum ParamsCall {
 pub(crate) enum UnknownField {
     /// Skipped.
     Skip,
-    /// Skipped through the assumption `report-saveas-unknown-field-ignored`.
-    SkipAssumed,
+    /// Skipped unless the name is a control or a global of a report extension of the request page (not pinned: refused).
+    SkipUnlessExtension,
+    /// Skipped when the name is no control and no global of the report or of an extension of its request page, in any letter
+    /// case; such a name is refused (not pinned).
+    SkipIfNowhere,
     /// Refused.
     Refuse,
 }
@@ -41,21 +44,27 @@ impl ParamsCall {
         }
     }
 
-    /// Whether a root without name and id (after the declaration, holding one `<Options>`) is this report's parameters.
-    /// SaveAs: pinned (reports/layouts-saveas/AMRdlcOutput.al:153 with :350 and :372 `REQ:AMREQ42`; AMReportOutputTests.al:24
-    /// with :250 `request_value_in_sheet1`). Execute and RunRequestPage: not pinned (Y64XappRunOrder.al:156 only shows the
-    /// Execute runs; corpus probe ReportParametersBareRoot.al queued).
-    pub(crate) fn accepts_root_without_name(self) -> bool {
-        self == ParamsCall::SaveAs
+    /// Whether a data item view under a root without name and id is read. SaveAs and Execute apply it
+    /// (reports/request-page/ReportParametersBareRoot.al:279-291 RPB_BareRoot_DataItemsView `rows=1`); RunRequestPage: not
+    /// pinned, refused.
+    fn reads_view_under_root_without_name(self) -> bool {
+        self != ParamsCall::RunRequestPage
     }
 
-    /// Execute skips the name (reports/WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField). SaveAs with a root
-    /// without name and id skips it as the reporter measured (al-runner issue 7590, assumed). Everything else is refused.
+    /// What the call does with a Field that names no shown variable. Execute skips it (reports/WdReportExecuteParams.al:69-77
+    /// WD_ReportExecute_UnknownField; under a root without name and id ReportParametersBareRoot.al:312-326 `bare unknown`).
+    /// SaveAs under a root without name and id skips an unknown name, a global no control shows, a name that differs from a
+    /// shown variable only in letter case and the name of a control (ReportParametersBareRoot.al:222-259 `bare unknown`,
+    /// `hidden global`, `letter case`, `control name`: the option keeps its value); a name of a report extension is not
+    /// measured there. SaveAs under a named root (`named unknown`, :239-240) and RunRequestPage under a root without name and
+    /// id (:343-360 `bare unknown`: the returned text has no such Field) skip a name the report has nowhere. RunRequestPage
+    /// under a named root: not pinned, refused.
     pub(crate) fn unknown_field(self, root_without_name: bool) -> UnknownField {
-        match self {
-            ParamsCall::Execute => UnknownField::Skip,
-            ParamsCall::SaveAs if root_without_name => UnknownField::SkipAssumed,
-            _ => UnknownField::Refuse,
+        match (self, root_without_name) {
+            (ParamsCall::Execute, _) => UnknownField::Skip,
+            (ParamsCall::SaveAs, true) => UnknownField::SkipUnlessExtension,
+            (ParamsCall::SaveAs, false) | (ParamsCall::RunRequestPage, true) => UnknownField::SkipIfNowhere,
+            (ParamsCall::RunRequestPage, false) => UnknownField::Refuse,
         }
     }
 
@@ -71,18 +80,30 @@ impl ParamsCall {
     }
 }
 
-/// The Options text of a parameters string whose root has no name and id, `None` for a string in another form. Only the form
-/// the corpus and the reporter show is read: the declaration, the bare root holding exactly one `<Options>` element. A data item
-/// view under such a root, or other content, is refused (not pinned).
-pub(crate) fn bare_root_options(xml: &str) -> Option<Result<&str, String>> {
+/// The Options text of a parameters string whose root has no name and id, `None` for a string in another form. Only the forms
+/// the corpus shows are read: the declaration, the bare root holding exactly one `<Options>` element
+/// (reports/request-page/ReportParametersBareRoot.al:222-241 SaveAs, :312-326 Execute, :343-360 RunRequestPage), followed under
+/// SaveAs and Execute by one `<DataItems>` element (:279-291). Other content is refused (not pinned).
+pub(crate) fn bare_root_options(xml: &str, call: ParamsCall) -> Option<Result<&str, String>> {
     let body = xml
         .strip_prefix(PARAMETERS_DECLARATION)?
         .strip_prefix("<ReportParameters>")?
         .strip_suffix("</ReportParameters>")?;
-    if body.contains("<DataItems") {
-        return Some(Err(
-            "a data item view in a parameters string whose root has no name and id (not pinned)".into(),
-        ));
+    let (body, items) = match body.find("<DataItems") {
+        Some(at) => (&body[..at], Some(&body[at..])),
+        None => (body, None),
+    };
+    if let Some(items) = items {
+        let one = items
+            .strip_prefix("<DataItems>")
+            .and_then(|i| i.strip_suffix("</DataItems>"))
+            .is_some_and(|i| !i.contains("<DataItems"));
+        if !call.reads_view_under_root_without_name() || !one {
+            return Some(Err(format!(
+                "a data item view in a parameters string whose root has no name and id, given to {} (not pinned)",
+                call.method_name()
+            )));
+        }
     }
     let options = body
         .strip_prefix("<Options>")
@@ -91,6 +112,34 @@ pub(crate) fn bare_root_options(xml: &str) -> Option<Result<&str, String>> {
     Some(options.ok_or_else(|| {
         "a parameters string whose root has no name and id and does not hold exactly one Options element (not pinned)".into()
     }))
+}
+
+/// The error of a parameters string without the XML declaration: BC reads the text as a filter on the Parameter Name field of
+/// the Object Options table and fails on the first character its filter syntax does not allow there. Pinned for two roots
+/// (reports/request-page/ReportParametersBareRoot.al:294-309 RPB_SaveAs_NoDeclaration, :329-339 RPB_Execute_NoDeclaration,
+/// :362-376 RPB_RunRequestPage_NoDeclaration; code `Filter:CSide`, `log` empty):
+/// `<ReportParameters>` fails on `>` (SaveAs, Execute, RunRequestPage), `<ReportParameters name="` on `=` (SaveAs). The
+/// parameters are read after OnInitReport (:226-236 `bare self-closing` blanks the option OnInitReport set), so under SaveAs and
+/// Execute the error comes where they are applied; RunRequestPage raises it before the page opens (`run_request_page`). Any
+/// other text without the declaration is refused: which character fails is not pinned.
+pub(crate) fn no_declaration_error(xml: &str, call: ParamsCall) -> Result<Signal, String> {
+    let what = if xml.starts_with("<ReportParameters>") {
+        '>'
+    } else if xml.starts_with("<ReportParameters name=\"") && call == ParamsCall::SaveAs {
+        '='
+    } else {
+        return Err(format!(
+            "a parameters string without the XML declaration in this form, given to {} (which character BC's filter error names is not pinned)",
+            call.method_name()
+        ));
+    };
+    Ok(Signal::Error(Box::new(AlError {
+        message: format!(
+            "The filter \"{xml}\" is not valid for the Parameter Name field on the Object Options table. An error occurred while interpreting the filter: Did not expect '{what}'.\\\\For more information, see https://go.microsoft.com/fwlink/?linkid=2158058."
+        ),
+        code: "Filter:CSide".into(),
+        ..Default::default()
+    })))
 }
 
 /// The `Field` elements of an Options text, as (name, text). `<Field name="X" />` and `<Field name="X"></Field>` both give an
