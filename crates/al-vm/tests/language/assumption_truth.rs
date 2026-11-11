@@ -196,10 +196,9 @@ fn a_quoted_member_in_a_table_relation_filter_is_pinned() {
     let (got, hits) = run(&REL_SRC
         .replace("procedure F()", "procedure F_()")
         .replace("procedure G()", "procedure F()"));
-    assert!(
-        hits.contains(&"table-relation-quotes"),
-        "an open lower range with a quoted member is not pinned: {hits:?} {got}"
-    );
+    // An open lower range with a quoted member on an enum field is measured by writer Y76
+    // (record/table-relation/TableRelationQuotes.al:135 "Kind Upto", :139 "Opt Upto"): no mark.
+    assert!(!hits.contains(&"table-relation-quotes"), "{hits:?} {got}");
     assert_eq!(got, "ok,ok,err,");
     let (got, hits) = run(REL_SRC);
     assert_eq!(got, "ok,ok,err,;ok,ok,err,;err,ok,err,;err,ok,err,;ok,err,ok,");
@@ -362,9 +361,10 @@ codeunit 69879 T
     assert_eq!(got, "Arithmetic operation resulted in an overflow.|AL:Overflow");
 }
 
-/// A quoted blank member (`filter(" " | A)`, Base Application's Warehouse Activity Line) is not among the pinned forms.
+/// A quoted blank member (`filter(" " | A)`, Base Application's Warehouse Activity Line) on an option field whose first member is
+/// blank is measured by writer Y76 (record/table-relation/TableRelationQuotes.al:172 "Blank Or A"): no mark.
 #[test]
-fn a_quoted_blank_member_in_a_table_relation_filter_keeps_the_mark() {
+fn a_quoted_blank_member_in_a_table_relation_filter_is_pinned() {
     let src = r#"
 table 69880 "AT TB Ref" { fields { field(1; "Code"; Code[10]) { } field(2; Opt; Option) { OptionMembers = " ",A,"B C"; } } keys { key(PK; "Code") { } } }
 table 69881 "AT TB Src" { fields { field(1; "No."; Code[10]) { } field(2; "By Blank"; Code[10]) { TableRelation = "AT TB Ref"."Code" where (Opt = filter(" " | A)); } } keys { key(PK; "No.") { } } }
@@ -381,7 +381,7 @@ codeunit 69882 T
 "#;
     let (got, hits) = run(src);
     assert_eq!(got, "R1");
-    assert!(hits.contains(&"table-relation-quotes"), "{hits:?}");
+    assert!(!hits.contains(&"table-relation-quotes"), "{hits:?}");
 }
 
 /// types/enum-option/BigIntToEnumOption.al:353-449 (corpus bump 45): a Variant holding a BigInteger beyond Integer

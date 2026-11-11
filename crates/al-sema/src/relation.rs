@@ -27,8 +27,12 @@ pub struct ParsedArm {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedWhere {
-    /// `RelatedField = const(text)` or `= filter(text)`.
-    Value { related: String, text: String },
+    /// `RelatedField = const(text)` or `= filter(text)` (`filter`).
+    Value {
+        related: String,
+        text: String,
+        filter: bool,
+    },
     /// `RelatedField = filter('<>''''')`: a filter written as one AL string with a doubled quote in it; `text` is the
     /// string's content (`<>''`).
     QuotedFilter { related: String, text: String },
@@ -213,6 +217,7 @@ impl P {
                             "const" | "filter" => Some(ParsedWhere::Value {
                                 related,
                                 text: crate::scan::unquote_relation(&text),
+                                filter: kw == "filter",
                             }),
                             "field" => Some(ParsedWhere::Field {
                                 related,
@@ -341,7 +346,8 @@ mod tests {
             a.wheres,
             Some(vec![ParsedWhere::Value {
                 related: "Table ID".into(),
-                text: "Database::\"CDC Owner\"".into()
+                text: "Database::\"CDC Owner\"".into(),
+                filter: false
             }])
         );
         let a = &parse("T.F where(A = const(1), B = filter(<>''))").unwrap()[0];

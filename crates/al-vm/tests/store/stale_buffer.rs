@@ -307,10 +307,11 @@ fn a_stale_insert_buffer_after_an_insert_of_another_row_is_written() {
     assert_eq!(text(al_testkit::run_in(RU, "RU", "InsertOtherRowWritten")), "ok");
 }
 
+// Two Commits, the row written in the closed transaction, then modified again in the open one: row contact writes
+// (record/crud/StaleRuleMatrix.al RowContact_History `own_tx_empty`, `rm C C rm`).
 #[test]
-fn a_stale_insert_buffer_after_unpinned_steps_is_refused() {
-    let r = al_testkit::run_in(RU, "RU", "InsertTwoCommits");
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "InsertTwoCommits: {r:?}");
+fn a_stale_insert_buffer_two_commits_back_is_written_after_row_contact() {
+    assert_eq!(text(al_testkit::run_in(RU, "RU", "InsertTwoCommits")), "ok");
 }
 
 // al-runner issue 5823: the variable's own writes after its own Insert or Get, in the transaction the last Commit closed

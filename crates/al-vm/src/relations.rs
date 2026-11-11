@@ -328,63 +328,60 @@ impl Session {
                 self.message_value(&value)?,
                 self.relation_error_caption(&related)
             ),
-            // The related table "Field" (2000000041) answers DB:RecordNotFound (staging types/PZMisc.al:
-            // Validate_TableRelation_MissingFieldNumber, BC 29.0); other tables DB:PrimRecordNotFound.
-            // A relation with a where() filter answers DB:NothingInsideFilter, whether the value is missing or fails the filter
-            // (queries/joins-links/RelQuotedEnum.al:P100_Validate_EachKind).
-            code: if self.engine.program.objects[related.object as usize].id == Some(2_000_000_041) {
-                "DB:RecordNotFound".into()
-            } else if let [ir::RelationWhere::Value { related: w, .. } | ir::RelationWhere::Field { related: w, .. }] =
-                wheres.as_slice()
-            {
-                // A single where() on a field of the related table's primary key answers DB:RecordNotFound (corpus
-                // record/table-relation/PnF13RelationFilterConditions.al:122-126, 144-149, 166-169, primary key (Code, Zone)); on
-                // another field DB:NothingInsideFilter (record/table-relation/RelationWhereEmptyTerm.al:173-177).
-                if related.keys[0].contains(w) {
-                    "DB:RecordNotFound".into()
-                } else {
-                    "DB:NothingInsideFilter".into()
-                }
-            } else if wheres.len() > 1 && covers_primary_key(&related, rel_pos, wheres) {
-                // Conditions on primary key fields only, which with the related field name the whole key, answer RecordNotFound:
-                // `Item Variant.Code where("Item No." = field("Item No."), Code = field("Variant Code"))`
-                // (record/table-relation/RelationWhereValidated.al:Validate_OldBlank_ExistingAndMissing,
-                // Validate_OldNonBlank_NewMissing, Validate_OtherItemNo_SameValue; RelationWhereMulti.al:160-182, :267-284).
-                "DB:RecordNotFound".into()
-            } else if wheres.len() > 1 && wheres.iter().any(|w| !related.keys[0].contains(&where_field(w))) {
-                // Several conditions, at least one on a field outside the related table's primary key, answer
-                // DB:NothingInsideFilter for a missing value and for one the filter excludes: two non-key conditions
-                // (record/table-relation/RelationWhereMulti.al:187-209), a key and a non-key condition (:85, :214-236,
-                // al-runner issue 7438), two non-key and one key condition (:241-262). Every pinned relation is a plain
-                // one. Inside an if() arm the code is not pinned (the probe record/table-relation/RelationWhereKeyCoverage.al
-                // measures it): non-key conditions only answer the same on an assumption, a mix with key fields is refused.
-                if self.relation_is_conditional(t, pos) {
-                    if wheres.iter().any(|w| related.keys[0].contains(&where_field(w))) {
-                        return Err(Signal::Unsupported(
-                            "the error code of a TableRelation check with a key and a non-key where() condition inside an if() arm (not pinned)".into(),
-                        ));
-                    }
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::TableRelationSeveralWhereNonKey,
-                    );
-                }
-                "DB:NothingInsideFilter".into()
-            } else if !wheres.is_empty() {
-                // Several conditions on primary key fields that leave a key field unnamed: which code BC answers is not
-                // pinned, so the error path is refused.
-                return Err(Signal::Unsupported(
-                    "the error code of a TableRelation check with several where() conditions on primary key fields that do not name the whole key (not pinned)".into(),
-                ));
-            } else if related.keys.iter().all(|k| !k.contains(&rel_pos)) {
-                // A relation to a field that is in no key of the related table answers DB:NothingInsideFilter
-                // (record/table-relation/RelationWhereMulti.al:289-336, RelationToNonKeyField_Validate).
-                "DB:NothingInsideFilter".into()
-            } else {
-                "DB:PrimRecordNotFound".into()
-            },
+            code: self.relation_error_code(t, pos, &related, rel_pos, wheres),
             call_stack: String::new(),
             ..Default::default()
         })))
+    }
+
+    /// The error code of a failed TableRelation check of field `pos` of `t` against `related` (the related field `rel_pos`, the
+    /// where() conditions `wheres`). Where the corpus does not pin it, the code is `UNPINNED_ERROR`: `GetLastErrorCode` then
+    /// refuses, while the text stays readable (al-runner issue 7438). The text is one template in all 12 shapes measured
+    /// (RelationWhereKeyCoverage.al:232-427); that the shapes with an unpinned code use it too is not measured (docs/probes-needed.md).
+    fn relation_error_code(
+        &self,
+        t: &TableDef,
+        pos: usize,
+        related: &TableDef,
+        rel_pos: usize,
+        wheres: &[ir::RelationWhere],
+    ) -> String {
+        // The related table "Field" (2000000041) answers DB:RecordNotFound (staging types/PZMisc.al:
+        // Validate_TableRelation_MissingFieldNumber, BC 29.0).
+        if self.engine.program.objects[related.object as usize].id == Some(2_000_000_041) {
+            return "DB:RecordNotFound".into();
+        }
+        let pk = &related.keys[0];
+        let conditional = self.relation_is_conditional(t, pos);
+        let on_key = |w: &ir::RelationWhere| pk.contains(&where_field(w));
+        let code = match wheres {
+            // One condition on a field outside the primary key: DB:NothingInsideFilter, whether the value is missing or fails the
+            // filter (record/table-relation/RelationWhereEmptyTerm.al:173-177, RelationWhereEmptyValueFilter.al:203-214;
+            // queries/joins-links/RelQuotedEnum.al:P100_Validate_EachKind).
+            [w] if !on_key(w) => Some("DB:NothingInsideFilter"),
+            // Several conditions, one or more outside the primary key: DB:NothingInsideFilter, plain (RelationWhereMulti.al:85,
+            // :187-262; RelationWhereKeyCoverage.al:256, :352, :420) and inside an if() arm, beside a key condition
+            // (RelationWhereKeyCoverage.al:224) or not (RelationWhereQualifiedConst.al:171-189 ConditionalChain).
+            _ if wheres.len() > 1 && wheres.iter().any(|w| !on_key(w)) => Some("DB:NothingInsideFilter"),
+            // Conditions on primary key fields only that name the whole key with the related field: DB:RecordNotFound, plain and
+            // inside an if() arm (PnF13RelationFilterConditions.al:122-126, :144-169; RelationWhereValidated.al
+            // Validate_OldBlank_ExistingAndMissing; RelationWhereMulti.al:160-182, :267-284; RelationWhereKeyCoverage.al:272,
+            // :288, :320, :384; RelationIfDatabaseConst.al:269).
+            _ if !wheres.is_empty() && covers_primary_key(related, rel_pos, wheres) => Some("DB:RecordNotFound"),
+            // One condition on a primary key field that leaves a key field unnamed, plain: DB:NothingInsideFilter
+            // (RelationWhereKeyCoverage.al:336, :400).
+            [_] if !conditional => Some("DB:NothingInsideFilter"),
+            [_, ..] => None,
+            // No where(): a related field that is the whole primary key answers DB:PrimRecordNotFound
+            // (TableRelationArms.al; RelationIfDatabaseConst.al:209-215), one in no key DB:NothingInsideFilter
+            // (RelationWhereMulti.al:289-336 RelationToNonKeyField_Validate), the last field of a longer primary key, plain,
+            // DB:NothingInsideFilter (RelationWhereKeyCoverage.al:368).
+            [] if pk.as_slice() == [rel_pos] => Some("DB:PrimRecordNotFound"),
+            [] if related.keys.iter().all(|k| !k.contains(&rel_pos)) => Some("DB:NothingInsideFilter"),
+            [] if !conditional && pk.len() > 1 && pk.last() == Some(&rel_pos) => Some("DB:NothingInsideFilter"),
+            [] => None,
+        };
+        code.map_or_else(|| al_builtins::native::UNPINNED_ERROR.into(), Into::into)
     }
 }
 
