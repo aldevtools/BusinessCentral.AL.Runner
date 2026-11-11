@@ -526,6 +526,7 @@ impl PageClients {
             client_depth,
             code_close_vetoes,
             open_vetoed,
+            modify_record_xrec,
         } = self;
         saved_values.is_empty()
             && saved_values_committed.is_empty()
@@ -549,6 +550,7 @@ impl PageClients {
             && *client_depth == 0
             && code_close_vetoes.is_empty()
             && open_vetoed.iter().all(|w| w.strong_count() == 0)
+            && modify_record_xrec.is_empty()
     }
 }
 
