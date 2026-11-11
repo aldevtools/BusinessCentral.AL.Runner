@@ -895,6 +895,12 @@ fn occurs_refusal(layout: &Layout, i: usize) -> Option<String> {
             let occurs = |name: &str| layout.property(i, name).map(|v| v.trim().to_ascii_lowercase());
             let unlinked_pair = match (occurs("MinOccurs").as_deref(), occurs("MaxOccurs").as_deref()) {
                 (Some("once"), Some("unbounded")) => Some((&["once"][..], &["unbounded"][..])),
+                // MaxOccurs = Unbounded alone right below the root table element runs as with MinOccurs = Once (al-runner issue
+                // 6924; xmlports/shapes-properties/XpRootTableNested.al:343-347, the header of xmlport "XP Root Table Min", imported
+                // at :677; corpus PR 1308). Deeper it is not pinned.
+                (None, Some("unbounded")) if layout.nodes[p].parent.is_none() => {
+                    Some((&["once"][..], &["unbounded"][..]))
+                }
                 (Some("zero"), Some("once")) => Some((&["zero"][..], &["once"][..])),
                 // MinOccurs = Once with MaxOccurs = Once: the first row of each pass, and a pass without rows writes the record as
                 // it stands (streams/Np4XmlPort.al:348 NP4_XmlPort_OnceOnce_ZeroAndOneRows, :381 _TwoRows, corpus
