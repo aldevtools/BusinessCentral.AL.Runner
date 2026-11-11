@@ -430,6 +430,13 @@ pub enum DotNetOp {
 }
 
 impl Object {
+    /// Keeps the body of every routine compact until it is read ([`Body::compact`]).
+    pub fn compact_bodies(&mut self) {
+        for r in &mut self.routines {
+            r.body.compact();
+        }
+    }
+
     /// A compiled object of this kind (a shell of the same kind is not).
     pub fn is_kind(&self, kind: ObjKind) -> bool {
         self.kind == kind && !self.uncompiled

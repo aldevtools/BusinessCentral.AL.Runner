@@ -60,6 +60,26 @@ impl Body {
         self.done.get_mut().expect("decoded above")
     }
 
+    /// Keeps the statements as their compact form (the bytes a compile cache stores) and drops the decoded list: the next
+    /// read decodes them again. Most lowered bodies are never read by a run; compact, a body takes about a sixth of the
+    /// memory. A body with work pending, or not decoded, is left as it is.
+    pub fn compact(&mut self) {
+        if self.pending.is_some() {
+            // Decoded through `&self`: the bytes and the work still give the same statements.
+            self.done.take();
+            return;
+        }
+        let Some(stmts) = self.done.take() else {
+            return;
+        };
+        let bytes = postcard::to_stdvec(&stmts)
+            .unwrap_or_else(|e| panic!("internal error: a routine body does not encode: {e}"));
+        self.pending = Some(Box::new(Pending {
+            bytes: bytes.into_boxed_slice(),
+            fixups: Vec::new(),
+        }));
+    }
+
     pub fn into_stmts(mut self) -> Vec<Stmt> {
         std::mem::take(self.stmts_mut())
     }
@@ -253,6 +273,23 @@ mod tests {
         let mut decoded = Body::new(stmts());
         decoded.fix(Arc::new(Shift(15))).unwrap();
         assert_eq!(decoded, eager);
+    }
+
+    /// A lowered body is kept compact until something reads it (`al_sema` `lower_core`): most bodies of a run are
+    /// never read again after the lowering.
+    #[test]
+    fn a_compacted_body_holds_bytes_and_reads_the_same_statements() {
+        let mut body = Body::new(stmts());
+        body.compact();
+        assert!(!body.is_loaded(), "a compacted body holds its bytes only");
+        assert_eq!(
+            postcard::to_stdvec(&body).unwrap(),
+            postcard::to_stdvec(&Body::new(stmts())).unwrap()
+        );
+        body.fix(Arc::new(Shift(2))).unwrap();
+        let mut shifted = stmts();
+        crate::shift_stmts(&mut shifted, 2);
+        assert_eq!(*body, shifted);
     }
 
     #[test]

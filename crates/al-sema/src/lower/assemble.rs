@@ -1458,6 +1458,7 @@ pub(crate) fn lower_core(
     if !shared.early_relations || check {
         derive_relations(&mut objects, &shared, &prov, lower_workers());
     }
+    compact_bodies(&mut objects);
     // Without the cache kept, a supplied object is the default object its placeholder always was.
     let defaults = |objects: Vec<Option<ir::Object>>| -> ir::Objects {
         objects
@@ -1498,6 +1499,14 @@ pub(crate) fn lower_core(
     }
     out.program = std::sync::Arc::new(program);
     Ok(out)
+}
+
+/// Keeps the routine bodies of the objects lowered here compact (`ir::Body::compact`): the lowering reads no body after
+/// its relations, and a run reads few of them again (the first read decodes the body). On the BC 29 corpus run the
+/// lowered bodies took about 1.3 GB decoded.
+fn compact_bodies(objects: &mut [Option<ir::Object>]) {
+    use rayon::prelude::*;
+    objects.par_iter_mut().flatten().for_each(ir::Object::compact_bodies);
 }
 
 /// Works out what the `TableRelation` of each field gives the runtime, from the properties the table and its
