@@ -258,15 +258,15 @@ impl Session {
             row[p] = Value::Guid(self.new_guid());
         }
         let cx = self.cx.clone();
-        // An existing row is left alone.
-        let _ = self.store.insert(&cx, &up, row);
+        // An existing row is left alone; a write the store refuses refuses (al-runner issue 7644).
+        self.store.insert(&cx, &up, row)?;
         Ok(())
     }
 
     /// Before a Modify stores the User row, below the OnBefore events and triggers.
     pub(crate) fn user_before_modify(&mut self, t: &TableDef, rec: &crate::records::Rec) -> Result<(), Signal> {
         let mut row = rec.borrow().fields.clone();
-        let before = self.store.get(&self.cx.clone(), t, &t.primary_key(&row)).ok().flatten();
+        let before = self.store.get(&self.cx.clone(), t, &t.primary_key(&row))?;
         self.user_checks(t, &mut row, false)?;
         let email = text_of(&row[pos(t, F_EMAIL)]).to_string();
         let stored_email = before.as_ref().map(|r| text_of(&r[pos(t, F_EMAIL)]).to_string());
@@ -286,7 +286,7 @@ impl Session {
                 if changed {
                     if !text_of(&prop[object_id]).is_empty() {
                         prop[object_id] = Value::Text(String::new().into());
-                        let _ = self.store.modify(&cx, &up, prop);
+                        self.store.modify(&cx, &up, prop)?;
                     }
                 } else if email.is_empty()
                     && stored_email.as_deref() == Some("")

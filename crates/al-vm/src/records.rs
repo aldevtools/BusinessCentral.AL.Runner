@@ -1370,10 +1370,9 @@ impl Session {
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
             // The row being rewritten matches itself when its key values do not change.
             if let Some(old) = &current {
-                if t.keys[k]
-                    .iter()
-                    .all(|&f| ops::compare_keys(&[old[f].clone()], &[row[f].clone()]))
-                {
+                if t.keys[k].iter().try_fold(true, |all, &f| {
+                    Ok::<_, Signal>(all && ops::compare_keys(&[old[f].clone()], &[row[f].clone()])?)
+                })? {
                     n = n.saturating_sub(1);
                 }
             }
@@ -1737,7 +1736,7 @@ impl Session {
                 .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             match row {
                 // MarkedOnly narrows the set to the marked rows (corpus record/TestRecordFind.al:258-290).
-                Some(row) if marked_only && !Self::is_marked(rec, t, &row) => after = Some(position(t, key, &row)),
+                Some(row) if marked_only && !Self::is_marked(rec, t, &row)? => after = Some(position(t, key, &row)),
                 Some(row) if !flow_field_filters.is_empty() => {
                     if self.passes_flow_field_filters(rec, &row, &flow_field_filters)? {
                         return Ok(Some(row));
@@ -1756,7 +1755,7 @@ impl Session {
         if !al_builtins::filter::all_match(&filters, row)? {
             return Ok(false);
         }
-        if rec.borrow().marked_only && !Self::is_marked(rec, t, row) {
+        if rec.borrow().marked_only && !Self::is_marked(rec, t, row)? {
             return Ok(false);
         }
         if flow_field_filters.is_empty() {
@@ -1766,19 +1765,22 @@ impl Session {
     }
 
     /// Whether the record last read the row with primary key `pk` (see `RecordState::position`).
-    fn on_own_row(rec: &Rec, pk: &[Value]) -> bool {
-        rec.borrow()
-            .position
-            .as_deref()
-            .is_some_and(|p| ops::compare_keys(p, pk))
+    fn on_own_row(rec: &Rec, pk: &[Value]) -> Result<bool, Signal> {
+        match rec.borrow().position.as_deref() {
+            Some(p) => ops::compare_keys(p, pk),
+            None => Ok(false),
+        }
     }
 
-    fn is_marked(rec: &Rec, t: &TableDef, row: &[Value]) -> bool {
+    /// Whether `row` is marked. A mark whose key does not compare with the row's refuses (al-runner issue 7644).
+    fn is_marked(rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
         let pk = t.primary_key(row);
-        rec.borrow()
-            .marks
-            .iter()
-            .any(|m| key_cmp(m, &pk) == std::cmp::Ordering::Equal)
+        for m in &rec.borrow().marks {
+            if ops::compare_keys(m, &pk)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Whether another row of the record's table holds the SystemId in its buffer.

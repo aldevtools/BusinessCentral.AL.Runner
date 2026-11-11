@@ -1759,7 +1759,9 @@ pub fn row_passes_checked(row: &[Value], filters: &[FieldFilter]) -> bool {
     !or_seen || or_matched
 }
 
-/// Total order on key tuples (field-wise `compare`; incomparable counts as equal).
+/// Total order on key tuples (field-wise [`crate::ops::compare_key_value`]). It takes only values that
+/// [`crate::ops::key_orderable`] lets into a key, which always compare (the store refuses the others, al-runner issue 7644).
+/// No assertion here: a `debug_assert!` on the result cost 4.5 % of the instructions of a write-heavy run in release.
 pub fn key_cmp(a: &[Value], b: &[Value]) -> Ordering {
     for (x, y) in a.iter().zip(b) {
         match crate::ops::compare_key_value(x, y).unwrap_or(Ordering::Equal) {

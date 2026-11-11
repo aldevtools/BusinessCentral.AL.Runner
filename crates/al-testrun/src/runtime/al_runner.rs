@@ -98,7 +98,8 @@ impl Steps {
         }
     }
 
-    /// [`Steps::before`], with a skip as an error and `skipped` set.
+    /// [`Steps::before`], with a skip as an error and `skipped` set. A session whose platform seed rows were refused runs
+    /// no test and no step (al-runner issue 7644).
     pub(crate) fn before_or_skip(
         &self,
         session: &mut Session,
@@ -106,6 +107,9 @@ impl Steps {
         routine: &al_ir::Routine,
         skipped: &mut bool,
     ) -> Result<(), String> {
+        if let Some(why) = session.seed_refusal() {
+            return Err(why.to_string());
+        }
         match self.before(session, obj, routine)? {
             true => {
                 self.watch_rows(session);
