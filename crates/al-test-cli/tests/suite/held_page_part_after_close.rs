@@ -7,7 +7,7 @@
 //! the Probe Observer replaced by a text check.
 //!
 //! Not here: the second test of each shape codeunit (HS07, HS09, HS11, HS13: OpenNew with a hidden or shown factbox,
-//! SetValue on the key, an action). The runtime does not run that shape as BC does and refuses it.
+//! SetValue on the key, an action). The runtime refuses the action on that new row (`new_row_action_shapes_are_refused`).
 
 use al_test_cli::report::Outcome;
 use al_testkit::outcomes_in;
@@ -145,8 +145,8 @@ codeunit 99633 "LT HS Shape Run"
         exit(ShapeLog.TakeLog());
     end;
 
-    // The probe's second test (HS07, HS09, HS11, HS13): OpenNew, the key set with SetValue, an action invoked, Close. Not run
-    // by a test here (see the module comment).
+    // The probe's second test (HS07, HS09, HS11, HS13): OpenNew, the key set with SetValue, an action invoked, Close. Refused at
+    // the action (see `new_row_action_shapes_are_refused`).
     procedure SecondTest(UseTry: Boolean): Text
     var ShapeLog: Codeunit "LT HS Shape Log"; Subs: Codeunit "LT HS Shape Subs"; Host: TestPage "LT HS Shape Host"; Returned: Integer;
     begin
@@ -439,28 +439,31 @@ fn unmeasured_calls_inside_the_held_part_refuse() {
     );
 }
 
-// HS07 and HS09: OpenNew on the host with the factbox hidden. BC runs the hidden factbox's OnAfterGetCurrRecord on the new row
-// and the host's OnAfterGetRecord around the action; the runtime does not, so the open is refused.
+// HS07, HS09, HS11 and HS13: OpenNew, the key set with SetValue, an action, hidden or shown factbox. BC stores the row before
+// the action and reads the host twice after it (HeldSenderPartAccess.al:750); the runtime does not model that and refuses the
+// action. The not-passing lists cannot tell a refusal from a failure, so this keeps the shape refused.
 #[test]
-fn opennew_with_a_hidden_factbox_that_has_onaftergetcurrrecord_is_refused() {
-    for use_try in [false, true] {
-        let src = format!(
-            "{SRC}\ncodeunit 99634 T {{ Subtype = Test; TestPermissions = Disabled;
-            var Run: Codeunit \"LT HS Shape Run\";
-            [Test] procedure First() begin Run.FirstTest(false, {use_try}); end;
-            [Test] procedure Second() begin Run.SecondTest({use_try}); end;
-            }}"
-        );
-        let o = outcomes_in(&src, "T");
-        assert_eq!(o.len(), 2, "{o:?}");
-        assert!(matches!(o[0].1, Outcome::Pass), "{o:?}");
-        assert!(
-            refused(
-                &o[1],
-                "a part hidden by a Visible expression that declares OnAfterGetCurrRecord"
-            ),
-            "{o:?}"
-        );
+fn new_row_action_shapes_are_refused() {
+    for visible in [false, true] {
+        for use_try in [false, true] {
+            let src = format!(
+                "{SRC}\ncodeunit 99634 T {{ Subtype = Test; TestPermissions = Disabled;
+                var Run: Codeunit \"LT HS Shape Run\";
+                [Test] procedure First() begin Run.FirstTest({visible}, {use_try}); end;
+                [Test] procedure Second() begin Run.SecondTest({use_try}); end;
+                }}"
+            );
+            let o = outcomes_in(&src, "T");
+            assert_eq!(o.len(), 2, "{o:?}");
+            assert!(matches!(o[0].1, Outcome::Pass), "{o:?}");
+            assert!(
+                refused(
+                    &o[1],
+                    "an action on a new row whose key was typed, on a page with parts"
+                ),
+                "{o:?}"
+            );
+        }
     }
 }
 
