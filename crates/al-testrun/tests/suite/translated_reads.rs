@@ -945,3 +945,104 @@ fn a_table_extension_field_caption_is_translated_from_the_apps_file() {
         "{outcome:?}"
     );
 }
+
+/// The exact culture's file decides even when it lacks the unit and a sibling file of the same language has it: the source
+/// text stays, as the runtime gave before, flagged under `xliff-exact-culture-over-sibling`.
+#[test]
+fn the_exact_culture_file_without_the_unit_keeps_the_source_beside_a_sibling_that_has_it() {
+    let mut own = dutch();
+    let hello = unit(&[("Codeunit", "ALR Labels"), ("NamedType", "HelloLbl")]);
+    own.units.retain(|(k, _)| *k != hello);
+    let mut sibling = dutch();
+    sibling.name = "Translations/AL Runner Repros.nl-NL.xlf".into();
+    sibling.target_language = "nl-NL".into();
+    let got = run_translated(vec![own, sibling]);
+    let (_, outcome, assumed) = find(&got, "Label_UsesDutchText");
+    assert!(
+        matches!(outcome, Outcome::Fail(m) if m.contains("Label under 2067: Hello world")),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        assumed,
+        &[al_testrun::assumptions::Assumption::XliffExactCultureOverSibling]
+    );
+}
+
+const OPT_BASE_APP: &str = r#"
+table 50820 "ALR Opt Owner"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Kind; Option) { OptionMembers = Alpha,Beta; OptionCaption = 'First,Second'; }
+    }
+    keys { key(PK; "No.") { } }
+}
+"#;
+
+const OPT_EXT_APP: &str = r#"
+tableextension 50821 "ALR Opt Owner Ext" extends "ALR Opt Owner"
+{
+    fields { field(50821; Note; Text[30]) { Caption = 'Note'; } }
+}
+"#;
+
+const OPT_EXT_TESTS: &str = r#"
+codeunit 50822 "ALR Opt Owner Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FormatOfAnOptionOfAnAppWithoutAFile()
+    var
+        R: Record "ALR Opt Owner";
+    begin
+        R.Kind := R.Kind::Beta;
+        GlobalLanguage(1031);
+        Error(Format(R.Kind));
+    end;
+}
+"#;
+
+/// A table of an app with no translation file, extended by an app with a de-DE file: the option field has no unit, so
+/// Format keeps its own caption under 1031 (a value without a unit keeps its source, TaXliff.al:138).
+#[test]
+fn an_option_without_a_unit_of_an_extended_table_keeps_its_caption() {
+    let mut m = manifest(true);
+    m.translation_files = vec![al_ir::TranslationFile {
+        name: "Translations/Ext.de-DE.xlf".into(),
+        target_language: "de-DE".into(),
+        units: vec![(
+            unit(&[
+                ("TableExtension", "ALR Opt Owner Ext"),
+                ("Field", "Note"),
+                ("Property", "Caption"),
+            ]),
+            "Notiz".to_string(),
+        )],
+        error: None,
+        states: Vec::new(),
+    }];
+    let rt = CorpusRuntime::try_run_suites_with(
+        vec![
+            app("tests", &["ext", "base"], OPT_EXT_TESTS),
+            app("ext", &["base"], OPT_EXT_APP),
+            app("base", &[], OPT_BASE_APP),
+        ],
+        vec![al_sema::AppKind::Workspace; 3],
+        &[manifest(false), m, manifest(false)],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    )
+    .expect("the run starts");
+    let got: Vec<_> = rt
+        .results()
+        .iter()
+        .map(|r| (r.test.clone(), r.outcome.clone(), r.assumptions.clone()))
+        .collect();
+    let (_, outcome, _) = find(&got, "FormatOfAnOptionOfAnAppWithoutAFile");
+    assert!(matches!(outcome, Outcome::Fail(m) if m == "Second"), "{outcome:?}");
+}

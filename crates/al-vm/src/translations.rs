@@ -216,13 +216,8 @@ impl Session {
                 }
                 let unit = file.unit(xliff);
                 if !others.is_empty() {
-                    // The culture's own file wins when it has the unit (assumption `xliff-exact-culture-over-sibling`, as
-                    // the runtime did before); a unit only another culture's file has is not pinned.
-                    if unit.is_none() {
-                        return refuse(&format!(
-                            "the unit is only in a translation file of the same language for another culture than {culture}"
-                        ));
-                    }
+                    // The culture's own file decides whether or not it has the unit; without one the source text stays
+                    // (assumption `xliff-exact-culture-over-sibling`, as the runtime did before).
                     al_builtins::assumptions::assume(
                         al_builtins::assumptions::Assumption::XliffExactCultureOverSibling,
                     );
@@ -536,8 +531,8 @@ impl Session {
     /// The OptionCaption of field `pos` of `t` in the language in force, for a read step 1 refuses with `why`: `Ok(None)` for
     /// the source captions. The unit `Table <table> - Field <field> - Property OptionCaption` of the table's app gives the list
     /// (localization/app-xliff/TaXliff.al:222 FieldRef.OptionCaption `Eerste,Tweede,Derde` under 1043; :243 the source under
-    /// 1031). Refused: a field with OptionCaptionML that has a unit, a field a table extension declares, and a table an
-    /// extension extends.
+    /// 1031). Refused when a unit exists: a field with OptionCaptionML, a field a table extension declares (unit `TableExtension
+    /// <ext> - Field <field> - Property OptionCaption` of the extension's app), and a field of a table an extension extends.
     pub(crate) fn option_caption_translation(
         &self,
         t: &al_data::TableDef,
@@ -548,21 +543,33 @@ impl Session {
         let Some(o) = self.engine.program.objects.get(object) else {
             return Err(why);
         };
-        if o.kind != al_ir::ObjKind::Table || self.declaring_extension(t, pos).is_some() || self.extended(object) {
+        if o.kind != al_ir::ObjKind::Table {
             return Err(why);
         }
+        // The unit is looked up first: a field without one keeps its own text (a value without a unit keeps its source,
+        // TaXliff.al:138), whether it is Locked, has OptionCaptionML, or its table is extended.
+        let declaring = self.declaring_extension(t, pos);
+        let (app, kind, owner) = match declaring.and_then(|e| self.engine.program.objects.get(e)) {
+            Some(e) => (e.app, "TableExtension", &e.name),
+            None => (o.app, "Table", &o.name),
+        };
         let xliff = format!(
             "{} - {} - {}",
-            al_ir::xliff_part("Table", &o.name),
+            al_ir::xliff_part(kind, owner),
             al_ir::xliff_part("Field", &t.fields[pos].name),
             al_ir::xliff_part("Property", "OptionCaption")
         );
-        let unit = self.app_translation(o.app as usize, &xliff, &|| {
+        let unit = self.app_translation(app as usize, &xliff, &|| {
             format!("the OptionCaption of field {} of table {}", t.fields[pos].name, t.name)
         })?;
-        // OptionCaptionML keeps its own text of the language when the file has no unit for the field
-        // (format-evaluate/EvalLanguageBoolean.al EL_Option_NLB_2067, EL_Option_NLD_1043); with a unit it is not pinned.
-        if unit.is_some() && self.field_property(t, pos, "OptionCaptionML").is_some() {
+        // With a unit, not pinned: a field a table extension declares, a field of a table an extension extends, and a field
+        // with OptionCaptionML (which keeps its own text of the language without a unit, format-evaluate/
+        // EvalLanguageBoolean.al EL_Option_NLB_2067, EL_Option_NLD_1043).
+        if unit.is_some()
+            && (declaring.is_some()
+                || self.extended(object)
+                || self.field_property(t, pos, "OptionCaptionML").is_some())
+        {
             return Err(why);
         }
         Ok(unit)
