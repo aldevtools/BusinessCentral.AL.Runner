@@ -23,7 +23,10 @@ pub struct Growable {
     stale: Vec<bool>,
     /// The members the kept compile computed, by object (`MemberTable::with_known`).
     members: Vec<std::sync::OnceLock<crate::members::Members>>,
-    source: std::sync::Arc<KeptProgram>,
+    /// What the lowering exported of each object. The program itself stays with the caller, which gives it back to
+    /// [`grow`]: the runner changes the program it runs in place (it sets the manifest facts), and a program held here
+    /// too would make that change copy it.
+    facts: KeptFacts,
 }
 
 impl Growable {
@@ -44,11 +47,11 @@ impl Growable {
             .position(|o| o.app >= apps)
             .unwrap_or(ws.objects.len());
         let n_file = ws.files.iter().position(|f| f.app >= apps).unwrap_or(ws.files.len());
-        let src = std::sync::Arc::get_mut(&mut self.source).expect("the kept program is not shared yet");
+        let src = &mut self.facts;
         src.facts.truncate(n_obj);
         src.heads.truncate(n_obj);
         src.pos_ranges.truncate(n_obj);
-        let stale = crate::provided::relower_set(ws, n_obj, &*self.source);
+        let stale = crate::provided::relower_set(ws, n_obj, &self.facts);
         self.stale.truncate(n_obj);
         for (s, t) in self.stale.iter_mut().zip(stale) {
             *s |= t;
@@ -71,16 +74,25 @@ impl Growable {
     }
 }
 
-/// The objects of a kept compile, as a source of supplied objects (`provided.rs`): their facts as the lowering exported
-/// them, and the objects themselves from the kept program.
-struct KeptProgram {
+/// The facts of the objects of a kept compile, as the lowering exported them.
+struct KeptFacts {
     facts: Vec<DepFacts>,
     heads: Vec<ir::ObjectHead>,
-    program: std::sync::Arc<ir::Program>,
     pos_ranges: Vec<(u32, u32)>,
 }
 
-impl DepSource for KeptProgram {
+impl KeptFacts {
+    fn from(exported: crate::provided::DepSet, lowered: &Lowered) -> KeptFacts {
+        KeptFacts {
+            facts: exported.facts,
+            heads: exported.heads,
+            pos_ranges: lowered.pos_ranges.clone(),
+        }
+    }
+}
+
+/// The facts alone, for what reads only them (`relower_set` when the kept compile is cut back). They hold no object.
+impl DepSource for KeptFacts {
     fn len(&self) -> usize {
         self.facts.len()
     }
@@ -91,12 +103,36 @@ impl DepSource for KeptProgram {
         &self.heads[object]
     }
     fn block(&self, object: usize) -> Result<DepBlock, String> {
+        Err(format!(
+            "object {object}: the facts of a kept compile hold no object; `grow` takes it from the program"
+        ))
+    }
+}
+
+/// The objects of a kept compile, as a source of supplied objects (`provided.rs`): their facts as the lowering exported
+/// them, and the objects themselves from the kept compile's program.
+struct KeptProgram {
+    kept: KeptFacts,
+    program: std::sync::Arc<ir::Program>,
+}
+
+impl DepSource for KeptProgram {
+    fn len(&self) -> usize {
+        self.kept.len()
+    }
+    fn facts(&self, object: usize) -> &DepFacts {
+        self.kept.facts(object)
+    }
+    fn head(&self, object: usize) -> &ir::ObjectHead {
+        self.kept.head(object)
+    }
+    fn block(&self, object: usize) -> Result<DepBlock, String> {
         let o = self
             .program
             .objects
             .get(object)
             .ok_or_else(|| format!("the kept program has no object {object}"))?;
-        let (start, len) = self.pos_ranges[object];
+        let (start, len) = self.kept.pos_ranges[object];
         Ok(DepBlock {
             object: Some(o.clone()),
             pos_start: start,
@@ -178,12 +214,7 @@ pub fn compile_loaded_growable(
             stale: vec![false; ws.objects.len()],
             members: Vec::new(),
             left_out: (0..ws.objects.len()).map(|oi| checked.is_left_out(oi)).collect(),
-            source: std::sync::Arc::new(KeptProgram {
-                facts: exported.facts,
-                heads: exported.heads,
-                program: lowered.program.clone(),
-                pos_ranges: lowered.pos_ranges.clone(),
-            }),
+            facts: KeptFacts::from(exported, &lowered),
         }),
         _ => None,
     };
@@ -194,7 +225,8 @@ pub fn compile_loaded_growable(
 }
 
 /// The compile of `ws` (the workspace of the compile `kept` was kept from) with `apps` added after its apps, of the
-/// kinds `kinds`, for `roots` (ADR-063). The result is what [`compile_loaded`] gives for the grown workspace, except that
+/// kinds `kinds`, for `roots` (ADR-063). `program` is the program of the compile `kept` was kept from (the caller may
+/// have set the facts of its apps on it; the objects are as lowered). The result is what [`compile_loaded`] gives for the grown workspace, except that
 /// it may compile more of the kept apps than that one needs (see the module comment). An error gives `apps` back, with
 /// the reason: an app already compiled would see one of them (its compile would change), so the caller compiles all
 /// the apps from source.
@@ -202,6 +234,7 @@ pub fn compile_loaded_growable(
 pub fn grow(
     ws: Workspace,
     kept: Growable,
+    program: std::sync::Arc<ir::Program>,
     apps: Vec<AppSource>,
     kinds: Vec<AppKind>,
     symbols: &std::collections::BTreeSet<String>,
@@ -209,7 +242,19 @@ pub fn grow(
     catalog: &al_builtins::catalog::Catalog,
     roots: crate::check::Roots,
 ) -> Result<(Workspace, Lowered), (Vec<AppSource>, String)> {
-    grow_inner(ws, kept, apps, kinds, symbols, app_symbols, catalog, roots, false).map(|(ws, l, _)| (ws, l))
+    grow_inner(
+        ws,
+        kept,
+        program,
+        apps,
+        kinds,
+        symbols,
+        app_symbols,
+        catalog,
+        roots,
+        false,
+    )
+    .map(|(ws, l, _)| (ws, l))
 }
 
 /// What [`grow_growable`] gives: the grown compile and what it keeps for a later pass, or the apps back with the reason
@@ -229,6 +274,7 @@ pub type Grown = Result<(Workspace, Lowered, Option<Growable>), (Vec<AppSource>,
 pub fn grow_growable(
     ws: Workspace,
     kept: Growable,
+    program: std::sync::Arc<ir::Program>,
     apps: Vec<AppSource>,
     kinds: Vec<AppKind>,
     symbols: &std::collections::BTreeSet<String>,
@@ -237,13 +283,25 @@ pub fn grow_growable(
     roots: crate::check::Roots,
 ) -> Grown {
     let keep = !roots.lean && !roots.reach_only && !roots.tdd && !roots.eager && !roots.object_hashes;
-    grow_inner(ws, kept, apps, kinds, symbols, app_symbols, catalog, roots, keep)
+    grow_inner(
+        ws,
+        kept,
+        program,
+        apps,
+        kinds,
+        symbols,
+        app_symbols,
+        catalog,
+        roots,
+        keep,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
 fn grow_inner(
     mut ws: Workspace,
     kept: Growable,
+    program: std::sync::Arc<ir::Program>,
     apps: Vec<AppSource>,
     kinds: Vec<AppKind>,
     symbols: &std::collections::BTreeSet<String>,
@@ -253,7 +311,7 @@ fn grow_inner(
     keep: bool,
 ) -> Grown {
     let n_old = kept.prev.objects;
-    if ws.objects.len() != n_old {
+    if ws.objects.len() != n_old || program.objects.len() < n_old {
         return Err((apps, "the workspace is not the one the compile was kept from".into()));
     }
     if let Err(why) = ws.can_append(&apps) {
@@ -286,7 +344,10 @@ fn grow_inner(
             reached_now[o] += 1;
         }
     }
-    let src = kept.source;
+    let src = std::sync::Arc::new(KeptProgram {
+        kept: kept.facts,
+        program,
+    });
     crate::provided::check_identity_prefix(&ws, n_old, &*src).map_err(|why| (Vec::new(), why))?;
     let relower = crate::provided::relower_set(&ws, n_old, &*src);
     let blocks: Vec<Option<DepBlock>> = (0..ws.objects.len())
@@ -352,7 +413,7 @@ fn kept_grown(
     let mut exported = lowered.exported.take()?;
     for (oi, facts) in exported.facts.iter_mut().enumerate() {
         if supplied[oi] {
-            *facts = before.facts[oi].clone();
+            *facts = before.kept.facts[oi].clone();
         }
     }
     let (demand, kept, codes) = (
@@ -376,12 +437,7 @@ fn kept_grown(
         stale: vec![false; ws.objects.len()],
         members: Vec::new(),
         left_out: (0..ws.objects.len()).map(|oi| checked.is_left_out(oi)).collect(),
-        source: std::sync::Arc::new(KeptProgram {
-            facts: exported.facts,
-            heads: exported.heads,
-            program: lowered.program.clone(),
-            pos_ranges: lowered.pos_ranges.clone(),
-        }),
+        facts: KeptFacts::from(exported, lowered),
     })
 }
 
@@ -544,6 +600,40 @@ codeunit 80001 SBad { procedure P() var R: Record T; begin R.AlsoNoField := 1; e
         assert_same(&plain, &kept);
     }
 
+    // The runner sets the manifest facts on the program it runs in place (`Arc::make_mut`, al-testrun
+    // `apply_manifests`). A kept compile that also held the program made that a copy of the whole program (1.1 GB on
+    // the corpus), so the kept compile leaves the program to its caller, which gives it back to `grow`.
+    #[test]
+    fn a_kept_compile_does_not_share_the_program_it_lowered() {
+        let (main, main_kinds, more, more_kinds) = passes();
+        let symbols = BTreeSet::new();
+        let catalog = al_builtins::catalog::Catalog::load();
+        let ws = Workspace::load_apps(main, main_kinds, &symbols);
+        let (ws, mut main_pass, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
+        assert!(
+            std::sync::Arc::get_mut(&mut main_pass.program).is_some(),
+            "the main pass's program is shared"
+        );
+        let (_, mut grown, kept) = grow_growable(
+            ws,
+            kept.expect("growable"),
+            main_pass.program.clone(),
+            more,
+            more_kinds,
+            &symbols,
+            &[],
+            &catalog,
+            Roots::default(),
+        )
+        .map_err(|e| e.1)
+        .expect("the apps can be added");
+        assert!(kept.is_some(), "the grown compile is kept");
+        assert!(
+            std::sync::Arc::get_mut(&mut grown.program).is_some(),
+            "the grown program is shared"
+        );
+    }
+
     #[test]
     fn a_grown_compile_equals_a_fresh_compile_of_all_its_apps() {
         let (main, main_kinds, more, more_kinds) = passes();
@@ -555,6 +645,7 @@ codeunit 80001 SBad { procedure P() var R: Record T; begin R.AlsoNoField := 1; e
         let (_, grown) = grow(
             ws,
             kept,
+            main_pass.program.clone(),
             more.clone(),
             more_kinds.clone(),
             &symbols,
@@ -633,13 +724,14 @@ codeunit 90002 OSub
         let mut own_kinds = main_kinds.clone();
         own_kinds.push(AppKind::Workspace);
         let ws = Workspace::load_apps(with_own, own_kinds, &symbols);
-        let (mut ws, _, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
+        let (mut ws, main_pass, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
         let mut kept = kept.expect("the compile can be grown");
         let gone = kept.truncate(&mut ws, main.len());
         assert_eq!(gone.len(), 1);
         let (_, grown) = grow(
             ws,
             kept,
+            main_pass.program,
             more.clone(),
             more_kinds.clone(),
             &symbols,
@@ -716,13 +808,23 @@ codeunit 82000 S2Test
         let mut own_kinds = main_kinds.clone();
         own_kinds.push(AppKind::Workspace);
         let ws = Workspace::load_apps(with_own, own_kinds, &symbols);
-        let (mut ws, _, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
+        let (mut ws, main_pass, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
         let mut kept = kept.expect("the compile can be grown");
         kept.truncate(&mut ws, main.len());
         let n_more = more.len();
-        let (mut ws, _, kept) = grow_growable(ws, kept, more, more_kinds, &symbols, &[], &catalog, second_roots)
-            .map_err(|e| e.1)
-            .expect("the apps can be added");
+        let (mut ws, second, kept) = grow_growable(
+            ws,
+            kept,
+            main_pass.program,
+            more,
+            more_kinds,
+            &symbols,
+            &[],
+            &catalog,
+            second_roots,
+        )
+        .map_err(|e| e.1)
+        .expect("the apps can be added");
         let mut kept = kept.expect("the grown compile can be grown again");
         let gone = kept.truncate(&mut ws, main.len());
         assert_eq!(gone.len(), n_more, "the second pass's apps leave the kept compile");
@@ -730,6 +832,7 @@ codeunit 82000 S2Test
         let (_, grown) = grow(
             ws,
             kept,
+            second.program,
             third.clone(),
             vec![AppKind::Workspace],
             &symbols,
@@ -799,11 +902,12 @@ codeunit 82000 S2Test
         let mut main = main;
         main[0].dependencies.push("late".into());
         let ws = Workspace::load_apps(main, main_kinds, &symbols);
-        let (ws, _, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
+        let (ws, lowered, kept) = compile_loaded_growable(ws, Default::default(), &catalog, Roots::default());
         let late = vec![app("late", &[], "codeunit 61000 Late { }")];
         let refused = grow(
             ws,
             kept.expect("growable"),
+            lowered.program,
             late,
             vec![AppKind::Dependency],
             &symbols,
