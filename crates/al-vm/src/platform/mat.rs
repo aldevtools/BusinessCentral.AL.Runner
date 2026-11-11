@@ -138,6 +138,8 @@ pub(crate) struct Mat {
     assumed: Vec<Option<al_builtins::assumptions::Assumption>>,
     /// Per row: the app whose object it lists ([`Entry::of_app`]); empty when no row has one.
     apps: Vec<Option<u32>>,
+    /// The distinct apps of `apps` and `unviewable`, sorted: what [`Mat::lists_other_apps`] asks on every read.
+    apps_listed: Vec<u32>,
     /// The apps a view cannot leave out by rows ([`Mat::view`]): two entries of one key that were made for different
     /// apps (the first stays, so the other app's row is lost), and the apps a builder marked with [`Mat::mixed_with`]
     /// (an object of the app changes the row of an object of another app, as a page extension changes its page's row).
@@ -318,6 +320,7 @@ impl Mat {
             name_only,
             name_set,
             assumed,
+            apps_listed: Mat::apps_listed(&apps, &unviewable),
             apps,
             unviewable,
             clean,
@@ -352,6 +355,7 @@ impl Mat {
             name_set: self.name_set.clone(),
             assumed: self.assumed.clone(),
             apps: self.apps.clone(),
+            apps_listed: self.apps_listed.clone(),
             unviewable: self.unviewable.clone(),
             clean: self.clean,
             unknown_cols: self.unknown_cols.clone(),
@@ -365,12 +369,21 @@ impl Mat {
         self.unviewable.extend(apps);
         self.unviewable.sort_unstable();
         self.unviewable.dedup();
+        self.apps_listed = Mat::apps_listed(&self.apps, &self.unviewable);
         self
     }
 
     /// Whether a row of an app that `installed` leaves out is in this listing.
     pub(crate) fn lists_other_apps(&self, installed: impl Fn(u32) -> bool) -> bool {
-        self.apps.iter().flatten().any(|&a| !installed(a)) || self.unviewable.iter().any(|&a| !installed(a))
+        self.apps_listed.iter().any(|&a| !installed(a))
+    }
+
+    /// The distinct apps of the rows and of `unviewable`, sorted.
+    fn apps_listed(apps: &[Option<u32>], unviewable: &[u32]) -> Vec<u32> {
+        let mut all: Vec<u32> = apps.iter().flatten().chain(unviewable).copied().collect();
+        all.sort_unstable();
+        all.dedup();
+        all
     }
 
     /// This listing without the rows of the apps that `installed` leaves out (ADR-073 Phase 2: an engine's tenant
@@ -418,6 +431,7 @@ impl Mat {
             name_only,
             name_set,
             assumed,
+            apps_listed: Mat::apps_listed(&apps, &self.unviewable),
             apps,
             unviewable: self.unviewable.clone(),
             memo: Default::default(),
