@@ -1,5 +1,5 @@
-//! Refusals whose reason text named the wrong cause (al-runner issues 7400, 7414, 7362). The cases stay refused (nothing pins
-//! them yet); the reason now says what actually stopped the run.
+//! Refusals whose reason text named the wrong cause (al-runner issues 7400, 7414, 7362). The reason now says what actually
+//! stopped the run; the issue 7400 case is pinned since and runs.
 
 use al_test_cli::report::Outcome;
 
@@ -11,10 +11,11 @@ fn reason(src: &str, codeunit: &str) -> String {
     }
 }
 
-/// Issue 7400: the list saves the row the ModalPageHandler edited as the platform closes it, and OnModifyRecord raises. The
-/// page has no OnQueryClosePage, so the reason must not name it.
+/// Issue 7400: the list saves the row the ModalPageHandler edited as the platform closes it, and OnModifyRecord raises. It was
+/// refused with a reason naming OnQueryClosePage; corpus PR 1323 pins it (pages/close-errors/ModalCloseSaveErrorShapes.al:250):
+/// RunModal fails with the TestField error, so the test passes with no assumption.
 #[test]
-fn issue_7400_error_of_the_save_at_modal_close_names_the_save() {
+fn issue_7400_error_of_the_save_at_modal_close_runs() {
     let src = r#"
 table 50400 "RR Entry" { fields { field(1; "No."; Integer) { } field(2; Canceled; Boolean) { } field(3; Code; Code[10]) { } } keys { key(PK; "No.") { } } }
 codeunit 50401 "RR Entry-Edit"
@@ -50,9 +51,8 @@ codeunit 50403 "RR Save Tests"
     end;
 }
 "#;
-    let r = reason(src, "RR Save Tests");
-    assert!(!r.contains("OnQueryClosePage"), "{r}");
-    assert!(r.contains("saved") && r.contains("not pinned"), "{r}");
+    let o = al_testkit::outcomes_in(src, "RR Save Tests");
+    assert!(matches!(o.as_slice(), [(_, Outcome::Pass)]), "{o:#?}");
 }
 
 /// Issue 7414: a bare read of `UseRequestPage` in a report trigger is a read, not an assignment.
