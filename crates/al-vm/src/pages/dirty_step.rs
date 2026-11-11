@@ -330,6 +330,10 @@ impl Session {
     ) -> Result<Value, Signal> {
         let m = method.method();
         let st = &c.page;
+        // Any TestField or TestAction call but SetValue ends the shape `next_held_row_read` reads in.
+        if m != PageMethod::SetValue {
+            st.borrow_mut().next_held_row = None;
+        }
         let top = Self::top_page(st);
         if top.borrow().save_failed && top.borrow().open {
             let own = Rc::ptr_eq(&top, st);

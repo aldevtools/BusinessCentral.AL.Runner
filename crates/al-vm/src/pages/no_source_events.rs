@@ -90,13 +90,16 @@ impl Session {
         self.no_source_of(st, &HANDLER_ERROR_CLOSE_TYPES)
     }
 
-    /// A page over no table of a `NAVIGATE_TYPES` type that the test opened with OpenEdit, as every navigation pin does.
+    /// The one entry condition of New, Next, Previous, First and Last on a page over no table. Everything else (OpenView,
+    /// OpenNew, a page a Page variable or Page.Run ran that the test trapped, a modal page in its handler, a part, another page
+    /// type) is refused as before.
     fn no_source_navigate_pinned(&self, st: &St) -> bool {
-        let edit = {
-            let s = st.borrow();
-            s.mode == PageMode::Edit && !s.modal && s.host.is_none()
-        };
-        edit && self.no_source_of(st, &NAVIGATE_TYPES)
+        // The page type: a Card, a List or a Worksheet over no table (NoSourcePageEvents.al:3062-:3144 Card, :3164-:3246 List,
+        // :3266-:3348 Worksheet).
+        self.no_source_of(st, &NAVIGATE_TYPES)
+            // The open: the test's own `P.OpenEdit()` on the top-level page (:3069 NoSourceCard_Navigate_New_EventLog, :3091
+            // Next, :3111 Previous, :3131 First, :3151 Last; :3171-:3253 List, :3273-:3355 Worksheet).
+            && st.borrow().test_open_edit()
     }
 
     /// TestPage.New() on a page over no table is denied as InsertAllowed = false denies it, with the same text and code
@@ -255,9 +258,10 @@ impl Session {
     /// and closes as before.
     pub(in crate::pages) fn no_source_close_in_open_ignored(&self, st: &St) -> bool {
         let object = st.borrow().object as usize;
+        // The open: the test's own OpenEdit (:2790 through TryOpenEditCard, :3607), while OnOpenPage runs.
         let shape = {
             let s = st.borrow();
-            s.opening && !s.modal && s.host.is_none() && s.mode == PageMode::Edit
+            s.opening && s.test_open_edit()
         };
         shape
             && self.no_source_of(st, &PINNED_TYPES)
@@ -273,10 +277,9 @@ impl Session {
             Ok(_) => Ok(()),
             Err(Signal::Error(mut e)) if self.no_source_of(st, &PINNED_TYPES) => {
                 let object = st.borrow().object as usize;
-                let card_edit = {
-                    let s = st.borrow();
-                    !s.modal && s.mode == PageMode::Edit && s.host.is_none()
-                } && matches!(self.engine.object_facts[object].page_type_lower(), "" | "card");
+                // The open: the test's own OpenEdit of a Card (:2525).
+                let card_edit = st.borrow().test_open_edit()
+                    && matches!(self.engine.object_facts[object].page_type_lower(), "" | "card");
                 if !card_edit {
                     return unsupported(
                         "an error in an OnAfterGetCurrRecordEvent subscriber while a page without a source table opens, other than OpenEdit of a Card (not pinned)",

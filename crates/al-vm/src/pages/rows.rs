@@ -1482,7 +1482,7 @@ impl Session {
             s.field_captions_quiet = how == PageMethod::Previous;
             s.field_captions_pinned_move = matches!(how, PageMethod::First | PageMethod::Last);
         }
-        let (r, origin) = self.traced(st, |s| s.page_move_noting_server_row(st, how));
+        let (r, origin) = self.traced(st, |s| s.page_move_noting_server_row(st, how, writes));
         {
             let mut s = st.borrow_mut();
             s.field_captions_quiet = false;

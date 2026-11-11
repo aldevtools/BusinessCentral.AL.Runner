@@ -138,6 +138,7 @@ page 50172 "R918 NB Worksheet"
         end;
         Term := TempStore.Stored;
     end;
+    procedure Bump() begin Log.Add(StrSubstNo('B:%1', Rec.Id)); Term := 99; end;
     var
         TempStore: Record "R918 NB Line" temporary;
         Log: Codeunit "R918 NB Log";
@@ -207,12 +208,109 @@ codeunit 50174 "R918 NB Tests"
         Sheet.Close();
         exit(Report());
     end;
+
+    procedure TermAfterNextOnTheOnlyRow(): Text
+    var Sheet: TestPage "R918 NB Worksheet"; L: Record "R918 NB Line";
+    begin
+        Seed();
+        L.SetFilter(Id, '>1'); L.DeleteAll();
+        Sheet.OpenEdit(); Sheet.First(); Sheet.Next();
+        Log.Clear();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterLastNext(): Text
+    var Sheet: TestPage "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.Last(); Sheet.Next();
+        Log.Clear();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterNextRowModifiedElsewhere(): Text
+    var Sheet: TestPage "R918 NB Worksheet"; L: Record "R918 NB Line";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.First(); Sheet.Next();
+        Log.Clear();
+        L.Get(2); L.Name := 'Z'; L.Modify();
+        Sheet.TermCtrl.SetValue(5);
+        Log.Add('name=' + Sheet.NameCtrl.Value());
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterNextRowDeletedElsewhere(): Text
+    var Sheet: TestPage "R918 NB Worksheet"; L: Record "R918 NB Line";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.First(); Sheet.Next();
+        Log.Clear();
+        L.Get(2); L.Delete();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterNextAndControlRead(): Text
+    var Sheet: TestPage "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.First(); Sheet.Next();
+        Log.Clear();
+        Log.Add('name=' + Sheet.NameCtrl.Value());
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterNextThatSavedARow(): Text
+    var Sheet: TestPage "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.OpenEdit(); Sheet.First(); Sheet.NameCtrl.SetValue('X'); Sheet.Next();
+        Log.Clear();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterNextOnTrappedRun(): Text
+    var Sheet: TestPage "R918 NB Worksheet"; Pg: Page "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.Trap(); Pg.Run(); Sheet.First(); Sheet.Next();
+        Log.Clear();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
+
+    procedure TermAfterNextAndPageVariableCall(): Text
+    var Sheet: TestPage "R918 NB Worksheet"; Pg: Page "R918 NB Worksheet";
+    begin
+        Seed();
+        Sheet.Trap(); Pg.Run(); Sheet.First(); Sheet.Next();
+        Log.Clear();
+        Pg.Bump();
+        Sheet.TermCtrl.SetValue(5);
+        Sheet.Close();
+        exit(Report());
+    end;
 }
 "#;
 
 /// The neighbors of the reporter's shape keep the earlier behavior: no read before the SetValue, and the assumption is not hit.
 /// A Rec field changed on the row first (al-runner PR 7787 review: the read cleared the change, and Close no longer saved `X`);
-/// a Previous, a GoToKey or a First after the Next (the read ran on a row no Next had reached).
+/// a Previous, a GoToKey or a First after the Next (the read ran on a row no Next had reached); a Next that did not move (one
+/// row, or after Last); the row modified or deleted through another record variable after the Next; a control read between the Next
+/// and the SetValue; a Next that saved the row it left; a page a Page variable ran
+/// and the test trapped, with and without a procedure call through that variable after the Next.
 #[test]
 fn set_value_neighbors_of_the_held_row_read_keep_the_earlier_behavior() {
     use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
@@ -222,6 +320,17 @@ fn set_value_neighbors_of_the_held_row_read_keep_the_earlier_behavior() {
         ("TermAfterNextNextPrevious", "V:2/5 R:2 | DB 1=a 2=b 3=c "),
         ("TermAfterNextGoToKey", "V:3/5 R:3 | DB 1=a 2=b 3=c "),
         ("TermAfterNextFirst", "V:1/5 R:1 | DB 1=a 2=b 3=c "),
+        ("TermAfterNextOnTheOnlyRow", "V:1/5 R:1 | DB 1=a "),
+        ("TermAfterLastNext", "V:3/5 R:3 | DB 1=a 2=b 3=c "),
+        (
+            "TermAfterNextRowModifiedElsewhere",
+            "V:2/5 R:2 name=Z | DB 1=a 2=Z 3=c ",
+        ),
+        ("TermAfterNextRowDeletedElsewhere", "V:2/5 | DB 1=a 3=c "),
+        ("TermAfterNextAndControlRead", "name=b V:2/5 R:2 | DB 1=a 2=b 3=c "),
+        ("TermAfterNextThatSavedARow", "V:2/5 R:2 | DB 1=X 2=b 3=c "),
+        ("TermAfterNextOnTrappedRun", "V:2/5 R:2 | DB 1=a 2=b 3=c "),
+        ("TermAfterNextAndPageVariableCall", "B:0 V:2/5 R:2 | DB 1=a 2=b 3=c "),
     ] {
         clear_hits();
         let got = text(run_in(NEIGHBORS, "R918 NB Tests", routine));

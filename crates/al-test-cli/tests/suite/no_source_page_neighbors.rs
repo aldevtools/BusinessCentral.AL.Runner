@@ -1,7 +1,8 @@
 //! Pages without a source table: the shapes next to the ones events/page-events/NoSourcePageEvents.al pins keep the earlier
 //! behavior or are refused (al-runner PR 7787 review). A ModalPageHandler error on a Card or a List closes nothing (the close
 //! triggers run only on a NavigatePage, a CardPart and a ListPart, :1149, :1349, :1549); Next() after OpenView is refused (every
-//! navigation pin opens with OpenEdit, :3084-:3348); a Card over no table whose parts have a source table closes them in the
+//! navigation pin opens with OpenEdit, :3084-:3348), and so are Next() and New() on a Card a Page variable ran and the test
+//! trapped, and Next() in a ModalPageHandler; a Card over no table whose parts have a source table closes them in the
 //! declared order (the reversed order is pinned for parts over no table, :2964); an action after a SetValue on an expression
 //! control of a List or a Worksheet is refused (pinned on a Card and a NavigatePage only).
 
@@ -99,6 +100,28 @@ codeunit 69968 T
         Pg.Close();
     end;
 
+    [Test] procedure CardNextOnTrappedRunRefused()
+    var Pg: TestPage "NSN Card"; PgVar: Page "NSN Card";
+    begin
+        Pg.Trap(); PgVar.Run();
+        Pg.Next();
+        Pg.Close();
+    end;
+
+    [Test] procedure CardNewOnTrappedRunRefused()
+    var Pg: TestPage "NSN Card"; PgVar: Page "NSN Card";
+    begin
+        Pg.Trap(); PgVar.Run();
+        asserterror Pg.New();
+        Pg.Close();
+    end;
+
+    [Test] [HandlerFunctions('CardNext')] procedure CardNextInModalHandlerRefused()
+    begin
+        Page.RunModal(Page::"NSN Card");
+    end;
+    [ModalPageHandler] procedure CardNext(var Pg: TestPage "NSN Card") begin Pg.Next(); Pg.OK().Invoke(); end;
+
     [Test] procedure HostWithSourcePartsKeepsDeclaredOrder()
     var Pg: TestPage "NSN Host";
     begin
@@ -144,6 +167,9 @@ fn neighbors_of_the_pinned_no_source_shapes_keep_the_earlier_behavior_or_refuse(
     }
     for refused in [
         "CardNextAfterOpenViewRefused",
+        "CardNextOnTrappedRunRefused",
+        "CardNewOnTrappedRunRefused",
+        "CardNextInModalHandlerRefused",
         "ListSetValueThenActionRefused",
         "WorksheetSetValueThenActionRefused",
     ] {

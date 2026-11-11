@@ -12,8 +12,15 @@ use super::*;
 use al_builtins::page_op::PageMethod;
 
 impl Session {
-    /// `page_move_inner`, noting the row the server keeps when a `Next` ran no trigger.
-    pub(super) fn page_move_noting_server_row(&mut self, st: &St, how: PageMethod) -> Result<bool, Signal> {
+    /// `page_move_inner`, noting the row the server keeps when a `Next` ran no trigger, and the row such a `Next` moved onto
+    /// (`note_next_held_row`; a `Next` that stayed where it was, or that wrote to the database since `writes`, the write mark
+    /// `page_move` took before it left the row, notes none).
+    pub(super) fn page_move_noting_server_row(
+        &mut self,
+        st: &St,
+        how: PageMethod,
+        writes: (i64, u64),
+    ) -> Result<bool, Signal> {
         st.borrow_mut().next_held_row = None;
         let lagging = how == PageMethod::Next
             && st.borrow().server_lag.is_none()
@@ -27,7 +34,7 @@ impl Session {
         }
         // A trigger that runs during the move clears the lag (`page_call`).
         let moved = self.page_move_inner(st, how)?;
-        if lagging {
+        if lagging && moved && self.write_mark() == writes {
             self.note_next_held_row(st)?;
         }
         Ok(moved)
@@ -56,6 +63,8 @@ impl Session {
     /// A procedure is called through a `Page` variable: puts the server's row into the page's Rec for the call. Returns the Rec
     /// and the fields to put back afterwards.
     pub(crate) fn enter_server_row(&mut self, st: &St) -> Option<(Rec, Vec<Value>)> {
+        // A call through a `Page` variable ends the shape `next_held_row_read` reads in.
+        st.borrow_mut().next_held_row = None;
         let lag = st.borrow().server_lag.clone()?;
         st.borrow().instance.as_ref()?;
         let object = st.borrow().object as usize;
