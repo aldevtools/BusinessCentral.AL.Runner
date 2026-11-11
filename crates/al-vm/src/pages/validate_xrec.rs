@@ -59,6 +59,12 @@ impl Session {
         if !self.has_source(st) || self.is_request_page(st) {
             return Ok(false);
         }
+        // A temporary Worksheet whose rows a procedure set before the open: Update(false) in the OnValidate drops the edit
+        // (pages/run-modal/PageVarOpenRow.al:946 TempWs_SecondaryKeyView_FilledBeforeRun_Run `row edited` `B|name B`, :974
+        // run modally, :1002; `open_temp_ws_preloaded` holds the page's shape).
+        if st.borrow().temp_ws_preloaded {
+            return Ok(true);
+        }
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let page_type = |o: usize| engine.object_facts[o].page_type.clone();

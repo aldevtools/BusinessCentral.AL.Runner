@@ -230,6 +230,10 @@ pub struct PageState {
     pub window_eof: bool,
     /// The window holds every row of the view, read by `Last` past a full window (see `last_past_the_window`).
     pub window_whole: bool,
+    /// The page opened as a temporary Worksheet whose rows a procedure set before the open (`open_temp_ws_preloaded`).
+    pub temp_ws_preloaded: bool,
+    /// The page runs from `CurrPage.Run()` in its own procedure (`run_page_var`), not from a Page variable's `Run()`.
+    pub run_by_currpage: bool,
     /// A read of a list that serves its rows from OnFindRecord and OnNextRecord ran to the end of the view (an open whose view
     /// ends inside the window, a GoToKey that read on to the end): Next on the last row then answers false without asking the
     /// page (see `move_in_client_rows`).

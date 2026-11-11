@@ -1073,10 +1073,14 @@ impl Session {
             // A temporary Worksheet counts only its own OnOpenPage: with the trigger in an extension alone it keeps the first row
             // it always had (al-runner issue 6924, SalesPriceShipmentTypeActivateLinesDuplicatesShowOK/ShowCancel).
             && (self.declares(st, "onopenpage")
-                || (self.declares_or_ext_declares(st, "onopenpage") && !self.is_temp_worksheet(st)))
+                || (self.declares_or_ext_declares(st, "onopenpage") && !self.is_temp_worksheet(st))
+                || self.temp_ws_preloaded_without_onopenpage(st)?)
             && (!self.declares(st, "onfindrecord") || self.temp_worksheet_set_before_open(st))
             && !self.is_request_page(st)
         {
+            if self.temp_ws_preloaded_without_onopenpage(st)? {
+                return self.open_temp_ws_preloaded(st);
+            }
             if let Some(modal_list) = self.init_record_on_a_key_no_row_has(st)? {
                 return if modal_list {
                     self.open_on_rec_moved_by_onopenpage(st)

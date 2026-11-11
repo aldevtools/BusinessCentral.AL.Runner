@@ -770,6 +770,9 @@ impl Session {
                 Some(k) => Self::same_key(&k, &self.row_key(&rec)?),
                 None => false,
             };
+            if e.code == "DB:RecordNotFound" && !vetoed && self.typed_key_dropped_on_currpage_run(st)? {
+                return Ok(());
+            }
             if e.code == "DB:RecordNotFound" && !vetoed {
                 return unsupported(
                     "a page saves a changed row that is no longer stored (whether the client writes it is not pinned)",

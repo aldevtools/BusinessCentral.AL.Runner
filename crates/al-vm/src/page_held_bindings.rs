@@ -80,6 +80,7 @@ impl Session {
         // `CurrPage.Run()` runs from the page's own code; a Page variable's `Run()` from other code.
         let object = st.borrow().object as usize;
         let variable_run = !modal && self.frames.last() != Some(&object);
+        st.borrow_mut().run_by_currpage = !modal && !variable_run;
         let r = self.run_page_ui(st, record, modal)?;
         if variable_run {
             self.empty_temp_rec_after_variable_run(st)?;

@@ -196,6 +196,7 @@ mod code_close_veto;
 mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
+mod currpage_run_typed_key;
 mod data_caption_run;
 mod dev_endpoint;
 mod dirty_step;
