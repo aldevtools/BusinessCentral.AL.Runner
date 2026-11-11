@@ -35,7 +35,8 @@ impl Session {
     /// The blank record of such a part: its OnAfterGetCurrRecord and that event's subscribers run once.
     pub(super) fn card_part_blank_on_new_host(&mut self, st: &St) -> Result<(), Signal> {
         let object = st.borrow().object as usize;
-        if self.declares_or_ext_declares(st, "onnewrecord") || self.engine().events.is_subscribed(object, "onnewrecordevent")
+        if self.declares_or_ext_declares(st, "onnewrecord")
+            || self.engine().events.is_subscribed(object, "onnewrecordevent")
         {
             return unsupported(
                 "OnNewRecord of a part without a repeater that shows no row of a new host row (whether BC runs it is not pinned)",

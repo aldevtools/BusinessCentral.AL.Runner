@@ -396,9 +396,12 @@ impl Session {
         let rec = self.page_rec(st);
         let initial = self.initial_fields(rec.borrow().table as usize);
         let table = self.table(&rec)?;
-        let key_typed = table.keys[0]
-            .iter()
-            .any(|&k| !Self::same_values(std::slice::from_ref(&rec.borrow().fields[k]), std::slice::from_ref(&initial[k])));
+        let key_typed = table.keys[0].iter().any(|&k| {
+            !Self::same_values(
+                std::slice::from_ref(&rec.borrow().fields[k]),
+                std::slice::from_ref(&initial[k]),
+            )
+        });
         if key_typed {
             return unsupported(
                 "an action on a new row whose key was typed, on a page with parts (BC stores the row first and reads the page again; not implemented)",

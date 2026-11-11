@@ -231,7 +231,11 @@ impl Session {
     /// A part a Visible expression hid, outside every Provider chain, that shows at a later refill: BC reads it once more before
     /// the host's refresh (testpage/parts/HiddenPartExtensionVariable.al:632 Hidden_OpenEdit_FlipTheVariable_ThenActions `flip`
     /// `act-flip(Yes) fb-agr(H1) fb-agcr(H1) host-agcr(H1) ...`). Not implemented: refused when the part runs record triggers.
-    pub(super) fn refuse_unchained_part_turning_visible(&mut self, st: &St, parts: &[(usize, St)]) -> Result<(), Signal> {
+    pub(super) fn refuse_unchained_part_turning_visible(
+        &mut self,
+        st: &St,
+        parts: &[(usize, St)],
+    ) -> Result<(), Signal> {
         for (i, c) in parts {
             let hidden = st.borrow().hidden_parts.iter().any(|(_, h)| Rc::ptr_eq(h, c));
             if !hidden || !c.borrow().open || self.part_in_provider_chain(st, *i) || !self.runs_record_triggers(c) {
