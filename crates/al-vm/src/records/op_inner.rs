@@ -1522,19 +1522,7 @@ impl Session {
                 if group == al_builtins::filter::OR_GROUP && or_flowfield {
                     return Ok(Value::Null);
                 }
-                if let Some(from) = args.get(1) {
-                    let from = ops::convert(from.clone(), &ty)?;
-                    let to = match args.get(2) {
-                        Some(v) => ops::convert(v.clone(), &ty)?,
-                        None => from.clone(),
-                    };
-                    let range = FilterExpr::Range(Some(from), Some(to));
-                    // Two Guids on a Media or MediaSet field order them, which is not pinned (`filter::media_guid_order`).
-                    if args.len() > 2 && al_builtins::filter::media_guid_order(&ty, &range) {
-                        return Err(Signal::unsupported(
-                            "SetRange with two Guids on a Media or MediaSet field (the order of Guids is not pinned)",
-                        ));
-                    }
+                if let Some(range) = super::setrange_filter::setrange_filter(&ty, &args[1..])? {
                     r.filters.push(FieldFilter::new(pos, range, group));
                 }
                 Ok(Value::Null)
