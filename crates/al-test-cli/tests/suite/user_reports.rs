@@ -2525,3 +2525,8 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_card_new_skips_empty_part_current_record() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/card-new-empty-part.al")));
+}

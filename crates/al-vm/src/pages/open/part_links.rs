@@ -46,8 +46,31 @@ impl Session {
         if self.host_new_running {
             // Whether and how often the part's OnAfterGetCurrRecord runs then is not pinned (the PYB pages declare none).
             if observes_curr {
-                return unsupported(
-                    "OnAfterGetCurrRecord of an empty part while its host runs New() (whether and how often BC runs it is not pinned)",
+                // Local HostNew.al: a directly linked empty ListPart of an editable Card
+                // gets no OnAfterGetCurrRecord when the host moves to New().
+                let host = st
+                    .borrow()
+                    .host
+                    .clone()
+                    .and_then(|(host, control)| host.upgrade().map(|host| (host, control)));
+                let measured = self.engine.object_facts[object].page_type_lower() == "listpart"
+                    && host.is_some_and(|(host, control)| {
+                        self.engine.object_facts[host.borrow().object as usize].page_type_lower() == "card"
+                            && page_of(&self.engine, &host).controls[control]
+                                .part_link
+                                .as_ref()
+                                .is_some_and(|link| {
+                                    link.provider.is_none()
+                                        && matches!(link.entries.as_slice(), [ir::LinkEntry::Field(_, _)])
+                                })
+                    });
+                if !measured {
+                    return unsupported(
+                        "OnAfterGetCurrRecord of an empty part while its host runs New() (whether and how often BC runs it is not pinned)",
+                    );
+                }
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::CardNewSkipsEmptyPartCurrentRecord,
                 );
             }
             self.set_xrec(st);
