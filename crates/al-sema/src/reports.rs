@@ -879,6 +879,8 @@ pub struct Context<'a> {
     pub routine_at: &'a crate::lower::RoutineAt,
     /// Reportextensions that change what a run does: why the report cannot run yet.
     pub extension_reasons: Vec<String>,
+    /// The unprobed assumptions the order of [`Context::extensions`] rests on.
+    pub extension_assumes: Vec<al_builtins::assumptions::Assumption>,
     /// The reportextensions (object indices) that change what a run does, in object id order.
     pub extensions: Vec<usize>,
 }
@@ -1381,6 +1383,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         on_post: object_trigger(&o, obj, "OnPostReport"),
         on_pre_rendering: object_trigger(&o, obj, "OnPreRendering"),
         extensions: cx.extensions.clone(),
+        assumes: cx.extension_assumes.clone(),
         request_flag_slot: cx.request_flag_slot,
         request_rec_routines: request_rec_routines(&o, obj),
         output: layout.output.clone(),

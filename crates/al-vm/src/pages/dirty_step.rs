@@ -272,7 +272,8 @@ impl Session {
     /// `TestPage.*` with the rules above in front. The page notes the call (`note_test_call`), so a rule pinned for one
     /// scenario knows what the test did since the page opened.
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
-        self.note_test_call(st, method, None, args.len());
+        let call = self.note_test_call(st, method, None, args.len());
+        Self::refuse_after_pinned_end(st, call)?;
         Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestPage method ends the shape `next_held_row_read` reads in; a `Next` notes its row again.
         st.borrow_mut().next_held_row = None;
@@ -353,7 +354,8 @@ impl Session {
     ) -> Result<Value, Signal> {
         let m = method.method();
         let st = &c.page;
-        self.note_test_call(st, method, Some(&c.target), args.len());
+        let call = self.note_test_call(st, method, Some(&c.target), args.len());
+        Self::refuse_after_pinned_end(st, call)?;
         Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestField or TestAction call but SetValue ends the shape `next_held_row_read` reads in.
         if m != PageMethod::SetValue {

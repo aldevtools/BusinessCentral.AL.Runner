@@ -135,6 +135,30 @@ fn field_data_type(ty: &RtType) -> Option<&'static str> {
     })
 }
 
+/// The `DataType` of a column bound to an element of a global array of type `ty`: the name of the type as for a field
+/// (corpus PR 1336, reports/layouts-saveas/WordXmlPartEmptyItemsOrderArrays.al WordXmlPart_Shape_ArraysA_Extended and
+/// _ArraysB_Extended, al-runner issue 7381: Text, Text[30], Code, Integer, Decimal, Boolean, Date, Time, DateTime, BigInteger,
+/// Duration, Guid `GUID`, Option and Enum `Option`, a two-dimensional Text array and an index held in a variable `Text`).
+/// Arrays of other types give `None`.
+fn array_element_data_type(ty: &RtType) -> Option<&'static str> {
+    match ty {
+        RtType::Text(_)
+        | RtType::Code(_)
+        | RtType::Integer
+        | RtType::Decimal
+        | RtType::Boolean
+        | RtType::Date
+        | RtType::Time
+        | RtType::DateTime
+        | RtType::BigInteger
+        | RtType::Duration
+        | RtType::Guid
+        | RtType::Option(_)
+        | RtType::Enum(_) => field_data_type(ty),
+        _ => None,
+    }
+}
+
 /// One column as the part lists it.
 struct PartColumn {
     tag: String,
@@ -150,19 +174,27 @@ struct PartLabel {
     id_name: String,
 }
 
-/// Sorts `v` by tag, the order BC lists columns and labels in: case-insensitive, an underscore before a letter
-/// (WordXmlPart_Order_Plain: `A_B`, `AB`, `Alpha`, `beta`, `Zed`, `zed2`; labels `A_Label`, `bLow`, `Bz`, `zed2Caption`). Two
-/// names that first differ in an underscore against a digit, or in a character that is not ASCII, are refused: their order
-/// is not pinned.
+/// Sorts `v` by tag, the order BC lists columns and labels in: case-insensitive, an underscore before a digit, a digit before
+/// a letter, a name before the longer names it starts (WordXmlPart_Order_Plain: `A_B`, `AB`, `Alpha`, `beta`, `Zed`, `zed2`;
+/// labels `A_Label`, `bLow`, `Bz`, `zed2Caption`; corpus PR 1336, WordXmlPartEmptyItemsOrderArrays.al
+/// WordXmlPart_Shape_NameOrder_Plain, al-runner issue 7367: `A_ A1 AA aB`, `ShipTo_Address ShipTo8Address ShipToAddress
+/// ShipToAddress_ ShipToAddress_Lbl ShipToAddress1 ShipToAddress10 ShipToAddress2 SHIPTOADDRESS3`, labels `Lbl_Text Lbl8Text
+/// lbl9Text LblAText`). Two names that first differ in a character that is not ASCII are refused: their order is not pinned.
 fn sort_by_tag<T>(v: &mut [T], tag: impl Fn(&T) -> &str) -> Result<(), Signal> {
-    v.sort_by_cached_key(|x| tag(x).to_lowercase());
+    // A tag holds letters, digits and underscores (`xml_tag`); the underscore sorts first.
+    let key = |t: &str| -> String {
+        t.to_lowercase()
+            .chars()
+            .map(|c| if c == '_' { '\u{1}' } else { c })
+            .collect()
+    };
+    v.sort_by_cached_key(|x| key(tag(x)));
     for w in v.windows(2) {
         let (a, b) = (tag(&w[0]).to_lowercase(), tag(&w[1]).to_lowercase());
         let Some((x, y)) = a.chars().zip(b.chars()).find(|(x, y)| x != y) else {
             continue;
         };
-        let digit_vs_underscore = (x == '_' && y.is_ascii_digit()) || (y == '_' && x.is_ascii_digit());
-        if digit_vs_underscore || !x.is_ascii() || !y.is_ascii() {
+        if !x.is_ascii() || !y.is_ascii() {
             return unsupported(format!(
                 "Report.WordXmlPart: the order of `{}` and `{}` (not pinned)",
                 tag(&w[0]),
@@ -349,17 +381,18 @@ impl Session {
             let tag = xml_tag(&item.name)?;
             let columns = self.word_xml_part_columns(object, tree, r)?;
             let children = tree.children(r);
-            if columns.is_empty() && children.is_empty() {
-                return unsupported(format!(
-                    "Report.WordXmlPart of the data item `{}` with no column and no nested item (not pinned)",
-                    item.name
-                ));
-            }
             let attrs = if extended {
                 format!(" ElementType=\"DataItem\" ElementId=\"{}\"", element_id(&item.name)?)
             } else {
                 String::new()
             };
+            // A data item with no column and no nested item is an empty element where the report has it (corpus PR 1336,
+            // WordXmlPartEmptyItemsOrderArrays.al WordXmlPart_Shape_EmptyAlone_*, _EmptyAfter_*, _EmptyMixed_*: alone, after
+            // and before items with columns, nested, and the only child of an item; al-runner issue 7383).
+            if columns.is_empty() && children.is_empty() {
+                out.push_str(&format!("{pad}<{tag}{attrs} />\r\n"));
+                continue;
+            }
             out.push_str(&format!("{pad}<{tag}{attrs}>\r\n"));
             for c in &columns {
                 let attrs = if extended {
@@ -450,6 +483,20 @@ impl Session {
             ir::Expr::Load(place @ ir::Place::Field(..)) => {
                 field_data_type(&crate::data_file_types::place_type(self, object, place)?)
             }
+            ir::Expr::Load(ir::Place::Index(..)) => array_element_data_type(&self.global_array_element(object, e)?),
+            // Over array elements (WordXmlPart_Shape_ArraysB_Extended): a Text element and a text literal joined by `+` are
+            // `String`, two Integer elements added `Integer`.
+            ir::Expr::Binary(ir::BinOp::Add, l, r) => {
+                match (
+                    self.global_array_element(object, l),
+                    self.global_array_element(object, r),
+                    r.as_ref(),
+                ) {
+                    (Some(RtType::Text(_)), None, ir::Expr::Const(ir::Const::Text(_))) => Some("String"),
+                    (Some(RtType::Integer), Some(RtType::Integer), _) => Some("Integer"),
+                    _ => None,
+                }
+            }
             ir::Expr::Call {
                 object: callee,
                 routine,
@@ -459,6 +506,16 @@ impl Session {
                 RtType::Text(_) => Some("Text"),
                 _ => None,
             },
+            _ => None,
+        }
+    }
+
+    /// The type of `e` when it reads one element of a global array of object `object`.
+    fn global_array_element(&self, object: usize, e: &ir::Expr) -> Option<RtType> {
+        match e {
+            ir::Expr::Load(place @ ir::Place::Index(base, _)) if matches!(base.as_ref(), ir::Place::Global(_)) => {
+                crate::data_file_types::place_type(self, object, place)
+            }
             _ => None,
         }
     }

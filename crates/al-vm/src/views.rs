@@ -616,16 +616,20 @@ impl Session {
                             return unsupported(format!("view condition `{item}`"));
                         }
                         let ty = t.fields[pos].ty.clone();
-                        // `const("ALT Status"::Active)` in an object property reads as the member
-                        // (record/qualified-enum-filters/TestQualifiedEnumFilters.al:SourceTableView_QualifiedEnumConst_OpensActiveRow,
-                        // al-runner issue 7189). A view given to SetView is text, not AL: no qualifier there.
+                        // `const("ALT Status"::Active)` and `filter(Type::Item)` in an object property read as the member
+                        // (`al_builtins::enum_qualifier::strip_enum_qualifier` holds the pins). A view given to SetView is text,
+                        // not AL: no qualifier there.
+                        let field_name = t.fields[pos].name.as_str();
                         let stripped = match &ty {
                             al_builtins::value::RtType::Enum(id) if !runtime => {
                                 let name = &self.engine.program.objects[*id as usize].name;
-                                match al_builtins::enum_qualifier::strip_enum_qualifier(value, name) {
+                                match al_builtins::enum_qualifier::strip_enum_qualifier(value, &[name, field_name]) {
                                     std::borrow::Cow::Borrowed(v) if v.contains("::") => self.cross_enum_member(v, *id),
                                     stripped => stripped,
                                 }
+                            }
+                            al_builtins::value::RtType::Option(_) if !runtime => {
+                                al_builtins::enum_qualifier::strip_enum_qualifier(value, &[field_name])
                             }
                             _ => std::borrow::Cow::Borrowed(value),
                         };

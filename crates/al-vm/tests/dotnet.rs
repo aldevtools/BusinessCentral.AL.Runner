@@ -1754,6 +1754,12 @@ fn the_declared_result_types_match_the_registry() {
             | "GetAzureKeyVaultCertificate" => continue,
             // Needs a length and a minimum; tests/host/server_helpers.rs runs it.
             "GeneratePassword" => continue,
+            // Need a user's Guid and the User tables; tests/store/user_account_keys.rs runs them.
+            "IsPasswordSet"
+            | "TryGetAuthenticationKey"
+            | "TryGetNameIdentifier"
+            | "TryGetWebServicesKey"
+            | "GetAuthenticationStatus" => continue,
             _ => vec![],
         };
         let mut s = Session::new(Engine::new(al_ir::Program::default(), vec![]));

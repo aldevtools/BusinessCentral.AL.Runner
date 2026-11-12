@@ -1171,6 +1171,7 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         on_post: _,
         on_pre_rendering: _,
         extensions,
+        assumes: _,
         request_flag_slot: _,
         request_rec_routines: _,
         output: _,

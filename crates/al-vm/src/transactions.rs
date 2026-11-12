@@ -762,6 +762,7 @@ impl Session {
         // before the run (docs/probes-needed.md).
         let mut record_ref_row = None;
         let mut caller_rec = None;
+        let mut body_rec = None;
         if has_property("TableNo") {
             let Some(slot) = obj.rec_slot else {
                 return unsupported(format!(
@@ -824,6 +825,7 @@ impl Session {
             }
             if guarded {
                 caller_rec = crate::run_restore::caller_record(record_arg);
+                body_rec = record_ref_row.is_none().then(|| record_arg.cloned()).flatten();
             }
         }
 
@@ -862,6 +864,7 @@ impl Session {
         if guarded {
             self.tx.guarded_runs.push(self.call_stack.len());
         }
+        self.guarded_body_begin(guarded, id == ids::CODEUNIT_RUN_3, body_rec.as_ref());
         // A test runner codeunit's OnRun under an installed host: its test codeunit runs go to the host (ADR-066).
         let runner = self.has_test_codeunit_host()
             && obj
@@ -875,9 +878,12 @@ impl Session {
         if runner {
             self.leave_test_runner();
         }
-        if guarded {
+        let body = if guarded {
             self.tx.guarded_runs.pop();
-        }
+            self.tx.guarded_bodies.pop()
+        } else {
+            None
+        };
         if let Some(t) = self.tx.used_tries.last_mut() {
             t.runs -= 1;
         }
@@ -943,7 +949,7 @@ impl Session {
                 // :GuardedRun_InstanceForm_CommitThenError_KeepsCommittedRowOnly).
                 // (Nothing to undo in a page background worker: the caller's rows are not its own.)
                 if self.pages.bg_worker.is_none() {
-                    self.rollback_in_run()?;
+                    self.guarded_run_rollback(&e, body)?;
                 }
                 self.error_finals = None;
                 self.last_error = *e;
