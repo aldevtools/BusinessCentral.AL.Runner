@@ -875,6 +875,7 @@ impl Session {
             let object = page.object as usize;
             page.mode == PageMode::Edit
                 && !page.draft_from_open
+                && page.draft_start.is_none()
                 && engine.object_facts[object].page_type == Some(ir::PageType::Worksheet)
                 && ["AutoSplitKey", "DelayedInsert", "MultipleNewLines"]
                     .iter()
