@@ -9,9 +9,12 @@
 //!   ExcelOnly_Run_RunModal_Execute_Print_SaveAs: `ReportUnsupportedOperation`, no trigger logged). Pinned for a report
 //!   without OnInitReport, request page or reportextension; with one of them, whether it runs first is not pinned.
 //! - Any other default layout (Custom, none that can be told, a missing layout file) keeps the refusal.
+//! - Before any of these: a subscriber the test can see to a layout or printer event, a layout selection, and a run that would
+//!   print (SystemPrinter `true`, or a report that declares `UseSystemPrinter = true`) refuse the run. Printing is not part of
+//!   the amendment ("What stays refused"), and BC may run an Excel layout report a selection points at a Word layout.
 
 use crate::reports::Schema;
-use crate::{Session, Signal};
+use crate::{Session, Signal, Value};
 use al_builtins::native::{AlError, unsupported};
 
 /// The layout and printer events BC raises around the render of a Run, RunModal or Execute (PeVTests.al:740-763) that this
@@ -38,16 +41,26 @@ impl Session {
         if report.processing_only || report.layout_file_missing {
             return refused();
         }
+        if !matches!(report.default_layout_kind.as_str(), "rdlc" | "word" | "excel") {
+            return refused();
+        }
+        self.refuse_unraised_layout_events(schema, "a run", &["substitutereport"])?;
+        if let Some(who) = self.run_event_subscriber() {
+            return unsupported(format!(
+                "a run of report \"{}\" with {who} (BC raises the printer and download events around a render; this runtime \
+                 renders nothing and raises none of them)",
+                schema.name()
+            ));
+        }
+        let declared = self.object_property(schema.object(), "UseSystemPrinter");
+        if self.report.system_printer || declared.is_some_and(|v| v.trim().eq_ignore_ascii_case("true")) {
+            return unsupported(format!(
+                "a run of report \"{}\" on the system printer (printing is not produced; ADR-040 amendment 2026-11-11)",
+                schema.name()
+            ));
+        }
         match report.default_layout_kind.as_str() {
             "rdlc" | "word" => {
-                self.refuse_unraised_layout_events(schema, "a run", &["substitutereport"])?;
-                if let Some(who) = self.run_event_subscriber() {
-                    return unsupported(format!(
-                        "a run of report \"{}\" with {who} (BC raises the printer and download events around a render; this \
-                         runtime renders nothing and raises none of them)",
-                        schema.name()
-                    ));
-                }
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportRunWithoutOutput);
                 Ok(())
             }
@@ -61,6 +74,22 @@ impl Session {
             }
             _ => refused(),
         }
+    }
+
+    /// Runs `run` as a report started by `RunModal` (`modal`) and with the SystemPrinter argument `printer`, and restores the
+    /// state of the run around it afterwards (a report run from a trigger of another).
+    pub(crate) fn run_started_as(
+        &mut self,
+        modal: bool,
+        printer: Option<&Value>,
+        run: impl FnOnce(&mut Self) -> Result<(), Signal>,
+    ) -> Result<(), Signal> {
+        let outer = std::mem::replace(&mut self.report.run_modal, modal);
+        let printer = matches!(printer, Some(Value::Boolean(true)));
+        let outer_printer = std::mem::replace(&mut self.report.system_printer, printer);
+        let ran = run(self);
+        (self.report.run_modal, self.report.system_printer) = (outer, outer_printer);
+        ran
     }
 
     /// The first subscriber the test can see to an event of [`RUN_EVENTS`], as text for a refusal.

@@ -1001,8 +1001,11 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.dotnet_view = 0;
         if unloaded_content || buf.render_pending.as_deref().is_some_and(is_unloaded_write_mark) {
             buf.render_pending = Some(UNLOADED_WRITE.into());
-        } else if buf.render_pending.as_deref() != Some(DOTNET_WRITE_AFTER_CLOSE) {
-            // The bytes a .NET stream wrote after Close stay unknown: the new stream writes over the content.
+        } else if buf.render_pending.as_deref() != Some(DOTNET_WRITE_AFTER_CLOSE)
+            && crate::placeholder_output::of(&buf).is_none()
+        {
+            // The bytes a .NET stream wrote after Close stay unknown: the new stream writes over the content. So do a
+            // placeholder report output's: the stream writes over its first bytes and the rest stays (`placeholder_output`).
             buf.render_pending = None;
         }
         buf.write_pos = 0;
@@ -1136,11 +1139,11 @@ pub fn blob_length_sign(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value])
 fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NResult {
     let b = blob_of(r)?;
     let buf = b.borrow();
-    // The size of a placeholder report output answers from its bytes; only "> 0" is meant to match BC (ADR-040 amendment
-    // 2026-11-11, `placeholder_output`).
-    if crate::placeholder_output::of(&buf).is_none() {
-        buf.observe()?;
+    // The size of a placeholder report output is known only to be greater than 0 (`placeholder_output::size`).
+    if let Some(mark) = crate::placeholder_output::of(&buf) {
+        return Ok(crate::placeholder_output::size(mark));
     }
+    buf.observe()?;
     // Only the sign is pinned for a call stack text: it is not empty (errors/last-error/WdCallStackToBlob.al:96).
     if !sign_only {
         crate::stream_call_stack::refuse_length(&buf.bytes, "Blob.Length")?;

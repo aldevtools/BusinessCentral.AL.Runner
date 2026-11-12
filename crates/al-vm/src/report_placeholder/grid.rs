@@ -3,8 +3,8 @@
 //! | Format | RDLC layout | Word layout | Excel layout |
 //! |---|---|---|---|
 //! | Pdf | placeholder | placeholder | false, `ReportUnsupportedFormat` |
-//! | Word | refused | placeholder | false, `ReportUnsupportedFormat` |
-//! | Excel | refused | false, `ReportUnsupportedFormat` | placeholder |
+//! | Word | placeholder | placeholder | false, `ReportUnsupportedFormat` |
+//! | Excel | placeholder | false, `ReportUnsupportedFormat` | placeholder |
 //! | Html | false, `ReportUnsupportedFormat` | placeholder | false, `ReportUnsupportedFormat` |
 //!
 //! The placeholders: reports/layouts-saveas/AMReportOutputTests.al:173 (Word layout to Pdf), :187 (to Word), :205 (to Html),
@@ -12,8 +12,8 @@
 //! a Word layout: true, length > 0), :180-226 (Excel to Excel). The false answers: AMReportOutputTests.al:221 and
 //! CiReportRunLeads.al:601-605 (Word layout to Excel), AMReportOutputTests.al:257, CiReportRunLeads.al:219-223 and :657-661
 //! (Excel layout to Pdf), CiReportRunLeads.al:267-270 (Excel to Word), :662-666 (Excel to Html), text/
-//! TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused (RDLC to Html). RDLC to Word and Excel render on
-//! Windows (CiReportRunLeads.al:674-692) and fail in the Linux renderer (reports/layouts-saveas/AMRdlcOutput.al): refused.
+//! TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused (RDLC to Html). RDLC to Word and Excel: true, length
+//! > 0 (CiReportRunLeads.al:674-692 SaveAs_RdlcOnly_WordExcel; reports/layouts-saveas/AMRdlcOutput.al:336-373 a zip, Windows values).
 
 use super::{Format, SaveOutput};
 use crate::reports::{SaveTarget, Schema};
@@ -33,7 +33,9 @@ pub(crate) enum Rendered {
 pub(super) fn writes(kind: &str, format: Format) -> bool {
     matches!(
         (kind, format),
-        ("rdlc", Format::Pdf) | ("word", Format::Pdf | Format::Word | Format::Html) | ("excel", Format::Excel)
+        ("rdlc", Format::Pdf | Format::Word | Format::Excel)
+            | ("word", Format::Pdf | Format::Word | Format::Html)
+            | ("excel", Format::Excel)
     )
 }
 
@@ -126,8 +128,7 @@ impl Session {
         }
         unsupported(format!(
             "Report.SaveAs of \"{}\" as {format}: only the Xml dataset and placeholders of the formats a default layout gives \
-             are produced (an RDLC layout to Word or Excel needs a layout renderer, and the Linux tier the corpus was measured on \
-             does not render them either)",
+             are produced (any other output needs a layout renderer)",
             schema.name()
         ))
     }

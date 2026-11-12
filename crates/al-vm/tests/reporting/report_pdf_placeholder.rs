@@ -351,12 +351,11 @@ fn report_pdf_placeholder_an_excel_layout_keeps_the_refusal() {
     }
 }
 
+// An RDLC layout saved as Word writes the Word placeholder (CiReportRunLeads.al:674-692 SaveAs_RdlcOnly_WordExcel; ADR-040
+// amendment 2026-11-11, `report_placeholder::grid`).
 #[test]
-fn report_pdf_placeholder_other_formats_keep_the_refusal() {
-    match run(SRC, "WordFormat") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("as Word"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+fn report_pdf_placeholder_an_rdlc_layout_saved_as_word_writes_the_word_placeholder() {
+    assert!(run(SRC, "WordFormat").is_ok());
 }
 
 // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388: Pdf of a processing-only report answers false

@@ -47,6 +47,15 @@ report 50972 "RPO Word"
     trigger OnPostReport() var L: Codeunit "RPO Log"; begin L.Add('post'); end;
 }
 
+report 50980 "RPO Word Printer"
+{
+    UsageCategory = None;
+    UseSystemPrinter = true;
+    DefaultRenderingLayout = WordOne;
+    dataset { dataitem(T; "RPO Row") { column(Id; Id) { } } }
+    rendering { layout(WordOne) { Type = Word; LayoutFile = 'RpoWord.docx'; } }
+}
+
 report 50973 "RPO Excel"
 {
     UsageCategory = None;
@@ -158,6 +167,64 @@ codeunit 50975 "RPO Tests"
         Gz.CopyTo(O);
     end;
 
+    // A second OutStream on the Blob writes over the placeholder's first bytes and leaves the rest: still not BC's content.
+    procedure ReadAfterASecondOutStream(): Text
+    var Tmp: Record "RPO Row" temporary; I: InStream; O: OutStream; Txt: Text;
+    begin
+        Save(Report::"RPO Word", ReportFormat::Html, Tmp);
+        Tmp.Data.CreateOutStream(O);
+        Tmp.Data.CreateInStream(I);
+        I.ReadText(Txt);
+        exit(Txt);
+    end;
+
+    procedure ReadAfterAWriteOverIt(): Text
+    var Tmp: Record "RPO Row" temporary; I: InStream; O: OutStream; Txt: Text;
+    begin
+        Save(Report::"RPO Word", ReportFormat::Html, Tmp);
+        Tmp.Data.CreateOutStream(O);
+        O.WriteText('SIG');
+        Tmp.Data.CreateInStream(I);
+        I.ReadText(Txt);
+        exit(Txt);
+    end;
+
+    // ---- the size answers only as "greater than 0" -----------------------------------------------------------------
+
+    procedure LengthAsANumber(): Text var Tmp: Record "RPO Row" temporary; begin Save(Report::"RPO Word", ReportFormat::Html, Tmp); exit(StrSubstNo('%1 bytes', Tmp.Data.Length())); end;
+    procedure LengthOverAThousand(): Boolean var Tmp: Record "RPO Row" temporary; begin Save(Report::"RPO Word", ReportFormat::Html, Tmp); exit(Tmp.Data.Length() > 1000); end;
+    procedure FormatOfLength(): Text var Tmp: Record "RPO Row" temporary; begin Save(Report::"RPO Word", ReportFormat::Html, Tmp); exit(Format(Tmp.Data.Length())); end;
+    procedure LengthPlusOne(): Boolean var Tmp: Record "RPO Row" temporary; begin Save(Report::"RPO Word", ReportFormat::Html, Tmp); exit(Tmp.Data.Length() + 1 > 0); end;
+    procedure TwoLengthsEqual(): Boolean
+    var Tmp: Record "RPO Row" temporary; I: InStream; O: OutStream;
+    begin
+        HtmlStream(Tmp, I);
+        Tmp.Other.CreateOutStream(O);
+        CopyStream(O, I);
+        exit(Tmp.Other.Length() = Tmp.Data.Length());
+    end;
+    procedure FileLenAsANumber(): Integer
+    var F: File; Len: Integer; Twice: Integer;
+    begin
+        Seed();
+        Report.SaveAsHtml(Report::"RPO Word", 'out/len.html');
+        F.Open('out/len.html');
+        Len := F.Len();
+        F.Close();
+        Twice := Len * 2;
+        exit(Twice);
+    end;
+
+    // The size through a variable and a wrapper that returns it (as System Application's Temp Blob.Length() does).
+    local procedure SizeOf(var Tmp: Record "RPO Row" temporary): Integer begin exit(Tmp.Data.Length()); end;
+    procedure LengthThroughAWrapper(): Text
+    var Tmp: Record "RPO Row" temporary; L: Integer;
+    begin
+        Save(Report::"RPO Word", ReportFormat::Html, Tmp);
+        L := SizeOf(Tmp);
+        exit(Format(SizeOf(Tmp) > 0) + '|' + Format(SizeOf(Tmp) = 0) + '|' + Format(0 < L) + '|' + Format(L <> 0));
+    end;
+
     // ---- byte copies carry the content and its mark --------------------------------------------------------------
 
     procedure CopyToBlob(): Text
@@ -166,7 +233,7 @@ codeunit 50975 "RPO Tests"
         HtmlStream(Tmp, I);
         Tmp.Other.CreateOutStream(O);
         Ok := CopyStream(O, I);
-        exit(Format(Ok) + '|' + Format(Tmp.Other.HasValue()) + '|' + Format(Tmp.Other.Length() = Tmp.Data.Length()));
+        exit(Format(Ok) + '|' + Format(Tmp.Other.HasValue()) + '|' + Format(Tmp.Other.Length() > 0));
     end;
 
     procedure ReadOfTheCopy(): Text
@@ -309,6 +376,10 @@ codeunit 50975 "RPO Tests"
         exit(L.Take());
     end;
 
+    procedure RunWordOnTheSystemPrinter() begin Seed(); Report.Run(Report::"RPO Word", false, true); end;
+    procedure RunModalWordOnTheSystemPrinter() begin Seed(); Report.RunModal(Report::"RPO Word", false, true); end;
+    procedure RunWordThatUsesTheSystemPrinter() begin Seed(); Report.Run(Report::"RPO Word Printer", false); end;
+
     procedure RunExcel(): Text
     var L: Codeunit "RPO Log";
     begin
@@ -357,6 +428,13 @@ codeunit 50977 "RPO Selection Tests"
         exit(Report.SaveAs(Report::"RPO Word", '', ReportFormat::Html, Out));
     end;
 
+    procedure RunExcelWithSelection()
+    var S: Record "Report Layout Selection";
+    begin
+        Select(Report::"RPO Excel", S.Type::"Word (built-in)");
+        Report.Run(Report::"RPO Excel", false);
+    end;
+
     procedure RunWithSelection()
     var S: Record "Report Layout Selection";
     begin
@@ -397,11 +475,18 @@ codeunit 50979 "RPO Attachment Tests"
         MediaId := A.Data.ImportStream(I, 'body.html', 'text/html');
         TenantMedia.Get(MediaId);
         TenantMedia.CalcFields(Content);
-        A.Length := TenantMedia.Content.Length;
         A.Insert();
     end;
 
-    procedure AttachmentLength(): Boolean var A: Record "RPO Attachment"; begin Attach(A); exit(A.Length > 0); end;
+    procedure AttachmentLength(): Boolean
+    var A: Record "RPO Attachment"; TenantMedia: Record "Tenant Media";
+    begin
+        Attach(A);
+        TenantMedia.Get(A.Data.MediaId());
+        TenantMedia.CalcFields(Content);
+        A.Length := TenantMedia.Content.Length;
+        exit(A.Length > 0);
+    end;
 
     procedure ReadOfTheAttachment(): Text
     var A: Record "RPO Attachment"; Tmp: Record "RPO Row" temporary; Out: OutStream; I: InStream; Txt: Text;
@@ -473,10 +558,14 @@ fn report_placeholder_a_format_the_layout_cannot_give_answers_false_and_runs_not
     refused(run("WordToExcelAsAStatement"), "as a statement");
 }
 
+// CiReportRunLeads.al:674-692 SaveAs_RdlcOnly_WordExcel: BC renders an RDLC layout as Word and as Excel.
 #[test]
-fn report_placeholder_an_rdlc_layout_to_word_or_excel_stays_refused() {
-    refused(run("RdlcToWord"), "as Word");
-    refused(run("RdlcToExcel"), "as Excel");
+fn report_placeholder_an_rdlc_layout_to_word_or_excel_writes_a_placeholder() {
+    assumptions::clear_hits();
+    assert_eq!(text("RdlcToWord"), "Yes||Yes|Yes||");
+    assert!(assumptions::take_hits().contains(&Assumption::ReportWordPlaceholder));
+    assert_eq!(text("RdlcToExcel"), "Yes||Yes|Yes||");
+    assert!(assumptions::take_hits().contains(&Assumption::ReportExcelPlaceholder));
 }
 
 #[test]
@@ -508,6 +597,8 @@ fn report_placeholder_every_read_of_the_content_is_refused() {
         "ReadOfTheStoredBlob",
         "ReadOfTheFileCopy",
         "ReadOfTheFile",
+        "ReadAfterASecondOutStream",
+        "ReadAfterAWriteOverIt",
     ] {
         match run(p) {
             Err(Signal::Unsupported(why)) => assert!(why.contains(CONTENT), "{p}: {why}"),
@@ -525,14 +616,33 @@ fn report_placeholder_presence_size_and_byte_copies_answer() {
     assert_eq!(text("FormatOfBlob"), "*");
 }
 
+// ADR-040 amendment 2026-11-12, A4: the size answers only a comparison with 0 (BC's rendering is not empty); a number would be
+// the placeholder's, and `Length > 1000` is true on BC.
+const SIZE: &str = "the byte size of a placeholder";
+
+#[test]
+fn report_placeholder_the_size_answers_only_against_0() {
+    assert_eq!(text("LengthThroughAWrapper"), "Yes|No|Yes|Yes");
+    for p in [
+        "LengthAsANumber",
+        "LengthOverAThousand",
+        "FormatOfLength",
+        "LengthPlusOne",
+        "TwoLengthsEqual",
+        "FileLenAsANumber",
+    ] {
+        match run(p) {
+            Err(Signal::Unsupported(why)) => assert!(why.contains(SIZE), "{p}: {why}"),
+            other => panic!("{p}: expected the size to be refused, got {other:?}"),
+        }
+    }
+}
+
+// Email Message Impl. stores the attachment's Content.Length in a field: the number is refused.
 #[test]
 fn report_placeholder_an_e_mail_attachment_takes_the_bytes_and_keeps_the_content_refused() {
     let src = format!("{SRC}{ATTACHMENT}");
-    assert!(al_testkit::boolean(run_in(
-        &src,
-        "RPO Attachment Tests",
-        "AttachmentLength"
-    )));
+    refused(run_in(&src, "RPO Attachment Tests", "AttachmentLength"), SIZE);
     refused(run_in(&src, "RPO Attachment Tests", "ReadOfTheAttachment"), CONTENT);
 }
 
@@ -553,6 +663,7 @@ fn report_placeholder_a_layout_event_subscriber_refuses_the_save_and_the_run() {
     let src = format!("{SRC}{SUBSCRIBER}");
     refused(run_in(&src, "RPO Tests", "WordToHtml"), "OnDocumentReady");
     refused(run_in(&src, "RPO Tests", "RunWord"), "OnDocumentReady");
+    refused(run_in(&src, "RPO Tests", "RunExcel"), "OnDocumentReady");
 }
 
 #[test]
@@ -566,6 +677,25 @@ fn report_placeholder_a_layout_selection_refuses_the_save_and_the_run() {
         run_in(&src, "RPO Selection Tests", "RunWithSelection"),
         "Report Layout Selection",
     );
+    refused(
+        run_in(&src, "RPO Selection Tests", "RunExcelWithSelection"),
+        "Report Layout Selection",
+    );
+}
+
+// ADR-040 amendment 2026-11-11, "What stays refused": printing with the system printer.
+#[test]
+fn report_placeholder_a_run_on_the_system_printer_is_refused() {
+    for p in [
+        "RunWordOnTheSystemPrinter",
+        "RunModalWordOnTheSystemPrinter",
+        "RunWordThatUsesTheSystemPrinter",
+    ] {
+        match run(p) {
+            Err(Signal::Unsupported(why)) => assert!(why.contains("system printer"), "{p}: {why}"),
+            other => panic!("{p}: expected the run to be refused, got {other:?}"),
+        }
+    }
 }
 
 // ---- Run, RunModal and Execute ---------------------------------------------------------------------------------------

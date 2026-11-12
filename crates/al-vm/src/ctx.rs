@@ -756,7 +756,6 @@ pub(crate) fn pending_key(path: &str) -> String {
 }
 
 impl Session {
-    /// Refuses a look at a file whose rendered output was never produced (ADR-040).
     /// The mark of a file that holds a placeholder report output (`al_builtins::placeholder_output`).
     pub(crate) fn placeholder_file_mark(&self, path: &str) -> Option<Arc<str>> {
         if self.render_pending_files.is_empty() {
@@ -768,6 +767,7 @@ impl Session {
             .cloned()
     }
 
+    /// Refuses a look at a file whose rendered output was never produced (ADR-040).
     pub(crate) fn refuse_pending_file(&self, path: &str) -> Result<(), Signal> {
         if self.render_pending_files.is_empty() {
             return Ok(());

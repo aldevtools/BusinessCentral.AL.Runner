@@ -276,14 +276,14 @@ fn write(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn len(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_file(r, |s| {
         open_file_needed(s, "File.Len")?;
-        // The length of content carried unread (`stream::is_carried_mark`) is a look at it; a placeholder report output's
-        // answers from its bytes (`placeholder_output`).
+        // The length of content carried unread (`stream::is_carried_mark`) is a look at it; a placeholder report output's is
+        // known only to be greater than 0 (`placeholder_output::size`).
         let buf = s.blob.borrow();
-        if crate::placeholder_output::of(&buf).is_none() {
-            buf.observe()?;
+        if let Some(mark) = crate::placeholder_output::of(&buf) {
+            return Ok(crate::placeholder_output::size(mark));
         }
-        drop(buf);
-        Ok(Value::Integer(s.blob.borrow().bytes.len() as i32))
+        buf.observe()?;
+        Ok(Value::Integer(buf.bytes.len() as i32))
     })
 }
 

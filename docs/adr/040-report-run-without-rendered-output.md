@@ -312,13 +312,24 @@ none of them yet (a later change raises them in the pinned order).
   content mark `al-builtins/src/placeholder_output.rs`. Tests: `al-vm/tests/reporting/report_placeholder_outputs.rs`.
 - Two cells the table marks "refused: not measured" are pinned by reports/CiReportRunLeads.al (BC 29.0 tier): an Excel layout
   to Word (:267-270) and to Html (:662-666) answer false with `ReportUnsupportedFormat`, as Pdf does (:657-661). They are built
-  that way. RDLC to Word and Excel stays refused.
+  that way. RDLC to Word and Excel is pinned too: true, length > 0 (CiReportRunLeads.al:674-692 SaveAs_RdlcOnly_WordExcel, and
+  AMRdlcOutput.al:336-373 on Windows), so the table's "refused" cells for it are corrected: an RDLC layout writes the Word and
+  Excel placeholders.
 - `Report.Run`/`RunModal`/`Execute` of a report with an Excel default layout do not run on BC: they raise "The current report
   operation is not supported for Excel Layout reports." (`ReportUnsupportedOperation`) before OnPreReport
   (CiReportRunLeads.al:236-260). That pinned error is built (for a report without OnInitReport, request page or reportextension;
   with one of them it stays refused). RDLC and Word layouts run without output as decided.
-- The content mark applies to the Word, Excel and Html placeholders. The PDF placeholder stays readable as the 2026-11-08
-  amendment built it: corpus cases that pass read its `%PDF-` header (reports/TestReportSaveAsPdfContent.al,
-  reports/layouts-saveas/ReportExtensionSaveAs.al, streams/CjWordSections.al); marking it would turn them into regressions.
+- The content mark applies to the Word, Excel and Html placeholders, and stays when AL code opens a new OutStream on the Blob
+  (the stream writes over the first bytes and the rest stays). The PDF placeholder stays readable as the 2026-11-08 amendment
+  built it, with its exact length: corpus cases that pass read more than a pinned prefix of it (open, owner decision: see the
+  pull request).
+- The size of a marked placeholder (`Blob.Length`, `File.Len`, and through them System Application's `Temp Blob.Length()`) is the
+  value `Value::PlaceholderSize`: it answers a comparison with 0 (greater) and refuses everything else (a number, `Format`,
+  arithmetic, another comparison, a record field). This is the correction the 2026-11-12 amendment (A4) names. It is a value and
+  not only the syntactic form `Blob.Length() > 0`, so that `Temp Blob.Length() > 0`, which returns the Blob's length through
+  two procedures, answers too (AMReportOutputTests.al:146, CiReportRunLeads.al:72).
+- A run that would print (SystemPrinter `true`, or a report that declares `UseSystemPrinter = true`) is refused, as "What stays
+  refused" says. An Excel layout run checks the layout event subscribers and the layout selections before it raises its pinned
+  error, as the RDLC and Word runs do.
 - The false answers raise SubstituteReport (static form, as the RDLC to Html answer) and not OnDocumentReady (AMReportOutputTests.al:221,
   :257); a subscriber the test can see to another layout event refuses them.

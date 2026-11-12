@@ -5,7 +5,8 @@
 //! session's pending files). Unlike the other marks of section 4 the bytes are there, and three things are not a look at
 //! the content, because they answer as on BC whatever BC rendered:
 //!
-//! - presence and size: `Blob.HasValue`, `Blob.Length`, `File.Exists`, `File.Len` (F2, F5, S2: it exists and is not empty);
+//! - presence and size: `Blob.HasValue`, `File.Exists` (F2, S2: it exists), and `Blob.Length` and `File.Len` as a size known only
+//!   to be greater than 0 (F5; [`Value::PlaceholderSize`], below);
 //! - a stream on it: `Blob.CreateInStream`, `File.Open` and `File.CreateInStream` (only a read from the stream looks);
 //! - a byte copy: `CopyStream` into another blob or a file, a record copy and a stored Blob (the mark goes along).
 //!
@@ -13,9 +14,11 @@
 //! `XmlDocument.ReadFrom`, Excel Buffer, Data Compression. A test that reads the content tests the renderer, which this
 //! runtime does not have; it is reported as not run, never as a wrong answer.
 
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::native::Signal;
+use crate::value::{RtType, Value};
 
 /// The start of every placeholder mark.
 const PREFIX: &str = "a placeholder ";
@@ -52,4 +55,54 @@ pub fn refusal(mark: &str) -> Signal {
         "a read of the content of {mark} (the runtime writes a placeholder, not BC's rendering: only that the output \
          exists and is not empty matches BC; a test that reads the content tests the layout renderer)"
     ))
+}
+
+/// The byte size of the placeholder `mark` (`Blob.Length`, `File.Len`): BC's rendering is not empty (reports/layouts-saveas/
+/// AMReportOutputTests.al:146 and reports/CiReportRunLeads.al:72 `TempBlob.Length() > 0` is Yes), and nothing else about its size
+/// is pinned. The placeholder's own byte count would be a wrong answer: `Length > 1000` is true on BC (ADR-040 amendment
+/// 2026-11-12, A4). So the size is a value that answers only a comparison with 0 ([`size_order`]); it may be held in a number
+/// variable or a Variant, passed and returned (System Application's Temp Blob.Length() returns Blob.Length), and every other use
+/// is refused with [`size_refusal`].
+pub fn size(mark: &Arc<str>) -> Value {
+    Value::PlaceholderSize(mark.clone())
+}
+
+/// The refusal of a use of a placeholder's size other than a comparison with 0.
+pub fn size_refusal(mark: &str, what: &str) -> Signal {
+    Signal::unsupported(size_refusal_text(mark, what))
+}
+
+/// The text of [`size_refusal`].
+pub fn size_refusal_text(mark: &str, what: &str) -> String {
+    format!(
+        "{what} of the byte size of {mark} (BC's rendering is only known not to be empty: only a comparison of the size with 0 \
+         answers)"
+    )
+}
+
+/// A size held in a slot of type `t`: an Integer, BigInteger, Decimal or Variant keeps it; any other type would read it.
+pub fn size_convert(v: Value, t: &RtType) -> Result<Value, Signal> {
+    match (&v, t) {
+        (Value::PlaceholderSize(_), RtType::Integer | RtType::BigInteger | RtType::Decimal | RtType::Variant) => Ok(v),
+        (Value::PlaceholderSize(m), _) => Err(size_refusal(m, "a conversion to another type")),
+        _ => Ok(v),
+    }
+}
+
+/// The order of `l` and `r` where either is a placeholder's size: greater than the number 0, and refused against anything else.
+pub fn size_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
+    let zero = |v: &Value| match v {
+        Value::Integer(n) => *n == 0,
+        Value::BigInteger(n) => *n == 0,
+        Value::Decimal(d) => d.is_zero(),
+        _ => false,
+    };
+    match (l, r) {
+        (Value::PlaceholderSize(_), o) if zero(o) => Ok(Ordering::Greater),
+        (o, Value::PlaceholderSize(_)) if zero(o) => Ok(Ordering::Less),
+        (Value::PlaceholderSize(m), _) | (_, Value::PlaceholderSize(m)) => {
+            Err(size_refusal(m, "a comparison other than with 0"))
+        }
+        _ => unreachable!("size_order is called with a placeholder size"),
+    }
 }

@@ -571,8 +571,8 @@ impl Session {
                     Some(other) => return unsupported(format!("{id} with RequestWindow {}", other.describe())),
                 };
                 // SystemPrinter `true` runs as `false`: the request page with its handler, OK, Cancel, a ReportHandler, SaveAsXml
-                // (reports/layouts-saveas/Y43SystemPrinterRequestPage.al, ReportRunSystemPrinter.al:110-150; onprem
-                // reports/layouts-saveas/Y43SystemPrinterSaveAsXml.al).
+                // (reports/layouts-saveas/Y43SystemPrinterRequestPage.al, ReportRunSystemPrinter.al:110-150; onprem reports/layouts-
+                // saveas/Y43SystemPrinterSaveAsXml.al). A run that renders output refuses it once it would print (`report_placeholder`).
                 if let Some(other) = args.get(2).filter(|v| !matches!(v, Value::Boolean(_))) {
                     return unsupported(format!("{id} with SystemPrinter {}", other.describe()));
                 }
@@ -610,10 +610,9 @@ impl Session {
                 if quit {
                     return Ok(Value::Null);
                 }
-                let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_3);
-                let ran = self.report_run(&inst, &schema, Entry::Run, window, None);
-                self.report.run_modal = outer;
-                ran.map(|()| Value::Null)
+                let run = |s: &mut Self| s.report_run(&inst, &schema, Entry::Run, window, None);
+                self.run_started_as(id == ids::REPORT_RUNMODAL_3, args.get(2), run)
+                    .map(|()| Value::Null)
             }
             ids::REPORT_EXECUTE_1 => {
                 let (inst, quit) = self.report_instance(receiver, true)?;
@@ -2009,8 +2008,6 @@ impl Session {
                 return Err(Signal::Error(Box::new(e)));
             }
         }
-        // A report that renders output runs up to its request page and no further: there is no
-        // renderer (docs/probes-needed.md). The dataset a `SaveAs` writes is not rendered output.
         // Only the SaveAs Xml dataset of a report with the FormatRegion property is measured (YReportPropsTests.al:34-148).
         if let Some(r) = report.format_region.as_deref().filter(|_| !self.report.region_property) {
             return unsupported(format!(
