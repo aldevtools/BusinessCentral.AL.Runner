@@ -5,7 +5,7 @@ use al_builtins::native::{AlError, Signal};
 use al_builtins::value::RtType;
 use std::borrow::Cow;
 
-const NO_MATCH: &str = " does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.";
+pub(crate) const NO_MATCH: &str = " does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.";
 
 /// The text to parse for a static query filter on a field of type `ty`.
 /// - `0D` is the empty date, not today: `filter(0D)`, `filter(= 0D)` match the rows without a date, `filter(<> 0D)` and
@@ -105,5 +105,34 @@ impl crate::Session {
                 })
                 .collect(),
         )
+    }
+}
+
+impl crate::Session {
+    /// The filter a Text field read by `field(filter(F))` in a CalcFormula sets on a Date source field: the text is read as
+    /// SetFilter reads a date filter in the session's language, and a text that is no date raises the Evaluate error
+    /// (record/flowfields/FlowFilterDateFilterForms.al:342-347: blank, one date, a range, an open range, two quotes, `abc`).
+    /// The error is pinned in English only; in another language it stays refused.
+    pub(crate) fn calc_text_date_filter(
+        &self,
+        text: &str,
+        enums: &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>,
+    ) -> Result<al_builtins::filter::FilterExpr, Signal> {
+        let ctx = self.date_filter_context_for(text);
+        match al_builtins::filter::with_date_context(ctx, || {
+            al_builtins::filter::parse_filter_with(text, &[], &RtType::Date, enums)
+        }) {
+            Ok(e) => Ok(e),
+            Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1033 => {
+                let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
+                Err(Signal::Error(Box::new(AlError {
+                    message: format!("The format of the Date '{bad}'{NO_MATCH}"),
+                    code: "InvalidFilterExpression:Evaluate".into(),
+                    call_stack: String::new(),
+                    ..Default::default()
+                })))
+            }
+            Err(e) => Err(Signal::unsupported(format!("CalcFormula filter: {e}"))),
+        }
     }
 }

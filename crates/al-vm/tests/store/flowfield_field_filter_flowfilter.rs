@@ -1,6 +1,6 @@
 //! `field(filter(F))` in a CalcFormula over a FlowFilter F: the caller's filter on F applies (record/flowfields/
-//! FfmSumAverage.al:66, :780-844; FfmCountExist.al:66, :640-712; al-runner issue 7433). On a Date FlowFilter only "not set" and
-//! a range of two dates are pinned.
+//! FfmSumAverage.al:66, :780-844; FfmCountExist.al:66, :640-712; al-runner issue 7433). On a Date FlowFilter the forms of
+//! record/flowfields/FlowFilterDateFilterForms.al are pinned (the corpus runs them); `>=` is not.
 
 use al_testkit::{run_in, text};
 
@@ -52,11 +52,11 @@ codeunit 69982 T
         exit(T + Format(C.Docs) + Format(C.ByQty) + Format(C.ByKind));
     end;
 
-    procedure OneDate(): Integer
+    procedure AtLeast(): Integer
     var C: Record "FFD Cue";
     begin
         Seed(C);
-        C.SetFilter(DateF, Format(20260210D));
+        C.SetFilter(DateF, '>=%1', 20260210D);
         C.CalcFields(Docs);
         exit(C.Docs);
     end;
@@ -77,10 +77,10 @@ fn an_unset_flowfilter_imposes_nothing_and_a_set_one_applies() {
     assert_eq!(text(run_in(SRC, "T", "UnsetAndRange")), "444|223");
 }
 
-// One date on a Date FlowFilter waits for a probe (docs/probes-needed.md).
+// `>=` on a Date FlowFilter is not among the pinned forms.
 #[test]
-fn one_date_on_a_date_flowfilter_stays_refused() {
-    let r = run_in(SRC, "T", "OneDate");
+fn an_at_least_filter_on_a_date_flowfilter_stays_refused() {
+    let r = run_in(SRC, "T", "AtLeast");
     assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
 }
 
