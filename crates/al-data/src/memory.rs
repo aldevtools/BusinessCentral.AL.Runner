@@ -76,15 +76,21 @@ impl Rows {
 pub trait Backing {
     /// The company the rows belong to.
     fn company(&self) -> &str;
+    /// Companies with rows the backing can provide.
+    fn companies(&self) -> Vec<String> {
+        vec![self.company().to_string()]
+    }
     /// The rows of table `object` for `company` (the empty name for a table that is not per
     /// company); `None` when the backing has none to offer. Answering is cheap after the first
     /// time: a clone of a shared map.
     fn rows(&self, company: &str, object: u32) -> Option<Rows>;
     /// Whether the table is served at all (a table with rows to offer in some company).
     fn has_rows(&self, object: u32) -> bool {
-        self.rows(self.company(), object)
-            .or_else(|| self.rows("", object))
-            .is_some_and(|r| !r.is_empty())
+        self.rows("", object).is_some_and(|r| !r.is_empty())
+            || self
+                .companies()
+                .iter()
+                .any(|company| self.rows(company, object).is_some_and(|r| !r.is_empty()))
     }
     /// Who offers the rows, for a cache across stores: two backings with the same identity offer the same rows for
     /// every table, and an identity is never given to another backing that offers other rows. `None` (the default):
@@ -190,6 +196,9 @@ pub struct MemStore {
     /// nothing wrote to reads the source's backing rows, as the copy took them. Part of the transaction, like `tables`.
     copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
     committed_copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
+    /// Companies whose untouched rows were removed by deleting their Company row.
+    dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
+    committed_dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     /// While set, a change to a row of the backing (a modify, delete or rename) is written down
     /// here and allowed (ADR-020 amendment: install code may change restored rows). Shared by the
     /// clones of the store, so a snapshot or a rollback does not lose it.
@@ -655,6 +664,12 @@ impl MemStore {
 
     /// The backing's rows of table `object` in `company`; a copy reads those of the company it was copied from.
     fn backing_rows(&self, company: &str, object: u32) -> Option<Rows> {
+        if self
+            .dropped_backed_companies
+            .contains_key(&std::sync::Arc::from(company))
+        {
+            return None;
+        }
         let source = self
             .copies
             .get(&std::sync::Arc::from(company))
@@ -849,8 +864,20 @@ impl MemStore {
             return true;
         }
         // A table the store holds is what its rows are now; only an absent one reads the backing.
-        let held = self.tables.keys().any(|(_, o)| *o == object);
-        !held && self.backing.as_ref().is_some_and(|b| b.has_rows(object))
+        let Some(backing) = &self.backing else {
+            return false;
+        };
+        let shared_slot: Slot = (std::sync::Arc::from(""), object);
+        (!self.tables.contains_key(&shared_slot) && self.backing_rows("", object).is_some_and(|rows| !rows.is_empty()))
+            || backing.companies().iter().any(|company| {
+                let slot: Slot = (std::sync::Arc::from(company.as_str()), object);
+                !self.tables.contains_key(&slot)
+                    && self.backing_rows(company, object).is_some_and(|rows| !rows.is_empty())
+            })
+            || self.copies.keys().any(|copy| {
+                let slot: Slot = (copy.clone(), object);
+                !self.tables.contains_key(&slot) && self.backing_rows(copy, object).is_some_and(|rows| !rows.is_empty())
+            })
     }
 
     /// The table objects that hold a committed row in any company.
@@ -1015,10 +1042,15 @@ impl MemStore {
         self.tables
             .iter()
             .any(|((c, _), t)| !c.is_empty() && &**c == company && !t.is_empty())
-            || self
-                .backing
-                .as_ref()
-                .is_some_and(|b| !company.is_empty() && b.company().eq_ignore_ascii_case(&self.copy_source(company)))
+            || self.backing.as_ref().is_some_and(|b| {
+                !company.is_empty()
+                    && !self
+                        .dropped_backed_companies
+                        .contains_key(&std::sync::Arc::from(company))
+                    && b.companies()
+                        .iter()
+                        .any(|known| known.eq_ignore_ascii_case(&self.copy_source(company)))
+            })
     }
 
     /// The companies that hold a row in per-company table `object`, committed or not.
@@ -1031,14 +1063,17 @@ impl MemStore {
             .map(|((c, _), _)| c.to_string())
             .collect();
         if let Some(b) = &self.backing {
-            let company = b.company();
-            let held = self.tables.contains_key(&(std::sync::Arc::from(company), object));
-            if !held && b.rows(company, object).is_some_and(|r| !r.is_empty()) {
-                out.push(company.to_string());
+            for company in b.companies() {
+                let held = self
+                    .tables
+                    .contains_key(&(std::sync::Arc::from(company.as_str()), object));
+                if !held && self.backing_rows(&company, object).is_some_and(|r| !r.is_empty()) {
+                    out.push(company);
+                }
             }
-            for (copy, source) in self.copies.iter() {
+            for (copy, _) in self.copies.iter() {
                 let held = self.tables.contains_key(&(copy.clone(), object));
-                if !held && b.rows(source, object).is_some_and(|r| !r.is_empty()) {
+                if !held && self.backing_rows(copy, object).is_some_and(|r| !r.is_empty()) {
                     out.push(copy.to_string());
                 }
             }
@@ -1061,6 +1096,7 @@ impl MemStore {
             self.versions.insert(slot.clone(), self.counter);
             self.shapes.insert(slot, self.counter);
         }
+        self.dropped_backed_companies.insert(company.into(), ());
         self.copies.remove(&std::sync::Arc::from(company));
     }
 
@@ -1828,6 +1864,7 @@ impl Store for MemStore {
         self.committed_shapes = self.shapes.clone();
         self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
+        self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
         self.committed_emptied = self.emptied.clone();
     }
 
@@ -1839,6 +1876,7 @@ impl Store for MemStore {
         self.shapes = self.committed_shapes.clone();
         self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
+        self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
         self.emptied = self.committed_emptied.clone();
     }
 }
@@ -2381,6 +2419,25 @@ mod tests {
         assert!(s.has_rows(7) && !s.has_rows(8));
         assert!(s.has_company_rows("c") && !s.has_company_rows("D"));
         assert_eq!(s.companies_with_rows(7), vec!["C".to_string()]);
+    }
+
+    #[test]
+    fn dropping_a_backed_company_hides_rows_until_rollback() {
+        let (mut s, _) = backed();
+        let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
+        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 3);
+
+        s.drop_company("C");
+        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 0);
+        assert!(!s.has_company_rows("C"));
+
+        s.rollback();
+        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 3);
+        assert!(s.has_company_rows("C"));
+
+        s.drop_company("C");
+        s.commit();
+        assert_eq!(s.count(&cx, &t, &[]).unwrap(), 0);
     }
 
     #[test]

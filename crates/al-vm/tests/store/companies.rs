@@ -32,9 +32,20 @@ table 50913 "CC Parent"
     }
     keys { key(PK; Id) { } }
 }
+table 50916 "CC Shared Parent"
+{
+    DataPerCompany = false;
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { } }
+}
 table 50914 "CC Child"
 {
-    fields { field(1; Id; Integer) { } field(2; ParentId; Integer) { } }
+    fields { field(1; Id; Integer) { } field(2; ParentId; Integer) { TableRelation = "CC Shared Parent".Id; } }
+    keys { key(PK; Id) { } }
+}
+table 50915 "CC Bad"
+{
+    fields { field(1; Id; Integer) { } }
     keys { key(PK; Id) { } }
 }
 table 2000000006 Company
@@ -96,23 +107,38 @@ impl TableProvider for SelectedBackup {
     }
 
     fn read_for_company(&self, company: &str, table: &TableRequest) -> Result<Arc<TableRows>, TableError> {
-        if table.name != "CC Row" || !table.per_company {
-            return Err(TableError::Absent);
+        match table.name.as_str() {
+            "CC Row" if table.per_company => {
+                let value = if company == "Main" { 11 } else { 22 };
+                Ok(Arc::new(TableRows {
+                    columns: vec!["Id".into(), "V".into()],
+                    rows: vec![vec![Cell::Int(1), Cell::Int(value)]],
+                }))
+            }
+            "CC Child" if table.per_company && company == "Other" => Ok(Arc::new(TableRows {
+                columns: vec!["Id".into(), "ParentId".into()],
+                rows: vec![vec![Cell::Int(1), Cell::Int(1)]],
+            })),
+            "CC Bad" if table.per_company && company == "Main" => Ok(Arc::new(TableRows {
+                columns: vec!["Id".into()],
+                rows: Vec::new(),
+            })),
+            "CC Bad" if table.per_company && company == "Other" => {
+                Err(TableError::Reader("selected company read failed".into()))
+            }
+            _ => Err(TableError::Absent),
         }
-        let value = if company == "Main" { 11 } else { 22 };
-        Ok(Arc::new(TableRows {
-            columns: vec!["Id".into(), "V".into()],
-            rows: vec![vec![Cell::Int(1), Cell::Int(value)]],
-        }))
     }
 }
 
-fn run_with_selected_backup(body: &str) -> Result<Value, Signal> {
-    let src =
-        format!("{TABLES}\ncodeunit 50100 C {{ procedure F(): Integer var R: Record \"CC Row\"; begin {body} end; }}");
+fn run_with_selected_backup_data(body: &str) -> (Result<Value, Signal>, TestData) {
+    let src = format!(
+        "{TABLES}\ncodeunit 50100 C {{ procedure F(): Integer var R: Record \"CC Row\"; P: Record \"CC Shared Parent\"; Co: Record Company; Bad: Record \"CC Bad\"; N: Integer; begin {body} end; }}"
+    );
     let lowered = al_testkit::compile(&src);
     let mut engine = al_vm::Engine::new(lowered.program.clone(), al_testkit::blocked(&lowered));
-    Arc::get_mut(&mut engine).expect("engine is not shared").test_data = Some(TestData::new(Arc::new(SelectedBackup)));
+    let data = TestData::new(Arc::new(SelectedBackup));
+    Arc::get_mut(&mut engine).expect("engine is not shared").test_data = Some(data.clone());
     let mut session = al_vm::Session::new(engine);
     let oi = lowered
         .program
@@ -126,7 +152,11 @@ fn run_with_selected_backup(body: &str) -> Result<Value, Signal> {
         .position(|r| r.name == "F")
         .expect("procedure exists");
     let instance = session.instance(oi);
-    session.call(oi, ri, instance, vec![]).map(|(value, _)| value)
+    (session.call(oi, ri, instance, vec![]).map(|(value, _)| value), data)
+}
+
+fn run_with_selected_backup(body: &str) -> Result<Value, Signal> {
+    run_with_selected_backup_data(body).0
 }
 
 const NEW_CO: &str = "Co: Record Company;";
@@ -138,6 +168,41 @@ fn selected_backup_companies_expose_their_company_rows() {
         "if not R.ChangeCompany('Other') then exit(-1); if R.Get(1) then exit(R.V); exit(-2);",
     );
     assert!(matches!(result, Ok(Value::Integer(22))), "{result:?}");
+}
+
+#[test]
+fn selected_backup_rows_block_renaming_a_shared_parent() {
+    // record/TestRenamePropagationCompany.al:5-8.
+    let result = run_with_selected_backup("P.Id := 1; P.Insert(); Commit(); P.Get(1); P.Rename(2); exit(1);");
+    assert!(matches!(result, Err(Signal::Unsupported(_))), "{result:?}");
+}
+
+#[test]
+fn deleting_and_recreating_a_selected_backup_company_starts_empty() {
+    // record/TestChangeCompanyFiltersCopyDeleteContracts.al:204-212.
+    let result = run_with_selected_backup(
+        "Co.Get('Other'); Co.Delete(true); Commit(); Co.Name := 'Other'; Co.Insert(); Commit(); R.ChangeCompany('Other'); exit(R.Count());",
+    );
+    assert!(matches!(result, Ok(Value::Integer(0))), "{result:?}");
+}
+
+#[test]
+fn selected_company_loads_are_counted_and_later_exclusions_are_named() {
+    let (result, data) = run_with_selected_backup_data(
+        "R.Get(1); R.ChangeCompany('Other'); R.Get(1); N := Bad.Count(); Bad.ChangeCompany('Other'); N := Bad.Count(); exit(R.V);",
+    );
+    assert!(matches!(result, Ok(Value::Integer(22))), "{result:?}");
+    let summary = data.stats.summary();
+    assert_eq!(summary.rows, 2, "{summary:?}");
+    assert_eq!(summary.empty, 1, "{summary:?}");
+    assert_eq!(summary.reader.len(), 1, "{summary:?}");
+    let refusals = summary.refusals();
+    assert!(
+        refusals
+            .iter()
+            .any(|r| r.contains("Other") && r.contains("selected company read failed")),
+        "{refusals:?}"
+    );
 }
 
 #[test]

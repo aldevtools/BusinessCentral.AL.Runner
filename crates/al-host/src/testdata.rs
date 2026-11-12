@@ -356,14 +356,14 @@ pub enum Refusal {
 
 #[derive(Default)]
 struct Inner {
-    /// By table object index: the outcome of its first touch.
-    tables: BTreeMap<u32, (String, Outcome)>,
+    /// By company (empty for shared tables) and table object: the first outcome.
+    tables: BTreeMap<(String, u32), (String, String, Outcome)>,
     /// The largest `timestamp` any loaded row carried.
     max_row_version: u64,
 }
 
-/// The counts behind the summary line. Shared by every thread of a run; a table is recorded once,
-/// by the thread that touches it first.
+/// The counts behind the summary line. Shared by every thread of a run; a company/table pair is
+/// recorded once, while shared tables use an empty company key.
 #[derive(Default)]
 pub struct LoadStats {
     inner: Mutex<Inner>,
@@ -373,21 +373,28 @@ impl LoadStats {
     /// Records the first touch of a table. Returns false (and records nothing) when another
     /// thread, or another engine of the same program, recorded it already.
     pub fn record(&self, object: u32, name: &str, outcome: Outcome) -> bool {
+        self.record_for_company("", object, name, outcome)
+    }
+
+    /// Records a table touch in `company`. Use an empty company for a shared table.
+    pub fn record_for_company(&self, company: &str, object: u32, name: &str, outcome: Outcome) -> bool {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if g.tables.contains_key(&object) {
+        let key = (company.to_lowercase(), object);
+        if g.tables.contains_key(&key) {
             return false;
         }
-        g.tables.insert(object, (name.to_string(), outcome));
+        g.tables.insert(key, (company.to_string(), name.to_string(), outcome));
         true
     }
 
-    /// Whether a table's first touch was recorded.
+    /// Whether any company's first touch of this table was recorded.
     pub fn seen(&self, object: u32) -> bool {
         self.inner
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .tables
-            .contains_key(&object)
+            .keys()
+            .any(|(_, id)| *id == object)
     }
 
     /// Notes the `timestamp` of a loaded row.
@@ -396,21 +403,27 @@ impl LoadStats {
         g.max_row_version = g.max_row_version.max(v);
     }
 
-    /// The outcome recorded for a table.
+    /// The first outcome recorded for this table in any company.
     pub fn outcome(&self, object: u32) -> Option<Outcome> {
         self.inner
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .tables
-            .get(&object)
-            .map(|(_, o)| o.clone())
+            .iter()
+            .find(|((_, id), _)| *id == object)
+            .map(|(_, (_, _, o))| o.clone())
     }
 
     /// The counts of the run so far.
     pub fn summary(&self) -> Summary {
         let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut s = Summary::default();
-        for (name, o) in g.tables.values() {
+        for (company, name, o) in g.tables.values() {
+            let name = if company.is_empty() {
+                name.clone()
+            } else {
+                format!("{name} in company '{company}'")
+            };
             match o {
                 Outcome::Loaded { rows, dropped } => {
                     s.tables += 1;
@@ -609,6 +622,21 @@ mod tests {
         assert!(s.record(7, "Customer", loaded(3)));
         assert!(!s.record(7, "Customer", loaded(99)), "the second thread adds nothing");
         assert_eq!(s.summary().rows, 3);
+    }
+
+    #[test]
+    fn company_tables_are_counted_separately_and_shared_tables_once() {
+        let s = LoadStats::default();
+        let loaded = |rows| Outcome::Loaded {
+            rows,
+            dropped: Dropped::default(),
+        };
+        assert!(s.record_for_company("Main", 7, "Customer", loaded(3)));
+        assert!(s.record_for_company("Other", 7, "Customer", loaded(5)));
+        assert!(!s.record_for_company("other", 7, "Customer", loaded(99)));
+        assert!(s.record_for_company("", 8, "Company", loaded(4)));
+        assert!(!s.record_for_company("", 8, "Company", loaded(99)));
+        assert_eq!(s.summary().rows, 12);
     }
 
     #[test]
