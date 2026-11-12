@@ -52,8 +52,8 @@ impl Session {
                 let mut r = rec.borrow_mut();
                 let filtered: Vec<usize> = r.filters.iter().map(|f| f.field).collect();
                 let why: std::sync::Arc<str> = format!(
-                    "a read of Rec of a ListPart that shows no row, on a field its filters name, on a List host outside the \
-                     cells BC was measured in ({miss}): whether BC puts the filter's value on Rec is not pinned"
+                    "a read of Rec of a part that shows no row, on a field its filters name, on a List host outside the cells \
+                     BC was measured in ({miss}): whether BC puts the filter's value on Rec is not pinned"
                 )
                 .into();
                 for f in filtered {
@@ -79,7 +79,7 @@ impl Session {
 
     /// `None` when `st` is a part of the measured shape, or of a List-host cell (`list_host_miss`; see the module); else the
     /// first fact that leaves the shape.
-    fn empty_part_rec_shape(&self, st: &St, host: &St) -> Result<Option<&'static str>, Signal> {
+    fn empty_part_rec_shape(&mut self, st: &St, host: &St) -> Result<Option<&'static str>, Signal> {
         let (host_row, host_view) = {
             let h = host.borrow();
             let row = (h.cursor == Cursor::Row && !h.draft) || (h.draft && !h.draft_stored && h.draft_from_open);
