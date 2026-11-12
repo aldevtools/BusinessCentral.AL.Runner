@@ -287,10 +287,13 @@ impl TestData {
         } else {
             String::new()
         };
+        let app_id = match table.app_id.as_deref() {
+            Some(id) => format!("some:{id}"),
+            None => "none".into(),
+        };
         let key = format!(
-            "{company_key}|{}|{:?}|{}",
+            "{company_key}|{}|{app_id}|{}",
             table.name.to_lowercase(),
-            table.app_id,
             table.per_company
         );
         let slot = {
