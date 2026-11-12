@@ -1108,6 +1108,8 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
             calc_fields: Vec::new(),
             after_assign_layout: matches!(kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
                 && assumed_shapes::after_assign_layout(layout, i),
+            plain_import_layout: matches!(kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
+                && assumed_shapes::plain_import_layout(layout, i),
             text_attr_export: kind == ir::XmlNodeKind::Text && assumed_shapes::text_attr_export(cx, layout, i),
             triggers,
         };

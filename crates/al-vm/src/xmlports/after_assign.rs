@@ -1,6 +1,8 @@
-//! Import of a field node with OnAfterAssignField into a field that has validation code (al-runner issue 7863): the shapes
-//! corpus PR 1366 measures (xmlports/import/XpAfterAssignTableRelation.al:578-676) run the trigger first and validate the value it
-//! left, under the assumption `xmlport-after-assign-before-validate`. Every other shape keeps `xp_validate_field`.
+//! Import of a field node into a field with a TableRelation, in the layouts corpus PR 1366 measures
+//! (xmlports/import/XpAfterAssignTableRelation.al:1437-1872, al-runner issue 7863). With OnAfterAssignField the trigger runs
+//! first and the field is validated with the value it left, under the assumption `xmlport-after-assign-before-validate`.
+//! Without triggers, a temporary table element validates nothing, under `xmlport-temporary-import-not-validated`. Every
+//! other shape keeps `xp_validate_field`.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -15,13 +17,26 @@ pub(super) enum AfterAssign {
     NoValidation,
 }
 
+/// The measured fields of table 77701 (XpAfterAssignTableRelation.al:61-120), each related to the primary key of a table
+/// whose key is one field: Code[20] (:45-59) or Integer (:122-135).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MeasuredField {
+    /// "Rel Code" (:69-77): Code[20], TableRelation, OnValidate.
+    Code20,
+    /// "Rel Code NV" (:78-87): Code[20], TableRelation with ValidateTableRelation = false, OnValidate.
+    Code20Unchecked,
+    /// "Rel Code NoTrig" (:88-92): Code[20], TableRelation, no OnValidate (the reporter's field).
+    Code20NoOnValidate,
+    /// "Rel Int" (:93-101): Integer, TableRelation to an Integer key, OnValidate.
+    Integer,
+    /// "Rel Code10" (:102-110): Code[10], TableRelation to a Code[20] key, OnValidate.
+    Code10,
+}
+
 impl Session {
-    /// The measured shape of `node`, or `None` for every other shape. Each fact is required by equality:
-    /// - the port, the table element and the node in the layout al-sema `xmlports/assumed_shapes.rs` `after_assign_layout`
-    ///   marks (`ir::XmlNode::after_assign_layout`);
-    /// - a Code field with one TableRelation to a table without conditions, where() or a named field
-    ///   (XpAfterAssignTableRelation.al:53-70), no table extension validate trigger and no subscriber to the validate events;
-    /// - the combinations of temporary, node kind, FieldValidate, ValidateTableRelation and OnValidate in `measured`.
+    /// The measured shape of `node` with OnAfterAssignField, or `None` for every other shape. Each fact is required by
+    /// equality: the layout al-sema `xmlports/assumed_shapes.rs` `after_assign_layout` marks, a field of `MeasuredField`,
+    /// the table element's temporary state matching the record's, and the combinations in `measured_after_assign`.
     pub(super) fn xp_after_assign_shape(
         &mut self,
         schema: &Schema,
@@ -30,59 +45,109 @@ impl Session {
         pos: usize,
     ) -> Result<Option<AfterAssign>, Signal> {
         let n = schema.node(node);
-        let Some(table_node) = n.table_node.map(|t| schema.node(t)) else {
-            return Ok(None);
-        };
         if !n.after_assign_layout {
             return Ok(None);
         }
+        let Some(stored) = stored(schema, node, rec) else {
+            return Ok(None);
+        };
+        let Some(field) = self.xp_measured_field(rec, pos)? else {
+            return Ok(None);
+        };
+        Ok(measured_after_assign(stored, n.kind, n.field_validate, field))
+    }
+
+    /// A field node without triggers in a measured layout on a temporary table element: nothing is validated. True means
+    /// the caller stores the value and validates nothing; the assumption is marked here.
+    pub(super) fn xp_temporary_import_not_validated(
+        &mut self,
+        schema: &Schema,
+        node: usize,
+        rec: &Rec,
+        pos: usize,
+    ) -> Result<bool, Signal> {
+        if !self.xp_plain_temporary_shape(schema, node, rec, pos)? {
+            return Ok(false);
+        }
+        assume(Assumption::XmlportTemporaryImportNotValidated);
+        Ok(true)
+    }
+
+    /// The layout al-sema `plain_import_layout` marks, a temporary table element and record, and a combination in
+    /// `measured_plain_temporary`.
+    fn xp_plain_temporary_shape(
+        &mut self,
+        schema: &Schema,
+        node: usize,
+        rec: &Rec,
+        pos: usize,
+    ) -> Result<bool, Signal> {
+        let n = schema.node(node);
+        if !n.plain_import_layout || stored(schema, node, rec) != Some(false) {
+            return Ok(false);
+        }
+        let Some(field) = self.xp_measured_field(rec, pos)? else {
+            return Ok(false);
+        };
+        Ok(measured_plain_temporary(n.kind, n.field_validate, field))
+    }
+
+    /// The field at `pos`, when it is one of `MeasuredField`: one TableRelation arm to the primary key of a table without
+    /// conditions, where() or a named field, that key one field of the type the measured related table has, no table
+    /// extension validate trigger and no subscriber to the validate events.
+    fn xp_measured_field(&mut self, rec: &Rec, pos: usize) -> Result<Option<MeasuredField>, Signal> {
         let t = self.table(rec)?;
         let engine = self.engine.clone();
-        let Some(field) = engine.program.objects[t.object as usize]
+        let objects = &engine.program.objects;
+        let Some(field) = objects[t.object as usize]
             .table
             .as_ref()
             .and_then(|s| s.fields.get(pos))
         else {
             return Ok(None);
         };
-        let plain_relation = matches!(&field.relation_arms[..], [arm]
-            if arm.conditions.is_empty()
-                && arm.table.is_some()
-                && arm.field.is_none()
-                && arm.wheres.as_ref().is_some_and(|w| w.is_empty())
-                && arm.assumes.is_empty());
-        if !(matches!(t.fields[pos].ty, RtType::Code(_))
-            && field.relation
-            && plain_relation
+        let [arm] = &field.relation_arms[..] else {
+            return Ok(None);
+        };
+        let plain_arm = arm.conditions.is_empty()
+            && arm.field.is_none()
+            && arm.wheres.as_ref().is_some_and(|w| w.is_empty())
+            && arm.assumes.is_empty();
+        let key_ty = arm.table.and_then(|o| objects[o].table.as_ref()).and_then(|related| {
+            match related.keys.first().map(|k| &k[..]) {
+                Some([k]) => related.fields.get(*k).map(|f| f.ty.clone()),
+                _ => None,
+            }
+        });
+        if !(field.relation
+            && plain_arm
             && field.relation_runtime.is_empty()
             && field.ext_before_validate.is_empty()
             && field.ext_after_validate.is_empty())
         {
             return Ok(None);
         }
+        let checked = engine.field_facts[t.object as usize][pos].validate_relation;
+        let on_validate = field.on_validate.is_some();
+        let code20 = Some(RtType::Code(Some(20)));
+        let shape = match (&field.ty, key_ty, checked, on_validate) {
+            (RtType::Code(Some(20)), k, true, true) if k == code20 => MeasuredField::Code20,
+            (RtType::Code(Some(20)), k, false, true) if k == code20 => MeasuredField::Code20Unchecked,
+            (RtType::Code(Some(20)), k, true, false) if k == code20 => MeasuredField::Code20NoOnValidate,
+            (RtType::Code(Some(10)), k, true, true) if k == code20 => MeasuredField::Code10,
+            (RtType::Integer, Some(RtType::Integer), true, true) => MeasuredField::Integer,
+            _ => return Ok(None),
+        };
         if self.listened(&t, "onbeforevalidateevent", Some(&field.name))?
             || self.listened(&t, "onaftervalidateevent", Some(&field.name))?
         {
             return Ok(None);
         }
-        let temporary = rec.borrow().temporary;
-        let stored = match (table_node.use_temporary, temporary) {
-            (true, true) => false,
-            (false, false) => true,
-            _ => return Ok(None),
-        };
-        let checked = engine.field_facts[t.object as usize][pos].validate_relation;
-        Ok(measured(
-            stored,
-            n.kind,
-            n.field_validate,
-            checked,
-            field.on_validate.is_some(),
-        ))
+        Ok(Some(shape))
     }
 
     /// OnAfterAssignField, then what `shape` says, for the value already in the field. A blank field attribute runs neither
-    /// (XpAfterAssignTableRelation.al:583, :635 `blank`), a blank field element runs both (:596, :647).
+    /// (XpAfterAssignTableRelation.al:1437, :1489, :1822 `blank`), a blank field element runs both (:1450, :1501, :1786).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn xp_after_assign_then_validate(
         &mut self,
@@ -112,10 +177,12 @@ impl Session {
         Ok((pos, flow))
     }
 
-    /// Two rows in one document are not measured (every case of XpAfterAssignTableRelation.al imports one row, :557-559): the
-    /// second row of a table element with a field node in a measured shape refuses before its fields are assigned. Except a
-    /// field attribute with FieldValidate = No whose value in `elem` is not blank: for it the measured order (the trigger, then
-    /// no validation; :604, :655) gives main's answer (no validation, then the trigger), so the row imports.
+    /// Two rows in one document are not measured (every case of XpAfterAssignTableRelation.al imports one row, :1410-1424,
+    /// :1564-1578): the second row of a table element with a field node in a measured shape refuses before its fields are
+    /// assigned. Except where the measured rule gives main's answer for any second row, so the row imports with main's
+    /// answer: a field attribute with FieldValidate = No whose value in `elem` is not blank (the trigger, then no validation;
+    /// :1463, :1514), and a field element with FieldValidate = No (the trigger, also on a blank element, then no validation;
+    /// :1786, :1799).
     pub(super) fn xp_after_assign_second_row(
         &mut self,
         inst: &Inst,
@@ -129,16 +196,27 @@ impl Session {
             let Some(pos) = c.field else {
                 continue;
             };
-            if c.table_node != Some(table) || self.xp_after_assign_shape(schema, child, &rec, pos)?.is_none() {
+            if c.table_node != Some(table) {
                 continue;
             }
-            let unvalidated_value = c.kind == ir::XmlNodeKind::FieldAttr
-                && c.field_validate == Some(false)
-                && elem
-                    .attrs
-                    .iter()
-                    .any(|(name, value)| *name == c.xml_name && !value.trim().is_empty());
-            if !unvalidated_value {
+            if self.xp_plain_temporary_shape(schema, child, &rec, pos)? {
+                return unsupported(format!(
+                    "XmlPort import of a second row of temporary table element {} with a validated field (not pinned)",
+                    schema.node(table).name
+                ));
+            }
+            if self.xp_after_assign_shape(schema, child, &rec, pos)?.is_none() {
+                continue;
+            }
+            let mains_answer = c.field_validate == Some(false)
+                && match c.kind {
+                    ir::XmlNodeKind::Field => true,
+                    _ => elem
+                        .attrs
+                        .iter()
+                        .any(|(name, value)| *name == c.xml_name && !value.trim().is_empty()),
+                };
+            if !mains_answer {
                 return unsupported(format!(
                     "XmlPort import of a second row of {} with OnAfterAssignField on a validated field (not pinned)",
                     schema.node(table).name
@@ -149,25 +227,53 @@ impl Session {
     }
 }
 
-/// The measured combinations: (stored, node kind, FieldValidate, ValidateTableRelation not false, OnValidate).
-fn measured(
+/// Whether the table element of field node `node` stores its rows: `Some(true)` for a table element without UseTemporary
+/// and a record that is not temporary, `Some(false)` for UseTemporary and a temporary record, `None` otherwise.
+fn stored(schema: &Schema, node: usize, rec: &Rec) -> Option<bool> {
+    let table_node = schema.node(schema.node(node).table_node?);
+    match (table_node.use_temporary, rec.borrow().temporary) {
+        (true, true) => Some(false),
+        (false, false) => Some(true),
+        _ => None,
+    }
+}
+
+/// The measured combinations with OnAfterAssignField: (stored, node kind, FieldValidate, field).
+fn measured_after_assign(
     stored: bool,
     kind: ir::XmlNodeKind,
     field_validate: Option<bool>,
-    checked: bool,
-    on_validate: bool,
+    field: MeasuredField,
 ) -> Option<AfterAssign> {
     use AfterAssign::{NoValidation as None_, Validate};
+    use MeasuredField::*;
     use ir::XmlNodeKind::{Field as Elem, FieldAttr as Attr};
-    Some(match (stored, kind, field_validate, checked, on_validate) {
-        // A temporary table element (UseTemporary): nothing is validated (:578 attribute, :591 element, :604 FieldValidate =
-        // No, :617 ValidateTableRelation = false).
-        (false, Attr, None, true, true) | (false, Elem, None, true, true) => None_,
-        (false, Attr, Some(false), true, true) | (false, Attr, None, false, true) => None_,
-        // A stored table element: the TableRelation check and OnValidate after the trigger (:630 attribute, :642 element);
-        // OnValidate without the check (:668 ValidateTableRelation = false); nothing with FieldValidate = No (:655).
-        (true, Attr, None, true, true) | (true, Elem, None, true, true) | (true, Attr, None, false, true) => Validate,
-        (true, Attr, Some(false), true, true) => None_,
+    Some(match (stored, kind, field_validate, field) {
+        // A temporary table element (UseTemporary): nothing is validated (:1437 attribute, :1450 element, :1463 FieldValidate =
+        // No, :1476 ValidateTableRelation = false, :1642 and :1654 no OnValidate, :1740 FieldValidate = Yes, :1786 element
+        // with FieldValidate = No, :1822 Integer).
+        (false, Attr, None, Code20 | Code20Unchecked | Code20NoOnValidate | Integer)
+        | (false, Attr, Some(_), Code20)
+        | (false, Elem, None | Some(false), Code20) => None_,
+        // A stored table element: the TableRelation check and OnValidate after the trigger (:1489 attribute, :1501 element,
+        // :1677 no OnValidate, :1753 FieldValidate = Yes, :1836 Integer, :1861 Code[10]); OnValidate without the check
+        // (:1527 ValidateTableRelation = false); nothing with FieldValidate = No (:1514 attribute, :1799 element).
+        (true, Attr, None, Code20 | Code20Unchecked | Code20NoOnValidate | Integer | Code10)
+        | (true, Attr, Some(true), Code20)
+        | (true, Elem, None, Code20) => Validate,
+        (true, Attr | Elem, Some(false), Code20) => None_,
         _ => return None,
     })
+}
+
+/// The measured combinations without triggers on a temporary table element, where nothing is validated: (node kind,
+/// FieldValidate, field). XpAfterAssignTableRelation.al:1700 attribute, :1720 element, :1766 attribute with FieldValidate =
+/// Yes, :1667 attribute into the field without OnValidate.
+fn measured_plain_temporary(kind: ir::XmlNodeKind, field_validate: Option<bool>, field: MeasuredField) -> bool {
+    use MeasuredField::*;
+    use ir::XmlNodeKind::{Field as Elem, FieldAttr as Attr};
+    matches!(
+        (kind, field_validate, field),
+        (Attr, None | Some(true), Code20) | (Elem, None, Code20) | (Attr, None, Code20NoOnValidate)
+    )
 }

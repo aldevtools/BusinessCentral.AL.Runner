@@ -29,12 +29,15 @@ fn port_properties(layout: &Layout, required: &[(&str, &str)]) -> bool {
         })
 }
 
-/// The properties of node `i` are exactly `want` (name and value, compared ignoring case), in any order.
+/// The properties of node `i` are exactly `want` (name and value, compared ignoring case), in any order. An `XmlName` that
+/// names the node's own name exactly is left out: the IR node is then the same as without it (`xml_name`).
 fn node_properties(layout: &Layout, i: usize, want: &[(&str, &str)]) -> bool {
-    let props: Vec<(String, String)> = layout.nodes[i]
+    let node = &layout.nodes[i];
+    let props: Vec<(String, String)> = node
         .section
         .properties()
         .map(|p| (p.name(), p.value_text().trim().to_string()))
+        .filter(|(n, v)| !(n.eq_ignore_ascii_case("XmlName") && crate::scan::unquote_xmlport(v) == node.name))
         .collect();
     props.len() == want.len()
         && want.iter().all(|(n, v)| {
@@ -76,39 +79,57 @@ fn of_table(layout: &Layout, f: usize, t: usize) -> bool {
         .is_some_and(|(table, _)| crate::scan::unquote_xmlport(table).eq_ignore_ascii_case(&layout.nodes[t].name))
 }
 
-/// Field node `i` in the import layout of xmlports/import/XpAfterAssignTableRelation.al (corpus PR 1366, ports 77702-77711,
-/// :83-465). Each fact by equality, as every port there has it:
-/// - the port declares `Direction = Import`, `Encoding = UTF8`, `FormatEvaluate = Xml` (:86-90);
-/// - its table element is right below the root text element and declares nothing or only `UseTemporary = true` (:96-98,
-///   :290-292); its triggers are OnBeforeInsertRecord, OnAfterInsertRecord or neither (:114-122);
-/// - every node of the table element is a field attribute or field element of it without nodes below it, and exactly one has a
-///   trigger: node `i`, with OnAfterAssignField only, declaring nothing or only `FieldValidate = No` (:99-112, :196-198).
+/// The facts of the import layout of xmlports/import/XpAfterAssignTableRelation.al (corpus PR 1366, ports 77702-77740,
+/// :138-1324) that field node `i` shares with every port there, each by equality:
+/// - the port declares `Direction = Import`, `Encoding = UTF8`, `FormatEvaluate = Xml` (:141-145);
+/// - its table element is right below the root text element and declares nothing or only `UseTemporary = true` (:151-153,
+///   :345); its triggers are OnBeforeInsertRecord, OnAfterInsertRecord or neither (:169-177);
+/// - every node of the table element is a field attribute or field element of it without nodes below it (:154-155).
 ///
-/// What al-vm `xmlports/after_assign.rs` checks on top: the field, its relation and validate code, and the record.
-pub(super) fn after_assign_layout(layout: &Layout, i: usize) -> bool {
-    let n = &layout.nodes[i];
-    let Some(t) = n.parent else {
-        return false;
-    };
+/// The result is the number of those nodes that have a trigger.
+fn import_layout_triggered(layout: &Layout, i: usize) -> Option<usize> {
+    let t = layout.nodes[i].parent?;
     let siblings = kids(layout, t);
     let field_leaves = siblings.iter().all(|&k| {
         matches!(layout.nodes[k].kind, K::Field | K::FieldAttr) && of_table(layout, k, t) && !layout.has_children(k)
     });
-    let triggered = siblings.iter().filter(|&&k| !triggers(layout, k).is_empty()).count();
     let table_triggers = triggers(layout, t)
         .iter()
         .all(|name| name == "onbeforeinsertrecord" || name == "onafterinsertrecord");
-    port_properties(
+    let shared = port_properties(
         layout,
         &[("direction", "import"), ("encoding", "utf8"), ("formatevaluate", "xml")],
     ) && layout.format == ir::XmlFormat::Xml
         && table_below_root(layout, t)
         && (node_properties(layout, t, &[]) || node_properties(layout, t, &[("UseTemporary", "true")]))
         && table_triggers
-        && field_leaves
-        && triggered == 1
+        && field_leaves;
+    shared.then(|| siblings.iter().filter(|&&k| !triggers(layout, k).is_empty()).count())
+}
+
+/// Field node `i` in the import layout with OnAfterAssignField (XpAfterAssignTableRelation.al ports 77702-77706, 77709-77711,
+/// 77713, 77715, 77730-77731, 77734-77735, 77737-77738 and 77740): the facts of `import_layout_triggered`, and exactly one node of the table
+/// element has a trigger: node `i`, with OnAfterAssignField only, declaring nothing (:155), only `FieldValidate = No` (:253,
+/// :1031) or only `FieldValidate = Yes` (:855).
+///
+/// What al-vm `xmlports/after_assign.rs` checks on top: the field, its relation and validate code, and the record.
+pub(super) fn after_assign_layout(layout: &Layout, i: usize) -> bool {
+    import_layout_triggered(layout, i) == Some(1)
         && triggers(layout, i) == ["onafterassignfield"]
-        && (node_properties(layout, i, &[]) || node_properties(layout, i, &[("FieldValidate", "No")]))
+        && (node_properties(layout, i, &[])
+            || node_properties(layout, i, &[("FieldValidate", "No")])
+            || node_properties(layout, i, &[("FieldValidate", "Yes")]))
+}
+
+/// Field node `i` in the import layout without triggers (XpAfterAssignTableRelation.al ports 77714, 77716-77719, 77729,
+/// 77732-77733 and 77739): the facts of `import_layout_triggered`, no node of the table element has a trigger, and node `i`
+/// declares nothing (:711, :782) or only `FieldValidate = Yes` (:954).
+///
+/// What al-vm `xmlports/after_assign.rs` checks on top: the field, its relation and validate code, and the record; only a
+/// temporary table element changes main's result there.
+pub(super) fn plain_import_layout(layout: &Layout, i: usize) -> bool {
+    import_layout_triggered(layout, i) == Some(0)
+        && (node_properties(layout, i, &[]) || node_properties(layout, i, &[("FieldValidate", "Yes")]))
 }
 
 /// Text element `i` in the export shape of xmlports/shapes-properties/XpTextElemFieldAttrExport.al (corpus PR 1366, ports
