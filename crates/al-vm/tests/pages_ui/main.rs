@@ -56,6 +56,7 @@ mod gotokey_edges;
 mod gotokey_walk_parts;
 mod gotorecord_action_insert;
 mod group_enabled_field;
+mod hidden_part_journal_shape;
 mod host_save_record_parts;
 mod list_caption_expression;
 mod list_caption_filter;

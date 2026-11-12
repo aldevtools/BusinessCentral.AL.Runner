@@ -11,9 +11,11 @@ pub(super) struct BeforeActionBody {
     /// The Visible value of each part that runs record triggers, shown or hidden at open, as (control, visible). Empty on a
     /// page with a Provider link.
     visible: Vec<(usize, bool)>,
-    /// Rec's fields when the host is the one of the pinned turn (`Session::first_turn_as_pinned`), else the first fact of
-    /// the pinned host it does not have; `None` when no part was hidden.
+    /// Rec's fields when the host is the one of a pinned turn (`Session::first_turn_as_pinned`), else the first fact of
+    /// the pinned Document host it does not have; `None` when no part was hidden.
     pinned_host_rec: Option<Result<Vec<Value>, &'static str>>,
+    /// The host is the one of the journal shape (`hidden_part_journal.rs`), not the pinned Document.
+    journal: bool,
 }
 
 impl Session {
@@ -281,9 +283,14 @@ impl Session {
                 .into_iter()
                 .find_map(|(holds, reason)| (!holds).then_some(reason))
             };
-            before.pinned_host_rec = Some(match mismatch {
-                Some(reason) => Err(reason),
-                None => Ok(self.page_rec(st).borrow().fields.clone()),
+            // A host outside the pinned Document may be the journal shape's (`journal_host_miss`). A refusal names the journal
+            // host's first missing fact on a Worksheet or a List, the Document's on any other page, as before.
+            let journal_miss = mismatch.and(self.journal_host_miss(st));
+            before.journal = mismatch.is_some() && journal_miss.is_none();
+            before.pinned_host_rec = Some(match (mismatch, journal_miss) {
+                (Some(_), Some(journal)) if self.journal_host_type(st) => Err(journal),
+                (Some(reason), Some(_)) => Err(reason),
+                _ => Ok(self.page_rec(st).borrow().fields.clone()),
             });
         }
         Ok(before)
@@ -311,10 +318,14 @@ impl Session {
                     ));
                 }
             };
+            if before.journal {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::HiddenPartJournalShape);
+            }
             {
                 let mut c = child.borrow_mut();
                 c.seen_visible = true;
                 c.visible_at_sync = true;
+                c.journal_turned = before.journal;
             }
             self.sync_part(st, i, &child)?;
         }
@@ -329,6 +340,9 @@ impl Session {
     ///   neither it nor a part was asked for CurrPage.Update or CurrPage.SaveRecord;
     /// - the part has no repeater, takes its rows through a SubPageLink of `field` terms, and a Visible expression hid it from
     ///   the open on (`PageState::seen_visible`).
+    ///
+    /// On the journal shape's host (`BeforeActionBody::journal`) the host facts are `journal_host_miss`, and the part is
+    /// `journal_part_miss`'s (unlinked, with a repeater) instead of the linked part without one (HiddenPartJournalShape.al:537).
     ///
     /// `Err` names the first condition that does not hold, for the refusal.
     fn first_turn_as_pinned(&self, st: &St, i: usize, before: &BeforeActionBody) -> Result<St, &'static str> {
@@ -349,7 +363,7 @@ impl Session {
                     .iter()
                     .all(|(_, c)| !c.borrow().refresh && !c.borrow().save_record_called)
         };
-        let linked_by_fields = {
+        let linked_by_fields = before.journal || {
             let engine = self.engine();
             page_of(&engine, st).controls[i]
                 .part_link
@@ -367,6 +381,12 @@ impl Session {
             return Err("the part was not hidden as the page opened");
         };
         let never_shown = hidden.borrow().open && !hidden.borrow().seen_visible;
+        if before.journal {
+            // The journal shape's part: unlinked, with a repeater (`journal_part_miss`).
+            if let Err(reason) = self.journal_part_miss(st, i, &hidden) {
+                return Err(reason);
+            }
+        }
         [
             (
                 body_only_set_the_variable,
@@ -377,7 +397,7 @@ impl Session {
                 "the part has no SubPageLink of field terms, or takes its link from a Provider",
             ),
             (never_shown, "the part showed before"),
-            (!self.has_repeater(&hidden), "the part has a repeater"),
+            (before.journal || !self.has_repeater(&hidden), "the part has a repeater"),
         ]
         .into_iter()
         .find_map(|(holds, reason)| (!holds).then_some(reason))

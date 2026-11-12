@@ -293,6 +293,7 @@ mod part_refresh_find_forward;
 mod part_visible_gate;
 mod pinned_body;
 mod post_left_new_line;
+mod hidden_part_journal;
 mod provider_hidden;
 mod refill;
 mod refresh_new_line;

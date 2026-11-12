@@ -821,9 +821,15 @@ impl Session {
             // The part read the rows the action left (`land_empty_tree_part_after_action`).
             Ok(v) if std::mem::take(&mut st.borrow_mut().empty_tree_part_landed) => Ok(v),
             Ok(_) if empty_tree_part_in_key && self.view_row_count(st)? > 0 => self.refuse_empty_tree_part_action(),
-            Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
+            Ok(v) => self
+                .settle_rows_after_action(st, view_before)
+                .and_then(|()| self.journal_part_after_action_refresh(st))
+                .map(|()| v),
             e => e,
         };
+        for (_, c) in Self::open_parts_with_hidden(st) {
+            c.borrow_mut().journal_turned = false;
+        }
         let held = {
             let mut s = st.borrow_mut();
             s.in_action = was_in_action;
