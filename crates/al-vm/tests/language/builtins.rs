@@ -1280,6 +1280,33 @@ fn list_get_outside_the_list_with_the_result_used_still_answers_false() {
 }
 
 #[test]
+fn a_fractional_decimal_index_outside_the_pinned_array_read_keeps_the_refusal() {
+    // collections/ListNonIntegerIndex.al:433-452 pins only the read of a one-dimensional array; a write and a read of a
+    // two-dimensional array keep main's refusal.
+    for (decl, body) in [
+        ("a: array[4] of Text; d: Decimal;", "d := 2.5; a[d] := 'x'; exit('');"),
+        ("a: array[2, 2] of Text; d: Decimal;", "d := 1.5; exit(a[d, 1]);"),
+    ] {
+        let r = text_of(decl, body);
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("used as an integer")),
+            "{body}: {r:?}"
+        );
+    }
+}
+
+#[test]
+fn a_decimal_list_index_converts_as_a_checked_cast() {
+    // collections/ListNonIntegerIndex.al:266-289: a fraction raises ConversionCast before the list is read.
+    let r = text_of(
+        "l: List of [Integer]; d: Decimal;",
+        "l.Add(1); l.Add(2); d := 1.5; l.Get(d); exit('');",
+    );
+    let Err(Signal::Error(e)) = r else { panic!("{r:?}") };
+    assert_eq!(e.code, "ConversionCast");
+}
+
+#[test]
 fn dictionary_get_of_a_missing_key_raises_the_key_not_found_error() {
     // collections/TestCollectionsDictionary.al:42-55 pins the statement form; the value form
     // (collections/TestCollectionContracts.al:188) is pinned as an error with a text (probes-needed).

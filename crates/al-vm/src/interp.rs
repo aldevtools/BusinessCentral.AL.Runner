@@ -1362,7 +1362,7 @@ impl Session {
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
-                let (arr, flat) = match self.element(base, idx, f) {
+                let (arr, flat) = match self.element(base, idx, true, f) {
                     Ok(e) => e,
                     // A row of a two-dimensional array, as an argument.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1723,7 +1723,7 @@ impl Session {
             }
             ir::Place::Index(base, idx) => {
                 let el_ty = self.place_type(p, f);
-                let (arr, flat) = match self.element(base, idx, f) {
+                let (arr, flat) = match self.element(base, idx, false, f) {
                     Ok(e) => e,
                     // The row a callee wrote through a `var` array parameter goes back into the row.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1919,6 +1919,7 @@ impl Session {
         &mut self,
         base: &ir::Place,
         idx: &[ir::Expr],
+        read: bool,
         f: &mut Frame,
     ) -> Result<(Cells, usize), Signal> {
         // The dimensions of an array variable (a local or a global, the usual case) are read where they are
@@ -1966,7 +1967,19 @@ impl Session {
         };
         let mut flat = 0usize;
         for (d, e) in dims.iter().zip(idx) {
-            let i = int(&Self::index_value(e, f)?)?;
+            let at = Self::index_value(e, f)?;
+            // A read of a one-dimensional array converts a Decimal or BigInteger index as a checked cast to System.Int32: a
+            // fraction or a value past the Int32 range raises ConversionCast (collections/ListNonIntegerIndex.al:433-452). A
+            // write, and an array of more dimensions, keep `int`.
+            let i = match &at {
+                Value::Decimal(_) | Value::BigInteger(_) if read && dims.len() == 1 => {
+                    match al_builtins::conv::convert_cell(&at, &RtType::Integer) {
+                        Some(conv) => int(&conv?)?,
+                        None => int(&at)?,
+                    }
+                }
+                _ => int(&at)?,
+            };
             // A one-dimensional array is measured by the array the variable holds: a parameter declared `array[3]` takes the caller's
             // array of any length and indexes within it (types/W7VarArray.al; Tests-Bank, Tests-Cash Flow and Tests-SCM-Manufacturing
             // index a parameter within the argument's length), so the check against the length follows below.

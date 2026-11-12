@@ -5,7 +5,7 @@
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal};
 use crate::ops::compare;
-use crate::value::Value;
+use crate::value::{RtType, Value};
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
@@ -49,7 +49,8 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("List.Get#2", |c, r, a| {
         // An index below 1 answers false like one past the end (collections/ListInt.al:Int_AddCountGet `get 0 ret`).
-        let got = match &a[0] {
+        let at = int_arg(&a[0])?;
+        let got = match &at {
             Value::Integer(n) if *n < 1 && c.ret_used() => None,
             other => {
                 let i = index(other)?;
@@ -65,7 +66,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
                 // Past the end the list error is left as the last error, and GetLastErrorText(true) gives the text for an
                 // error without a privacy classification (errors/last-error/LastErrorFlagRuntimeCodes.al ListSites_ExcludeFlag
                 // `listgetvar`; corpus pull request 1327). An index below 1 is not measured for the last error.
-                if !matches!(&a[0], Value::Integer(n) if *n < 1)
+                if !matches!(&at, Value::Integer(n) if *n < 1)
                     && let Err(Signal::Error(e)) = crate::native::with_origin(list_get_error::<()>(), not_classified())
                 {
                     c.set_last_error(*e);
@@ -465,17 +466,34 @@ fn false_when_used(ret_used: bool, done: Result<Value, Signal>) -> Result<Value,
     }
 }
 
+/// The index or count argument of a List method as the Integer the method takes. A Decimal, BigInteger, Char, Option or Byte
+/// converts as a checked cast to System.Int32 before the method runs: a whole value is the position, a fraction or a value
+/// past the Int32 range raises ConversionCast, and a converted value outside the list raises the list's own error as an
+/// Integer does (collections/ListNonIntegerIndex.al:240-263 every method with a whole Decimal, :266-289 a fraction, :292-321
+/// the Get edge values, :324-367 BigInteger, :370-395 Decimal expressions, :398-416 plain statements, :419-430 Char,
+/// Option and Byte). Every other value keeps the list's error.
+fn int_arg(v: &Value) -> Result<Value, Signal> {
+    match v {
+        Value::Decimal(_) | Value::BigInteger(_) => crate::conv::convert_cell(v, &RtType::Integer)
+            .unwrap_or_else(|| Err(Signal::unsupported(format!("{} as a List index", v.describe())))),
+        Value::Char(c) => Ok(Value::Integer(i32::from(*c))),
+        Value::Byte(b) => Ok(Value::Integer(i32::from(*b))),
+        Value::Option(n, _) => Ok(Value::Integer(*n)),
+        other => Ok(other.clone()),
+    }
+}
+
 /// AL list indexes are 1-based.
 fn index(v: &Value) -> Result<usize, Signal> {
-    match v {
-        Value::Integer(i) if *i >= 1 => Ok(*i as usize - 1),
+    match int_arg(v)? {
+        Value::Integer(i) if i >= 1 => Ok(i as usize - 1),
         _ => out_of_range(),
     }
 }
 
 fn count(v: &Value) -> Result<usize, Signal> {
-    match v {
-        Value::Integer(i) if *i >= 0 => Ok(*i as usize),
+    match int_arg(v)? {
+        Value::Integer(i) if i >= 0 => Ok(i as usize),
         _ => out_of_range(),
     }
 }
