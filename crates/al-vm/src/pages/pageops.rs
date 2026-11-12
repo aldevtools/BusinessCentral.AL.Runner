@@ -1114,7 +1114,9 @@ impl Session {
                         s.set_record.is_none() && !s.set_view
                     };
                     let held = blank_rec && (st.borrow().host.is_some() || unopened_var || self.on_open_new_row(st));
-                    if !(plain_dst && (held || self.on_list_new_line_blank_key(st, &src)?)) {
+                    if !(plain_dst && (held || self.on_list_new_line_blank_key(st, &src)?))
+                        && !self.filtered_modal_worksheet_blank_code(st, &src, dst, &initial)?
+                    {
                         return unsupported(
                             "Page.SetSelectionFilter of a page on no row of a table that has rows (not pinned)",
                         );

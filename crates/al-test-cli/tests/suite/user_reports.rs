@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_static_modal_worksheet_selects_blank_code_on_empty_view() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/modal-worksheet-blank-code-selection.al"),
+    ));
+}

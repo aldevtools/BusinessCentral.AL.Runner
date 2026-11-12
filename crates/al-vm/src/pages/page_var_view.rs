@@ -192,4 +192,80 @@ impl Session {
         }
         Ok(false)
     }
+
+    /// Select the default Code key in the measured empty modal Worksheet.
+    pub(super) fn filtered_modal_worksheet_blank_code(
+        &mut self,
+        st: &St,
+        src: &Rec,
+        dst: &Rec,
+        initial: &[Value],
+    ) -> Result<bool, Signal> {
+        let object = {
+            let page = st.borrow();
+            if !page.open
+                || !page.modal
+                || page.run_static != Some(true)
+                || page.lookup
+                || page.field_run
+                || !page.in_action
+                || page.host.is_some()
+                || page.cursor != Cursor::None
+            {
+                return Ok(false);
+            }
+            page.object as usize
+        };
+        let facts = &self.engine.object_facts[object];
+        let delayed = self.engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(key, value)| key.eq_ignore_ascii_case("DelayedInsert") && value.trim().eq_ignore_ascii_case("true"));
+        if facts.page_type != Some(ir::PageType::Worksheet)
+            || !delayed
+            || self.ui_state.page_handler_depth == 0
+            || !flag_denied(&self.engine, object, "InsertAllowed")?
+        {
+            return Ok(false);
+        }
+        let source = src.borrow();
+        let destination = dst.borrow();
+        if source.temporary
+            || destination.temporary
+            || !destination.filters.is_empty()
+            || destination.filter_group != 0
+            || destination.marked_only
+            || !destination.marks.is_empty()
+            || source.filter_group != 0
+            || source.marked_only
+            || !source.marks.is_empty()
+        {
+            return Ok(false);
+        }
+        let table = self.table(src)?;
+        let key = &table.keys[0];
+        let pk = table.primary_key(initial);
+        // Pending corpus TestModalWorksheetBlankCode.al: a static modal Worksheet with SaveValues, a source view,
+        // and the batch filter in group 2 selects the blank Code key if no row matches.
+        let save_values = self.engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case("SaveValues") && value.trim().eq_ignore_ascii_case("true"));
+        if facts.has_source_table_view
+            && save_values
+            && matches!(pk.as_slice(), [Value::Code(code)] if code.is_empty())
+            && source.filters.len() == 2
+            && source
+                .filters
+                .iter()
+                .all(|filter| filter.group == 2 && !key.contains(&filter.field))
+            && Self::same_key(&table.primary_key(&source.fields), &pk)
+        {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::FilteredModalWorksheetBlankCodeSelection,
+            );
+            return Ok(true);
+        }
+        Ok(false)
+    }
 }
