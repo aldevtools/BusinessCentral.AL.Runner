@@ -131,7 +131,9 @@ impl Session {
         // text and table elements below; Y17XmlPortNamespacesTests.al:60-93). Without namespaces it is not pinned.
         let declares = !xp.namespaces.is_empty() || xp.default_ns.is_some();
         // Without namespaces, a table element root whose text elements below it hold content (`plain_tree_root`, plain_tree.rs).
+        let childless = childless_table_root(schema, top);
         let table_root = root_table_element(schema, top)
+            || childless
             || (declares && table_root_with_content(schema, top))
             || plain_export_root(schema, top);
         if !table_top && !table_root && (xp.nodes[top].kind != ir::XmlNodeKind::Text || schema.children(top).is_empty())
@@ -171,7 +173,7 @@ impl Session {
                     // Every root declares the namespaces again, one root element after the other (streams/
                     // Y72XpEInvoiceShapes.al DeepAttrLeaf_RealTableRoot_TwoRows: a real table root, two rows, `<Invoice xmlns:cac=...>`
                     // twice). With no row it is not pinned.
-                    if rows.is_empty() {
+                    if rows.is_empty() && !childless {
                         return unsupported(
                             "XmlPort export of a table element root with namespaces written other than once (not pinned)",
                         );
