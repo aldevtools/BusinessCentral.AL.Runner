@@ -1257,8 +1257,12 @@ pub struct HandlerContext {
     pub procedure: String,
     /// Empty except in the case callbacks.
     pub case: String,
-    /// Whether the test passed, in the After callbacks; `None` in the Before callbacks (not pinned there).
-    pub success: Option<bool>,
+    /// Whether the test passed, in the After callbacks; false in every Before callback
+    /// (BiTestHandlerSuccess.al:116, al-runner issue 7181).
+    pub success: bool,
+    /// A Before callback of a default handler: its `success` (false) rests on assumption
+    /// `test-handler-default-before-success` (the corpus pins it for a `TestHandlers` handler only).
+    pub success_assumed: bool,
     /// The reason of a `Skip` call in this callback.
     pub skip: Option<String>,
 }

@@ -5,7 +5,7 @@
 //! row or a hidden part).
 
 use super::pinned_shape::{TestCall, TreeCall};
-use super::relation_lookup_close::CLOSING_ERRORS;
+use super::relation_lookup_close::closing_error;
 use super::*;
 use al_builtins::page_op::PageMethod;
 
@@ -81,27 +81,13 @@ impl Session {
     fn cem_doc_triggers(engine: &Engine, object: usize) -> bool {
         let program = &engine.program;
         let page = program.objects[object].page.as_ref().expect("a page");
-        let call = |e: &ir::Expr| pinned_shape::codeunit_var_call(program, object, e);
-        let body_ok = |name: &str, r: usize| {
-            let mut stmts = pinned_shape::code_stmts(program, object, r);
-            // The lowering ends a trigger with a return value by an `exit` of its default, unreachable after an `exit`.
-            if let [.., ir::Stmt::Exit(Some(_)), ir::Stmt::Exit(Some(_))] = stmts.as_slice() {
-                stmts.pop();
-            }
-            match (name, stmts.as_slice()) {
-                ("onmodifyrecord", [ir::Stmt::Expr(e), ir::Stmt::Exit(Some(t))]) => {
-                    call(e)
-                        && matches!(t, ir::Expr::Const(ir::Const::Boolean(true)))
-                            | matches!(t, ir::Expr::Convert(_, b) if matches!(**b, ir::Expr::Const(ir::Const::Boolean(true))))
-                }
-                ("onqueryclosepage", [ir::Stmt::Exit(Some(e))]) | ("onclosepage", [ir::Stmt::Expr(e)]) => call(e),
-                _ => false,
-            }
-        };
         let mut names: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
         names.sort_unstable();
         names == ["onclosepage", "onmodifyrecord", "onqueryclosepage"]
-            && page.triggers.iter().all(|(n, r)| body_ok(n, *r))
+            && page
+                .triggers
+                .iter()
+                .all(|(n, r)| pinned_shape::cem_trigger_body(program, object, n, *r))
             && page.extensions.is_empty()
             && page.ext_triggers.is_empty()
             && !engine.events.any_subscriber_of(object)
@@ -338,10 +324,7 @@ impl Session {
             return Ok(None);
         }
         self.mark_closed(st);
-        Ok(Some(error_code(
-            format!("{CLOSING_ERRORS}\\\\{}", e.message),
-            "TestWrapped",
-        )))
+        Ok(Some(closing_error(&e.message)))
     }
 
     /// The save of the ListPart's line `saved` failed when the platform or an action closes the pinned page. After the handler
