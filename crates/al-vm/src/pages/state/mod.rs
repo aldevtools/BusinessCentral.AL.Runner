@@ -808,8 +808,6 @@ pub struct PageState {
     /// parameters, the position of the `PageBackgroundTaskErrorLevel` member passed, if any), and the next task id.
     pub bg_tasks: std::collections::VecDeque<(i32, i32, Value, Option<i32>)>,
     pub bg_next_id: i32,
-    /// The key of the record a page part last enqueued a background task for (`pages/background.rs` `bg_enqueue`).
-    pub bg_last_key: Option<Vec<Value>>,
     /// What the page's expression controls showed when it last refreshed: (control index, value; `None` when the expression
     /// raised an error then). Only controls whose expression reads no record and runs no code that writes (al-vm
     /// `pages/shown.rs`, al-runner issue 5765).
