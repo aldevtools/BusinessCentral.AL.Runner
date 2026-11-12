@@ -441,11 +441,12 @@ right on BC whatever the rendering holds.
 `Email Message`.`Create`, `GetBody`, `Email Item`.`SetBody`, `GetBodyText` and the editor page are AL compiled from
 Microsoft's source. They need no rule of their own: they use P1, P2, P5, P7, P12, A2 and the Blob rules of A4.
 
-Two gaps against the goal, named here and **not** opened by this revision (opening them widens the accepted design and
-needs the owner):
+Two gaps against the goal. The owner decided both on 2026-11-12:
 
-- `Format(BigText)` is not in P3. The reporter's subscriber uses `BodyText.AddText(..)` and `Format(BodyText)`; if
-  `BodyText` is a BigText, that call refuses and the test is reported as not run.
+- `Format(BigText)` (no format string) is added to P3 by owner decision: on a BigText that holds a mark it returns the
+  text with the mark in the **changed** form (A1), so Part A passes it on and Part B no longer answers for it. The reporter's
+  subscriber uses `BodyText.AddText(..)` and `Format(BodyText)`. Probe cell queued: `Format` of a BigText that holds a long
+  text (does BC return it whole?); when it lands it wins.
 - BC 27 to 29 compile `DoSaveReportAsHTMLInTempBlob` with its `#if not CLEAN27` block: after the save it runs
   `FileManagement.BLOBExportToServerFile`, raises `OnReplaceHTMLText` with the file path and runs
   `BLOBImportFromServerFile`. These are byte copies to and from a file. They run only as far as the file rules of the
@@ -656,7 +657,7 @@ layout. One more question is then answered:
   `Regex.Replace`) is not answered: the replacement can rewrite text next to or inside a static text (`rgba(1,2,3,1)` as
   layout text, or split over runs), and a rule on `X` alone cannot exclude that. A body read before that call (from
   `Email Item`, from the Temp Blob) is answered. Answering after P12 needs a proof for that transform and probe cells
-  (group P, B5); that widens the design and is the owner's decision.
+  (group P, B5). Owner decision 2026-11-12: not answered after P12 until that probe exists.
 - A static text that contains `rgba(` is dropped from the list, so the list stays right if that decision is taken later.
 - **False is never answered.** When the rule does not give true, the call refuses as in Part A.
 - Everything else refuses as in Part A. `StrPos`, `IndexOf` and their `> 0` forms stay refused: they return a position,
