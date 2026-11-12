@@ -3,6 +3,11 @@
 You work on AL Runner. `CLAUDE.md` has the hard rules. This file is the working method.
 Your task prompt holds only the task. Read both files from YOUR worktree: the main checkout can be old.
 
+The orchestrator starts agents from the definitions in `.claude/agents/` (`al-implementer`, `al-reviewer`,
+`al-probe-writer`) plus a task-specific part: the area table, the issues, the branch and the session
+attribution line. It does not hand-write the general rules into each prompt. A rule that review keeps
+finding goes into `docs/agents/recurring-findings.md`, not into one prompt.
+
 ## Start
 1. From the main checkout: `git fetch origin`, then `git worktree add .worktrees/<branch> -b <branch> origin/main`.
    In the worktree: `git submodule update --init`.
@@ -20,15 +25,16 @@ Your task prompt holds only the task. Read both files from YOUR worktree: the ma
    command when a file is missing. Run it again after `bc_build` in `oracle/oracle.toml` moves.
 
 ## Rules
-1. **Cite or refuse.** Every behavior you add or change has a corpus `file:line` in a code comment.
-   No citation means you guessed: refuse that path (lowering reason, `al-sema` diagnostic,
-   `Signal::Unsupported`) and list it under "needs probe". A rule that also decides cases the corpus
-   does not show (a wider range, "every type", "any count") is a guess for those cases.
-   The two exceptions (a Microsoft test, or an outside reporter's own repro; never a partner
-   test suite) and how to register them: `docs/agents/assumptions.md`.
+1. **Cite, assume, or refuse** (CLAUDE.md rule 3, owner 2026-11-12). Every behavior you add or change
+   has a corpus `file:line` in a code comment. A behavior the pinned corpus does not cover yet runs only
+   through an assumption registry entry that cites its open probe PR (a flagged pass); your PR may land
+   before that probe merges. No probe written means you guessed: refuse that path (lowering reason,
+   `al-sema` diagnostic, `Signal::Unsupported`) and list it under "needs probe". A rule that also decides
+   cases its evidence does not show (a wider range, "every type", "any count") is a guess for those cases.
+   How to register an entry: `docs/agents/assumptions.md`.
 2. **Whole area.** Your prompt has an area table: rows are every form, columns are types,
-   compile/run and BC versions. Fill every cell with one of: PINNED file:line, REFUSED reason,
-   PROBE QUEUED spec, OUT OF SCOPE. Fix the shared code path, not one caller.
+   compile/run and BC versions. Fill every cell with one of: PINNED file:line, ASSUMED id (open probe
+   PR), REFUSED reason, PROBE QUEUED spec, OUT OF SCOPE. Fix the shared code path, not one caller.
    A fix that only makes the reported shape pass is not done.
 3. **Refuse, do not half-run.** Never ship a partial behavior that runs and then fails.
    Refuse at the start of the shape, never after the test has already observed values.
