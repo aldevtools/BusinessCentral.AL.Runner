@@ -293,6 +293,188 @@ page 76848 "PG EPL List RefCode"
     }
 }
 
+// The triggers and properties of page 1178 beside the shape of "PG EPL Part": DeleteAllowed, DelayedInsert, OnInit, OnDeleteRecord,
+// a field with OnDrillDown and Editable = false.
+page 76851 "PG EPL Part Doc"
+{
+    PageType = ListPart;
+    SourceTable = "PG EPL Line";
+    DeleteAllowed = true;
+    DelayedInsert = true;
+    InsertAllowed = false;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(LineNoCtl; Rec."Line No.")
+                {
+                    ApplicationArea = All;
+
+                    trigger OnDrillDown()
+                    begin
+                        DrillDowns += 1;
+                    end;
+                }
+                field(KindCtl; Rec.Kind)
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                }
+            }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(ReadRec)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                var
+                    Log: Codeunit "PG EPL Log";
+                begin
+                    Log.AddAction('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.") + '/' + Rec.Kind);
+                end;
+            }
+        }
+    }
+
+    trigger OnInit()
+    begin
+        DrillDowns := 0;
+    end;
+
+    trigger OnDeleteRecord(): Boolean
+    begin
+        exit(true);
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    var
+        Log: Codeunit "PG EPL Log";
+    begin
+        Log.AddCurr('agcr=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No."));
+    end;
+
+    var
+        DrillDowns: Integer;
+}
+
+page 76852 "PG EPL List Doc"
+{
+    PageType = List;
+    SourceTable = "PG EPL Head";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Heads)
+            {
+                field(NoCtl; Rec."No.") { ApplicationArea = All; }
+                field(RefCtl; Rec."Ref Code") { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Box; "PG EPL Part Doc")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Table ID" = const(76840), "No." = field("No.");
+            }
+        }
+    }
+}
+
+// A host with triggers that do not touch the part.
+page 76853 "PG EPL List Triggers"
+{
+    PageType = List;
+    SourceTable = "PG EPL Head";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Heads)
+            {
+                field(NoCtl; Rec."No.") { ApplicationArea = All; }
+                field(RefCtl; Rec."Ref Code") { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Box; "PG EPL Part")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Table ID" = const(76840), "No." = field("No.");
+            }
+        }
+    }
+
+    trigger OnOpenPage()
+    begin
+        Opens += 1;
+    end;
+
+    trigger OnAfterGetRecord()
+    begin
+        Reads += 1;
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        CurrReads += 1;
+    end;
+
+    var
+        Opens: Integer;
+        Reads: Integer;
+        CurrReads: Integer;
+}
+
+// Page 1178's host form: the FactBox has UpdatePropagation = Both.
+page 76854 "PG EPL List DocBoth"
+{
+    PageType = List;
+    SourceTable = "PG EPL Head";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Heads)
+            {
+                field(NoCtl; Rec."No.") { ApplicationArea = All; }
+                field(RefCtl; Rec."Ref Code") { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Box; "PG EPL Part Doc")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Table ID" = const(Database::"PG EPL Head"), "No." = field("No.");
+                UpdatePropagation = Both;
+            }
+        }
+    }
+}
+
 codeunit 76849 "PG EPL Log"
 {
     SingleInstance = true;
@@ -354,6 +536,16 @@ codeunit 76850 "PG EPL Tests"
         Head."Ref Code" := 'RB';
         Head.Insert();
         Log.Reset();
+    end;
+
+    // Head A only (Ref Code RA), no line: a GoToRecord to A stays on the row the host stands on.
+    local procedure InitializeOneHead()
+    var
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Head.Get('B');
+        Head.Delete();
     end;
 
     local procedure AddLine(No: Code[20]; LineNo: Integer; Kind: Code[10])
@@ -1049,12 +1241,407 @@ codeunit 76850 "PG EPL Tests"
         Host.Close();
         Error(Got);
     end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_OneHead_GoToSameRow_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List ConstField";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenEdit();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_OneHead_GoToSameRow_Content_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List ConstField";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenEdit();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Inline.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_OneHead_GoToSameRow_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List ConstField";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenView();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_OneHead_GoToSameRow_Content_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List ConstField";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenView();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Inline.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_GoToFirstRow_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List ConstField";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenEdit();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_GoToFirstRow_Content_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List ConstField";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenEdit();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Inline.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_GoToFirstRow_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List ConstField";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenView();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_OneHead_GoToSameRow_OnAfterGetCurrRecordReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List ConstField";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenEdit();
+        Log.Reset();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+
+        Got += 'curr=' + Log.CurrLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_OneHead_GoToSameRow_OnAfterGetCurrRecordReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List ConstField";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenView();
+        Log.Reset();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+
+        Got += 'curr=' + Log.CurrLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_PartDoc_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Doc";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenEdit();
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_PartDoc_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Doc";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenView();
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_GoToRecord_PartDoc_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Doc";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenEdit();
+        Head.Get('B');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_OneHead_GoToSameRow_PartDoc_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Doc";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenEdit();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_PartDoc_OnAfterGetCurrRecordReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Doc";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenEdit();
+
+        Got += 'curr=' + Log.CurrLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_HostTriggers_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Triggers";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenEdit();
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_HostTriggers_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Triggers";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenView();
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_GoToRecord_HostTriggers_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Triggers";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenEdit();
+        Head.Get('B');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_Next_HostTriggers_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Triggers";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenEdit();
+        if Host.Next() then;
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_OneHead_GoToSameRow_HostTriggers_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Triggers";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenEdit();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_PartDocBoth_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List DocBoth";
+    begin
+        Initialize();
+        Host.OpenEdit();
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_GoToRecord_PartDocBoth_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List DocBoth";
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Host.OpenEdit();
+        Head.Get('B');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_OneHead_GoToSameRow_PartDocBoth_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List DocBoth";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenEdit();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_OneHead_GoToSameRow_PartDocBoth_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List DocBoth";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeOneHead();
+        Host.OpenView();
+        Head.Get('A');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
 }
 "#;
 
 /// Each cell: what BC 28.5 raised (corpus pull request 1339, local observation), and whether the cell goes through the
 /// assumption (a List host whose part takes the link values; the cells of a List that shows no row do not).
-const CELLS: [(&str, &str, bool); 42] = [
+const CELLS: &[(&str, &str, bool)] = &[
     (
         "EmptyPart_ListOpenEdit_FactBoxConstField_ActionReadsRec",
         "action=act=76840/A/0/;",
@@ -1265,13 +1852,110 @@ const CELLS: [(&str, &str, bool); 42] = [
         "curr=agcr=76840/B/0 | agcr=76840/B/0;",
         true,
     ),
+    (
+        "EmptyPart_ListOpenEdit_OneHead_GoToSameRow_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_OneHead_GoToSameRow_Content_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_OneHead_GoToSameRow_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_OneHead_GoToSameRow_Content_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToFirstRow_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToFirstRow_Content_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_GoToFirstRow_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_OneHead_GoToSameRow_OnAfterGetCurrRecordReadsRec",
+        "curr=;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_OneHead_GoToSameRow_OnAfterGetCurrRecordReadsRec",
+        "curr=;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_PartDoc_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_PartDoc_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToRecord_PartDoc_FactBox_ActionReadsRec",
+        "action=act=76840/B/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_OneHead_GoToSameRow_PartDoc_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_PartDoc_OnAfterGetCurrRecordReadsRec",
+        "curr=agcr=76840/A/0;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_HostTriggers_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_HostTriggers_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToRecord_HostTriggers_FactBox_ActionReadsRec",
+        "action=act=76840/B/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_Next_HostTriggers_FactBox_ActionReadsRec",
+        "action=act=76840/B/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_OneHead_GoToSameRow_HostTriggers_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
 ];
 
 /// The cells the runtime does not answer as BC does, with what it raises: a List opened for edit that shows no row (BC stamps
 /// the const of the link: `act=76840//0/`; the rule needs a host on a stored row), and OnAfterGetCurrRecord of the parts of a
-/// List opened for edit (BC runs it three times; the runtime runs it on no part of a host opened for edit, the gap
-/// `suite/empty_part_rec_link.rs` names for a Card).
-const GAPS: [(&str, &str); 3] = [
+/// List opened for edit (BC runs it three times on page 76842 and once on page 76851; the runtime runs it on no part of a host
+/// opened for edit, the gap `suite/empty_part_rec_link.rs` names for a Card), and OnAfterGetCurrRecord after a GoToRecord that
+/// stays on the row of a host opened for view (BC runs it on no part; the runtime runs it twice, as it did before this change,
+/// and the part's Rec holds the link values there).
+const GAPS: &[(&str, &str)] = &[
     (
         "EmptyPart_ListOpenEdit_NoHeads_FactBoxConstField_ActionReadsRec",
         "action=act=0//0/;",
@@ -1284,14 +1968,36 @@ const GAPS: [(&str, &str); 3] = [
         "EmptyPart_ListOpenEdit_GoToRecord_ConstField_OnAfterGetCurrRecordReadsRec",
         "curr=;",
     ),
+    ("EmptyPart_ListOpenEdit_PartDoc_OnAfterGetCurrRecordReadsRec", "curr=;"),
+    (
+        "EmptyPart_ListOpenView_OneHead_GoToSameRow_OnAfterGetCurrRecordReadsRec",
+        "curr=agcr=76840/A/0 | agcr=76840/A/0;",
+    ),
+];
+
+/// The cells of a host whose part control sets UpdatePropagation = Both (page 76854 "PG EPL List DocBoth"), not observed yet: the
+/// rule leaves them out, and each keeps main's blank Rec through no assumption.
+const NOT_OBSERVED: &[&str] = &[
+    "EmptyPart_ListOpenEdit_PartDocBoth_FactBox_ActionReadsRec",
+    "EmptyPart_ListOpenEdit_GoToRecord_PartDocBoth_FactBox_ActionReadsRec",
+    "EmptyPart_ListOpenEdit_OneHead_GoToSameRow_PartDocBoth_FactBox_ActionReadsRec",
+    "EmptyPart_ListOpenView_OneHead_GoToSameRow_PartDocBoth_FactBox_ActionReadsRec",
 ];
 
 /// Every cell raises BC's value, except the gaps, which keep the runtime's outcome from before this change.
 #[test]
 fn empty_list_part_rec_list_host_cells() {
     let o = run(SRC);
-    assert_eq!(o.len(), CELLS.len(), "{o:?}");
+    assert_eq!(o.len(), CELLS.len() + NOT_OBSERVED.len(), "{o:?}");
     for (name, outcome, flagged) in &o {
+        if NOT_OBSERVED.contains(&name.as_str()) {
+            assert!(
+                matches!(outcome, Outcome::Fail(m) if m == "action=act=0//0/;"),
+                "{name}: {outcome:?}"
+            );
+            assert!(!flagged, "{name}: flagged");
+            continue;
+        }
         let (_, bc, flag) = CELLS
             .iter()
             .find(|(n, _, _)| n == name)
@@ -1331,6 +2037,7 @@ page 76863 "PG EPLU Part"
     PageType = ListPart; SourceTable = "PG EPLU Line"; InsertAllowed = false;
     layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
     actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLU Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
 }
 page 76864 "PG EPLU Part NewRec"
 {
@@ -1338,6 +2045,7 @@ page 76864 "PG EPLU Part NewRec"
     layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
     actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLU Log"; begin Log.Add(Rec); end; } } }
     trigger OnNewRecord(BelowxRec: Boolean) begin Rec."Line No." := 9; end;
+    trigger OnAfterGetCurrRecord() begin end;
 }
 page 76865 "PG EPLU List"
 {
@@ -1410,5 +2118,231 @@ fn empty_list_part_rec_list_host_unmeasured_shapes_stay_blank() {
             "{name}: {outcome:?}"
         );
         assert_eq!(*flagged, name.starts_with("Move_"), "{name}: flagged {flagged}");
+    }
+}
+
+/// Neighbors of the List-host cells that differ from a probe cell in one fact the probe held fixed (review of corpus pull
+/// request 1339): the part's page extension with OnNewRecord, a subscriber of the part, the part's OnFindRecord, a temporary
+/// part, a List page as part, a part with Editable = false or with the new-row line, the part control with Editable = false, a
+/// part that is the Provider of another, a host with Editable = false, a SourceTableView, a page extension or an
+/// OnAfterGetCurrRecord of its own, a host run by Page.Run or Page.RunModal, a const on the last key field and a Code const; and
+/// a Card host opened for view moved by a GoToRecord that stays on its row (no List rule; the part keeps the values the open
+/// stamped, `act=76880/A/0` on main 57481ae65 too).
+/// Each keeps main's result (the blank Rec, `act=0//0`, except the Card) and goes through no assumption.
+const NEIGHBOR_SRC: &str = r#"
+table 76880 "PG EPLN Head" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+table 76881 "PG EPLN Line"
+{
+    fields { field(1; "Table ID"; Integer) { } field(2; "No."; Code[20]) { } field(3; "Line No."; Integer) { } }
+    keys { key(PK; "Table ID", "No.", "Line No.") { Clustered = true; } }
+}
+codeunit 76882 "PG EPLN Log"
+{
+    SingleInstance = true;
+    var L: Text;
+    procedure Reset() begin L := ''; end;
+    procedure Add(Rec: Record "PG EPLN Line") begin L := 'act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No."); end;
+    procedure Get(): Text begin exit(L); end;
+    [EventSubscriber(ObjectType::Page, Page::"PG EPLN Part Sub", 'OnAfterGetCurrRecordEvent', '', false, false)]
+    local procedure OnCurr(var Rec: Record "PG EPLN Line") begin end;
+}
+page 76883 "PG EPLN Part"
+{
+    PageType = ListPart; SourceTable = "PG EPLN Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLN Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76884 "PG EPLN Part Ext"
+{
+    PageType = ListPart; SourceTable = "PG EPLN Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLN Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+pageextension 76885 "PG EPLN Part Ext New" extends "PG EPLN Part Ext"
+{
+    trigger OnNewRecord(BelowxRec: Boolean) begin Rec."Line No." := 9; end;
+}
+page 76886 "PG EPLN Part Sub"
+{
+    PageType = ListPart; SourceTable = "PG EPLN Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLN Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76887 "PG EPLN Part Find"
+{
+    PageType = ListPart; SourceTable = "PG EPLN Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLN Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+    trigger OnFindRecord(Which: Text): Boolean begin exit(Rec.Find(Which)); end;
+}
+page 76888 "PG EPLN Part Temp"
+{
+    PageType = ListPart; SourceTable = "PG EPLN Line"; InsertAllowed = false; SourceTableTemporary = true;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLN Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76889 "PG EPLN Part AsList"
+{
+    PageType = List; SourceTable = "PG EPLN Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLN Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76890 "PG EPLN Part NoEdit"
+{
+    PageType = ListPart; SourceTable = "PG EPLN Line"; InsertAllowed = false; Editable = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLN Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76891 "PG EPLN Part Ins"
+{
+    PageType = ListPart; SourceTable = "PG EPLN Line";
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLN Log"; begin Log.Add(Rec); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76892 "PG EPLN Parts"
+{
+    PageType = List; SourceTable = "PG EPLN Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes)
+        {
+            part(PExt; "PG EPLN Part Ext") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); }
+            part(PSub; "PG EPLN Part Sub") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); }
+            part(PFind; "PG EPLN Part Find") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); }
+            part(PTemp; "PG EPLN Part Temp") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); }
+            part(PAsList; "PG EPLN Part AsList") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); }
+            part(PNoEdit; "PG EPLN Part NoEdit") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); }
+            part(PIns; "PG EPLN Part Ins") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); }
+            part(CtlNoEdit; "PG EPLN Part") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); Editable = false; }
+            part(AllKey; "PG EPLN Part") { SubPageLink = "Table ID" = const(76880), "No." = field("No."), "Line No." = const(5); }
+            part(CodeConst; "PG EPLN Part") { SubPageLink = "No." = const('A'); }
+        }
+    }
+}
+page 76893 "PG EPLN Host NoEdit"
+{
+    PageType = List; SourceTable = "PG EPLN Head"; Editable = false;
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLN Part") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); } }
+    }
+}
+page 76894 "PG EPLN Host View"
+{
+    PageType = List; SourceTable = "PG EPLN Head"; SourceTableView = sorting("No.") order(descending);
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLN Part") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); } }
+    }
+}
+page 76895 "PG EPLN Host Curr"
+{
+    PageType = List; SourceTable = "PG EPLN Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLN Part") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); } }
+    }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76896 "PG EPLN Host"
+{
+    PageType = List; SourceTable = "PG EPLN Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLN Part") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); } }
+    }
+}
+page 76897 "PG EPLN Host Ext"
+{
+    PageType = List; SourceTable = "PG EPLN Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLN Part") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); } }
+    }
+}
+page 76879 "PG EPLN Host Prov"
+{
+    PageType = List; SourceTable = "PG EPLN Head";
+    layout
+    {
+        area(Content)
+        {
+            repeater(R) { field(NoCtl; Rec."No.") { } }
+            part(Prov; "PG EPLN Part") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); }
+            part(Det; "PG EPLN Part") { Provider = Prov; SubPageLink = "No." = field("No."); }
+        }
+    }
+}
+page 76878 "PG EPLN Card"
+{
+    PageType = Card; SourceTable = "PG EPLN Head";
+    layout
+    {
+        area(Content)
+        {
+            field(NoCtl; Rec."No.") { }
+            part(Box; "PG EPLN Part") { SubPageLink = "Table ID" = const(76880), "No." = field("No."); }
+        }
+    }
+}
+pageextension 76898 "PG EPLN Host Ext Trig" extends "PG EPLN Host Ext"
+{
+    trigger OnOpenPage() begin end;
+}
+codeunit 76899 "PG EPL Tests"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLN Log";
+    local procedure Init() var H: Record "PG EPLN Head"; L: Record "PG EPLN Line"; begin H.DeleteAll(); L.DeleteAll(); H."No." := 'A'; H.Insert(); H."No." := 'B'; H.Insert(); Log.Reset(); end;
+    [Test] procedure PartExtNewRec() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenEdit(); P.PExt.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure PartSubscriber() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenEdit(); P.PSub.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure PartFindRecord() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenEdit(); P.PFind.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure PartTemporary() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenEdit(); P.PTemp.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure PartPageTypeList() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenEdit(); P.PAsList.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure PartNotEditable() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenEdit(); P.PNoEdit.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure PartNewLineOnView() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenView(); P.PIns.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure PartControlNotEditable() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenEdit(); P.CtlNoEdit.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure LinkConstOnLastKeyField() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenEdit(); P.AllKey.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure LinkCodeConst() var P: TestPage "PG EPLN Parts"; begin Init(); P.OpenEdit(); P.CodeConst.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure PartIsProvider() var P: TestPage "PG EPLN Host Prov"; begin Init(); P.OpenEdit(); P.Prov.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure HostNotEditable() var P: TestPage "PG EPLN Host NoEdit"; begin Init(); P.OpenView(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure HostSourceTableView() var P: TestPage "PG EPLN Host View"; begin Init(); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure HostOwnCurrTrigger() var P: TestPage "PG EPLN Host Curr"; begin Init(); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure HostPageExtension() var P: TestPage "PG EPLN Host Ext"; begin Init(); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] [HandlerFunctions('HostHandler')] procedure HostPageRun() begin Init(); Page.Run(Page::"PG EPLN Host"); Error(Log.Get()); end;
+    [Test] [HandlerFunctions('HostModalHandler')] procedure HostRunModal() begin Init(); Page.RunModal(Page::"PG EPLN Host"); Error(Log.Get()); end;
+    [Test] procedure CardViewGoToSameRow() var P: TestPage "PG EPLN Card"; H: Record "PG EPLN Head"; begin Init(); P.OpenView(); H.Get('A'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [PageHandler] procedure HostHandler(var P: TestPage "PG EPLN Host") begin P.Box.ReadRec.Invoke(); end;
+    [ModalPageHandler] procedure HostModalHandler(var P: TestPage "PG EPLN Host") begin P.Box.ReadRec.Invoke(); end;
+}
+"#;
+
+/// Every neighbor keeps main's blank Rec, with no assumption on its run.
+#[test]
+fn empty_list_part_rec_list_host_neighbors_keep_main() {
+    let o = run(NEIGHBOR_SRC);
+    assert_eq!(o.len(), 18, "{o:?}");
+    for (name, outcome, flagged) in &o {
+        let main = if name == "CardViewGoToSameRow" {
+            "act=76880/A/0"
+        } else {
+            "act=0//0"
+        };
+        assert!(matches!(outcome, Outcome::Fail(m) if m == main), "{name}: {outcome:?}");
+        assert!(!flagged, "{name}: flagged");
     }
 }

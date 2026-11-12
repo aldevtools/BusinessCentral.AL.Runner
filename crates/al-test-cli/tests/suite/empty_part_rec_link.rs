@@ -662,10 +662,10 @@ fn empty_list_part_rec_holds_the_link_values() {
 }
 
 /// Shapes probe 1335 does not measure. Each keeps the blank Rec the runtime gave before the change (`act=0//0/`): a link to a field
-/// outside the key, PopulateAllFields, a SourceTableView, an OnNewRecord, a filter the part sets itself, an unlinked part, a
-/// ListPlus host, a host moved by Next() or New(). These are not BC's values; they guard against the rule reaching a shape
-/// nobody measured. The List host is measured since (corpus pull request 1339, pages/parts/EmptyPartRecLinkList.al, BC 28.5:
-/// `act=76840/A/0/` opened for view and for edit): its two cells take the link values (`suite/empty_part_rec_list.rs`).
+/// outside the key, PopulateAllFields, a SourceTableView, an OnNewRecord, a filter the part sets itself, an unlinked part, a List
+/// or ListPlus host, a host moved by Next() or New(). These are not BC's values; they guard against the rule reaching a shape
+/// nobody measured. The List host's part has no OnAfterGetCurrRecord, a trigger set no List-host probe cell holds
+/// (`pages/empty_part_rec_list.rs`).
 const UNMEASURED_SRC: &str = r#"
 table 75180 "PG EPU Head" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
 table 75181 "PG EPU Line"
@@ -771,22 +771,14 @@ codeunit 75191 "PG EPU Tests"
 }
 "#;
 
-/// Every unmeasured shape reads the blank record, as before the change, and the List host the link values: each test raises
-/// what the part's action logged.
+/// Every unmeasured shape reads the blank record, as before the change: each test raises what the part's action logged.
 #[test]
 fn empty_list_part_rec_stays_blank_outside_the_measured_shape() {
     let o = outcomes_in(UNMEASURED_SRC, "PG EPU Tests");
     assert_eq!(o.len(), 18, "{o:?}");
     let wrong: Vec<_> = o
         .iter()
-        .filter(|(name, outcome)| {
-            let want = if name.starts_with("List") && !name.starts_with("ListPlus") {
-                "act=75180/A/0/"
-            } else {
-                "act=0//0/"
-            };
-            !matches!(outcome, Outcome::Fail(m) if m == want)
-        })
+        .filter(|(_, outcome)| !matches!(outcome, Outcome::Fail(m) if m == "act=0//0/"))
         .collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
