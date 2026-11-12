@@ -89,6 +89,7 @@ pub fn not_shareable(v: &Value) -> Option<&'static str> {
         // Not in a stored row, and `to_bytes` does not write them either (the same rule, decision 3).
         Value::TextConst(_) => Some("TextConst"),
         Value::SqlCount(_) => Some("SqlCount"),
+        Value::PlaceholderSize(_) => Some("PlaceholderSize"),
         // Handles: `Rc`, bound to their thread.
         Value::List(_) => Some("List"),
         Value::Dictionary(_) => Some("Dictionary"),

@@ -125,7 +125,7 @@ mod report_handler_unshown;
 mod report_layout_export;
 mod report_layout_streams;
 mod report_no_layout_file;
-pub mod report_pdf_placeholder;
+pub mod report_placeholder;
 mod reports;
 mod run_page_link_open;
 mod sessionops;
