@@ -11,7 +11,7 @@ impl Session {
             .report
             .report_running
             .iter()
-            .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+            .any(|r| r.by_run && r.inst.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
         {
             return Ok(());
         }
@@ -23,13 +23,23 @@ impl Session {
 }
 
 impl Session {
-    /// The `UseRequestPage()` getter: what the next Run does (`report_shows_page`). Read in OnPreReport, or in a procedure it
-    /// calls, of a report a static `RunModal(id, false)` runs: false, for the two and the three argument form (corpus reports/request-page/P147UseRequestPagePreGet.al:93-131
-    /// PW_Urp_PreGet_RunModalWithoutRequestPage `trace 1` and `trace 2` = `OnInitReport;OnPreReport;get=No;`; BC 27, 28 and 29;
-    /// al-runner issue 7413). The static Run and a variable's `UseRequestPage(false)` answer false through the flag itself
-    /// (:65-80, `trace 3`; reports/bare-report-member/Y36BareReportMember.al:220-282). In every other trigger of that run the
-    /// read is not pinned (corpus probe reports/bare-report-member/UseRequestPageReadInTriggers.al).
+    /// The `UseRequestPage()` getter. In a trigger of the run that is running now (Run, RunModal or Execute), read through
+    /// `CurrReport.`, bare with or without parentheses, it answers whether this run showed its request page: OnPreReport,
+    /// OnPreDataItem, OnAfterGetRecord, OnPostDataItem, OnPostReport and the request page's OnOpenPage
+    /// (reports/bare-report-member/UseRequestPageReadInTriggers.al:244-460, BC 27, 28 and 29; al-runner issues 7413, 7414):
+    /// - a variable's `UseRequestPage(false)` with Run and RunModal, static Run and RunModal with RequestWindow false, and
+    ///   `Execute` with empty parameters answer false (:244-305, :396-410); so does a report declaring `UseRequestPage = false`
+    ///   run by a variable never set (:432-445);
+    /// - a run that showed its page answers true, also the variable's `UseRequestPage(true)` on such a report (:307-394, :464-475);
+    /// - `Execute` with the parameters RunRequestPage returned answers false in OnOpenPage, which it runs (:412-430).
+    /// Anywhere else (OnInitReport, a report variable that is not running, other triggers) it answers what the next Run does
+    /// (`report_shows_page`; OnInitReport reads the property: reports/request-page/P147UseRequestPageInitGet.al:79, the probe
+    /// above `init Yes/Yes/Yes`). A static `RunModal(id, false)` keeps its OnPreReport answer false there
+    /// (reports/request-page/P147UseRequestPagePreGet.al:93-131).
     pub(super) fn use_request_page_getter(&self, inst: &Inst, schema: &Schema) -> Result<Value, Signal> {
+        if let Some(shows_page) = self.running_page_answer(inst) {
+            return Ok(Value::Boolean(shows_page));
+        }
         let slot = schema.report().request_flag_slot;
         if matches!(self.report.report_trigger, Some((_, TrigKind::Pre)))
             && matches!(
@@ -40,6 +50,24 @@ impl Session {
             return Ok(Value::Boolean(false));
         }
         Ok(Value::Boolean(Self::report_shows_page(inst, schema)?))
+    }
+
+    /// Whether the innermost running report is `inst` and the code runs in one of the triggers `use_request_page_getter`
+    /// pins: then whether that run showed its request page.
+    fn running_page_answer(&self, inst: &Inst) -> Option<bool> {
+        let run = self.report.report_running.last()?;
+        if !run.inst.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)) {
+            return None;
+        }
+        let report_trigger = matches!(
+            self.report.report_trigger,
+            Some((_, TrigKind::Pre | TrigKind::PreItem | TrigKind::Row | TrigKind::PostItem | TrigKind::PostReport))
+        );
+        let open_page = matches!(
+            self.pages.trigger_kinds.last(),
+            Some((_, crate::pages::TriggerKind::OpenPage))
+        );
+        (report_trigger || open_page).then_some(run.shows_page)
     }
 }
 

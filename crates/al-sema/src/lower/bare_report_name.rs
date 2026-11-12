@@ -6,9 +6,10 @@ use al_syntax::{SyntaxKind, SyntaxNode, ast};
 
 impl Lowerer<'_> {
     /// A report method of the bare form (`crate::check::BARE_REPORT_MEMBERS`) named without a call in a report's or report
-    /// extension's code. The corpus pins only the forms with parentheses (reports/bare-report-member/Y36BareReportMember.al:83-93);
-    /// whether the name alone reads or sets the same value is not pinned, so it is refused with this reason, not as "not
-    /// assignable" (al-runner issue 7414).
+    /// extension's code, where it is no read the checker resolved. The forms with parentheses are pinned
+    /// (reports/bare-report-member/Y36BareReportMember.al:83-93), and the read `UseRequestPage` without them in a report
+    /// (`check::calls::lookup_name`, al-runner issue 7414); the others, and the name as an assignment target, are not pinned,
+    /// so they are refused with this reason, not as "not assignable".
     pub(crate) fn bare_report_method_without_call(&self, n: &SyntaxNode) -> Option<String> {
         if n.kind() != SyntaxKind::NameRef
             || !matches!(
