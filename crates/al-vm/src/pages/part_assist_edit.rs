@@ -42,7 +42,9 @@ impl Session {
         }
         let (key, blank) = {
             let r = rec.borrow();
-            let Value::Code(blank) = &r.fields[field] else { return Ok(None) };
+            let Value::Code(blank) = &r.fields[field] else {
+                return Ok(None);
+            };
             if !blank.is_empty() {
                 return Ok(None);
             }
@@ -78,7 +80,10 @@ impl Session {
         {
             return Ok(());
         }
-        if completed && self.view_row_count(st)? == 1 && let Some(stored) = self.stored_row(&rec)? {
+        if completed
+            && self.view_row_count(st)? == 1
+            && let Some(stored) = self.stored_row(&rec)?
+        {
             st.borrow_mut().cursor = Cursor::Row;
             self.set_xrec_fields(st, stored);
         } else {
