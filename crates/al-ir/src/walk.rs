@@ -889,6 +889,7 @@ fn walk_control<V: RefVisitor>(
         part_link,
         owner,
         ext_triggers,
+        ext_replaced: _,
         run_object,
         action_ref: _,
         prop_texts: _,

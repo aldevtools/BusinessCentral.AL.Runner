@@ -307,6 +307,7 @@ mod tests {
             last_modify: None,
             failed_insert: None,
             row_origin: None,
+            own_read: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,
             run_page_link: None,

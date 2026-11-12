@@ -358,22 +358,24 @@ fn client_type_named(name: &str) -> Value {
 
 // ---------------------------------------------------------------- system field stamps
 
-const SYSTEM_CREATED_AT: u32 = 2_000_000_001;
-const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
-const SYSTEM_MODIFIED_AT: u32 = 2_000_000_003;
-const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
+pub(crate) const SYSTEM_ID: u32 = 2_000_000_000;
+pub(crate) const SYSTEM_CREATED_AT: u32 = 2_000_000_001;
+pub(crate) const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
+pub(crate) const SYSTEM_MODIFIED_AT: u32 = 2_000_000_003;
+pub(crate) const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
+pub(crate) const SYSTEM_ROW_VERSION: u32 = 2_000_000_005;
 /// The ids of the platform's system fields, SystemId (2000000000) to SystemRowVersion.
 const SYSTEM_FIELDS: std::ops::RangeInclusive<u32> = 2_000_000_000..=2_000_000_005;
 
 /// The values a stamp replaced, to give back when the write is refused.
 pub(crate) type Replaced = Vec<(usize, Value)>;
 
-fn position_of(t: &al_data::TableDef, id: u32) -> Option<usize> {
+pub(crate) fn position_of(t: &al_data::TableDef, id: u32) -> Option<usize> {
     t.fields.iter().position(|f| f.id == id)
 }
 
 /// Whether a write changed anything: any field but the system fields differs.
-fn changed(t: &al_data::TableDef, stored: &[Value], buffer: &[Value]) -> bool {
+pub(crate) fn changed(t: &al_data::TableDef, stored: &[Value], buffer: &[Value]) -> bool {
     t.fields.iter().enumerate().any(|(i, f)| {
         if SYSTEM_FIELDS.contains(&f.id) || !f.stored {
             return false;
@@ -421,27 +423,37 @@ impl Session {
 
     /// `SystemModifiedAt/By` of a row a `Modify` writes, when the write changes a field
     /// (record/TestRecordSystemId.al:677-750). A write that changes none keeps the pair the stored
-    /// row has, whatever the buffer held. `stored` is the row before the write.
+    /// row has: in the buffer too, except on the cell of `assigned_audit::modify_keeps_assigned_modified`
+    /// (`keeps_assigned`), where only the written row takes it. `stored` is the row before the write. Returns what
+    /// the stamp replaced in the buffer and the values only the written row takes.
     pub(crate) fn stamp_modify(
         &mut self,
         t: &al_data::TableDef,
         rec: &crate::records::Rec,
         stored: Option<&[Value]>,
-    ) -> Replaced {
+        keeps_assigned: bool,
+    ) -> (Replaced, Replaced) {
         let Some(stored) = stored else {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         };
         if rec.borrow().temporary {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         if self.bulk_modify || changed(t, stored, &rec.borrow().fields) {
-            return self.stamp_modified_pair(t, rec);
+            return (self.stamp_modified_pair(t, rec), Vec::new());
         }
         let keep: Vec<(u32, Value)> = [SYSTEM_MODIFIED_AT, SYSTEM_MODIFIED_BY]
             .into_iter()
             .filter_map(|id| position_of(t, id).map(|i| (id, stored[i].clone())))
             .collect();
-        self.write_stamps(t, rec, &keep)
+        if keeps_assigned {
+            let row_only = keep
+                .into_iter()
+                .filter_map(|(id, v)| position_of(t, id).map(|i| (i, v)))
+                .collect();
+            return (Vec::new(), row_only);
+        }
+        (self.write_stamps(t, rec, &keep), Vec::new())
     }
 
     /// `SystemModifiedAt/By` of a renamed row. A rename always stamps, also to the key the row

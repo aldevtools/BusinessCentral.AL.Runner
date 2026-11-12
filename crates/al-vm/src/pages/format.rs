@@ -1739,7 +1739,7 @@ impl Session {
         ) {
             self.prop_bool_now(st, idx, "visible", true)?
         } else {
-            st.borrow().frozen_visible.get(idx).copied().unwrap_or(true)
+            self.ext_column_shown(st, idx) || st.borrow().frozen_visible.get(idx).copied().unwrap_or(true)
         };
         let mut visible = own;
         let mut parent = page.controls[idx].parent;

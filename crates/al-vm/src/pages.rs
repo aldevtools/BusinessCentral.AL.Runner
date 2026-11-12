@@ -211,6 +211,7 @@ mod dev_endpoint;
 mod dirty_step;
 mod draft;
 mod empty_after_action;
+mod ext_column_visible;
 mod fn_controls;
 mod format;
 mod format_type11;
@@ -387,6 +388,7 @@ impl Session {
         self.data_caption_before_trigger(st, name)?;
         let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args))?;
         self.data_caption_after_trigger(st, name);
+        self.show_ext_columns_after_first_open_row(st, name)?;
         Ok(r)
     }
 

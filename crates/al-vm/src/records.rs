@@ -1892,6 +1892,7 @@ impl Session {
         let passes = self.row_passes(rec, &t, &row)?;
         let version = t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| &row[i]);
         let origin = self.load_origin(version, [via_get, via_sysid, via_find]);
+        let own_read = self.own_read_after_load(&t, rec, &row, via_get && !via_sysid && !via_find && passes);
         let temporary = rec.borrow().temporary;
         if via_get && !temporary && self.tx.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
@@ -1902,6 +1903,7 @@ impl Session {
             r.position = passes.then_some(pk);
             r.fields = row;
             r.row_origin = origin;
+            r.own_read = own_read;
         }
         self.auto_calculate(rec)
     }
@@ -2365,10 +2367,14 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        if self.coverage.profiler.is_some() {
-            return self.record_op_profiled(method, rec, args);
-        }
-        self.record_op_unprofiled(method, rec, args)
+        let inserted = self.own_read_before(method, rec, args);
+        let r = if self.coverage.profiler.is_some() {
+            self.record_op_profiled(method, rec, args)
+        } else {
+            self.record_op_unprofiled(method, rec, args)
+        };
+        self.own_read_after(method, rec, inserted, matches!(r, Ok(Value::Boolean(true))));
+        r
     }
 
     /// [`Session::record_op`] without the profiler's count (`profile.rs`).
