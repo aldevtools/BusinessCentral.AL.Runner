@@ -1204,7 +1204,7 @@ writes a row) stay refused with the table named.
 
 ## Amendment 9 (2026-11-12): test data from several companies of one backup
 
-- Status: Accepted (owner 2026-11-12) in direction; text to be confirmed
+- Status: Accepted (owner 2026-11-12)
 - Changes: decision 2 (how companies are declared), decision 5 and the "With test data" rule of amendment 4 (backup
   rows of another company), step 2 of decision 3 (dependency apps in another company). Cross-references: ADR-020 and
   the test data row of ADR-027.
@@ -1374,11 +1374,14 @@ already use (companies "TP" and "ProbeCo", `al-bcdb-std/tests/provider.rs`).
     two adds only the second company's touched tables. Adding more unselected companies to the fixture changes neither
     number.
 
-### Not decided (owner)
+### Decided (owner, 2026-11-12)
 
-1. Whether `Company-Initialize` also runs in each selected company. This text keeps it in the session company.
-2. Whether `--companies NAME` with test data may still name a company the backup does not hold. This text makes it a
-   usage error. Today such a company is accepted and its tables start empty.
+1. `Company-Initialize` does not run in the other selected companies. In BC it runs when a company is created or
+   initialized, not when a session starts, and a company restored from a backup already holds the result of its own
+   initialization. The session company keeps today's behavior (step 3, pinned by `record/BfInstallTests.al`). Probe to
+   queue: when BC raises Company-Initialize (company creation, session start, server start), measured on BC.
+2. `--companies NAME` with test data naming a company the backup does not hold is a usage error, reported when the run
+   starts.
 
 ### Consequences
 
