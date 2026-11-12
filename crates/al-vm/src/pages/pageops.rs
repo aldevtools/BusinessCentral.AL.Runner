@@ -250,7 +250,7 @@ impl Session {
                     return Ok(v);
                 }
                 if method != PageOp::PageRunModalStatic {
-                    Self::note_page_run(&st, false);
+                    self.note_page_run(&st, false, record.is_some());
                 }
                 self.run_page_ui_with(&st, record, method == PageOp::PageRunModalStatic, field)
             }

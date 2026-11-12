@@ -438,6 +438,14 @@ impl Session {
                 .is_some_and(|s| matches!(&s.last_unhandled, Some((k, m)) if *k == kind && *m == e.message))
     }
 
+    /// Whether every handler bound to the running test is of `kind`.
+    pub(crate) fn every_ui_handler_is(&self, kind: UiKind) -> bool {
+        self.ui_state
+            .scope
+            .as_ref()
+            .is_some_and(|s| s.handlers.iter().all(|h| h.kind == kind))
+    }
+
     /// Whether a handler of `kind` is bound to the running test.
     pub(crate) fn has_ui_handler(&self, kind: UiKind) -> bool {
         self.ui_state

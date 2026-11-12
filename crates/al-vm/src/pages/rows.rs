@@ -3105,10 +3105,8 @@ impl Session {
         }
         if st.borrow().open {
             let a = self.unattended_action(&st);
-            // A save at close that raises: pages/page_run_close.rs for a pinned Page.Run, else pages/modal_close_save_error.rs.
-            if !self.close_page_run_left_open(&st, a)? {
-                self.close_modal_left_open(&st, a)?;
-            }
+            // A save at close that raises: pages/modal_close_save_error.rs.
+            self.close_modal_left_open(&st, a)?;
             if st.borrow().open {
                 // The platform closes the page the handler left open, and OnQueryClosePage
                 // raises again: a second message, a second refusal. The caller gets control back
