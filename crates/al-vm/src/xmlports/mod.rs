@@ -31,6 +31,7 @@ mod import_encoding;
 mod import_record;
 mod import_view;
 mod import_xml;
+mod legacy_guid;
 mod pass;
 mod plain_tree;
 mod root_nested;

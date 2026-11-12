@@ -303,10 +303,7 @@ impl Session {
                 // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute, TS_Guid_Export (was assumption `xmlport-guid-xml`).
                 match xml_guid(text) {
                     XmlGuid::Value(g) => Ok(Value::Guid(g)),
-                    XmlGuid::Invalid => Err(xerr(
-                        "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-                        "InvalidGuidFormat",
-                    )),
+                    XmlGuid::Invalid => Err(invalid_guid()),
                     XmlGuid::Unpinned => unsupported(format!(
                         "XmlPort import of `{text}` into a Guid field with FormatEvaluate = Xml (this form is not pinned)"
                     )),
@@ -331,23 +328,28 @@ impl Session {
         }
     }
 
-    /// The Guid a Format = Xml import without FormatEvaluate reads from `raw`, the attribute or element text before the trim: only
-    /// the text its own export writes, the 8-4-4-4-12 digits in upper case inside braces (xmlports/shapes-properties/
-    /// BdXmlPort.al:425, :436). No corpus test pins the import: it runs under the assumption `xmlport-guid-legacy-import`
-    /// (System Application, Permission Import Export Tests; al-runner issue 7854). Every other text, white space around it
-    /// included, and the text formats keep main's result (`xp_value`).
-    pub(super) fn xp_legacy_guid(&mut self, schema: &Schema, raw: &str) -> Result<Value, Signal> {
-        let export_form = raw.len() == 38
-            && raw.starts_with('{')
-            && raw.ends_with('}')
-            && raw[1..37].char_indices().all(|(i, c)| match i {
-                8 | 13 | 18 | 23 => c == '-',
-                _ => c.is_ascii_digit() || ('A'..='F').contains(&c),
-            });
-        if schema.xp().format == ir::XmlFormat::Xml && export_form {
-            if let XmlGuid::Value(g) = xml_guid(raw) {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidLegacyImport);
-                return Ok(Value::Guid(g));
+    /// The Guid an import without FormatEvaluate reads from `raw`, the text of node kind `kind` before the trim. The cells corpus
+    /// pull request 1340 measures (`legacy_guid`) run under the assumption `xmlport-guid-legacy-import` (al-runner issue 7854):
+    /// the Guid, or the InvalidGuidFormat error (XpLegacyGuidImport.al:226-227). Every other text and FixedText keep main's
+    /// result (`xp_value`).
+    pub(super) fn xp_legacy_guid(
+        &mut self,
+        schema: &Schema,
+        kind: ir::XmlNodeKind,
+        raw: &str,
+    ) -> Result<Value, Signal> {
+        use super::legacy_guid::{LegacyGuidSite, legacy_guid};
+        if let Some(site) = LegacyGuidSite::of(schema.xp().format, kind) {
+            match legacy_guid(site, raw) {
+                XmlGuid::Value(g) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidLegacyImport);
+                    return Ok(Value::Guid(g));
+                }
+                XmlGuid::Invalid => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidLegacyImport);
+                    return Err(invalid_guid());
+                }
+                XmlGuid::Unpinned => {}
             }
         }
         self.xp_value(raw.trim(), &RtType::Guid, false)
@@ -517,4 +519,12 @@ pub(super) fn parse_duration_text(t: &str) -> Option<i64> {
         any = true;
     }
     any.then_some(total)
+}
+
+/// The error of a text that is no Guid (xmlports/shapes-properties/QrXpContainerOccurs.al:2010 TS_Guid_Import_Element).
+fn invalid_guid() -> Signal {
+    xerr(
+        "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
+        "InvalidGuidFormat",
+    )
 }
