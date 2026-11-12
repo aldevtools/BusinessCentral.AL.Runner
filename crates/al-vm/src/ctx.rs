@@ -190,7 +190,7 @@ impl al_builtins::native::Ctx for Session {
         self.last_error.clone()
     }
     fn set_last_error(&mut self, e: AlError) {
-        self.last_error = e;
+        self.set_last_error_of_builtin(e);
     }
     fn field_error_with_form(
         &mut self,

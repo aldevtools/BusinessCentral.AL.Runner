@@ -51,6 +51,7 @@ pub use profile::{
 pub use state_stamp::StateStamp;
 pub use test_runner_host::TestCodeunitHost;
 mod callstack;
+mod caught_errors;
 mod clear_all_page_ext;
 mod code_storage_check;
 mod column_formatter;
@@ -789,6 +790,8 @@ pub struct StorageCheckpoint {
 pub struct Session {
     pub engine: Arc<Engine>,
     pub last_error: AlError,
+    /// How many errors AL code caught in this session (`Session::catch_error`, caught_errors.rs).
+    caught_errors: u64,
     depth: usize,
     /// Emptied vectors of call values (arguments, a frame's slots, a builtin's operands), taken again by the next call
     /// (`spare_vec`, `return_vec`): a call of a procedure or a builtin allocates nothing once there are some.
@@ -1293,6 +1296,7 @@ impl Session {
             work_date: None,
             engine,
             last_error: AlError::default(),
+            caught_errors: 0,
             depth: 0,
             spare_vecs: Vec::new(),
             xp_pass_views: Vec::new(),

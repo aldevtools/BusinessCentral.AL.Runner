@@ -440,7 +440,7 @@ impl Session {
             Err(Signal::Error(mut e)) => {
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e);
                 set(&mut f.locals[d as usize], Value::Boolean(false));
                 Ok(stop + 1)
             }
@@ -467,7 +467,7 @@ impl Session {
                 // The statements the error left open are closed.
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e);
                 // Temporaries of the body that the error left behind hold nothing alive.
                 for r in from.max(nl) as usize..f.locals.len() {
                     f.locals[r] = Value::Null;

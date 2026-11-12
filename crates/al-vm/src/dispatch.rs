@@ -395,7 +395,7 @@ impl Session {
                     self.store = before.expect("snapshot taken when isolating");
                     // The subscriber's own transaction is gone with its writes.
                     self.tx.tx_phase = phase;
-                    self.last_error = *e;
+                    self.catch_error(*e);
                     continue;
                 }
                 r => r?,
