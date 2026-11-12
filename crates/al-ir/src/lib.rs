@@ -561,10 +561,14 @@ pub struct Report {
     /// `OnPreRendering(var RenderingPayload: JsonObject)` as a routine index.
     #[serde(default)]
     pub on_pre_rendering: Option<usize>,
-    /// The reportextensions (object indices) that change what a run does, in the order they apply:
-    /// by object id (ADR-025). Empty: none does.
+    /// The reportextensions (object indices) that change what a run does, in the order they apply (al-sema
+    /// `lower/ext_order.rs`). Empty: none does.
     #[serde(default)]
     pub extensions: Vec<usize>,
+    /// The unprobed assumptions the report's run rests on (the order of `extensions`); the VM marks them when the report
+    /// runs or its layout parts are read.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
     /// Global slot of the hidden flag `Report.UseRequestPage(x)` sets: 0 = not set, 1 = true, 2 = false.
     pub request_flag_slot: usize,
     /// Procedures of the report whose body names `Rec` or `xRec` of a request page that states `SourceTable`: one called

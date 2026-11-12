@@ -1874,7 +1874,7 @@ impl Session {
         self.set_xrec(st);
         if !both {
             if !self.part_keeps_later_row(st)? {
-                self.sync_part(host, c, st)?;
+                self.part_reread_from_first_row(host, c, st)?;
             }
             return Ok(true);
         }

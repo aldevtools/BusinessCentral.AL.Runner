@@ -660,9 +660,15 @@ pub(crate) fn build_shared<'a>(
             }
         }
         layouts[oi] = Some(request);
-        let mut exts = changing.get(&oi).cloned().unwrap_or_default();
-        exts.sort_by_key(|&e| (ws.objects[e].id, e));
-        let extension_reasons = extension_order_reasons(ws, &exts);
+        let (exts, extension_reasons, extension_assumes) =
+            match super::ext_order::report_extension_order(ws, &changing.get(&oi).cloned().unwrap_or_default()) {
+                Ok(order) => (order.exts, Vec::new(), order.assumes),
+                Err(why) => {
+                    let mut exts = changing.get(&oi).cloned().unwrap_or_default();
+                    exts.sort_by_key(|&e| (ws.objects[e].id, e));
+                    (exts, vec![why], Vec::new())
+                }
+            };
         let cx = crate::reports::Context {
             ws,
             members,
@@ -673,6 +679,7 @@ pub(crate) fn build_shared<'a>(
             request_flag_slot: slots.len(),
             routine_at: &routine_at,
             extension_reasons,
+            extension_assumes,
             extensions: exts.clone(),
         };
         let mut over = super::shared::over_max_length_of(ws, oi);
@@ -1385,7 +1392,13 @@ pub(crate) fn lower_core(
         match list {
             al_ir::sym::ListKind::TableExtensions => (0, 0, 0),
             al_ir::sym::ListKind::PageExtensions => (ws.app_depth(o.app) as u32, id, o.offset as u32),
-            al_ir::sym::ListKind::ReportExtensions => (id, 0, 0),
+            // The order `ext_order.rs` gave the extensions that change the report's run; any other by object id.
+            al_ir::sym::ListKind::ReportExtensions => {
+                let at = extends(e)
+                    .and_then(|r| shared.driven.report_extension.get(r))
+                    .and_then(|list| list.iter().position(|&x| x == e));
+                (at.map_or(u32::MAX, |p| p as u32), id, 0)
+            }
         }
     };
     let own_field_properties = |i: usize| {
@@ -2597,23 +2610,6 @@ fn tdd_stub_list(checked: &CheckResult, sites: &[(usize, String)]) -> Vec<String
         all.dedup();
     }
     all
-}
-
-/// Why the report extensions `exts` (in object id order) that change a report's run cannot run in a pinned order. Several
-/// extensions apply in object id order (corpus reports/extensions/TestReportExtensionBaseMembersContracts.al:256, ADR-025).
-/// Across apps they apply in dependency order when a dependency path orders the apps (al-runner issue 6653; corpus branch
-/// al-runtime-rs-staging-y64 85d86e7b, reports/extensions/Y64XappRunOrder.al: A <- B <- C <- the test app). There
-/// the ids rise along the path, so only that is pinned: apps with no path between them, or ids against it, are refused.
-fn extension_order_reasons(ws: &Workspace, exts: &[usize]) -> Vec<String> {
-    let app = |e: usize| ws.objects[e].app;
-    let along_path = exts
-        .windows(2)
-        .all(|w| app(w[0]) == app(w[1]) || ws.app_sees(app(w[1]), app(w[0])));
-    if exts.len() > 1 && (exts.iter().any(|&e| ws.objects[e].id.is_none()) || !along_path) {
-        vec!["reportextensions of different apps change the run (their order across apps is not pinned)".to_string()]
-    } else {
-        Vec::new()
-    }
 }
 
 /// The variables of a report extension's request page come after its own variables in its globals (`shared.rs`).

@@ -212,6 +212,10 @@ impl al_builtins::native::Ctx for Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
+                if method == al_builtins::record_op::RecordOp::Validate {
+                    // `Record.Validate` in AL code (registry `Record.Validate#1`).
+                    return self.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
+                }
                 self.record_op_from_al(method, &rc, args)
             }
             other => Err(Signal::unsupported(format!(

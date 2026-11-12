@@ -14,6 +14,7 @@ impl Session {
     ///   DotNetTypeOfDotNet.al:224 `Unassigned_error`, after GetDotNetType(X) answered System.Object: dotnet/dotnet/BbGetDotNetType.al:364).
     /// - `CreateEntry(Path)`, the property `Entries` and `Dispose()` of System.IO.Compression.ZipArchive
     ///   (dotnet/zip-create/Y44ZipCreateMode.al:358-367 Zip_CreateEntry_NoObject, corpus PR 962).
+    /// - The property `Uri` of System.Security.Cryptography.Xml.Reference (dotnet/dotnet/ClearSignedXmlReference.al:178-179).
     ///
     /// The text names the routine and its codeunit; outside a codeunit the object kind's spelling is not pinned.
     pub(super) fn not_created(
@@ -35,6 +36,11 @@ impl Session {
             }
             (MemberKind::Get, "System.IO.Compression.ZipArchive") if is("Entries") => {
                 "System.IO.Compression.ZipArchive.Entries"
+            }
+            // The property Uri of a cleared Reference (dotnet/dotnet/ClearSignedXmlReference.al:178-179, step 7, AL Runner
+            // issue 7394).
+            (MemberKind::Get, "System.Security.Cryptography.Xml.Reference") if is("Uri") => {
+                "System.Security.Cryptography.Xml.Reference.Uri"
             }
             // BC 29.0 reads NewLine of a variable never constructed; BC 27.5 and 28.5 raise
             // (Y58ServerHelpers.al SystemEnvironment_NewLine_WithoutConstructor, `#if BC29PLUS`).

@@ -158,6 +158,7 @@ mod transferfields_cross_app;
 mod transferfields_field_apps;
 mod transferfields_size;
 mod truncate_database_delete;
+mod user_account_keys;
 mod user_gaps_filters;
 mod userpersonalization;
 mod usertable;
