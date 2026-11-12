@@ -237,6 +237,28 @@ impl Session {
         )
     }
 
+    /// Whether page `p` declares no trigger outside `triggers` and no property outside the plain ones and `properties` (lower
+    /// case), has no page extension and no event subscriber, and its controls come from the page itself, with literal
+    /// properties and no extension trigger.
+    pub(super) fn page_declares_within(&self, p: &St, triggers: &[&str], properties: &[&str]) -> bool {
+        let engine = self.engine();
+        let object = p.borrow().object as usize;
+        let page = page_of(&engine, p);
+        page.triggers.iter().all(|(n, _)| triggers.contains(&n.as_str()))
+            && page.extensions.is_empty()
+            && page.ext_triggers.is_empty()
+            && !engine.events.any_subscriber_of(object)
+            && engine.program.objects[object].properties.iter().all(|(k, _)| {
+                let k = k.to_ascii_lowercase();
+                PLAIN_PROPERTIES.contains(&k.as_str()) || properties.contains(&k.as_str())
+            })
+            && page.controls.iter().all(|c| {
+                c.owner.is_none()
+                    && c.ext_triggers.is_empty()
+                    && c.props.iter().all(|(_, v)| matches!(v, ir::PropVal::Lit(_)))
+            })
+    }
+
     /// Whether `part` and its host are pages as `pin` lists them, every fact required:
     /// - the host: a top-level page of `pin.host_type` that declares no property but the plain ones and no trigger outside
     ///   `pin.host_triggers`; its controls are fields of Rec without a trigger, groups and this one part (other parts with
@@ -262,22 +284,8 @@ impl Session {
         let engine = self.engine();
         let object_of = |p: &St| p.borrow().object as usize;
         let page_type = |p: &St| engine.object_facts[object_of(p)].page_type.clone();
-        let declares_within = |p: &St, triggers: &[&str], properties: &[&str]| {
-            let page = page_of(&engine, p);
-            page.triggers.iter().all(|(n, _)| triggers.contains(&n.as_str()))
-                && page.extensions.is_empty()
-                && page.ext_triggers.is_empty()
-                && !engine.events.any_subscriber_of(object_of(p))
-                && engine.program.objects[object_of(p)].properties.iter().all(|(k, _)| {
-                    let k = k.to_ascii_lowercase();
-                    PLAIN_PROPERTIES.contains(&k.as_str()) || properties.contains(&k.as_str())
-                })
-                && page.controls.iter().all(|c| {
-                    c.owner.is_none()
-                        && c.ext_triggers.is_empty()
-                        && c.props.iter().all(|(_, v)| matches!(v, ir::PropVal::Lit(_)))
-                })
-        };
+        let declares_within =
+            |p: &St, triggers: &[&str], properties: &[&str]| self.page_declares_within(p, triggers, properties);
         let plain_field = |c: &ir::Control| matches!(c.binding, ir::Binding::Field(_)) && c.triggers.is_empty();
         let host_page = page_of(&engine, &host);
         let host_ok = page_type(&host) == Some(pin.host_type.clone())

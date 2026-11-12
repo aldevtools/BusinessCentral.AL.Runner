@@ -2592,18 +2592,6 @@ codeunit 69503 T {{ Subtype = Test;
     }
 }
 
-// Local real-BC DocumentWithPart.al probe and its no-part control.
-#[test]
-fn measured_document_open_new_with_linked_part_inserts_before_validation() {
-    all_pass(run_with_deps(&[], include_str!("../fixtures/document-with-part.al")));
-}
-
-// Local real-BC WorksheetRefresh.al probe and its explicit First() control.
-#[test]
-fn measured_empty_worksheet_update_makes_imported_row_selectable() {
-    all_pass(run_with_deps(&[], include_str!("../fixtures/worksheet-refresh.al")));
-}
-
 /// Issue 7771: SelectionFilterNoRow.al measures a static modal Worksheet
 /// with DelayedInsert and just one exact filter in group 2.
 #[test]

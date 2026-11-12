@@ -185,8 +185,14 @@ impl Session {
             }))
     }
 
-    /// An action on a filtered modal Worksheet with InsertAllowed = false and no current row selects the default key.
-    /// Measured by the pending corpus probe pages/currpage/SelectionFilterNoRow.al:346.
+    /// An action on the empty modal Worksheet of pages/currpage/SelectionFilterNoRow.al:346
+    /// (Page_SetSelectionFilter_EmptyModalWorksheet_FiltersDefaultKey, page 67999) selects the default key: the selection
+    /// filters the primary key on its blank value and finds nothing. Every fact required: the page ran by a statement
+    /// `Page.RunModal(Page::X)` without a record and without its return value used, under a typed modal handler that invokes
+    /// an action; a Worksheet on no row that declares OnOpenPage and no other trigger, no property but the plain ones,
+    /// DelayedInsert = true and InsertAllowed = false, with no page extension and no event subscriber; Rec is stored and holds
+    /// only OnOpenPage's `SetRange` of one non-blank Text value on a field outside its one-field Integer primary key, in
+    /// filter group 2; the destination record is fresh.
     pub(super) fn empty_modal_worksheet_selection(
         &mut self,
         st: &St,
@@ -210,13 +216,17 @@ impl Session {
             }
             page.object as usize
         };
+        if !self.declares(st, "onopenpage")
+            || !self.page_declares_within(st, &["onopenpage"], &["delayedinsert", "insertallowed"])
+        {
+            return Ok(false);
+        }
         let facts = &self.engine.object_facts[object];
         let delayed = self.engine.program.objects[object]
             .properties
             .iter()
             .any(|(key, value)| key.eq_ignore_ascii_case("DelayedInsert") && value.trim().eq_ignore_ascii_case("true"));
         if facts.page_type != Some(ir::PageType::Worksheet)
-            || facts.has_source_table_view
             || !delayed
             || self.ui_state.page_handler_depth == 0
             || !flag_denied(&self.engine, object, "InsertAllowed")?
@@ -241,7 +251,6 @@ impl Session {
         let table = self.table(src)?;
         let key = &table.keys[0];
         let exact_text = match &filter.expr {
-            al_builtins::filter::FilterExpr::Eq(Value::Text(text)) => !text.is_empty(),
             al_builtins::filter::FilterExpr::Range(Some(Value::Text(lower)), Some(Value::Text(upper))) => {
                 !lower.is_empty() && lower == upper
             }
@@ -256,7 +265,6 @@ impl Session {
         {
             return Ok(false);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyModalWorksheetSelection);
         Ok(true)
     }
 
