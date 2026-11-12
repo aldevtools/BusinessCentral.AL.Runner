@@ -495,9 +495,9 @@ pub(crate) fn lower_object<'a>(
         for n in v.names() {
             if !attrs.is_empty() {
                 let mut left = attrs_left(&attrs, &declared);
-                if with_events_without_trigger(o.kind, &ty, &obj, &n) {
+                if let Some(marker) = super::with_events::marker(&lw, o.kind, &ty, &obj, &n) {
                     for a in left.iter_mut().filter(|a| *a == "withevents") {
-                        *a = WITH_EVENTS_NO_TRIGGER.into();
+                        *a = marker.into();
                     }
                 }
                 lw.global_var_attrs.insert(n.to_lowercase(), left);
@@ -1292,21 +1292,6 @@ pub(crate) fn attrs_left(attrs: &[String], declared: &Option<Result<i32, String>
     }
     attrs
 }
-
-/// Whether the global `name` of the object `obj` is a `[WithEvents]` DotNet variable of a codeunit that declares no
-/// `trigger name::Event` for it. No AL code then runs on its events, and its uses run as a plain DotNet variable's, marked
-/// with assumption `with-events-no-trigger` (Microsoft's Sales and Inventory Forecast Tests, codeunit 139540
-/// TestMissingApiUriOpenSetup, passes on real BC through Base App's Azure ML Connector, whose WithEvents variables have no
-/// trigger). Every other WithEvents variable keeps the refusal (`Lowerer::var_attr_refusal`).
-fn with_events_without_trigger(kind: ObjKind, ty: &Ty, obj: &ast::Object, name: &str) -> bool {
-    let prefix = format!("{}::", name.to_lowercase());
-    kind == ObjKind::Codeunit
-        && matches!(ty, Ty::DotNet(_))
-        && !obj.triggers().any(|t| t.name().to_lowercase().starts_with(&prefix))
-}
-
-/// The name a `[WithEvents]` attribute gets for a variable [`with_events_without_trigger`] accepts.
-pub(crate) const WITH_EVENTS_NO_TRIGGER: &str = "withevents-no-trigger";
 
 /// The name [`attrs_left`] gives the attribute SecurityFiltering of a variable whose declared value the runtime keeps: its
 /// read is not refused, an array assignment or CopyArray of it is (`Lowerer::security_filtering_array_refusal`).

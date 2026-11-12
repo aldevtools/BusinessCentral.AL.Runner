@@ -170,6 +170,7 @@ fn every_registered_id_is_in_the_catalog() {
         "System.FormatDecimalField#1",
         "System.FormatAutoFormatField#1",
         "System.FormatOptionColumn#1",
+        "System.ClearWithEventsTimer#1",
         "System.OptionCaptionML#1",
         "Dialog.ErrorNotLiteral#1",
         "Dialog.ErrorConstant#1",

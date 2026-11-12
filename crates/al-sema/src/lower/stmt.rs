@@ -1901,7 +1901,7 @@ impl Lowerer<'_> {
     /// DotNetFromAlNotSupported, al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:145-146) and `[WithEvents]` (the
     /// `trigger Variable::Event` handlers run when the object raises the event, AcDnAttributes.al:50, :86) are not
     /// implemented, and running the variable without them would be silently wrong. A codeunit's WithEvents variable that no
-    /// trigger handles is not refused here (`shared::with_events_without_trigger`).
+    /// trigger handles, and a Timer whose one trigger is Elapsed, are not refused here (`with_events::marker`).
     pub(crate) fn var_attr_refusal(&self, name: &str, local: bool) -> Option<String> {
         let attrs = if local {
             self.local_var_attrs.get(name)
@@ -1952,13 +1952,28 @@ impl Lowerer<'_> {
                     self.run_refusals.insert(why.clone());
                     Err(why)
                 }
-                // A WithEvents variable no trigger handles (`shared::with_events_without_trigger`) runs as a plain one, assumed.
+                // A WithEvents Timer whose one trigger is Elapsed (`with_events::marker`): only the uses the probe made.
                 Some(Res::Global(name))
                     if !self.in_request_page
                         && self
                             .global_var_attrs
                             .get(name)
-                            .is_some_and(|a| a.iter().any(|a| a == super::shared::WITH_EVENTS_NO_TRIGGER)) =>
+                            .is_some_and(|a| a.iter().any(|a| a == super::with_events::WITH_EVENTS_TIMER_ELAPSED)) =>
+                {
+                    let name = name.clone();
+                    self.with_events_timer_use(n, &name)?;
+                    self.globals
+                        .get(&name)
+                        .map(|i| ir::Place::Global(*i))
+                        .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"))
+                }
+                // A WithEvents variable no trigger handles (`with_events::marker`) runs as a plain one, assumed.
+                Some(Res::Global(name))
+                    if !self.in_request_page
+                        && self
+                            .global_var_attrs
+                            .get(name)
+                            .is_some_and(|a| a.iter().any(|a| a == super::with_events::WITH_EVENTS_NO_TRIGGER)) =>
                 {
                     let place = self
                         .globals

@@ -131,6 +131,7 @@ fn handle(h: u64, ty: &str) -> DotNetValue {
 const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Convert\"; \"Convert\") { }
     type(\"System.Uri\"; \"Uri\") { }
+    type(\"System.Timers.Timer\"; \"Timer\") { }
     type(\"System.IO.Compression.ZipArchive\"; \"ZipArchive\") { }
     type(\"System.IO.Compression.ZipArchiveEntry\"; \"ZipArchiveEntry\") { }
     type(\"System.IO.MemoryStream\"; \"MemoryStream\") { }
@@ -3904,4 +3905,124 @@ fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
     let host = Fake::new(|r| panic!("unexpected request {r:?}"));
     let r = run(&host, "Q: DotNet GenQueue; T: DotNet ClrType;", "T := GetDotNetType(Q); exit('ok');", ": Text");
     assert!(unsupported(&r).contains("Queue`1"), "{}", unsupported(&r));
+}
+
+// ---- [WithEvents] Timer with an Elapsed trigger (al-runner issue 7832; corpus PR 1365, N4WithEventsNoRaise.al) --------------
+
+/// Runs `routine` of `object` in `src` (after the shared DotNet declarations) on `host`.
+fn run_src(host: &Fake, src: &str, object: &str, routine: &str) -> Ran {
+    let (ws, l) = al_sema::lower::compile(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), format!("{DOTNET}{src}"))],
+        }],
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked: Vec<Vec<Option<String>>> = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
+        .collect();
+    let oi = l.program.objects.iter().position(|o| o.name == object).unwrap();
+    let ri = l.program.objects[oi].routines.iter().position(|r| r.name == routine).unwrap();
+    if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
+        return Ran {
+            result: Err(Signal::unsupported(r.clone())),
+            session: None,
+        };
+    }
+    let mut s = Session::new(Engine::with_dotnet(l.program, blocked, cfg(host)));
+    let inst = s.instance(oi);
+    let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    Ran {
+        result,
+        session: Some(s),
+    }
+}
+
+/// A host for a System.Timers.Timer: each constructor gives a new object, Interval reads back what was set, Enabled is No.
+fn timer_host() -> Fake {
+    let interval = Arc::new(Mutex::new(String::from("100")));
+    let next = Arc::new(Mutex::new(20u64));
+    Fake::new(move |r| match r {
+        Req::Construct(t, a) if t == "System.Timers.Timer" && a.is_empty() => {
+            let mut n = next.lock().unwrap();
+            *n += 1;
+            reply(handle(*n, "System.Timers.Timer"))
+        }
+        Req::Set(_, m, DotNetValue::Int32(v)) if m == "Interval" => {
+            *interval.lock().unwrap() = v.to_string();
+            reply(DotNetValue::Null)
+        }
+        Req::Get(_, m) if m == "Interval" => reply(DotNetValue::Decimal(interval.lock().unwrap().clone())),
+        Req::Get(_, m) if m == "Enabled" => reply(DotNetValue::Bool(false)),
+        other => panic!("unexpected request {other:?}"),
+    })
+}
+
+const TIMER_USES: &str = "procedure F(): Text var S: Text; begin S := Format(IsNull(Tm)); Tm := Tm.Timer(); Tm.Interval := 1000; \
+    S += '|' + Format(IsNull(Tm)) + '|' + Format(Tm.Interval) + '|' + Format(Tm.Enabled); Tm := Tm.Timer(); Tm.Interval := 2000; \
+    S += '|' + Format(Tm.Interval); Clear(Tm); exit(S + '|' + Format(IsNull(Tm)) + '|' + Format(N)); end;";
+
+const ELAPSED: &str = "trigger Tm::Elapsed(sender: Variant; e: DotNet ClrObject) begin N += 1; end;";
+
+// The uses the probe made run on a codeunit, a page, a table and a report, and the Elapsed trigger never runs
+// (N4WithEventsNoRaise.al:291-318, :372-385, :387-403, :405-417).
+#[test]
+fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
+    use al_builtins::assumptions::Assumption;
+    for (kind, head) in [
+        ("codeunit", "codeunit 50100 W"),
+        ("page", "page 50100 W"),
+        ("table", "table 50100 W { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } }"),
+        ("report", "report 50100 W"),
+    ] {
+        let open = if kind == "table" { "" } else { " {" };
+        let src = format!("{head}{open} var [WithEvents] Tm: DotNet Timer; N: Integer; {ELAPSED} {TIMER_USES} }}");
+        hits();
+        let r = run_src(&timer_host(), &src, "W", "F");
+        assert_eq!(text(r), "Yes|No|1,000|No|2,000|Yes|0", "{kind}");
+        assert!(hits().contains(&Assumption::WithEventsTimerElapsedNotStarted), "{kind}");
+    }
+}
+
+// Every other use, member, trigger set or type keeps the refusal.
+#[test]
+fn a_with_events_timer_outside_the_measured_uses_stays_refused() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(..) => reply(handle(21, "System.Timers.Timer")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    for (decl, triggers, body) in [
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Tm.Start();"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Tm.Enabled := true;"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Other := Tm;"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Keep(Tm);"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Other;"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Tm.Interval(5);"),
+        (
+            "Tm: DotNet Timer",
+            "trigger Tm::Elapsed(sender: Variant; e: DotNet ClrObject) begin end; trigger Tm::Disposed(sender: Variant; e: DotNet ClrObject) begin end;",
+            "Tm := Tm.Timer();",
+        ),
+        ("Tm: DotNet Timer", "trigger Tm::Disposed(sender: Variant; e: DotNet ClrObject) begin end;", "Tm := Tm.Timer();"),
+        ("Tm: DotNet StringBuilder", ELAPSED, "Tm := Tm.StringBuilder();"),
+    ] {
+        let src = format!(
+            "codeunit 50100 W {{ var [WithEvents] {decl}; Other: DotNet Timer; N: Integer; {triggers} \
+             procedure F() begin {body} end; procedure Keep(T: DotNet Timer) begin end; }}"
+        );
+        let r = run_src(&host, &src, "W", "F");
+        assert!(unsupported(&r).contains("WithEvents"), "{decl} {body}: {}", unsupported(&r));
+    }
+    // An xmlport is not measured.
+    let src = format!(
+        "xmlport 50100 W {{ schema {{ textelement(Root) {{ }} }} var [WithEvents] Tm: DotNet Timer; N: Integer; {ELAPSED} \
+         procedure F(): Boolean begin exit(IsNull(Tm)); end; }}"
+    );
+    let r = run_src(&host, &src, "W", "F");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
 }
