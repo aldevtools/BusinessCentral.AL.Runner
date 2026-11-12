@@ -927,6 +927,80 @@ fn layouts_without_triggers_outside_the_measured_temporary_ones_keep_mains_answe
         ok_cases(&plain_port(&p), &p, &[("MISS", 0)], None),
         ["Yes |  |  | validate nv:MISS;before insert:MISS; | "]
     );
+    // The temporary layout with one fact the four measured ports (XpAfterAssignTableRelation.al:576, :694, :765, :935) do not
+    // have, flipped one at a time: main validates, without the assumption.
+    let base = plain_port(&temp(true, "Rel Code", ""));
+    let doc_miss = r#"<Root><Row Id="1" RelCode="MISS" /></Root>"#;
+    for (shape, src, xml) in [
+        (
+            "another field attribute with FieldValidate = No",
+            base.replace(
+                "fieldattribute(Id; Row.Id) { }",
+                "fieldattribute(Id; Row.Id) { }\n                fieldattribute(Other; Row.\"Rel Code Plain\") { FieldValidate = No; }",
+            ),
+            r#"<Root><Row Id="1" Other="P1" RelCode="MISS" /></Root>"#.to_string(),
+        ),
+        (
+            "two measured fields in one row",
+            base.replace(
+                "fieldattribute(Id; Row.Id) { }",
+                "fieldattribute(Id; Row.Id) { }\n                fieldattribute(Other; Row.\"Rel Code Plain\") { }",
+            ),
+            r#"<Root><Row Id="1" Other="P1" RelCode="MISS" /></Root>"#.to_string(),
+        ),
+        (
+            "the Id attribute with a property",
+            base.replace("fieldattribute(Id; Row.Id) { }", "fieldattribute(Id; Row.Id) { Occurrence = Required; }"),
+            doc_miss.to_string(),
+        ),
+        (
+            "another field element with MinOccurs = Zero",
+            base.replace(
+                "fieldattribute(Id; Row.Id) { }",
+                "fieldattribute(Id; Row.Id) { }\n                fieldelement(Other; Row.\"Rel Code Plain\") { MinOccurs = Zero; }",
+            ),
+            doc_miss.to_string(),
+        ),
+        (
+            "a second table element below the root",
+            base.replace(
+                "        textelement(Root)\n        {\n",
+                "        textelement(Root)\n        {\n            tableelement(Rel2; \"AAR Rel\") { MinOccurs = Zero; fieldattribute(C; Rel2.\"Code\") { } }\n",
+            ),
+            doc_miss.to_string(),
+        ),
+        (
+            "a text element beside the table element",
+            base.replace(
+                "        textelement(Root)\n        {\n",
+                "        textelement(Root)\n        {\n            textelement(Extra) { MinOccurs = Zero; }\n",
+            ),
+            doc_miss.to_string(),
+        ),
+        (
+            "the root with XmlName = 'Other'",
+            base.replace("        textelement(Root)\n        {\n", "        textelement(Root)\n        {\n            XmlName = 'Other';\n"),
+            r#"<Other><Row Id="1" RelCode="MISS" /></Other>"#.to_string(),
+        ),
+        (
+            "OnPreXmlPort and OnPostXmlPort",
+            base.replace(
+                "    var AarLog: Codeunit \"AAR Log\";\n}",
+                "    trigger OnPreXmlPort() begin end;\n    trigger OnPostXmlPort() begin end;\n    var AarLog: Codeunit \"AAR Log\";\n}",
+            ),
+            doc_miss.to_string(),
+        ),
+    ] {
+        assert_ne!(src, base, "{shape}: the template did not change");
+        al_builtins::assumptions::take_hits();
+        let got = doc(&src, 50710, &xml).unwrap_or_else(|e| panic!("{shape}: {e:?}"));
+        assert!(
+            got.starts_with("No | The field Rel Code of table AAR Row contains a value (MISS) that cannot be found"),
+            "{shape}: {got}"
+        );
+        let hits = al_builtins::assumptions::take_hits();
+        assert!(!hits.contains(&NOT_VALIDATED.unwrap()), "{shape}: {hits:?}");
+    }
 }
 
 /// Unmeasured fields and nodes with the trigger keep main's refusal: an Integer or Code[10] field on a field element, a

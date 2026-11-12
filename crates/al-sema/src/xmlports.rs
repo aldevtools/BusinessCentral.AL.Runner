@@ -60,6 +60,8 @@ pub struct Layout {
     pub request_page: bool,
     /// The object's own properties as written: lower-case name, trimmed value.
     pub object_properties: Vec<(String, String)>,
+    /// The lower-case names of the object's own triggers (OnPreXmlPort, OnInitXmlPort, ...).
+    pub object_triggers: Vec<String>,
 }
 
 /// `Table.Field` at the first dot outside quotes: a table name may hold a dot (`"Data Exch. Def".Code`).
@@ -220,6 +222,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         export_reasons: Vec::new(),
         request_page: false,
         object_properties: Vec::new(),
+        object_triggers: obj.triggers().map(|t| t.name().to_ascii_lowercase()).collect(),
     };
     let (mut default_namespace, mut use_default_namespace) = (None::<String>, Some(false));
     let mut bc_namespace = false;

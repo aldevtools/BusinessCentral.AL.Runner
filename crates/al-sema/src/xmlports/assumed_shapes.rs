@@ -121,14 +121,31 @@ pub(super) fn after_assign_layout(layout: &Layout, i: usize) -> bool {
             || node_properties(layout, i, &[("FieldValidate", "Yes")]))
 }
 
-/// Field node `i` in the import layout without triggers (XpAfterAssignTableRelation.al ports 77714, 77716-77719, 77729,
-/// 77732-77733 and 77739): the facts of `import_layout_triggered`, no node of the table element has a trigger, and node `i`
-/// declares nothing (:711, :782) or only `FieldValidate = Yes` (:954).
+/// Field node `i` in the import layout without triggers of the four temporary ports that change main's result
+/// (XpAfterAssignTableRelation.al ports 77714 :576, 77717 :694, 77719 :765 and 77732 :935). Each fact by equality, as all
+/// four have it:
+/// - the facts of `import_layout_triggered`, and no node of the table element has a trigger;
+/// - the port declares no trigger;
+/// - the root text element declares nothing, has no trigger and holds only the table element;
+/// - the table element holds two nodes: `i` and a field attribute that declares nothing (`Id`);
+/// - node `i` declares nothing (:711, :782) or only `FieldValidate = Yes` (:954).
 ///
 /// What al-vm `xmlports/after_assign.rs` checks on top: the field, its relation and validate code, and the record; only a
 /// temporary table element changes main's result there.
 pub(super) fn plain_import_layout(layout: &Layout, i: usize) -> bool {
+    let Some(t) = layout.nodes[i].parent else {
+        return false;
+    };
+    let Some(root) = layout.nodes[t].parent else {
+        return false;
+    };
     import_layout_triggered(layout, i) == Some(0)
+        && layout.object_triggers.is_empty()
+        && node_properties(layout, root, &[])
+        && triggers(layout, root).is_empty()
+        && kids(layout, root) == [t]
+        && matches!(kids(layout, t)[..], [a, b] if (a == i) != (b == i)
+            && [a, b].into_iter().all(|k| k == i || (layout.nodes[k].kind == K::FieldAttr && node_properties(layout, k, &[]))))
         && (node_properties(layout, i, &[]) || node_properties(layout, i, &[("FieldValidate", "Yes")]))
 }
 
