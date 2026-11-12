@@ -9,7 +9,7 @@ use super::*;
 use al_builtins::page_op::PageMethod;
 
 /// The start of the text of an error out of OnClosePage (`page_close`, CcPageLeads.al:624-633).
-const CLOSING_ERRORS: &str = "One or more errors occurred while closing the page.";
+pub(super) const CLOSING_ERRORS: &str = "One or more errors occurred while closing the page.";
 
 /// Where the control whose `Lookup()` opened the relation's list page sits, for the places the corpus pins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

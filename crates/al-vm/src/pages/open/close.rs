@@ -283,7 +283,11 @@ impl Session {
         }
         // BC's client saves the child forms before the form's own record on a saving close
         // (corpus testpage/parts/TestOkPartRow.al:OkInvoke_HeaderOnModifySeesThePartRowSavedFirst).
-        self.save_parts(st)?;
+        let saved = self.save_parts(st);
+        if let Some(e) = self.document_part_save_error(st, &saved, via_action)? {
+            return Err(e);
+        }
+        saved?;
         let pending = st.borrow_mut().pending.take();
         if let Some(fields) = pending {
             let rec = self.page_rec(st);
@@ -447,6 +451,8 @@ impl Session {
         if test_close {
             r?;
         } else if let Some(e) = self.relation_close_page_error(st, &r) {
+            return Err(e);
+        } else if let Some(e) = self.document_close_page_error(st, &r)? {
             return Err(e);
         } else {
             refuse_error(r, "OnClosePage at a close by an action or a handler")?;

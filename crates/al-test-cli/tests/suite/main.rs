@@ -41,6 +41,7 @@ mod data_driven_tests;
 mod data_fixes;
 mod deferred_insert_at_test_end;
 mod dependency_positions;
+mod document_handler_error_shape;
 mod dotnet_diff;
 mod dotnet_service_tier;
 mod dotnet_sidecar;

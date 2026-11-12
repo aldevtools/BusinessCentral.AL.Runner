@@ -3051,7 +3051,7 @@ impl Session {
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {
             if modal && matches!(e, Signal::Error(_)) && st.borrow().open {
-                self.close_modal_after_handler_error(&st)?;
+                self.close_modal_after_handler_error(&st, &e)?;
             }
             self.mark_closed(&st);
             return Err(e);
