@@ -1122,6 +1122,9 @@ impl Merges {
                     for (name, r) in &m.triggers {
                         c.ext_triggers.push((name.clone(), *e, *r));
                     }
+                    if al_ir::Control::sets_caption(&m.props) {
+                        c.caption_modifies.push((*e, m.name.clone()));
+                    }
                 }
                 for (name, r) in &p.triggers {
                     page.ext_triggers.push((name.clone(), *e, *r));
@@ -1876,6 +1879,7 @@ mod tests {
                 part_link: None,
                 owner: None,
                 ext_triggers: vec![],
+                caption_modifies: vec![],
                 run_object: None,
                 action_ref: None,
                 prop_texts: vec![],

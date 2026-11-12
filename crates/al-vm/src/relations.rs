@@ -337,13 +337,7 @@ impl Session {
         // A related table the baseline could not fill may hold the row in BC.
         self.unseeded_read(&related, false, "the TableRelation check")?;
         Err(Signal::Error(Box::new(AlError {
-            message: format!(
-                "The field {} of table {} contains a value ({}) that cannot be found in the related table ({}).",
-                self.field_caption(t, pos),
-                self.caption(t),
-                self.message_value(&value)?,
-                self.relation_error_caption(&related)
-            ),
+            message: self.relation_error_text(t, pos, &value, &related)?,
             code: if used_source_flowfilter {
                 al_builtins::native::UNPINNED_ERROR.into()
             } else {
@@ -352,6 +346,45 @@ impl Session {
             call_stack: String::new(),
             ..Default::default()
         })))
+    }
+
+    /// The text of the TableRelation error of a Validate of `value` in field `pos` of `t`, missing from table `related`. Under
+    /// 1043 and 2067 the platform's words are Dutch (format-evaluate/EnumCaptionReaders.al:980-982 ECR_Relations_2067;
+    /// localization/app-xliff/BaseAppPageExtCaption.al:276 under 1043, al-runner issue 7327). There a caption a translation
+    /// file could change is the unpinned-error mark: the pinned cases name only captions no file translates. Other languages
+    /// keep the English text.
+    fn relation_error_text(
+        &self,
+        t: &TableDef,
+        pos: usize,
+        value: &Value,
+        related: &TableDef,
+    ) -> Result<String, Signal> {
+        let mut field = self.field_caption(t, pos);
+        let mut table = self.caption(t);
+        let shown = self.message_value(value)?;
+        let mut other = self.relation_error_caption(related);
+        if !matches!(al_builtins::format::FormatCtx::language(self), 1043 | 2067) {
+            return Ok(format!(
+                "The field {field} of table {table} contains a value ({shown}) that cannot be found in the related table ({other})."
+            ));
+        }
+        let mark = || al_builtins::native::UNPINNED_ERROR.to_string();
+        if !matches!(self.field_caption_translation(t, pos), Ok(None)) {
+            field = mark();
+        }
+        if self.translated_read_refusal(t.object as usize, String::new).is_some() {
+            table = mark();
+        }
+        if self
+            .translated_read_refusal(related.object as usize, String::new)
+            .is_some()
+        {
+            other = mark();
+        }
+        Ok(format!(
+            "Het veld {field} van tabel {table} bevat een waarde ({shown}) die niet is gevonden in de gerelateerde tabel ({other})."
+        ))
     }
 
     /// A source FlowFilter with a default buffer contributes no condition when unset
@@ -455,6 +488,15 @@ fn const_cond_holds(value: &Value, c: &ir::Const, relation: impl Fn() -> String)
         // An error of the comparison itself (a Text that reads as no Guid) is not pinned for a relation either.
         Err(e) => cond_refusal(e, &relation()),
     }
+}
+
+/// Whether `msg` is the Dutch text of a TableRelation error (`Session::relation_error_text`).
+pub(crate) fn is_dutch_relation_text(msg: &str) -> bool {
+    msg.strip_prefix("Het veld ")
+        .and_then(|rest| rest.split_once(" van tabel "))
+        .and_then(|(_, rest)| rest.split_once(" bevat een waarde ("))
+        .and_then(|(_, rest)| rest.split_once(") die niet is gevonden in de gerelateerde tabel ("))
+        .is_some_and(|(_, rest)| rest.ends_with(")."))
 }
 
 /// The refusal of a TableRelation condition of `relation` (table.field) whose comparison failed with `e`.

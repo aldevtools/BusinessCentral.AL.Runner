@@ -1242,6 +1242,11 @@ pub struct Control {
     /// routine), in the order the extensions apply.
     #[serde(default)]
     pub ext_triggers: Vec<(String, usize, usize)>,
+    /// The `modify` blocks of page extensions that set the control's `Caption` or `CaptionML`: (extension object, the
+    /// control's name as the block writes it), in the order the extensions apply. Their translation units name the
+    /// extension and that name (`PageExtension <ext> - Change <name> - Property Caption`).
+    #[serde(default)]
+    pub caption_modifies: Vec<(usize, String)>,
     /// For actions: what `RunObject` runs (ADR-012 follow-up).
     #[serde(default)]
     pub run_object: Option<RunObject>,
@@ -1389,6 +1394,10 @@ impl LinkEntry {
 impl Control {
     pub fn prop(&self, name: &str) -> Option<&PropVal> {
         self.props.iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    }
+    /// Whether the properties a `modify` block sets give a control a caption (`caption_modifies`).
+    pub fn sets_caption(props: &[(String, PropVal)]) -> bool {
+        props.iter().any(|(n, _)| n == "caption" || n == "captionml")
     }
     pub fn trigger(&self, name: &str) -> Option<usize> {
         self.triggers.iter().find(|(n, _)| n == name).map(|(_, r)| *r)
