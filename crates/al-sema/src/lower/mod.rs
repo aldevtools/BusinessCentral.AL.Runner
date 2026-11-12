@@ -246,6 +246,9 @@ pub(crate) struct Lowerer<'a> {
     /// that names `Rec` raises ReportRequestPageNotInitialized when it runs (`run_failures`).
     in_report_init_with_rec: Option<i64>,
     locals: HashMap<String, usize>,
+    /// The local variables of the routine whose declaration writes `Char`, `Byte`, or `Option` with named members, by
+    /// lowercase name (`char_option_byte_get`). A parameter, a return value and a platform option type are not among them.
+    local_char_option_byte_vars: std::collections::HashSet<String>,
     /// Declared text of Label variables, by lowercase name; reads lower to that constant.
     global_labels: HashMap<String, String>,
     local_labels: HashMap<String, String>,
@@ -576,6 +579,11 @@ pub(crate) fn is_assign_call(receiver: &str, name: &str) -> bool {
             | ("Dialog", "HideSubsequentDialogs")
             // `Sleep := 1` is `Sleep(1)` (record/ProbePropertyAssignmentForms.al:564 Y29_Collections_Text_Sleep_AssignForms).
             | ("System", "Sleep")
+            // `currXMLport.Filename := 'probe.txt'` in OnPreXmlPort and `Xp.Filename := 'var.txt'` on an XmlPort variable are
+            // `Filename(v)` (codeunits/procedures/AssignIsCallRule.al:902-934 AssignCall_XmlPortFilename_ExportToStream, :938
+            // AssignCall_XmlPortFilename_Variable; xmlports/shapes-properties/XpRootTableNestedVariants.al:1114 RTV_Filename_OnPre_*;
+            // al-runner issue 7714).
+            | ("Xmlport", "Filename")
     )
 }
 

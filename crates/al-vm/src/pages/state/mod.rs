@@ -396,6 +396,11 @@ pub struct PageState {
     pub pending: Option<Vec<Value>>,
     /// Opened by AL code (`Page.RunModal`, `Page.Run`) and answered by a handler, not by the test.
     pub modal: bool,
+    /// The current run is AL code's non-modal `Page.Run` (`note_page_run`, `page_run_close.rs`); cleared when the page closes.
+    pub page_run: Option<super::page_run_close::PageRun>,
+    /// The first calls AL code made on this page through its Page variable or `CurrPage`, at most three
+    /// (`note_page_code_call`, `page_run_close.rs`).
+    pub code_calls: Vec<al_builtins::page_op::PageMethod>,
     /// Whether the last run of this variable was modal (`None` before the first run): a second non-modal Run runs OnInit again.
     pub last_run_modal: Option<bool>,
     /// The rows of a tree (a repeater with ShowAsTree) expanded with `Expand(true)`, by primary key.
@@ -600,9 +605,12 @@ pub struct PageState {
     /// The action's refresh just ran the new-row line of a list that lost its only row three times (`settle_after_action`); read
     /// by `post_left_other_key_settled` and cleared when the action ends (al-runner issue 7821).
     pub gone_new_line_settled: bool,
-    /// A rule pinned for one outside reporter's repro ran on this page or one of its parts, and the repro does nothing after it
-    /// but the calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
+    /// A rule pinned for one scenario ran on this page or one of its parts, and the scenario does nothing after it but the
+    /// calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
     pub pinned_end: Option<crate::pages::pinned_shape::PinnedEnd>,
+    /// `SetSelectionFilter` on the empty modal Worksheet answered once since the page opened
+    /// (`empty_modal_worksheet_selection`); its pin makes one call.
+    pub empty_selection_given: bool,
     /// The fields of a part's Rec when the test's last SetValue on it began (`control_set_value`).
     pub row_before_write: Option<Vec<Value>>,
     /// The next first read of this part asks OnFindRecord `=>` instead of `=><` (`part_refresh_find_forward.rs`, al-runner
@@ -919,6 +927,7 @@ impl PageState {
         self.tree_calls_mark = None;
         self.typed_key_dropped = false;
         self.pinned_end = None;
+        self.empty_selection_given = false;
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
     }

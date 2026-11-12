@@ -190,7 +190,7 @@ impl al_builtins::native::Ctx for Session {
         self.last_error.clone()
     }
     fn set_last_error(&mut self, e: AlError) {
-        self.last_error = e;
+        self.set_last_error_of_builtin(e);
     }
     fn field_error_with_form(
         &mut self,
@@ -257,6 +257,9 @@ impl al_builtins::native::Ctx for Session {
     }
     fn media_store(&mut self) -> Option<&mut al_builtins::media::MediaStore> {
         Some(&mut self.media)
+    }
+    fn is_stored_tenant_media_id(&mut self, id: [u8; 16]) -> bool {
+        Session::is_stored_tenant_media_id(self, id)
     }
     fn media_holders(&mut self) -> Result<al_builtins::media_orphans::MediaHolders, Signal> {
         self.media_holders_impl()

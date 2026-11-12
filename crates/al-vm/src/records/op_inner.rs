@@ -1061,14 +1061,14 @@ impl Session {
                 // OnBeforeDeleteEvent, OnDelete, OnAfterDeleteEvent and the caller's buffer afterwards read the stored value
                 // (record/load-fields/P170JitLoadGone.al WA_Delete_FindSetForUpdate_DeleteTrue, WA_Delete_Control_PlainTable,
                 // WA_Delete_Control_TriggerTable; al-runner issue 6924).
-                let tenant_media =
-                    self.engine.program.objects.get(t.object as usize).and_then(|o| o.id) == Some(2_000_000_184);
-                if tenant_media && !rec.borrow().temporary {
+                // A row an AL Insert stored is deleted as a stored row (streams/media/Y48TenantMediaRows.al:648).
+                if self.is_tenant_media(&t) && !rec.borrow().temporary && !self.tenant_media_stored_key(&t, rec)? {
                     return self.delete_tenant_media(&t, rec, run);
                 }
                 if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
                 }
+                self.tenant_set_delete_one_refuses(&cx, &t, rec)?;
                 self.delete_row(&t, rec, run)
             }
             RecordOp::DeleteAll => {

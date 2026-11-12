@@ -353,7 +353,8 @@ none of them yet (a later change raises them in the pinned order).
 Status: Accepted by the owner on 2026-11-12, with these answers to the open questions: Part A as written; A7 (run Microsoft's layout
 selection code, a temporary selection of a Word layout no longer refused) yes; the one exact `Regex.Replace` entry yes; Part B is
 built only after the Windows probe is merged; `Contains` only (no `StrPos`/`IndexOf`); `Message` with a marked text stays refused.
-Nothing here is built yet.
+Part A is built (al-builtins `rendered_text.rs`; A7 in al-vm `report_placeholder/selection.rs`, for a user-defined Word layout selected
+by name without an app id); Part B waits for the probe.
 Part A is the opaque value. Part B ("known static text of the chosen layout") is part of the amendment by owner decision
 of 2026-11-12; Part A is written so that it works without Part B.
 
@@ -459,6 +460,12 @@ only for a Word layout.
 That case is a report with data that runs to its end. Nothing pins the output of a report that ends with
 `CurrReport.Quit` or whose data items read no row. So a read of A2 refuses when the report run that wrote the placeholder
 ended by `CurrReport.Quit` or produced no dataset row, until probe group P (B5) measures both.
+
+Measured since (corpus pull request 1362, `reports/layouts-html-text/HtRenderedTextTests.al`, BC 27.5 and 28.5): a run with no
+dataset row writes no Html and `SaveAs` answers false without an error (:320-335); `CurrReport.Quit` in OnPreReport or
+OnAfterGetRecord gives the same (:364-393), in OnPostReport the output is written and the answer is true (:396-409). The
+runtime answers the first for one data item saved to a stream with the answer used (`report-html-no-dataset-row`); the
+other shapes with no row refuse, a Quit before OnPostReport refuses, and a Quit in OnPostReport writes the placeholder as before.
 
 ### A3. What is allowed
 
@@ -582,9 +589,10 @@ imported from a .docx), named by a GUID.
 Decision: a save is not refused for a selection alone. The runtime resolves the selected layout and uses its **type** in
 the format x layout grid of the 2026-11-11 amendment:
 
-- The selection is read by raising the platform's layout selection events (`SelectReportLayoutCode`,
-  `SelectedBuiltinLayoutType`) to Base Application's `ReportManagement` subscribers only, so Microsoft's selection code
-  runs as AL (hard rule 7). Subscribers of other apps keep the "a subscriber the test can see" refusal.
+- The selection is read by raising the platform's layout selection event `SelectReportLayoutCode` to Base Application's
+  `ReportManagement` subscriber only, so Microsoft's selection code runs as AL (hard rule 7). BC raises no
+  `SelectedBuiltinLayoutType` once that event answered a selected layout (corpus pull request 1362,
+  `HtRenderedTextTests.al`:494, :530). Subscribers of other apps keep the "a subscriber the test can see" refusal.
 - The answer (layout name and app id, or a custom layout code) must name a layout the runtime can find: a rendering layout
   the report or a reportextension declares, or a `Tenant Report Layout` row for the report. Its type decides the grid
   column. Word gives the Html placeholder.
@@ -621,6 +629,22 @@ A lost mark is a silent wrong result: AL would read made-up or missing character
 | L16 | An allowed step changes the content and Part B still answers from the layout | The whole and changed forms (A1). Test: after P12 `Contains` refuses; a `#n` field refuses. The catalog test fails when a row of A3 does not declare its form. |
 | L12 | A later change adds an allowed use by widening a rule | Table A3 is data in one file with one row per builtin id and position, each with its citation. A test fails when a row has no citation or when the table and this ADR section differ in count. |
 
+Added after review rounds 1 and 2 (2026-11-12): the guard of A5 covers builtin calls only. These paths are not builtin calls and
+each has its own owner and test (`al-vm/tests/reporting/rendered_text_leaks.rs`):
+
+| # | Loss | What prevents it |
+|---|---|---|
+| L17 | `T[i] := c` writes over the mark or a character of unknown position | `interp.rs` `write_char` refuses rendered content at every position. For the three other marks it keeps a position inside the known characters before the first mark and refuses the rest. |
+| L18 | A `Text[N]` variable takes the text through the write-back of a `var` argument (`InStream.Read`, `Dictionary.Get`, `List.Get`, `BigText.GetSubText`, a procedure's `var Text` parameter) or as a `foreach` variable | `interp.rs` `rendered_into_place`: the conversion of an assignment (A5). |
+| L19 | A write that is no append changes a buffer a marked text was written to, or a marked text is written over bytes that were there | `stream::write_bytes` and `rendered_text::mark_written`: the buffer gets the kind "text with rendered content that was written over", and no read answers for it. BC's rendering is longer than its mark, so which bytes BC keeps is not known. |
+| L20 | A report dataset column or an XmlPort text variable writes the mark as bytes into a buffer without a mark | `dataset::escape` and `xp_pass_variable` refuse. |
+| L21 | A page control's text reaches `AssertEquals`, an `As*` method, a lookup or a request page's parameters | `control_text` refuses; only `TestField.Value()` reads it (P11). |
+| L22 | A CaptionClass expression (a page control's, a table field's) gives rendered content, and the area before its first comma is read from the mark | `Session::refuse_rendered_caption_class` (al-vm `pages/caption_class.rs`) refuses where the expression's value becomes a class text. Table A3 has no CaptionClass row. |
+| L23 | An array carries the text past the guard, or `CopyArray` puts it into a `Text[N]` or `Code[N]` element without the conversion of an assignment | The guard of A5 looks into arrays. `CopyArray` (P1), `CompressArray` (P5), `ArrayLen` (P9) and `Clear` (P1) are rows; the write-back of an array (the `CopyArray` destination, a `var` array parameter) converts each marked element to the element type (`rendered_into_place`). |
+
+`BigText.GetSubText` of P3 is the Text target overload with the Integer position 1 only; the BigText target is not in table A3
+and refuses.
+
 ### A9. Assumptions and flagged passes
 
 - `report-html-rendered-text`: marked when a read of A2 gives a marked text. Text: the Html of a Word layout is not empty,
@@ -628,8 +652,11 @@ A lost mark is a silent wrong result: AL would read made-up or missing character
   reporter's tests (al-runner issue 6924). A test through it is a flagged pass.
 - `email-body-rgba-replace-keeps-content`: marked when P12 runs. Text: `Regex.Replace` with that pattern and replacement
   maps a not-empty text to a not-empty text.
-- `report-layout-temp-selection`: marked when A7 resolves a selected layout that is not the report's default.
-- All three get a row in `docs/probes-needed.md` and a file under `al-builtins/src/assumptions/`.
+- `report-layout-temp-selection`: marked on every save A7 resolves (the selected layout is a Tenant Report Layout row, never the
+  report's default).
+- `report-html-no-dataset-row`: marked when an Html save of a Word layout report whose run wrote no dataset row answers false
+  and writes nothing (corpus pull request 1362, `HtRenderedTextTests.al`:320-335).
+- All four get a row in `docs/probes-needed.md` and a file under `al-builtins/src/assumptions/`.
 - Probes to queue on the corpus (Windows tier, it renders): (1) a Word layout report saved as Html to a Temp Blob,
   `InStream.Read(Text)`, then `T <> ''`, `Format(T) = T`, `TB.Append(T); TB.ToText() = T`, a UTF-8 stream round trip
   `= T`, a Blob field stored and read back `= T`. (2) `Email Message`.`Create(.., T, true)` then `GetBody() <> ''`.

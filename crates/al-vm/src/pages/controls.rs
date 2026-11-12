@@ -263,7 +263,7 @@ impl Session {
         }
         let writes = self.write_mark();
         let inserted_by_trigger = st.borrow().new_row_inserted_by_trigger;
-        let (activated, origin) = self.traced(st, |s| s.activate(st, idx));
+        let (activated, origin) = self.traced(st, |s| s.activate(st, idx, true));
         if inserted_by_trigger {
             return Err(self.insert_of_trigger_inserted_row(st, idx, activated)?);
         }
@@ -1582,7 +1582,7 @@ impl Session {
                         return Ok(shown);
                     }
                 }
-                let text = self.control_text(st, idx, &v)?;
+                let text = self.field_value_text(st, idx, &v)?;
                 Ok(Value::Text(text.into()))
             }
             PageMethod::AsInteger => self.control_as(st, idx, &RtType::Integer),
@@ -1756,7 +1756,7 @@ impl Session {
                 Ok(r)
             }
             PageMethod::Activate => {
-                let (activated, origin) = self.traced(st, |s| s.activate(st, idx));
+                let (activated, origin) = self.traced(st, |s| s.activate(st, idx, false));
                 if let (Err(Signal::Error(_)), Some("oninsertrecord")) = (&activated, origin.as_deref()) {
                     return unsupported("an error in OnInsertRecord on Activate() (only SetValue is pinned)");
                 }

@@ -28,7 +28,7 @@ use std::rc::Rc;
 type Rec = Rc<RefCell<RecordState>>;
 
 const TENANT_REPORT_LAYOUT_CFG: u32 = 2_000_000_249;
-const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
+use crate::tenant_layouts::TENANT_REPORT_LAYOUT;
 /// The platform report "Tenant Report Defaults", whose report extensions hold the shared header/footer and theme parts.
 const TENANT_REPORT_DEFAULTS: u32 = 2_000_000_001;
 

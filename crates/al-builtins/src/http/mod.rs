@@ -73,8 +73,18 @@ fn with_request<R>(r: Option<&mut Value>, f: impl FnOnce(&mut HttpRequestState) 
 fn with_content<R>(r: Option<&mut Value>, f: impl FnOnce(&mut HttpContentState) -> R) -> Result<R, Signal> {
     let cell = receiver_cell(r, "HttpContent")?;
     let mut lib = cell.borrow_mut();
-    if matches!(&*lib, LibraryValue::Empty) {
-        *lib = LibraryValue::HttpContent(HttpContentState::default());
+    if content_unused(&lib) {
+        // A content variable nobody called a method on yet starts as a new content; one that was handed on before keeps no
+        // evidence for `ReadAs(SecretText)` (`content_handed_on`).
+        let handed_on = !matches!(&*lib, LibraryValue::Empty);
+        *lib = LibraryValue::HttpContent(HttpContentState {
+            secret_read: if handed_on {
+                SecretReadShape::Other
+            } else {
+                SecretReadShape::New
+            },
+            ..HttpContentState::default()
+        });
     }
     match &mut *lib {
         LibraryValue::HttpContent(s) => Ok(f(s)),
@@ -193,6 +203,7 @@ mod header_rules;
 mod headers;
 mod messages;
 mod request_cookies;
+mod secret_read;
 mod send;
 mod uri;
 mod windows_auth;
@@ -204,9 +215,10 @@ use header_rules::*;
 use headers::*;
 use messages::*;
 use request_cookies::*;
+pub use secret_read::SecretReadShape;
 use send::*;
 use uri::*;
-pub use uri::{copy_content, is_empty_uri_form, normalize_uri};
+pub use uri::{content_handed_on, content_unused, copy_content, is_empty_uri_form, normalize_uri, request_handed_on};
 use windows_auth::*;
 
 pub fn native_for(sig: &Signature) -> Option<NativeFn> {
