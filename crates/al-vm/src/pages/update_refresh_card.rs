@@ -44,9 +44,15 @@ impl Session {
             return Ok(());
         };
         let current = rec.borrow();
-        let already_stored = table.fields.iter().zip(current.fields.iter().zip(&stored)).all(|(field, (shown, stored))| {
-            !field.stored || Self::same_but_unwritten_blobs(std::slice::from_ref(shown), std::slice::from_ref(stored))
-        });
+        let already_stored =
+            table
+                .fields
+                .iter()
+                .zip(current.fields.iter().zip(&stored))
+                .all(|(field, (shown, stored))| {
+                    !field.stored
+                        || Self::same_but_unwritten_blobs(std::slice::from_ref(shown), std::slice::from_ref(stored))
+                });
         drop(current);
         if already_stored {
             assume(Assumption::NextOnlyCardAssistEditRefresh);
