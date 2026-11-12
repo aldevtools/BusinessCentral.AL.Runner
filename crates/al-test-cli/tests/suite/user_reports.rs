@@ -2603,3 +2603,72 @@ fn measured_document_open_new_with_linked_part_inserts_before_validation() {
 fn measured_empty_worksheet_update_makes_imported_row_selectable() {
     all_pass(run_with_deps(&[], include_str!("../fixtures/worksheet-refresh.al")));
 }
+
+/// Issue 7771: SelectionFilterNoRow.al measures a static modal Worksheet
+/// with DelayedInsert and just one exact filter in group 2.
+#[test]
+fn issue_7771_empty_modal_worksheet_refuses_unmeasured_shapes() {
+    let exact = "Rec.FilterGroup(2); Rec.SetRange(Name, 'VISIBLE'); Rec.FilterGroup(0);";
+    let delayed = "DelayedInsert = true;";
+    let static_run = "Page.RunModal(Page::Worksheet);";
+    for (property, filter, run) in [
+        ("", exact, static_run),
+        (
+            delayed,
+            "Rec.FilterGroup(2); Rec.SetFilter(Name, 'V*'); Rec.FilterGroup(0);",
+            static_run,
+        ),
+        (
+            delayed,
+            "Rec.FilterGroup(2); Rec.SetRange(Name, 'VISIBLE'); Rec.FilterGroup(0); Rec.SetRange(Id, 2);",
+            static_run,
+        ),
+        (
+            "DelayedInsert = true; SourceTableView = where(Name = const('VISIBLE'));",
+            "",
+            static_run,
+        ),
+        (delayed, exact, "Window.RunModal();"),
+        (delayed, exact, "Page.RunModal(Page::Worksheet, Input);"),
+        (delayed, exact, "Input.Get(1); Page.RunModal(Page::Worksheet, Input);"),
+        (
+            delayed,
+            exact,
+            "Response := Page.RunModal(Page::Worksheet); if Response = Action::OK then;",
+        ),
+    ] {
+        let test = format!(
+            r#"
+table 69500 Row {{
+    fields {{ field(1; Id; Integer) {{ }} field(2; Name; Text[20]) {{ }} }}
+    keys {{ key(PK; Id) {{ Clustered = true; }} }}
+}}
+page 69501 Worksheet {{
+    PageType = Worksheet; SourceTable = Row; InsertAllowed = false; {property}
+    layout {{ area(Content) {{ repeater(Rows) {{ field(Id; Rec.Id) {{ ApplicationArea = All; }} }} }} }}
+    actions {{ area(Processing) {{ action(Check) {{
+        ApplicationArea = All;
+        trigger OnAction() var Selected: Record Row; begin
+            CurrPage.SetSelectionFilter(Selected);
+        end;
+    }} }} }}
+    trigger OnOpenPage() begin {filter} if Rec.FindFirst() then; end;
+}}
+codeunit 69502 T {{ Subtype = Test;
+    [Test] [HandlerFunctions('HandleWorksheet')]
+    procedure P() var Row: Record Row; Input: Record Row; Window: Page Worksheet; Response: Action; begin
+        Row.Id := 1; Row.Name := 'HIDDEN'; Row.Insert(); {run}
+    end;
+    [ModalPageHandler] procedure HandleWorksheet(var Window: TestPage Worksheet) begin
+        Window.Check.Invoke();
+    end;
+}}
+"#
+        );
+        let outcomes = run_with_deps(&[], &test);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains("on no row")),
+            "{property} {filter} {run}: {outcomes:?}"
+        );
+    }
+}

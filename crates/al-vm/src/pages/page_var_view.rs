@@ -160,6 +160,106 @@ impl Session {
         ))
     }
 
+    /// A fresh destination, or one holding just the blank-key filter of an earlier selection
+    /// (HiddenPartSelectionFilter.al: `rec-before=Id: 0/0`).
+    pub(super) fn plain_no_row_selection_destination(&self, dst: &Rec, initial: &[Value]) -> Result<bool, Signal> {
+        let table = self.table(dst)?;
+        let destination = dst.borrow();
+        let key = &table.keys[0];
+        Ok(destination.marks.is_empty()
+            && !destination.marked_only
+            && destination.filters.iter().all(|filter| {
+                key.len() == 1
+                    && filter.field == key[0]
+                    && match &filter.expr {
+                        al_builtins::filter::FilterExpr::Eq(value) => {
+                            al_builtins::ops::compare(value, &initial[filter.field]).is_ok_and(|order| order.is_eq())
+                        }
+                        al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) => {
+                            let expected = &initial[filter.field];
+                            al_builtins::ops::compare(a, expected).is_ok_and(|order| order.is_eq())
+                                && al_builtins::ops::compare(b, expected).is_ok_and(|order| order.is_eq())
+                        }
+                        _ => false,
+                    }
+            }))
+    }
+
+    /// An action on a filtered modal Worksheet with InsertAllowed = false and no current row selects the default key.
+    /// Measured by the pending corpus probe pages/currpage/SelectionFilterNoRow.al:346.
+    pub(super) fn empty_modal_worksheet_selection(
+        &mut self,
+        st: &St,
+        src: &Rec,
+        dst: &Rec,
+        initial: &[Value],
+    ) -> Result<bool, Signal> {
+        let object = {
+            let page = st.borrow();
+            if !page.open
+                || !page.modal
+                || page.run_static != Some(true)
+                || page.lookup
+                || page.statement_run
+                || page.field_run
+                || !page.in_action
+                || page.host.is_some()
+                || page.cursor != Cursor::None
+            {
+                return Ok(false);
+            }
+            page.object as usize
+        };
+        let facts = &self.engine.object_facts[object];
+        let delayed = self.engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(key, value)| key.eq_ignore_ascii_case("DelayedInsert") && value.trim().eq_ignore_ascii_case("true"));
+        if facts.page_type != Some(ir::PageType::Worksheet)
+            || facts.has_source_table_view
+            || !delayed
+            || self.ui_state.page_handler_depth == 0
+            || !flag_denied(&self.engine, object, "InsertAllowed")?
+        {
+            return Ok(false);
+        }
+        let source = src.borrow();
+        let destination = dst.borrow();
+        if source.temporary
+            || destination.temporary
+            || !destination.filters.is_empty()
+            || destination.filter_group != 0
+            || source.filter_group != 0
+            || source.marked_only
+            || !source.marks.is_empty()
+        {
+            return Ok(false);
+        }
+        let [filter] = source.filters.as_slice() else {
+            return Ok(false);
+        };
+        let table = self.table(src)?;
+        let key = &table.keys[0];
+        let exact_text = match &filter.expr {
+            al_builtins::filter::FilterExpr::Eq(Value::Text(text)) => !text.is_empty(),
+            al_builtins::filter::FilterExpr::Range(Some(Value::Text(lower)), Some(Value::Text(upper))) => {
+                !lower.is_empty() && lower == upper
+            }
+            _ => false,
+        };
+        if filter.group != 2
+            || key.len() != 1
+            || key.contains(&filter.field)
+            || !matches!(initial[key[0]], Value::Integer(0))
+            || !exact_text
+            || !Self::same_key(&table.primary_key(&source.fields), &table.primary_key(initial))
+        {
+            return Ok(false);
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyModalWorksheetSelection);
+        Ok(true)
+    }
+
     /// A TestPage whose own filter shows no row of a table that has rows hands the record that filter
     /// (pages/currpage/SelectionFilterNoRow.al:TestPage_FilteredToNothing: the page filter
     /// `Id: 99` on key field Id, `Count` 0, `Id: 99`). Only that shape (one range of one value on the first key
