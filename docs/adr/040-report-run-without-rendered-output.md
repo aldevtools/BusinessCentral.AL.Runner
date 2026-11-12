@@ -364,7 +364,8 @@ Reasons:
 
 - The mechanism exists and has one owner per rule. `native::text_of` already refuses a marked text for every builtin that
   takes a Text argument through it. `ops::compare` already answers a marked text against `''` and refuses the rest.
-  `Txt::push_txt` and `+` keep the mark without new code. The stream code already writes and reads a mark
+  `Txt::push_txt` and `+` keep the characters. One fix is needed first: `Txt::push_str` (`text.rs`) updates the cached
+  marker answer only for `CALL_STACK_MARK`; it must do so for every mark. The stream code already writes and reads a mark
   (`CALL_STACK_MARK_BYTES`), the row store already refuses a marked key, the filter code already refuses a marked filter value.
 - The mark survives paths that a side flag would lose without notice: a `String` round trip inside a native, a `format!`,
   the wire to the .NET sidecar, a stored row.
@@ -380,9 +381,19 @@ Alternatives considered and not chosen:
 | Keep the placeholder Html as real text and flag the test | The test would see made-up characters: `Contains('NLB')` answers false and the test fails wrongly. |
 
 Shape of a marked text: known characters and marks in the order BC has them. `Signature + Body` is the signature's
-characters followed by the mark. The mark is followed by one character that numbers the render in the session (plane 15,
-U+F0000 + n, read only directly after the mark). The number points to a session list entry: the report, the format and the
-layout. It is used for the refusal text in Part A and for Part B. Marks from two renders can stand in one text.
+characters followed by the mark. The mark is followed by one character that numbers the render (read only directly after
+the mark). The number is unique in the process, never per session: a SingleInstance global or a stored row can carry a
+marked text from one test session into the next, and a number that started again at 0 would then name another render.
+The number points to an entry of a process-wide list: the report, the format and the layout. An entry is never reused.
+
+The mark has two forms (review finding 3):
+
+- **whole** (U+F0000 + n): the complete rendered content of render n stands at this place, unchanged.
+- **changed** (U+100000 + n): content derived from render n by an allowed step that can change characters (only P12 today).
+
+Part A treats both forms alike. Part B answers only for the whole form. Every row of A3 must say which form its result
+has; a row that does not embed the whole content unchanged gives the changed form or is not allowed. Marks from two
+renders can stand in one text.
 
 ### A2. Where a marked text starts
 
@@ -403,6 +414,10 @@ Why "not empty" is safe to assume: BC's Html of a Word layout has output and sta
 (reports/layouts-saveas/AMReportOutputTests.al:205-217, `has_output` Yes, `kind` markup). The Html placeholder is written
 only for a Word layout.
 
+That case is a report with data that runs to its end. Nothing pins the output of a report that ends with
+`CurrReport.Quit` or whose data items read no row. So a read of A2 refuses when the report run that wrote the placeholder
+ended by `CurrReport.Quit` or produced no dataset row, until probe group P (B5) measures both.
+
 ### A3. What is allowed
 
 Every row gives a marked result or moves the value unchanged, unless the row says otherwise. "BC" says why the result is
@@ -412,19 +427,29 @@ right on BC whatever the rendering holds.
 |---|---|---|---|
 | P1 | Assignment to a `Text` without a length, a `Variant`, a `var` or by-value parameter, a return value, an event argument | the same text | A copy of a text is the text. |
 | P2 | `A + B`, `+=`, `TextBuilder.Append`, `AppendLine`, `BigText.AddText` (at the end) | the parts in order, marks kept | Joining does not look at the characters. |
-| P3 | `TextBuilder.ToText()`, `Format(TextBuilder)`, `Format(Text)` and `Format(Variant holding it)` with no length and no format number, `BigText.GetSubText(T, 1)` without a length | the same text | Each is the identity on a Text (the corpus pins this for known text; the citing line goes into the code comment). |
-| P4 | `StrSubstNo(Known, .., T, ..)` with the marked text as a value, never as the template | the filled template with the mark | The value is put in through `Format` (format-evaluate/P86StrSubstNo.al Sub_Percent), as for a SQL counter text (al-runner issue 7129). |
+| P3 | `TextBuilder.ToText()`, `Format(TextBuilder)`, `Format(Text)` and `Format(Variant holding it)` with no length and no format number, `BigText.GetSubText(T, 1)` without a length and with its return value unused (the return value is a length) | the same text | Each is the identity on a Text (the corpus pins this for known text; the citing line goes into the code comment). |
+| P4 | `StrSubstNo(Known, .., T, ..)` with the marked text as a value, never as the template, and only where the template uses that value as `%n`. A `#n` field pads or cuts to a width and shows `*` on overflow, which depends on the length: refused. | the filled template with the mark | The value is put in through `Format` (format-evaluate/P86StrSubstNo.al Sub_Percent), as for a SQL counter text (al-runner issue 7129). |
 | P5 | `T = ''`, `T <> ''`, and `''` on the left | false, true | Rendered content is not empty (A2); known text joined to it cannot make it empty. Already the rule for a call stack text (`ops::compare`). |
-| P6 | `T = Known` or `T <> Known` where the known characters before the first mark of `T` already differ from `Known` | the exact answer | The known characters are BC's. Existing rule (`ops::known_prefix_order`); it never answers "equal". |
-| P7 | `OutStream.Write(T)`, `WriteText(T)`, `BigText.Write(OutStream)` on a UTF-8 stream | bytes of the known parts and the mark; the buffer is marked (A4) | Writing does not look at the characters. |
+| P6 | `T = Known` or `T <> Known` (these two operators only) where the known characters before the first mark of `T` already differ from `Known` | the exact answer, always "not equal" | The known characters are BC's, and text equality on BC is ordinal and case-sensitive (the `Operators_TextComparison_IsCultureOrderAndCaseSensitiveEquality` case). Existing rule (`ops::known_prefix_order`), used for equality only. |
+| P7 | `OutStream.Write(T)`, `WriteText(T)`, `BigText.Write(OutStream)` on a UTF-8 stream, with the return value unused (it is a count that depends on the length) | bytes of the known parts and the mark; the buffer is marked (A4) | Writing does not look at the characters. |
 | P8 | `List.Add`/`Set`/`Insert`/`Get`, `Dictionary.Add`/`Set`/`Get` with the text as a **value** | stored and returned unchanged | As for a SQL counter value (`sqlcount::guard`). |
 | P9 | `Variant.IsText`, `IsCode` and the other `Is*` | the pinned answer for a Text | The type is known. |
 | P10 | `Session.LogMessage` with the text as message or dimension value | nothing AL can read | Telemetry is not readable by the test (SqlCounters.al:516 P6924_Counters_FormattedInTelemetryDimension_NoError). |
 | P11 | A page field whose source is a Text variable or an unbounded expression, read by `TestField.Value()` when the control shows a Text unchanged (no `OptionCaption`, no format property, not `ExtendedDatatype = RichContent` until measured) | the same text | The control shows the text as it is. |
-| P12 | `DotNet` `Regex.Replace(T, Pattern, Replacement)`, static, only with the exact pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb` (System Application) | the sidecar's result on the known parts, marks kept | `Email Message`.`Create` calls it on every body. The replacement text is never empty, so a not-empty text stays not empty. See A5. |
+| P12 | `DotNet` `Regex.Replace(T, Pattern, Replacement)`, static, only with the exact pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb` (System Application) | the sidecar's result on the known parts; every mark in the result gets the **changed** form | `Email Message`.`Create` calls it on every body. The replacement text is never empty, so a not-empty text stays not empty. See A5. |
 
 `Email Message`.`Create`, `GetBody`, `Email Item`.`SetBody`, `GetBodyText` and the editor page are AL compiled from
 Microsoft's source. They need no rule of their own: they use P1, P2, P5, P7, P12, A2 and the Blob rules of A4.
+
+Two gaps against the goal, named here and **not** opened by this revision (opening them widens the accepted design and
+needs the owner):
+
+- `Format(BigText)` is not in P3. The reporter's subscriber uses `BodyText.AddText(..)` and `Format(BodyText)`; if
+  `BodyText` is a BigText, that call refuses and the test is reported as not run.
+- BC 27 to 29 compile `DoSaveReportAsHTMLInTempBlob` with its `#if not CLEAN27` block: after the save it runs
+  `FileManagement.BLOBExportToServerFile`, raises `OnReplaceHTMLText` with the file path and runs
+  `BLOBImportFromServerFile`. These are byte copies to and from a file. They run only as far as the file rules of the
+  2026-11-11 amendment allow (F4, F8 as byte copies with the mark); any step those rules do not cover refuses.
 
 ### A3b. What refuses
 
@@ -434,7 +459,8 @@ the text is not known`. The most likely uses, so that nobody adds them by mistak
 
 | Use | Why it cannot be answered |
 |---|---|
-| `=`, `<>`, `<`, `>` against a text that is not `''` (outside P6), `case`, `in` | depends on the characters |
+| `=`, `<>` against a text that is not `''` (outside P6), `case`, `in` | depends on the characters |
+| `<`, `>`, `<=`, `>=`, a range in `in [a..z]` or in a `case` label, always, also against `''` and also when the known characters before the mark differ | BC orders text by culture, not by code point (`Operators_TextComparison_IsCultureOrderAndCaseSensitiveEquality`): `('Body ' + Html) < 'body'` is false on BC and an ordinal compare says true. See A5 for the code path that answers this wrongly today. |
 | `Contains`, `StrPos`, `IndexOf`, `LastIndexOf`, `StartsWith`, `EndsWith`, `IndexOfAny` | depends on the characters. Also on a known part: kept refused in Part A, one rule for all |
 | `StrLen`, `Text.Length`, `MaxStrLen` of the value's content, `TextBuilder.Length`, `BigText.Length` | the length is not known |
 | `CopyStr`, `Substring`, `DelStr`, `Remove`, `PadStr`, `InsStr`, `Insert`, `T[i]` read or write, `foreach` over the text, `Split`, `SelectStr` | a part of unknown text, and a part can lose the mark |
@@ -462,7 +488,14 @@ the text is not known`. The most likely uses, so that nobody adds them by mistak
   Blob is already stored with the row (S4 of section 4).
 - A whole text read gives the written text back (A2). The known parts follow the pinned stream rules for known text
   (terminator and encoding: streams/ProbeJsonAndInStreamBytes.al); the mark's bytes are its UTF-8 form plus the render number.
-- The exact byte length of such a buffer is never answered beyond "> 0", as the 2026-11-11 amendment already decides.
+- The byte length is never answered as a number (review finding 2). `Blob.Length`, `TempBlob.Length`, `File.Len` and
+  `FileManagement.GetFileSize` of a buffer or file with a placeholder mark answer only in the sign-only form the runtime
+  already has for a call stack text (`stream::blob_length_sign`: the call compared directly with 0 by `> 0`, `<> 0` or
+  `= 0`). Every other use of the length refuses. `TempBlob.Length() > 1000` is true on BC and would be false on a
+  93-byte placeholder.
+- This holds for the buffers of this amendment and it is a correction to the 2026-11-11 build for all placeholder kinds:
+  on branch `adr040-outputs`, `blob_length_of` and `File.Len` return the placeholder's byte count today. That is fixed
+  there before this amendment is built on it.
 
 ### A5. How the allow-list is enforced
 
@@ -470,14 +503,15 @@ One rule, one owner each. A marked text meets the runtime at five kinds of place
 
 | Place | Owner | Default |
 |---|---|---|
-| A builtin call (function, method, operator builtin) | New guard `rendered_text::guard(id, receiver, args)`, called where `sqlcount::guard` is called (`al-vm/src/exec/run.rs`, both call sites). It runs only while the session's `rendered_text_active` flag is set, which the first read of A2 sets. It looks at the receiver and each argument, into a Variant, a TextBuilder and a BigText. A marked value at a position that table A3 does not list for this builtin id refuses. | refuse |
+| A builtin call (function, method, operator builtin) | New guard `rendered_text::guard(id, receiver, args)`, called where `sqlcount::guard` is called (`al-vm/src/exec/run.rs`, both call sites). It runs while a process-wide flag is set. The first read of A2 sets the flag and nothing clears it for the rest of the process, because a marked text can outlive the session that read it (a SingleInstance global, a stored row, the strict order mode). It looks at the receiver and each argument, into a Variant, a TextBuilder and a BigText. A marked value at a position that table A3 does not list for this builtin id refuses. | refuse |
 | A native that reads a Text argument | `native::text_of` (exists): `None` for a marked text, so the native refuses. Natives of table A3 take the text through one named helper, `rendered_text::carried`. | refuse |
-| Comparison | `ops::compare` (exists): P5 and P6 answer, the rest falls to the refusal. The rendered mark gets the rendered refusal text. | refuse |
+| Comparison | `ops::compare` for `=` and `<>`: P5 and P6 answer, the rest refuses with the rendered refusal text. `ops::compare_order` for `<`, `>`, `<=`, `>=` and ranges: refuses a marked operand before anything else. Today it does not: `text_of` gives `None` for a marked text and `compare_order` then falls to `compare` and `known_prefix_order`, an ordinal answer where BC uses culture order. The same wrong answer exists today for `CALL_STACK_MARK`. Fixing `compare_order` for every mark is a separate fix with its own test and comes before this amendment is built. | refuse |
 | Conversion to a declared type | `ops::convert`: a marked text converts only to an unbounded Text and to a Variant. Today a marked text passes into any `Text[N]` unchecked (`ops.rs:68`, `:240`); for U+FDD4 that arm refuses. | refuse |
 | The .NET sidecar | The marshalling of a `DotNet` call's arguments: a marked text refuses unless (type, member, the known arguments) is an entry of `rendered_text::DOTNET_ALLOWED`. One entry: P12. | refuse |
 
-Cost: a session that never reads a Html placeholder into a Text pays one Boolean test per builtin call, the same shape as
-`self.sql.active`. No cost on text operations.
+Cost: a run that never reads a Html placeholder into a Text pays one Boolean test per builtin call, the same shape as
+`self.sql.active`. After the first such read every builtin call of the process looks at its arguments. No cost on text
+operations.
 
 ### A6. What happens at the edges
 
@@ -517,6 +551,9 @@ the format x layout grid of the 2026-11-11 amendment:
 This is not pinned. No corpus case saves with a temporary layout selection, and the events' order inside `SaveAs` is pinned
 only for the default layout (AMReportOutputTests.al:210). It is built under the second exception of hard rule 3 (the
 reporter's tests pass on BC and need the save to succeed with the selected Word layout), with its own assumption id and probe.
+That exception is its only basis. Probe cells S5 (a name that matches nothing) and S6 (the events and their order inside
+`SaveAs`) of B5 are required cells of the probe: until they are in the oracle, the unmatched name stays refused and the
+two events are raised only to `ReportManagement`, in the one order the default-layout case pins.
 
 ### A8. Ways the mark could be lost, and what prevents each
 
@@ -535,6 +572,10 @@ A lost mark is a silent wrong result: AL would read made-up or missing character
 | L9 | AL code or data holds U+FDD4 by itself | It refuses where it would have run. That is a wrong refusal, not a wrong result. Same as the three existing marks. |
 | L10 | A container compares or prints its elements (List.Contains, Dictionary key, `Format(List)`) | Element comparison goes through `ops::compare`; keys refuse in the guard. Catalog test rows for containers that hold a marked value. |
 | L11 | The runner prints the mark or the placeholder in a report | `Describe` test for the mark; a test that a JUnit file and `--explain` of a refused test hold neither U+FDD4 nor the placeholder markup. |
+| L13 | An ordered comparison answers by code point | `compare_order` refuses a marked operand (A5). Test: `<`, `>`, `<=`, `>=`, `in` range and `case` range, with the mark at the start and after a differing known prefix, for each of the four marks. |
+| L14 | A length leaves as a number (Blob, Temp Blob, file, return value of `Write`, `WriteText`, `GetSubText`, `Read`) | Sign-only length (A4); the rows P3 and P7 require an unused return value. Test per call, with the value used and unused. |
+| L15 | A marked text from an earlier session is read with another session's render list, or with the guard off | Process-wide render numbers and flag (A1, A5). Test: strict order, a SingleInstance codeunit keeps the body of render A, the next test codeunit renders B and asks about the kept body. |
+| L16 | An allowed step changes the content and Part B still answers from the layout | The whole and changed forms (A1). Test: after P12 `Contains` refuses; a `#n` field refuses. The catalog test fails when a row of A3 does not declare its form. |
 | L12 | A later change adds an allowed use by widening a rule | Table A3 is data in one file with one row per builtin id and position, each with its citation. A test fails when a row has no citation or when the table and this ADR section differ in count. |
 
 ### A9. Assumptions and flagged passes
@@ -609,9 +650,14 @@ The session entry of a render (A1) also records the **layout** that A7 resolved 
 layout. One more question is then answered:
 
 - `T.Contains(X)` answers **true** when all of this holds: `T` holds a mark whose render has a certain static text that
-  contains `X` (ordinal, case-sensitive); `X` is a known text of 1 to 250 characters, each an ASCII letter or digit; no
-  step since the read changed the text except P1 to P3, P7 and P12.
-- For P12 the answer is given only when `X` does not contain `rgb`, because the replacement rewrites such text.
+  contains `X` (ordinal, case-sensitive); that mark has the **whole** form (A1); `X` is a known text of 1 to 250
+  characters, each an ASCII letter or digit.
+- A mark in the **changed** form never answers. So a body that went through `Email Message`.`Create` (P12, the
+  `Regex.Replace`) is not answered: the replacement can rewrite text next to or inside a static text (`rgba(1,2,3,1)` as
+  layout text, or split over runs), and a rule on `X` alone cannot exclude that. A body read before that call (from
+  `Email Item`, from the Temp Blob) is answered. Answering after P12 needs a proof for that transform and probe cells
+  (group P, B5); that widens the design and is the owner's decision.
+- A static text that contains `rgba(` is dropped from the list, so the list stays right if that decision is taken later.
 - **False is never answered.** When the rule does not give true, the call refuses as in Part A.
 - Everything else refuses as in Part A. `StrPos`, `IndexOf` and their `> 0` forms stay refused: they return a position,
   and the position is not known. Answering "some position above 0" would need a second kind of unknown value (question 5).
@@ -622,9 +668,12 @@ A **certain static text** is the text of one `w:t` element of `word/document.xml
 - No ancestor is a content control (`w:sdt`), so it is in no repeater, no data-bound control and no conditional region.
 - The paragraph holds no field (`w:fldSimple`, `w:fldChar`, `w:instrText`), no drawing, picture or text box, no
   `mc:AlternateContent`.
-- Neither the run nor the paragraph is hidden (`w:vanish`, `w:webHidden`), the paragraph names no style (a style can hide
-  text), and the run is not a deletion or a move (`w:del`, `w:moveFrom`). A document with tracked changes gives no static
-  texts at all.
+- Neither the run nor the paragraph is hidden (`w:vanish`, `w:webHidden`), the paragraph names no style (`w:pStyle`) and
+  the run names no character style (`w:rStyle`), because a style can hide or re-case text. The run has no `w:caps` and no
+  `w:smallCaps` (the Html may hold the text in upper case). The run is not a deletion or a move (`w:del`, `w:moveFrom`).
+- Document-wide formatting: when `word/styles.xml` cannot be read, or its `w:docDefaults` or its default paragraph style
+  set `w:vanish`, `w:caps` or `w:smallCaps`, the document gives no static texts at all. The same for a document with
+  tracked changes.
 - Headers, footers, footnotes and comments are other parts of the file and are not read.
 - One `w:t` only. Text that Word split over two runs is not joined, because the Html may put markup between the runs.
 
@@ -652,7 +701,7 @@ before the build, and a row the probe shows to be too strict may be widened only
 | BC's Word to Html conversion drops, splits, re-encodes or re-cases a static text | a wrong **pass** | Built only on what the probe of B5 shows on BC. Letters and digits only, one `w:t` only. |
 | The layout BC used is not the layout the runtime resolved | a wrong pass on a test whose claim is exactly that | A7 runs Microsoft's selection code as AL. Any doubt in A7 refuses the save, so no static text exists. Probe cell group S of B5 measures it. |
 | A static text sits in a region Word shows only sometimes (styles, section properties, compatibility settings) | a wrong pass | The list of B2 excludes what is known, and a paragraph that names a style is excluded. The probe lists more. |
-| The body was changed after the read (a subscriber replaces text) | a wrong pass | Only P1 to P3, P7 and P12 keep the static texts. Any allowed step added later must say whether it keeps them; the default is that it drops them. |
+| The body was changed after the read (a subscriber replaces text, a `#n` field pads or cuts it) | a wrong pass | Only a mark in the whole form answers (A1). Every allowed row declares its form; P12 gives the changed form, `#n` is refused. A step added later gives the changed form unless it proves it embeds the content unchanged. |
 | A wrong answer here is a wrong pass, not a refusal | trust in a green run | Only "true" is answered, each answer marks an assumption (flagged pass), and the build waits for the probe (question 4). |
 
 ### B5. The Windows probe, precisely
@@ -689,6 +738,10 @@ Cells in `HtMain.docx`. Every marker is unique, ASCII letters and digits, and ap
 | C14 | text box: `HTTEXTBOX1`; footnote: `HTFOOTNOTE1` | Do these parts reach the Html? |
 | C15 | `HTCase1` mixed case | Is the case kept (`Contains('HTCase1')`, `Contains('HTCASE1')`)? |
 | C16 | a paragraph with a tracked insertion `HTINS1` and a tracked deletion `HTDEL1` | Which of the two is in the Html? |
+| C17 | a run with all caps (`w:caps`): `HTCaps1`; a run with small caps: `HTSmall1` | Is the text in the Html as typed or in upper case? `Contains` of both forms. |
+| C18 | a run in a character style that hides text: `HTRSTYLEHID1`; a run in a character style with all caps: `HTRStyleCaps1` | Does a character style change what the Html holds? |
+| C19 | a second layout `HtDefaults.docx` whose document defaults set all caps, with one body paragraph `HTDefCaps1` | Do document defaults change the text? |
+| C20 | layout text `HTRGB1 rgba(1,2,3,1) HTRGB2` in one run, and `rgba(1,2,3,` + `1)` split by a format change | What the Html holds before `Email Message`.`Create` and what `GetBody()` holds after it (`Contains('rgba(1,2,3,1)')`, `Contains('rgb(1, 2, 3)')`). |
 
 Cell group S, which layout is used (two tests per row: `Contains('HTBODY1')` and `Contains('HTOTHERLAYOUT1')`):
 
@@ -703,7 +756,13 @@ Cell group S, which layout is used (two tests per row: `Contains('HTBODY1')` and
 
 Group P, the Part A claims on real text (A9 probes 1 and 2): after the read in S1, `Body <> ''`, `Format(Body) = Body`,
 TextBuilder and UTF-8 stream round trips equal `Body`, a Blob field stored and read back equals `Body`, and
-`Email Message`.`Create(.., Body, true)` then `GetBody() <> ''` and `GetBody().Contains('HTBODY1')`.
+`Email Message`.`Create(.., Body, true)` then `GetBody() <> ''` and `GetBody().Contains('HTBODY1')`. Also in group P:
+
+- P-quit: a report whose `OnPreReport` calls `CurrReport.Quit`, saved as Html: the answer of `SaveAs`, `TempBlob.Length() > 0`, `Body <> ''`.
+- P-empty: `HT Empty Rpt` (0 rows): the same three observations, and `Contains('HTBODY1')`.
+- P-order: `('Body ' + Body) < 'body'` and `Body < 'a'`, to keep the culture order of joined text on record.
+- P-length: `TempBlob.Length()` of the Html compared with 0 and logged as "over 1000: yes/no".
+- P-pad: `StrSubstNo('#1########', Body)` equals `'**********'`.
 
 Rules for the probe agent: one observation per `Contains`, no assert that depends on another cell; the .docx files are
 committed binary fixtures like `Y17LayR1.docx`; the tests are Windows-tier only; nothing of Microsoft's is copied.
