@@ -373,7 +373,7 @@ fn position_of(t: &al_data::TableDef, id: u32) -> Option<usize> {
     t.fields.iter().position(|f| f.id == id)
 }
 
-/// A `Modify(false)` that changes no field, of a buffer that holds the stored row's version and differs from it in exactly one
+/// A `Modify(false)` without modify-event subscribers that changes no field, of a buffer that holds the stored row's version and differs from it in exactly one
 /// field of the modified pair (the test assigned SystemModifiedAt or SystemModifiedBy): the stored row keeps its pair and the
 /// buffer keeps the assigned value (record/system-fields/AssignedAuditFields.al:271-295, `buffer after Modify` = assigned,
 /// `stored row` = same as before). Every other buffer gets the stored pair, as before.
@@ -547,7 +547,10 @@ impl Session {
             .into_iter()
             .filter_map(|id| position_of(t, id).map(|i| (id, stored[i].clone())))
             .collect();
-        if no_change_keeps_buffer_pair(t, stored, &rec.borrow().fields, buffer_version) {
+        // The measured table has no modify-event subscriber (AssignedAuditFields.al:17-27).
+        let subscribed = |ev: &str| self.engine.events.is_subscribed(t.object as usize, ev);
+        let no_subscriber = !subscribed("onbeforemodifyevent") && !subscribed("onaftermodifyevent");
+        if no_subscriber && no_change_keeps_buffer_pair(t, stored, &rec.borrow().fields, buffer_version) {
             let row_only = keep
                 .into_iter()
                 .filter_map(|(id, v)| position_of(t, id).map(|i| (i, v)))

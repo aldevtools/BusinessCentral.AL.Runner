@@ -16,8 +16,15 @@ impl Session {
         let object = st.borrow().object as usize;
         {
             let s = st.borrow();
-            // Pinned facts: the open read (:522, :537), OpenEdit or OpenView (:519, :534), a page of type List (:84).
-            if !s.open_read || !matches!(s.mode, PageMode::Edit | PageMode::View) || s.frozen_visible.is_empty() {
+            // Pinned facts: the open read (:522, :537) of a top-level page the test opened with OpenEdit or OpenView (:519,
+            // :534), not modal, not a part; a page of type List (:84).
+            let pinned = s.open_read
+                && s.opened_by_test
+                && matches!(s.mode, PageMode::Edit | PageMode::View)
+                && !s.modal
+                && s.host.is_none()
+                && !s.frozen_visible.is_empty();
+            if !pinned {
                 return Ok(());
             }
         }
