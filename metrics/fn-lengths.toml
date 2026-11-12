@@ -40,4 +40,4 @@
 "crates/al-vm/src/reports.rs::report_builtin" = 509
 "crates/al-vm/src/reports.rs::report_save_core" = 321
 "crates/al-vm/src/sessionops.rs::session_op" = 305
-"crates/al-vm/src/xmlports/mod.rs::xmlport_builtin" = 263
+"crates/al-vm/src/xmlports/mod.rs::xmlport_builtin" = 252

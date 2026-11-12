@@ -159,8 +159,8 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
-                Op::ReadPlace { d, p } => {
-                    let v = self.read(&chunk.places[p as usize], f)?;
+                Op::ReadPlace { d, p, value } => {
+                    let v = self.read_place(&chunk.places[p as usize], value, f)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::StoreLocal { i, a, p } => {

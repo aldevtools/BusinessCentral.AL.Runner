@@ -124,6 +124,12 @@ impl Session {
                 // Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
                 self.type_named("System.Security.Cryptography.X509Certificates.X509ContentType, netstandard")
             }
+            // Assumed, not pinned: the open generic type definition (assumption `dotnet-type-unassigned-dictionary`; the Microsoft
+            // test that passes on real BC calls MakeGenericType on it). Other open generics stay refused below.
+            "System.Collections.Generic.Dictionary`2" => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeUnassignedDictionary);
+                self.type_named(declared)
+            }
             "" => unsupported("GetDotNetType of an unassigned DotNet value whose declared type is not known"),
             other => unsupported(format!(
                 "GetDotNetType of an unassigned DotNet variable declared as {other} (not pinned; docs/probes-needed.md)"
