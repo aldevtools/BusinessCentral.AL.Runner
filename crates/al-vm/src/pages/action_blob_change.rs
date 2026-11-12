@@ -24,6 +24,26 @@ impl Session {
         if Self::same_values(&rec.borrow().fields, before) {
             return Ok(false);
         }
+        // ReworkSave.al on real BC extends the Card and List evidence in pages/actions/WfFlowFieldActionRec.al
+        // to a Document: a changed CalcFields result alone does not make the action leave a page edit.
+        if !was_dirty
+            && self.top_card_or_document(st)
+            && self.engine.object_facts[st.borrow().object as usize].page_type == Some(ir::PageType::Document)
+        {
+            let table = self.table(&rec)?;
+            let current = rec.borrow();
+            if current.fields.len() == before.len()
+                && table.fields.len() == before.len()
+                && table.fields.iter().zip(current.fields.iter().zip(before)).all(|(field, (after, before))| {
+                    !field.stored || Self::same_values(std::slice::from_ref(after), std::slice::from_ref(before))
+                })
+            {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::DocumentActionCalculatedFieldNotDirty,
+                );
+                return Ok(false);
+            }
+        }
         // A row the action changed and then deleted (a codeunit that modifies and deletes Rec: Make Order, Post) is not
         // written again on a card: the card closes (`settle_after_action`) and nothing is re-inserted (corpus master 97c29f86,
         // pages/save-deleted-row/Y17SaveRowGone.al:632 PgSave_ActionDeletesEditedRow_Card `stored` `B/b/No;`, :638

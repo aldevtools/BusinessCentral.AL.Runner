@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_document_action_calculated_field_does_not_save_stale_row() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/rework-flowfield-action.al"),
+    ));
+}
