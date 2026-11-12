@@ -308,6 +308,8 @@ pub fn classify_source(text: &str, globals: &BTreeSet<String>) -> Source {
         let unq = name.strip_prefix('"').and_then(|n| n.strip_suffix('"'));
         match unq {
             Some(n) if !n.contains('"') => return Source::RecField(n.to_string()),
+            // ponytail: Record methods a control shows without parentheses (`Rec.Count`); extend when another shows up.
+            None if ["count", "countapprox", "getfilters"].contains(&name.to_ascii_lowercase().as_str()) => {}
             None if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !name.is_empty() => {
                 return Source::RecField(name.to_string());
             }
@@ -2325,6 +2327,7 @@ mod tests {
         );
         assert_eq!(classify_source("Glob", &globals), Source::Var("Glob".into()));
         assert_eq!(classify_source("Format(Rec.Num)", &globals), Source::Expr);
+        assert_eq!(classify_source("Rec.Count", &globals), Source::Expr);
     }
 
     fn merged(base: &str, exts: &[&str]) -> Layout {
