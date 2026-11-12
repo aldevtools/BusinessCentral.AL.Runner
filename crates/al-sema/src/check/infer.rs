@@ -1152,9 +1152,20 @@ impl<'a> Checker<'a> {
             // `CurrPage.Update(true)` is the page's method even when the page has an action or control of
             // that name (System Application's "Schedule Feature Data Update" has an action `Update`): a
             // control is not called. Real BC compiles that code; no corpus test names a control like a method.
-            Ty::Object(ObjKind::Page, page) => self
-                .resolve(sc, ObjKind::Page, page)
-                .is_some_and(|oi| self.named_section(oi, mname).is_some()),
+            Ty::Object(ObjKind::Page, page) => self.resolve(sc, ObjKind::Page, page).is_some_and(|oi| {
+                self.named_section(oi, mname).is_some()
+                        // AutoSplitSaveRecord.al: an explicit CurrPage.SaveRecord() calls
+                        // the platform method. A call through CurrPage.Part.Page calls
+                        // the internal procedure with that name.
+                        || (oi == sc.oi
+                            && mname.eq_ignore_ascii_case("SaveRecord")
+                            && node.children().next().is_some_and(|receiver| {
+                                receiver.kind() == SyntaxKind::NameRef
+                                    && name_of(&receiver).eq_ignore_ascii_case("CurrPage")
+                            })
+                            && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
+                            && !self.members[oi].procedures_named(mname).is_empty())
+            }),
             // `Q.Open()` is the query's method even when the query has a column named Open (Base
             // Application's "Summarized Stock By Item Trkg." has one): a column is not called.
             // Compiles in real BC; no corpus test names a column like a method (docs/probes-needed.md).

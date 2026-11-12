@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_currpage_save_record_prefers_the_platform_method() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/curr-page-save-record-collision.al"),
+    ));
+}
