@@ -140,14 +140,19 @@ fn the_runtimes_write_to_gives_the_text_the_reporter_measured() {
     let (r, _) = run("WriteToText");
     let t = al_testkit::text(r);
     assert_eq!(t.chars().count(), 203, "{t:?}");
-    assert!(t.starts_with("<?xml version=\"1.0\" encoding=\"utf-16\" standalone=\"yes\"?>\r\n<ReportParameters>\r\n  <Options>"));
+    assert!(t.starts_with(
+        "<?xml version=\"1.0\" encoding=\"utf-16\" standalone=\"yes\"?>\r\n<ReportParameters>\r\n  <Options>"
+    ));
 }
 
 #[track_caller]
 fn keeps_mains_refusal(routine: &str) {
     let (r, hits) = run(routine);
     assert!(matches!(&r, Err(Signal::Unsupported(_))), "{routine}: {r:?}");
-    assert!(!hits.contains(&Assumption::ReportParamsWrittenDeclaration), "{routine}: {hits:?}");
+    assert!(
+        !hits.contains(&Assumption::ReportParamsWrittenDeclaration),
+        "{routine}: {hits:?}"
+    );
 }
 
 #[test]

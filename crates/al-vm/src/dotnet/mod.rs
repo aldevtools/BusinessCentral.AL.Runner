@@ -835,9 +835,7 @@ impl Session {
             // Application's e-mail body round trip through a server file; assumption dotnet-file-delete-placeholder).
             ("system.io.file", "delete", []) => {
                 if self.forget_placeholder_file(path) {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::DotNetFileDeletePlaceholder,
-                    );
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotNetFileDeletePlaceholder);
                 } else {
                     self.refuse_pending_file(path)?;
                 }

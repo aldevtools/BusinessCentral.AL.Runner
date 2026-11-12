@@ -864,3 +864,48 @@ committed binary fixtures like `Y17LayR1.docx`; the tests are Windows-tier only;
    This text proposes `Contains` only for now.
 6. `Error` and `Message` with a marked text refuse in step 1. Open `Message` to a MessageHandler that only receives the
    text when a reported test needs it, or keep it refused?
+
+## Amendment 2026-11-12b: a placeholder's size held in a record field (Proposed)
+
+Status: **Proposed**, not accepted. Nothing is built on it. It changes the accepted rule of the 2026-11-11 implementation
+notes ("a record field" is one of the uses of `Value::PlaceholderSize` that refuse), so it needs the owner's decision.
+
+### The problem
+
+An outside reporter's full run (al-runner issue 6924, comment of 2026-11-12 18:46 UTC) shows 4 tests that passed before the
+placeholder Pdf and are now not run: `storing in a record field of the byte size of a placeholder Pdf of report Purchase -
+Quote` (and Blanket Purchase Order). The store is in the reporter's own app (a mail document method), not in Microsoft's code.
+The tests assert recipients, not the size. They pass on BC. Today the store refuses at once (`interp.rs` `write_as`), so a
+test that never reads the field again is not run.
+
+### Proposal
+
+1. `Rec.F := Size` where `F` is an Integer, BigInteger or Decimal field stores `Value::PlaceholderSize` in the record buffer,
+   as an Integer, BigInteger, Decimal or Variant variable already holds it. Any other field type refuses (`size_convert`).
+2. A read of the field by AL gives the same value back, with the same rules: a comparison with 0 answers (greater), every
+   other use refuses (`size_guard`, `size_order`, `size_convert`).
+3. The value goes with the row: `Insert`, `Modify`, a record assignment, `TransferFields` into an Integer, BigInteger or
+   Decimal field, `Get`/`Find` back. The row store keeps the value as it is (it holds `Value` today; `frozen.rs` names the
+   kind).
+4. Every platform read of the field's value refuses where it happens, with the size refusal text: a filter or a range on the
+   field (`SetRange`, `SetFilter`, a table relation, a FlowFilter), a sort or a key that holds the field, `CalcSums`,
+   a FlowField that sums or looks it up, `Format` of the field (pages, TestPage, `FieldRef.Value` formatted, the change log,
+   report dataset columns, XmlPort, JSON, Excel export), `TestField`, `Validate`, `FieldRef.Value` read into a type other
+   than the three, and record comparison by value. The owner of the check: the row store's value compare (al-data) refuses
+   a `PlaceholderSize` operand, and `format::format` already refuses it; the list above is the test list.
+5. No new assumption: a number stored in a number field is that number on BC, and what the runtime answers about it is
+   only the sign the corpus pins (AMReportOutputTests.al:146, CiReportRunLeads.al:72).
+
+### Alternatives
+
+| Alternative | Why not |
+|---|---|
+| Keep the refusal | The 4 tests stay not run although they never read the size. |
+| Store the placeholder's byte count | A made-up number: `Size > 1000` is true on BC and false here (A4). |
+| Store only in a temporary record | The reporter's table is not known; the rules of point 4 are the same for both. |
+
+### Open questions
+
+1. Accept points 1 to 4, for stored and temporary rows alike?
+2. Point 4 lists the platform reads known today. A read path not listed falls to the row store compare or `format`, which
+   refuse. Is that the guard the owner wants, or must each path get its own test before the change is built?
