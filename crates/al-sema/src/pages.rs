@@ -489,19 +489,128 @@ pub fn source_text_pinned(text: &str, var_field: bool) -> bool {
     plain_spacing(t) || (var_field && !t.contains(['\'', '\t', '\n', '\r']) && !t.contains("  "))
 }
 
-/// Source text of an expression-bound control whose Page Control Field row names it as written (quotes included): no tab, no line
-/// break and no two spaces in a row (pages/controls/PageControlFieldExpressionShapes.al, al-runner issue 7442). Not these, whose row
-/// differs or is not pinned: a bare name with no argument list (`CompanyName`: written with or without `()`?), a field of a record
-/// variable and an array element (Editable `True` on a page's own control, `TestPageControlFieldArraySource.al`).
+/// Source text of an expression-bound control whose Page Control Field row names it as written (quotes included) with an undeclared
+/// Editable `False`: one of the expression shapes pages/controls/PageControlFieldExpressionShapes.al:211-301 pins (al-runner issue
+/// 7442), written with single spaces. The shapes: a text or number literal (`'fixed'`, `42`), a call written as a plain name with an
+/// argument list (`IsNullGuid(Rec.Link)`, `UpperCase(CopyStr(Rec.Name, 1, 5))`), `not` or a unary minus before an operand, an
+/// expression in parentheses whose inside is a field of `Rec` or one of these shapes, and operands joined by `>`, `<>`, `=`, `and`,
+/// `or`, `in`, `+`, `*`, `div` or `mod`. Any other text keeps the behavior it had before: a bare name, an array element with any
+/// index (`Costs[I]`: Editable `True`, record/PageControlFieldSourceFormsSM.al:79), a field of a record variable, a quoted name, and
+/// the operators the corpus does not show (`-` between operands, `/`, `<`, `<=`, `>=`, `xor`).
 pub fn expression_source_pinned(text: &str) -> bool {
     let t = text.trim();
-    let bare_name = call_shape(t) && !t.contains('(');
-    !t.is_empty()
-        && !t.contains(['\t', '\n', '\r'])
-        && !t.contains("  ")
-        && !bare_name
-        && var_and_field(t).is_none()
-        && array_element(t).is_none()
+    !t.contains(['\t', '\n', '\r']) && !t.contains("  ") && expression_shape(t)
+}
+
+/// One of the pinned expression shapes of [`expression_source_pinned`].
+fn expression_shape(t: &str) -> bool {
+    const OPERATORS: [&str; 10] = [">", "<>", "=", "and", "or", "in", "+", "*", "div", "mod"];
+    let words = top_level_words(t);
+    let literal = text_literal(t) || (!t.is_empty() && t.chars().all(|c| c.is_ascii_digit()));
+    let call = pinned_call(t);
+    let negated = t
+        .get(..4)
+        .is_some_and(|p| p.eq_ignore_ascii_case("not ") && !t[4..].is_empty());
+    let minus = t
+        .strip_prefix('-')
+        .is_some_and(|r| !r.is_empty() && !r.starts_with(' '));
+    let parenthesized =
+        t.starts_with('(') && t.ends_with(')') && words.len() == 1 && matching_close(t) == Some(t.len() - 1) && {
+            let inner = &t[1..t.len() - 1];
+            unquoted_rec_name(inner) || quoted_rec_field(inner) || expression_shape(inner)
+        };
+    let binary = words.len() >= 3
+        && words.len() % 2 == 1
+        && words
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .all(|w| OPERATORS.iter().any(|o| o.eq_ignore_ascii_case(w)));
+    literal || call || negated || minus || parenthesized || binary
+}
+
+/// A call written as a plain name with a non-empty argument list whose arguments are each a field of `Rec`, a number, a text literal or
+/// such a call (`IsNullGuid(Rec.Link)`, `UpperCase(CopyStr(Rec.Name, 1, 5))`, `Format(Rec.Day, 0, 9)`:
+/// pages/controls/PageControlFieldExpressionShapes.al:59, :67-68). Another argument (`Format(Costs[1])`) is not pinned.
+fn pinned_call(t: &str) -> bool {
+    let Some(open) = t.find('(') else {
+        return false;
+    };
+    if !call_shape(t) || matching_close(&t[open..]) != Some(t.len() - 1 - open) {
+        return false;
+    }
+    let inner = &t[open + 1..t.len() - 1];
+    !inner.is_empty()
+        && top_level_split(inner, ',').iter().all(|a| {
+            let a = a.trim();
+            unquoted_rec_name(a)
+                || quoted_rec_field(a)
+                || (!a.is_empty() && a.chars().all(|c| c.is_ascii_digit()))
+                || text_literal(a)
+                || pinned_call(a)
+        })
+}
+
+/// A text constant: `'...'`, a quote inside it doubled.
+fn text_literal(t: &str) -> bool {
+    t.len() >= 2 && t.starts_with('\'') && t.ends_with('\'') && !t[1..t.len() - 1].replace("''", "").contains('\'')
+}
+
+/// `text` split on spaces that stand outside quotes, brackets and parentheses.
+fn top_level_words(text: &str) -> Vec<&str> {
+    top_level_split(text, ' ')
+}
+
+/// `text` split on `sep` where it stands outside quotes, brackets and parentheses.
+fn top_level_split(text: &str, sep: char) -> Vec<&str> {
+    let (mut words, mut start, mut depth, mut quote) = (Vec::new(), 0, 0i32, None::<char>);
+    for (i, c) in text.char_indices() {
+        match (quote, c) {
+            (Some(q), _) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, '(' | '[') => depth += 1,
+            (None, ')' | ']') => depth -= 1,
+            (None, _) if c == sep && depth == 0 => {
+                words.push(&text[start..i]);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    words.push(&text[start..]);
+    words
+}
+
+/// The byte offset of the `)` that closes the `(` `text` starts with, outside quotes.
+fn matching_close(text: &str) -> Option<usize> {
+    let (mut depth, mut quote) = (0i32, None::<char>);
+    for (i, c) in text.char_indices() {
+        match (quote, c) {
+            (Some(q), _) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, '(') => depth += 1,
+            (None, ')') => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether `text` is `Rec."<name>"`.
+fn quoted_rec_field(text: &str) -> bool {
+    let t = text.trim();
+    t.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("rec."))
+        && t[4..].len() > 2
+        && t[4..].starts_with('"')
+        && t.ends_with('"')
+        && !t[5..t.len() - 1].contains('"')
 }
 
 /// Text with a `+`, `-`, `*` or `/` between spaces outside quotes and brackets (`Costs[1] + Costs[2]`): an arithmetic expression
@@ -2618,6 +2727,63 @@ mod call_shape_tests {
             "Rec.Name",
         ] {
             assert!(!super::call_source_pinned(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn only_the_pinned_expression_shapes_name_their_source_as_written() {
+        // pages/controls/PageControlFieldExpressionShapes.al:50-73 and :89-93.
+        for t in [
+            "(not IsNullGuid(Rec.Link))",
+            "not IsNullGuid(Rec.Link)",
+            "not Rec.Flag",
+            "Rec.Qty > 0",
+            "(Rec.Qty <> 0)",
+            "(Rec.Qty > 0) and Rec.Flag",
+            "Rec.Flag or (Rec.Amount = 0)",
+            "Rec.Qty in [1 .. 3]",
+            "IsNullGuid(Rec.Link)",
+            "(Rec.Qty)",
+            "Rec.Qty + 1",
+            "Rec.Qty * Rec.Amount",
+            "-Rec.Qty",
+            "Rec.Qty div 2",
+            "Rec.Qty mod 2",
+            "Rec.\"No.\" + ' ' + Rec.Name",
+            "UpperCase(CopyStr(Rec.Name, 1, 5))",
+            "Format(Rec.Day, 0, 9)",
+            "'fixed'",
+            "42",
+            "not GlobalFlag",
+            "GlobalFlag and Rec.Flag",
+            "Rec.Name + '!'",
+        ] {
+            assert!(super::expression_source_pinned(t), "{t}");
+        }
+        // Neighbors that keep their earlier behavior: names, array elements with any index (record/
+        // PageControlFieldSourceFormsSM.al:79-82), record variable fields, quoted names, operators the corpus does not show, and
+        // spacing it does not show.
+        for t in [
+            "GlobalText",
+            "CompanyName",
+            "Costs[I]",
+            "Costs[1]",
+            "Grid[1, 2]",
+            "\"Unit Cost\"",
+            "\"Other Line\".Amount",
+            "Rec.Qty - 1",
+            "Rec.Qty / 2",
+            "Rec.Qty < 0",
+            "Rec.Qty >= 0",
+            "Rec.Flag xor GlobalFlag",
+            "(Costs[I])",
+            "Rec.Qty  > 0",
+            "Rec.Qty\t> 0",
+            "Format(Costs[1])",
+            "CompanyName()",
+            "",
+        ] {
+            assert!(!super::expression_source_pinned(t), "{t}");
         }
     }
 }

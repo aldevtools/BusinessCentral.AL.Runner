@@ -262,6 +262,7 @@ impl Lowerer<'_> {
             let mut var_field = None;
             let mut var_slot = None;
             let mut expr_source = None;
+            let mut expr_row_unordered = false;
             let mut expr_call = false;
             let mut array_element = None;
             let mut bare_quoted_ext_source = false;
@@ -418,17 +419,16 @@ impl Lowerer<'_> {
                                             })
                                     });
                                 }
-                                // Any other expression, on a page or added by a page extension: the row names the source as
-                                // written and an undeclared Editable is `False` (not, parentheses, comparisons, and / or, in,
-                                // arithmetic, unary minus, div, mod, concatenation with text constants, built-in and nested calls,
-                                // literals, a page variable in an expression; pages/controls/PageControlFieldExpressionShapes.al:
-                                // 211-219, :238-246, :261-265, :281-285, :299-301; al-runner issue 7442). Text with a tab, a line
-                                // break or two spaces in a row is not pinned.
+                                // An expression of a pinned shape, on a page or added by a page extension: the row names the
+                                // source as written and an undeclared Editable is `False` (`pages::expression_source_pinned`,
+                                // pages/controls/PageControlFieldExpressionShapes.al:211-301; al-runner issue 7442). Where BC
+                                // lists the row among the page's other rows is not pinned (`Control::expr_row_unordered`).
                                 if expr_source.is_none() {
                                     expr_source = raw_args
                                         .get(1)
                                         .filter(|a| crate::pages::expression_source_pinned(a))
                                         .map(|a| (a.trim().to_string(), false));
+                                    expr_row_unordered = expr_source.is_some();
                                 }
                             }
                             // A control of an extension that names a variable of the base object
@@ -533,6 +533,7 @@ impl Lowerer<'_> {
                 var_field,
                 var_slot,
                 expr_source,
+                expr_row_unordered,
                 expr_call,
                 array_element,
                 bare_quoted_ext_source,
@@ -865,6 +866,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         var_field: None,
         var_slot: None,
         expr_source: None,
+        expr_row_unordered: false,
         expr_call: false,
         array_element: None,
         bare_quoted_ext_source: false,

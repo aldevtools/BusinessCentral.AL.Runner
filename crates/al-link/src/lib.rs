@@ -1882,6 +1882,7 @@ mod tests {
                 var_field: None,
                 var_slot: None,
                 expr_source: None,
+                expr_row_unordered: false,
                 expr_call: false,
                 array_element: None,
                 source_text: None,

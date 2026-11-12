@@ -895,6 +895,7 @@ fn walk_control<V: RefVisitor>(
         var_field,
         var_slot: _,
         expr_source: _,
+        expr_row_unordered: _,
         expr_call: _,
         array_element: _,
         bare_quoted_ext_source: _,

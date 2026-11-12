@@ -959,11 +959,8 @@ impl VirtualTables for Providers {
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.next(t, scan),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.next(t, scan),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.next(t, scan),
-            // The rows of one page come in ControlId order, an id the compiler derives, which the runtime's ids do not follow
-            // (record/TestPageControlFieldPageExtension.al:148): what a read in key order that chooses between two controls of a
-            // page gives is not pinned. It is kept as it was before the expression texts were pinned, because a baseline case
-            // walks a page's controls that way without depending on their order (TestPageControlFieldPageExtension.al:58-85):
-            // the rows it reaches serve an expression column as unknown, as they did then. One read by Sequence is pinned
+            // A read in key order that chooses between two controls of a page: what the chosen row serves is decided by
+            // `pages::page_control_field_chosen_in_key_order`. One read by Sequence is pinned
             // (record/TestTableRelationsSequenceMetadataContracts.al:107-122) and is served in full.
             Virtual::PageControlField if scan.key == 0 => {
                 let listed = self.listed(t, Virtual::PageControlField)?;
@@ -984,17 +981,7 @@ impl VirtualTables for Providers {
                         });
                     }
                     if chose {
-                        for id in [6, 7, 8] {
-                            let i = pos_of(t, id);
-                            let literal =
-                                matches!(&row[i], Value::Text(v) if ["true", "false", "True"].contains(&v.as_str()));
-                            if matches!(row[i], Value::Text(_)) && !literal {
-                                row[i] = Value::Unknown(
-                                    "Page Control Field: an expression column of a row read in key order over several controls of a page (the rows come in ControlId order, an id the compiler derives; not pinned)"
-                                        .into(),
-                                );
-                            }
-                        }
+                        pages::page_control_field_chosen_in_key_order(self, t, row);
                     }
                 }
                 Ok(found)
