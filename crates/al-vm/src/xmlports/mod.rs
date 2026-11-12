@@ -26,6 +26,7 @@ mod assigned;
 mod container_tree;
 mod einvoice_shapes;
 mod export_xml;
+mod import_encoding;
 mod import_record;
 mod import_view;
 mod import_xml;
@@ -587,6 +588,9 @@ impl Session {
         if let (Dir::Export, Some(why)) = (dir, schema.xp().export_unsupported.first()) {
             return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));
         }
+        if let (Dir::Import, Some(why)) = (dir, schema.xp().import_unsupported.first()) {
+            return unsupported(format!("XmlPort \"{}\": {why}", schema.name()));
+        }
         for a in &schema.xp().assumes {
             al_builtins::assumptions::assume(*a);
         }
@@ -619,6 +623,18 @@ impl Session {
                 init = Some(i);
             }
         }
+        // A guarded static Import of an Xml port that BC turns into false for a pending write runs no object trigger
+        // (`xp_static_import_blocked`). With an OnInitXmlPort, and for a text port (whose source is read before OnPreXmlPort, and
+        // an empty one fails first as before), it is not pinned and keeps the order below.
+        if dir == Dir::Import
+            && static_form
+            && ret_used
+            && init.is_none()
+            && schema.xp().format == ir::XmlFormat::Xml
+            && self.xp_static_import_blocked()?
+        {
+            return Ok(Value::Boolean(false));
+        }
         Self::xp_clear_flow(inst);
         assigned::mark_run_start(inst);
         // OnInitXmlPort runs once, when the variable is first used: a second Export or Import of the same variable does not
@@ -639,7 +655,19 @@ impl Session {
         }
         // The source of a text-format import is read, and found empty, before OnPreXmlPort runs (P112XpCsv.al:
         // P112_Import_EmptySource, `init 1;init done;`); the text waits for the import.
-        if dir == Dir::Import && schema.xp().format != ir::XmlFormat::Xml {
+        if dir == Dir::Import
+            && import_encoding::defers_decoding(schema.xp())
+            && !import_xml::text_port_with_table_root(schema.xp())
+        {
+            let bytes = self.xp_read_source_bytes(inst, schema.xp())?;
+            if bytes.is_empty() {
+                return Err(xerr(
+                    "Cannot import the specified XML document because the file is empty.",
+                    "XmlPortData",
+                ));
+            }
+            import_encoding::stash_raw(inst, &bytes)?;
+        } else if dir == Dir::Import && schema.xp().format != ir::XmlFormat::Xml {
             let text = match self.xp_read_source(inst, schema.xp()) {
                 // A table-rooted text port fails with the root error whatever the bytes are, also ones that are no UTF-8 or
                 // UTF-16 text (XpTEncoding.al:165 Encoding_ImportCsvWindows, :179 Encoding_ImportCsvUtf16; no trigger runs there).
@@ -692,6 +720,7 @@ impl Session {
                     );
                 }
                 inst.borrow_mut().xp_text.retain(|(k, _)| *k != 12);
+                import_encoding::drop_raw(inst);
                 return Ok(Value::Null);
             }
         }
