@@ -1766,7 +1766,7 @@ impl<'a> Checker<'a> {
 
     /// The receiver `recv` of member access `node`. `Ns.Sub."Enum".FromInteger(n)` names the enum through its namespace when
     /// the first name `Ns` names nothing else in scope (al-runner issue 7920, the reporter's alc 18.1 repro: alc compiles it;
-    /// assumption `namespaced-enum-receiver`, which lowering marks). Only `FromInteger` called on a chain of two or more names
+    /// assumption `namespaced-enum-receiver` with probe corpus PR 1363, which lowering marks). Only `FromInteger` called on a chain of two or more names
     /// is taken; every other receiver is inferred as before.
     fn member_receiver(&mut self, sc: &mut Scope, node: &SyntaxNode, recv: &SyntaxNode) -> E {
         let called = node

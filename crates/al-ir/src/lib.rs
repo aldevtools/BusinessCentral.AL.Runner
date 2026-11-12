@@ -2204,6 +2204,7 @@ mod tests {
             }],
             apps: vec![],
             tdd_stubs: vec!["C: procedure \"P\"()".into()],
+            assumes: vec![al_builtins::assumptions::Assumption::MovedTableStubOfDependency],
             sources: vec![],
             positions: Default::default(),
             uncompiled_subscribers: vec![UncompiledSubscriber {

@@ -22,7 +22,7 @@ impl Workspace {
 
     /// The table of a direct dependency that the workspace table `i` is the moved stub of, when every fact of the
     /// measured pair holds (al-runner issue 7914, the reporter's alc 18.1 repro: alc compiles the pair; assumption
-    /// `moved-table-stub-of-dependency`):
+    /// `moved-table-stub-of-dependency`, probe corpus PR 1363):
     /// - `i` is a table of a workspace app with `ObsoleteState = Moved`;
     /// - its `MovedTo` is the id of an app that `i`'s app names as a dependency;
     /// - that app declares a table with the same id and the same name, without an `ObsoleteState` property.

@@ -4,7 +4,8 @@
 //! - the file has a namespace and the enum is declared only in other namespaces of the file's own app, none of them the
 //!   file's namespace, a `using` of the file, or a namespace above or below the file's (al-runner issue 7921, the
 //!   reporter's alc 18.1 repro: `namespace Acme.Logic;` names `Enum "Widget Kind"` of `namespace Acme.Kinds;`; with
-//!   `using Acme.Kinds;` it compiles).
+//!   `using Acme.Kinds;` it compiles). The corpus probe of corpus PR 1363 measures the cross-app shapes (must-not-compile
+//!   3134, 3135); until they are pinned, an enum of a dependency app keeps compiling.
 //!
 //! Every other shape keeps compiling: a global variable, a parameter, a return type, a trigger's variable, an id, a
 //! qualified name, a file without a namespace that finds the enum in any namespace, an enum of a dependency app in another
