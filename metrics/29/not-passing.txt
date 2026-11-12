@@ -1804,7 +1804,6 @@
 92925 EP_SecurityFilter_IncludedTenantSet
 92925 EP_SecurityFilter_MetadataSet
 92925 EP_SecurityFilter_TenantSet
-92928 Record_Insert_TenantMediaDescriptionOnly_ReadsBack
 92928 TMS_RowsOfMediaSetImport
 92928 TM_DeleteRowOfMediaInSet
 92928 TM_InsertByCode_ThenUseAsMediaId
