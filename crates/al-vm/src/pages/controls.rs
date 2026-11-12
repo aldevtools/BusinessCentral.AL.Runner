@@ -1733,10 +1733,7 @@ impl Session {
                 None if self.read_only_expression_control(st, idx) => Ok(Value::Boolean(false)),
                 None => Ok(Value::Boolean(self.control_editable(st, idx)?)),
             },
-            PageMethod::Enabled => match self.part_field_gate(st, false)? {
-                Some(b) => Ok(Value::Boolean(b)),
-                None => Ok(Value::Boolean(self.control_enabled(st, idx)?)),
-            },
+            PageMethod::Enabled => self.test_control_enabled(st, idx),
             // A control of a part also answers what its part control says (see `part_visible_gate`).
             PageMethod::Visible => Ok(Value::Boolean(self.control_visible_in_part(st, idx)?)),
             PageMethod::Invoke => self.action_invoke(st, idx),
