@@ -616,7 +616,7 @@ impl Session {
             }
             let waiting = self.parts_waiting_refresh(st);
             st.borrow_mut().open_read = true;
-            let (loaded, origin) = self.traced(st, |s| s.load_first_row(st, mode, record.is_some()));
+            let (loaded, origin) = self.traced(st, |s| s.load_first_row_at_open(st, mode, record.is_some()));
             st.borrow_mut().open_read = false;
             st.borrow_mut().test_opened_new = false;
             st.borrow_mut().field_captions_settled = true;
