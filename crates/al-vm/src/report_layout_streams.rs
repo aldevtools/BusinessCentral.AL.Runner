@@ -55,12 +55,16 @@ impl Session {
         let legacy = ["RDLCLayout", "WordLayout", "ExcelLayout", "DefaultLayout"]
             .iter()
             .any(|p| has(p));
-        if !self.ret_used || r.processing_only || !r.extensions.is_empty() || legacy || r.rendering_layouts.is_empty() {
+        if r.processing_only || !r.extensions.is_empty() || legacy || r.rendering_layouts.is_empty() {
             return None;
         }
         let want = kind.to_ascii_lowercase();
         let of_kind: Vec<_> = r.rendering_layouts.iter().filter(|l| l.kind == want).collect();
-        if of_kind.len() > 1 {
+        // As a statement, only the one layout of the asked kind: BC fills the stream without an error, and a Tenant Report
+        // Layout row imports it (reports/layouts-saveas/UserDefinedLayoutAppIdAndNames.al:146-157 RDLC, Word and Excel of a
+        // report whose default is Word; UserDefinedWordExcelLayoutRows.al:60, :94; reports/runtime/Y6TenantReportLayoutRows.al:
+        // 35-89 for the default RDLC layout gives the file). No layout of the kind as a statement is not pinned.
+        if of_kind.len() > 1 || (!self.ret_used && of_kind.len() != 1) {
             return None;
         }
         let path = of_kind.first().map(|l| l.path.clone());
@@ -106,6 +110,24 @@ impl Session {
             .get(app)
             .and_then(|a| a.layout_files.iter().find(|(p, _)| *p == path).map(|(_, b)| b.clone()));
         let Some(file) = file else {
+            // As a statement the call fills the stream without an error on BC (reports/layouts-saveas/
+            // UserDefinedLayoutAppIdAndNames.al:146-157, UserDefinedWordExcelLayoutRows.al:60, :94): the compiler generated the
+            // file, whose bytes the stream carries unread. Only an app built from source: an app read from a package holds its
+            // layout files there (`App::layout_source`), and a file the runner does not hold there was not generated.
+            let from_source = self
+                .engine
+                .program
+                .apps
+                .get(app)
+                .is_some_and(|a| a.layout_source.is_none());
+            if !self.ret_used && from_source {
+                let mark = al_builtins::stream::layout_file_generated_mark(kind);
+                return if al_builtins::stream::create_in_pending(stream, &mark) {
+                    Ok(Value::Boolean(true))
+                } else {
+                    created()
+                };
+            }
             return unsupported(format!(
                 "Report.{kind}Layout of a layout whose file the app does not hold"
             ));

@@ -83,11 +83,26 @@ impl Session {
             .is_some_and(|l| l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..))))
     }
 
-    /// The shapes where "a FactBox part of a Provider chain reads one blank row" and "a part a page extension added reads one blank
-    /// row" disagree: a Provider part declared in the FactBoxes area of the host page itself, and a chain part a page extension
-    /// added outside FactBoxes. The corpus pins only the case where both hold (Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew),
-    /// so these are refused as the page opens (probe spec: probe-provider-factbox-vs-extension).
+    /// A Provider part declared in the FactBoxes area of the host page itself, and a chain part a page extension added outside
+    /// FactBoxes, on a new host. On a stored host these chains read as the pinned ones: the same rows and part triggers after
+    /// OpenView, OpenEdit, GoToRecord, GoToKey, host Next and the Provider's Next and First (testpage/parts/
+    /// ProviderPartOutsideFactBoxes.al ExtContent_*, BaseFactBoxes_*, BothExt_* `open`, `h1`, `h2`, `next`, `first`, `next-host`,
+    /// BC 27.5, 28.5 and 29.0; corpus pull request 1324, al-runner issue 7748). On OpenNew the blank line reads follow the FactBoxes
+    /// area and a Content chain does not insert on the typed key (`new`, `keyed`, `inserted`), which the runner does not model for
+    /// these shapes, so a new host is refused as the page opens.
     pub(super) fn refuse_factbox_vs_extension_chain(&self, st: &St) -> Result<(), Signal> {
+        if st.borrow().draft && self.chain_outside_pinned_areas(st) {
+            return unsupported(
+                "a new host with a Provider-chain part that is a Provider declared in the base page's FactBoxes, or added by a page extension outside FactBoxes (its blank line reads on OpenNew are not modelled)",
+            );
+        }
+        Ok(())
+    }
+
+    /// Whether host `st` has a Provider chain of the shapes ProviderPartOutsideFactBoxes.al measures beyond
+    /// ProviderLinkedPartsMatrix.al: a Provider part declared in the FactBoxes area of the host page itself (host `LT PX Host Base
+    /// FB`), or a chain part a page extension added outside FactBoxes (hosts `LT PX Host Ext Content`, `LT PX Host Both Ext`).
+    pub(super) fn chain_outside_pinned_areas(&self, st: &St) -> bool {
         let (parts, object) = {
             let s = st.borrow();
             (
@@ -101,18 +116,12 @@ impl Session {
         };
         let engine = self.engine();
         let page = page_of(&engine, st);
-        for i in parts {
+        parts.into_iter().any(|i| {
             let c = &page.controls[i];
             let extension = c.owner.is_some_and(|o| o != object);
-            if self.part_in_provider_chain(st, i)
+            self.part_in_provider_chain(st, i)
                 && ((c.factbox && !extension && self.part_is_provider(st, i)) || (extension && !c.factbox))
-            {
-                return unsupported(
-                    "a Provider-chain part that is a Provider declared in the base page's FactBoxes, or added by a page extension outside FactBoxes (open question: whether BC's one blank read follows the FactBoxes area or the page extension; probe pending)",
-                );
-            }
-        }
-        Ok(())
+        })
     }
 
     /// Whether part `i` is the Provider of another part.

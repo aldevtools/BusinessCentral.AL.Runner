@@ -1169,7 +1169,7 @@ impl Session {
                     self.permission_from_al = true;
                 }
                 // A RecordRef.Insert of AL code is queued as a Record's (`insert_buffer.rs`).
-                self.record_op_of_al(record_method(method), &rec, args)
+                self.recordref_record_op(method, &rec, args)
             }
             // As Record.Truncate: every row the filters select goes, with or without the argument
             // (recordref-fieldref/recordref/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,

@@ -123,12 +123,25 @@ fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
             );
         }
     };
+    // GetLastErrorText(true) hides the value and keeps the range, for the three-argument form: parameter 2
+    // (errors/last-error/LastErrorFlagRuntimeCodes.al:236, :245), parameters 1 and 3 (DateAndConversionSites_ExcludeFlag
+    // `dmy2dateday_true`, `dmy2dateyear_true`; corpus pull request 1327). Short forms are not measured.
+    let three = a.len() == 3;
     let range = |n: u8, v: i32, hi: u32| {
-        raise(
+        let r = raise(
             format!(
                 "The value of DMY2Date parameter {n} is outside of the permitted range. The current value is: {v}. The permitted range is: from 1 to {hi}."
             ),
             "OutsidePermittedRange",
+        );
+        if !three {
+            return r;
+        }
+        crate::native::with_origin(
+            r,
+            crate::native::ErrorOrigin::Redacted(format!(
+                "The value of DMY2Date parameter {n} is outside of the permitted range. The current value is: <redacted>. The permitted range is: from 1 to {hi}."
+            )),
         )
     };
     // The parts are checked in a fixed order, and the first one out of range is named: the month, then the year, then the day
@@ -136,16 +149,6 @@ fn dmy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     // 57.52.0 name the month, 31.2.0 the year; :588-605 57.52.2076 the month). The day's range is the length of its month
     // (types/date-time/DateFuncs.al:243-302 DMY2Date_Invalid; P133DateEvaluateFormat.al:599 31.2.2024: 1 to 29).
     if !(1..=12).contains(&m) {
-        // GetLastErrorText(true) hides the value and keeps the range, for the three-argument form
-        // (errors/last-error/LastErrorFlagRuntimeCodes.al:236, :245). The other parameters and short forms are not measured.
-        if a.len() == 3 {
-            return crate::native::with_origin(
-                range(2, m, 12),
-                crate::native::ErrorOrigin::Redacted(
-                    "The value of DMY2Date parameter 2 is outside of the permitted range. The current value is: <redacted>. The permitted range is: from 1 to 12.".into(),
-                ),
-            );
-        }
         return range(2, m, 12);
     }
     // Year 0 is valid only as (1, 1, 0): a date with the parts 1, 1, 0 that formats as 0001-01-02, which is (2, 1, 1)

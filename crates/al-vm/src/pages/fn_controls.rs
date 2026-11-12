@@ -88,6 +88,18 @@ impl Session {
         Ok(())
     }
 
+    /// Runs the function controls of `st` on the blank line it stands on, noting nothing (`part_filter_runs_fn_on_new_line`).
+    pub(super) fn run_fn_controls_on_new_line(&mut self, st: &St) -> Result<(), Signal> {
+        for idx in self.fn_log_controls(st) {
+            let ir::Binding::Expr(r) = page_of(&self.engine(), st).controls[idx].binding else {
+                continue;
+            };
+            // What BC shows for an expression that fails there is not observed: the error is dropped as at a row read.
+            let _ = self.control_routine(st, idx, r);
+        }
+        Ok(())
+    }
+
     /// `populate_current` for the first of the two reads a list makes of a row it moves onto (`read_client_row_in`): that read
     /// runs no function control (Y15LookupThreeFieldLink.al:736 Y54_ThreeLinkCurr_PartNextAfterLookup `next log`
     /// `h-agr R2;h-agr R2;h-fn R2;h-agcr R2;h-fn R2`).

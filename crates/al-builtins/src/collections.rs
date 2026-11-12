@@ -61,7 +61,17 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
                 a[1] = v;
                 Ok(Value::Boolean(true))
             }
-            None if c.ret_used() => Ok(Value::Boolean(false)),
+            None if c.ret_used() => {
+                // Past the end the list error is left as the last error, and GetLastErrorText(true) gives the text for an
+                // error without a privacy classification (errors/last-error/LastErrorFlagRuntimeCodes.al ListSites_ExcludeFlag
+                // `listgetvar`; corpus pull request 1327). An index below 1 is not measured for the last error.
+                if !matches!(&a[0], Value::Integer(n) if *n < 1)
+                    && let Err(Signal::Error(e)) = crate::native::with_origin(list_get_error::<()>(), not_classified())
+                {
+                    c.set_last_error(*e);
+                }
+                Ok(Value::Boolean(false))
+            }
             None => list_get_error(),
         }
     }),
@@ -120,7 +130,10 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
             let i = index(&a[0])?;
             with_list(r, |l| {
                 if i >= l.len() {
-                    return out_of_range();
+                    // GetLastErrorText(true): the text for an error without a privacy classification
+                    // (errors/last-error/LastErrorFlagRuntimeCodes.al ListSites_ExcludeFlag `listremoveat_true`; corpus pull
+                    // request 1327).
+                    return crate::native::with_origin(out_of_range(), not_classified());
                 }
                 l.remove(i);
                 Ok(Value::Boolean(true))
@@ -158,7 +171,9 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
                 *slot = a[1].clone();
                 Ok(Value::Boolean(true))
             }
-            None => out_of_range(),
+            // GetLastErrorText(true): the text for an error without a privacy classification
+            // (errors/last-error/LastErrorFlagRuntimeCodes.al ListSites_ExcludeFlag `listset_true`; corpus pull request 1327).
+            None => crate::native::with_origin(out_of_range(), not_classified()),
         })
     }),
     ("List.GetRange#1", |_, r, a| {

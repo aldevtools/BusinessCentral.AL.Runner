@@ -87,10 +87,11 @@ fn assigned(v: Value, code: i32) -> Result<Value, Signal> {
     let Some(t) = target_of(code) else {
         return super::variant_records::into_record_slot(v, code);
     };
-    // A Variant holding a text of letters into an Integer: GetLastErrorText(true) leaves the text
-    // (errors/last-error/LastErrorFlagRuntimeCodes.al:233-234, :242). The empty text is not measured.
+    // A Variant holding a text into an Integer: GetLastErrorText(true) leaves the text, for a text of letters
+    // (errors/last-error/LastErrorFlagRuntimeCodes.al:233-234, :242) and the empty text (DateAndConversionSites_ExcludeFlag
+    // `variantempty_true`; corpus pull request 1327).
     if matches!(t, RtType::Integer)
-        && matches!(&v, Value::Text(s) if !s.as_str().is_empty())
+        && matches!(&v, Value::Text(_))
         && let Err(Signal::Error(e)) = crate::ops::convert(v.clone(), &t)
         && e.code == "TypeConversion:Format"
     {

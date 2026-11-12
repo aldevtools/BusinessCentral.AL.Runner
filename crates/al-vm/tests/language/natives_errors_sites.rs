@@ -37,6 +37,53 @@ codeunit 69891 "NE C"
     procedure VariantEmptyInt(): Text var V: Variant; I: Integer; begin V := ''; asserterror I := V; exit(Flag()); end;
     procedure DictGetVar(): Text var D: Dictionary of [Text, Integer]; I: Integer; begin asserterror D.Get('missing key', I); exit(Flag()); end;
 
+    // Finds on an empty set: through a Record (measured) and through a RecordRef (not measured, al-runner issue 7806).
+    procedure RecFindFirstFiltered(): Text var Row: Record "NE Row"; begin Row.SetRange(Id, 42); asserterror Row.FindFirst(); exit(Flag()); end;
+    procedure RecFindEqualEmpty(): Text var Row: Record "NE Row"; begin asserterror Row.Find('='); exit(Flag()); end;
+    procedure RecFindFirstEmpty(): Text var Row: Record "NE Row"; begin asserterror Row.FindFirst(); exit(Flag()); end;
+    procedure RefFindFirstFiltered(): Text var Ref: RecordRef; begin Ref.Open(69890); Ref.Field(1).SetRange(42); asserterror Ref.FindFirst(); exit(Flag()); end;
+    procedure RefFindSetFiltered(): Text var Ref: RecordRef; begin Ref.Open(69890); Ref.Field(1).SetRange(42); asserterror Ref.FindSet(); exit(Flag()); end;
+    procedure RefFindMinusFiltered(): Text var Ref: RecordRef; begin Ref.Open(69890); Ref.Field(1).SetRange(42); asserterror Ref.Find('-'); exit(Flag()); end;
+    procedure RefFindFirstEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890); asserterror Ref.FindFirst(); exit(Flag()); end;
+    procedure RefFindLastEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890); asserterror Ref.FindLast(); exit(Flag()); end;
+    procedure RefFindEqualEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890); asserterror Ref.Find('='); exit(Flag()); end;
+    procedure RefTempFindMinusFiltered(): Text var Ref: RecordRef; begin Ref.Open(69890, true); Ref.Field(1).SetRange(42); asserterror Ref.Find('-'); exit(Flag()); end;
+    procedure RefTempFindFirstEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890, true); asserterror Ref.FindFirst(); exit(Flag()); end;
+    procedure RefTempFindMinusEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890, true); asserterror Ref.Find('-'); exit(Flag()); end;
+    procedure RefFindFirstFilteredPlain(): Text var Ref: RecordRef; begin Ref.Open(69890); Ref.Field(1).SetRange(42); asserterror Ref.FindFirst(); exit(GetLastErrorText(false)); end;
+
+    // A Guid compared with a text that is no Guid: measured for `G = Text` only.
+    procedure GuidEqText(): Text var G: Guid; B: Boolean; begin asserterror B := G = 'not a guid'; exit(Flag()); end;
+    procedure GuidNeText(): Text var G: Guid; B: Boolean; begin asserterror B := G <> 'not a guid'; exit(Flag()); end;
+    procedure TextEqGuid(): Text var G: Guid; B: Boolean; begin asserterror B := 'not a guid' = G; exit(Flag()); end;
+    procedure GuidEqCode(): Text var G: Guid; C: Code[20]; B: Boolean; begin C := 'NOTAGUID'; asserterror B := G = C; exit(Flag()); end;
+
+    // SelectToken with an unclosed indexer: measured for the path `[` on a JsonObject only.
+    procedure SelectBracket(): Text var JO: JsonObject; JT: JsonToken; B: Boolean; begin JO.Add('k', 1); B := JO.SelectToken('[', JT); exit(Flag()); end;
+    procedure SelectNameBracket(): Text var JO: JsonObject; JT: JsonToken; B: Boolean; begin JO.Add('k', 1); B := JO.SelectToken('k[', JT); exit(Flag()); end;
+    procedure SelectArrayBracket(): Text var JA: JsonArray; JT: JsonToken; B: Boolean; begin JA.Add(1); B := JA.SelectToken('[', JT); exit(Flag()); end;
+
+    // Raw control characters and form feeds in JSON text.
+    local procedure Ch(N: Integer): Text var C: Text[1]; begin C[1] := N; exit(C); end;
+    local procedure Tok(Src: Text): Text var T: JsonToken; begin exit(Format(T.ReadFrom(Src))); end;
+    procedure FfAfterColon(): Text begin exit(Tok('{"a":' + Ch(12) + '"v"}')); end;
+    procedure FfAfterValue(): Text begin exit(Tok('{"a":1}' + Ch(12))); end;
+    procedure FfInArray(): Text begin exit(Tok('[1,' + Ch(12) + '2]')); end;
+    procedure FfLeading(): Text begin exit(Tok(Ch(12) + '{"a":1}')); end;
+    procedure FfBeforeKey(): Text begin exit(Tok('{' + Ch(12) + '"a":1}')); end;
+    procedure FfBeforeColon(): Text begin exit(Tok('{"a"' + Ch(12) + ':1}')); end;
+    procedure TabInKey(): Text begin exit(Tok('{"a' + Ch(9) + 'b":1}')); end;
+    procedure TabSingleQuoted(): Text begin exit(Tok('{''a'':''x' + Ch(9) + 'y''}')); end;
+    procedure LfInKey(): Text begin exit(Tok('{"a' + Ch(10) + 'b":1}')); end;
+    procedure OneInKey(): Text begin exit(Tok('{"a' + Ch(1) + 'b":1}')); end;
+    procedure OneSingleQuoted(): Text begin exit(Tok('{''a'':''x' + Ch(1) + 'y''}')); end;
+    procedure LfSingleQuoted(): Text begin exit(Tok('{''a'':''x' + Ch(10) + 'y''}')); end;
+    procedure OneDoubleQuoted(): Text begin exit(Tok('{"a":"x' + Ch(1) + 'y"}')); end;
+    procedure StreamTab(): Text var Row: Record "NE Row"; O: OutStream; I: InStream; JO: JsonObject; begin
+        Row.Data.CreateOutStream(O); O.WriteText('{"a":"x' + Ch(9) + 'y"}'); Row.Data.CreateInStream(I); exit(Format(JO.ReadFrom(I))); end;
+    procedure StreamFf(): Text var Row: Record "NE Row"; O: OutStream; I: InStream; JO: JsonObject; begin
+        Row.Data.CreateOutStream(O); O.WriteText('{"a":' + Ch(12) + '"v"}'); Row.Data.CreateInStream(I); exit(Format(JO.ReadFrom(I))); end;
+
     // A Variant record slot outside `:=`.
     [TryFunction]
     local procedure TakeRow(Row: Record "NE Row") begin end;
@@ -84,6 +131,30 @@ fn refused(routine: &str) {
     }
 }
 
+/// `routine` on BC version `bc` (`27.5`, ...).
+fn run_on(bc: &str, routine: &str) -> Result<al_builtins::value::Value, Signal> {
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
+    let apps = vec![al_sema::workspace::AppSource {
+        id: "a".into(),
+        name: "a".into(),
+        dependencies: vec![],
+        files: vec![("f.al".into(), SRC.into())],
+    }];
+    let (ws, l) = al_sema::lower::compile_for(apps, &Default::default(), &target);
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked = al_testkit::blocked(&l);
+    let oi = l.program.objects.iter().position(|o| o.name == "NE C").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == routine)
+        .unwrap();
+    let engine = al_vm::Engine::with_target(l.program, blocked, Some(target));
+    let mut s = al_vm::Session::new(engine);
+    let inst = s.instance(oi);
+    s.call(oi, ri, inst, vec![]).map(|(v, _)| v)
+}
+
 const NOT_CLASSIFIED: &str =
     "Message not shown because the NavBaseException constructor was used without privacy classification";
 
@@ -114,21 +185,77 @@ fn the_flag_answers_at_the_measured_raise_sites() {
 }
 
 #[test]
+fn the_flag_answers_the_sites_measured_by_the_second_probe() {
+    // LastErrorFlagRuntimeCodes.al ListSites_ExcludeFlag, TextSites_ExcludeFlag, DateAndConversionSites_ExcludeFlag,
+    // IndexSites_ExcludeFlag (corpus pull request 1327). These sites were refused before that probe.
+    for routine in ["ListRemoveAt", "ListSet", "PadRight"] {
+        assert_eq!(text(run(routine)), NOT_CLASSIFIED, "{routine}");
+    }
+    assert_eq!(
+        text(run("Dmy2DateDay")),
+        "The value of DMY2Date parameter 1 is outside of the permitted range. The current value is: <redacted>. The permitted range is: from 1 to 31."
+    );
+    assert_eq!(text(run("ArrayRead")), "Index out of bounds.");
+    assert_eq!(
+        text(run("VariantEmptyInt")),
+        "The expression Variant cannot be type-converted to a Integer value."
+    );
+}
+
+#[test]
 fn the_flag_refuses_unmeasured_sites_that_share_a_measured_text() {
-    for routine in [
-        "ListRemoveAt",
-        "ListSet",
-        "ListGetVar",
-        "PadRight",
-        "SubstringCount",
-        "Dmy2DateDay",
-        "JsonGet",
-        "ArrayRead",
-        "VariantEmptyInt",
-        "DictGetVar",
-    ] {
+    // Statement forms of `Get(i, var)` and `JsonArray.Get`, and `Substring(Start, Length)` with the start past the end: the
+    // probe measured only the forms with the result used, and a length within reach.
+    for routine in ["ListGetVar", "SubstringCount", "JsonGet", "DictGetVar"] {
         refused(routine);
     }
+}
+
+#[test]
+fn the_flag_answers_recordref_finds_on_an_empty_set_where_measured() {
+    // The Record cells are measured (LastErrorFlagRuntimeCodes.al:NothingInsideFilter_EmptyTable_ExcludeFlag, P86LastError.al:339-353).
+    assert_eq!(
+        text(run("RecFindFirstFiltered")),
+        "There is no NE Row within the filter.\\\\Filters: <redacted>"
+    );
+    assert_eq!(text(run("RecFindFirstEmpty")), "The NE Row table is empty.");
+    // Through a RecordRef: measured apart (LastErrorFlagRuntimeCodes.al RecordRef_*_ExcludeFlag, corpus pull request 1327).
+    for routine in ["RefFindFirstFiltered", "RefFindSetFiltered", "RefFindMinusFiltered"] {
+        assert_eq!(
+            text(run(routine)),
+            "There is no NE Row within the filter.\\\\Filters: <redacted>",
+            "{routine}"
+        );
+    }
+    for routine in ["RefFindFirstEmpty", "RefFindLastEmpty"] {
+        assert_eq!(text(run(routine)), "The NE Row table is empty.", "{routine}");
+    }
+    // Find('=') of an empty table hides the key through a RecordRef on every measured version (RecordRef_EmptyTable_NoFilter_ExcludeFlag
+    // `equal_true`, BC 27.5, 28.5 and 29.0); through a Record from BC 28 (FindEmptyTableExcludeFlag.al:123, guarded with BC28PLUS).
+    for bc in ["27.5", "28.5", "29.0"] {
+        assert_eq!(
+            text(run_on(bc, "RefFindEqualEmpty")),
+            "The NE Row does not exist. Identification fields and values: <redacted>",
+            "{bc}"
+        );
+    }
+    assert!(matches!(
+        run_on("27.5", "RecFindEqualEmpty"),
+        Err(Signal::Unsupported(_))
+    ));
+    assert_eq!(
+        text(run_on("28.5", "RecFindEqualEmpty")),
+        "The NE Row does not exist. Identification fields and values: <redacted>"
+    );
+    // A temporary RecordRef: Find('-') of a filtered set and FindFirst of an empty one are not measured.
+    refused("RefTempFindMinusFiltered");
+    refused("RefTempFindFirstEmpty");
+    assert_eq!(text(run("RefTempFindMinusEmpty")), "The NE Row table is empty.");
+    // The error itself and its text without the flag stay as on main.
+    assert_eq!(
+        text(run("RefFindFirstFilteredPlain")),
+        "There is no NE Row within the filter.\\\\Filters: Id: 42"
+    );
 }
 
 #[test]
@@ -201,4 +328,51 @@ fn uncreated_streams_answer_only_the_measured_forms() {
     assert_eq!(text(run("LengthCleared")), "NotInitialized");
     // StreamUncreatedUse.al:162-179: a BigInteger length into a Text reads as an Integer length.
     assert_eq!(text(run("ReadTextBigLength")), "3abc");
+}
+
+#[test]
+fn a_guid_compared_with_a_text_leaves_the_text_only_for_the_measured_form() {
+    // LastErrorFlagRuntimeCodes.al DateAndConversionSites_ExcludeFlag `guidtext_true`: `G = 'not a guid'`.
+    assert!(text(run("GuidEqText")).starts_with("Invalid format of GUID string."));
+    for routine in ["GuidNeText", "TextEqGuid", "GuidEqCode"] {
+        refused(routine);
+    }
+}
+
+#[test]
+fn select_token_leaves_the_text_only_for_the_measured_path() {
+    // InvalidOperationSites_ExcludeFlag `selecttoken_true`: `JO.SelectToken('[', JT)`.
+    assert_eq!(
+        text(run("SelectBracket")),
+        "The requested operation cannot be performed in this context."
+    );
+    refused("SelectNameBracket");
+    refused("SelectArrayBracket");
+}
+
+#[test]
+fn a_form_feed_reads_as_a_blank_only_after_a_colon() {
+    // json/JsonReadFrom.al:553 `tok_12_between`; text after the value is ignored as before.
+    assert_eq!(text(run("FfAfterColon")), "Yes");
+    assert_eq!(text(run("FfAfterValue")), "Yes");
+    for routine in ["FfInArray", "FfLeading", "FfBeforeKey", "FfBeforeColon", "StreamFf"] {
+        refused(routine);
+    }
+}
+
+#[test]
+fn a_raw_control_character_in_a_key_or_single_quoted_string_reads_only_for_tab() {
+    // json/JsonReadFrom.al:549 `tok_tab_in_key`, :550 `tok_tab_single_quoted`, :458-474 TokenReadFromRawControlInString.
+    assert_eq!(text(run("TabInKey")), "Yes");
+    assert_eq!(text(run("TabSingleQuoted")), "Yes");
+    assert_eq!(text(run("OneDoubleQuoted")), "Yes");
+    for routine in ["LfInKey", "OneInKey", "OneSingleQuoted", "LfSingleQuoted"] {
+        refused(routine);
+    }
+}
+
+#[test]
+fn readfrom_instream_does_not_take_the_text_forms_raw_controls() {
+    // Only ReadFrom(Text) was measured (json/JsonReadFrom.al:440-509).
+    refused("StreamTab");
 }
