@@ -399,18 +399,30 @@ fn hidden_part_turns_and_new_row_shapes() {
         ("DocTurnByHostTrigger", Want::Pass { flagged: true }),
         ("DocHostTriggerTurnAfterActionTurns", Want::Pass { flagged: true }),
         // Turns no pin covers: refused.
-        ("DocSecondTurnByAction", Want::Refused(turn)),
+        ("DocSecondTurnByAction", Want::Refused("the part showed before")),
         ("DocShownAtOpenTurnedAgain", Want::Refused(turn)),
         ("DocActionTurnAfterHostTriggerTurn", Want::Refused(turn)),
-        ("CardTurnByAction", Want::Refused(turn)),
+        ("CardTurnByAction", Want::Refused("the host page is not a Document")),
         ("DocOpenTurnHideActionShow", Want::Refused(turn)),
         ("DocOpenTurnHostHidesActionShow", Want::Refused(turn)),
-        ("DocOpenViewTurnByAction", Want::Refused(turn)),
-        ("DocUnlinkedTurnByAction", Want::Refused(turn)),
-        ("DocTurnByActionWithUpdateFalse", Want::Refused(turn)),
+        (
+            "DocOpenViewTurnByAction",
+            Want::Refused("the host page was not opened with OpenEdit"),
+        ),
+        (
+            "DocUnlinkedTurnByAction",
+            Want::Refused("the part has no SubPageLink of field terms"),
+        ),
+        (
+            "DocTurnByActionWithUpdateFalse",
+            Want::Refused("the action body did more than set the variable"),
+        ),
         ("DocTurnByActionWithSave", Want::Refused(turn)),
         ("DocTurnByActionWithRecWrite", Want::Refused(turn)),
-        ("DocDirtyHostTurnByAction", Want::Refused(turn)),
+        (
+            "DocDirtyHostTurnByAction",
+            Want::Refused("the host page or a part held an unsaved edit"),
+        ),
         ("DocTurnByOnValidate", Want::Pass { flagged: true }),
         // New() on an open host keeps main's behavior: no trigger of the part, and main's refusal at Close.
         ("CardNewOnOpenHostAsMain", Want::Pass { flagged: false }),

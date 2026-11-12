@@ -2752,7 +2752,7 @@ impl Session {
         if !modal {
             if let Some(trap) = self.take_trap(object) {
                 trap.borrow_mut().trapping = false;
-                trap.borrow_mut().caught_by_trap = true;
+                super::page_run_close::PageRun::catch_by_trap(&trap, &st);
                 // A variable that still holds an open page closes it first, as Close() does: OnQueryClosePage(OK), then OnClosePage
                 // with the old record (ui-handlers/F3TrappedAndModal.al:Trap_02_SameVariableTrappedAgain line 36).
                 if trap.borrow().open {

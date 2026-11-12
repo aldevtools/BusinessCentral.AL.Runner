@@ -2,6 +2,7 @@
 
 mod action_deleted_current_row;
 mod action_empty_view;
+mod action_enabled_after_go_to_key;
 mod action_moved_rec;
 mod action_moved_rec_beyond_window;
 mod after_get_record_event;
