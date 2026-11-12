@@ -1345,7 +1345,8 @@ impl Session {
             ));
         }
         // A blank field attribute runs no OnAfterAssignField where the port validates by default
-        // (XpAfterAssignTableRelation.al:583, :609); with DefaultFieldsValidation = false that is not measured.
+        // (corpus PR 1366, not pinned yet: XpAfterAssignTableRelation.al:583, :609); with DefaultFieldsValidation = false it is not
+        // measured.
         if xp.no_default_fields_validation
             && n.kind == al_ir::XmlNodeKind::FieldAttr
             && blank
