@@ -191,6 +191,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         in_request_page: false,
         in_report_init_with_rec: None,
         locals: Default::default(),
+        local_char_option_byte_vars: Default::default(),
         global_labels: HashMap::default(),
         local_labels: HashMap::default(),
         global_label_xliff: HashMap::default(),

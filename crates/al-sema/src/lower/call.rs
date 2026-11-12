@@ -167,8 +167,10 @@ impl Lowerer<'_> {
     /// - the index or count of a List method converts as a checked cast to Integer when the argument is declared Decimal or
     ///   BigInteger (collections/ListNonIntegerIndex.al:44-98 every method but the GetRange form with a var result; :240-263 a
     ///   whole value, :266-289 a fraction, :292-321 the Get edge values, :324-367 BigInteger, :370-416 Decimal expressions and
-    ///   statements), or Char, Option or Byte for `Get(Index)` (:163-181 with :419-430). Any other argument, a Variant among
-    ///   them, reaches the method as it is.
+    ///   statements), or, for `Get(Index)`, when it is a local variable declared Char, Option with its members, or Byte
+    ///   (:163-167 the declarations, :171-178 the calls, :419-430). Any other argument reaches the method as it is: a Variant,
+    ///   and a Char, Option or Byte that is no such local variable (a platform option type such as TextEncoding, a global, a
+    ///   parameter, a field, a function result).
     fn builtin_arg_slot(&self, id: &str, param: &str, receiver: Option<&SyntaxNode>, a: &SyntaxNode) -> Option<Ty> {
         match (param, receiver.map(|r| self.ty_of(r))) {
             ("T", Some(Ty::List(el))) => Some(*el),
@@ -186,13 +188,31 @@ impl Lowerer<'_> {
                             | "List.GetRange#1"
                             | "List.RemoveRange#1"
                     ),
-                    Ty::Char | Ty::Option(_) | Ty::Byte => id == "List.Get#1",
+                    Ty::Char | Ty::Option(_) | Ty::Byte => id == "List.Get#1" && self.local_char_option_byte_var(a),
                     _ => false,
                 };
                 pinned.then_some(Ty::Integer)
             }
             _ => None,
         }
+    }
+
+    /// Keeps the names of the routine's local variables whose declaration writes `Char`, `Byte` or `Option` with its members.
+    pub(crate) fn set_char_option_byte_locals(&mut self, decls: impl Iterator<Item = ast::VarDecl>) {
+        self.local_char_option_byte_vars.clear();
+        for v in decls {
+            let written = v.type_ref().map(|t| t.type_name().to_ascii_lowercase());
+            if matches!(written.as_deref(), Some("char" | "option" | "byte")) {
+                self.local_char_option_byte_vars
+                    .extend(v.names().into_iter().map(|n| n.to_lowercase()));
+            }
+        }
+    }
+
+    /// `a` names a local variable whose declaration writes `Char`, `Byte` or `Option` with its members.
+    fn local_char_option_byte_var(&self, a: &SyntaxNode) -> bool {
+        a.kind() == SyntaxKind::NameRef
+            && matches!(self.res(a), Some(Res::Local(n)) if self.local_char_option_byte_vars.contains(n))
     }
 
     fn variant_argument_id(&self, id: &str, args: &[SyntaxNode]) -> Option<&'static str> {

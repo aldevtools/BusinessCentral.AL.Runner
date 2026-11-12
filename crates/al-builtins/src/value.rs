@@ -978,10 +978,13 @@ pub struct HttpRequestState {
     /// The uri came from `SetSecretRequestUri`: `GetRequestUri` then reads empty
     /// (xml/xml/P97ReqSecretUri.al:79, :110).
     pub uri_secret: bool,
-    /// The `Content` set on the request: the `HttpContent` handle itself, so the request and the
-    /// variable it was set from share it (nothing pins a copy; no corpus test tells them apart).
+    /// The request's content: a copy of the content it was set from, or the uninitialized one its first read handed out
+    /// (`http::request_content`).
     pub content: Option<Value>,
     pub headers: HttpHeaderList,
+    /// The request was assigned or passed by value (`http::request_handed_on`). The variables share the request; the mark
+    /// only says that no evidence for `ReadAs(SecretText)` covers its content (`http::SecretReadShape`).
+    pub handed_on: bool,
 }
 
 impl Default for HttpRequestState {
@@ -992,6 +995,7 @@ impl Default for HttpRequestState {
             uri_secret: false,
             content: None,
             headers: new_header_list(HeaderKind::Request),
+            handed_on: false,
         }
     }
 }
@@ -1017,31 +1021,9 @@ pub struct HttpContentState {
     pub from_stream: bool,
     /// The last `WriteFrom` took a `SecretText` (xml/xml/P97ContentSecret.al).
     pub secret: bool,
-    /// What was done to the content, as far as `ReadAs(SecretText)` as a statement needs it (`http::content::read_as_secret`).
-    pub secret_read: SecretReadShape,
-}
-
-/// The shapes of an `HttpContent` on which `ReadAs(SecretText)` as a statement, and on the content of a request that has none
-/// also with its result used, is measured or pinned (`http::content::read_as_secret`). Each content method moves it as
-/// `http::content` says; whatever no evidence covers is `Other`, which keeps the refusal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SecretReadShape {
-    /// A content variable no method was called on (al-language-onprem/http/N4ReadAsSecretStatement.al `fresh`); `Clear(C)` and
-    /// `ClearAll` make a new one (http/client/UfHttpClear.al:14-62).
-    New,
-    /// A `New` content after `Clear()` (corpus http/CzHttpNoNetwork.al:49 through Http Content Impl. SetContent).
-    Cleared,
-    /// A content variable written once from a Text or a SecretText (N4ReadAsSecretStatement.al `secret`, `plain`, `empty`), or a
-    /// `Cleared` one from a SecretText (CzHttpNoNetwork.al:49).
-    Written,
-    /// The content a request got with `Req.Content(C)` from a `Written` C (N4ReadAsSecretStatement.al `*_inplace_*`).
-    InRequest,
-    /// A copy of an `InRequest` content written from a SecretText (N4ReadAsSecretStatement.al `secret_copy_*`).
-    RequestCopy,
-    /// The content of a request that has none, in place or copied (N4ReadAsSecretStatement.al RequestWithoutContent_*).
-    RequestNone,
-    /// Any other content: a response's, or one after a call no evidence covers.
-    Other,
+    /// The calls made on the content so far, as far as the evidence for `ReadAs(SecretText)` follows them
+    /// (`http::SecretReadShape`).
+    pub secret_read: crate::http::SecretReadShape,
 }
 
 impl Default for HttpContentState {
@@ -1060,7 +1042,7 @@ impl Default for HttpContentState {
             copied: false,
             from_stream: false,
             secret: false,
-            secret_read: SecretReadShape::Other,
+            secret_read: crate::http::SecretReadShape::Other,
         }
     }
 }

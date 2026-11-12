@@ -76,7 +76,7 @@ fn with_content<R>(r: Option<&mut Value>, f: impl FnOnce(&mut HttpContentState) 
     if matches!(&*lib, LibraryValue::Empty) {
         // A content variable nobody used yet.
         *lib = LibraryValue::HttpContent(HttpContentState {
-            secret_read: crate::value::SecretReadShape::New,
+            secret_read: SecretReadShape::New,
             ..HttpContentState::default()
         });
     }
@@ -197,6 +197,7 @@ mod header_rules;
 mod headers;
 mod messages;
 mod request_cookies;
+mod secret_read;
 mod send;
 mod uri;
 mod windows_auth;
@@ -208,9 +209,10 @@ use header_rules::*;
 use headers::*;
 use messages::*;
 use request_cookies::*;
+pub use secret_read::SecretReadShape;
 use send::*;
 use uri::*;
-pub use uri::{copy_content, is_empty_uri_form, normalize_uri};
+pub use uri::{content_handed_on, copy_content, is_empty_uri_form, normalize_uri, request_handed_on};
 use windows_auth::*;
 
 pub fn native_for(sig: &Signature) -> Option<NativeFn> {

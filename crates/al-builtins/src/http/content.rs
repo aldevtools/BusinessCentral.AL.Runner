@@ -1,7 +1,7 @@
 //! `HttpContent`: writing and reading the body.
 
+use super::secret_read::Call;
 use super::*;
-use crate::value::SecretReadShape;
 
 // ------------------------------------------------------------------------------------------------ content
 
@@ -21,7 +21,7 @@ pub(super) fn write_from(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
 pub(super) fn write_from_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (t, _) = text_or_secret(a, 0)?;
     with_content(r, |s| {
-        s.note(Call::WriteSecret);
+        s.note(if t.is_empty() { Call::Other } else { Call::WriteSecret });
         s.write_body(t.into_bytes());
         s.secret = true;
         let mut bag = s.headers.borrow_mut();
@@ -35,7 +35,7 @@ pub(super) fn write_from_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 /// after a Clear and a WriteFrom of text).
 pub(super) fn is_secret_content(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_content(r, |s| {
-        s.note(Call::SecretKept);
+        s.note(Call::IsSecretContent);
         Value::Boolean(s.secret)
     })
 }
@@ -43,22 +43,26 @@ pub(super) fn is_secret_content(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut 
 /// `ReadAs(var SecretText)` with its result used answers true and gives the body as a secret, of a secret or a plain content, a
 /// new one included (P97ContentSecret.al:21-28 with :83-150, :215-234).
 ///
-/// The statement form runs on the shapes [`statement_measured`] lists and gives the body the same way; a content written from a
-/// SecretText reads as not empty (corpus http/CzHttpNoNetwork.al:34 with :80), and its body, and every other listed shape, is
-/// assumed (assumption `http-readas-secret-statement`, probe al-language-onprem/http/N4ReadAsSecretStatement.al). On the
-/// content of a request that has none (`SecretReadShape::RequestNone`), in place or copied, the statement raises NotInitialized
-/// and the result-used form answers false, and both leave the secret (assumed, same probe). Every other shape is refused.
+/// The statement form gives the body the same way after the call sequences `SecretReadShape::statement_gives_body` lists
+/// (assumption `http-readas-secret-statement`, probe al-language-onprem/http/N4ReadAsSecretStatement.al; corpus
+/// http/CzHttpNoNetwork.al:34 with :80 pins one of them as not empty, its body is assumed). On the content of a request that
+/// has none, after the sequences `SecretReadShape::without_content_measured` lists, the statement raises NotInitialized and
+/// the result-used form answers false, and both leave the secret (assumed, same probe). Every other statement, and every
+/// other read of the content of a request that has none, is refused.
 pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    let (data, uninit, shape) = with_content(r, |s| (s.data.clone(), s.uninitialized, s.secret_read))?;
     let used = c.ret_used();
-    if !used && !statement_measured(shape) {
-        return unsupported("HttpContent.ReadAs(SecretText) as a statement (not pinned)");
-    }
+    let (data, uninit, shape) = with_content(r, |s| {
+        let shape = s.secret_read;
+        s.note(if used { Call::SecretUsed } else { Call::SecretStatement });
+        (s.data.clone(), s.uninitialized, shape)
+    })?;
     if uninit {
-        if shape != SecretReadShape::RequestNone {
-            return unsupported(
-                "HttpContent.ReadAs(SecretText) on the content of a request that has none (not pinned)",
-            );
+        if !shape.without_content_measured(used) {
+            return unsupported(if used {
+                "HttpContent.ReadAs(SecretText) on the content of a request that has none (not pinned)"
+            } else {
+                "HttpContent.ReadAs(SecretText) as a statement (not pinned)"
+            });
         }
         crate::assumptions::assume(crate::assumptions::Assumption::HttpReadasSecretStatement);
         return if used {
@@ -68,6 +72,9 @@ pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         };
     }
     if !used {
+        if !shape.statement_gives_body() {
+            return unsupported("HttpContent.ReadAs(SecretText) as a statement (not pinned)");
+        }
         crate::assumptions::assume(crate::assumptions::Assumption::HttpReadasSecretStatement);
     }
     let Ok(t) = String::from_utf8(data) else {
@@ -75,19 +82,6 @@ pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     };
     a[0] = lib("SecretText", LibraryValue::Text(t));
     Ok(if used { Value::Boolean(true) } else { Value::Null })
-}
-
-/// The shapes on which `ReadAs(SecretText)` as a statement is measured (N4ReadAsSecretStatement.al) or pinned
-/// (CzHttpNoNetwork.al:34): see [`SecretReadShape`].
-fn statement_measured(shape: SecretReadShape) -> bool {
-    matches!(
-        shape,
-        SecretReadShape::New
-            | SecretReadShape::Written
-            | SecretReadShape::InRequest
-            | SecretReadShape::RequestCopy
-            | SecretReadShape::RequestNone
-    )
 }
 
 /// The error of a read of the content a request has when none was set (http/PnE12HttpContent.al:192, http/HttpRequest.al
@@ -266,7 +260,7 @@ pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 /// copy of such a content that is not pinned.
 pub(super) fn get_headers(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (list, uninit, copied) = with_content(r, |s| {
-        s.note(Call::SecretKept);
+        s.note(Call::GetHeaders);
         (s.headers.clone(), s.uninitialized, s.copied)
     })?;
     if uninit && c.ret_used() {
@@ -294,20 +288,12 @@ pub(super) fn content_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Val
     .map(|()| Value::Null)
 }
 
-/// A content method, as `HttpContentState::note` tells them apart.
-#[derive(Clone, Copy)]
-enum Call {
-    WriteText,
-    WriteSecret,
-    Clear,
-    /// `GetHeaders` and `IsSecretContent`: a content written from a SecretText keeps its shape.
-    SecretKept,
-    Other,
-}
-
 impl HttpContentState {
-    /// A content with its own data and its own headers.
-    pub fn deep_copy(&self) -> HttpContentState {
+    /// A content with its own data and its own headers. The content the copy is taken of is `Other` afterwards
+    /// (`SecretReadShape::of_copy`).
+    pub fn deep_copy(&mut self) -> HttpContentState {
+        let secret_read = self.secret_read.of_copy();
+        self.secret_read = SecretReadShape::Other;
         let bag = self.headers.borrow();
         let copy = new_header_list(bag.kind);
         {
@@ -325,36 +311,13 @@ impl HttpContentState {
             copied: true,
             from_stream: self.from_stream,
             secret: self.secret,
-            secret_read: self.copied_secret_read(),
+            secret_read,
         }
     }
 
-    /// `secret_read` of a copy (an assignment, a by-value argument, a return value): a content written from a SecretText stays
-    /// `Written` (corpus http/CzHttpNoNetwork.al:49, :57: Http Content Impl. GetHttpContent returns a copy that DescribeContent
-    /// takes by value, :25), a request's content written from a SecretText becomes `RequestCopy` and a request's content that is
-    /// none stays `RequestNone` (al-language-onprem/http/N4ReadAsSecretStatement.al `secret_copy_*`, `copy_*`).
-    fn copied_secret_read(&self) -> SecretReadShape {
-        match self.secret_read {
-            SecretReadShape::Written if self.secret => SecretReadShape::Written,
-            SecretReadShape::InRequest if self.secret => SecretReadShape::RequestCopy,
-            SecretReadShape::RequestNone => SecretReadShape::RequestNone,
-            _ => SecretReadShape::Other,
-        }
-    }
-
-    /// Moves `secret_read` after a content method other than `ReadAs(SecretText)`, which keeps it
-    /// (N4ReadAsSecretStatement.al `secret_again`). Every pair not listed is `Other`.
+    /// Moves `secret_read` after a content method.
     fn note(&mut self, call: Call) {
-        self.secret_read = match (self.secret_read, call) {
-            // N4ReadAsSecretStatement.al `secret`, `plain`, `empty`.
-            (SecretReadShape::New, Call::WriteText | Call::WriteSecret) => SecretReadShape::Written,
-            // CzHttpNoNetwork.al:49 through Http Content Impl. SetContent: Clear, then WriteFrom(SecretText).
-            (SecretReadShape::New, Call::Clear) => SecretReadShape::Cleared,
-            (SecretReadShape::Cleared, Call::WriteSecret) => SecretReadShape::Written,
-            // CzHttpNoNetwork.al:49 (Http Content Impl. SetHeader: GetHeaders), :33 (IsSecretContent) before the read at :34.
-            (SecretReadShape::Written, Call::SecretKept) if self.secret => SecretReadShape::Written,
-            _ => SecretReadShape::Other,
-        };
+        self.secret_read = self.secret_read.after(call);
     }
 
     /// `Clear`: the content gets no body and a header collection of its own that holds the Content-Type; a header

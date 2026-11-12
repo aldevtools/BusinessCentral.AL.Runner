@@ -1368,6 +1368,65 @@ fn a_list_index_outside_the_pinned_static_types_keeps_the_list_error() {
 }
 
 #[test]
+fn a_local_variable_declared_char_option_or_byte_indexes_list_get() {
+    // collections/ListNonIntegerIndex.al:163-181 with :419-430: `R := L.Get(X)`, X a local variable declared Char, Option with
+    // its members, or Byte.
+    for body in [
+        "c := 2; exit(l.Get(c));",
+        "o := o::Two; exit(l.Get(o));",
+        "y := 2; exit(l.Get(y));",
+    ] {
+        let r = text_of(
+            "l: List of [Text]; c: Char; o: Option Zero,One,Two,Three; y: Byte;",
+            &format!("l.Add('a'); l.Add('b'); l.Add('c'); {body}"),
+        );
+        assert_eq!(r.unwrap(), "b", "{body}");
+    }
+}
+
+#[test]
+fn a_char_option_or_byte_index_that_is_no_such_local_variable_keeps_the_list_error() {
+    // collections/ListNonIntegerIndex.al:163-167 declares the three indexes as local variables, the Option with its members.
+    // The option types of the platform (TextEncoding, Action, PromptMode), an Option member, a global variable, a parameter, a
+    // function result, an array element and a character of a Text are not pinned and keep main's list error.
+    let fill = "l.Add('a'); l.Add('b'); l.Add('c');";
+    for (vars, body) in [
+        ("e: TextEncoding;", "e := TextEncoding::UTF8; exit(l.Get(e));"),
+        ("", "exit(l.Get(TextEncoding::UTF16));"),
+        ("a: Action;", "a := Action::OK; exit(l.Get(a));"),
+        ("", "exit(l.Get(Action::Cancel));"),
+        ("p: PromptMode;", "p := PromptMode::Generate; exit(l.Get(p));"),
+        ("o: Option Zero,One,Two,Three;", "exit(l.Get(o::Two));"),
+        ("", "G := G::Two; exit(l.Get(G));"),
+        ("", "GC := 2; exit(l.Get(GC));"),
+        ("", "GY := 2; exit(l.Get(GY));"),
+        ("o: Option Zero,One,Two,Three;", "o := o::Two; exit(ByParam(l, o));"),
+        ("", "exit(l.Get(Two()));"),
+        ("", "exit(l.Get(TwoChar()));"),
+        (
+            "arr: array[2] of Option Zero,One,Two,Three;",
+            "arr[1] := arr[1]::Two; exit(l.Get(arr[1]));",
+        ),
+        ("t: Text;", "t[1] := 2; exit(l.Get(t[1]));"),
+    ] {
+        let src = format!(
+            "codeunit 50100 C {{
+                var G: Option Zero,One,Two,Three; GC: Char; GY: Byte;
+                procedure F(): Text var l: List of [Text]; {vars} begin {fill} {body} end;
+                local procedure ByParam(var l: List of [Text]; o: Option Zero,One,Two,Three): Text begin exit(l.Get(o)); end;
+                local procedure Two(): Option Zero,One,Two,Three var o: Option Zero,One,Two,Three; begin o := o::Two; exit(o); end;
+                local procedure TwoChar(): Char begin exit(2); end;
+            }}"
+        );
+        let r = run(&src, "F");
+        let Err(Signal::Error(e)) = &r else {
+            panic!("{body}: {r:?}")
+        };
+        assert_eq!(e.code, "ArgumentOutOfRange", "{body}");
+    }
+}
+
+#[test]
 fn a_decimal_list_index_converts_as_a_checked_cast() {
     // collections/ListNonIntegerIndex.al:266-289: a fraction raises ConversionCast before the list is read.
     let r = text_of(

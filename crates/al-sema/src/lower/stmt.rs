@@ -34,6 +34,7 @@ impl Lowerer<'_> {
             None => ir::NO_POS,
         };
         self.locals.clear();
+        self.set_char_option_byte_locals(r.local_var_decls());
         self.local_labels.clear();
         self.local_label_xliff.clear();
         self.local_textconsts.clear();
