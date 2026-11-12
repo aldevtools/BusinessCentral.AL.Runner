@@ -8,7 +8,6 @@ impl Session {
     /// and records a refusal in the control's ledger (corpus testpage/TestPageValidationError_Tests.al,
     /// TestPageReadOnlySetValue.al:1-30, TestPageBooleanSpelling_Tests.al).
     pub(super) fn control_set_value(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
-        self.refresh_host_before_set_value(st)?;
         if st.borrow().request_new_blank {
             return unsupported("SetValue on a request page after New() (only Close, OK and Cancel are pinned)");
         }
@@ -1227,7 +1226,7 @@ impl Session {
         self.refuse_unpinned_control_state(c, method)?;
         let st = &c.page;
         let m = method.method();
-        let field_read = m == PageMethod::Value && args.is_empty();
+        let field_read = self.observe_control_for_deferred_refresh(st, m, args.is_empty());
         self.first_part_access(st, m, field_read)?;
         // A new host whose part shows rows of the blank key: a read of a host field and OK are pinned (PartLineBeforeHostKey.al:
         // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), and Activate of a host field: of a non-key field it

@@ -43,7 +43,7 @@ impl Session {
             };
             (host, index)
         };
-        if !self.clean_document_refresh_row(&host) || !self.has_source(part) {
+        if !self.clean_document_refresh_row(&host) || !self.unextended_unsubscribed(&host) || !self.has_source(part) {
             return Ok(());
         }
         let engine = self.engine();
@@ -86,6 +86,14 @@ impl Session {
             && self.has_source(st)
             && !self.declares(st, "onfindrecord")
             && !self.declares(st, "onnextrecord")
+    }
+
+    pub(super) fn observe_control_for_deferred_refresh(&self, st: &St, method: PageMethod, no_args: bool) -> bool {
+        let field_read = method == PageMethod::Value && no_args;
+        if method != PageMethod::SetValue && !field_read {
+            st.borrow_mut().deferred_part_drilldown_refresh = None;
+        }
+        field_read
     }
 
     pub(super) fn refresh_host_before_set_value(&mut self, st: &St) -> Result<(), Signal> {
