@@ -9,6 +9,7 @@
 //! look into the action, so the Update is refused there (`refuse_update_in_action`).
 
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 /// A part's view (up to a window of rows) and the place of its row in it.
 type LaterRow = (Vec<Vec<Value>>, usize);
