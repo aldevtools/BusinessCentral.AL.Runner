@@ -829,14 +829,7 @@ impl Session {
                 }
                 // Modify never changes the stored SystemId, whatever the buffer carries
                 // (corpus record/TestRecordSystemId.al:176-215, :285-330).
-                let kept: Vec<(usize, Value)> = match &stored {
-                    Some(old) => [2_000_000_000, 2_000_000_001, 2_000_000_002]
-                        .iter()
-                        .filter_map(|id| t.fields.iter().position(|f| f.id == *id))
-                        .map(|i| (i, old[i].clone()))
-                        .collect(),
-                    None => Vec::new(),
-                };
+                let kept = crate::hostvalues::modify_kept(&t, stored.as_deref(), rec.borrow().temporary);
                 // One xRec handle for the events, the triggers and the global trigger, so a change a
                 // subscriber makes to it reaches the rest. When code drives the Modify, xRec equals
                 // Rec (record/TestXRecContracts.al:69-87 OnModify_xRec_MirrorsRecValues_WhenCalledFromCode;
@@ -912,9 +905,10 @@ impl Session {
                     _ => self.bump_row_version(&t, rec),
                 };
                 self.sql_timestamp_after(&t, rec);
-                let stamped = self.stamp_modify(&t, rec, stored_row.as_deref());
+                let buffer_version = version_before.filter(|_| !run).map(|(_, v, _)| v);
+                let (stamped, row_only) = self.stamp_modify(&t, rec, stored_row.as_deref(), buffer_version);
                 let mut row = rec.borrow().fields.clone();
-                for (i, v) in kept {
+                for (i, v) in kept.into_iter().chain(row_only) {
                     row[i] = v;
                 }
                 // A unique secondary key refuses the write after the trigger (corpus
@@ -2106,7 +2100,7 @@ impl Session {
                 self.raise_deferred_auto_increment(&cx, &t, rec, &xrec, (&old_pk, &old), auto_increment_refusal)?;
                 let _ = self.bump_row_version(&t, rec);
                 let _ = self.stamp_rename(&t, rec);
-                let row = rec.borrow().fields.clone();
+                let row = self.rename_row(&cx, &t, rec, &old_pk)?;
                 if let Some(unique_key) = self.unique_violation(rec, &t, &row, Some(&old_pk))? {
                     rec.borrow_mut().fields = old.clone();
                     return self.fail_unique(&t, unique_key, &row);

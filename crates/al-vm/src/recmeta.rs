@@ -1999,6 +1999,20 @@ impl Session {
                 "DB:Ok",
             ));
         }
+        let table_caption_is_name = self.caption(t) == t.name;
+        let temporary = rec.borrow().temporary;
+        match crate::hostvalues::modify_all_audit_error(
+            t,
+            pos,
+            rows.len(),
+            run_trigger,
+            temporary,
+            table_caption_is_name,
+        ) {
+            Some(Ok(text)) => return Err(error(text, "DB:Ok")),
+            Some(Err(refused)) => return Err(refused),
+            None => {}
+        }
         // One fresh set of table globals for all rows, not the caller's (ADR-021 decision 6; corpus
         // probe TableGlobals_ModifyAll_WhatTheTriggersAndSubscribersSee).
         let shared = al_builtins::value::TableGlobals::new_shared();

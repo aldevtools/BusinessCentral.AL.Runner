@@ -362,6 +362,7 @@ const SYSTEM_CREATED_AT: u32 = 2_000_000_001;
 const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
 const SYSTEM_MODIFIED_AT: u32 = 2_000_000_003;
 const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
+const SYSTEM_ROW_VERSION: u32 = 2_000_000_005;
 /// The ids of the platform's system fields, SystemId (2000000000) to SystemRowVersion.
 const SYSTEM_FIELDS: std::ops::RangeInclusive<u32> = 2_000_000_000..=2_000_000_005;
 
@@ -370,6 +371,108 @@ pub(crate) type Replaced = Vec<(usize, Value)>;
 
 fn position_of(t: &al_data::TableDef, id: u32) -> Option<usize> {
     t.fields.iter().position(|f| f.id == id)
+}
+
+/// A `Modify(false)` that changes no field, of a buffer that holds the stored row's version and differs from it in exactly one
+/// field of the modified pair (the test assigned SystemModifiedAt or SystemModifiedBy): the stored row keeps its pair and the
+/// buffer keeps the assigned value (record/system-fields/AssignedAuditFields.al:271-295, `buffer after Modify` = assigned,
+/// `stored row` = same as before). Every other buffer gets the stored pair, as before.
+fn no_change_keeps_buffer_pair(
+    t: &al_data::TableDef,
+    stored: &[Value],
+    buffer: &[Value],
+    buffer_version: Option<i64>,
+) -> bool {
+    let same = |i: usize| al_builtins::ops::compare(&stored[i], &buffer[i]).ok() == Some(std::cmp::Ordering::Equal);
+    let Some(v) = position_of(t, SYSTEM_ROW_VERSION) else {
+        return false;
+    };
+    if buffer_version.is_none() || !matches!(&stored[v], Value::BigInteger(n) if Some(*n) == buffer_version) {
+        return false;
+    }
+    let differing = [SYSTEM_MODIFIED_AT, SYSTEM_MODIFIED_BY]
+        .into_iter()
+        .filter_map(|id| position_of(t, id))
+        .filter(|&i| !same(i))
+        .count();
+    differing == 1
+}
+
+/// The system fields a `Modify` writes from the stored row, whatever the buffer holds: SystemId, and for a database record the
+/// created pair (an assigned SystemCreatedAt or SystemCreatedBy stays in the buffer only,
+/// record/system-fields/AssignedAuditFields.al:243-267, :301-325). A temporary record writes the created pair the buffer holds
+/// (AssignedAuditFields.al:638-666 `blank / assigned / assigned / assigned` after SystemCreatedAt set blank and Modify).
+pub(crate) fn modify_kept(t: &al_data::TableDef, stored: Option<&[Value]>, temporary: bool) -> Replaced {
+    let Some(old) = stored else {
+        return Vec::new();
+    };
+    let ids: &[u32] = if temporary {
+        &[2_000_000_000]
+    } else {
+        &[2_000_000_000, SYSTEM_CREATED_AT, SYSTEM_CREATED_BY]
+    };
+    ids.iter()
+        .filter_map(|id| position_of(t, *id))
+        .map(|i| (i, old[i].clone()))
+        .collect()
+}
+
+/// The row a `Rename` of a database record writes: the buffer under its new key, with the created pair of the stored row
+/// (record/system-fields/AssignedAuditFields.al:568-590: after SystemCreatedAt and SystemCreatedBy were assigned, the buffer holds
+/// them and the renamed row the stored row's). A temporary record writes the buffer as it is.
+pub(crate) fn rename_row(
+    t: &al_data::TableDef,
+    buffer: &[Value],
+    stored: Option<&[Value]>,
+    temporary: bool,
+) -> Vec<Value> {
+    let mut row = buffer.to_vec();
+    if let (Some(old), false) = (stored, temporary) {
+        for i in [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY]
+            .into_iter()
+            .filter_map(|id| position_of(t, id))
+        {
+            row[i] = old[i].clone();
+        }
+    }
+    row
+}
+
+/// The error text of `ModifyAll` on an audit field of a database table: SystemCreatedAt, SystemCreatedBy and SystemModifiedAt cannot
+/// be changed (record/system-fields/AssignedAuditFields.al:594-632, one row, without RunTrigger, code `DB:Ok`, which the caller
+/// sets). The text names the field by its name, not its caption (Created At), and the table by its name, which is its caption
+/// there. `None` for any other field. SystemModifiedBy, another row count, RunTrigger, a temporary record and a table whose caption
+/// differs from its name are not pinned and are refused.
+pub(crate) fn modify_all_audit_error(
+    t: &al_data::TableDef,
+    pos: usize,
+    rows: usize,
+    run_trigger: bool,
+    temporary: bool,
+    table_caption_is_name: bool,
+) -> Option<Result<String, Signal>> {
+    let id = t.fields[pos].id;
+    if !(SYSTEM_CREATED_AT..=SYSTEM_MODIFIED_BY).contains(&id) {
+        return None;
+    }
+    // The pinned cell, every fact by equality: one of the three measured fields, one row, RunTrigger false, a database record,
+    // a table named as its caption.
+    let pinned = matches!(id, SYSTEM_CREATED_AT | SYSTEM_CREATED_BY | SYSTEM_MODIFIED_AT)
+        && rows == 1
+        && !run_trigger
+        && !temporary
+        && table_caption_is_name;
+    if !pinned {
+        return Some(Err(Signal::unsupported(format!(
+            "ModifyAll on {} over other than one row, with RunTrigger, on a temporary record, of a table with a caption, or on SystemModifiedBy (not pinned)",
+            t.fields[pos].name
+        ))));
+    }
+    let br = crate::records::BR;
+    Some(Ok(format!(
+        "You cannot change the value of the {} field.{br}{br}Table: {}",
+        t.fields[pos].name, t.name
+    )))
 }
 
 /// Whether a write changed anything: any field but the system fields differs.
@@ -421,27 +524,37 @@ impl Session {
 
     /// `SystemModifiedAt/By` of a row a `Modify` writes, when the write changes a field
     /// (record/TestRecordSystemId.al:677-750). A write that changes none keeps the pair the stored
-    /// row has, whatever the buffer held. `stored` is the row before the write.
+    /// row has, whatever the buffer held. `stored` is the row before the write. Returns what the stamp
+    /// replaced in the buffer and the values only the written row takes (see `no_change_keeps_buffer_pair`).
+    /// `buffer_version` is the buffer's SystemRowVersion before a `Modify(false)`, `None` for any other write.
     pub(crate) fn stamp_modify(
         &mut self,
         t: &al_data::TableDef,
         rec: &crate::records::Rec,
         stored: Option<&[Value]>,
-    ) -> Replaced {
+        buffer_version: Option<i64>,
+    ) -> (Replaced, Replaced) {
         let Some(stored) = stored else {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         };
         if rec.borrow().temporary {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         if self.bulk_modify || changed(t, stored, &rec.borrow().fields) {
-            return self.stamp_modified_pair(t, rec);
+            return (self.stamp_modified_pair(t, rec), Vec::new());
         }
         let keep: Vec<(u32, Value)> = [SYSTEM_MODIFIED_AT, SYSTEM_MODIFIED_BY]
             .into_iter()
             .filter_map(|id| position_of(t, id).map(|i| (id, stored[i].clone())))
             .collect();
-        self.write_stamps(t, rec, &keep)
+        if no_change_keeps_buffer_pair(t, stored, &rec.borrow().fields, buffer_version) {
+            let row_only = keep
+                .into_iter()
+                .filter_map(|(id, v)| position_of(t, id).map(|i| (i, v)))
+                .collect();
+            return (Vec::new(), row_only);
+        }
+        (self.write_stamps(t, rec, &keep), Vec::new())
     }
 
     /// `SystemModifiedAt/By` of a renamed row. A rename always stamps, also to the key the row
@@ -481,6 +594,23 @@ impl Session {
             }
         }
         replaced
+    }
+
+    /// The row a `Rename` writes (`rename_row`), with the stored row under the old key `old_pk`.
+    pub(crate) fn rename_row(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &al_data::TableDef,
+        rec: &crate::records::Rec,
+        old_pk: &[Value],
+    ) -> Result<Vec<Value>, Signal> {
+        let temporary = rec.borrow().temporary;
+        let stored = if temporary {
+            None
+        } else {
+            al_data::Store::get(self.store_for(rec), cx, t, old_pk).map_err(|e| Signal::unsupported(format!("{e}")))?
+        };
+        Ok(rename_row(t, &rec.borrow().fields, stored.as_deref(), temporary))
     }
 
     /// Gives back what `stamp_*` replaced, for a write the store refused.
