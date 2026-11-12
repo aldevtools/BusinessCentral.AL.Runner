@@ -466,21 +466,6 @@ impl Session {
     }
 }
 
-pub(super) fn declared_separator(v: &str) -> Result<String, Signal> {
-    Ok(match v.to_ascii_uppercase().as_str() {
-        "<NONE>" => String::new(),
-        // <NewLine> reads back as CR/LF (lt-dg-xmlport-leads/DgXmlPortLeads.al:Item106_TwoTablesNewLineSeparator `getter`).
-        "<CR/LF>" | "<NEWLINE>" => "\r\n".into(),
-        "<LF>" => "\n".into(),
-        "<CR>" => "\r".into(),
-        "<TAB>" => "\t".into(),
-        u if u.starts_with('<') && u.ends_with('>') => {
-            return unsupported(format!("the separator token {v} read back (not pinned)"));
-        }
-        _ => v.to_string(),
-    })
-}
-
 /// A field or record separator has to hold text; an empty one is not pinned.
 pub(super) fn non_empty(s: String) -> Result<String, Signal> {
     if s.is_empty() {
