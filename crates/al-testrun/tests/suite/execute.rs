@@ -21,6 +21,7 @@ fn execute(apps: Vec<AppSource>) -> CorpusRuntime {
             name: format!("app{a}"),
             app: Some(a),
             runner: None,
+            driver: None,
         })
         .collect();
     CorpusRuntime::try_run_suites_with(

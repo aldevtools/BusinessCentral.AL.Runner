@@ -338,22 +338,10 @@ fn run_codeunit_inner(
     let runner_disabled = isolation == TestIsolation::Disabled && !scratch.hub && !execute;
     // A test runner codeunit with TestIsolation = Function (al-runner --isolation test), not the hub.
     let runner_function = isolation == TestIsolation::Function && !scratch.hub && !execute;
-    // A [TransactionModel] other than AutoCommit, AutoRollback or None is refused.
-    let mut models = std::collections::HashMap::new();
-    for &r in tests.iter().chain(&data_driven) {
-        for a in obj.routines[r]
-            .attributes
-            .iter()
-            .filter(|a| a.name.eq_ignore_ascii_case("TransactionModel"))
-        {
-            match al_vm::TxModel::from_attribute(&a.text) {
-                Some(m) => {
-                    models.insert(r, m);
-                }
-                None => return all(Outcome::NotRun(format!("{}: unknown transaction model", a.text))),
-            }
-        }
-    }
+    let models = match transaction_models(obj, tests.iter().chain(&data_driven)) {
+        Ok(models) => models,
+        Err(why) => return all(Outcome::NotRun(why)),
+    };
     // What publishing the app does first: run its install codeunits, then commit.
     let skipped_installs = match baseline.and_then(|b| b.workspace_installs.clone()) {
         // Already run once for the whole run, with the baseline.
@@ -407,6 +395,17 @@ fn run_codeunit_inner(
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
     // single instances of the codeunit before are moved in.
     start_singles(&mut session, execute, moved, scratch.watch);
+    if scratch.discovery.is_some() {
+        return discover(
+            &mut session,
+            lowered,
+            object,
+            &company_open,
+            &skipped_installs,
+            scratch,
+            limit,
+        );
+    }
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned.
@@ -501,13 +500,12 @@ fn run_codeunit_inner(
                     // OnRun ran outside the codeunit isolation of runner 130450: the later codeunits start from what it left,
                     // committed and open, whatever the tests do (RqIsolationModes.al:357-369 #else).
                     if let Some(start) = &onrun_from {
-                        onrun_left = Some(super::numbers_taken::onrun_left(
-                            session,
-                            start,
-                            baseline,
-                            &skipped_installs,
-                            changes_from,
-                        ));
+                        let left =
+                            super::numbers_taken::onrun_left(session, start, baseline, &skipped_installs, changes_from);
+                        onrun_left = Some(match scratch.driver.run_onrun_carries() {
+                            true => left,
+                            false => super::discovery::run_onrun_left(left, start, &obj.name),
+                        });
                     }
                 }
                 Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
@@ -1276,6 +1274,44 @@ fn run_codeunit_inner(
     }
     super::numbers_taken::carry_left(&session, obj, onrun_left, onrun_from, &skipped_installs);
     out
+}
+
+/// The `[TransactionModel]` of each of `routines`; one other than AutoCommit, AutoRollback or None is refused.
+fn transaction_models<'a>(
+    obj: &al_ir::Object,
+    routines: impl Iterator<Item = &'a usize>,
+) -> Result<std::collections::HashMap<usize, al_vm::TxModel>, String> {
+    let mut models = std::collections::HashMap::new();
+    for &r in routines {
+        for a in obj.routines[r]
+            .attributes
+            .iter()
+            .filter(|a| a.name.eq_ignore_ascii_case("TransactionModel"))
+        {
+            let m = al_vm::TxModel::from_attribute(&a.text)
+                .ok_or_else(|| format!("{}: unknown transaction model", a.text))?;
+            models.insert(r, m);
+        }
+    }
+    Ok(models)
+}
+
+/// BcContainerHelper's discovery pass in this session instead of the codeunit's tests (`Unit::discovery`,
+/// `discovery::run_pass`); the single instances it leaves go on as a codeunit's do.
+fn discover(
+    session: &mut Session,
+    lowered: &Lowered,
+    object: usize,
+    company_open: &crate::install::CompanyOpenWrites,
+    skipped_installs: &[(BTreeSet<u32>, String)],
+    scratch: &mut Scratch,
+    limit: Option<std::time::Duration>,
+) -> Vec<(String, Outcome)> {
+    let objects = scratch.discovery.clone().unwrap_or_default();
+    let wrote = company_open.who.is_some() || company_open.login.is_some();
+    super::discovery::run_pass(session, lowered, &objects, skipped_installs, wrote, limit);
+    scratch.singles_out = ended(session, lowered, object, &[], false, scratch);
+    Vec::new()
 }
 
 /// The rest of a codeunit after a test panicked: every test left is not run.

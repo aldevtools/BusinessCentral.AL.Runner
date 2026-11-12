@@ -789,3 +789,20 @@ fn a_matrix_parses_its_cells_and_refuses_what_cannot_be_combined_with_it() {
         assert!(e.contains("al-runner serve cannot be combined"), "{cmd}: {e}");
     }
 }
+
+/// ADR-074: `--test-driver` picks whose way of starting the tests the run models; bc-linux unless asked.
+#[test]
+fn test_driver_is_bc_linux_unless_asked() {
+    use al_testrun::runtime::TestDriver;
+    assert_eq!(test_args("test A").test_driver, None);
+    assert_eq!(
+        test_args("test A --test-driver bccontainerhelper").test_driver,
+        Some(TestDriver::BcContainerHelper)
+    );
+    assert_eq!(
+        test_args("test A --test-driver bc-linux").test_driver,
+        Some(TestDriver::BcLinux)
+    );
+    let e = p("test A --test-driver al-go").unwrap_err();
+    assert!(e.contains("bc-linux or bccontainerhelper"), "{e}");
+}

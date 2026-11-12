@@ -76,6 +76,18 @@ pub enum OracleFormat {
     Xunit,
 }
 
+impl OracleFormat {
+    /// The test driver the oracle was recorded with (ADR-074, owner decision 2026-11-12): the corpus Linux legs write
+    /// JUnit through bc-linux's runner, the Windows nightly writes XUnit through BcContainerHelper's
+    /// `Run-TestsInBcContainer` (corpus `.github/workflows/nightly-windows.yml`, the isolation-probe step).
+    pub fn driver(self) -> crate::runtime::TestDriver {
+        match self {
+            OracleFormat::Junit => crate::runtime::TestDriver::BcLinux,
+            OracleFormat::Xunit => crate::runtime::TestDriver::BcContainerHelper,
+        }
+    }
+}
+
 /// A test app beyond the main corpus app, with the real-BC run that is its oracle.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct SuiteEntry {

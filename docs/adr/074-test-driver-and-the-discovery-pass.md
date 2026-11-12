@@ -1,8 +1,9 @@
 # ADR-074: Which test driver al-runner models, and the discovery pass of page 130455
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-12, option 1). Default driver: `bc-linux` (no behavior change for a run that does
+  not ask for `bccontainerhelper`); a second pull request makes `bccontainerhelper` the default of `al-runner test`.
 - Date: 2026-11-12
-- Amends (if accepted): ADR-055 (OnRun rows), ADR-066 decision 2 and owner decision 2 (native rows, discovery "only if
+- Amends: ADR-055 (OnRun rows), ADR-066 decision 2 and owner decision 2 (native rows, discovery "only if
   P6 shows the extra OnRun is observable"), ADR-070 (what a test codeunit starts from).
 - Source: corpus PR 1314 (`tests/al-language-isolation-probe/src/SwOnRunRunner.al`), corpus Windows nightly run
   43058375098 (BC 28.4, artifact 13889917561), the pinned Linux oracles `oracle/<major>/junit.xml`, and the Test Runner
@@ -96,3 +97,44 @@ Not pinned under `bccontainerhelper`, refused or kept as today until a probe lan
 
 - `crates/al-test-cli/tests/suite/isolation_probe.rs`: the `onrun-runner` suite against `xunit-onrun-runner.xml`.
 - The Linux oracles stay green: `RqIsolationModes.al` `RQ_C02`, `RQ_F02`, `RQ_D02` on BC 27, 28, 29.
+
+## Decision (owner, 2026-11-12)
+
+Option 1. The driver is chosen per run: `al-runner test --test-driver bc-linux|bccontainerhelper`
+(`RunOptions::test_driver`); `bc-linux` is the default. The corpus harness picks, per suite, the driver its oracle was
+recorded with (`SuiteRun::driver`, from the oracle's format: JUnit from the Linux legs is `bc-linux`, XUnit from the
+Windows nightly is `bccontainerhelper`, `al-test-cli` `OracleFormat::driver`), so the two isolation suites run under
+`bccontainerhelper` and every Linux suite is unchanged. Open question 3 (more Windows XUnit files as oracles, such as an
+`onrun-runner` suite) stays open; the SwOnRun reader is pinned by a Rust test against its own expectation
+(`al-test-cli` `tests/suite/isolation_probe.rs`) and by the red/green run of the corpus case.
+
+### What was built (first pull request)
+
+One owner module, `al-testrun` `runtime/discovery.rs`:
+- `TestDriver::has_hub`: no TestRunnerHub leg under `bccontainerhelper` (`corpus.rs` `hub_path`); `--isolation required`
+  with `bccontainerhelper` is an error in `al-runner`.
+- The discovery pass is a link of the carry chain at the front of each BC session (`chain_walk.rs`
+  `Link::Discovery`, `ChainWhy::Discovery`): it runs the OnRun trigger of every selected test codeunit, in id order,
+  in a test session from the install baseline, committing after each. What it leaves (rows, number sequences,
+  isolated storage) is where the codeunits of the session start; a codeunit that reads a table it changed runs again
+  from it, as after a Disabled codeunit. Under `--strict-order` the session runs as one walk (`strict_sequential`) and
+  the single instances the pass left move into the first codeunit.
+- `TestDriver::run_onrun_carries`: the run's call of OnRun carries no rows (SwOnRunRunner.al:21-23); a codeunit whose
+  OnRun can change a number sequence or isolated storage, or whose tests take numbers, stays in the chain, starting the
+  later codeunits from the state before its OnRun (`discovery::run_onrun_left`).
+- A codeunit whose OnRun raised in the pass reports no method rows; the run still calls its OnRun (SwOnRunRunner.al:24-26).
+
+Refused under `bccontainerhelper` until a probe pins them:
+- A codeunit whose reach touches a table, or can read a number sequence or isolated storage, that a later codeunit's
+  OnRun changed in the pass (measured per pass, `discovery::sees_later`); under `--strict-order` also one that reads a
+  SingleInstance global a later codeunit's OnRun can write.
+- Without `--strict-order`: a codeunit whose reach reads a SingleInstance global the pass changed (each codeunit starts
+  with fresh single instances there, ADR-066 amendment 12).
+- A pass whose OnRun raised after it changed the database or session state, was refused, stopped by the time limit or
+  went through an unprobed assumption: the codeunits that read what it may have written.
+- A pass that changed the session language or WorkDate (each codeunit has a session of its own here): every test of
+  the session.
+- Selected test codeunits of several apps, `--test-suites`, and a subscriber outside the Test Runner app to
+  `OnGetTestMethods`, `OnBeforeAddTestMethodLine` or `OnAfterAddTestMethodLine` of codeunit 130452: every test of the
+  session. Test codeunits of dependency apps are never selected, so the pass never runs their OnRun.
+- The run's OnRun changing a number sequence or isolated storage: the later codeunits that can read them.

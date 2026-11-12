@@ -93,6 +93,9 @@ pub struct TestArgs {
     /// `--test-runner ID|builtin` (ADR-066): the test runner codeunit the tests run through. `None`: Microsoft's runner
     /// for the isolation (130450, or 130451 under `--isolation disabled`) when the Test Runner app is loaded.
     pub test_runner: Option<al_testrun::runtime::TestRunner>,
+    /// `--test-driver bc-linux|bccontainerhelper` (ADR-074): whose way of starting the tests the run models. `None`:
+    /// bc-linux.
+    pub test_driver: Option<al_testrun::runtime::TestDriver>,
     /// `--exclude-test TEXT`: tests whose name matches are left out of the selection. Repeatable.
     pub excludes: Vec<String>,
     /// `--test-exact NAME`: the test whose method name or `Codeunit<ID>.<Method>` is exactly NAME. Repeatable.
@@ -938,6 +941,16 @@ ISOLATION
                          Test Runner app is not loaded and under `--isolation test` or `required`.
                          ID: a runner codeunit with TableNo = \"Test Method Line\"; its TestIsolation
                          is the isolation. `builtin`: al-runner's own runner.
+    --test-driver DRIVER Whose way of starting the tests the run models (default `bc-linux`).
+                         `bc-linux`: each test codeunit's OnRun runs once, before its tests.
+                         `bccontainerhelper`: as BcContainerHelper and AL-Go run tests. A
+                         discovery pass first runs the OnRun of every test codeunit, in id order,
+                         without test isolation; what it writes stays for the run. Then each
+                         codeunit's OnRun runs again before its tests, and its writes are rolled
+                         back with the codeunit. A codeunit whose OnRun fails in the discovery
+                         pass reports no tests. Shapes no probe pins yet are refused. Not with
+                         `--isolation required`. With --strict-order the SingleInstance state the
+                         discovery pass leaves carries into the run, as on Business Central.
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database
                          is rolled back when a test codeunit ends. `test` (also `function`, `method`): it is rolled back to its state after OnRun
                          after every test method; the codeunit's AL variables are kept, as BC's
@@ -1644,11 +1657,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--auto-provision" => {}
             "--isolation" | "--test-isolation" => parse_isolation(&mut a, &flag, &text()?)?,
             "--test-runner" => a.test_runner = Some(parse_test_runner(&text()?)?),
-            "--color" => {
-                let v = text()?;
-                a.color = crate::style::ColorMode::parse(&v)
-                    .ok_or_else(|| format!("--color needs auto, always or never, got `{v}`"))?;
-            }
+            "--test-driver" => a.test_driver = Some(parse_test_driver(&text()?)?),
+            "--color" => a.color = parse_color(&text()?)?,
             "--refusal-detail" => a.refusal_detail = Some(text()?),
             "--junit" => a.junit = Some(text()?.into()),
             "--explain" => a.explain = Some(text()?),
@@ -2193,6 +2203,17 @@ pub(crate) fn parse_test_runner(v: &str) -> Result<al_testrun::runtime::TestRunn
         .parse::<u32>()
         .map(TestRunner::Codeunit)
         .map_err(|_| format!("--test-runner needs a codeunit id or builtin, got `{v}`"))
+}
+
+/// The value of `--test-driver` (ADR-074).
+fn parse_test_driver(v: &str) -> Result<al_testrun::runtime::TestDriver, String> {
+    use al_testrun::runtime::TestDriver;
+    TestDriver::parse(v).ok_or_else(|| format!("--test-driver needs {}, got `{v}`", TestDriver::VALUES))
+}
+
+/// The value of `--color`.
+fn parse_color(v: &str) -> Result<crate::style::ColorMode, String> {
+    crate::style::ColorMode::parse(v).ok_or_else(|| format!("--color needs auto, always or never, got `{v}`"))
 }
 
 /// `--company-data KIND`: where the company's data comes from.

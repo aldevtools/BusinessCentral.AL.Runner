@@ -21,10 +21,12 @@ fn run() -> CorpusRuntime {
     let dir = root().join("corpus/tests/al-language-isolation-probe");
     assert!(dir.join("app.json").exists(), "corpus submodule not checked out");
     let app = runtime::load_app(&dir).unwrap();
+    // ADR-074: the oracle is BcContainerHelper's run (the Windows nightly), so the discovery pass runs first.
     let run = |name: &str, runner| SuiteRun {
         name: name.into(),
         app: Some(0),
         runner: Some(runner),
+        driver: Some(runtime::TestDriver::BcContainerHelper),
     };
     CorpusRuntime::run_suites(
         vec![app],
@@ -52,11 +54,13 @@ fn agree(rt: &CorpusRuntime, suite: &str, file: &str) {
     // 90 since corpus PR 1221 (a failing P4 method, two P4 reader tests, probe P8b and its reader test), 97 since corpus PR 1222
     // (SwOnRunRunner.al: four OnRun probe methods and three reader tests), 101 since corpus PR 1314 (SwOnRunRunner.al:
     // Writes_AfterOnRun, RaisesDiscovery_AfterOnRun and the reader tests OnRunWrites_DiscoveryRowAndRollback and
-    // OnRunRaisesInDiscovery_Rows); BC's isolation oracle covers the eleven of the first probe codeunits.
+    // OnRunRaisesInDiscovery_Rows); BC's isolation oracle covers the eleven of the first probe codeunits. Under
+    // BcContainerHelper (ADR-074) RaisesDiscovery_AfterOnRun gets no row: its OnRun raised in the discovery pass
+    // (SwOnRunRunner.al:24-26), so 100 report.
     assert_eq!(
         rt.cases_in(suite),
-        101,
-        "the probe app runs 101 methods under {suite} isolation"
+        100,
+        "the probe app reports 100 methods under {suite} isolation"
     );
     let bc = real_bc(file);
     assert_eq!(bc.len(), 49, "the oracle has 49 methods");
@@ -105,6 +109,41 @@ fn under_codeunit_isolation_t5_fails_with_bcs_message_and_every_method_ends_as_i
     assert!(matches!(t5, Outcome::Fail(_)), "{t5:?}");
 }
 
+/// ADR-074: the reader of SwOnRunRunner.al (:262-266) under BcContainerHelper with BC's order: the discovery pass wrote
+/// row 1 and the run's OnRun row 2, which the codeunit's rollback takes back. Under bc-linux OnRun runs once. The probe
+/// app's own Windows oracle for runner 130450 is not an oracle file of this repository; the reader's expectation is.
+#[test]
+fn the_onrun_writes_reader_passes_under_bccontainerhelper_only() {
+    let dir = root().join("corpus/tests/al-language-isolation-probe");
+    let reader = CaseId {
+        codeunit: 97018,
+        name: "OnRunWrites_DiscoveryRowAndRollback".into(),
+    };
+    let only: Vec<(usize, u32)> = [97010, 97011, 97012, 97013, 97015, 97018].map(|id| (0, id)).to_vec();
+    let outcome = |driver| {
+        let opts = runtime::RunOptions {
+            test_driver: driver,
+            strict_order: true,
+            strict_sequential: true,
+            only: Some(only.clone()),
+            ..Default::default()
+        };
+        let rt = CorpusRuntime::run_suites_with(
+            vec![runtime::load_app(&dir).unwrap()],
+            vec![al_sema::AppKind::Workspace],
+            &[],
+            &Default::default(),
+            None,
+            Default::default(),
+            &[SuiteRun::everything()],
+            &opts,
+        );
+        rt.outcome_in("", &reader)
+    };
+    assert_eq!(outcome(runtime::TestDriver::BcContainerHelper), Outcome::Pass);
+    assert!(matches!(outcome(runtime::TestDriver::BcLinux), Outcome::Fail(ref m) if m.contains("OnRun calls 1")));
+}
+
 /// StartSession under the runners' TestIsolation (SdIsolStartSession.Codeunit.al:22-30, measured on BC 27.5, 28.5 and
 /// 29.0): under Disabled (61304) and no property (61305) S1-S3 pass; under Function (61300) and Codeunit (61301) S2 and S3
 /// fail. Al-runner issue 5609.
@@ -124,6 +163,7 @@ fn start_session_ends_as_measured_under_every_runner() {
             name: (*name).into(),
             app: Some(0),
             runner: Some(*id),
+            driver: None,
         })
         .collect();
     let rt = CorpusRuntime::run_suites(
@@ -186,6 +226,7 @@ fn the_pr_735_probe_under_every_runner_ends_as_measured() {
             name: (*name).into(),
             app: Some(0),
             runner: Some(*id),
+            driver: None,
         })
         .collect();
     let rt = CorpusRuntime::run_suites(

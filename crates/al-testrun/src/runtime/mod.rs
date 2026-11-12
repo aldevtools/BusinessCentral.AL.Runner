@@ -655,6 +655,11 @@ pub(crate) struct Unit {
     /// carry chain for that (`ChainWhy::TestsTakeNumbers` without `--strict-order`): it is on the numbers list when
     /// it comes after another such codeunit (`order_hint::numbers_order`).
     takes_numbers: bool,
+    /// The driver whose behavior the unit models (ADR-074, `discovery.rs`).
+    driver: TestDriver,
+    /// This unit runs BcContainerHelper's discovery pass over these test codeunits instead of its tests
+    /// (`discovery::run_pass`).
+    discovery: Option<Arc<Vec<usize>>>,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -697,6 +702,10 @@ pub(crate) struct Scratch {
     /// Runner 130450 runs the codeunit and its `OnRun` can write: what OnRun left reaches the later codeunits
     /// (`corpus.rs` `onrun_writes`; run.rs sets CARRIED).
     onrun_carry: bool,
+    /// See `Unit::driver`.
+    driver: TestDriver,
+    /// See `Unit::discovery`.
+    discovery: Option<Arc<Vec<usize>>>,
     /// How the codeunit's `OnRun` shows in its rows (`RunOptions::on_run_rows`).
     on_run_rows: OnRunRows,
     /// See `session_flags.rs`.
@@ -860,6 +869,8 @@ fn run_unit(
             hub_leg: u.hub_leg,
             leak: u.leak.clone(),
             onrun_carry: u.carry.is_some(),
+            driver: u.driver,
+            discovery: u.discovery.clone(),
             on_run_rows: u.on_run_rows,
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
@@ -996,6 +1007,8 @@ fn scratch_unit(
         watch: false,
         takes_numbers: false,
         singles_past_stop: false,
+        driver: opts.test_driver,
+        discovery: None,
     }
 }
 
@@ -1116,6 +1129,7 @@ mod compile_halt;
 mod compiled;
 mod corpus;
 mod data_driven;
+mod discovery;
 mod grow;
 mod handlers;
 mod install_snapshot;
@@ -1154,6 +1168,7 @@ pub use self::blocked::*;
 pub use self::cache::*;
 pub use self::chain::{ChainEntry, ChainReport, ChainWhy, RerunWhy};
 pub use self::compiled::*;
+pub use self::discovery::TestDriver;
 use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
