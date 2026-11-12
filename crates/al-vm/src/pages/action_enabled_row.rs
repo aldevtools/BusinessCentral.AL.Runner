@@ -22,6 +22,19 @@ const CODE: PinnedCode = PinnedCode {
 const FIELD_TABLE: u32 = 2_000_000_041;
 
 impl Session {
+    /// `TestField.Enabled()` and `TestAction.Enabled()`: a field of a part also answers what its part control says
+    /// (`part_field_gate`); an action right after a GoToKey on the repro's page answers for the row
+    /// (`action_enabled_after_go_to_key`); else the control's Enabled now.
+    pub(super) fn test_control_enabled(&mut self, st: &St, idx: usize) -> Result<Value, Signal> {
+        if let Some(b) = self.part_field_gate(st, false)? {
+            return Ok(Value::Boolean(b));
+        }
+        if let Some(b) = self.action_enabled_after_go_to_key(st, idx)? {
+            return Ok(Value::Boolean(b));
+        }
+        Ok(Value::Boolean(self.control_enabled(st, idx)?))
+    }
+
     /// Whether the page is the repro's page (see `CODE`).
     fn action_enabled_row_page(&mut self, st: &St) -> Result<bool, Signal> {
         let object = st.borrow().object as usize;
