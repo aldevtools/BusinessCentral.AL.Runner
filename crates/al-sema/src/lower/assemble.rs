@@ -661,7 +661,7 @@ pub(crate) fn build_shared<'a>(
         }
         layouts[oi] = Some(request);
         let (exts, extension_reasons, extension_assumes) =
-            match super::ext_order::report_extension_order(ws, &changing.get(&oi).cloned().unwrap_or_default()) {
+            match super::ext_order::report_extension_order(ws, oi, &changing.get(&oi).cloned().unwrap_or_default()) {
                 Ok(order) => (order.exts, Vec::new(), order.assumes),
                 Err(why) => {
                     let mut exts = changing.get(&oi).cloned().unwrap_or_default();

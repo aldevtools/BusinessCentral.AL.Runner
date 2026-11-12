@@ -11,7 +11,6 @@
 "crates/alrunner-cli/src/run.rs::test_inner" = 1556
 "crates/al-sema/src/check/infer.rs::infer" = 473
 "crates/al-sema/src/check/mod.rs::check_inner" = 258
-"crates/al-sema/src/check/object.rs::object_ctx" = 271
 "crates/al-sema/src/lower/assemble.rs::build_shared" = 594
 "crates/al-sema/src/lower/assemble.rs::lower_core" = 532
 "crates/al-sema/src/lower/call.rs::call" = 682
