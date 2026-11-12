@@ -30,6 +30,7 @@ impl Session {
             triggers: &["onaftergetrecord"],
             control_triggers: &["onvalidate"],
             properties: &["sourcetabletemporary", "sourcetableview", "insertallowed"],
+            actions: false,
         };
         let rec = self.page_rec(st);
         let opened = {

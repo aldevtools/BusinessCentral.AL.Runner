@@ -1409,21 +1409,10 @@ impl Session {
                 );
             }
             if std::mem::take(&mut st.borrow_mut().rec_moved_other) {
-                // An action that emptied the view of a list without the new-row line and left Rec, with CurrPage.Update(false), on
-                // a primary key no row has: the list stands on the blank Rec as when Rec keeps the deleted row's key
-                // (`settle_on_blank_rec`; pages/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine
-                // `R:10000;N:B1:0;C:B1:0;`, :700 _OtherBatchRowRemains; al-runner issue 6027). With two to six rows shown before
-                // the action BC 28 runs OnNewRecord and OnAfterGetCurrRecord once, BC 27 and BC 29 twice (:656
-                // TD_LeavesKey_Line1WithUpdate_ThreeLines, :679 _TwoLines, :701 _FourLines, :724 _FiveLines, :747 _SixLines,
-                // `#if BC28PLUS and not BC29PLUS`; the reporter's page testpage/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines,
-                // :177 Y1_Post_ThreeLines; al-runner issues 6292, 7197). Rows left in the view, seven or more rows shown
-                // before (not pinned) or no CurrPage.Update(false) are not built.
+                // An action that emptied the view and left Rec, with CurrPage.Update(false), on a primary key no row has
+                // (`post_left_new_line.rs` says what is pinned, with and without the new-row line).
                 let rows_before = held_before.as_ref().map_or(0, Vec::len);
-                let on_blank = (1..=6).contains(&rows_before) && {
-                    let s = st.borrow();
-                    s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
-                };
-                if !(on_blank && moved_to_unstored_by_update_false) {
+                if !(moved_to_unstored_by_update_false && self.post_left_other_key_settled(st, rows_before)?) {
                     return unsupported(
                         "an action left another row (another primary key) in Rec on a list that is not read again from that row (not pinned)",
                     );
@@ -3166,7 +3155,10 @@ impl Session {
             }
             st.borrow_mut().cursor = Cursor::None;
             if new_line {
-                st.borrow_mut().gone_blank_shows_line = !filtered;
+                let mut s = st.borrow_mut();
+                s.gone_blank_shows_line = !filtered;
+                s.gone_new_line_settled = true;
+                drop(s);
                 for _ in 0..3 {
                     let fresh = self.initial_fields(table);
                     rec.borrow_mut().fields = fresh;

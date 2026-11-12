@@ -25,6 +25,7 @@ const FIND_PAGES: PinnedPart = PinnedPart {
     part_properties: &["editable"],
     part_variable_controls: true,
     part_variable_validate: false,
+    part_field_validate_update: false,
     part_expression_controls: true,
     unlinked: true,
     sibling_parts: true,

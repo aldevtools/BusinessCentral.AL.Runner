@@ -590,6 +590,12 @@ pub struct PageState {
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
+    /// The action's refresh just ran the new-row line of a list that lost its only row three times (`settle_after_action`); taken
+    /// by `post_left_new_line_settled` (al-runner issue 7821).
+    pub gone_new_line_settled: bool,
+    /// The next first read of this part asks OnFindRecord `=>` instead of `=><` (`part_refresh_find_forward.rs`, al-runner
+    /// issue 7820); taken by `page_first_row`.
+    pub part_refind_forward: bool,
     /// A List with Editable = false opened for view lost its only row to an action and shows no row: a later action is not
     /// pinned and is refused (testpage/RmWorksheetGoneRow.al SH_ListViewNotEditable_, awaiting).
     pub gone_view_list: bool,

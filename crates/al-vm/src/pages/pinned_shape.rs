@@ -68,6 +68,8 @@ pub(super) struct PinnedPart<'a> {
     pub part_variable_controls: bool,
     /// A control bound to a page variable may have an OnValidate trigger.
     pub part_variable_validate: bool,
+    /// A control bound to a field of Rec may have an OnValidate trigger whose only statement is `CurrPage.Update(true)`.
+    pub part_field_validate_update: bool,
     /// The part's controls may show an expression.
     pub part_expression_controls: bool,
     /// The part may have no SubPageLink.
@@ -94,6 +96,8 @@ pub(super) struct PinnedCode<'a> {
     /// The properties the page may declare, lower case, next to PageType, SourceTable, ApplicationArea, UsageCategory and
     /// Caption (which run nothing and change no read). The predicate checks the value of each one it lists.
     pub properties: &'a [&'a str],
+    /// The page may have actions declared by itself, with literal properties; their triggers count in `control_triggers`.
+    pub actions: bool,
 }
 
 impl Session {
@@ -256,7 +260,13 @@ impl Session {
             && part_page.controls.iter().all(|c| match c.kind {
                 ir::ControlKind::Repeater => true,
                 ir::ControlKind::Field => match c.binding {
-                    ir::Binding::Field(_) => c.triggers.is_empty(),
+                    ir::Binding::Field(_) => {
+                        c.triggers.is_empty()
+                            || (pin.part_field_validate_update
+                                && matches!(c.triggers.as_slice(), [(n, r)] if n == "onvalidate"
+                                    && matches!(code_stmts(&engine.program, object_of(part), *r).as_slice(),
+                                        [s] if is_curr_page_update_with(s, part_page.curr_page_slot, Some(true)))))
+                    }
                     ir::Binding::Var(_) => {
                         pin.part_variable_controls
                             && (c.triggers.is_empty()
@@ -355,6 +365,7 @@ impl Session {
             let kind = match c.kind {
                 ir::ControlKind::Repeater | ir::ControlKind::Group => c.binding == ir::Binding::None,
                 ir::ControlKind::Field => matches!(c.binding, ir::Binding::Field(_)),
+                ir::ControlKind::Action | ir::ControlKind::ActionGroup => pin.actions,
                 _ => false,
             };
             kind && c.owner.is_none()
@@ -455,6 +466,12 @@ pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Ex
 /// `s` is `CurrPage.Update()` without an argument (it saves the row: the parameter defaults to true) on the page whose
 /// `CurrPage` is global slot `curr_page`.
 pub(super) fn is_curr_page_update(s: &ir::Stmt, curr_page: usize) -> bool {
+    is_curr_page_update_with(s, curr_page, None)
+}
+
+/// `s` is `CurrPage.Update(save)` with the literal argument `save`, or without an argument for `None`, on the page whose
+/// `CurrPage` is global slot `curr_page`.
+pub(super) fn is_curr_page_update_with(s: &ir::Stmt, curr_page: usize, save: Option<bool>) -> bool {
     let ir::Stmt::Expr(ir::Expr::Builtin {
         id,
         receiver: Some(receiver),
@@ -464,8 +481,13 @@ pub(super) fn is_curr_page_update(s: &ir::Stmt, curr_page: usize) -> bool {
     else {
         return false;
     };
+    let args_ok = match (save, args.as_slice()) {
+        (None, []) => true,
+        (Some(want), [ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(b)))]) => *b == want,
+        _ => false,
+    };
     *id == al_builtins::builtin_id::ids::PAGE_UPDATE_1
-        && args.is_empty()
+        && args_ok
         && matches!(&**receiver, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g))
             if *g == curr_page)
 }
