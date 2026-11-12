@@ -1542,7 +1542,6 @@ impl Session {
 fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.gone_blank_no_new_line = false;
     s.gone_blank_shows_line = false;
-    s.gone_new_line_settled = false;
     s.gone_view_list = false;
     s.list_view_switched = false;
     s.list_edit_back = false;

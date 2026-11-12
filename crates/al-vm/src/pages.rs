@@ -259,6 +259,7 @@ mod part_host_update;
 mod part_insert_swallowed;
 mod part_refresh_find_forward;
 mod part_visible_gate;
+mod pinned_body;
 mod post_left_new_line;
 mod provider_hidden;
 mod refill;

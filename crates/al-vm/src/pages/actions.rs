@@ -830,6 +830,7 @@ impl Session {
             s.editable_set_later = None;
             s.marking_action = false;
             s.unmarking_action = false;
+            s.gone_new_line_settled = false;
             std::mem::take(&mut s.marked_rows_held)
         };
         // Pinned by pages/onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
@@ -3156,8 +3157,7 @@ impl Session {
             st.borrow_mut().cursor = Cursor::None;
             if new_line {
                 let mut s = st.borrow_mut();
-                s.gone_blank_shows_line = !filtered;
-                s.gone_new_line_settled = true;
+                (s.gone_blank_shows_line, s.gone_new_line_settled) = (!filtered, true);
                 drop(s);
                 for _ in 0..3 {
                     let fresh = self.initial_fields(table);

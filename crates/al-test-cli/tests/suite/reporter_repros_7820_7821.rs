@@ -526,3 +526,246 @@ fn r7821_two_rows_on_the_new_line_page_stay_refused() {
         "{o:?}"
     );
 }
+
+/// `src` with the first `from` replaced by `to`; the text must be there.
+fn variant(src: &str, from: &str, to: &str) -> String {
+    assert!(src.contains(from), "not in the repro: {from}");
+    src.replacen(from, to, 1)
+}
+
+/// `src` with each `(from, to)` of `edits` applied in turn (`variant`).
+fn variants(src: &str, edits: &[(&str, &str)]) -> String {
+    edits
+        .iter()
+        .fold(src.to_string(), |s, (from, to)| variant(&s, from, to))
+}
+
+/// The assumption marks one test of `src` makes, and its outcome.
+fn outcome_and_marks(src: &str, codeunit: &str, test: &str) -> (Outcome, Vec<al_builtins::assumptions::Assumption>) {
+    let l = al_testkit::compile_apps(vec![al_testkit::app(src)]);
+    let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == codeunit)
+        .expect("the codeunit");
+    let mut hits = Vec::new();
+    let outcomes = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Codeunit,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    let o = outcomes
+        .into_iter()
+        .find(|(n, _)| n == test)
+        .map(|(_, o)| o)
+        .expect("the test");
+    let marks = hits
+        .into_iter()
+        .find(|(n, _)| n == test)
+        .map(|(_, m)| m)
+        .unwrap_or_default();
+    (o, marks)
+}
+
+#[test]
+fn r7820_and_r7821_repros_are_flagged_passes() {
+    use al_builtins::assumptions::Assumption::{PartUpdateFirstRowFindForward, PostLeftOtherKeyOnNewLine};
+    let (o, marks) = outcome_and_marks(R7820, "Repro Refresh Tests", "FiveRowsSetValueOnFirst");
+    assert!(matches!(o, Outcome::Pass), "{o:?}");
+    assert!(marks.contains(&PartUpdateFirstRowFindForward), "{marks:?}");
+    let (o, marks) = outcome_and_marks(R7821, "Journal Post Test", "NewRowPageOpenedWithPageRun");
+    assert!(matches!(o, Outcome::Pass), "{o:?}");
+    assert!(marks.contains(&PostLeftOtherKeyOnNewLine), "{marks:?}");
+}
+
+/// The 7820 repro's shape with one fact changed: the pin does not hold, the part keeps main's open read `=><` (the
+/// repro's own check then fails with the log) and takes no assumption.
+#[test]
+fn r7820_neighbors_keep_mains_read() {
+    use al_builtins::assumptions::Assumption::PartUpdateFirstRowFindForward;
+    let after_get_record = "    trigger OnAfterGetRecord()\n    var\n        ReadLog: Codeunit \"Repro Read Log\";\n    begin\n        \
+                            ReadLog.Add('R' + Format(Rec.\"Line No.\" div 10000));\n    end;\n";
+    let after_get_curr = "    trigger OnAfterGetCurrRecord()\n    var\n        ReadLog: Codeunit \"Repro Read Log\";\n    begin\n        \
+                          ReadLog.Add('C' + Format(Rec.\"Line No.\" div 10000));\n    end;\n";
+    let line_table_end = "        key(PK; \"Order No.\", \"Line No.\") { Clustered = true; }\n    }\n";
+    let qty_control = "                field(Qty; Rec.Qty)\n";
+    let cases: Vec<(&str, String)> = vec![
+        ("no OnAfterGetRecord", variant(R7820, after_get_record, "")),
+        ("no OnAfterGetCurrRecord", variant(R7820, after_get_curr, "")),
+        ("no AutoSplitKey", variant(R7820, "    AutoSplitKey = true;\n", "")),
+        (
+            "a table with OnModify",
+            variant(
+                R7820,
+                line_table_end,
+                &format!("{line_table_end}    trigger OnModify() begin end;\n"),
+            ),
+        ),
+        (
+            "a table with a procedure",
+            variant(
+                R7820,
+                line_table_end,
+                &format!("{line_table_end}    procedure Touch() begin end;\n"),
+            ),
+        ),
+        (
+            "a second field with the same OnValidate",
+            variants(
+                R7820,
+                &[
+                    (
+                        "        field(3; Qty; Integer) { }\n",
+                        "        field(3; Qty; Integer) { }\n        field(4; Qty2; Integer) { }\n",
+                    ),
+                    (
+                        qty_control,
+                        "                field(Qty2; Rec.Qty2)\n                {\n                    ApplicationArea = All;\n                    \
+                         trigger OnValidate()\n                    begin\n                        CurrPage.Update(true);\n                    \
+                         end;\n                }\n                field(Qty; Rec.Qty)\n",
+                    ),
+                ],
+            ),
+        ),
+        (
+            "the value typed is the one stored",
+            variant(
+                R7820,
+                "OrderCard.Lines.Qty.SetValue(100);",
+                "OrderCard.Lines.Qty.SetValue(1);",
+            ),
+        ),
+        (
+            "three rows (not measured)",
+            variant(R7820, "CheckReads(5, ", "CheckReads(3, "),
+        ),
+        (
+            "OnFindRecord logs another text",
+            variant(R7820, "ReadLog.Add('F' + Which);", "ReadLog.Add('F' + Which + '');"),
+        ),
+    ];
+    for (what, src) in cases {
+        // The row count only changes the five-row test.
+        let tests: &[&str] = if what.starts_with("three rows") {
+            &["FiveRowsSetValueOnFirst"]
+        } else {
+            &["FiveRowsSetValueOnFirst", "OneRowSetValueOnFirst"]
+        };
+        for test in tests {
+            let (o, marks) = outcome_and_marks(&src, "Repro Refresh Tests", test);
+            assert!(
+                matches!(&o, Outcome::Fail(m) if m.contains("read F=><")),
+                "{what}, {test}: {o:?}"
+            );
+            assert!(!marks.contains(&PartUpdateFirstRowFindForward), "{what}, {test}");
+        }
+    }
+}
+
+/// A second SetValue after the pinned one: what the part asks then is not measured, so the call is refused (the first
+/// one gave `=>`; main's `=><` there would mix two answers in one test).
+#[test]
+fn r7820_a_second_set_value_is_refused() {
+    let src = variant(
+        R7820,
+        "        OrderCard.Lines.Qty.AssertEquals(100);\n",
+        "        OrderCard.Lines.Qty.AssertEquals(100);\n        ReadLog.Clear();\n        OrderCard.Lines.Qty.SetValue(101);\n        \
+         Error('second %1', ReadLog.Joined());\n",
+    );
+    let o = outcome_of(&src, "Repro Refresh Tests", "OneRowSetValueOnFirst");
+    assert!(matches!(&o, Outcome::NotRun(_)), "{o:?}");
+}
+
+/// The 7821 repro's shape with one fact changed: the pin does not hold and the Post stays refused as on main.
+#[test]
+fn r7821_neighbors_stay_refused() {
+    use al_builtins::assumptions::Assumption::PostLeftOtherKeyOnNewLine;
+    let invoke = "        JournalPostLog.Take();\n        Worksheet.Post.Invoke();\n";
+    let before_post = |call: &str| variant(R7821, invoke, &format!("        {call}\n{invoke}"));
+    let cases: Vec<(&str, String)> = vec![
+        (
+            "no AutoSplitKey and DelayedInsert",
+            variant(R7821, "    AutoSplitKey = true;\n    DelayedInsert = true;\n", ""),
+        ),
+        ("no DelayedInsert", variant(R7821, "    DelayedInsert = true;\n", "")),
+        (
+            "Quantity.SetValue before Post",
+            before_post("Worksheet.Quantity.SetValue(5);"),
+        ),
+        ("First before Post", before_post("Worksheet.First();")),
+        ("GoToRecord before Post", before_post("Worksheet.GoToRecord(Line);")),
+        (
+            "Filter.SetFilter before Post",
+            before_post("Worksheet.Filter.SetFilter(\"Line No.\", '10000');"),
+        ),
+        (
+            "Rec left on batch B2",
+            variant(
+                R7821,
+                "                        Posted.SetRange(\"Batch Name\", 'B1');",
+                "                        Posted.SetRange(\"Batch Name\", 'B2');",
+            ),
+        ),
+        (
+            "Rec left on line 20000",
+            variant(R7821, "Posted.\"Line No.\" := 1;", "Posted.\"Line No.\" := 20000;"),
+        ),
+        (
+            "OnOpenPage filters in group 0",
+            variant(
+                R7821,
+                "        Rec.FilterGroup(2);\n        Rec.SetRange",
+                "        Rec.FilterGroup(0);\n        Rec.SetRange",
+            ),
+        ),
+        (
+            "OnOpenPage filters B1|B3",
+            variant(
+                R7821,
+                "        Rec.SetRange(\"Batch Name\", 'B1');",
+                "        Rec.SetFilter(\"Batch Name\", 'B1|B3');",
+            ),
+        ),
+        (
+            "a second action with RunObject",
+            variant(
+                R7821,
+                "            action(Post)\n",
+                "            action(Other)\n            {\n                ApplicationArea = All;\n                RunObject = page \"Journal Post No \
+                 New Row Wks\";\n            }\n            action(Post)\n",
+            ),
+        ),
+        (
+            "Post, a value on the blank line, Post again",
+            variant(
+                R7821,
+                invoke,
+                &format!("{invoke}        Worksheet.Quantity.SetValue(7);\n        Worksheet.Post.Invoke();\n"),
+            ),
+        ),
+    ];
+    for (what, src) in cases {
+        for test in ["NewRowPageOpenedWithOpenEdit", "NewRowPageOpenedWithPageRun"] {
+            let (o, marks) = outcome_and_marks(&src, "Journal Post Test", test);
+            assert!(matches!(&o, Outcome::NotRun(_)), "{what}, {test}: {o:?}");
+            let refused_before_post = matches!(&o, Outcome::NotRun(r) if r.contains("another primary key"));
+            assert!(
+                refused_before_post || what.starts_with("Post, a value"),
+                "{what}, {test}: {o:?}"
+            );
+            assert!(
+                !marks.contains(&PostLeftOtherKeyOnNewLine) || what.starts_with("Post, a value"),
+                "{what}, {test}: {marks:?}"
+            );
+        }
+    }
+}
