@@ -29,6 +29,10 @@ finds the next neighbor shape. Write the gate in allowlist form:
     was read).
   - a stored origin or state compared with a value built from that same state (`o == f(o)`): the copied
     fields are never checked. Compare with the session's current value (commit count, transaction).
+  - an error fact checked by code and kind only: `Error('')` and an error after a skipped save pass too. Require the
+    text that is not empty and the step before it (the save ran, nothing else wrote).
+  - several entry points that each check a part: one function must prove every fact of the pinned cell, and every
+    entry point must call it.
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

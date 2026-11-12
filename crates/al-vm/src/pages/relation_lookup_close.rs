@@ -11,6 +11,12 @@ use al_builtins::page_op::PageMethod;
 /// The start of the text of an error out of OnClosePage (`page_close`, CcPageLeads.al:624-633).
 pub(super) const CLOSING_ERRORS: &str = "One or more errors occurred while closing the page.";
 
+/// The error an error of OnClosePage with the text `message` comes out as: `CLOSING_ERRORS`, two line breaks (shown as two
+/// backslashes) and the text, with the code TestWrapped (CcPageLeads.al:624-633).
+pub(in crate::pages) fn closing_error(message: &str) -> Signal {
+    error_code(format!("{CLOSING_ERRORS}\\\\{message}"), "TestWrapped")
+}
+
 /// Where the control whose `Lookup()` opened the relation's list page sits, for the places the corpus pins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelationOrigin {
@@ -291,6 +297,6 @@ impl Session {
             return None;
         }
         self.mark_closed(st);
-        Some(error_code(format!("{CLOSING_ERRORS}\\\\{}", e.message), "TestWrapped"))
+        Some(closing_error(&e.message))
     }
 }

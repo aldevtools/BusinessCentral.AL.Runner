@@ -81,6 +81,11 @@ impl Session {
             }
             None if method == PageOp::PageRunStatic || method == PageOp::PageRunModalStatic => {
                 let used = self.ret_used;
+                // The run names its page by id and hands a record (`PageRunCall::of_static`).
+                let (by_id, record_arg) = (
+                    matches!(args.first(), Some(Value::Integer(_))),
+                    matches!(args.get(1), Some(Value::Record(_))),
+                );
                 if let Some(Value::Text(name)) = args.first() {
                     // An empty name: with a record AL:MetadataNotFound like page 0, without one an uncatchable
                     // NullReferenceException on BC, refused (pages/missing-object-fqn/Y89FqnMissing.al:125, :153; :113 is no [Test]).
@@ -249,11 +254,15 @@ impl Session {
                 {
                     return Ok(v);
                 }
+                if method != PageOp::PageRunModalStatic {
+                    self.note_page_run(&st, PageRunCall::of_static(by_id, record_arg, field, n, id));
+                }
                 self.run_page_ui_with(&st, record, method == PageOp::PageRunModalStatic, field)
             }
             Some(Value::TestPage(st)) => {
                 self.fresh_page_for_held_reopen(method, st);
                 let st = st_of(st).clone();
+                Self::note_page_code_call(&st, method);
                 self.refuse_held_part_page_method(&st, method)?;
                 self.pending_add_in_reread(&st, method.method())?;
                 if method.method() != PageMethod::New {
