@@ -5,11 +5,15 @@
 //! One function decides: `page_run_cell`. A close takes a path of this module only when that function proves every fact of
 //! one cell of the corpus matrix (`cell`):
 //! - the page and how it was run (`pinned_run`, `PinnedRun`): the page's own code and properties, its table's code, the
-//!   record the run was given;
+//!   record the run was given, the call that ran it (`PageRunCall`) from codeunit code, with no write pending;
 //! - what the handler did and how the close was asked (`handler_calls`, `CloseBy`);
 //! - the row when the close starts (`RowAtClose`), and that the close saved a typed value before the trigger that failed;
 //! - the error and where it came from (`close_error_of`, `CloseError`);
-//! - no write to the database since the run started but that save, and no error the handler caught.
+//! - no write to the database since the run started but that save, no Commit, and no error the handler caught.
+//!
+//! Not facts, taken as the pins' data: the body of the codeunit procedure each page trigger calls (only that the call hands
+//! values, `hands_values`) and the bodies of the table's OnInsert and OnModify (only that the table declares exactly
+//! those); the values typed and the rows besides the one read (docs/probes-needed.md, row al-runner 7480).
 //!
 //! Every other close keeps the path it had. What the pinned cells do:
 //! - The platform closes the page after the handler returned: the error does not reach the code that ran the page. The
@@ -26,7 +30,7 @@ use super::pinned_shape::{self, TestCall};
 use super::*;
 use crate::ui::UiKind;
 use al_builtins::native::{AlError, ExceptionKind};
-use al_builtins::page_op::PageMethod;
+use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
 
 /// The refusal of a close after a handler error that left the pinned cells.
 const HANDLER_ERROR_CLOSE: &str = "a page left open by a PageHandler that raised an error, whose close then failed outside the pinned cells, was refused or wrote to the database (not pinned)";
@@ -34,10 +38,14 @@ const HANDLER_ERROR_CLOSE: &str = "a page left open by a PageHandler that raised
 /// A non-modal `Page.Run` by AL code that a PageHandler answers (`PageState::page_run`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PageRun {
-    /// A Page variable's `Run()`, not the static `Page.Run(Id, Rec)`.
-    by_variable: bool,
-    /// The run got a record: the static call's argument, or `SetRecord` before the variable's `Run()`.
-    with_record: bool,
+    call: PageRunCall,
+    /// The run started in codeunit code with no handler running and no page open (`started_in_codeunit_code`).
+    from_codeunit: bool,
+    /// No write was pending when the run started: the pins commit before it (CemFixtures.al:549 `Commit()` in
+    /// `Setup`, then only reads, CemPageHandlerTests.al:33-37).
+    committed: bool,
+    /// The session's count of commits when the run started: no pin commits after it.
+    commits: u64,
     phase: PageRunPhase,
     /// The store's change counter and the session's write mark (`write_mark`: it moves by one with every insert and
     /// modify) when the run started.
@@ -46,6 +54,39 @@ pub struct PageRun {
     /// The session's count of caught errors when the run started (caught_errors.rs).
     caught: u64,
 }
+
+/// How AL code ran the page (`PageRun::call`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PageRunCall {
+    /// `Page.Run(Page::"CEM Card", Row)`: the page by its id, a record, no field argument (CemFixtures.al:478, :499).
+    StaticWithRecord,
+    /// `SetRecord(Row)`, then `Run()`, and no other call on the Page variable (CemFixtures.al:485-486, :493-494).
+    VariableAfterSetRecord,
+    /// Any other run.
+    Other,
+}
+
+impl PageRunCall {
+    /// The static `Page.Run(n, ...)` of page `id`: `by_id`, the page named by a number; `record`, a Record as the second
+    /// argument; `field`, a third argument.
+    pub(crate) fn of_static(by_id: bool, record: bool, field: bool, n: i32, id: u32) -> Self {
+        match (by_id, record, field, i64::from(n) == i64::from(id)) {
+            (true, true, false, true) => Self::StaticWithRecord,
+            _ => Self::Other,
+        }
+    }
+
+    /// A Page variable's `Run()` of page `st`, by the calls AL code made on it (`Session::note_page_code_call`).
+    pub(crate) fn of_variable(st: &St) -> Self {
+        match st.borrow().code_calls.as_slice() {
+            [PageMethod::SetRecord, PageMethod::Run] => Self::VariableAfterSetRecord,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// More calls than this are not kept in `PageState::code_calls`: a longer list is no pinned run.
+const KEPT_CODE_CALLS: usize = 3;
 
 /// Where the run of a `PageRun` page is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,10 +192,11 @@ pub(super) struct PageRunClose {
     row: RowAtClose,
     /// The page's source table.
     table: u32,
-    /// `PageRun::changes`, `PageRun::writes` and `PageRun::caught`.
+    /// `PageRun::changes`, `PageRun::writes`, `PageRun::caught` and `PageRun::commits`.
     changes: u64,
     writes: (i64, u64),
     caught: u64,
+    commits: u64,
 }
 
 const CLOSE_ERRORS: [Option<CloseError>; 5] = [
@@ -227,13 +269,25 @@ impl Session {
         }
     }
 
-    /// AL code runs page `st` without a modal: the static `Page.Run(Id, Rec)` or a Page variable's `Run()` (`by_variable`),
-    /// with or without a record.
-    pub(crate) fn note_page_run(&mut self, st: &St, by_variable: bool, with_record: bool) {
+    /// AL code calls `method` on page `st` through its Page variable or `CurrPage`: the first calls are kept
+    /// (`KEPT_CODE_CALLS`, `PageRunCall::of_variable`).
+    pub(super) fn note_page_code_call(st: &St, method: PageOp) {
+        let mut s = st.borrow_mut();
+        if method.recv() == PageRecv::Page && s.code_calls.len() < KEPT_CODE_CALLS {
+            s.code_calls.push(method.method());
+        }
+    }
+
+    /// AL code runs page `st` without a modal, by `call`.
+    pub(crate) fn note_page_run(&mut self, st: &St, call: PageRunCall) {
         let changes = self.store_mut().change_counter();
+        let from_codeunit = self.started_in_codeunit_code();
+        let committed = !self.store.has_uncommitted();
         st.borrow_mut().page_run = Some(PageRun {
-            by_variable,
-            with_record,
+            call,
+            from_codeunit,
+            committed,
+            commits: self.commits,
             phase: PageRunPhase::Open,
             changes,
             writes: self.write_mark(),
@@ -241,16 +295,35 @@ impl Session {
         });
     }
 
+    /// The code running now is codeunit code only (every frame a codeunit), no handler runs, and no page is open: where the
+    /// pins start their runs (CemPageHandlerTests.al:37 `Runner.RunCardStatic(Row)` in the test, CemFixtures.al:478 in
+    /// codeunit CEM Runner).
+    fn started_in_codeunit_code(&self) -> bool {
+        let engine = self.engine();
+        self.frames
+            .iter()
+            .all(|o| engine.program.objects[*o].kind == al_ir::ObjKind::Codeunit)
+            && self.ui_state.page_handler_depth == 0
+            && self.ui_state.scope.as_ref().is_some_and(|s| !s.in_handler)
+            && self
+                .events
+                .pages_with_instance
+                .iter()
+                .filter_map(std::rc::Weak::upgrade)
+                .all(|p| p.try_borrow().is_ok_and(|p| !p.open))
+    }
+
     /// The pinned page and run of `st`, with its source table; `None` for every other page and run. Every fact of the pins is
     /// required (CemFixtures.al:185-275 pages CEM Card and CEM List, :427-470 CEM Wizard, :18-53 table CEM Row, :474-500 the
     /// runs):
-    /// - run by AL code with a record, not modal, not a lookup, not opened by the test, with no host and no part; Rec sorted
-    ///   by its primary key of one Code field, with one filter, on that field;
+    /// - run by AL code in the form of the pins (`PageRunCall`), from codeunit code with no page open and no handler running,
+    ///   with no write pending; not modal, not a lookup, not opened by the test, with no host and no part; Rec sorted by its
+    ///   primary key of one Code field, with one filter, on that field;
     /// - no page property but PageType, SourceTable, ApplicationArea, UsageCategory and Caption; no page extension, no
     ///   subscriber;
-    /// - the page's own triggers exactly those of its fixture page, each with the fixture's body (`cem_trigger_body`): on
-    ///   the Card and the List OnModifyRecord, OnInsertRecord, OnQueryClosePage and OnClosePage, on the NavigatePage the two
-    ///   close triggers;
+    /// - the page's own triggers exactly those of its fixture page, each with the fixture's body (`cem_trigger_call`) and a
+    ///   call that hands values only (`hands_values`): on the Card and the List OnModifyRecord, OnInsertRecord,
+    ///   OnQueryClosePage and OnClosePage, on the NavigatePage the two close triggers;
     /// - its controls fields of Rec without a trigger and with ApplicationArea only, on the List in one repeater, on the
     ///   NavigatePage with one action that has an OnAction trigger, ApplicationArea and InFooterBar (no pinned handler invokes it);
     /// - a stored source table whose own code is exactly OnInsert and OnModify: no field trigger, no procedure, no table
@@ -260,7 +333,8 @@ impl Session {
         let object = st.borrow().object as usize;
         let shape = {
             let s = st.borrow();
-            run.with_record
+            run.from_codeunit
+                && run.committed
                 && !s.modal
                 && !s.lookup
                 && !s.opened_by_test
@@ -268,11 +342,11 @@ impl Session {
                 && s.parts.is_empty()
                 && s.hidden_parts.is_empty()
         };
-        let pinned = match (engine.object_facts[object].page_type_lower(), run.by_variable) {
-            ("card", false) => PinnedRun::CardStatic,
-            ("card", true) => PinnedRun::CardVariable,
-            ("list", false) => PinnedRun::ListStatic,
-            ("navigatepage", true) => PinnedRun::NavigateVariable,
+        let pinned = match (engine.object_facts[object].page_type_lower(), run.call) {
+            ("card", PageRunCall::StaticWithRecord) => PinnedRun::CardStatic,
+            ("card", PageRunCall::VariableAfterSetRecord) => PinnedRun::CardVariable,
+            ("list", PageRunCall::StaticWithRecord) => PinnedRun::ListStatic,
+            ("navigatepage", PageRunCall::VariableAfterSetRecord) => PinnedRun::NavigateVariable,
             _ => return Ok(None),
         };
         if !shape || !Self::cem_page_code(&engine, object, pinned) {
@@ -332,10 +406,10 @@ impl Session {
         };
         let count = |kind: ir::ControlKind| page.controls.iter().filter(|c| c.kind == kind).count();
         triggers == want_triggers
-            && page
-                .triggers
-                .iter()
-                .all(|(n, r)| pinned_shape::cem_trigger_body(program, object, n, *r))
+            && page.triggers.iter().all(|(n, r)| {
+                pinned_shape::cem_trigger_call(program, object, n, *r)
+                    .is_some_and(|call| Self::hands_values(program, object, *r, call))
+            })
             && page.extensions.is_empty()
             && page.ext_triggers.is_empty()
             && !engine.events.any_subscriber_of(object)
@@ -363,6 +437,35 @@ impl Session {
                         _ => false,
                     }
             })
+    }
+
+    /// The codeunit call `call` of trigger routine `r` of page `object` hands values only, as every pinned trigger does
+    /// (CemFixtures.al:208 `Cfg.ModRec('card', Rec.Name)`, :214 `Cfg.InsRec('card', Rec.Name)`, :220 `Cfg.Query('card',
+    /// CloseAction)`, :225 `Cfg.Closed('card')`): each argument a constant, a field of Rec or a parameter of the trigger, none
+    /// passed to a `var` parameter. So the row the page saves is the row as the handler typed it.
+    fn hands_values(program: &ir::Program, object: usize, r: usize, call: &ir::Expr) -> bool {
+        fn unwrap(e: &ir::Expr) -> &ir::Expr {
+            match e {
+                ir::Expr::Convert(_, inner) => inner,
+                e => e,
+            }
+        }
+        let ir::Expr::Call { args, .. } = unwrap(call) else {
+            return false;
+        };
+        let rec = program.objects[object].rec_slot;
+        let params = program.objects[object].routines[r].params;
+        args.iter().all(|a| match a {
+            ir::Arg::Value(e) => match unwrap(e) {
+                ir::Expr::Const(_) => true,
+                ir::Expr::Load(ir::Place::Local(i)) => *i < params,
+                ir::Expr::Load(ir::Place::Field(base, _)) => {
+                    matches!(base.as_ref(), ir::Place::Global(g) if Some(*g) == rec)
+                }
+                _ => false,
+            },
+            ir::Arg::Ref(_) => false,
+        })
     }
 
     /// What the handler of page `st` did so far, when it is what a pinned handler does (CemPageHandlerTests.al:1814-1941
@@ -451,6 +554,7 @@ impl Session {
             changes: run.changes,
             writes: run.writes,
             caught: run.caught,
+            commits: run.commits,
         }))
     }
 
@@ -478,8 +582,9 @@ impl Session {
     /// THE decision of this module: the cell of the matrix that the close `c` of page `st` is in, now that `failure` was
     /// raised (`None`: nothing was). Every fact of the cell is proved here or in `page_run_close`, which built `c`:
     /// - the error and its source (`close_error_of`);
-    /// - the handler caught no error since the run started, and the test binds no handler but PageHandlers (every test of
-    ///   CemPageHandlerTests.al binds only its PageHandler);
+    /// - the handler caught no error and nothing committed since the run started (no pin commits after `Setup`,
+    ///   CemFixtures.al:549), and the test binds no handler but PageHandlers (every test of CemPageHandlerTests.al binds only
+    ///   its PageHandler);
     /// - a typed value was saved by this close before a close trigger failed: the page holds nothing unsaved, and the only
     ///   write since the run started is that one modify of a row of the page's table (CemPageHandlerTests.al:386 `M-card EDIT; T-mod R1
     ///   EDIT; Q-card OK;`); in every other cell nothing was written since the run started.
@@ -507,7 +612,8 @@ impl Session {
         } else {
             mark == c.writes && store.change_counter() == c.changes
         };
-        if !writes || self.caught_errors() != c.caught || !self.every_ui_handler_is(UiKind::Page) {
+        let same = self.caught_errors() == c.caught && self.commits == c.commits;
+        if !writes || !same || !self.every_ui_handler_is(UiKind::Page) {
             return None;
         }
         cell(c.run, c.by, c.row, error).map(|cell| (cell, error))

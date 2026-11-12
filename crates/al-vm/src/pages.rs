@@ -195,6 +195,7 @@ mod filter_enum;
 mod filter_link_numbers;
 mod modal_handler_error;
 mod page_run_close;
+pub(crate) use page_run_close::PageRunCall;
 mod param_read;
 mod part_tree_typed;
 mod part_unsettled;

@@ -96,7 +96,7 @@ impl Session {
         let variable_run = !modal && self.frames.last() != Some(&object);
         st.borrow_mut().run_by_currpage = !modal && !variable_run;
         if variable_run {
-            self.note_page_run(st, true, record.is_some());
+            self.note_page_run(st, crate::pages::PageRunCall::of_variable(st));
         } else {
             st.borrow_mut().page_run = None;
         }

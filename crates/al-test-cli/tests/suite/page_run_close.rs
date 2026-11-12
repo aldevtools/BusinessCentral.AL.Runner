@@ -10,6 +10,7 @@ use al_test_cli::report::Outcome;
 const FIXTURE: &str = r#"
 table 50100 "RV Row"
 {
+    /*TABLE-PROPS*/
     fields { field(1; "Code"; Code[10]) { } field(2; Name; Text[30]) { } }
     keys { key(PK; "Code") { Clustered = true; } }
     trigger OnInsert() var Cfg: Codeunit "RV Cfg"; begin Cfg.Add('T-ins ' + Rec.Name); end;
@@ -40,6 +41,7 @@ codeunit 50102 "RV Cfg"
     var R: Record "RV Row";
     begin
         Add('Q ' + Format(CloseAction));
+        if Has('q-commit') then begin Commit(); Error('RV query after commit'); end;
         if Has('q-error') then Error('RV query error');
         if Has('q-empty') then Error('');
         if Has('q-veto') then exit(false);
@@ -52,6 +54,7 @@ codeunit 50102 "RV Cfg"
     var R: Record "RV Row"; EI: ErrorInfo; N: Integer;
     begin
         Add('C');
+        if Has('c-commit') then begin Commit(); Error('RV close after commit'); end;
         if Has('c-error') then Error('RV close error');
         if Has('c-empty') then Error('');
         if Has('c-message') then Message('RV close message');
@@ -73,6 +76,12 @@ codeunit 50102 "RV Cfg"
         if Has('m-write-error') then begin Touch(); Error('RV modify error after write'); end;
         if Has('m-write-only') then Touch();
     end;
+    procedure ModVar(var R: Record "RV Row")
+    begin
+        Add('MV ' + R.Name);
+        if Has('m-var') then R.Name := 'CHANGED';
+        if Has('m-commit') then Commit();
+    end;
     procedure InsRec(NameValue: Text) begin Add('I ' + NameValue); end;
 }
 page 50103 "RV Card"
@@ -92,7 +101,7 @@ page 50103 "RV Card"
     }
     /*CARD-ACTIONS*/
     var Cfg: Codeunit "RV Cfg";
-    trigger OnModifyRecord(): Boolean begin Cfg.ModRec(Rec.Name); /*CARD-MODIFY*/ exit(true); end;
+    trigger OnModifyRecord(): Boolean begin /*CARD-MODIFY-CALL*/ /*CARD-MODIFY*/ exit(true); end;
     trigger OnInsertRecord(BelowxRec: Boolean): Boolean begin Cfg.InsRec(Rec.Name); exit(true); end;
     trigger OnQueryClosePage(CloseAction: Action): Boolean begin exit(Cfg.Query(CloseAction)); end;
     trigger OnClosePage() begin Cfg.Closed(); /*CARD-CLOSE*/ end;
@@ -153,6 +162,24 @@ page 50104 "RV Worksheet"
     trigger OnQueryClosePage(CloseAction: Action): Boolean begin exit(Cfg.Query(CloseAction)); end;
     trigger OnClosePage() begin Cfg.Closed(); end;
 }
+page 50109 "RV Host"
+{
+    PageType = Card;
+    ApplicationArea = All;
+    UsageCategory = None;
+    layout { area(Content) { } }
+    actions
+    {
+        area(Processing)
+        {
+            action(RunCard)
+            {
+                ApplicationArea = All;
+                trigger OnAction() var R: Record "RV Row"; begin R.Get('R1'); R.SetRange("Code", 'R1'); Page.Run(Page::"RV Card", R); end;
+            }
+        }
+    }
+}
 /*OBJECTS*/
 codeunit 50110 "RV Tests"
 {
@@ -166,7 +193,8 @@ codeunit 50110 "RV Tests"
         R.DeleteAll(); O.DeleteAll();
         R.Code := 'R1'; R.Name := 'one'; R.Insert();
         if '/*RUN*/' = 'card-empty' then R.DeleteAll();
-        Commit();
+        if '/*RUN*/' <> 'card-uncommitted' then Commit();
+        if '/*RUN*/' = 'card-pretouch' then Cfg.Touch();
         Cfg.Set('/*SOURCE*/', /*MODE*/);
         R.SetRange("Code", 'R1');
         if TryRun(R) then Res := 'returned' else Res := 'error=' + GetLastErrorCode() + '|' + GetLastErrorText();
@@ -176,10 +204,16 @@ codeunit 50110 "RV Tests"
     end;
     [TryFunction]
     local procedure TryRun(var R: Record "RV Row")
-    var C: Page "RV Card"; L: Page "RV List"; W: Page "RV Wizard";
+    var C: Page "RV Card"; L: Page "RV List"; W: Page "RV Wizard"; HP: TestPage "RV Host";
     begin
         case '/*RUN*/' of
-            'card', 'card-empty': Page.Run(Page::"RV Card", R);
+            'card', 'card-empty', 'card-uncommitted', 'card-pretouch': Page.Run(Page::"RV Card", R);
+            'card-field': Page.Run(Page::"RV Card", R, R.Name);
+            'card-id0': Page.Run(0, R);
+            'card-var-tableview': begin C.SetTableView(R); C.Run(); end;
+            'card-var-both': begin C.SetTableView(R); C.SetRecord(R); C.Run(); end;
+            'card-var-editable': begin C.SetRecord(R); C.Editable(false); C.Run(); end;
+            'host-action': begin HP.OpenEdit(); HP.RunCard.Invoke(); HP.Close(); end;
             'card-no-record': Page.Run(Page::"RV Card");
             'card-no-filter': begin R.Reset(); R.Get('R1'); Page.Run(Page::"RV Card", R); end;
             'card-two-filters': begin R.SetRange(Name, 'one'); Page.Run(Page::"RV Card", R); end;
@@ -215,6 +249,8 @@ codeunit 50110 "RV Tests"
             16: begin Cfg.Touch(); Error('RV handler error'); end;
             17: Cfg.Touch();
             18: begin P.First(); P.OK().Invoke(); end;
+            45: Commit();
+            46: begin Commit(); Error('RV handler error'); end;
             /*CARD-MODES*/
         end;
     end;
@@ -268,6 +304,10 @@ struct Shape {
     modes: &'static str,
     /// More objects.
     objects: &'static str,
+    /// The call of OnModifyRecord; empty: the pins' `Cfg.ModRec(Rec.Name);`.
+    modify_call: &'static str,
+    /// Properties of the table.
+    table_props: &'static str,
 }
 
 const PINNED: Shape = Shape {
@@ -280,11 +320,19 @@ const PINNED: Shape = Shape {
     table: "",
     modes: "",
     objects: "",
+    modify_call: "",
+    table_props: "",
 };
 
 /// The outcome of the test: `run` the page (a case of `TryRun`), with the error `source` switched on and the handler in `mode`.
 fn outcome(shape: Shape, handlers: &str, run: &str, source: &str, mode: u32) -> Outcome {
+    let modify_call = match shape.modify_call {
+        "" => "Cfg.ModRec(Rec.Name);",
+        call => call,
+    };
     let src = FIXTURE
+        .replace("/*TABLE-PROPS*/", shape.table_props)
+        .replace("/*CARD-MODIFY-CALL*/", modify_call)
         .replace("/*CARD-PROPS*/", shape.props)
         .replace("/*CARD-NAME*/", shape.name)
         .replace("/*CARD-ACTIONS*/", shape.actions)
@@ -1070,4 +1118,144 @@ codeunit 50111 "RV Wizard Tests"
     let o = al_testkit::outcomes_in(src, "RV Wizard Tests");
     assert_eq!(o.len(), 1, "{o:?}");
     refused_with(&o[0].1, ON_CLOSE_PAGE_REFUSED);
+}
+
+const MOD_VAR: Shape = Shape {
+    modify_call: "Cfg.ModVar(Rec);",
+    ..PINNED
+};
+
+// Review round 3, MED 1: the transaction. Every pin commits before the run (CemFixtures.al:549 `Commit()` in `Setup`,
+// CemPageHandlerTests.al:33-37) and nothing commits after it. An uncommitted write before the run and a Commit in the
+// handler, in a close trigger or in the codeunit the save calls keep main's outcome (measured with the main binary
+// 2d19bd631, BC 27).
+#[test]
+fn an_uncommitted_write_before_the_run_or_a_commit_in_it_keeps_mains_outcome() {
+    let query_edit = "error=MissingUIHandler|Unhandled UI: Message RV query error log=H; M EDIT; T-mod EDIT; Q OK;  others=0 name=EDIT";
+    let handler_error = "error=Dialog|RV handler error log=H;  others=0 name=one";
+    main_gives(
+        PINNED,
+        "CardH",
+        "card-uncommitted",
+        "c-error",
+        0,
+        &refused(ON_CLOSE_PAGE_REFUSED),
+    );
+    main_gives(PINNED, "CardH", "card-uncommitted", "q-error", 6, query_edit);
+    main_gives(PINNED, "CardH", "card-uncommitted", "none", 2, handler_error);
+    main_gives(
+        PINNED,
+        "CardH",
+        "card-pretouch",
+        "c-error",
+        0,
+        &refused(ON_CLOSE_PAGE_REFUSED),
+    );
+    main_gives(
+        PINNED,
+        "CardH",
+        "card-pretouch",
+        "q-error",
+        6,
+        "error=MissingUIHandler|Unhandled UI: Message RV query error log=H; M EDIT; T-mod EDIT; Q OK;  others=1 name=EDIT",
+    );
+    main_gives(PINNED, "CardH", "card", "c-error", 45, &refused(ON_CLOSE_PAGE_REFUSED));
+    main_gives(PINNED, "CardH", "card", "none", 46, handler_error);
+    main_gives(PINNED, "CardH", "card", "c-commit", 0, &refused(ON_CLOSE_PAGE_REFUSED));
+    main_gives(PINNED, "CardH", "card", "c-commit", 1, &refused(ON_CLOSE_PAGE_REFUSED));
+    main_gives(
+        PINNED,
+        "CardH",
+        "card",
+        "q-commit",
+        0,
+        "error=MissingUIHandler|Unhandled UI: Message RV query after commit log=H; Q OK;  others=0 name=one",
+    );
+    // After a handler error the close triggers run before the Commit in OnQueryClosePage is seen: main's outcome (no close)
+    // cannot be given any more, so it is refused as every close outside the cells after a handler error.
+    refused_with(&card("q-commit", 2), HANDLER_ERROR_CLOSE_REFUSED);
+    main_gives(
+        MOD_VAR,
+        "CardH",
+        "card",
+        "m-commit q-error",
+        6,
+        "error=MissingUIHandler|Unhandled UI: Message RV query error log=H; MV EDIT; T-mod EDIT; Q OK;  others=0 name=EDIT",
+    );
+}
+
+// Review round 3, MED 2: how the run was made. The pins run the page by `Page.Run(Page::"CEM Card", Row)` with no field
+// argument, or by `SetRecord` then `Run()` on a Page variable (CemFixtures.al:476-500), from a codeunit the test called
+// (CemPageHandlerTests.al:36). SetTableView, Editable(false) on the variable, a field argument, page id 0 and a run from an
+// action of a page the test opened keep main's outcome (main binary 2d19bd631, BC 27).
+#[test]
+fn a_run_made_another_way_keeps_mains_outcome() {
+    let lookup_id = Shape {
+        table_props: "LookupPageId = \"RV Card\";",
+        ..PINNED
+    };
+    for run in [
+        "card-var-tableview",
+        "card-var-both",
+        "card-var-editable",
+        "card-field",
+        "host-action",
+    ] {
+        main_gives(PINNED, "CardH", run, "c-error", 0, &refused(ON_CLOSE_PAGE_REFUSED));
+    }
+    main_gives(
+        lookup_id,
+        "CardH",
+        "card-id0",
+        "c-error",
+        0,
+        &refused(ON_CLOSE_PAGE_REFUSED),
+    );
+    main_gives(
+        PINNED,
+        "CardH",
+        "card-field",
+        "q-error",
+        6,
+        "error=MissingUIHandler|Unhandled UI: Message RV query error log=H; M EDIT; T-mod EDIT; Q OK;  others=0 name=EDIT",
+    );
+    main_gives(
+        PINNED,
+        "CardH",
+        "host-action",
+        "none",
+        2,
+        "error=TestWrapped:Dialog|RV handler error log=H;  others=0 name=one",
+    );
+}
+
+// Review round 3, MED 3: what the save hands on. The pinned OnModifyRecord passes values only (CemFixtures.al:203
+// `Cfg.ModRec('card', Rec.Name)`), so the saved value is the typed one. A call that passes Rec by var keeps main's outcome,
+// with and without a change of the row in the codeunit (main binary 2d19bd631, BC 27).
+#[test]
+fn a_save_that_passes_rec_by_var_keeps_mains_outcome() {
+    main_gives(
+        MOD_VAR,
+        "CardH",
+        "card",
+        "m-var q-error",
+        6,
+        "error=MissingUIHandler|Unhandled UI: Message RV query error log=H; MV EDIT; T-mod CHANGED; Q OK;  others=0 name=CHANGED",
+    );
+    main_gives(
+        MOD_VAR,
+        "CardH",
+        "card",
+        "m-var c-error",
+        7,
+        &refused(ON_CLOSE_PAGE_REFUSED),
+    );
+    main_gives(
+        MOD_VAR,
+        "CardH",
+        "card",
+        "q-error",
+        6,
+        "error=MissingUIHandler|Unhandled UI: Message RV query error log=H; MV EDIT; T-mod EDIT; Q OK;  others=0 name=EDIT",
+    );
 }

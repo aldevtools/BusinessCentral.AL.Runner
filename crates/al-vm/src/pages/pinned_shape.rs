@@ -548,7 +548,18 @@ pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Ex
 /// variable, then `exit(true)`; OnQueryClosePage is the `exit` of such a call; OnClosePage is such a call. `false` for
 /// every other trigger and body.
 pub(super) fn cem_trigger_body(program: &ir::Program, object: usize, name: &str, r: usize) -> bool {
-    let call = |e: &ir::Expr| codeunit_var_call(program, object, e);
+    cem_trigger_call(program, object, name, r).is_some()
+}
+
+/// The call of a procedure of a codeunit variable in trigger `name` (routine `r`) of page `object`, when the trigger has
+/// the body of `cem_trigger_body`; `None` for every other trigger and body.
+pub(super) fn cem_trigger_call<'p>(
+    program: &'p ir::Program,
+    object: usize,
+    name: &str,
+    r: usize,
+) -> Option<&'p ir::Expr> {
+    let call = |e: &'p ir::Expr| codeunit_var_call(program, object, e).then_some(e);
     let mut stmts = code_stmts(program, object, r);
     // The lowering ends a trigger with a return value by an `exit` of its default, unreachable after an `exit`.
     if let [.., ir::Stmt::Exit(Some(_)), ir::Stmt::Exit(Some(_))] = stmts.as_slice() {
@@ -556,12 +567,12 @@ pub(super) fn cem_trigger_body(program: &ir::Program, object: usize, name: &str,
     }
     match (name, stmts.as_slice()) {
         ("onmodifyrecord" | "oninsertrecord", [ir::Stmt::Expr(e), ir::Stmt::Exit(Some(t))]) => {
-            call(e)
-                && matches!(t, ir::Expr::Const(ir::Const::Boolean(true)))
-                    | matches!(t, ir::Expr::Convert(_, b) if matches!(**b, ir::Expr::Const(ir::Const::Boolean(true))))
+            let exits_true = matches!(t, ir::Expr::Const(ir::Const::Boolean(true)))
+                | matches!(t, ir::Expr::Convert(_, b) if matches!(**b, ir::Expr::Const(ir::Const::Boolean(true))));
+            call(e).filter(|_| exits_true)
         }
         ("onqueryclosepage", [ir::Stmt::Exit(Some(e))]) | ("onclosepage", [ir::Stmt::Expr(e)]) => call(e),
-        _ => false,
+        _ => None,
     }
 }
 
