@@ -982,7 +982,8 @@ pub struct HttpRequestState {
     /// (`http::request_content`).
     pub content: Option<Value>,
     pub headers: HttpHeaderList,
-    /// The request was assigned or passed by value (`http::request_handed_on`). The variables share the request; the mark
+    /// The request was assigned, passed by value, put into a Variant or sent (`http::request_handed_on`). The variables
+    /// share the request; the mark
     /// only says that no evidence for `ReadAs(SecretText)` covers its content (`http::SecretReadShape`).
     pub handed_on: bool,
 }
@@ -1024,6 +1025,9 @@ pub struct HttpContentState {
     /// The calls made on the content so far, as far as the evidence for `ReadAs(SecretText)` follows them
     /// (`http::SecretReadShape`).
     pub secret_read: crate::http::SecretReadShape,
+    /// No method was called on this content yet; it was only assigned, passed by value or handed on otherwise
+    /// (`http::content_handed_on`). It stands for the variable main keeps as `LibraryValue::Empty` (`http::content_unused`).
+    pub untouched: bool,
 }
 
 impl Default for HttpContentState {
@@ -1043,6 +1047,7 @@ impl Default for HttpContentState {
             from_stream: false,
             secret: false,
             secret_read: crate::http::SecretReadShape::Other,
+            untouched: false,
         }
     }
 }

@@ -332,8 +332,8 @@ pub(super) fn request_get_headers(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mu
 /// nobody set a content on has an uninitialized one (http/HttpRequest.al:FreshRequestContent).
 ///
 /// For `ReadAs(SecretText)` the content is `RequestSecret`, `RequestText` or `RequestNone` only on a request that had no
-/// content and was never assigned or passed by value (`SecretReadShape`); on a request that was, every content it hands out is
-/// `Other`.
+/// content and was never handed on (`HttpRequestState::handed_on`, `SecretReadShape`); on a request that was, every content
+/// it hands out is `Other`.
 pub(super) fn request_content(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if let Some(c) = a.first() {
         let source = match c {
@@ -386,20 +386,37 @@ fn set_secret_read(content: &Value, shape: SecretReadShape) {
     }
 }
 
-/// An `HttpContent` is used by value where the variable keeps its content: a variable no method was called on is assigned or
-/// passed by value (the variables go on sharing it) or set on a request, or a content is handed to `HttpClient.Post`, `Put` or
-/// `Patch`. al-language-onprem/http/N4ReadAsSecretStatement.al has no such use, so the content is `Other` afterwards.
+/// An `HttpContent` is used by value where the variable keeps its content: a variable no method was called on is assigned,
+/// passed by value or put into a Variant (the variables go on sharing it) or set on a request, a content is put into a
+/// Variant, or a content is handed to `HttpClient.Post`, `Put` or `Patch`. al-language-onprem/http/N4ReadAsSecretStatement.al
+/// has no such use, so the content is `Other` afterwards. A variable no method was called on still stands for an unused one
+/// (`HttpContentState::untouched`): sharing and every value stay as they are without the mark.
 pub fn content_handed_on(content: &RefCell<LibraryValue>) {
     let mut lib = content.borrow_mut();
     if matches!(&*lib, LibraryValue::Empty) {
-        *lib = LibraryValue::HttpContent(HttpContentState::default());
+        *lib = LibraryValue::HttpContent(HttpContentState {
+            untouched: true,
+            ..HttpContentState::default()
+        });
     }
     if let LibraryValue::HttpContent(s) = &mut *lib {
         s.secret_read = SecretReadShape::Other;
     }
 }
 
-/// An `HttpRequestMessage` is assigned or passed by value: the variables go on sharing the request, and the request is marked
+/// An `HttpContent` variable no method was called on: an assignment and a by-value parameter share it (`ops::convert`), a copy
+/// of it is a new content (`copy_content`), and its first method starts a new content (`with_content`). It is `Empty`, or the
+/// same variable marked by `content_handed_on`.
+pub fn content_unused(content: &LibraryValue) -> bool {
+    match content {
+        LibraryValue::Empty => true,
+        LibraryValue::HttpContent(s) => s.untouched,
+        _ => false,
+    }
+}
+
+/// An `HttpRequestMessage` is assigned, passed by value or put into a Variant: the variables go on sharing the request, and
+/// the request is marked
 /// (`HttpRequestState::handed_on`); `HttpClient.Send` marks the request it takes the same way.
 /// al-language-onprem/http/N4ReadAsSecretStatement.al reads the content only of a request that went by `var` and was not
 /// sent, so `ReadAs(SecretText)` on the content of a marked request keeps its refusal.
@@ -417,7 +434,7 @@ pub fn request_handed_on(request: &RefCell<LibraryValue>) {
 pub fn copy_content(v: &Value) -> Result<Value, Signal> {
     match v {
         Value::Library(_, cell) => {
-            if matches!(&*cell.borrow(), LibraryValue::Empty) {
+            if content_unused(&cell.borrow()) {
                 content_handed_on(cell);
                 return Ok(new_content());
             }

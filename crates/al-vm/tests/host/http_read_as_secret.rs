@@ -429,6 +429,54 @@ codeunit 50192 C
         Ct.ReadAs(S);
     end;
 
+    procedure RequestInAVariant(): Text
+    var
+        Req: HttpRequestMessage;
+        Ct: HttpContent;
+        V: Variant;
+        S: SecretText;
+    begin
+        Ct.WriteFrom(SecretStrSubstNo('s3cret'));
+        Req.Content(Ct);
+        V := Req;
+        Req.Content.ReadAs(S);
+    end;
+
+    procedure SecretInAVariant(): Text
+    var
+        Ct: HttpContent;
+        V: Variant;
+        S: SecretText;
+    begin
+        Ct.WriteFrom(SecretStrSubstNo('s3cret'));
+        V := Ct;
+        Ct.ReadAs(S);
+    end;
+
+    procedure FreshInAVariant(): Text
+    var
+        Ct: HttpContent;
+        V: Variant;
+        S: SecretText;
+    begin
+        V := Ct;
+        Ct.WriteFrom(SecretStrSubstNo('s3cret'));
+        Ct.ReadAs(S);
+    end;
+
+    procedure FreshAssignedTwice(): Text
+    var
+        Ct: HttpContent;
+        C2: HttpContent;
+        C3: HttpContent;
+        S: SecretText;
+    begin
+        C2 := Ct;
+        C3 := Ct;
+        Ct.WriteFrom(SecretStrSubstNo('s3cret'));
+        Ct.ReadAs(S);
+    end;
+
     procedure RequestCopied(): Text
     var
         Req: HttpRequestMessage;
@@ -936,6 +984,25 @@ fn every_statement_read_without_evidence_keeps_the_refusal() {
     ] {
         refused(routine, STATEMENT);
     }
+}
+
+#[test]
+fn a_content_or_request_that_went_into_a_variant_or_was_assigned_untouched_keeps_the_refusal() {
+    // Reviewer probe app http4 K03 and K09 of PR 7926: on main these refuse; the probe has no Variant and no copy of an
+    // untouched content.
+    let wrong: Vec<String> = [
+        "RequestInAVariant",
+        "SecretInAVariant",
+        "FreshInAVariant",
+        "FreshAssignedTwice",
+    ]
+    .into_iter()
+    .filter_map(|routine| match al_testkit::run_in(SRC, "C", routine) {
+        Err(Signal::Unsupported(m)) if m == STATEMENT => None,
+        other => Some(format!("{routine}: {other:?}")),
+    })
+    .collect();
+    assert!(wrong.is_empty(), "{wrong:?}");
 }
 
 #[test]

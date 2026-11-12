@@ -1372,12 +1372,12 @@ fn a_local_variable_declared_char_option_or_byte_indexes_list_get() {
     // collections/ListNonIntegerIndex.al:163-181 with :419-430: `R := L.Get(X)`, X a local variable declared Char, Option with
     // its members, or Byte.
     for body in [
-        "c := 2; exit(l.Get(c));",
-        "o := o::Two; exit(l.Get(o));",
-        "y := 2; exit(l.Get(y));",
+        "c := 2; r := l.Get(c); exit(r);",
+        "o := o::Two; r := l.Get(o); exit(r);",
+        "y := 2; r := l.Get(y); exit(r);",
     ] {
         let r = text_of(
-            "l: List of [Text]; c: Char; o: Option Zero,One,Two,Three; y: Byte;",
+            "l: List of [Text]; c: Char; o: Option Zero,One,Two,Three; y: Byte; r: Text;",
             &format!("l.Add('a'); l.Add('b'); l.Add('c'); {body}"),
         );
         assert_eq!(r.unwrap(), "b", "{body}");
@@ -1388,9 +1388,27 @@ fn a_local_variable_declared_char_option_or_byte_indexes_list_get() {
 fn a_char_option_or_byte_index_that_is_no_such_local_variable_keeps_the_list_error() {
     // collections/ListNonIntegerIndex.al:163-167 declares the three indexes as local variables, the Option with its members.
     // The option types of the platform (TextEncoding, Action, PromptMode), an Option member, a global variable, a parameter, a
-    // function result, an array element and a character of a Text are not pinned and keep main's list error.
+    // function result, an array element and a character of a Text are not pinned and keep main's list error. So do the
+    // call forms the file does not have: `exit(L.Get(X))`, the statement `L.Get(X)` and `L.Get(X)` inside an expression,
+    // an Option declared without members, and a List of another type.
     let fill = "l.Add('a'); l.Add('b'); l.Add('c');";
+    let mut wrong = Vec::new();
     for (vars, body) in [
+        ("c: Char;", "c := 2; exit(l.Get(c));"),
+        ("o: Option Zero,One,Two,Three;", "o := o::Two; l.Get(o); exit('done');"),
+        (
+            "o: Option Zero,One,Two,Three; r: Text;",
+            "o := o::Two; r := l.Get(o) + ''; exit(r);",
+        ),
+        ("o: Option; r: Text;", "o := 1; r := l.Get(o); exit(r);"),
+        (
+            "o: Option Zero,One,Two,Three; il: List of [Integer]; r: Text;",
+            "il.Add(7); il.Add(8); o := o::One; r := Format(il.Get(o)); exit(r);",
+        ),
+        (
+            "o: Option Zero,One,Two,Three; il: List of [Integer]; n: Integer;",
+            "il.Add(7); il.Add(8); o := o::One; n := il.Get(o); exit(Format(n));",
+        ),
         ("e: TextEncoding;", "e := TextEncoding::UTF8; exit(l.Get(e));"),
         ("", "exit(l.Get(TextEncoding::UTF16));"),
         ("a: Action;", "a := Action::OK; exit(l.Get(a));"),
@@ -1418,12 +1436,12 @@ fn a_char_option_or_byte_index_that_is_no_such_local_variable_keeps_the_list_err
                 local procedure TwoChar(): Char begin exit(2); end;
             }}"
         );
-        let r = run(&src, "F");
-        let Err(Signal::Error(e)) = &r else {
-            panic!("{body}: {r:?}")
-        };
-        assert_eq!(e.code, "ArgumentOutOfRange", "{body}");
+        match run(&src, "F") {
+            Err(Signal::Error(e)) if e.code == "ArgumentOutOfRange" => {}
+            r => wrong.push(format!("{body}: {r:?}")),
+        }
     }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 #[test]

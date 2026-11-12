@@ -19,8 +19,8 @@ pub enum SecretReadShape {
     SecretReadOnce,
     /// `New`, then `WriteFrom(Text)`, of a text or of '' (N4:121-122).
     TextWritten,
-    /// The content a request without one, never assigned or passed by value, got with `Content(C)` from a `SecretWritten` C
-    /// (N4:167-168).
+    /// The content a request without one, never handed on (`HttpRequestState::handed_on`), got with `Content(C)` from a
+    /// `SecretWritten` C (N4:167-168).
     RequestSecret,
     /// `RequestSecret`, then one statement read in place (N4:171).
     RequestSecretStatement,
@@ -30,7 +30,7 @@ pub enum SecretReadShape {
     RequestSecretCopy,
     /// As `RequestSecret`, from a `TextWritten` C (N4:169-170).
     RequestText,
-    /// The content of a request that has none and was never assigned or passed by value (N4:193, :216).
+    /// The content of a request that has none and was never handed on (N4:193, :216).
     RequestNone,
     /// `RequestNone`, then one statement read in place (N4:194).
     RequestNoneStatement,
@@ -105,7 +105,7 @@ impl SecretReadShape {
     }
 
     /// The shape of the content a request gets with `Content(C)` from a C of this shape, when the request had no content and
-    /// was never assigned or passed by value.
+    /// was never handed on (`HttpRequestState::handed_on`).
     pub(super) fn set_on_request(self) -> Self {
         use SecretReadShape as S;
         match self {

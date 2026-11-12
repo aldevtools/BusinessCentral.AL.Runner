@@ -312,6 +312,7 @@ impl HttpContentState {
             from_stream: self.from_stream,
             secret: self.secret,
             secret_read,
+            untouched: false,
         }
     }
 

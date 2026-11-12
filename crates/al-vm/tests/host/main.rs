@@ -10,6 +10,7 @@ mod gzip;
 mod http_add_certificate;
 mod http_cert_validation;
 mod http_content_get_headers;
+mod http_content_sharing;
 mod http_headers;
 mod http_read_as_secret;
 mod http_request_cookies;
