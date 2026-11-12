@@ -17,13 +17,31 @@ impl Session {
         {
             return Ok(false);
         }
+        let [(control, part)] = page.parts.as_slice() else {
+            return Ok(false);
+        };
+        let control = *control;
+        let part = part.clone();
         drop(page);
+        let layout = page_of(&engine, st);
+        if !layout.triggers.is_empty()
+            || !self.unextended_unsubscribed(st)
+            || !self.unextended_unsubscribed(&part)
+            || engine.object_facts[part.borrow().object as usize].page_type_lower() != "listpart"
+            || !layout.controls[control].part_link.as_ref().is_some_and(|link| {
+                link.provider.is_none()
+                    && link.view.is_none()
+                    && matches!(link.entries.as_slice(), [ir::LinkEntry::Field(_, _)])
+            })
+        {
+            return Ok(false);
+        }
         let ir::Binding::Field(field) = page_of(&engine, st).controls[index].binding else {
             return Ok(false);
         };
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
-        if table.keys[0].contains(&field) {
+        if rec.borrow().temporary || table.keys[0].contains(&field) {
             return Ok(false);
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TrappedCardDraftBlankPartSetValue);
