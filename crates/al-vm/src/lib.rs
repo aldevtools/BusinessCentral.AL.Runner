@@ -1080,8 +1080,9 @@ pub struct Session {
     pub(crate) host_new_running: bool,
     /// Set while a host page's open links its parts (`sync_parts_at_open`).
     pub(crate) part_open_running: bool,
-    /// Set while a host's GoToRecord that left its row reads its parts again (`pages/empty_part_rec.rs`).
-    pub(crate) host_goto_record_running: bool,
+    /// The host move whose parts are reading again: Next and Previous, and the moves `pageops.rs` syncs in its last branch
+    /// (GoToRecord, GoToKey and the others) (`pages/empty_part_rec.rs`).
+    pub(crate) host_move_running: Option<al_builtins::page_op::PageMethod>,
     /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
     /// values did not change (`pages/parts.rs` `sync_parts_with`).
     /// `Some(true)`: a part that shows no row or only its blank line stays as it is too (a part linked through a Provider that
@@ -1408,7 +1409,7 @@ impl Session {
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
-            host_goto_record_running: false,
+            host_move_running: None,
             part_sync_keeps_same_link: None,
             dotnet: Default::default(),
             application_areas: String::new(),

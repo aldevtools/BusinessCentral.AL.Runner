@@ -1,8 +1,7 @@
 //! al-runner issue 6924 on a List host: what Rec holds in the action of a ListPart that shows no row, when the host is a
 //! PageType = List page. The objects and tests are the corpus probe's (pages/parts/EmptyPartRecLinkList.al), each test raising
-//! what it observed in place of the Probe Observer. The probe's local observation is not in yet: only the reporter's cell (a
-//! List host opened for edit, moved by GoToRecord, the part in its FactBoxes, one const and one field link) takes the link
-//! values, through the assumption `empty-part-rec-list-host`; every other cell keeps the outcome the runtime had before.
+//! what it observed in place of the Probe Observer. The expected values are the probe's local observation on BC 28.5 (corpus
+//! pull request 1339); the List-host cells run through the assumption `empty-part-rec-list-host` until it is pinned.
 
 use al_builtins::assumptions::Assumption;
 use al_testkit::{blocked, compile};
@@ -1053,19 +1052,18 @@ codeunit 76850 "PG EPL Tests"
 }
 "#;
 
-/// What each cell raises, and whether it goes through the assumption: the link values in the reporter's cell, and in every
-/// other cell what the runtime raised before this change (main's outcome, not BC's measured value). Two cells of the host with
-/// both parts are flagged although they read the content part or OnAfterGetCurrRecord: its FactBox takes the assumed path.
+/// Each cell: what BC 28.5 raised (corpus pull request 1339, local observation), and whether the cell goes through the
+/// assumption (a List host whose part takes the link values; the cells of a List that shows no row do not).
 const CELLS: [(&str, &str, bool); 42] = [
     (
         "EmptyPart_ListOpenEdit_FactBoxConstField_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_ContentConstField_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_GoToRecord_FactBoxConstField_ActionReadsRec",
@@ -1074,7 +1072,7 @@ const CELLS: [(&str, &str, bool); 42] = [
     ),
     (
         "EmptyPart_ListOpenEdit_GoToRecord_ContentConstField_ActionReadsRec",
-        "action=act=0//0/;",
+        "action=act=76840/B/0/;",
         true,
     ),
     (
@@ -1084,73 +1082,73 @@ const CELLS: [(&str, &str, bool); 42] = [
     ),
     (
         "EmptyPart_ListOpenEdit_Next_FactBoxConstField_ActionReadsRec",
-        "next=Yes;action=act=0//0/;",
-        false,
+        "next=Yes;action=act=76840/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_NextFromRowWithLines_FactBox_ActionReadsRec",
-        "next=Yes;action=act=0//0/;",
-        false,
+        "next=Yes;action=act=76840/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_FactBoxConstField_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_ContentConstField_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_GoToRecord_FactBoxConstField_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_GoToRecord_ContentConstField_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_GoToRecordFromRowWithLines_FactBox_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_Next_FactBoxConstField_ActionReadsRec",
-        "next=Yes;action=act=0//0/;",
-        false,
+        "next=Yes;action=act=76840/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_NextFromRowWithLines_FactBox_ActionReadsRec",
-        "next=Yes;action=act=0//0/;",
-        false,
+        "next=Yes;action=act=76840/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_FactBoxFieldOnly_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=0/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_GoToRecord_FactBoxFieldOnly_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=0/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_FactBoxConstOnly_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840//0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_GoToRecord_FactBoxConstOnly_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840//0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_FactBoxFilterOneValue_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_GoToRecord_FactBoxFilterOneValue_ActionReadsRec",
@@ -1159,53 +1157,53 @@ const CELLS: [(&str, &str, bool); 42] = [
     ),
     (
         "EmptyPart_ListOpenEdit_FactBoxFilterRange_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=0/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_GoToRecord_FactBoxFilterRange_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=0/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_FactBoxFieldOnly_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=0/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_GoToRecord_FactBoxFieldOnly_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=0/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_FactBoxConstOnly_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840//0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_GoToRecord_FactBoxConstOnly_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840//0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_FactBoxFilterOneValue_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_GoToRecord_FactBoxFilterOneValue_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_FactBoxFilterRange_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=0/A/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenView_GoToRecord_FactBoxFilterRange_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=0/B/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_GoToRecord_FactBoxRefCode_ActionReadsRec",
@@ -1214,13 +1212,13 @@ const CELLS: [(&str, &str, bool); 42] = [
     ),
     (
         "EmptyPart_ListOpenView_GoToRecord_FactBoxRefCode_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/RB/0/;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_FactBoxRefCode_ActionReadsRec",
-        "action=act=0//0/;",
-        false,
+        "action=act=76840/RA/0/;",
+        true,
     ),
     (
         "PartWithRow_ListOpenEdit_FactBoxConstField_ActionReadsRow",
@@ -1230,11 +1228,11 @@ const CELLS: [(&str, &str, bool); 42] = [
     (
         "PartWithRow_ListOpenEdit_GoToRecord_FactBoxConstField_ActionReadsRow",
         "action=act=76840/B/8/L;",
-        false,
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_NoHeads_FactBoxConstField_ActionReadsRec",
-        "action=act=0//0/;",
+        "action=act=76840//0/;",
         false,
     ),
     (
@@ -1249,41 +1247,168 @@ const CELLS: [(&str, &str, bool); 42] = [
     ),
     (
         "EmptyPart_ListOpenEdit_ConstField_OnAfterGetCurrRecordReadsRec",
-        "curr=;",
-        false,
+        "curr=agcr=76840/A/0 | agcr=76840/A/0 | agcr=76840/A/0;",
+        true,
     ),
     (
         "EmptyPart_ListOpenEdit_GoToRecord_ConstField_OnAfterGetCurrRecordReadsRec",
-        "curr=;",
+        "curr=agcr=76840/B/0 | agcr=76840/B/0 | agcr=76840/B/0;",
         true,
     ),
     (
         "EmptyPart_ListOpenView_ConstField_OnAfterGetCurrRecordReadsRec",
         "curr=agcr=76840/A/0 | agcr=76840/A/0;",
-        false,
+        true,
     ),
     (
         "EmptyPart_ListOpenView_GoToRecord_ConstField_OnAfterGetCurrRecordReadsRec",
         "curr=agcr=76840/B/0 | agcr=76840/B/0;",
-        false,
+        true,
     ),
 ];
 
-/// The reporter's cell takes the link values through the assumption; every other cell keeps main's outcome and goes through
-/// no assumption.
+/// The cells the runtime does not answer as BC does, with what it raises: a List opened for edit that shows no row (BC stamps
+/// the const of the link: `act=76840//0/`; the rule needs a host on a stored row), and OnAfterGetCurrRecord of the parts of a
+/// List opened for edit (BC runs it three times; the runtime runs it on no part of a host opened for edit, the gap
+/// `suite/empty_part_rec_link.rs` names for a Card).
+const GAPS: [(&str, &str); 3] = [
+    (
+        "EmptyPart_ListOpenEdit_NoHeads_FactBoxConstField_ActionReadsRec",
+        "action=act=0//0/;",
+    ),
+    (
+        "EmptyPart_ListOpenEdit_ConstField_OnAfterGetCurrRecordReadsRec",
+        "curr=;",
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToRecord_ConstField_OnAfterGetCurrRecordReadsRec",
+        "curr=;",
+    ),
+];
+
+/// Every cell raises BC's value, except the gaps, which keep the runtime's outcome from before this change.
 #[test]
 fn empty_list_part_rec_list_host_cells() {
     let o = run(SRC);
     assert_eq!(o.len(), CELLS.len(), "{o:?}");
     for (name, outcome, flagged) in &o {
-        let (_, want, flag) = CELLS
+        let (_, bc, flag) = CELLS
             .iter()
             .find(|(n, _, _)| n == name)
             .unwrap_or_else(|| panic!("no cell {name}"));
+        let want = GAPS.iter().find(|(n, _)| n == name).map_or(*bc, |(_, v)| *v);
         assert!(
             matches!(outcome, Outcome::Fail(m) if m == want),
             "{name}: {outcome:?}, want {want}"
         );
         assert_eq!(flagged, flag, "{name}: flagged {flagged}");
+    }
+}
+
+/// List-host shapes probe 1339 does not measure: a `field(filter(..))` link, a SubPageView, a part with an OnNewRecord, a part a
+/// page extension adds, a host
+/// moved by Previous, Last or GoToKey, and the new row of OpenNew. Each keeps the blank Rec the runtime gave before this change
+/// (`act=0//0/`). The static shapes sit on Lists of their own and go through no assumption; the moves use a List whose part
+/// takes the assumed path as the host opens. These are not BC's values; they guard against the rule reaching a shape nobody
+/// measured.
+const UNMEASURED_SRC: &str = r#"
+table 76860 "PG EPLU Head" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+table 76861 "PG EPLU Line"
+{
+    fields { field(1; "Table ID"; Integer) { } field(2; "No."; Code[20]) { } field(3; "Line No."; Integer) { } }
+    keys { key(PK; "Table ID", "No.", "Line No.") { Clustered = true; } }
+}
+codeunit 76862 "PG EPLU Log"
+{
+    SingleInstance = true;
+    var L: Text;
+    procedure Reset() begin L := ''; end;
+    procedure Add(Rec: Record "PG EPLU Line") begin L := 'act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No."); end;
+    procedure Get(): Text begin exit(L); end;
+}
+page 76863 "PG EPLU Part"
+{
+    PageType = ListPart; SourceTable = "PG EPLU Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLU Log"; begin Log.Add(Rec); end; } } }
+}
+page 76864 "PG EPLU Part NewRec"
+{
+    PageType = ListPart; SourceTable = "PG EPLU Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPLU Log"; begin Log.Add(Rec); end; } } }
+    trigger OnNewRecord(BelowxRec: Boolean) begin Rec."Line No." := 9; end;
+}
+page 76865 "PG EPLU List"
+{
+    PageType = List; SourceTable = "PG EPLU Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLU Part") { SubPageLink = "Table ID" = const(76860), "No." = field("No."); } }
+    }
+}
+page 76866 "PG EPLU List FieldFilter"
+{
+    PageType = List; SourceTable = "PG EPLU Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLU Part") { SubPageLink = "Table ID" = const(76860), "No." = field(filter("No.")); } }
+    }
+}
+page 76867 "PG EPLU List View"
+{
+    PageType = List; SourceTable = "PG EPLU Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLU Part") { SubPageLink = "Table ID" = const(76860), "No." = field("No."); SubPageView = sorting("Table ID", "No.", "Line No.") order(descending); } }
+    }
+}
+page 76868 "PG EPLU List NewRec"
+{
+    PageType = List; SourceTable = "PG EPLU Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPLU Part NewRec") { SubPageLink = "Table ID" = const(76860), "No." = field("No."); } }
+    }
+}
+page 76870 "PG EPLU List Bare"
+{
+    PageType = List; SourceTable = "PG EPLU Head";
+    layout { area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } } }
+}
+pageextension 76871 "PG EPLU List Bare Ext" extends "PG EPLU List Bare"
+{
+    layout { addfirst(FactBoxes) { part(ExtBox; "PG EPLU Part") { SubPageLink = "Table ID" = const(76860), "No." = field("No."); } } }
+}
+codeunit 76869 "PG EPL Tests"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLU Log";
+    local procedure Init() var H: Record "PG EPLU Head"; L: Record "PG EPLU Line"; begin H.DeleteAll(); L.DeleteAll(); H."No." := 'A'; H.Insert(); H."No." := 'B'; H.Insert(); H."No." := 'C'; H.Insert(); Log.Reset(); end;
+    [Test] procedure Static_FieldFilter() var P: TestPage "PG EPLU List FieldFilter"; H: Record "PG EPLU Head"; begin Init(); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Static_SubPageView() var P: TestPage "PG EPLU List View"; H: Record "PG EPLU Head"; begin Init(); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Static_OnNewRecord() var P: TestPage "PG EPLU List NewRec"; H: Record "PG EPLU Head"; begin Init(); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Static_ExtensionPart() var P: TestPage "PG EPLU List Bare"; H: Record "PG EPLU Head"; begin Init(); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.ExtBox.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Static_OpenNew() var P: TestPage "PG EPLU List"; begin Init(); P.OpenNew(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Move_Previous() var P: TestPage "PG EPLU List"; H: Record "PG EPLU Head"; begin Init(); P.OpenEdit(); P.Last(); P.Previous(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Move_Last() var P: TestPage "PG EPLU List"; begin Init(); P.OpenEdit(); P.Last(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Move_GoToKey() var P: TestPage "PG EPLU List"; begin Init(); P.OpenView(); P.GoToKey('B'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+}
+"#;
+
+#[test]
+fn empty_list_part_rec_list_host_unmeasured_shapes_stay_blank() {
+    let o = run(UNMEASURED_SRC);
+    assert_eq!(o.len(), 8, "{o:?}");
+    for (name, outcome, flagged) in &o {
+        assert!(
+            matches!(outcome, Outcome::Fail(m) if m == "act=0//0"),
+            "{name}: {outcome:?}"
+        );
+        assert_eq!(*flagged, name.starts_with("Move_"), "{name}: flagged {flagged}");
     }
 }

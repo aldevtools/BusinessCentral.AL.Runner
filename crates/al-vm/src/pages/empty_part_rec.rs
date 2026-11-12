@@ -18,14 +18,17 @@
 //! other part keeps the blank record it had before (`suite/empty_part_rec_link.rs`
 //! `empty_list_part_rec_stays_blank_outside_the_measured_shape`).
 //!
-//! One List-host cell runs through the assumption `empty-part-rec-list-host` (the outside report of issue 6924; probe
-//! pages/parts/EmptyPartRecLinkList.al): the same part shape in the FactBoxes area of a top-level List page opened for edit
-//! and moved by GoToRecord, linked by one const (or one-value filter) and one field. Every other List-host part keeps the
-//! blank record (`suite/empty_part_rec_list.rs`).
+//! The List host (al-runner issue 6924, comment 6822249976: the reporter's host is a List page) runs through the assumption
+//! `empty-part-rec-list-host` until corpus pull request 1339 (pages/parts/EmptyPartRecLinkList.al) is pinned. Its local
+//! observation on BC 28.5 shows the Card result on a top-level List page on a stored row, opened for view or for edit, as it
+//! opens, after GoToRecord and after Next, in a FactBox and in the content area, for every link form above. A List that shows
+//! no row, OpenNew, the other moves, a `field(filter(..))` link, a SubPageView and a Provider keep the blank record
+//! (`suite/empty_part_rec_list.rs`).
 
 use super::parts::LINK_GROUP;
 use super::*;
 use al_builtins::assumptions::{self, Assumption};
+use al_builtins::page_op::PageMethod;
 
 impl Session {
     /// Rec of part `st`, which shows no row, is the blank record with the single values of its SubPageLink on it (see the
@@ -41,7 +44,7 @@ impl Session {
         Ok(())
     }
 
-    /// Whether `st` is a part of the measured shape, or of the assumed List-host cell (`list_host_cell`; see the module).
+    /// Whether `st` is a part of the measured shape, or of a List-host cell (`list_host_cell`; see the module).
     fn empty_part_rec_measured(&self, st: &St) -> Result<bool, Signal> {
         let Some(host) = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(false);
@@ -51,7 +54,8 @@ impl Session {
             let row = (h.cursor == Cursor::Row && !h.draft) || (h.draft && !h.draft_stored && h.draft_from_open);
             (row, h.mode == PageMode::View)
         };
-        let card_landing = self.part_open_running || (self.host_goto_record_running && host_view);
+        let goto_record = self.host_move_running == Some(PageMethod::GoToRecord);
+        let card_landing = self.part_open_running || (goto_record && host_view);
         let card_shape = card_landing && self.top_card_or_document(&host);
         let list_shape = self.list_host_cell(st, &host);
         if !(host_row
@@ -77,48 +81,43 @@ impl Session {
             .filters
             .iter()
             .all(|f| f.group == LINK_GROUP && table.keys[0].contains(&f.field));
-        if !list_shape {
-            return Ok(measured);
-        }
-        // The List-host cell: each link filter admits one value (`const(..)` and `filter(..)` of one value read the same).
-        let single = r.filters.iter().all(|f| Self::single_filter_value(&f.expr).is_some());
-        if measured && single {
+        if measured && list_shape {
             assumptions::assume(Assumption::EmptyPartRecListHost);
         }
-        Ok(measured && single)
+        Ok(measured)
     }
 
-    /// Whether part `st` of `host` is the List-host cell the outside report shows (al-runner issue 6924, comment
-    /// 6822249976; probe: corpus pull request 1339, pages/parts/EmptyPartRecLinkList.al): a top-level List host opened
-    /// for edit and moved by GoToRecord, the part in its FactBoxes area, linked by one `const(..)` and one `field(..)`
-    /// and no SubPageView or Provider. Every other List-host part keeps the blank record.
+    /// Whether part `st` of `host` is a List-host cell the probe measured (corpus pull request 1339,
+    /// pages/parts/EmptyPartRecLinkList.al, observed on BC 28.5; al-runner issue 6924, comment 6822249976, the reporter's
+    /// cell): a top-level List host opened for edit or for view, standing on a stored row, the part landing as the host opens,
+    /// after a GoToRecord that left the row or after Next; a part the List page declares itself (no page extension), in the
+    /// FactBoxes or the content area, linked by
+    /// `const(..)`, `filter(..)` and `field(..)` entries only, with no SubPageView and no Provider.
     fn list_host_cell(&self, st: &St, host: &St) -> bool {
         let engine = self.engine();
-        let (top_list, host_edit) = {
+        let (top_list, host_mode, host_stored_row) = {
             let h = host.borrow();
             let object = h.object as usize;
             (
                 h.host.is_none() && engine.object_facts[object].page_type == Some(al_ir::PageType::List),
-                h.mode == PageMode::Edit,
+                matches!(h.mode, PageMode::Edit | PageMode::View),
+                h.cursor == Cursor::Row && !h.draft,
             )
         };
+        let landing =
+            self.part_open_running || matches!(self.host_move_running, Some(PageMethod::GoToRecord | PageMethod::Next));
         let Some(control) = st.borrow().host.as_ref().map(|(_, c)| *c) else {
             return false;
         };
         let control = &page_of(&engine, host).controls[control];
-        let const_and_field = control.part_link.as_ref().is_some_and(|l| {
-            let consts = l
-                .entries
-                .iter()
-                .filter(|e| matches!(e, ir::LinkEntry::Filter(..)))
-                .count();
-            let fields = l
-                .entries
-                .iter()
-                .filter(|e| matches!(e, ir::LinkEntry::Field(..)))
-                .count();
-            l.entries.len() == 2 && consts == 1 && fields == 1 && l.view.is_none() && l.provider.is_none()
+        let own_part = control.owner.is_none();
+        let link_measured = control.part_link.as_ref().is_some_and(|l| {
+            l.view.is_none()
+                && l.provider.is_none()
+                && l.entries
+                    .iter()
+                    .all(|e| matches!(e, ir::LinkEntry::Filter(..) | ir::LinkEntry::Field(..)))
         });
-        top_list && host_edit && self.host_goto_record_running && control.factbox && const_and_field
+        top_list && host_mode && host_stored_row && landing && own_part && link_measured
     }
 }

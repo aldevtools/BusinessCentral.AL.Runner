@@ -612,7 +612,10 @@ impl Session {
                         if name == PageMethod::Next {
                             self.restore_held_xrec_of_empty_parts(st);
                         }
-                        self.sync_parts_after_move_fn(st, name)?;
+                        let before_move = self.host_move_running.replace(name);
+                        let r = self.sync_parts_after_move_fn(st, name);
+                        self.host_move_running = before_move;
+                        r?;
                         true
                     }
                     PageMethod::First | PageMethod::Last if before.is_some() && !stayed => {
@@ -632,10 +635,9 @@ impl Session {
                         false
                     }
                     _ => {
-                        let goto_record = name == PageMethod::GoToRecord;
-                        let before_goto = std::mem::replace(&mut self.host_goto_record_running, goto_record);
+                        let before_move = self.host_move_running.replace(name);
                         let r = self.sync_parts_after_other_move(st, name, before.is_some() && !stayed);
-                        self.host_goto_record_running = before_goto;
+                        self.host_move_running = before_move;
                         r?;
                         false
                     }

@@ -188,18 +188,6 @@ impl Session {
     /// PopulateAllFields; then the table's OnValidate runs for each (corpus
     /// testpage/TestPageSubpagePartFieldLink.al, TestPageSubpagePartConstFilter.al,
     /// TestPageSubpagePartNewRecordInit.al:New_StampsTheLinkedFieldAndValidatesIt).
-    /// The one value filter `expr` admits, when it is `Eq` or a range whose two ends are equal: the value a new row takes
-    /// from it (`stamp_from_filters`).
-    pub(in crate::pages) fn single_filter_value(expr: &al_builtins::filter::FilterExpr) -> Option<Value> {
-        match expr {
-            al_builtins::filter::FilterExpr::Eq(v) => Some(v.clone()),
-            al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) if ops::compare(a, b).is_ok_and(|o| o.is_eq()) => {
-                Some(a.clone())
-            }
-            _ => None,
-        }
-    }
-
     pub(in crate::pages) fn stamp_from_filters(&mut self, st: &St, validate: bool) -> Result<(), Signal> {
         if !self.has_source(st) {
             return Ok(());
@@ -222,7 +210,15 @@ impl Session {
                 .filters
                 .iter()
                 .filter(|f| f.field == pos)
-                .map(|f| Self::single_filter_value(&f.expr))
+                .map(|f| match &f.expr {
+                    al_builtins::filter::FilterExpr::Eq(v) => Some(v.clone()),
+                    al_builtins::filter::FilterExpr::Range(Some(a), Some(b))
+                        if ops::compare(a, b).is_ok_and(|o| o.is_eq()) =>
+                    {
+                        Some(a.clone())
+                    }
+                    _ => None,
+                })
                 .collect();
             // The combined filter of a field is the intersection of its filters, in every filter group: several
             // that all name the same value are that single value (Payment Journal: the record the page was run
