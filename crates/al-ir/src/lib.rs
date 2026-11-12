@@ -946,6 +946,10 @@ pub struct XmlPort {
     /// export).
     #[serde(default)]
     pub export_unsupported: Vec<String>,
+    /// Why an Import of it is refused; an Export is not (for example `LinkTableForceInsert` where an import of it is not
+    /// pinned).
+    #[serde(default)]
+    pub import_unsupported: Vec<String>,
     /// The unprobed assumptions the port's layout rests on; the VM marks them when the port runs.
     #[serde(default)]
     pub assumes: Vec<al_builtins::assumptions::Assumption>,

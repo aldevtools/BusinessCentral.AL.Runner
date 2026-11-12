@@ -311,3 +311,43 @@ pub(super) fn repeats(schema: &Schema, c: usize) -> bool {
         _ => false,
     })
 }
+
+/// A root table element of an Xml port with no child elements: nothing below it, or one field attribute of its own record
+/// without triggers (al-runner issue 7396; xmlports/shapes-properties/XpRootTableNoChildren.al xmlports 75062-75068). Its export
+/// writes one empty root element per row, `<MyRequest />`, one with the record as it stands when there is no row unless
+/// MinOccurs = Zero, one at most with MaxOccurs = Once, each root declaring the port's namespace prefix or default namespace
+/// (:302-354 RootTableNoChildren_*_Export, :391 RootTableOnlyAttribute_Export_Control, BC 27, 28, 29). Its triggers among
+/// OnPreXmlItem and OnAfterGetRecord run as for any table element (:367 RootTableNoChildren_Triggers_Export
+/// `pre port;pre;get P1;get P2;post port;`); the import triggers of that port are allowed as no export runs them.
+pub(super) fn childless_table_root(schema: &Schema, top: usize) -> bool {
+    const TRIGGERS: [&str; 5] = [
+        "onprexmlitem",
+        "onaftergetrecord",
+        "onafterinitrecord",
+        "onbeforeinsertrecord",
+        "onafterinsertrecord",
+    ];
+    let n = schema.node(top);
+    let only_attr = match schema.children(top)[..] {
+        [] => true,
+        [a] => {
+            let m = schema.node(a);
+            m.kind == ir::XmlNodeKind::FieldAttr
+                && m.table_node == Some(top)
+                && m.triggers.is_empty()
+                && schema.children(a).is_empty()
+        }
+        _ => false,
+    };
+    // Every pinned port declares Encoding = UTF8 (:17-150) and reads a real table; a UTF-16 port or UseTemporary is not pinned.
+    schema.xp().format == ir::XmlFormat::Xml
+        && schema.xp().xml_utf8
+        && !n.use_temporary
+        && n.kind == ir::XmlNodeKind::Table
+        && n.parent.is_none()
+        && n.link_node.is_none()
+        && n.source_view.is_none()
+        && n.calc_fields.is_empty()
+        && n.triggers.iter().all(|(name, _)| TRIGGERS.contains(&name.as_str()))
+        && only_attr
+}

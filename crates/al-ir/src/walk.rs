@@ -1051,6 +1051,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
         unsupported: _,
         run_unsupported: _,
         export_unsupported: _,
+        import_unsupported: _,
         assumes: _,
         request_page: _,
     } = x;

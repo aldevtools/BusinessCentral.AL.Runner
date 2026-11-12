@@ -55,18 +55,14 @@ impl Session {
             // into false, the instance form raises it
             // (xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_WithUncommittedWrite_ReturnsFalse_AndImportsNothing,
             // :InstanceGuardedImport_WithUncommittedWrite_IsRefused_AndImportsNothing).
+            if static_form && self.xp_static_import_blocked()? {
+                return Ok(Value::Boolean(false));
+            }
             if self.in_write_transaction()? {
                 if self.tx_model == TxModel::AutoRollback {
                     return unsupported("guarded XmlPort.Import with a pending write under AutoRollback (not pinned)");
                 }
-                return if static_form {
-                    // Whether the trapped refusal becomes the last error, and with what text, is not
-                    // pinned: reading it is refused.
-                    self.last_error = al_builtins::native::unpinned_error();
-                    Ok(Value::Boolean(false))
-                } else {
-                    Err(crate::transactions::transaction_stopped())
-                };
+                return Err(crate::transactions::transaction_stopped());
             }
             if self.tx.try_depth > 0 {
                 return unsupported("guarded XmlPort.Import inside a TryFunction (not pinned)");
@@ -118,6 +114,23 @@ impl Session {
         }
     }
 
+    /// Whether a guarded static `Xmlport.Import` is turned into false because the caller holds an uncommitted write: a guarded
+    /// import needs a transaction world of its own, which BC refuses to open then
+    /// (xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_WithUncommittedWrite_ReturnsFalse_AndImportsNothing). No
+    /// object trigger runs (xmlports/shapes-properties/XpRootTableNoChildren.al:438 `triggers import log` empty, a port with
+    /// OnPreXmlPort and OnPostXmlPort): `xp_run_body` asks before OnPreXmlPort.
+    pub(super) fn xp_static_import_blocked(&mut self) -> Result<bool, Signal> {
+        if !self.in_write_transaction()? {
+            return Ok(false);
+        }
+        if self.tx_model == TxModel::AutoRollback {
+            return unsupported("guarded XmlPort.Import with a pending write under AutoRollback (not pinned)");
+        }
+        // Whether the trapped refusal becomes the last error, and with what text, is not pinned: reading it is refused.
+        self.last_error = al_builtins::native::unpinned_error();
+        Ok(true)
+    }
+
     pub(super) fn xp_import_document(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
         let xp = schema.xp();
         let stashed = {
@@ -127,7 +140,10 @@ impl Session {
         };
         let text = match stashed {
             Some(t) => t,
-            None => self.xp_read_source(inst, xp)?,
+            None => match super::import_encoding::take_raw_decoded(inst, xp)? {
+                Some(t) => t,
+                None => self.xp_read_source(inst, xp)?,
+            },
         };
         // `xp_import` answers a second Import before it gets here.
         inst.borrow_mut().xp_text.push((XP_IMPORTED, String::new()));
@@ -160,8 +176,13 @@ impl Session {
         if xp.format != ir::XmlFormat::Xml && xp.nodes[top].kind == ir::XmlNodeKind::Table {
             return Err(root_type_error());
         }
-        // The root error above is pinned for WINDOWS and UTF16 (XpTEncoding.al:165-205); an import that gets further is not.
-        if let Some(enc) = &xp.text_encoding {
+        // The root error above is pinned for WINDOWS and UTF16 (XpTEncoding.al:165-205); an import that gets further is pinned for
+        // WINDOWS into a VariableText port (`import_encoding`, XpVarTextWindowsImport.al), not for UTF16.
+        if let Some(enc) = xp
+            .text_encoding
+            .as_ref()
+            .filter(|e| !(e.as_str() == "windows" && xp.format == ir::XmlFormat::VariableText))
+        {
             return unsupported(format!(
                 "XmlPort import into a VariableText port with TextEncoding = {} (not pinned)",
                 enc.to_ascii_uppercase()
@@ -433,6 +454,16 @@ impl Session {
     /// The text of the source stream from its read position, which moves to the end. A byte order
     /// mark decides the encoding, else the text is UTF-8; the stream's own encoding does not matter.
     pub(super) fn xp_read_source(&mut self, inst: &Inst, xp: &ir::XmlPort) -> Result<String, Signal> {
+        let text_encoding = super::import_encoding::text_import_encoding(inst, xp)?;
+        let bytes = self.xp_read_source_bytes(inst, xp)?;
+        if text_encoding == Some(al_builtins::stream::Encoding::Windows) {
+            return super::import_encoding::decode_windows_source(&bytes);
+        }
+        Self::xp_decode_source(bytes, text_encoding)
+    }
+
+    /// The bytes of the source stream an import reads (see `xp_read_source`).
+    pub(super) fn xp_read_source_bytes(&mut self, inst: &Inst, xp: &ir::XmlPort) -> Result<Vec<u8>, Signal> {
         let Value::Library(_, h) = inst.borrow().globals[xp.source_slot].clone() else {
             return unsupported("XmlPort import without SetSource (a file dialog is not supported)");
         };
@@ -457,6 +488,15 @@ impl Session {
         } else {
             st.drain()
         };
+        Ok(bytes)
+    }
+
+    /// The text of source `bytes`: a byte order mark decides the encoding, else UTF-8 (`text_encoding` UTF-8: a VariableText port
+    /// read under UTF-8, see the arm below).
+    pub(super) fn xp_decode_source(
+        bytes: Vec<u8>,
+        text_encoding: Option<al_builtins::stream::Encoding>,
+    ) -> Result<String, Signal> {
         if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
             let units: Vec<u16> = rest.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
             return utf16_declared_utf8(String::from_utf16_lossy(&units));
@@ -527,6 +567,12 @@ impl Session {
             Ok(t) => Ok(t.to_string()),
             // A document that declares iso-8859-1 is read as Latin-1 (XpTEncoding.al:235 Encoding_ImportXmlDeclaredLatin1: a Windows
             // stream with `Mü` imports as `Mü`). Other declarations are not pinned.
+            // A VariableText import under UTF-8 (declared, or set over a declared WINDOWS) reads each byte that is not UTF-8 as
+            // U+FFFD (xmlports/import/XpVarTextWindowsImport.al:385 VTW_Columns_WindowsFile_SetUtf8_Semicolon_Import, :481
+            // VTW_Fields_Utf8_WindowsFile_Import: `caf� M�ller �5` for the Windows-1252 bytes E9, FC, 80).
+            Err(_) if text_encoding == Some(al_builtins::stream::Encoding::Utf8) => {
+                Ok(String::from_utf8_lossy(rest).into_owned())
+            }
             Err(_) if declares_latin1(rest) => Ok(rest.iter().map(|&b| char::from(b)).collect()),
             Err(_) => unsupported("XmlPort import of a source that is not UTF-8 or UTF-16 (not pinned)"),
         }

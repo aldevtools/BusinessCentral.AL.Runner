@@ -1,5 +1,7 @@
 //! The import of a root table element that holds a nested table element of headers (al-runner issue 6924; pinned by
-//! xmlports/shapes-properties/XpRootTableNested.al, 11 tests :475-701). The rows are read by `xp_import_record` as any table
+//! xmlports/shapes-properties/XpRootTableNested.al, 11 tests :475-701, and the variants of XpRootTableNestedVariants.al :1415-1842:
+//! declared or undeclared MinOccurs and MaxOccurs, a line table element with MinOccurs = Zero, the wrapper of the lines first,
+//! in the middle or last, empty and self-closing elements). The rows are read by `xp_import_record` as any table
 //! element's; this module only says which ports take that path and what a failed import may leave behind.
 
 use super::*;
@@ -11,8 +13,9 @@ pub(super) fn port_with_root_holding_table(schema: &Schema) -> bool {
 }
 
 /// An Xml port with Direction not set (Both), FormatEvaluate = Xml, no namespaces and no PreserveWhiteSpace whose root is a table element without triggers, LinkTable, fields of its
-/// own or MinOccurs = Zero, with MaxOccurs = Once, that holds exactly one `header_table` (XpRootTableNested.al:81-186 xmlport
-/// "XP Root Table Full" with a temporary root, :267-313 "XP Root Table Real" with a real one, :336-352 "XP Root Table Min").
+/// own or MinOccurs = Zero, with MaxOccurs = Once or no MaxOccurs, that holds exactly one `header_table` (XpRootTableNested.al:81-186 xmlport
+/// "XP Root Table Full" with a temporary root, :267-313 "XP Root Table Real" with a real one, :336-352 "XP Root Table Min";
+/// XpRootTableNestedVariants.al:249-403 "XP RTV Undeclared" without MinOccurs or MaxOccurs on the root, pinned by :1443, :1457).
 /// Its row is stored after every header (the root's key stays blank: :482 `roots 1:0;`, :671-672 `real root rows 1`, `id 0`).
 pub(super) fn root_holding_table(schema: &Schema, top: usize) -> bool {
     let xp = schema.xp();
@@ -31,7 +34,7 @@ pub(super) fn root_holding_table(schema: &Schema, top: usize) -> bool {
         && !xp.udn_root_prefix
         && n.kind == ir::XmlNodeKind::Table
         && n.parent.is_none()
-        && n.max_unbounded == Some(false)
+        && n.max_unbounded != Some(true)
         && plain_table(n, &[])
         && header_table(schema, head)
 }
@@ -39,10 +42,14 @@ pub(super) fn root_holding_table(schema: &Schema, top: usize) -> bool {
 /// A table element with its default storing (AutoSave, no AutoUpdate or AutoReplace), no LinkTable, SourceTableView or
 /// MinOccurs = Zero, whose triggers are among `allowed`.
 fn plain_table(n: &ir::XmlNode, allowed: &[&str]) -> bool {
+    !n.min_zero && stores_plainly(n, allowed)
+}
+
+/// `plain_table` whatever its MinOccurs.
+fn stores_plainly(n: &ir::XmlNode, allowed: &[&str]) -> bool {
     n.kind == ir::XmlNodeKind::Table
         && n.link_node.is_none()
         && n.source_view.is_none()
-        && !n.min_zero
         && n.auto_save
         && !n.auto_update
         && !n.auto_replace
@@ -50,20 +57,24 @@ fn plain_table(n: &ir::XmlNode, allowed: &[&str]) -> bool {
         && n.triggers.iter().all(|(name, _)| allowed.contains(&name.as_str()))
 }
 
-/// The header table element: temporary, MaxOccurs = Unbounded, OnAfterInitRecord and OnAfterInsertRecord its only triggers, its
-/// nodes leaf field elements of its own record and leaf text elements without triggers (some MinOccurs = Zero), and last at most
-/// one text element that wraps a `line_table` (XpRootTableNested.al:88-185).
+/// The header table element: temporary, MaxOccurs = Unbounded declared or not, OnAfterInitRecord and OnAfterInsertRecord its only
+/// triggers, its nodes leaf field elements of its own record and leaf text elements without triggers (some MinOccurs = Zero), and
+/// at most one text element that wraps a `line_table` (XpRootTableNested.al:88-185 with the wrapper last). The wrapper may stand
+/// anywhere among the header's nodes: first (XpRootTableNestedVariants.al:593 "XP RTV Wrap First", pinned by :1499, :1513, :1615),
+/// in the middle (:781 "XP RTV Wrap Middle", :1527, :1541) or last (:61 "XP RTV Wrap Last", :1415); the header's fields and text
+/// elements are read in document order, so a line sees only those read before the wrapper (:1499 `kind=[]/cust=[]`).
 fn header_table(schema: &Schema, head: usize) -> bool {
     let h = schema.node(head);
     let kids = schema.children(head);
-    let Some((&last, before)) = kids.split_last() else {
-        return false;
-    };
+    let wraps = kids.iter().filter(|&&k| !header_leaf(schema, head, k)).count();
     h.use_temporary
-        && h.max_unbounded == Some(true)
+        && h.max_unbounded != Some(false)
         && plain_table(h, &["onafterinitrecord", "onafterinsertrecord"])
-        && before.iter().all(|&k| header_leaf(schema, head, k))
-        && (header_leaf(schema, head, last) || line_wrap(schema, last))
+        && !kids.is_empty()
+        && wraps <= 1
+        && kids
+            .iter()
+            .all(|&k| header_leaf(schema, head, k) || line_wrap(schema, k))
 }
 
 /// A leaf field element of `table`'s own record, or a leaf text element, without triggers (XpRootTableNested.al:94-128).
@@ -92,14 +103,16 @@ fn line_wrap(schema: &Schema, w: usize) -> bool {
         && line_table(schema, line)
 }
 
-/// The line table element: temporary, MinOccurs and MaxOccurs not declared, OnBeforeInsertRecord its only trigger, its nodes leaf
-/// field elements of its own record without triggers (XpRootTableNested.al:134-171).
+/// The line table element: temporary, OnBeforeInsertRecord its only trigger, its nodes leaf field elements of its own record
+/// without triggers (XpRootTableNested.al:134-171, MinOccurs and MaxOccurs not declared). MaxOccurs = Unbounded may be declared
+/// (XpRootTableNestedVariants.al:122-127, pinned by :1415), and MinOccurs = Once or Zero: with Zero a wrapper without lines stores
+/// the header without lines (:466-470, pinned by :1471, :1485, :1587, :1601); with Once it fails the schema check (:1555, :1571).
 fn line_table(schema: &Schema, line: usize) -> bool {
     let l = schema.node(line);
     let kids = schema.children(line);
     l.use_temporary
-        && l.max_unbounded.is_none()
-        && plain_table(l, &["onbeforeinsertrecord"])
+        && l.max_unbounded != Some(false)
+        && stores_plainly(l, &["onbeforeinsertrecord"])
         && !kids.is_empty()
         && kids
             .iter()
