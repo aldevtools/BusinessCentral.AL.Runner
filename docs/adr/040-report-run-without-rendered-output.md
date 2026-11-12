@@ -864,3 +864,64 @@ committed binary fixtures like `Y17LayR1.docx`; the tests are Windows-tier only;
    This text proposes `Contains` only for now.
 6. `Error` and `Message` with a marked text refuse in step 1. Open `Message` to a MessageHandler that only receives the
    text when a reported test needs it, or keep it refused?
+
+## Amendment 2026-11-12b: a placeholder's size held in a record field (Accepted)
+
+Status: **Accepted** 2026-11-12 by the owner, option "Accept, with tests": points 1 to 4 for stored and temporary rows
+alike, and every platform read path of point 4 gets its own test before the change is built. It replaces the rule of the
+2026-11-11 implementation notes that a record field is one of the uses of `Value::PlaceholderSize` that refuse.
+
+### The problem
+
+An outside reporter's full run (al-runner issue 6924, comment of 2026-11-12 18:46 UTC) shows 4 tests that passed before the
+placeholder Pdf and are now not run: `storing in a record field of the byte size of a placeholder Pdf of report Purchase -
+Quote` (and Blanket Purchase Order). The store is in the reporter's own app (a mail document method), not in Microsoft's code.
+The tests assert recipients, not the size. They pass on BC. Today the store refuses at once (`interp.rs` `write_as`), so a
+test that never reads the field again is not run.
+
+### Proposal
+
+1. `Rec.F := Size` where `F` is an Integer, BigInteger or Decimal field stores `Value::PlaceholderSize` in the record buffer,
+   as an Integer, BigInteger, Decimal or Variant variable already holds it. Any other field type refuses (`size_convert`).
+2. A read of the field by AL gives the same value back, with the same rules: a comparison with 0 answers (greater), every
+   other use refuses (`size_guard`, `size_order`, `size_convert`).
+3. The value goes with the row: `Insert`, `Modify`, a record assignment, `TransferFields` into an Integer, BigInteger or
+   Decimal field, `Get`/`Find` back. The row store keeps the value as it is (it holds `Value` today; `frozen.rs` names the
+   kind).
+4. Every platform read of the field's value refuses where it happens, with the size refusal text: a filter or a range on the
+   field (`SetRange`, `SetFilter`, a table relation, a FlowFilter), a sort or a key that holds the field, `CalcSums`,
+   a FlowField that sums or looks it up, `Format` of the field (pages, TestPage, `FieldRef.Value` formatted, the change log,
+   report dataset columns, XmlPort, JSON, Excel export), `TestField`, `Validate`, `FieldRef.Value` read into a type other
+   than the three, and record comparison by value. The owner of the check: the row store's value compare (al-data) refuses
+   a `PlaceholderSize` operand, and `format::format` already refuses it; the list above is the test list.
+5. No new assumption: a number stored in a number field is that number on BC, and what the runtime answers about it is
+   only the sign the corpus pins (AMReportOutputTests.al:146, CiReportRunLeads.al:72).
+
+### Alternatives
+
+| Alternative | Why not |
+|---|---|
+| Keep the refusal | The 4 tests stay not run although they never read the size. |
+| Store the placeholder's byte count | A made-up number: `Size > 1000` is true on BC and false here (A4). |
+| Store only in a temporary record | The reporter's table is not known; the rules of point 4 are the same for both. |
+
+### Decisions on the open questions
+
+1. Points 1 to 4 hold for stored and temporary rows alike.
+2. Each read path of point 4 has its own Rust test (`crates/al-vm/tests/reporting/report_placeholder_size_field.rs`), red
+   first where the path ran before. A path not listed falls to the central guards, which stay: the row store refuses a filter
+   or a sort on a column that holds the size and a filter whose value is the size (al-data `MemStore::unknown_read`), and
+   `format` refuses `Format`.
+
+### Implementation notes
+
+- The store write is no longer refused (`interp.rs` `write_as`). A field of another type refuses through the conversion
+  (`size_convert`); a Variant that holds the size into a Text field raises the pinned conversion error of a Variant holding an
+  Integer, as before.
+- A key that holds the field refuses at the write (`key_orderable`), so no sort by the field can run.
+- One helper says the refusal of a platform read: `placeholder_output::size_read`. It is called where each read happens:
+  a FlowField over the field (`flowfields.rs` `Tally::add`), `CalcSums`, `Validate(Field)` without a value, a page control
+  that shows the field, and a TestPage whose record holds the size after any step (the page compares its row with xRec and
+  the stored row, and counts a value that does not compare as a change).
+- Already refused before this amendment, kept: `TestField`, `FieldError`, `Format` of the field and of `FieldRef.Value`, a
+  report column, an XmlPort field, `JsonObject.Add`, `IsDirty`, `TransferFields` into a field of another type.

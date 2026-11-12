@@ -194,8 +194,8 @@ pub struct MemStore {
     /// here and allowed (ADR-020 amendment: install code may change restored rows). Shared by the
     /// clones of the store, so a snapshot or a rollback does not lose it.
     restored_log: Option<std::rc::Rc<std::cell::RefCell<Vec<RestoredChange>>>>,
-    /// Per table (object index), the columns in which a stored row held a value a platform row left unknown
-    /// (`Value::Unknown`, a record copied from one). Never cleared: a filter or an order on such a column checks the
+    /// Per table (object index), the columns in which a stored row held a value no filter or order may compare ([`unread`]:
+    /// a value a platform row left unknown, or a placeholder's size). Never cleared: a filter or an order on such a column checks the
     /// rows (`unknown_read`).
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
     /// A virtual table took a change (a Feature Key's Enabled) since the last commit: whether a rollback undoes it is
@@ -512,6 +512,19 @@ fn passes(row: &Row, filters: &[FieldFilter]) -> bool {
     al_builtins::filter::row_passes_checked(row, filters)
 }
 
+/// Why a filter or an order may not compare the stored value `v`: a column a platform row left unknown, or a placeholder's size
+/// (ADR-040 amendment 2026-11-12b, point 4: the size answers only a comparison with 0, which no filter or key order is).
+fn unread(v: &Value) -> Option<String> {
+    match v {
+        Value::Unknown(why) => Some(why.to_string()),
+        Value::PlaceholderSize(m) => Some(al_builtins::placeholder_output::size_refusal_text(
+            m,
+            "a record filter or sort on a field holding the value",
+        )),
+        _ => None,
+    }
+}
+
 impl MemStore {
     /// A read that filters on, or orders by, a column a stored row holds unknown (a copy of a platform row) is refused:
     /// whether that row passes, or where it sorts, is not known. Costs nothing until such a row was stored.
@@ -522,6 +535,14 @@ impl MemStore {
         filters: &[FieldFilter],
         order: &[usize],
     ) -> Result<(), StoreError> {
+        if al_builtins::placeholder_output::sizes_made() {
+            if let Some(m) = filters.iter().find_map(|f| f.expr.placeholder_size()) {
+                return Err(StoreError::Refused(al_builtins::placeholder_output::size_refusal_text(
+                    m,
+                    "a record filter on the value",
+                )));
+            }
+        }
         if self.unknown_cols.is_empty() {
             return Ok(());
         }
@@ -541,8 +562,8 @@ impl MemStore {
             return Ok(());
         };
         for row in table.values() {
-            if let Some(why) = cols.iter().find_map(|&c| row.get(c).and_then(Value::unknown)) {
-                return Err(StoreError::Refused(why.to_string()));
+            if let Some(why) = cols.iter().find_map(|&c| row.get(c).and_then(unread)) {
+                return Err(StoreError::Refused(why));
             }
         }
         Ok(())
@@ -578,10 +599,10 @@ impl MemStore {
         Ok(())
     }
 
-    /// Writes down the columns of `row` that hold an unknown value (see `unknown_cols`).
+    /// Writes down the columns of `row` that hold a value no read may compare (see `unknown_cols`, [`unread`]).
     fn note_unknown(&mut self, t: &TableDef, row: &Row) {
         for (i, v) in row.iter().enumerate() {
-            if v.unknown().is_some() {
+            if unread(v).is_some() {
                 let held = self.unknown_cols.entry(t.object).or_default();
                 if !held.contains(&i) {
                     held.push(i);

@@ -1533,6 +1533,7 @@ impl Session {
         if self.permissions.is_some() && inst.borrow().born.0 {
             self.permission_gate_execute(schema.object)?;
         }
+        property_gates::gate(schema, property_gates::Op::run(entry == Entry::Run, window))?;
         self.report.print_only_if_detail = false;
         // `window` says whether the request page opens: the instance's UseRequestPage, which falls
         // back on the report's property (record/TestTxModelReportRun.al:11, :60-61: a report with a
@@ -2776,15 +2777,7 @@ impl Session {
             self.last_error = error;
             return Ok(Value::Boolean(false));
         }
-        if let Some(why) = schema.report().dataset_unsupported.first() {
-            return unsupported(format!("Report.SaveAs of \"{}\": {why}", schema.name()));
-        }
-        if schema.report().transaction_type.is_some() {
-            return unsupported(format!(
-                "Report.SaveAs of \"{}\", which declares a TransactionType (what SaveAs does with it is not pinned)",
-                schema.name()
-            ));
-        }
+        property_gates::save_as_declaration_refusals(&schema, &format)?;
         // The language and region of the run: the session's, or what the variable set (reports/W3ReportObjectIdPreviewLanguage.al:
         // 854-930, writer RB). Pinned: en-US; GlobalLanguage 1031 (:870); Language := 1031 on the variable (:893); FormatRegion :=
         // 'de-DE' on the variable (:912). The language changes the dataset's language and Format, not the column values; the
@@ -4467,6 +4460,7 @@ pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod html_record;
+mod property_gates;
 mod request_caption;
 mod request_unshown;
 mod running;

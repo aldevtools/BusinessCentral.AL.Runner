@@ -14,13 +14,37 @@ impl Session {
             self.clientless_page_guard(method, recv.as_deref(), args)?;
         }
         // CurrPage calls from the page's own code do not count as the test code touching the page.
-        if let (Some(Value::TestPage(st)), al_builtins::page_op::PageRecv::TestPage) = (recv.as_deref(), method.recv())
-        {
-            let st = st_of(st).clone();
-            self.flush_data_caption(&st)?;
+        let test_page = match (recv.as_deref(), method.recv()) {
+            (Some(Value::TestPage(st)), al_builtins::page_op::PageRecv::TestPage) => Some(st_of(st).clone()),
+            _ => None,
+        };
+        if let Some(st) = &test_page {
+            self.flush_data_caption(st)?;
         }
         let r = self.outside_used_tries(|s| s.page_op_outer(method, recv, args));
+        if let (Ok(_), Some(st)) = (&r, &test_page) {
+            self.page_row_size_guard(st)?;
+        }
         self.save_abort_swallowed(method, r)
+    }
+
+    /// A TestPage whose record holds a placeholder's size in a field is refused after the step that loaded it: the page
+    /// compares its row with the stored one and with xRec to see what changed (`same_values`), which counts a size that
+    /// does not compare as a change (ADR-040 amendment 2026-11-12b, point 4: record comparison by value).
+    fn page_row_size_guard(&mut self, st: &St) -> Result<(), Signal> {
+        if !al_builtins::placeholder_output::sizes_made() {
+            return Ok(());
+        }
+        let object = st.borrow().object as usize;
+        let open = st.borrow().instance.is_some();
+        if !open || self.engine.program.objects[object].rec_slot.is_none() {
+            return Ok(());
+        }
+        let rec = self.page_rec(st);
+        let r = rec.borrow();
+        r.fields.iter().try_for_each(|v| {
+            al_builtins::placeholder_output::size_read(v, "a page on a record with a field holding the value")
+        })
     }
 
     /// A save the page refused with SaveAbort (ModifyAllowed is false, see `save_row`) ends the step without raising: the error becomes

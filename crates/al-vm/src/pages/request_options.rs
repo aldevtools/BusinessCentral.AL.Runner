@@ -114,6 +114,54 @@ pub(crate) fn bare_root_options(xml: &str, call: ParamsCall) -> Option<Result<&s
     }))
 }
 
+/// The declaration `XmlDocument.WriteTo(Text)` writes in front of a parameters document (al-runner issue 7908: 56 characters,
+/// `encoding="utf-16"`, on BC as in this runtime).
+const WRITTEN_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"utf-16\" standalone=\"yes\"?>";
+
+/// A parameters string in a form an outside reporter measured on BC (al-runner issue 7908, assumption
+/// report-params-written-declaration), as the string in the pinned form ([`PARAMETERS_DECLARATION`], no whitespace between the
+/// elements) that BC treats alike: under `Report.SaveAs` only, the declaration `XmlDocument.WriteTo(Text)` writes, then a root
+/// without name and id holding one `<Options>` element and no `<DataItems>`, either on one line or indented as `WriteTo` writes
+/// it (CR LF and spaces between two elements, never inside a `Field`). `None` for every other string: it keeps the path it had.
+pub(crate) fn written_bare_root(xml: &str, call: ParamsCall) -> Option<String> {
+    if call != ParamsCall::SaveAs {
+        return None;
+    }
+    let rest = xml.strip_prefix(WRITTEN_DECLARATION)?;
+    let mut body = String::with_capacity(rest.len());
+    let mut chars = rest.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        if c != '\r' {
+            body.push(c);
+            continue;
+        }
+        // CR LF and spaces only between `>` and `<`, and not in front of `</Field>` (a value of a Field stays as written).
+        let mut end = at + 1;
+        if rest[end..].starts_with('\n') {
+            end += 1;
+            while rest[end..].starts_with(' ') {
+                end += 1;
+            }
+        } else {
+            return None;
+        }
+        let after = &rest[end..];
+        // The declaration ends with `>` too.
+        let after_tag = body.is_empty() || body.ends_with('>');
+        if !after_tag || !after.starts_with('<') || after.starts_with("</Field>") {
+            return None;
+        }
+        while chars.peek().is_some_and(|(i, _)| *i < end) {
+            chars.next();
+        }
+    }
+    if body.contains("<DataItems") || body.contains('\n') {
+        return None;
+    }
+    let canonical = format!("{PARAMETERS_DECLARATION}{body}");
+    matches!(bare_root_options(&canonical, call), Some(Ok(_))).then_some(canonical)
+}
+
 /// The error of a parameters string without the XML declaration: BC reads the text as a filter on the Parameter Name field of
 /// the Object Options table and fails on the first character its filter syntax does not allow there. Pinned for two roots
 /// (reports/request-page/ReportParametersBareRoot.al:294-309 RPB_SaveAs_NoDeclaration, :329-339 RPB_Execute_NoDeclaration,

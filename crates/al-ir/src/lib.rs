@@ -612,6 +612,9 @@ pub struct Report {
     /// The `FormatRegion` property: the culture of a SaveAs Xml dataset and of `Format` while it is written.
     #[serde(default)]
     pub format_region: Option<String>,
+    /// `ExcelLayoutMultipleDataSheets = true`.
+    #[serde(default)]
+    pub excel_multiple_data_sheets: bool,
     /// The request page's `AboutTitle` and `AboutText` when they are plain text literals.
     #[serde(default)]
     pub about_title: Option<String>,

@@ -831,9 +831,14 @@ impl Session {
                 Ok(Value::Boolean(found))
             }
             // File Management.DeleteServerFile deletes a file it found (QxDotNetDemoShapes.al:326-328). Deleting a file that
-            // is not there is not pinned.
+            // is not there is not pinned. A file that holds a placeholder report output is deleted as any file (Base
+            // Application's e-mail body round trip through a server file; assumption dotnet-file-delete-placeholder).
             ("system.io.file", "delete", []) => {
-                self.refuse_pending_file(path)?;
+                if self.forget_placeholder_file(path) {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotNetFileDeletePlaceholder);
+                } else {
+                    self.refuse_pending_file(path)?;
+                }
                 if self.host.files.remove(path) {
                     Ok(Value::Null)
                 } else {

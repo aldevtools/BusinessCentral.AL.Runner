@@ -287,9 +287,9 @@ impl al_builtins::native::Ctx for Session {
         self.host.files.write(path, bytes)
     }
     fn fs_remove(&mut self, path: &str) -> Result<bool, Signal> {
-        if self.fs_carried_mark(path).is_some() || self.placeholder_file_mark(path).is_some() {
+        if self.fs_carried_mark(path).is_some() {
             self.render_pending_files.remove(&pending_key(path));
-        } else {
+        } else if !self.forget_placeholder_file(path) {
             self.refuse_pending_file(path)?;
         }
         Ok(self.host.files.remove(path))
@@ -772,6 +772,16 @@ impl Session {
             .get(&pending_key(path))
             .filter(|m| al_builtins::placeholder_output::is_placeholder(m))
             .cloned()
+    }
+
+    /// Drops the mark of a file that holds a placeholder report output, for a delete of the file: a delete looks at no byte
+    /// (ADR-040 amendment 2026-11-11). Whether the path held one.
+    pub(crate) fn forget_placeholder_file(&mut self, path: &str) -> bool {
+        if self.placeholder_file_mark(path).is_none() {
+            return false;
+        }
+        self.render_pending_files.remove(&pending_key(path));
+        true
     }
 
     /// Refuses a look at a file whose rendered output was never produced (ADR-040).

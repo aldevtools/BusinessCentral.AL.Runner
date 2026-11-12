@@ -640,11 +640,16 @@ fn report_placeholder_the_size_answers_only_against_0() {
     }
 }
 
-// Email Message Impl. stores the attachment's Content.Length in a field: the number is refused.
+// Email Message Impl. stores the attachment's Content.Length in a field: the field keeps the size, which answers only against 0
+// (ADR-040 amendment 2026-11-12b; every other read of the field: report_placeholder_size_field.rs).
 #[test]
 fn report_placeholder_an_e_mail_attachment_takes_the_bytes_and_keeps_the_content_refused() {
     let src = format!("{SRC}{ATTACHMENT}");
-    refused(run_in(&src, "RPO Attachment Tests", "AttachmentLength"), SIZE);
+    assert!(al_testkit::boolean(run_in(
+        &src,
+        "RPO Attachment Tests",
+        "AttachmentLength"
+    )));
     refused(run_in(&src, "RPO Attachment Tests", "ReadOfTheAttachment"), CONTENT);
 }
 

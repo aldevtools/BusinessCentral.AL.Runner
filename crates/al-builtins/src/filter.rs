@@ -147,6 +147,36 @@ impl FilterExpr {
 }
 
 impl FilterExpr {
+    /// The mark of a placeholder's size the filter holds as a value (`placeholder_output::size`): a filter built from a field
+    /// that holds one (a `field(...)` condition of a CalcFormula or a TableRelation). A store refuses a read through it
+    /// (ADR-040 amendment 2026-11-12b, point 4): the size answers only a comparison with 0.
+    pub fn placeholder_size(&self) -> Option<&std::sync::Arc<str>> {
+        fn held(v: &Value) -> Option<&std::sync::Arc<str>> {
+            match v {
+                Value::PlaceholderSize(m) => Some(m),
+                _ => None,
+            }
+        }
+        match self {
+            FilterExpr::Range(lo, hi) => lo.iter().chain(hi.iter()).find_map(held),
+            FilterExpr::Eq(x)
+            | FilterExpr::RangeSame(x)
+            | FilterExpr::Ne(x)
+            | FilterExpr::Lt(x)
+            | FilterExpr::Le(x)
+            | FilterExpr::Gt(x)
+            | FilterExpr::Ge(x) => held(x),
+            FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(FilterExpr::placeholder_size),
+            FilterExpr::NumCode(inner) | FilterExpr::UnpinnedMatch(inner, _) | FilterExpr::UnpinnedText(inner) => {
+                inner.placeholder_size()
+            }
+            FilterExpr::Like(..)
+            | FilterExpr::NotLike(..)
+            | FilterExpr::AtSignAlone(_)
+            | FilterExpr::EmptyViewValue => None,
+        }
+    }
+
     /// The first comparison of `v` with a value of the filter that cannot be answered. [`FilterExpr::matches`] counts such a
     /// value as not passing; a caller that must not guess (a TableRelation condition, hard rule 4) refuses on it instead.
     pub fn compare_error(&self, v: &Value) -> Option<Signal> {

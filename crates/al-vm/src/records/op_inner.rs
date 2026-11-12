@@ -1947,6 +1947,13 @@ impl Session {
             RecordOp::Validate => {
                 let entry = self.take_validate_site(rec);
                 let pos = arg_pos(args, 0)?;
+                // `Validate(Field)` checks the value the field holds (its relation, its properties).
+                if args.get(1).is_none() {
+                    al_builtins::placeholder_output::size_read(
+                        &rec.borrow().fields[pos],
+                        "Validate of a record field holding the value",
+                    )?;
+                }
                 let engine = self.engine.clone();
                 let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
                 let field = &schema.fields[pos];
