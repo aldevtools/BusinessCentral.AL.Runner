@@ -1548,8 +1548,11 @@ fn reset_row_line_flags(s: &mut crate::pages::PageState) {
 }
 
 /// The flags a new host row, a first part access and New() on a request
-/// page set; a page that runs again starts without them.
+/// page set, and the draft OpenNew started (`draft_from_open`, `draft_start`); a page that runs again starts without them
+/// (al-runner issue 7752: `start_draft` sets both again, so nothing depends on an earlier run's values).
 fn reset_host_row_flags(s: &mut crate::pages::PageState) {
+    s.draft_from_open = false;
+    s.draft_start = None;
     s.part_accessed = false;
     s.new_host_part_rows = false;
     s.host_stored_blank_key = false;
