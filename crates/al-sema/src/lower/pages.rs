@@ -404,7 +404,7 @@ impl Lowerer<'_> {
                                 if expr_source.is_none() {
                                     expr_source = raw_args
                                         .get(1)
-                                        .filter(|a| crate::pages::expression_source_pinned(a))
+                                        .filter(|a| crate::pages::expression_source_pinned(a, &ow.names))
                                         .map(|a| (a.trim().to_string(), false));
                                     expr_row_unordered = expr_source.is_some();
                                 }

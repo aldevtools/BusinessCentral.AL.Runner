@@ -491,42 +491,108 @@ pub fn source_text_pinned(text: &str, var_field: bool) -> bool {
 
 /// Source text of an expression-bound control whose Page Control Field row names it as written (quotes included) with an undeclared
 /// Editable `False`: one of the expression shapes pages/controls/PageControlFieldExpressionShapes.al:211-301 pins (al-runner issue
-/// 7442), written with single spaces. The shapes: a text or number literal (`'fixed'`, `42`), a call written as a plain name with an
-/// argument list (`IsNullGuid(Rec.Link)`, `UpperCase(CopyStr(Rec.Name, 1, 5))`), `not` or a unary minus before an operand, an
-/// expression in parentheses whose inside is a field of `Rec` or one of these shapes, and operands joined by `>`, `<>`, `=`, `and`,
-/// `or`, `in`, `+`, `*`, `div` or `mod`. Any other text keeps the behavior it had before: a bare name, an array element with any
-/// index (`Costs[I]`: Editable `True`, record/PageControlFieldSourceFormsSM.al:79), a field of a record variable, a quoted name, and
-/// the operators the corpus does not show (`-` between operands, `/`, `<`, `<=`, `>=`, `xor`).
-pub fn expression_source_pinned(text: &str) -> bool {
+/// 7442), written with single spaces. `names` are the owner's variable names (lower case). The shapes, each operand checked:
+/// - a text or number literal (`'fixed'`, `42`: :69-70) or a call written as a plain name with an argument list (`IsNullGuid(Rec.Link)`,
+///   `UpperCase(CopyStr(Rec.Name, 1, 5))`: :59, :67-68);
+/// - `not` before one call, field of `Rec` or variable of the owner (`not IsNullGuid(Rec.Link)`, `not Rec.Flag`, `not GlobalFlag`:
+///   :52-53, :72, :93);
+/// - a unary minus before one field of `Rec` (`-Rec.Qty`: :63);
+/// - parentheses around a field of `Rec`, a `not` shape or a binary shape (`(Rec.Qty)`, `(not IsNullGuid(Rec.Link))`,
+///   `(Rec.Qty <> 0)`: :51, :55, :60);
+/// - operands joined by one operator, repeated or not, of `>`, `<>`, `=`, `and`, `or`, `+`, `*`, `div`, `mod` (:54-57, :61-66, :73,
+///   :90-91), each operand a field of `Rec` (plain or quoted), a number, a text literal, a pinned call, a variable of the owner or a
+///   parenthesized shape; and `Rec.<field> in [<number> .. <number>]` (:58).
+///
+/// Any other text keeps the behavior it had before: a bare name, an array element (`Costs[I]`: Editable `True`,
+/// record/PageControlFieldSourceFormsSM.al:79), a field or call of a record variable, a quoted name, a built-in name used as an
+/// operand (`CompanyName = ''`), a set list, mixed operators, and the operators the corpus does not show (`-` between operands, `/`,
+/// `<`, `<=`, `>=`, `xor`).
+pub fn expression_source_pinned(text: &str, names: &BTreeSet<String>) -> bool {
     let t = text.trim();
-    !t.contains(['\t', '\n', '\r']) && !t.contains("  ") && expression_shape(t)
+    !t.contains(['\t', '\n', '\r']) && !t.contains("  ") && expression_shape(t, names)
 }
 
 /// One of the pinned expression shapes of [`expression_source_pinned`].
-fn expression_shape(t: &str) -> bool {
-    const OPERATORS: [&str; 10] = [">", "<>", "=", "and", "or", "in", "+", "*", "div", "mod"];
-    let words = top_level_words(t);
-    let literal = text_literal(t) || (!t.is_empty() && t.chars().all(|c| c.is_ascii_digit()));
-    let call = pinned_call(t);
-    let negated = t
-        .get(..4)
-        .is_some_and(|p| p.eq_ignore_ascii_case("not ") && !t[4..].is_empty());
+fn expression_shape(t: &str, names: &BTreeSet<String>) -> bool {
+    let literal = text_literal(t) || number(t);
     let minus = t
         .strip_prefix('-')
-        .is_some_and(|r| !r.is_empty() && !r.starts_with(' '));
-    let parenthesized =
-        t.starts_with('(') && t.ends_with(')') && words.len() == 1 && matching_close(t) == Some(t.len() - 1) && {
-            let inner = &t[1..t.len() - 1];
-            unquoted_rec_name(inner) || quoted_rec_field(inner) || expression_shape(inner)
-        };
-    let binary = words.len() >= 3
+        .is_some_and(|r| single_word(r) && unquoted_rec_name(r));
+    literal
+        || pinned_call(t)
+        || negated_shape(t, names)
+        || minus
+        || parenthesized_shape(t, names)
+        || binary_shape(t, names)
+}
+
+/// `not` before one call, field of `Rec` or variable of the owner (`not IsNullGuid(Rec.Link)`, `not Rec.Flag`, `not GlobalFlag`:
+/// pages/controls/PageControlFieldExpressionShapes.al:52-53, :72, :93).
+fn negated_shape(t: &str, names: &BTreeSet<String>) -> bool {
+    t.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("not ")) && {
+        let rest = &t[4..];
+        single_word(rest) && (pinned_call(rest) || unquoted_rec_name(rest) || owner_variable(rest, names))
+    }
+}
+
+/// Parentheses around a field of `Rec`, a `not` shape or a binary shape (`(Rec.Qty)`, `(not IsNullGuid(Rec.Link))`, `(Rec.Qty <> 0)`:
+/// pages/controls/PageControlFieldExpressionShapes.al:51, :55, :60).
+fn parenthesized_shape(t: &str, names: &BTreeSet<String>) -> bool {
+    t.starts_with('(') && t.ends_with(')') && matching_close(t) == Some(t.len() - 1) && {
+        let inner = &t[1..t.len() - 1];
+        unquoted_rec_name(inner) || negated_shape(inner, names) || binary_shape(inner, names)
+    }
+}
+
+/// Operands joined by one operator (pages/controls/PageControlFieldExpressionShapes.al:54-58, :61-66, :73, :90-91): see
+/// [`expression_source_pinned`].
+fn binary_shape(t: &str, names: &BTreeSet<String>) -> bool {
+    const OPERATORS: [&str; 9] = [">", "<>", "=", "and", "or", "+", "*", "div", "mod"];
+    let words = top_level_words(t);
+    if words.len() == 3 && words[1].eq_ignore_ascii_case("in") {
+        return unquoted_rec_name(words[0]) && number_range_set(words[2]);
+    }
+    let operand = |w: &str| {
+        unquoted_rec_name(w)
+            || quoted_rec_field(w)
+            || number(w)
+            || text_literal(w)
+            || pinned_call(w)
+            || owner_variable(w, names)
+            || parenthesized_shape(w, names)
+    };
+    words.len() >= 3
         && words.len() % 2 == 1
+        && OPERATORS.iter().any(|o| o.eq_ignore_ascii_case(words[1]))
         && words
             .iter()
             .skip(1)
             .step_by(2)
-            .all(|w| OPERATORS.iter().any(|o| o.eq_ignore_ascii_case(w)));
-    literal || call || negated || minus || parenthesized || binary
+            .all(|w| w.eq_ignore_ascii_case(words[1]))
+        && words.iter().step_by(2).all(|w| operand(w))
+}
+
+/// Text with no space outside quotes, brackets and parentheses.
+fn single_word(t: &str) -> bool {
+    !t.is_empty() && top_level_words(t).len() == 1
+}
+
+/// Digits only (`42`).
+fn number(t: &str) -> bool {
+    !t.is_empty() && t.chars().all(|c| c.is_ascii_digit())
+}
+
+/// `[<number> .. <number>]` (`[1 .. 3]`).
+fn number_range_set(t: &str) -> bool {
+    t.strip_prefix('[')
+        .and_then(|r| r.strip_suffix(']'))
+        .and_then(|r| r.split_once(" .. "))
+        .is_some_and(|(a, b)| number(a) && number(b))
+}
+
+/// A plain name that is a variable of the owner (`GlobalFlag`).
+fn owner_variable(t: &str, names: &BTreeSet<String>) -> bool {
+    !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_') && names.contains(&t.to_lowercase())
 }
 
 /// A call written as a plain name with a non-empty argument list whose arguments are each a field of `Rec`, a number, a text literal or
@@ -2733,6 +2799,10 @@ mod call_shape_tests {
     #[test]
     fn only_the_pinned_expression_shapes_name_their_source_as_written() {
         // pages/controls/PageControlFieldExpressionShapes.al:50-73 and :89-93.
+        let names: std::collections::BTreeSet<String> = ["globalflag", "globaltext", "costs", "flags", "other"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         for t in [
             "(not IsNullGuid(Rec.Link))",
             "not IsNullGuid(Rec.Link)",
@@ -2758,7 +2828,7 @@ mod call_shape_tests {
             "GlobalFlag and Rec.Flag",
             "Rec.Name + '!'",
         ] {
-            assert!(super::expression_source_pinned(t), "{t}");
+            assert!(super::expression_source_pinned(t, &names), "{t}");
         }
         // Neighbors that keep their earlier behavior: names, array elements with any index (record/
         // PageControlFieldSourceFormsSM.al:79-82), record variable fields, quoted names, operators the corpus does not show, and
@@ -2782,8 +2852,30 @@ mod call_shape_tests {
             "Format(Costs[1])",
             "CompanyName()",
             "",
+            // Operands and operand forms the corpus does not show (review of al-runner issue 7442).
+            "not Rec.Qty < 0",
+            "not Rec.Flag xor GlobalFlag",
+            "not Flags[1]",
+            "not \"Flag\"",
+            "not not Rec.Flag",
+            "Costs[I] > 0",
+            "-Costs[I]",
+            "-Costs[1]",
+            "-(Rec.Qty)",
+            "\"Unit Cost\" > 0",
+            "Other.Qty > 0",
+            "Other.Count() > 0",
+            "Rec.TableCaption() = 'x'",
+            "Rec.Qty = Other.Qty",
+            "Rec.Flag and (Rec.Qty / 2 > 1)",
+            "Rec.Qty in [1, 2]",
+            "Format(Costs[1]) + 'x'",
+            "Rec.Qty + 1 > 0",
+            "CompanyName = ''",
+            "('fixed')",
+            "Rec.Qty > 0 and Rec.Flag",
         ] {
-            assert!(!super::expression_source_pinned(t), "{t}");
+            assert!(!super::expression_source_pinned(t, &names), "{t}");
         }
     }
 }
