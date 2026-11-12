@@ -1244,7 +1244,8 @@ impl Session {
             ident.clone(),
             event_stats.clone(),
             media.clone(),
-        )));
+        )))
+        .as_database();
         if let Some(td) = &engine.test_data {
             store = store.with_backing(Rc::new(testdata::TestBacking::new(&engine, td.clone())));
         }
