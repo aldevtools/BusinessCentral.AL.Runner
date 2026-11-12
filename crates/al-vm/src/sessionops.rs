@@ -238,12 +238,6 @@ impl Session {
                 ),
             };
         }
-        if id == ids::DATABASE_ISINWRITETRANSACTION_1 {
-            // An uncommitted write opens one, a Commit and the test boundary close it
-            // (codeunits/TestWriteTxTestBoundary.al:93,103,142). Writes to temporary tables are
-            // not counted: they never reach the database (not pinned).
-            return Ok(Value::Boolean(self.store.has_uncommitted()));
-        }
         if id == ids::COMPANYPROPERTY_DISPLAYNAME_1 {
             // Non-empty (session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty). That it is
             // the company's name when no display name is set is an assumption (docs/probes-needed.md); a

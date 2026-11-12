@@ -472,7 +472,7 @@ impl<'a> Compiler<'a> {
             E::Load(p) => {
                 let rp = self.rplace(p)?;
                 let p = self.place(&rp);
-                self.emit(Op::ReadPlace { d, p });
+                self.emit(Op::ReadPlace { d, p, value: true });
             }
             E::Unary(ir::UnOp::Not, a) if self.tys.expr_ty(a) == Some(Ty::Boolean) => {
                 let a = self.expr_any(a)?;
@@ -863,7 +863,7 @@ impl<'a> Compiler<'a> {
                 let rp = self.rplace(p)?;
                 let d = self.alloc()?;
                 let pi = self.place(&rp);
-                self.emit(Op::ReadPlace { d, p: pi });
+                self.emit(Op::ReadPlace { d, p: pi, value: false });
                 Ok((d, ir::Arg::Ref(rp)))
             }
         }
@@ -1284,7 +1284,11 @@ impl<'a> Compiler<'a> {
                     // The old value is read before `x` is evaluated.
                     let old = self.alloc()?;
                     let pi = self.place(p);
-                    self.emit(Op::ReadPlace { d: old, p: pi });
+                    self.emit(Op::ReadPlace {
+                        d: old,
+                        p: pi,
+                        value: false,
+                    });
                     let a = self.expr_any(r)?;
                     self.chunk.appends.push(AppendSite {
                         place: p.clone(),

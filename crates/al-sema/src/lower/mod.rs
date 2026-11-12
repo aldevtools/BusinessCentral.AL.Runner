@@ -246,6 +246,9 @@ pub(crate) struct Lowerer<'a> {
     /// that names `Rec` raises ReportRequestPageNotInitialized when it runs (`run_failures`).
     in_report_init_with_rec: Option<i64>,
     locals: HashMap<String, usize>,
+    /// The local variables of the routine whose declaration writes `Char`, `Byte`, or `Option` with named members, by
+    /// lowercase name (`char_option_byte_get`). A parameter, a return value and a platform option type are not among them.
+    local_char_option_byte_vars: std::collections::HashSet<String>,
     /// Declared text of Label variables, by lowercase name; reads lower to that constant.
     global_labels: HashMap<String, String>,
     local_labels: HashMap<String, String>,
