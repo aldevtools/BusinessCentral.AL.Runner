@@ -1569,12 +1569,16 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
             let anchor = base_parent
                 .map(|p| (Some(p), cx.base_items[p].name.as_str()))
                 .or_else(|| parent.map(|p| (None, cx.layout.items[p].name.as_str())));
-            anchor.filter(|(_, parent)| parent.eq_ignore_ascii_case(name))
+            anchor
+                .filter(|(_, parent)| parent.eq_ignore_ascii_case(name))
                 .map(|(index, _)| (index, parent_table))
         };
         let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &enclosing, &mut reasons);
         let explicit_parent_link = !item.link.is_empty()
-            && raw.section.properties().any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"));
+            && raw
+                .section
+                .properties()
+                .any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"));
         added.push(ir::AddedItem {
             item,
             base_parent,

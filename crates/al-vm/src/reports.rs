@@ -2105,11 +2105,11 @@ impl Session {
         let mut rec = self.report_item_record(run, r)?;
         // A `DataItemLinkReference` names another enclosing item than the parent.
         if let ItemRef::Added(extension, item) = r
-            && run.ext_ir(extension).is_some_and(|ext| ext.added[item].explicit_parent_link)
+            && run
+                .ext_ir(extension)
+                .is_some_and(|ext| ext.added[item].explicit_parent_link)
         {
-            al_builtins::assumptions::assume(
-                al_builtins::assumptions::Assumption::ReportExtensionExplicitParentLink,
-            );
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportExtensionExplicitParentLink);
         }
         let parent_rec = match item.link_item {
             Some(li) => enclosing
