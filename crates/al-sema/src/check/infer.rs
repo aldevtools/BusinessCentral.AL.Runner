@@ -1144,6 +1144,7 @@ impl<'a> Checker<'a> {
 
     /// A call `X.Name()` is the platform's method `Name` even when the object has a member of that name that cannot be
     /// called: a page action or control, a query column, or a table field. The bare `X.Name` stays the member.
+    /// The measured argumentless CurrPage.SaveRecord call also takes precedence over an internal parameterless procedure.
     fn called_builtin_over_member(&mut self, sc: &Scope, node: &SyntaxNode, base_ty: &Ty, mname: &str) -> Option<E> {
         if !(node.parent().is_some_and(|p| p.kind() == SyntaxKind::CallExpr) && node.prev_sibling().is_none()) {
             return None;
@@ -1164,7 +1165,11 @@ impl<'a> Checker<'a> {
                                     && name_of(&receiver).eq_ignore_ascii_case("CurrPage")
                             })
                             && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
-                            && !self.members[oi].procedures_named(mname).is_empty())
+                            && node.parent().is_some_and(|call| {
+                                call.children().find(|n| n.kind() == SyntaxKind::ArgList)
+                                    .is_none_or(|args| args.children().next().is_none())
+                            })
+                            && crate::members::has_internal_parameterless_save_record(self.ws, oi))
             }),
             // `Q.Open()` is the query's method even when the query has a column named Open (Base
             // Application's "Summarized Stock By Item Trkg." has one): a column is not called.

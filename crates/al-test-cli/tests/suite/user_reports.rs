@@ -2533,3 +2533,29 @@ fn measured_currpage_save_record_prefers_the_platform_method() {
         include_str!("../fixtures/curr-page-save-record-collision.al"),
     ));
 }
+
+#[test]
+fn issue_7887_bare_save_record_still_calls_the_internal_procedure() {
+    let source = r#"
+page 50992 "Save Collision Control" {
+    PageType = Card;
+    layout { area(Content) { field(Observed; Called) {} } }
+    actions { area(Processing) {
+        action(Check) { trigger OnAction() begin SaveRecord(); end; }
+    } }
+    var Called: Boolean;
+    internal procedure SaveRecord() begin Called := true; end;
+}
+codeunit 50993 T {
+    Subtype = Test;
+    [Test] procedure BareCall() var P: TestPage "Save Collision Control";
+    begin
+        P.OpenView();
+        P.Check.Invoke();
+        if not P.Observed.AsBoolean() then Error('Bare SaveRecord did not invoke the page procedure.');
+        P.Close();
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], source));
+}

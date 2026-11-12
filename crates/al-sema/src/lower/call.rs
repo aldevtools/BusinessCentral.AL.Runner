@@ -17,7 +17,8 @@ impl Lowerer<'_> {
                 && receiver.is_some_and(|r| {
                     r.kind() == SyntaxKind::NameRef && r.text_string().trim().eq_ignore_ascii_case("CurrPage")
                 })
-                && !self.members[self.oi].procedures_named("SaveRecord").is_empty()
+                && args.is_empty()
+                && crate::members::has_internal_parameterless_save_record(self.ws, self.oi)
             {
                 self.assume(al_builtins::assumptions::Assumption::CurrPageSaveRecordNameCollision);
             }
