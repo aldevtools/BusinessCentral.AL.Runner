@@ -373,17 +373,14 @@ jobs:
   # 2026-11-04 (owner; it is no longer a required check): the nightly edge build of aarch64-apple-darwin
   # finds a macOS-only compile error.
   portable:
-    # A static name: a job skipped by its `if` reports its name unexpanded ("portable check (${{ matrix.os }})"), so the
-    # required check "portable check (windows-latest)" would never report on a markdown-only pull request and block it.
-    # Keep this name in step with the matrix (one OS) and with the ruleset's required check.
+    # A static name and no matrix: a job skipped by its `if` reports a matrix name unexpanded
+    # ("portable check (${{ matrix.os }})"), and GitHub appends the matrix value to a static name, so either way the
+    # required check "portable check (windows-latest)" never reported on a markdown-only pull request and blocked it.
+    # Keep this name in step with the ruleset's required check.
     name: portable check (windows-latest)
     needs: [merge-check, docs-check]
     if: ${{ !cancelled() && github.event.pull_request.draft != true && needs.merge-check.outputs.skip != 'true' && needs.docs-check.outputs.docs_only != 'true' }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
