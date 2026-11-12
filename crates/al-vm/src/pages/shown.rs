@@ -224,6 +224,17 @@ impl Session {
                 {
                     DOUBT_LOOKUP
                 }
+                // A read-only List over a temporary source table whose actions refill Rec: its expression controls read as
+                // they are now after the pinned calls (`temp_list_refill`, testpage/TempListExpressionRefill.al).
+                _ if is_p
+                    && on_root
+                    && tree.len() == 1
+                    && r.is_ok()
+                    && Self::temp_list_refill_call(method, target, &notes, st)
+                    && self.temp_list_refill_pinned(st) =>
+                {
+                    0
+                }
                 _ if method.recv() == PageRecv::TestFilter
                     || matches!(
                         method,

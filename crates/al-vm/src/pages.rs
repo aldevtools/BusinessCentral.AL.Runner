@@ -259,6 +259,7 @@ mod rows_client;
 mod runobject;
 mod server_row_lag;
 mod shown;
+mod temp_list_refill;
 pub(crate) mod state;
 mod table_values_allowed;
 mod test_end;
