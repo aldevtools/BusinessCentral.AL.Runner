@@ -320,8 +320,15 @@ pub struct PageState {
     /// The list opened in a key other than the primary key (key index, ascending) and read its row once more for it; it reads
     /// each row once more at Next and Previous while Rec stays in that key and order (see `reads_once_more_in_its_key`).
     pub reads_once_more_in: Option<(usize, bool)>,
-    /// The page is reading the first row it shows as it opens (`load_first_row` from the open, not a later refill).
+    /// The page is reading the rows it shows as it opens: from the open, or from a refresh that reads them again as the open
+    /// does (`replay_open_reads`, `lookup_next_refresh`).
     pub open_read: bool,
+    /// The page is in the read of the open itself (not a later read that replays it) and no OnAfterGetRecord of that read has
+    /// ended yet: the moment the extension columns of `pages/ext_column_visible.rs` take their Visible after.
+    pub before_first_open_row: bool,
+    /// The columns (control indices) that first OnAfterGetRecord turned from hidden to shown (`pages/ext_column_visible.rs`
+    /// `ext_column_shown`); set anew by every open.
+    pub ext_columns_shown: Vec<usize>,
     /// The page opened for edit over an empty view and ran its new-record triggers on a blank record; it shows no row and its
     /// field controls are not editable.
     pub blank_on_open: bool,
@@ -590,6 +597,17 @@ pub struct PageState {
     /// A list with the new-row line lost its only row to an action and stands on that line: its fields show the blank Rec's
     /// values, an Integer key 0 (testpage/RmWorksheetGoneRow.al:436 `shown after action = 0|`).
     pub gone_blank_shows_line: bool,
+    /// The action's refresh just ran the new-row line of a list that lost its only row three times (`settle_after_action`); read
+    /// by `post_left_other_key_settled` and cleared when the action ends (al-runner issue 7821).
+    pub gone_new_line_settled: bool,
+    /// A rule pinned for one outside reporter's repro ran on this page or one of its parts, and the repro does nothing after it
+    /// but the calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
+    pub pinned_end: Option<crate::pages::pinned_shape::PinnedEnd>,
+    /// The fields of a part's Rec when the test's last SetValue on it began (`control_set_value`).
+    pub row_before_write: Option<Vec<Value>>,
+    /// The next first read of this part asks OnFindRecord `=>` instead of `=><` (`part_refresh_find_forward.rs`, al-runner
+    /// issue 7820); taken by `page_first_row`.
+    pub part_refind_forward: bool,
     /// A List with Editable = false opened for view lost its only row to an action and shows no row: a later action is not
     /// pinned and is refused (testpage/RmWorksheetGoneRow.al SH_ListViewNotEditable_, awaiting).
     pub gone_view_list: bool,
@@ -792,6 +810,10 @@ pub struct PageState {
     /// `Page.RunModal(Id, Rec, Field)` with its return value used: a close by the platform after the handler returned hands the
     /// row back as an action does (ui-handlers/F3TrappedAndModal.al:235 Card_HandlerEditsOnly, :341 List_HandlerDoesNothing).
     pub field_run: bool,
+    /// The static `Page.RunModal` that runs the page got a record. Every pinned save error at the close of a static RunModal
+    /// passes one (pages/close-errors/ModalCloseSaveErrorShapes.al:250, :271, :292, :314, :336, :356, :376;
+    /// pages/close-errors/CemModalHandlerTests.al:900, :1743); without one such an error keeps the refusal.
+    pub static_run_record: bool,
     /// The refresh about to run follows an action on a card with OnFindRecord, without CurrPage.Update: pinned
     /// (pages/triggers/BeCardOnFindRecord.al), so it marks no assumption.
     pub refresh_pinned: bool,
@@ -856,6 +878,20 @@ impl PageState {
         self.opened_by_test && self.mode == PageMode::Edit && !self.modal && self.host.is_none()
     }
 
+    /// A static `Page.RunModal(Id [, Rec [, Field]])` runs the page: `used` says its return value is used, `record` that it
+    /// got a record, `field` a field number, `from_table` that the id was 0 (the table's lookup page). Used, the page opens
+    /// as a lookup (pages/triggers/BeRunModalOnLookup.al:916 Shape_ReturnNotUsed_WalkOnly, :949 Shape_ReturnInIf_WalkOnly).
+    pub(crate) fn static_run_modal(&mut self, used: bool, record: bool, field: bool, from_table: bool) {
+        self.run_static = Some(true);
+        if used {
+            self.open_as_lookup(LookupKind::StaticRunModal);
+        }
+        self.lookup_page_from_table = from_table;
+        self.static_run_record = record;
+        self.statement_run = !used && record;
+        self.field_run = used && record && field;
+    }
+
     /// The platform runs the page as a lookup of `kind`: the static `Page.RunModal` whose return value is used, or a
     /// TableRelation lookup.
     pub(crate) fn open_as_lookup(&mut self, kind: LookupKind) {
@@ -882,6 +918,7 @@ impl PageState {
         self.tree_calls_unknown = false;
         self.tree_calls_mark = None;
         self.typed_key_dropped = false;
+        self.pinned_end = None;
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
     }

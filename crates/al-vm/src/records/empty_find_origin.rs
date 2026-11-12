@@ -56,9 +56,11 @@ impl Session {
             op,
             RecordOp::Find | RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet
         );
+        let outer = std::mem::replace(&mut self.through_recordref, true);
         let r = self.record_op_of_al(op, rec, args);
         // A path that returned before the find took the mark leaves no mark behind.
         self.find_through_recordref = false;
+        self.through_recordref = outer;
         r
     }
 

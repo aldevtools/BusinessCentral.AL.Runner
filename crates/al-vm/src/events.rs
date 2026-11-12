@@ -386,7 +386,7 @@ impl Registry {
                             }
                             // The events of Reporting Triggers, and those Base Application's ReportManagement raises from its
                             // subscribers to them, are listed too: a Pdf save that writes a placeholder raises none of them and
-                            // refuses while a test can see a subscriber (`report_pdf_placeholder.rs`).
+                            // refuses while a test can see a subscriber (`report_placeholder`).
                             if kind == ObjKind::Codeunit
                                 && (target.eq_ignore_ascii_case("Reporting Triggers")
                                     || target.eq_ignore_ascii_case("ReportManagement"))

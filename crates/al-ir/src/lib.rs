@@ -561,10 +561,14 @@ pub struct Report {
     /// `OnPreRendering(var RenderingPayload: JsonObject)` as a routine index.
     #[serde(default)]
     pub on_pre_rendering: Option<usize>,
-    /// The reportextensions (object indices) that change what a run does, in the order they apply:
-    /// by object id (ADR-025). Empty: none does.
+    /// The reportextensions (object indices) that change what a run does, in the order they apply (al-sema
+    /// `lower/ext_order.rs`). Empty: none does.
     #[serde(default)]
     pub extensions: Vec<usize>,
+    /// The unprobed assumptions the report's run rests on (the order of `extensions`); the VM marks them when the report
+    /// runs or its layout parts are read.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
     /// Global slot of the hidden flag `Report.UseRequestPage(x)` sets: 0 = not set, 1 = true, 2 = false.
     pub request_flag_slot: usize,
     /// Procedures of the report whose body names `Rec` or `xRec` of a request page that states `SourceTable`: one called
@@ -1218,6 +1222,18 @@ pub enum PropVal {
     Ext(usize, usize),
 }
 
+/// Applies property `name` = `val` of a page extension's `modify` block to a control's `props`, and notes in `replaced`
+/// (`Control::ext_replaced`) a property the control had already.
+pub fn apply_modify_prop(props: &mut Vec<(String, PropVal)>, replaced: &mut Vec<String>, name: &str, val: PropVal) {
+    match props.iter_mut().find(|(n, _)| n == name) {
+        Some(slot) => {
+            slot.1 = val;
+            replaced.push(name.to_string());
+        }
+        None => props.push((name.to_string(), val)),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Control {
     pub name: String,
@@ -1242,6 +1258,10 @@ pub struct Control {
     /// routine), in the order the extensions apply.
     #[serde(default)]
     pub ext_triggers: Vec<(String, usize, usize)>,
+    /// The properties (lower-case names) a `modify` block of a page extension set over a value the control had already, from
+    /// its own declaration or an earlier extension ([`apply_modify_prop`]).
+    #[serde(default)]
+    pub ext_replaced: Vec<String>,
     /// For actions: what `RunObject` runs (ADR-012 follow-up).
     #[serde(default)]
     pub run_object: Option<RunObject>,
