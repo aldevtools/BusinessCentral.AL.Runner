@@ -2,6 +2,7 @@
 
 use super::*;
 use al_builtins::filter::FilterExpr;
+use al_builtins::page_op::PageMethod;
 
 impl Session {
     pub(super) fn seed_empty_card_part_assist_edit(
@@ -23,6 +24,9 @@ impl Session {
         if st.borrow().cursor != Cursor::None
             || st.borrow().draft
             || !self.has_source(st)
+            || !self.unextended_unsubscribed(st)
+            || self.declares(st, "onaftergetrecord")
+            || self.declares(st, "onaftergetcurrrecord")
             || engine.object_facts[st.borrow().object as usize].page_type_lower() != "cardpart"
             || engine.object_facts[host.borrow().object as usize].page_type != Some(ir::PageType::Document)
         {
@@ -41,7 +45,7 @@ impl Session {
             return Ok(None);
         }
         let rec = self.page_rec(st);
-        if self.table(&rec)?.keys[0].as_slice() != [field] {
+        if rec.borrow().temporary || self.table(&rec)?.keys[0].as_slice() != [field] {
             return Ok(None);
         }
         let (key, blank) = {

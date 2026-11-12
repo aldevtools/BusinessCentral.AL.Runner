@@ -2533,3 +2533,20 @@ fn measured_assist_edit_uses_the_linked_card_part_primary_key() {
         include_str!("../fixtures/linked-card-part-assist.al"),
     ));
 }
+
+#[test]
+fn issue_7883_neighbor_keeps_the_previous_result() {
+    let source = include_str!("../fixtures/linked-card-part-assist.al");
+    let changed = source.replacen(
+        "    InsertAllowed = false;",
+        "    InsertAllowed = false;\n    trigger OnAfterGetCurrRecord() begin end;",
+        1,
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "AssistEditUsesTheLinkedPrimaryKey")
+        .unwrap();
+    assert_ne!(outcome, &Outcome::Pass, "{outcome:?}");
+}
