@@ -594,6 +594,19 @@ impl Session {
                 // element's OnBeforePassVariable, its attributes, then the inner element as the text-only shape above
                 // (`pass entry;pass status;pass admission;pass admcode;`, `<admission option_value="2" />` for an empty text).
                 // The same for an attributed leaf deeper below a table element (`attributed_leaf`, einvoice_shapes.rs).
+                // A text element with one field attribute below a temporary table element (`text_attr_export.rs`); without a
+                // trigger and with an attribute of a type the probe does not measure it keeps the arms below.
+                ir::XmlNodeKind::Text
+                    if matches!(text_attr_export::field_attr_text(schema, child, node), Some(attr)
+                        if c.trigger("onbeforepassvariable").is_some()
+                            || self.xp_text_attr_type_measured(inst, schema, attr)?) =>
+                {
+                    let e = got!(self.xp_export_text_attr(inst, schema, child));
+                    out.children.push(Node::Elem(e));
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
                 ir::XmlNodeKind::Text
                     if text_in_table(schema, child).is_some()
                         || nested_inner(schema, child)
@@ -723,17 +736,7 @@ impl Session {
                 // order, Skip there leaves out that leaf (xmlports/shapes-properties/R6924eTreeInTable.al:287-288 all filled,
                 // :296-297 leaves skipped, :305-306 an inner leaf empty). Its own text stays refused (measured at :314, not built).
                 ir::XmlNodeKind::Text if leaf_triggered_tree(schema, child, node) => {
-                    if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
-                        return unsupported(
-                            "XmlPort export of a container text element below a table element with its own text (not pinned)",
-                        );
-                    }
-                    let e = self.xp_export_container(inst, schema, child)?;
-                    if matches!(Self::xp_flow(inst), Some(Flow::Break | Flow::Unbound)) {
-                        return unsupported(
-                            "Break in OnBeforePassVariable of a leaf inside a container text element below a table element (not pinned)",
-                        );
-                    }
+                    let e = got!(self.xp_export_leaf_triggered_tree(inst, schema, child));
                     out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {
                         return Ok(());

@@ -1118,7 +1118,8 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 // table element, a text element whose nodes are only text attributes, or text attributes and leaf text and
                 // field elements; the runtime (al-vm xmlports.rs `text_in_table`) runs its triggers. The same for a text element
                 // with field and text attributes and one text element of only text attributes below it, and for that inner
-                // element (QrXpContainerOccurs.al TP_Nested_*).
+                // element (QrXpContainerOccurs.al TP_Nested_*). Assumed (corpus PR 1366): a text element with one field attribute
+                // below a temporary table element (`containers::field_attr_text_shape`).
                 if kind == ir::XmlNodeKind::Text
                     && layout.has_children(i)
                     && !node.triggers.is_empty()
@@ -1130,6 +1131,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                     && !containers::attributed_leaf_shape(layout, i)
                     && !containers::table_container_shape(layout, i)
                     && !containers::root_table_shape(layout, i)
+                    && !containers::field_attr_text_shape(layout, i)
                 {
                     run_reasons.push(format!(
                         "triggers of the container text element {} are not supported (not pinned)",

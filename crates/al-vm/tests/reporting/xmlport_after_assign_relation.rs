@@ -4,7 +4,7 @@
 //! xmlports/import/XpAfterAssignTableRelation.al). The shapes the probe did not measure keep main's result.
 
 use al_builtins::native::Signal;
-use al_testkit::{text, Built};
+use al_testkit::{Built, text};
 
 /// The port body: `{TEMP}` the UseTemporary line, `{NODE}` fieldattribute or fieldelement, `{FIELD}` the field, `{PROPS}` the
 /// node's properties, `{XP}` the port's properties.
@@ -182,11 +182,25 @@ fn ok_six(p: &Port) -> Vec<String> {
 const MISSING: &str = "No | The field Rel Code of table AAR Row contains a value (MISS) that cannot be found in the related table (AAR Rel). | DB:PrimRecordNotFound";
 
 fn temp(attr: bool, field: &'static str, props: &'static str) -> Port {
-    Port { id: 50710, temp: true, attr, field, props, xp: "" }
+    Port {
+        id: 50710,
+        temp: true,
+        attr,
+        field,
+        props,
+        xp: "",
+    }
 }
 
 fn db(attr: bool, field: &'static str, props: &'static str) -> Port {
-    Port { id: 50711, temp: false, attr, field, props, xp: "" }
+    Port {
+        id: 50711,
+        temp: false,
+        attr,
+        field,
+        props,
+        xp: "",
+    }
 }
 
 /// XpAfterAssignTableRelation.al:578 (attribute), :591 (element), :604 (FieldValidate = No), :617 (ValidateTableRelation =
@@ -196,7 +210,10 @@ fn a_temporary_table_element_runs_the_trigger_and_validates_nothing() {
     for (p, blank) in [
         (temp(true, "Rel Code", ""), "Yes |  |  | before insert:; | "),
         (temp(false, "Rel Code", ""), "Yes |  |  | after:;before insert:; | "),
-        (temp(true, "Rel Code", "FieldValidate = No;"), "Yes |  |  | before insert:; | "),
+        (
+            temp(true, "Rel Code", "FieldValidate = No;"),
+            "Yes |  |  | before insert:; | ",
+        ),
         (temp(true, "Rel Code NV", ""), "Yes |  |  | before insert:; | "),
     ] {
         assert_eq!(
@@ -291,7 +308,12 @@ fn unmeasured_validated_shapes_keep_mains_refusal() {
         db(true, "Rel Code Plain", ""),
     ] {
         let why = refused(&p);
-        assert!(why.contains("which runs first is not pinned"), "{} {}: {why}", p.field, p.props);
+        assert!(
+            why.contains("which runs first is not pinned"),
+            "{} {}: {why}",
+            p.field,
+            p.props
+        );
     }
 }
 
@@ -299,10 +321,24 @@ fn unmeasured_validated_shapes_keep_mains_refusal() {
 /// attribute: main runs the trigger, the measured shapes do not), and keeps main's answer elsewhere.
 #[test]
 fn default_fields_validation_false_keeps_mains_answer_or_refuses_the_blank_attribute() {
-    let p = Port { id: 50712, temp: false, attr: true, field: "Rel Code", props: "", xp: "DefaultFieldsValidation = false;" };
+    let p = Port {
+        id: 50712,
+        temp: false,
+        attr: true,
+        field: "Rel Code",
+        props: "",
+        xp: "DefaultFieldsValidation = false;",
+    };
     let got = six(&p);
-    assert_eq!(got[0].as_ref().unwrap(), "Yes |  |  | after:P1;before insert:P1; | 1:P1:,");
-    assert!(matches!(&got[2], Err(Signal::Unsupported(why)) if why.contains("blank field attribute")), "{:?}", got[2]);
+    assert_eq!(
+        got[0].as_ref().unwrap(),
+        "Yes |  |  | after:P1;before insert:P1; | 1:P1:,"
+    );
+    assert!(
+        matches!(&got[2], Err(Signal::Unsupported(why)) if why.contains("blank field attribute")),
+        "{:?}",
+        got[2]
+    );
 }
 
 /// A field element with FieldValidate = No on a stored table element is not measured: main's answer (the trigger, no
@@ -316,7 +352,10 @@ fn an_unmeasured_unvalidated_element_keeps_mains_answer() {
         .collect();
     assert_eq!(got[1], "Yes |  |  | after:MISS;before insert:MISS; | 1:MISS:,");
     assert_eq!(got[2], "Yes |  |  | after:;before insert:; | 1::,");
-    assert!(!al_builtins::assumptions::take_hits().contains(&al_builtins::assumptions::Assumption::XmlportAfterAssignBeforeValidate));
+    assert!(
+        !al_builtins::assumptions::take_hits()
+            .contains(&al_builtins::assumptions::Assumption::XmlportAfterAssignBeforeValidate)
+    );
 }
 
 /// Two rows in one document are not measured: the second row refuses.
@@ -397,7 +436,11 @@ codeunit 50150 "Repro After Assign Test"
 #[test]
 fn the_reporters_repro_sees_the_imported_value() {
     assert_eq!(
-        text(al_testkit::run_in(REPRO, "Repro After Assign Test", "AfterAssignFieldSeesImportedValue")),
+        text(al_testkit::run_in(
+            REPRO,
+            "Repro After Assign Test",
+            "AfterAssignFieldSeesImportedValue"
+        )),
         "P1"
     );
 }

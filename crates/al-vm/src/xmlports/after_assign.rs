@@ -3,7 +3,7 @@
 //! left, under the assumption `xmlport-after-assign-before-validate`. Every other shape keeps `xp_validate_field`.
 
 use super::*;
-use al_builtins::assumptions::{assume, Assumption};
+use al_builtins::assumptions::{Assumption, assume};
 
 /// What follows OnAfterAssignField in a measured shape.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -126,7 +126,12 @@ impl Session {
 
     /// Two rows in one document are not measured (every case of XpAfterAssignTableRelation.al imports one row, :557-559): the
     /// second row of a table element with a field node in a measured shape refuses before its fields are assigned.
-    pub(super) fn xp_after_assign_second_row(&mut self, inst: &Inst, schema: &Schema, table: usize) -> Result<(), Signal> {
+    pub(super) fn xp_after_assign_second_row(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        table: usize,
+    ) -> Result<(), Signal> {
         let rec = self.xp_record(inst, schema.node(table))?;
         for child in schema.children(table) {
             let Some(pos) = schema.node(child).field else {
@@ -153,8 +158,8 @@ fn measured(
     checked: bool,
     on_validate: bool,
 ) -> Option<AfterAssign> {
-    use ir::XmlNodeKind::{Field as Elem, FieldAttr as Attr};
     use AfterAssign::{NoValidation as None_, Validate};
+    use ir::XmlNodeKind::{Field as Elem, FieldAttr as Attr};
     Some(match (stored, kind, field_validate, checked, on_validate) {
         // A temporary table element (UseTemporary): nothing is validated (:578 attribute, :591 element, :604 FieldValidate =
         // No, :617 ValidateTableRelation = false).

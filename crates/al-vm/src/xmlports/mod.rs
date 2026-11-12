@@ -40,6 +40,7 @@ mod shape;
 #[cfg(test)]
 mod tests;
 mod text;
+mod text_attr_export;
 mod text_columns;
 mod text_nested;
 mod value;
