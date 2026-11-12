@@ -16,6 +16,7 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::library_kind::LibraryKind;
 use crate::native::Signal;
 use crate::value::{LibraryValue, Value};
 
@@ -209,14 +210,19 @@ enum When {
     Always,
     /// Exactly this many arguments (no length, no format number).
     Args(usize),
-    /// Exactly this many arguments and the return value unused (it is a count that depends on the length).
-    ArgsUnused(usize),
     /// `StrSubstNo`: the template is known and uses the marked value only as `%n`.
     PercentOnly,
     /// A stream write: one argument, the return value unused, a UTF-8 stream.
     Utf8Write,
     /// `BigText.Write(OutStream)`: the return value unused, the stream argument UTF-8.
     StreamArgUtf8,
+    /// `Format(Value)`: one argument, a Text (a Variant that holds one arrives as the Text) or a TextBuilder.
+    FormatOfText,
+    /// `Format(BigText)`: one argument, a BigText.
+    FormatOfBigText,
+    /// `BigText.GetSubText(Text, 1)`: a Text target, the Integer position 1, no length, the return value unused (it is a
+    /// length).
+    SubTextFromOne,
 }
 
 /// One allowed use: the builtin id name, where the marked value may stand, the condition, the form of the result and why BC's
@@ -301,14 +307,23 @@ static ALLOWED: &[Row] = &[
     Row {
         name: "System.Format#1",
         at: At::Arg(0),
-        when: When::Args(1),
+        when: When::FormatOfText,
         form: None,
         cite: "P3",
     },
+    // `Format(BigText)` gives the changed form (owner decision 2026-11-12; `format::bigtext_text`).
     Row {
-        name: "BigText.GetSubText#1",
+        name: "System.Format#1",
+        at: At::Arg(0),
+        when: When::FormatOfBigText,
+        form: Some(Form::Changed),
+        cite: "P3",
+    },
+    // The Text target overload only (`#1` is the BigText target, which the amendment does not list).
+    Row {
+        name: "BigText.GetSubText#2",
         at: At::Recv,
-        when: When::ArgsUnused(2),
+        when: When::SubTextFromOne,
         form: None,
         cite: "P3",
     },
@@ -547,16 +562,17 @@ pub fn guard(name: &str, recv: Option<&Value>, args: &[Value], ret_used: bool) -
                 && condition(row.when, recv, args, ret_used, i)
         })
     };
+    // The row is looked up first: a List or Dictionary a row allows is not walked on every call.
     if let Some(r) = recv
-        && let Some(s) = value_text(r)
         && !asks_type(name)
         && !allowed(true, 0)
+        && let Some(s) = value_text(r)
     {
         return Err(refusal(&s, &format!("{name} on the value")));
     }
     for (i, a) in args.iter().enumerate() {
-        if let Some(s) = value_text(a)
-            && !allowed(false, i)
+        if !allowed(false, i)
+            && let Some(s) = value_text(a)
         {
             return Err(refusal(&s, &format!("{name} given the value")));
         }
@@ -568,7 +584,6 @@ fn condition(when: When, recv: Option<&Value>, args: &[Value], ret_used: bool, i
     match when {
         When::Always => true,
         When::Args(n) => args.len() == n,
-        When::ArgsUnused(n) => args.len() == n && !ret_used,
         When::PercentOnly => percent_only(args, i),
         When::Utf8Write => {
             let text_arg = args
@@ -577,7 +592,17 @@ fn condition(when: When, recv: Option<&Value>, args: &[Value], ret_used: bool, i
             args.len() <= 1 && text_arg && !ret_used && recv.is_some_and(utf8_out)
         }
         When::StreamArgUtf8 => args.len() == 1 && !ret_used && utf8_out(&args[0]),
+        When::FormatOfText => {
+            matches!(args, [Value::Text(_)]) || matches!(args, [v] if is_library(v, LibraryKind::TextBuilder))
+        }
+        When::FormatOfBigText => matches!(args, [v] if is_library(v, LibraryKind::BigText)),
+        When::SubTextFromOne => matches!(args, [Value::Text(_), Value::Integer(1)]) && !ret_used,
     }
+}
+
+/// Whether `v` is a library value of `kind`.
+fn is_library(v: &Value, kind: LibraryKind) -> bool {
+    matches!(v, Value::Library(k, _) if *k == kind)
 }
 
 /// Whether `v` is an OutStream on a UTF-8 stream.
@@ -696,7 +721,9 @@ pub enum Source<'a> {
 /// (its own markup never reaches AL, loss mode L8), and only while the buffer holds exactly the placeholder's bytes; a buffer a
 /// marked text was written to gives that text back as the pinned read of known text does: up to its first zero byte or the
 /// end (streams/ProbeJsonAndInStreamBytes.al InStreamRead_Text_OnWriteTextContent_NoTerminator), on a UTF-8 stream, the bytes
-/// UTF-8 and every mark whole. The answer is the text and the bytes the read takes.
+/// UTF-8 and every mark whole. Such a buffer only ever took appends (`mark_written`, `stream::write_bytes`), so the bytes
+/// before a mark, and a text that ends at a zero byte before the first mark, are the known text AL wrote. The answer is the
+/// text and the bytes the read takes.
 pub fn read_whole(
     src: Source,
     at_start: bool,
@@ -770,17 +797,42 @@ pub fn html_render(mark: &str) -> Option<Option<u32>> {
 /// known only to be greater than 0, byte copies keep it, every other read refuses).
 pub const WRITTEN_KIND: &str = "text with rendered content";
 
-/// Marks `buf` after a marked text `s` was written to it (P7).
-pub fn mark_written(buf: &mut crate::stream::BlobBuf, s: &str) {
+/// The placeholder kind of such a buffer once its bytes no longer stand for what BC holds: a write that was not an append
+/// at its end touched it, or rendered content was written over bytes that were there. BC's rendering is longer than its
+/// mark, so which bytes BC keeps after such a write is not known. No read answers for this kind.
+pub const WRITTEN_OVER_KIND: &str = "text with rendered content that was written over";
+
+/// The [`WRITTEN_KIND`] mark for the marked text `s` (P7).
+pub fn written_mark(s: &str) -> std::sync::Arc<str> {
     let report = marks(s)
         .and_then(|m| m.first().and_then(|(n, _)| render(*n)))
         .map_or_else(|| "a report".to_string(), |r| r.report);
-    buf.render_pending = Some(crate::placeholder_output::mark(WRITTEN_KIND, &report));
+    crate::placeholder_output::mark(WRITTEN_KIND, &report)
+}
+
+/// The [`WRITTEN_OVER_KIND`] mark of the same report as the [`WRITTEN_KIND`] mark `written`.
+pub fn written_over(written: &str) -> std::sync::Arc<str> {
+    let report = written.strip_prefix(&written_prefix()).unwrap_or("a report");
+    crate::placeholder_output::mark(WRITTEN_OVER_KIND, report)
+}
+
+/// Marks `buf` after rendered content was written to it: a marked text (P7) or a byte copy of a [`WRITTEN_KIND`] buffer,
+/// `written` being that content's mark. `appended`: the write started at the end of what the buffer held. A buffer without a
+/// mark gets `written` after an append and [`WRITTEN_OVER_KIND`] otherwise. A buffer with a mark keeps it: this kind's is
+/// already changed by `stream::write_bytes` when the write was no append, and any other mark refuses more reads than this one.
+pub fn mark_written(buf: &mut crate::stream::BlobBuf, written: std::sync::Arc<str>, appended: bool) {
+    if buf.render_pending.is_none() {
+        buf.render_pending = Some(if appended { written } else { written_over(&written) });
+    }
+}
+
+fn written_prefix() -> String {
+    format!("a placeholder {WRITTEN_KIND} of report ")
 }
 
 /// Whether a placeholder mark is [`WRITTEN_KIND`]'s.
 pub fn is_written(mark: &str) -> bool {
-    mark.starts_with(&format!("a placeholder {WRITTEN_KIND} of report "))
+    mark.starts_with(&written_prefix())
 }
 
 /// A2 on an InStream value: `Some` when the stream reads a buffer that holds rendered content (the Html placeholder or a

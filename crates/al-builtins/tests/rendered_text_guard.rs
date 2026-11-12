@@ -85,8 +85,76 @@ fn every_row_names_its_amendment_row_and_the_form_of_its_result() {
     cites.dedup();
     // P5, P6 are answered by `ops::compare`, P9 by `Variant.Is*`, P12 by `DOTNET_ALLOWED`; P11 (a page field) is not built.
     assert_eq!(cites, ["A2", "P1", "P10", "P2", "P3", "P4", "P7", "P8"]);
-    // No row changes characters today: every result moves the value unchanged (whole form kept).
-    assert!(rendered_text::allowed_rows().all(|(_, _, form)| form.is_none()));
+    // One row gives the changed form, `Format(BigText)`; every other result moves the value unchanged (whole form kept).
+    let changed: Vec<&str> = rendered_text::allowed_rows()
+        .filter(|(_, _, form)| *form == Some(Form::Changed))
+        .map(|(name, _, _)| name)
+        .collect();
+    assert_eq!(changed, ["System.Format#1"]);
+    assert!(
+        rendered_text::allowed_rows().all(|(_, _, form)| form != Some(Form::Whole)),
+        "no row turns a changed text into a whole one"
+    );
+}
+
+fn big_text(s: &str) -> Value {
+    use al_builtins::library_kind::LibraryKind;
+    use al_builtins::value::LibraryValue;
+    Value::Library(
+        LibraryKind::BigText,
+        std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::Text(s.to_string()))),
+    )
+}
+
+#[test]
+fn getsubtext_takes_a_marked_bigtext_only_into_a_text_from_position_one_with_the_count_unused() {
+    let Value::Text(m) = marked() else { unreachable!() };
+    let recv = big_text(m.as_str());
+    let t = || Value::Text(String::new().into());
+    let guard = |name: &str, args: &[Value], used: bool| rendered_text::guard(name, Some(&recv), args, used);
+    let ok = guard("BigText.GetSubText#2", &[t(), Value::Integer(1)], false);
+    assert!(ok.is_ok(), "{ok:?}");
+    // Another position, a length, a used count, a position that is no Integer, the BigText target overload.
+    for pos in [0, 2, 3, 4, 5, 99] {
+        assert!(
+            guard("BigText.GetSubText#2", &[t(), Value::Integer(pos)], false).is_err(),
+            "{pos}"
+        );
+    }
+    assert!(
+        guard(
+            "BigText.GetSubText#2",
+            &[t(), Value::Integer(1), Value::Integer(5)],
+            false
+        )
+        .is_err()
+    );
+    assert!(guard("BigText.GetSubText#2", &[t(), Value::Integer(1)], true).is_err());
+    assert!(guard("BigText.GetSubText#2", &[t(), Value::BigInteger(1)], false).is_err());
+    assert!(guard("BigText.GetSubText#1", &[big_text(""), Value::Integer(1)], false).is_err());
+    assert!(guard("BigText.GetSubText#1", &[big_text(""), Value::Integer(4)], false).is_err());
+}
+
+#[test]
+fn format_takes_a_marked_text_or_bigtext_alone() {
+    let Value::Text(m) = marked() else { unreachable!() };
+    for v in [marked(), big_text(m.as_str())] {
+        assert!(rendered_text::guard("System.Format#1", None, std::slice::from_ref(&v), false).is_ok());
+        let with_length = [v, Value::Integer(10)];
+        assert!(rendered_text::guard("System.Format#1", None, &with_length, false).is_err());
+    }
+}
+
+#[test]
+fn a_collection_the_table_allows_is_not_walked() {
+    // `List.Add` and `Dictionary.Add` of a known text: the guard answers from the table and never looks into the receiver.
+    // A receiver that would panic when borrowed shows it: the list is mutably borrowed while the guard runs.
+    let list = std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::ListVec::default()));
+    let v = Value::List(list.clone());
+    let _held = list.borrow_mut();
+    let known = Value::Text("known".to_string().into());
+    assert!(rendered_text::guard("List.Add#1", Some(&v), std::slice::from_ref(&known), false).is_ok());
+    assert!(rendered_text::guard("List.Get#1", Some(&v), &[Value::Integer(1)], false).is_ok());
 }
 
 #[test]

@@ -635,6 +635,7 @@ impl Session {
         if let Some(r) = site.cap_loop {
             self.cap_loop_pass(cap_id(f, r));
         }
+        let item = self.rendered_into_place(&site.var, item, f)?;
         self.write(&site.var, item, f)?;
         if site.cap_loop.is_some() {
             self.cap_loop_var(&site.var, f);

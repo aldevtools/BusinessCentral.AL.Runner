@@ -131,12 +131,20 @@ pub(crate) fn leading_digit(d: char, name: &str) -> Result<String, Signal> {
 /// Text as an XML element writes it: `&`, `<` and `>` become entities
 /// (text/TestReportSaveAsDatasetContracts.al: `one <&>` is `one &lt;&amp;&gt;`). In an
 /// attribute value a quote does too. A control character is refused: how the writer treats it is
-/// not pinned.
+/// not pinned. Rendered content is refused (`al_builtins::rendered_text`).
 pub(crate) fn escape(text: &str) -> Result<String, Signal> {
     escape_as(text, false)
 }
 
 fn escape_as(text: &str, attribute: bool) -> Result<String, Signal> {
+    // Rendered content never goes into a dataset or a query file: its characters would be written as known bytes into a
+    // buffer without a mark (ADR-040 amendment 2026-11-12, A3b: a use that is not in table A3 refuses).
+    if al_builtins::rendered_text::holds(text) {
+        return Err(al_builtins::rendered_text::refusal(
+            text,
+            "a text written to a report dataset or a query file",
+        ));
+    }
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {

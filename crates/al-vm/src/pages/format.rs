@@ -764,8 +764,10 @@ impl Session {
     }
 
     pub(super) fn control_text(&mut self, st: &St, idx: usize, v: &Value) -> Result<String, Signal> {
-        if let Some(shown) = self.rendered_field_text(st, idx, v) {
-            return shown;
+        // Rendered content is shown only to `TestField.Value()` (`rendered_field_value`): every other reader of a control's
+        // text compares, parses or prints it.
+        if let Some(refusal) = Self::rendered_field_refusal(v) {
+            return Err(refusal);
         }
         // A Media control shows the id of its media, a MediaSet control the id of the first media
         // of its set; lowercase, no braces, empty when there is none
