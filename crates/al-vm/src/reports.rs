@@ -2890,8 +2890,7 @@ impl Session {
         };
         let deferred = self.report_record_ref(&inst, &schema, record_ref, !parameters.is_empty(), call)?;
         let enters = self.report_enter_world(&schema, false)?;
-        let mut fresh = Dataset::default();
-        fresh.column_line_breaks = true;
+        let mut fresh = Dataset::for_save_as_xml();
         fresh.region = region.clone();
         fresh.language = (language == 1031).then(|| "de-DE".to_string());
         let outer = self.report.dataset.replace(fresh);

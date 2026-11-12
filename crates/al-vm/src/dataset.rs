@@ -424,7 +424,7 @@ pub(crate) enum DataFileText {
 pub(crate) struct Dataset {
     body: String,
     /// The modern SaveAs XML dataset normalizes text column line breaks.
-    pub(crate) column_line_breaks: bool,
+    column_line_breaks: bool,
     /// For every open `DataItem`: whether its own `DataItems` element is open.
     open: Vec<bool>,
     /// For every open `DataItem`: whether its data item declares nested items (an empty `DataItems` is written).
@@ -455,6 +455,13 @@ pub(crate) struct Dataset {
 }
 
 impl Dataset {
+    pub(crate) fn for_save_as_xml() -> Self {
+        Self {
+            column_line_breaks: true,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn escape_column_text(&self, text: &str) -> Result<String, Signal> {
         escape_xml(text, false, self.column_line_breaks)
     }
