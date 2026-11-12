@@ -162,6 +162,39 @@ impl Lowerer<'_> {
 
     /// A call resolved on `node` (the CallExpr, or the callee for a call without parentheses).
     /// The id of the implementation for a call whose argument is written as a Variant, where BC treats it apart.
+    /// The type a builtin argument `a` converts to before the call, when it converts:
+    /// - a generic parameter converts to the collection's element type;
+    /// - the index or count of a List method converts as a checked cast to Integer when the argument is declared Decimal or
+    ///   BigInteger (collections/ListNonIntegerIndex.al:44-98 every method but the GetRange form with a var result; :240-263 a
+    ///   whole value, :266-289 a fraction, :292-321 the Get edge values, :324-367 BigInteger, :370-416 Decimal expressions and
+    ///   statements), or Char, Option or Byte for `Get(Index)` (:163-181 with :419-430). Any other argument, a Variant among
+    ///   them, reaches the method as it is.
+    fn builtin_arg_slot(&self, id: &str, param: &str, receiver: Option<&SyntaxNode>, a: &SyntaxNode) -> Option<Ty> {
+        match (param, receiver.map(|r| self.ty_of(r))) {
+            ("T", Some(Ty::List(el))) => Some(*el),
+            ("TKey", Some(Ty::Dictionary(k, _))) => Some(*k),
+            ("TValue", Some(Ty::Dictionary(_, v))) => Some(*v),
+            ("Integer", Some(Ty::List(_))) => {
+                let pinned = match self.ty_of(a) {
+                    Ty::Decimal | Ty::BigInteger => matches!(
+                        id,
+                        "List.Get#1"
+                            | "List.Get#2"
+                            | "List.Set#1"
+                            | "List.Insert#1"
+                            | "List.RemoveAt#1"
+                            | "List.GetRange#1"
+                            | "List.RemoveRange#1"
+                    ),
+                    Ty::Char | Ty::Option(_) | Ty::Byte => id == "List.Get#1",
+                    _ => false,
+                };
+                pinned.then_some(Ty::Integer)
+            }
+            _ => None,
+        }
+    }
+
     fn variant_argument_id(&self, id: &str, args: &[SyntaxNode]) -> Option<&'static str> {
         let variant = |i: usize| args.get(i).is_some_and(|a| matches!(self.ty_of(a), Ty::Variant));
         match id {
@@ -766,13 +799,7 @@ impl Lowerer<'_> {
                             a.text()
                         ));
                     }
-                    // Generic parameters convert to the collection's element types.
-                    let elem = match (p.ty.as_str(), receiver_node.as_ref().map(|r| self.ty_of(r))) {
-                        ("T", Some(Ty::List(el))) => Some(*el),
-                        ("TKey", Some(Ty::Dictionary(k, _))) => Some(*k),
-                        ("TValue", Some(Ty::Dictionary(_, v))) => Some(*v),
-                        _ => None,
-                    };
+                    let elem = self.builtin_arg_slot(&id, &p.ty, receiver_node.as_ref(), a);
                     // CopyArray writes into its destination in place, so both arrays are passed as places: the destination can be a
                     // row of a two-dimensional array (a copy that is written back), and the source's dimensions are checked at run time.
                     out.push(if p.by_var || (id == "System.CopyArray#1" && i < 2) {

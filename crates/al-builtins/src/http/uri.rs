@@ -333,6 +333,7 @@ pub(super) fn request_get_headers(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mu
 pub(super) fn request_content(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if let Some(c) = a.first() {
         let copy = copy_content(c)?;
+        set_request_secret_read(c, &copy);
         return with_request(r, |s| s.content = Some(copy)).map(|()| Value::Null);
     }
     // The uninitialized content is the request's own: a `Clear` on it gives the request a body and content headers that a
@@ -344,12 +345,29 @@ pub(super) fn request_content(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
                     "HttpContent",
                     LibraryValue::HttpContent(HttpContentState {
                         uninitialized: true,
+                        secret_read: crate::value::SecretReadShape::RequestNone,
                         ..HttpContentState::default()
                     }),
                 )
             })
             .clone()
     })
+}
+
+/// The request's copy of `source` is `InRequest` when `source` was `Written` (al-language-onprem/http/
+/// N4ReadAsSecretStatement.al `*_inplace_*`), else `Other` (`SecretReadShape`).
+fn set_request_secret_read(source: &Value, copy: &Value) {
+    let (Value::Library(_, src), Value::Library(_, dst)) = (source, copy) else {
+        return;
+    };
+    let written = matches!(&*src.borrow(), LibraryValue::HttpContent(s) if s.secret_read == crate::value::SecretReadShape::Written);
+    if let LibraryValue::HttpContent(d) = &mut *dst.borrow_mut() {
+        d.secret_read = if written {
+            crate::value::SecretReadShape::InRequest
+        } else {
+            crate::value::SecretReadShape::Other
+        };
+    }
 }
 
 /// An `HttpContent` value copied: its own data and its own headers.

@@ -1296,6 +1296,78 @@ fn a_fractional_decimal_index_outside_the_pinned_array_read_keeps_the_refusal() 
 }
 
 #[test]
+fn a_fractional_decimal_index_of_an_element_taken_by_reference_keeps_the_refusal() {
+    // collections/ListNonIntegerIndex.al:433-452 pins `R := A[D]`, a value read; a `var` argument, the target of a field
+    // write and the receiver of a method call take the element by reference and keep main's refusal.
+    for (routine, src) in [
+        (
+            "Method",
+            "codeunit 50100 C { procedure Method(): Text var a: array[4] of Text; d: Decimal; begin d := 2.5; exit(a[d].ToUpper()); end; }",
+        ),
+        (
+            "VarArg",
+            "codeunit 50100 C { procedure VarArg(): Text var a: array[4] of Integer; d: Decimal; begin d := 2.5; Bump(a[d]); exit(''); end;
+               local procedure Bump(var i: Integer) begin i += 1; end; }",
+        ),
+        (
+            "FieldWrite",
+            "table 50100 T { fields { field(1; K; Integer) { } field(2; N; Integer) { } } keys { key(PK; K) { } } }
+             codeunit 50100 C { procedure FieldWrite(): Text var a: array[2] of Record T temporary; d: Decimal; begin d := 1.5; a[d].N := 5; exit(''); end; }",
+        ),
+    ] {
+        let r = run(src, routine);
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("used as an integer")),
+            "{routine}: {r:?}"
+        );
+    }
+}
+
+#[test]
+fn a_fractional_decimal_index_of_an_element_read_as_a_value_raises_conversion_cast() {
+    // collections/ListNonIntegerIndex.al:433-452 (`decimal 2.5`): the pinned `R := A[D]` and a by-value argument read the
+    // element as a value.
+    for (routine, src) in [
+        (
+            "Assign",
+            "codeunit 50100 C { procedure Assign(): Text var a: array[4] of Text; d: Decimal; r: Text; begin d := 2.5; r := a[d]; exit(r); end; }",
+        ),
+        (
+            "ValArg",
+            "codeunit 50100 C { procedure ValArg(): Text var a: array[4] of Integer; d: Decimal; begin d := 2.5; Val(a[d]); exit(''); end;
+               local procedure Val(i: Integer): Integer begin exit(i); end; }",
+        ),
+    ] {
+        let r = run(src, routine);
+        assert!(
+            matches!(&r, Err(Signal::Error(e)) if e.code == "ConversionCast"),
+            "{routine}: {r:?}"
+        );
+    }
+}
+
+#[test]
+fn a_list_index_outside_the_pinned_static_types_keeps_the_list_error() {
+    // collections/ListNonIntegerIndex.al:240-430 declares every index Decimal, BigInteger, Char, Option or Byte. A Variant
+    // holding a Decimal, a Char index of Set and a Decimal index of the GetRange form with a var result are not pinned and
+    // keep main's list error.
+    for body in [
+        "l.Add(1); l.Add(2); d := 2; v := d; l.Get(v); exit('');",
+        "l.Add(1); l.Add(2); c := 2; l.Set(c, 9); exit('');",
+        "l.Add(1); l.Add(2); d := 1; l.GetRange(d, 1, r); exit('');",
+    ] {
+        let r = text_of(
+            "l: List of [Integer]; r: List of [Integer]; d: Decimal; v: Variant; c: Char;",
+            body,
+        );
+        let Err(Signal::Error(e)) = &r else {
+            panic!("{body}: {r:?}")
+        };
+        assert_eq!(e.code, "ArgumentOutOfRange", "{body}");
+    }
+}
+
+#[test]
 fn a_decimal_list_index_converts_as_a_checked_cast() {
     // collections/ListNonIntegerIndex.al:266-289: a fraction raises ConversionCast before the list is read.
     let r = text_of(

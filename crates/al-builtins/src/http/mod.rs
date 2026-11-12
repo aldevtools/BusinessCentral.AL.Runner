@@ -74,7 +74,11 @@ fn with_content<R>(r: Option<&mut Value>, f: impl FnOnce(&mut HttpContentState) 
     let cell = receiver_cell(r, "HttpContent")?;
     let mut lib = cell.borrow_mut();
     if matches!(&*lib, LibraryValue::Empty) {
-        *lib = LibraryValue::HttpContent(HttpContentState::default());
+        // A content variable nobody used yet.
+        *lib = LibraryValue::HttpContent(HttpContentState {
+            secret_read: crate::value::SecretReadShape::New,
+            ..HttpContentState::default()
+        });
     }
     match &mut *lib {
         LibraryValue::HttpContent(s) => Ok(f(s)),

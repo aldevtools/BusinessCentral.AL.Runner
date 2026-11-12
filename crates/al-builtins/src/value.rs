@@ -1017,6 +1017,31 @@ pub struct HttpContentState {
     pub from_stream: bool,
     /// The last `WriteFrom` took a `SecretText` (xml/xml/P97ContentSecret.al).
     pub secret: bool,
+    /// What was done to the content, as far as `ReadAs(SecretText)` as a statement needs it (`http::content::read_as_secret`).
+    pub secret_read: SecretReadShape,
+}
+
+/// The shapes of an `HttpContent` on which `ReadAs(SecretText)` as a statement, and on the content of a request that has none
+/// also with its result used, is measured or pinned (`http::content::read_as_secret`). Each content method moves it as
+/// `http::content` says; whatever no evidence covers is `Other`, which keeps the refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretReadShape {
+    /// A content variable no method was called on (al-language-onprem/http/N4ReadAsSecretStatement.al `fresh`); `Clear(C)` and
+    /// `ClearAll` make a new one (http/client/UfHttpClear.al:14-62).
+    New,
+    /// A `New` content after `Clear()` (corpus http/CzHttpNoNetwork.al:49 through Http Content Impl. SetContent).
+    Cleared,
+    /// A content variable written once from a Text or a SecretText (N4ReadAsSecretStatement.al `secret`, `plain`, `empty`), or a
+    /// `Cleared` one from a SecretText (CzHttpNoNetwork.al:49).
+    Written,
+    /// The content a request got with `Req.Content(C)` from a `Written` C (N4ReadAsSecretStatement.al `*_inplace_*`).
+    InRequest,
+    /// A copy of an `InRequest` content written from a SecretText (N4ReadAsSecretStatement.al `secret_copy_*`).
+    RequestCopy,
+    /// The content of a request that has none, in place or copied (N4ReadAsSecretStatement.al RequestWithoutContent_*).
+    RequestNone,
+    /// Any other content: a response's, or one after a call no evidence covers.
+    Other,
 }
 
 impl Default for HttpContentState {
@@ -1035,6 +1060,7 @@ impl Default for HttpContentState {
             copied: false,
             from_stream: false,
             secret: false,
+            secret_read: SecretReadShape::Other,
         }
     }
 }
