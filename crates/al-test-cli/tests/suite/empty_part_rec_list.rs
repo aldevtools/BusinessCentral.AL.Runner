@@ -3057,3 +3057,236 @@ fn empty_list_part_rec_widened_cells_neighbors_refuse() {
         .collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// Neighbors of the measured cells of the reporter's host form and of page 76854 "PG EPL List DocBoth" (corpus pull request 1339,
+/// commit 831ae544, EmptyPartRecLinkList.al:1800-2031) that review round 1 of al-runner PR 7932 found answering:
+/// - a fact every cell holds and the allowlist did not require: the part in the content area, host triggers, a `filter(..)` of
+///   one value in place of the `const(..)`, a part without the field's OnDrillDown;
+/// - a call sequence before the landing no cell has: Next, three moves, a host filter (on the reporter's form, on DocBoth and on a
+///   probe's first host);
+/// - a step after the landing that the landing does not include: the part's `CurrPage.Update(false)` before the read, the part's
+///   First or Next, a GoToRecord that answered No, a line or a host row written through a Record variable, a second read;
+/// - the test's filter on the part of a form outside the cells (a host with Editable = false and a bare part control, a part
+///   control with UpdatePropagation = SubPart): the filter re-stamped the link values there with no assumption.
+/// Each refuses the read of the part's Rec. The measured landings stay flagged passes with BC's values, on the reporter's form, on
+/// DocBoth and on a probe's first host (`Base_*`, two reads after a GoToRecord as EmptyPartRecLinkList.al:1370 measures); a Card
+/// host keeps main's result for a second read and for the test's filter on the part (EmptyPartRecLink.al:634 pins the second
+/// action on a Card).
+const TIED_SRC: &str = r#"
+table 76930 "PG EPLT Head"
+{
+    fields { field(1; "No."; Code[20]) { } field(2; "Ref Code"; Code[20]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+table 76931 "PG EPLT Line"
+{
+    fields { field(1; "Table ID"; Integer) { } field(2; "No."; Code[20]) { } field(3; "Line No."; Integer) { } }
+    keys { key(PK; "Table ID", "No.", "Line No.") { Clustered = true; } }
+}
+codeunit 76932 "PG EPLT Log"
+{
+    SingleInstance = true;
+    var Lines: Text;
+    procedure Reset() begin Lines := ''; end;
+    procedure Add(Line: Text) begin if Lines <> '' then Lines += ' | '; Lines += Line; end;
+    procedure Get(): Text begin exit(Lines); end;
+}
+page 76933 "PG EPLT Part Doc"
+{
+    PageType = ListPart; SourceTable = "PG EPLT Line"; DeleteAllowed = true; DelayedInsert = true; InsertAllowed = false;
+    ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; trigger OnDrillDown() begin end; } } } }
+    actions
+    {
+        area(Processing)
+        {
+            action(ReadRec) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLT Log"; begin Log.Add('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; }
+            action(UpdRead) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLT Log"; begin CurrPage.Update(false); Log.Add('upd=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; }
+        }
+    }
+    trigger OnInit() begin end;
+    trigger OnDeleteRecord(): Boolean begin exit(true); end;
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76934 "PG EPLT Part NoDrill"
+{
+    PageType = ListPart; SourceTable = "PG EPLT Line"; DeleteAllowed = true; DelayedInsert = true; InsertAllowed = false;
+    ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(ReadRec) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLT Log"; begin Log.Add('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; } } }
+    trigger OnInit() begin end;
+    trigger OnDeleteRecord(): Boolean begin exit(true); end;
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76935 "PG EPLT Rep"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76936 "PG EPLT DocBoth"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); UpdatePropagation = Both; } }
+    }
+}
+page 76937 "PG EPLT Rep Content"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } }
+            part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; }
+        }
+    }
+}
+page 76938 "PG EPLT Rep Trig"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    trigger OnOpenPage() begin end;
+    trigger OnAfterGetRecord() begin end;
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76939 "PG EPLT Rep FilterLink"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = filter(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76940 "PG EPLT Rep NoDrill"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part NoDrill") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76941 "PG EPLT Partner"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; Editable = false; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); } }
+    }
+}
+page 76942 "PG EPLT SubPart"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = SubPart; } }
+    }
+}
+page 76943 "PG EPLT Base"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+}
+page 76944 "PG EPLT Card Host"
+{
+    PageType = Card; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { group(G) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+codeunit 76945 "PG EPL Tests"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLT Log";
+    local procedure Init(Rows: Integer)
+    var H: Record "PG EPLT Head"; L: Record "PG EPLT Line";
+    begin
+        H.DeleteAll(); L.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert();
+        if Rows > 1 then begin H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); end;
+        if Rows > 2 then begin H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert(); end;
+        Log.Reset();
+    end;
+    local procedure AddLine(No: Code[20]) var L: Record "PG EPLT Line"; begin L."Table ID" := 76930; L."No." := No; L."Line No." := 1; L.Insert(); end;
+    [Test] procedure Rep_GoToLast() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_View_GoToLast() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenView(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_AsOpened() var P: TestPage "PG EPLT Rep"; begin Init(3); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure DocBoth_OnlyRow() var P: TestPage "PG EPLT DocBoth"; H: Record "PG EPLT Head"; begin Init(1); P.OpenEdit(); H.Get('A'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened() var P: TestPage "PG EPLT Base"; begin Init(3); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Card_TwoReads() var P: TestPage "PG EPLT Card Host"; begin Init(1); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Card_PartFilter() var P: TestPage "PG EPLT Card Host"; begin Init(1); P.OpenEdit(); P.Box.Filter.SetFilter("Line No.", '5'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Content_GoToLast() var P: TestPage "PG EPLT Rep Content"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Trig_GoToLast() var P: TestPage "PG EPLT Rep Trig"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure FilterLink_GoToLast() var P: TestPage "PG EPLT Rep FilterLink"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure NoDrill_GoToLast() var P: TestPage "PG EPLT Rep NoDrill"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_Next_GoToLast() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Next(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_ThreeMoves() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.Get('A'); P.GoToRecord(H); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_HostFilter_GoToLastOfFilter() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Filter.SetFilter("No.", 'A|B'); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure DocBoth_HostFilter_OnlyRow() var P: TestPage "PG EPLT DocBoth"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Filter.SetFilter("No.", 'B'); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_PartUpdate() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.UpdRead.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_PartFirst() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); if P.Box.First() then; P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_PartNext() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); if P.Box.Next() then; P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_AsOpened_GoToNoRow() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Init(); H."No." := 'Z'; if P.GoToRecord(H) then; P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_LineAdded() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); AddLine('RC'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_HostModified() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H."Ref Code" := 'RX'; H.Modify(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_HostDeleted() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.Delete(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_RowAdded() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H."No." := 'D'; H."Ref Code" := 'RD'; H.Insert(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_TwoReads() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened_TwoReads() var P: TestPage "PG EPLT Base"; begin Init(3); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened_PartFirst() var P: TestPage "PG EPLT Base"; begin Init(3); P.OpenEdit(); if P.Box.First() then; P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TwoReads() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_Next_GoToLast() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Next(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_HostFilter_GoToLastOfFilter() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Filter.SetFilter("No.", 'A|B'); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Partner_GoToLast_PartFilter() var P: TestPage "PG EPLT Partner"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.Filter.SetFilter("Line No.", '5'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Partner_AsOpened_PartFilter() var P: TestPage "PG EPLT Partner"; begin Init(3); P.OpenEdit(); P.Box.Filter.SetFilter("Line No.", '5'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure SubPart_GoToLast_PartFilter() var P: TestPage "PG EPLT SubPart"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.Filter.SetFilter("Line No.", '5'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+}
+"#;
+
+/// The measured landings answer BC's values through the assumption; the Card host keeps main's result through none; every
+/// neighbor refuses the read of the part's Rec.
+#[test]
+fn empty_list_part_rec_tied_to_its_landing() {
+    let o = run(TIED_SRC);
+    assert_eq!(o.len(), 32, "{o:?}");
+    let kept: &[(&str, &str, bool)] = &[
+        ("Rep_GoToLast", "act=76930/RC/0", true),
+        ("Rep_View_GoToLast", "act=76930/RC/0", true),
+        ("Rep_AsOpened", "act=76930/RA/0", true),
+        ("DocBoth_OnlyRow", "act=76930/A/0", true),
+        ("Base_AsOpened", "act=76930/A/0", true),
+        ("Base_GoToLast_TwoReads", "act=76930/C/0 | act=76930/C/0", true),
+        ("Card_TwoReads", "act=76930/RA/0 | act=76930/RA/0", false),
+        ("Card_PartFilter", "act=76930/RA/5", false),
+    ];
+    let wrong: Vec<_> = o
+        .iter()
+        .filter(
+            |(name, outcome, flagged)| match kept.iter().find(|(n, _, _)| n == name) {
+                Some((_, want, flag)) => !raised(outcome, want) || flagged != flag,
+                None => !refused(outcome),
+            },
+        )
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

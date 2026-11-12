@@ -85,6 +85,13 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 A flag set for the pinned shape must be cleared on every move, close, host change and exit. A value tied to
 one run or session must use that run's or session's id, not a shared slot or a per-session counter.
 
+## 7a. A value stamped at a measured landing outlives the landing (al-runner PRs 7929 and 7932)
+
+A value put on a record at a measured landing is read after steps the landing does not include. Tie the value to its landing:
+every later page step that does not make the page read again (a test call on the host or the part, a page-code call such as
+`CurrPage.Update`, a write to the store) must end it, and every other site that writes the same value (a second stamp
+function) must go through the owner's allowlist.
+
 ## 8. Citations (6 of 34)
 
 - Cite `file:line`, not only a test name.
