@@ -152,6 +152,7 @@ impl Session {
             if let Some(trap) = self.take_trap(target as u32) {
                 trap.borrow_mut().trapping = false;
                 trap.borrow_mut().caught_by_trap = true;
+                trap.borrow_mut().trapped_static_run = false;
                 trap.borrow_mut().instance = None;
                 target_state = trap;
                 trapped = true;
