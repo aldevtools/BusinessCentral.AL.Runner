@@ -7,16 +7,12 @@
 
 use std::cmp::Ordering;
 
-use al_builtins::native::{CALL_STACK_MARK, CARRIED_TEXT_MARK, SQL_COUNT_TEXT_MARK, Signal};
+use al_builtins::native::{Signal, TEXT_MARKS};
 use al_builtins::ops::{compare, compare_order, compare_range_end};
 use al_builtins::value::Value;
 
 fn marks() -> Vec<char> {
-    vec![
-        CALL_STACK_MARK,
-        CARRIED_TEXT_MARK,
-        SQL_COUNT_TEXT_MARK,
-    ]
+    TEXT_MARKS.to_vec()
 }
 
 fn text(s: &str) -> Value {

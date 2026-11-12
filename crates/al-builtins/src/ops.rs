@@ -1649,15 +1649,11 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
     compare_general(l, r)
 }
 
-/// The order of two texts that may hold a marker (`CALL_STACK_MARK`, `CARRIED_TEXT_MARK`), when the text before the first
+/// The order of two texts that may hold a marker (`native::TEXT_MARKS`), when the text before the first
 /// marker of either decides it: the first character that differs there, or a text without a marker that ends while the
 /// other still has known characters. `None` when the texts agree up to a marker.
 fn known_prefix_order(a: &str, b: &str) -> Option<Ordering> {
-    let marker = |c: char| {
-        c == crate::native::CALL_STACK_MARK
-            || c == crate::native::CARRIED_TEXT_MARK
-            || c == crate::native::SQL_COUNT_TEXT_MARK
-    };
+    let marker = |c: char| crate::native::TEXT_MARKS.contains(&c);
     let (mut x, mut y) = (a.chars(), b.chars());
     loop {
         match (x.next(), y.next()) {
