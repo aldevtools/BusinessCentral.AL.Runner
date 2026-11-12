@@ -855,10 +855,12 @@ impl Session {
             page.mode == PageMode::Edit
                 && !page.draft_from_open
                 && engine.object_facts[object].page_type == Some(ir::PageType::Worksheet)
-                && ["AutoSplitKey", "DelayedInsert", "MultipleNewLines"].iter().all(|name| {
-                    effective_prop(&engine, object, name)
-                        .is_ok_and(|value| value.is_some_and(|value| value.trim().eq_ignore_ascii_case("true")))
-                })
+                && ["AutoSplitKey", "DelayedInsert", "MultipleNewLines"]
+                    .iter()
+                    .all(|name| {
+                        effective_prop(&engine, object, name)
+                            .is_ok_and(|value| value.is_some_and(|value| value.trim().eq_ignore_ascii_case("true")))
+                    })
         };
         let mut quiet = Vec::new();
         for c in parts {
