@@ -481,16 +481,20 @@ report 95754 "LT WXP Types C"
     }
 }
 
-// The order of two names that first differ in an underscore against a digit is not pinned.
+// An underscore sorts before a digit (corpus PR 1336, reports/layouts-saveas/WordXmlPartEmptyItemsOrderArrays.al
+// WordXmlPart_Shape_NameOrder_Plain: `A_ A1 AA aB`; al-runner issue 7367). This test refused the pair before that probe.
 #[test]
-fn an_underscore_against_a_digit_is_refused() {
+fn an_underscore_sorts_before_a_digit() {
     let src = format!(
-        "{TABLES}\nreport 95755 R {{ dataset {{ dataitem(Rows; \"LT WXP Row\") {{ column(A_x; Name) {{ }} column(A1; Qty) {{ }} }} }} }}\ncodeunit 95759 T {{ procedure F(): Text begin exit(Report.WordXmlPart(95755)); end; }}"
+        "{TABLES}\nreport 95755 R {{ dataset {{ dataitem(Rows; \"LT WXP Row\") {{ column(A1; Qty) {{ }} column(A_x; Name) {{ }} }} }} }}\ncodeunit 95759 T {{ procedure F(): Text begin exit(Report.WordXmlPart(95755)); end; }}"
     );
-    let r = run(&src, "F");
+    let got = match run(&src, "F") {
+        Ok(al_builtins::value::Value::Text(t)) => t.to_string(),
+        other => panic!("{other:?}"),
+    };
     assert!(
-        matches!(&r, Err(al_builtins::native::Signal::Unsupported(m)) if m.contains("the order of")),
-        "{r:?}"
+        got.contains("<Rows>\r\n    <A_x>A_x</A_x>\r\n    <A1>A1</A1>\r\n  </Rows>"),
+        "{got}"
     );
 }
 

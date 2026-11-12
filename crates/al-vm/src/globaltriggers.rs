@@ -163,6 +163,23 @@ impl Session {
         Ok(())
     }
 
+    /// Whether the global trigger of `op` is known to be off for table `t`, without asking the setup: no app subscribes to the
+    /// global triggers, or the setup was asked already (a write before this one) and leaves `op` off.
+    pub(crate) fn global_known_off(&self, t: &TableDef, op: GlobalOp) -> bool {
+        if !self.engine.events.has_global_triggers {
+            return true;
+        }
+        self.events
+            .global_setups
+            .get(&(t.object as usize))
+            .is_some_and(|s| !match op {
+                GlobalOp::Insert => s.insert,
+                GlobalOp::Modify => s.modify,
+                GlobalOp::Delete => s.delete,
+                GlobalOp::Rename => s.rename || s.global_rename,
+            })
+    }
+
     /// Whether database events are on for `op` on table `t`.
     pub(crate) fn global_enabled(&mut self, t: &TableDef, op: GlobalOp) -> Result<bool, Signal> {
         if !self.engine.events.has_global_triggers {

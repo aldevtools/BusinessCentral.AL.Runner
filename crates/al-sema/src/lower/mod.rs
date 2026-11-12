@@ -610,6 +610,7 @@ mod coverage_ids;
 mod dotnet;
 mod dotnet_arg;
 mod expr;
+mod ext_order;
 mod extend;
 
 #[cfg(test)]

@@ -1487,6 +1487,13 @@ impl Session {
         if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
             return Err(al_builtins::sqlcount::refusal("storing in a record field"));
         }
+        // A placeholder's size in a field would be stored as a number (`al_builtins::placeholder_output::size`).
+        if let (Value::PlaceholderSize(m), ir::Place::Field(..)) = (&v, p) {
+            return Err(al_builtins::placeholder_output::size_refusal(
+                m,
+                "storing in a record field",
+            ));
+        }
         if self.sql.active && matches!(p, ir::Place::Field(..)) && al_builtins::sqlcount::formatted(&v) {
             return Err(al_builtins::sqlcount::refusal(
                 "storing the formatted value in a record field",
@@ -1603,6 +1610,7 @@ impl Session {
                         let mut d = dst.borrow_mut();
                         d.fields = fields;
                         d.row_origin = row_origin;
+                        d.own_read = Default::default();
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;

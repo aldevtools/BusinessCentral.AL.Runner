@@ -27,12 +27,17 @@ mod insert_buffer;
 mod setrange_filter;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 mod nested_validate;
+pub(crate) use nested_validate::ValidateSite;
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
 mod stale_rule;
-pub(crate) use stale_rule::same_key;
+pub(crate) use stale_rule::{TrappedRollback, same_key};
+mod guarded_run_body;
+pub(crate) use guarded_run_body::GuardedBody;
+mod locking_read_cells;
+pub(crate) use locking_read_cells::{LockingReadNote, StaleWrite};
 mod write_notes;
 
 pub(crate) type Rec = Rc<RefCell<RecordState>>;
@@ -1121,7 +1126,7 @@ impl Session {
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
             let i = t.fields.iter().position(|f| f.id == 2_000_000_005).expect("checked");
             if let Some(Value::BigInteger(theirs)) = stored.as_ref().map(|r| r[i].clone()) {
-                let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs)?;
+                let verdict = self.stale_verdict(t, rec, &cx, &pk, theirs, StaleWrite::Delete)?;
                 if verdict != StaleVerdict::Fresh {
                     let mut ext = false;
                     for n in ["OnBeforeDelete", "OnDelete", "OnAfterDelete"] {
@@ -1887,6 +1892,7 @@ impl Session {
         let passes = self.row_passes(rec, &t, &row)?;
         let version = t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| &row[i]);
         let origin = self.load_origin(version, [via_get, via_sysid, via_find]);
+        let own_read = self.own_read_after_load(&t, rec, &row, via_get && !via_sysid && !via_find && passes);
         let temporary = rec.borrow().temporary;
         if via_get && !temporary && self.tx.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
@@ -1897,6 +1903,7 @@ impl Session {
             r.position = passes.then_some(pk);
             r.fields = row;
             r.row_origin = origin;
+            r.own_read = own_read;
         }
         self.auto_calculate(rec)
     }
@@ -2360,10 +2367,14 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
-        if self.coverage.profiler.is_some() {
-            return self.record_op_profiled(method, rec, args);
-        }
-        self.record_op_unprofiled(method, rec, args)
+        let inserted = self.own_read_before(method, rec, args);
+        let r = if self.coverage.profiler.is_some() {
+            self.record_op_profiled(method, rec, args)
+        } else {
+            self.record_op_unprofiled(method, rec, args)
+        };
+        self.own_read_after(method, rec, inserted, matches!(r, Ok(Value::Boolean(true))));
+        r
     }
 
     /// [`Session::record_op`] without the profiler's count (`profile.rs`).
@@ -2390,9 +2401,13 @@ impl Session {
         self.note_read_after_rollback(method, rec, args);
         if self.sql.active {
             let r = self.record_op_counted(method, rec, args);
+            self.note_locking_read(method, rec, args, &r);
+            self.guarded_body_record_op(method, rec, args, &r);
             return self.note_insert_buffer(method, rec, insert, r);
         }
         let r = self.record_op_tracked(method, rec, args);
+        self.note_locking_read(method, rec, args, &r);
+        self.guarded_body_record_op(method, rec, args, &r);
         let r = self.note_insert_buffer(method, rec, insert, r);
         if matches!(r, Ok(Value::Boolean(false)))
             && matches!(method, RecordOp::FindSet | RecordOp::FindFirst | RecordOp::FindLast)

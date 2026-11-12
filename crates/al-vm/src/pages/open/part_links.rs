@@ -299,7 +299,7 @@ impl Session {
                     );
                 }
                 self.ret_used = false;
-                self.record_op(RecordOp::Validate, &rec, &mut [Value::Integer(pos as i32), v])?;
+                self.platform_validate(crate::records::ValidateSite::PartLink, &rec, pos, v)?;
             }
         }
         Ok(())
