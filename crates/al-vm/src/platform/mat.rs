@@ -638,11 +638,16 @@ impl Mat {
                 let unseen = match &f.expr {
                     e if single_value(e) => !e.matches_checked(&r[col]),
                     FilterExpr::Like(..) => true,
-                    // An alternative of names, of wildcards or of both: each form alone does not see it (types/AjMisc.al:712-717;
-                    // metadata/platform-tables/FieldTimestampRowTableTypes.al:164-166 on every probed kind of table).
-                    FilterExpr::Or(alts) => alts
-                        .iter()
-                        .all(|a| matches!(a, FilterExpr::Eq(_) | FilterExpr::Like(..))),
+                    // An alternative of names does not see it (types/AjMisc.al:712-717; metadata/platform-tables/
+                    // FieldTimestampRowTableTypes.al:103 with :164 on every probed kind of table). An alternative with a
+                    // wildcard or a case-insensitive part is not pinned and refuses.
+                    FilterExpr::Or(alts) if alts.iter().all(|a| matches!(a, FilterExpr::Eq(_))) => true,
+                    FilterExpr::Or(_) => {
+                        return Err(refusal(
+                            t,
+                            "a row only a lookup by name finds (the Field row of the rowversion, timestamp): an alternative filter on the name with a wildcard or a case-insensitive part is not pinned (only an alternative of names is: metadata/platform-tables/FieldTimestampRowTableTypes.al:103)",
+                        ));
+                    }
                     // A not-equal, an `&` of not-equals, a comparison and a range of two names do not see it either, with or
                     // without the Class, Enabled and ObsoleteState filters (metadata/FieldNameNotEqualFilter.al:57-120, staging
                     // r6980; al-runner issue 6995).

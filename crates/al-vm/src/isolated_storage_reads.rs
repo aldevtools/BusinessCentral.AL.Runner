@@ -10,8 +10,11 @@
 //! - any other missing key: not there; a Get as a statement raises DB:RecordNotFound (:214-240, :399-414, :501-512, :645-664;
 //!   a key a committed Delete removed: :513-526).
 //!
-//! A key nobody in the codeunit wrote that is stored anyway (left by the install code), and a key whose committed value the test
-//! changed again, are not pinned and refuse.
+//! A key nobody in the codeunit wrote that is stored anyway (left by the install code), a key whose committed value the test
+//! changed again, and a key the test deleted while a committed copy exists, are not pinned and refuse.
+//!
+//! It also holds the key forms the corpus pins only in part: a key of more than 200 characters, a key that matches a stored
+//! key only without trailing spaces, and the missing-key error of a Guid key or a SecretText target.
 
 use al_builtins::native::unsupported;
 use al_builtins::value::Value;
@@ -36,6 +39,13 @@ impl Session {
         let committed = self.isolated_committed.get(slot);
         let written_in_test = self.isolated_set_in_test.contains(slot);
         if stored.is_none() {
+            // A key a committed Delete removed is not there (:513-526). A key the test deleted after a commit stored it is
+            // not pinned (the worker may still see the committed copy).
+            if committed.is_some() {
+                return unsupported(
+                    "IsolatedStorage read in a page background task of a key the caller deleted while a committed copy exists (not pinned)",
+                );
+            }
             return Ok(WorkerSees::Stored);
         }
         if !written_in_test && !self.isolated_written_in_codeunit.contains(slot) {
@@ -102,5 +112,65 @@ impl Session {
             "We can't save your changes right now, because a record in table 'Isolated Storage' is being updated in a transaction done by another session.\\\\You'll have to wait until the other transaction has completed, which may take a while. Please try again later.",
             "NDBCS:LockTimeout",
         )
+    }
+}
+
+/// A key of more than 200 characters (or 200 UTF-16 units): `Set` and `Contains` of an ASCII key without trailing spaces in the
+/// default scope raise "Key must not be longer than 200." with code AL (errors/errorinfo/EnTSecret.al:250-283, af207 to af223);
+/// every other method, scope and key form is not pinned and refuses. `None` for a key of at most 200.
+pub(crate) fn isolated_long_key(method: &str, key: &str, scope_given: bool) -> Option<Result<Value, Signal>> {
+    if key.chars().count() <= 200 && key.encode_utf16().count() <= 200 {
+        return None;
+    }
+    let pinned = matches!(method, "Set" | "Contains") && !scope_given && key.is_ascii() && !key.ends_with(' ');
+    Some(if pinned {
+        crate::sessionops::error_code("Key must not be longer than 200.".into(), "AL")
+    } else {
+        unsupported(format!(
+            "IsolatedStorage.{method} of a key of more than 200 characters in this form (pinned for Set and Contains of an ASCII key without trailing spaces in the default scope only)"
+        ))
+    })
+}
+
+/// The missing-key error of a Get or Delete as a statement is pinned for a Text key and a Text target only
+/// (errors/errorinfo/EnTSecret.al:127-128, :215-218; session-system/isolated-storage/IsolatedStorageInBackgroundTask.al:226-240).
+pub(crate) fn refuse_missing_key_form(method: &str, key: &Value, secret_target: bool) -> Result<(), Signal> {
+    if matches!(key, Value::Guid(_)) {
+        return unsupported(format!(
+            "IsolatedStorage.{method} of a missing Guid key as a statement (the Key of the error text is not pinned)"
+        ));
+    }
+    if secret_target {
+        return unsupported(format!(
+            "IsolatedStorage.{method} of a missing key into a SecretText as a statement (error text not pinned)"
+        ));
+    }
+    Ok(())
+}
+
+impl Session {
+    /// The slot of `key` in `scope`. A stored key that differs from `key` only in trailing spaces is found by Contains of
+    /// a key without trailing spaces that is not empty (Contains('EnT trail') finds the key Set as 'EnT trail ':
+    /// errors/errorinfo/EnTSecret.al:182-183, :199), outside a page background task. Every other method and form that
+    /// would depend on that match is not pinned and refuses. Letter case counts (:172-174, :193).
+    pub(crate) fn trailing_twin(&self, method: &str, scope: String, key: &str) -> Result<(String, String), Signal> {
+        let slot = (scope, key.to_string());
+        if self.isolated_storage.contains_key(&slot) {
+            return Ok(slot);
+        }
+        let trimmed = key.trim_end_matches(' ');
+        let twin = self
+            .isolated_storage
+            .keys()
+            .find(|(s, k)| *s == slot.0 && k != key && k.trim_end_matches(' ') == trimmed);
+        let Some(twin) = twin else {
+            return Ok(slot);
+        };
+        if method == "Contains" && trimmed == key && !key.is_empty() && self.pages.bg_worker.is_none() {
+            return Ok(twin.clone());
+        }
+        unsupported(format!(
+            "IsolatedStorage.{method} of a key that matches a stored key only without their trailing spaces (pinned for Contains of a key without trailing spaces only)"
+        ))
     }
 }

@@ -1,6 +1,7 @@
 //! Builtins that act on session state: number sequences and the transaction state.
 
 use crate::Session;
+use crate::isolated_storage_reads::{isolated_long_key, refuse_missing_key_form};
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal, unsupported};
@@ -28,7 +29,7 @@ pub(crate) struct Sequence {
 }
 
 /// An error with a pinned code.
-fn error_code<T>(message: String, code: &str) -> Result<T, Signal> {
+pub(crate) fn error_code<T>(message: String, code: &str) -> Result<T, Signal> {
     Err(Signal::Error(Box::new(AlError {
         message,
         code: code.into(),
@@ -644,20 +645,13 @@ impl Session {
             ("Set" | "SetEncrypted", _) => Some(2),
             _ => Some(1),
         };
-        // A key of more than 200 characters: Set and Contains raise (errors/errorinfo/EnTSecret.al:250-283, af207 to af223); Get and Delete
-        // are not pinned.
-        if key.chars().count() > 200 {
-            return match method {
-                "Set" | "SetEncrypted" | "Contains" => error_code("Key must not be longer than 200.".to_string(), "AL"),
-                _ => unsupported(format!(
-                    "IsolatedStorage.{method} of a key of more than 200 characters (not pinned)"
-                )),
-            };
+        // A key of more than 200 characters (isolated_storage_reads.rs `isolated_long_key`).
+        if let Some(r) = isolated_long_key(method, &key, scope_at.and_then(|i| args.get(i)).is_some()) {
+            return r;
         }
         let scope = self.storage_scope(scope_at.and_then(|i| args.get(i)))?;
-        // Keys are compared without their trailing spaces: Contains('EnT trail') finds the key Set as 'EnT trail '
-        // (errors/errorinfo/EnTSecret.al:182-183, :199); letter case counts (:172-174, :193).
-        let slot = (scope, key.trim_end_matches(' ').to_string());
+        // A key that matches a stored key only without their trailing spaces (isolated_storage_reads.rs `trailing_twin`).
+        let slot = self.trailing_twin(method, scope, &key)?;
         let found = self.ret_used;
         match method {
             "Set" | "SetEncrypted" => {
@@ -774,7 +768,10 @@ impl Session {
                         self.tx.tx_phase = crate::transactions::TX_WRITE;
                         Ok(Value::Boolean(false))
                     }
-                    None => self.isolated_storage_missing("Delete", scope_at.and_then(|i| args.get(i)), &key),
+                    None => {
+                        refuse_missing_key_form("Delete", &args[0], false)?;
+                        self.isolated_storage_missing("Delete", scope_at.and_then(|i| args.get(i)), &key)
+                    }
                 }
             }
             "Get" => {
@@ -815,7 +812,10 @@ impl Session {
                         };
                         Ok(Value::Boolean(false))
                     }
-                    None => self.isolated_storage_missing("Get", scope_at.and_then(|i| args.get(i)), &key),
+                    None => {
+                        refuse_missing_key_form("Get", &args[0], n == 1 || n == 3)?;
+                        self.isolated_storage_missing("Get", scope_at.and_then(|i| args.get(i)), &key)
+                    }
                 }
             }
             other => unsupported(format!("IsolatedStorage.{other}")),
