@@ -204,18 +204,16 @@ fn a_source_table_view_const_blank_on_a_text_field_does_not_filter() {
     ));
 }
 
-// Only a Text field is pinned for const('') in a SourceTableView; a Code field is refused.
+// pages/view-filters/ViewConstBlankCode.al:509 SourceTableView_C10Const_RowsAndFilters: const('') on a Code[10] field sets no
+// filter, every row shows (al-runner issue 7371).
 #[test]
-fn a_source_table_view_const_blank_on_a_code_field_is_refused() {
-    not_run_with(
-        &format!(
-            r#"
+fn a_source_table_view_const_blank_on_a_code_field_does_not_filter() {
+    passes(&format!(
+        r#"
     [Test] procedure ConstBlankCode() var List: TestPage "PV ConstBlankCode"; Result: Text;
-    begin Seed(); List.OpenView(); {WALK} List.Close(); end;
+    begin Seed(); List.OpenView(); {WALK} List.Close(); Check('ids', Result, '1,2,3,4,'); end;
 "#
-        ),
-        "const('')",
-    );
+    ));
 }
 
 // testpage/CdTestPageLeads.al:776 Item63_FilterGroupMinus1_InOnOpenPage: the record counts the OR rows inside
@@ -447,11 +445,22 @@ fn an_enum_filter_given_as_text_reads_as_the_name() {
         Check('filter', List.Filter.GetFilter(Kind), 'Second');
         List.Close();
     end;
+"#,
+    );
+}
+
+// A SourceTableView `filter(Member)` of one Enum member reads back as the member's number in `Filter.GetFilter`
+// (pages/view-filters/ViewConstBlankCode.al:490 SourceTableView_Reported_RowsAndFilters `Doc Type=[1]`; BC stores the view as
+// `FILTER(1)`, pages/SsPageMetaFilterView.al:111). Main read the name here; nothing pinned that.
+#[test]
+fn a_source_table_view_filter_of_one_enum_member_reads_as_its_number() {
+    passes(
+        r#"
     [Test] procedure ViewFilterText() var List: TestPage "PV FilterKind";
     begin
         SeedKinds();
         List.OpenView();
-        Check('filter', List.Filter.GetFilter(Kind), 'Second');
+        Check('filter', List.Filter.GetFilter(Kind), '1');
         List.Close();
     end;
 "#,

@@ -567,8 +567,8 @@ impl Session {
 
     /// `TestRequestPage.SaveAsPdf(FileName)` and `SaveAsExcel(FileName)` from a request page handler (ADR-040): for a
     /// report on the allow-list the report runs there and then with the page's values, no output is written, the file
-    /// name is marked as pending, and the page is closed as after `SaveAsXml`. `SaveAsPdf` of a report with an RDLC or
-    /// Word layout runs the same way and writes a placeholder PDF (ADR-040 amendment of 2026-11-08). Any other report
+    /// name is marked as pending, and the page is closed as after `SaveAsXml`. `SaveAsPdf` and `SaveAsExcel` of a report whose
+    /// default layout gives the format run the same way and write a placeholder (ADR-040 amendments of 2026-11-08 and 2026-11-11). Any other report
     /// stays refused.
     pub(super) fn request_save_as_render(
         &mut self,
@@ -587,12 +587,17 @@ impl Session {
         let object = st.borrow().object as usize;
         let inst = st.borrow().instance.clone().expect("open page");
         let schema = self.report_schema_of(&inst)?;
-        // Owner decision 2026-11-08 (ADR-040 amendment): SaveAsPdf of a report with an RDLC or Word layout writes a placeholder PDF.
-        let placeholder = format == "Pdf" && self.pdf_placeholder(&schema)?;
-        if !placeholder && !self.output_is_ignored(&schema) {
+        // ADR-040 amendments of 2026-11-08 and 2026-11-11: a format the default layout gives writes a placeholder
+        // (`report_placeholder::grid`).
+        let placeholder = crate::report_placeholder::Format::from_name(format)
+            .map(|f| self.placeholder_allowed(&schema, f).map(|ok| ok.then_some(f)))
+            .transpose()?
+            .flatten();
+        if placeholder.is_none() && !self.output_is_ignored(&schema) {
             return unsupported(format!(
-                "SaveAs{format} of \"{}\": only the Xml dataset is produced (a rendered format needs a layout renderer, \
-                 and the Linux tier the corpus was measured on does not render them either)",
+                "SaveAs{format} of \"{}\": only the Xml dataset and placeholders of the formats a default layout gives are \
+                 produced (a rendered format needs a layout renderer, and the Linux tier the corpus was measured on does not \
+                 render them either)",
                 schema.name()
             ));
         }
@@ -617,10 +622,9 @@ impl Session {
         drop(written);
         let (target, output) = (
             crate::reports::SaveTarget::File(name),
-            if placeholder {
-                crate::report_pdf_placeholder::SaveOutput::Placeholder
-            } else {
-                crate::report_pdf_placeholder::SaveOutput::Discard
+            match placeholder {
+                Some(f) => crate::report_placeholder::SaveOutput::Placeholder(f),
+                None => crate::report_placeholder::SaveOutput::Discard,
             },
         );
         self.write_save_output(target, output, &schema, &[])?;
@@ -968,7 +972,7 @@ impl Session {
                 // A field bound to a place written as an expression (`BufArr[1].Name`): named by its source as written
                 // (`request_expr_params`).
                 (ir::ControlKind::Field, ir::Binding::Expr(_)) => {
-                    let (name, read, _, who) = self.request_expr_place(c)?;
+                    let (name, read, _, who) = self.request_expr_place(object, c)?;
                     let v = match who {
                         None => self.request_expr_read(object, inst, read)?,
                         Some(e) => self.request_expr_read(e, &owner_inst(inst, exts, Some(e)), read)?,
@@ -1087,7 +1091,7 @@ impl Session {
                     && c.source_text.as_deref() == Some(name.as_str())
             });
             if let Some(c) = expr {
-                let (_, read, write, who) = self.request_expr_place(c)?;
+                let (_, read, write, who) = self.request_expr_place(object, c)?;
                 match who {
                     None => self.request_expr_write(object, inst, &name, &text, (read, write))?,
                     // A field of the extension's own record variable (`request_expr_params`); a field of a data item is

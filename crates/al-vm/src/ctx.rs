@@ -212,6 +212,10 @@ impl al_builtins::native::Ctx for Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
+                if method == al_builtins::record_op::RecordOp::Validate {
+                    // `Record.Validate` in AL code (registry `Record.Validate#1`).
+                    return self.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
+                }
                 self.record_op_from_al(method, &rc, args)
             }
             other => Err(Signal::unsupported(format!(
@@ -261,8 +265,9 @@ impl al_builtins::native::Ctx for Session {
         Session::collect_error(self, info)
     }
     fn fs_exists(&mut self, path: &str) -> Result<bool, Signal> {
-        // Whether a file of carried content exists is no look at it (owner decision 2026-10-23 "Carry bytes unread").
-        if self.fs_carried_mark(path).is_none() {
+        // Whether a file of carried content exists is no look at it (owner decision 2026-10-23 "Carry bytes unread"), nor
+        // whether a placeholder report output does (ADR-040 amendment 2026-11-11).
+        if self.fs_carried_mark(path).is_none() && self.placeholder_file_mark(path).is_none() {
             self.refuse_pending_file(path)?;
         }
         Ok(self.host.files.exists(path))
@@ -279,7 +284,7 @@ impl al_builtins::native::Ctx for Session {
         self.host.files.write(path, bytes)
     }
     fn fs_remove(&mut self, path: &str) -> Result<bool, Signal> {
-        if self.fs_carried_mark(path).is_some() {
+        if self.fs_carried_mark(path).is_some() || self.placeholder_file_mark(path).is_some() {
             self.render_pending_files.remove(&pending_key(path));
         } else {
             self.refuse_pending_file(path)?;
@@ -306,6 +311,15 @@ impl al_builtins::native::Ctx for Session {
     }
     fn dotnet_clear_is_inert(&mut self, handle: u64, clr_type: &str) -> bool {
         Session::dotnet_clear_is_inert(self, handle, clr_type)
+    }
+    fn fs_write_placeholder(&mut self, path: &str, bytes: &[u8], mark: Arc<str>) -> Result<(), String> {
+        self.host.files.write(path, bytes)?;
+        self.render_pending_files.insert(pending_key(path), mark);
+        Ok(())
+    }
+    fn fs_placeholder(&mut self, path: &str) -> Option<(Arc<str>, Vec<u8>)> {
+        let mark = self.placeholder_file_mark(path)?;
+        Some((mark, self.host.files.read(path)?))
     }
     fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
         self.host.files.write(path, &[])?;
@@ -746,6 +760,17 @@ pub(crate) fn pending_key(path: &str) -> String {
 }
 
 impl Session {
+    /// The mark of a file that holds a placeholder report output (`al_builtins::placeholder_output`).
+    pub(crate) fn placeholder_file_mark(&self, path: &str) -> Option<Arc<str>> {
+        if self.render_pending_files.is_empty() {
+            return None;
+        }
+        self.render_pending_files
+            .get(&pending_key(path))
+            .filter(|m| al_builtins::placeholder_output::is_placeholder(m))
+            .cloned()
+    }
+
     /// Refuses a look at a file whose rendered output was never produced (ADR-040).
     pub(crate) fn refuse_pending_file(&self, path: &str) -> Result<(), Signal> {
         if self.render_pending_files.is_empty() {

@@ -25,6 +25,7 @@ const PAGES: PinnedPart = PinnedPart {
     part_properties: &["autosplitkey", "delayedinsert", "populateallfields"],
     part_variable_controls: true,
     part_variable_validate: true,
+    part_field_validate_update: false,
     part_expression_controls: false,
     unlinked: false,
     sibling_parts: false,

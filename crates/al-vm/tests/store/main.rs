@@ -1,5 +1,6 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of store/.
 
+mod assigned_audit_fields;
 mod autoinc_non_key;
 mod blob_calcfields_after_run;
 mod blob_clear_shared_xrec;
@@ -38,6 +39,7 @@ mod find_directions;
 mod find_other_key;
 mod fix_records;
 mod flowfield_field_filter_flowfilter;
+mod flowfield_key_lookup_temporary;
 mod flowfield_key_order;
 mod flowfield_lookup_enum_into_option;
 mod flowfield_signed_recordid_lookup;
@@ -156,6 +158,7 @@ mod transferfields_cross_app;
 mod transferfields_field_apps;
 mod transferfields_size;
 mod truncate_database_delete;
+mod user_account_keys;
 mod user_gaps_filters;
 mod userpersonalization;
 mod usertable;

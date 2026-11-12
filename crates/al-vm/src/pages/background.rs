@@ -58,6 +58,11 @@ impl Session {
             Some(d @ V::Dictionary(_)) => copy_dictionary(d),
             _ => V::Dictionary(Default::default()),
         };
+        // Every enqueue runs its task, also a second one a page part enqueues for the record of its previous enqueue: BC logs a
+        // new enqueue and its completion each time OnAfterGetCurrRecord enqueues (pending pin, corpus pull request 1332:
+        // pages/background-tasks/BgTaskPartReenqueue.al GoToRecord_TheSameRowTwice, BC 27.5, 28.5 and 29.0; al-runner issue
+        // 7576). Microsoft's tests need it (Tests-SCM 137275, 137033, 137285, 137035, 137014; Tests-ERM-Purchase 133772). When
+        // TestPage.GoToRecord runs the part's OnAfterGetCurrRecord is a separate rule (same probe file).
         let id = {
             let mut s = st.borrow_mut();
             let id = s.bg_next_id;

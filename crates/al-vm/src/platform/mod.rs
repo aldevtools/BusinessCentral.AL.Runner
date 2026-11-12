@@ -49,6 +49,11 @@ pub(crate) use permissions::{
 };
 pub(crate) use seed::SESSION_USER_FULL_NAME;
 
+/// The platform tables Tenant Permission Set, Tenant Permission and Tenant Permission Set Rel.
+pub(crate) const TENANT_PERMISSION_SET: u32 = 2_000_000_165;
+pub(crate) const TENANT_PERMISSION: u32 = 2_000_000_166;
+pub(crate) const TENANT_PERMISSION_SET_REL: u32 = 2_000_000_253;
+
 use crate::Engine;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FieldFilter;
@@ -465,8 +470,13 @@ impl Providers {
                             .into(),
                     );
                 }
-                // ADR-044: the picture was never produced; its content, MIME type and size are unknown.
-                if let Some(what) = &o.pending {
+                // ADR-044: the picture was never produced; its content, MIME type and size are unknown. A placeholder report
+                // output (ADR-040 amendment 2026-11-11) has its bytes, and its Content carries the mark.
+                let placeholder = o
+                    .pending
+                    .as_ref()
+                    .filter(|m| al_builtins::placeholder_output::is_placeholder(m));
+                if let Some(what) = o.pending.as_ref().filter(|_| placeholder.is_none()) {
                     let al_builtins::native::Signal::Unsupported(why) = al_builtins::stream::render_pending_error(what)
                     else {
                         unreachable!("render_pending_error is a refusal")
@@ -476,7 +486,9 @@ impl Providers {
                 row[pos(t, 2)] = Value::Text(description.into());
                 let blob = al_builtins::stream::new_blob();
                 al_builtins::stream::write_bytes(&blob, &o.bytes);
-                if al_builtins::media::jpg_holding_png(o) {
+                if let Some(mark) = placeholder {
+                    blob.borrow_mut().render_pending = Some(mark.clone());
+                } else if al_builtins::media::jpg_holding_png(o) {
                     blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_JPG_HOLDING_PNG.into());
                 } else if al_builtins::media::png_size(&o.bytes).is_some() {
                     // BC stores an imported PNG re-encoded (onprem session-system/UsAppLogo.al:7, the Icon of an app's logo; types/W7Media.al:141-145):
@@ -595,10 +607,12 @@ impl Providers {
                 reports::layout_list_rows(self, t),
             ))));
         }
-        // The Name of a language is pinned for a session in 1033 only (PlatformRowsLanguageSelection.al runs in it).
-        if kind == Virtual::LanguageSelection && self.language() != 1033 {
+        // The rows are pinned in session language 1033 (PlatformRowsLanguageSelection.al runs in it), and are the same rows,
+        // Names included, in 1031, 1036 and 1030 (metadata/platform-tables/LanguageSelectionOtherLanguage.al:158-221). Another
+        // session language is not pinned.
+        if kind == Virtual::LanguageSelection && ![1033, 1031, 1036, 1030].contains(&self.language()) {
             return Err(refused(format!(
-                "Language Selection: the rows in session language {} are not pinned (only those in 1033 are)",
+                "Language Selection: the rows in session language {} are not pinned (only those in 1033, 1031, 1036 and 1030 are)",
                 self.language()
             )));
         }
@@ -692,6 +706,11 @@ impl Providers {
             }
             // No rows (metadata/platform-tables/Y21EnvColumns.al:30-40 Y21_Printer_NoRows).
             Virtual::Printer => Vec::new(),
+            // No rows for any table, at install and at test time (al-language-onprem metadata/TableSynchSetupRows.al:275-304,
+            // :243-273). The rows are a fact of the server, not of the reading app: the corpus publishes its Cloud and OnPrem apps
+            // to the same container, so Cloud code (Base Application's "Data Upgrade Mgt." called from a Cloud app, AL Runner
+            // issue 7582) reads the same empty table.
+            Virtual::TableSynchSetup => Vec::new(),
             Virtual::XmlPortMetadata => metadata::xmlport_metadata_rows(self, t),
             Virtual::EventSubscription => metadata::event_subscription_rows(self, t),
             Virtual::PageAction => metadata::page_action_rows(self, t),
@@ -959,11 +978,8 @@ impl VirtualTables for Providers {
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.next(t, scan),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.next(t, scan),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.next(t, scan),
-            // The rows of one page come in ControlId order, an id the compiler derives, which the runtime's ids do not follow
-            // (record/TestPageControlFieldPageExtension.al:148): what a read in key order that chooses between two controls of a
-            // page gives is not pinned. It is kept as it was before the expression texts were pinned, because a baseline case
-            // walks a page's controls that way without depending on their order (TestPageControlFieldPageExtension.al:58-85):
-            // the rows it reaches serve an expression column as unknown, as they did then. One read by Sequence is pinned
+            // A read in key order that chooses between two controls of a page: what the chosen row serves is decided by
+            // `pages::page_control_field_chosen_in_key_order`. One read by Sequence is pinned
             // (record/TestTableRelationsSequenceMetadataContracts.al:107-122) and is served in full.
             Virtual::PageControlField if scan.key == 0 => {
                 let listed = self.listed(t, Virtual::PageControlField)?;
@@ -984,17 +1000,7 @@ impl VirtualTables for Providers {
                         });
                     }
                     if chose {
-                        for id in [6, 7, 8] {
-                            let i = pos_of(t, id);
-                            let literal =
-                                matches!(&row[i], Value::Text(v) if ["true", "false", "True"].contains(&v.as_str()));
-                            if matches!(row[i], Value::Text(_)) && !literal {
-                                row[i] = Value::Unknown(
-                                    "Page Control Field: an expression column of a row read in key order over several controls of a page (the rows come in ControlId order, an id the compiler derives; not pinned)"
-                                        .into(),
-                                );
-                            }
-                        }
+                        pages::page_control_field_chosen_in_key_order(self, t, row);
                     }
                 }
                 Ok(found)

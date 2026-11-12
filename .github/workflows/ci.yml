@@ -33,8 +33,20 @@ name: CI
 #     pull request), the trees differ or nothing is found, and the full pull request set runs. When the check
 #     itself fails, the full set runs too. The `corpus` job always runs: it checks the not-passing lists (ADR-065) and
 #     uploads the coverage maps.
-#   - Required checks apply to pull requests only. On a pull request `test`, `licenses`, `portable` and `corpus` always
-#     run in full (owner rule: no path filter or selection on `corpus` or `test`).
+#   - Required checks apply to pull requests only. On a pull request `test`, `licenses`, `portable` and `corpus` run in
+#     full (owner rule: no path filter or selection on `corpus` or `test`), with one exception, below.
+#
+# Owner decision, 2026-11-12: a change of markdown files only runs no pipeline.
+#   - Pull request. The job `docs-check` prints `docs_only=true` only when the list of changed files was read in full and
+#     every file ends in `.md` and is none of the markdown files a test or tool reads (the list is in that job). Then
+#     `test`, `licenses`, `portable`, `corpus` and `release-tests` are skipped by their `if`. A job skipped by its `if`
+#     reports success, so the required checks pass (no stub jobs, for the reason given under `release-tests` below).
+#     The job `legal guard` runs instead: `tools/legal_guard.sh` checks every tracked file for a licensing claim, a
+#     Microsoft header or a decompiler marker, which the `test` job would otherwise catch. This holds for a draft too.
+#   - Push. The `paths` filter of the push trigger leaves out every `.md` file except the same list, so a push (a merge to
+#     main included) that changes only other markdown files starts no run. The schedule, manual dispatch and
+#     release-tag.yml (workflow_call) have no path filter and run everything.
+#   - Keep the list in `docs-check` and the push `paths` the same.
 #   - `release-tests` on a pull request runs unless the job `release-tests-paths` proves that every changed file is
 #     outside what it checks (the rule is in that job; when in doubt it runs). A job skipped by its `if` reports
 #     success, so the required check `release-tests` still passes; no stub job with the same name is added, because two
@@ -52,6 +64,20 @@ on:
     # corpus-bump/**: the corpus bump bot (.github/workflows/corpus-bump-bot.yml) opens its pull request with the
     # workflow token, which starts no pull_request run; the push of its branch (deploy key) runs CI instead.
     branches: [main, release, 'corpus-bump/**']
+    # A push that changes only markdown files starts no run (owner, 2026-11-12; see the header). Keep the re-included
+    # files the same as the list in the job `docs-check`: tests and tools read them.
+    paths:
+      - '**'
+      - '!**.md'
+      - 'README.md'
+      - 'oracle/README.md'
+      - 'docs/codemap.md'
+      - 'docs/probes-needed.md'
+      - 'docs/corpus-coverage.*'
+      - 'docs/corpus-behavior-coverage.*'
+      - 'crates/**.md'
+      - 'tools/**.md'
+      - '.github/**.md'
   # ready_for_review: a draft pull request runs only the job `test` (see `jobs` below); marking it ready starts the full set.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -93,6 +119,10 @@ concurrency:
 # The jobs `test`, `licenses`, `portable` and `release-tests` wait for `merge-check` and run unless it says the pull
 # request already tested this tree (header, owner decision 2026-11-04). `merge-check` runs only on a push to main;
 # elsewhere it is skipped, and `!cancelled()` lets the jobs run after a skipped or failed `merge-check`.
+#
+# The jobs `test`, `licenses`, `portable`, `corpus` and `release-tests` also wait for `docs-check` and are skipped when
+# it prints `docs_only=true` (header, owner decision 2026-11-12). It runs only on a pull request, drafts included; on
+# every other event it is skipped, its output is empty and the jobs run.
 jobs:
   merge-check:
     name: merge push check
@@ -148,6 +178,66 @@ jobs:
           done
           note "Pull request #$number has no successful run with a tested tree for head $head. The full set runs."
 
+  # Decides whether the pull request changes markdown files only (owner decision 2026-11-12, see the header). It prints
+  # `docs_only=true` only when the list of changed files was read in full and every file, and the old name of every
+  # renamed file, ends in `.md` and is none of these, which a test or tool reads:
+  #   README.md                        crates/alrunner-cli/tests/legal_text.rs
+  #   oracle/README.md                 tools/corpus_bump_pr.py and its tests (suite/corpus_bump_from_pr.rs)
+  #   docs/codemap.md                  suite/codemap.rs
+  #   docs/probes-needed.md            al-builtins assumptions.rs tests, suite/refusal_keys.rs, `--assumptions-doc`
+  #   docs/corpus-coverage.*, docs/corpus-behavior-coverage.*   written by al-test-cli (not committed)
+  #   crates/**, tools/**, .github/**  suite/no_microsoft_source_in_repo.rs reads every tracked file there
+  # The push `paths` filter (`on:` above) re-includes the same files. A failed API call, or a pull request with 3,000
+  # files or more (the API's limit), leaves the output unset, and every job runs.
+  docs-check:
+    name: docs-only check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.paths.outputs.docs_only }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Does the pull request change markdown files only?
+        id: paths
+        continue-on-error: true
+        run: |
+          # The old name of a renamed file counts as changed too: a .rs file renamed to .md removes the .rs file.
+          files=$(gh api --paginate "repos/$GH_REPO/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')
+          count=$(printf '%s\n' "$files" | grep -c . || true)
+          if [ "$count" -eq 0 ] || [ "$count" -ge 3000 ]; then
+            echo "Every job runs: $count changed files read." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          while IFS= read -r f; do
+            case "$f" in
+              README.md|oracle/README.md|docs/codemap.md|docs/probes-needed.md) ;;
+              docs/corpus-coverage.*|docs/corpus-behavior-coverage.*) ;;
+              crates/*|tools/*|.github/*) ;;
+              *.md) continue ;;
+            esac
+            echo "Every job runs: $f is not a markdown file, or a test or tool reads it." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          done <<<"$files"
+          echo "Markdown only: none of the $count changed files is read by a test or tool. Only the legal guard runs." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "docs_only=true" >> "$GITHUB_OUTPUT"
+
+  # A markdown-only pull request skips `test`, which runs suite/legal_guard.rs and suite/no_microsoft_source_in_repo.rs
+  # over the repository. This job runs the same script on the checked-out merge commit, without cargo.
+  legal-guard:
+    name: legal guard
+    needs: docs-check
+    if: needs.docs-check.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tools/legal_guard.sh .
+
   # Decides whether `release-tests` runs on a pull request (owner decision 2026-11-04). It prints `run=false` only when
   # the list of changed files was read in full and every file is in one of these places:
   #   docs/**             except docs/corpus-coverage.*, docs/corpus-behavior-coverage.*, docs/probes-needed.md and
@@ -176,7 +266,8 @@ jobs:
         id: paths
         continue-on-error: true
         run: |
-          files=$(gh api --paginate "repos/$GH_REPO/pulls/$PR/files?per_page=100" --jq '.[].filename')
+          # The old name of a renamed file counts too (a file moved out of crates/ changes crates/).
+          files=$(gh api --paginate "repos/$GH_REPO/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')
           count=$(printf '%s\n' "$files" | grep -c . || true)
           if [ "$count" -eq 0 ] || [ "$count" -ge 3000 ]; then
             echo "release-tests runs: $count changed files read." | tee -a "$GITHUB_STEP_SUMMARY"
@@ -198,9 +289,9 @@ jobs:
           echo "run=false" >> "$GITHUB_OUTPUT"
 
   test:
-    needs: merge-check
+    needs: [merge-check, docs-check]
     # No draft condition (owner, 2026-11-10): `test` runs on a draft pull request too.
-    if: ${{ !cancelled() && needs.merge-check.outputs.skip != 'true' }}
+    if: ${{ !cancelled() && needs.merge-check.outputs.skip != 'true' && needs.docs-check.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     env:
       # Line tables are enough for a panic's location; full debug info made the debug test build
@@ -253,8 +344,8 @@ jobs:
 
   # Fails when a dependency has a license that is not on the allow-list in deny.toml.
   licenses:
-    needs: merge-check
-    if: ${{ !cancelled() && github.event.pull_request.draft != true && needs.merge-check.outputs.skip != 'true' }}
+    needs: [merge-check, docs-check]
+    if: ${{ !cancelled() && github.event.pull_request.draft != true && needs.merge-check.outputs.skip != 'true' && needs.docs-check.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -282,14 +373,14 @@ jobs:
   # 2026-11-04 (owner; it is no longer a required check): the nightly edge build of aarch64-apple-darwin
   # finds a macOS-only compile error.
   portable:
-    name: portable check (${{ matrix.os }})
-    needs: merge-check
-    if: ${{ !cancelled() && github.event.pull_request.draft != true && needs.merge-check.outputs.skip != 'true' }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]
+    # A static name and no matrix: a job skipped by its `if` reports a matrix name unexpanded
+    # ("portable check (${{ matrix.os }})"), and GitHub appends the matrix value to a static name, so either way the
+    # required check "portable check (windows-latest)" never reported on a markdown-only pull request and blocked it.
+    # Keep this name in step with the ruleset's required check.
+    name: portable check (windows-latest)
+    needs: [merge-check, docs-check]
+    if: ${{ !cancelled() && github.event.pull_request.draft != true && needs.merge-check.outputs.skip != 'true' && needs.docs-check.outputs.docs_only != 'true' }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -299,7 +390,9 @@ jobs:
       - run: cargo check --locked --workspace
 
   corpus:
-    if: github.event.pull_request.draft != true
+    # `!cancelled()`: a skipped `docs-check` (every event but a pull request) must not skip this job.
+    needs: docs-check
+    if: ${{ !cancelled() && github.event.pull_request.draft != true && needs.docs-check.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     # actions: read lets the step time guard read main's earlier runs of this job (tools/step_time_guard.py).
     permissions:
@@ -669,8 +762,8 @@ jobs:
           retention-days: 90
 
   release-tests:
-    needs: [merge-check, release-tests-paths]
-    if: ${{ !cancelled() && github.event.pull_request.draft != true && needs.merge-check.outputs.skip != 'true' && needs.release-tests-paths.outputs.run != 'false' }}
+    needs: [merge-check, docs-check, release-tests-paths]
+    if: ${{ !cancelled() && github.event.pull_request.draft != true && needs.merge-check.outputs.skip != 'true' && needs.docs-check.outputs.docs_only != 'true' && needs.release-tests-paths.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -463,13 +463,15 @@ impl Session {
 
     pub fn restore_baseline(&mut self, b: &Baseline) {
         let provider = self.store.virtual_tables();
-        self.store = b.store.clone().attached(provider);
+        // The session's store stands for the database whichever store the baseline was taken from.
+        self.store = b.store.clone().attached(provider).as_database();
         self.next_guid = b.next_guid;
         self.next_row_version = b.next_row_version;
         self.tx.committed_row_version = b.committed_row_version;
         self.autoinc = b.autoinc.clone();
         self.isolated_storage = b.isolated_storage.clone();
         self.isolated_committed = b.isolated_storage.clone();
+        self.isolated_written_in_codeunit.clear();
         self.sequences = b.sequences.clone();
         self.sequences_changed.clear();
         // The install ran on a clock that its own Sleep calls had moved forward (hours, in Business Central's install

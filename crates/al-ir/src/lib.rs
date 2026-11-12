@@ -561,10 +561,14 @@ pub struct Report {
     /// `OnPreRendering(var RenderingPayload: JsonObject)` as a routine index.
     #[serde(default)]
     pub on_pre_rendering: Option<usize>,
-    /// The reportextensions (object indices) that change what a run does, in the order they apply:
-    /// by object id (ADR-025). Empty: none does.
+    /// The reportextensions (object indices) that change what a run does, in the order they apply (al-sema
+    /// `lower/ext_order.rs`). Empty: none does.
     #[serde(default)]
     pub extensions: Vec<usize>,
+    /// The unprobed assumptions the report's run rests on (the order of `extensions`); the VM marks them when the report
+    /// runs or its layout parts are read.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
     /// Global slot of the hidden flag `Report.UseRequestPage(x)` sets: 0 = not set, 1 = true, 2 = false.
     pub request_flag_slot: usize,
     /// Procedures of the report whose body names `Rec` or `xRec` of a request page that states `SourceTable`: one called
@@ -1218,6 +1222,18 @@ pub enum PropVal {
     Ext(usize, usize),
 }
 
+/// Applies property `name` = `val` of a page extension's `modify` block to a control's `props`, and notes in `replaced`
+/// (`Control::ext_replaced`) a property the control had already.
+pub fn apply_modify_prop(props: &mut Vec<(String, PropVal)>, replaced: &mut Vec<String>, name: &str, val: PropVal) {
+    match props.iter_mut().find(|(n, _)| n == name) {
+        Some(slot) => {
+            slot.1 = val;
+            replaced.push(name.to_string());
+        }
+        None => props.push((name.to_string(), val)),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Control {
     pub name: String,
@@ -1242,6 +1258,10 @@ pub struct Control {
     /// routine), in the order the extensions apply.
     #[serde(default)]
     pub ext_triggers: Vec<(String, usize, usize)>,
+    /// The properties (lower-case names) a `modify` block of a page extension set over a value the control had already, from
+    /// its own declaration or an earlier extension ([`apply_modify_prop`]).
+    #[serde(default)]
+    pub ext_replaced: Vec<String>,
     /// For actions: what `RunObject` runs (ADR-012 follow-up).
     #[serde(default)]
     pub run_object: Option<RunObject>,
@@ -1259,12 +1279,23 @@ pub struct Control {
     /// For a control with a `var_field`: the slot of that record variable among the page's globals.
     #[serde(default)]
     pub var_slot: Option<usize>,
+    /// For a page's or report's own control whose source is a field of an element of a global record array with a number
+    /// index (`SetupArr[2]."Logo Position"`), when the array's records are not temporary: the table's object index and the
+    /// field's position in it.
+    #[serde(default)]
+    pub array_element_field: Option<(usize, usize)>,
     /// For a page's own control bound to an expression of a form Page Control Field serves (an element of a page array with a
     /// number index `Costs[1]`, a field of a page record variable `OtherLine.Amount`, an arithmetic expression `Costs[1] +
     /// Costs[2]`): the source as written, its SourceExpression, and whether the default of its Editable column is `True`
     /// (record/TestPageControlFieldArraySource.al).
     #[serde(default)]
     pub expr_source: Option<(String, bool)>,
+    /// Set when `expr_source` comes from one of the expression shapes of pages/controls/PageControlFieldExpressionShapes.al
+    /// (al-runner issue 7442). BC lists a page's rows in ControlId order, an id the compiler derives, and the order of these rows
+    /// is not pinned (FilterOnFieldNoZero_PageWithExpressionControls_ControlNames, :323-332): a read in key order that chooses
+    /// between two controls of a page leaves the columns that tell this row apart unknown.
+    #[serde(default)]
+    pub expr_row_unordered: bool,
     /// For a page's own control bound to an expression that is a single call written as a name with or without an argument
     /// list (`CompanyName`, `Format(Costs[1])`), or a member call (`Rec.DisplayCode()`, `Names.NameOf(Rec."No.")`): Page
     /// Control Field serves its row with no source field (record/WbPageControlBuiltIn.al, al-runner issue 6284;

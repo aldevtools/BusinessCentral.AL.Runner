@@ -350,10 +350,13 @@ impl Builder<'_> {
                 continue;
             };
             let ty = self.members[table].fields[pos].ty.clone();
+            // `"Enum"::Member` and `Field::Member` read as the member (`lower::shared::unqualified_member`).
+            let unqualified =
+                |raw: &str| crate::lower::unqualified_member(raw, &ty, &self.members[table].fields[pos].name);
             let value = match &c.value {
                 // Corpus queries/TestQueryDataItemTableFilterDatabaseConst.al:159-190: a Database::
                 // const is the object id.
-                CondValue::Const(raw) => match calc_const(self.ws, self.members, self.file, raw, &ty) {
+                CondValue::Const(raw) => match calc_const(self.ws, self.members, self.file, &unqualified(raw), &ty) {
                     Ok(k) => ir::CalcValue::Const(k),
                     Err(e) => {
                         self.reason(format!("DataItemTableFilter: {e}"));
@@ -367,7 +370,7 @@ impl Builder<'_> {
                 CondValue::Filter(raw) => ir::CalcValue::Filter(match whole_literal(raw) {
                     Some(inner) if inner.is_empty() => "''".to_string(),
                     Some(inner) => inner,
-                    None => rewrite_quotes(raw),
+                    None => rewrite_quotes(&unqualified(raw)),
                 }),
                 _ => {
                     self.reason("DataItemTableFilter with field(...) is not supported yet");

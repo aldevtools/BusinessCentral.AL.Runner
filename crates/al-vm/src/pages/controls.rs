@@ -1,6 +1,6 @@
 use super::*;
+use crate::records::ValidateSite;
 use al_builtins::page_op::{PageMethod, PageOp};
-use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// `TestField.SetValue`: activates the control, turns the value into what the control would
@@ -28,6 +28,10 @@ impl Session {
         let expanded = st.borrow().expanded.clone();
         // A control write ends the shape `next_held_row_read` reads in (`set_value_reading_held_row` read before this).
         st.borrow_mut().next_held_row = None;
+        // The row a part held before this write (`part_refresh_find_forward.rs` compares it with the row after).
+        let held_row =
+            (st.borrow().host.is_some() && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
+        st.borrow_mut().row_before_write = held_row;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
             if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
@@ -103,9 +107,10 @@ impl Session {
     /// record: Code, Text, Integer, Decimal, Boolean, Date, BigInteger, Time and Option are pinned (testpage/no-source-controls/
     /// NoSourceGlobalRecordSetValue.al:180; al-runner issue 6918). An Option field there
     /// shows and takes its member names (27.5, 28.5 and 29.0).
+    /// On a request page see `request_record_choice_type`.
     fn global_record_field_type(&self, st: &St, idx: usize, no_source_expr: bool) -> Result<Option<RtType>, Signal> {
         if !no_source_expr {
-            return Ok(None);
+            return Ok(self.request_record_choice_type(st, idx));
         }
         let engine = self.engine();
         let ty = page_of(&engine, st).controls[idx].var_field.and_then(|(t, p)| {
@@ -345,56 +350,11 @@ impl Session {
         };
         let mut arg = args.first().cloned().unwrap_or(Value::Null);
         self.table_values_allowed_entry(st, idx, &ty, &mut arg, &current, from_variant)?;
-        // A Text inside a Variant on an Enum or Option control goes by ordinal digits: '1' selects the value of ordinal 1, as an
-        // Integer does; ' ', '' and 'Alpha' fail to evaluate, the control keeps its value and holds no validation error. BC 27.5
-        // names NavOption instead (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597 table field, Enum with a blank
-        // caption; the FStrict, FPlain, FOpt and V* twins). Pinned on a card with a row for digits of a value and for empty,
-        // blank or all-letter texts; other texts and other shapes are refused.
+        if self.request_record_choice_type(st, idx).is_some() {
+            self.request_record_choice_entry(&ty, &mut arg, from_variant)?;
+        }
         if from_variant && matches!(ty, RtType::Enum(_) | RtType::Option(_)) {
-            let variant_text: Option<String> = match &arg {
-                Value::Text(t) | Value::Code(t) => Some(t.to_string()),
-                Value::Char(c) => char::from_u32(*c as u32).map(String::from),
-                _ => None,
-            };
-            if let Some(t) = variant_text {
-                if !(self.has_source(st) && !self.is_list(st) && !self.shows_no_row(st, idx)) {
-                    return unsupported(
-                        "SetValue of a Text in a Variant on an Enum or Option control of a list or of a page without a row (not pinned)",
-                    );
-                }
-                if !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()) {
-                    let n: Option<i32> = t.parse().ok();
-                    let is_value = match (&ty, n) {
-                        (RtType::Enum(id), Some(n)) => engine.program.objects[*id as usize]
-                            .enum_values
-                            .iter()
-                            .any(|(v, _)| i64::from(*v) == i64::from(n)),
-                        (RtType::Option(members), Some(n)) => usize::try_from(n).is_ok_and(|n| n < members.len()),
-                        _ => false,
-                    };
-                    match n {
-                        Some(n) if is_value => arg = Value::Integer(n),
-                        _ => {
-                            return unsupported(
-                                "SetValue of a Variant holding the digits of no value on an Enum or Option control (not pinned)",
-                            );
-                        }
-                    }
-                } else if t.chars().all(|c| c == ' ') || t.chars().all(|c| c.is_ascii_alphabetic()) {
-                    return Err(if self.has(al_version::Gate::ConversionErrorTextsFrom28) {
-                        error_code(
-                            format!("The value \"{t}\" can't be evaluated into type Option."),
-                            "Evaluate:Format",
-                        )
-                    } else {
-                        error_code("The type NavOption is unknown.".to_string(), "NotSupportedType")
-                    });
-                } else {
-                    return unsupported(
-                        "SetValue of a Variant holding a Text that is neither digits, blank nor letters on an Enum or Option control (not pinned)",
-                    );
-                }
-            }
+            self.variant_choice_text(st, idx, &ty, &mut arg)?;
         }
         // An Integer on an Enum control selects the value of that ordinal, also when its caption is blank (all spaces), although
         // that caption trims to '' and the empty text is refused: on a card with a row, for a control bound to a table field
@@ -513,8 +473,10 @@ impl Session {
             }
             _ => None,
         };
+        // So does a request page control bound to an Option or Enum field of a global record, and Value then shows the held
+        // ordinal (RequestPageOptionFieldOfGlobalRecord.al:272-283, :398-409).
         if let Some(held) = not_a_value {
-            if !pinned_card {
+            if !pinned_card && self.request_record_choice_type(st, idx).is_none() {
                 return unsupported(
                     "SetValue of an Integer that is no value of the Enum or Option on a list or a page without a row (not pinned)",
                 );
@@ -992,11 +954,7 @@ impl Session {
                     // globals, and leaves the page's record with fresh globals (ADR-021 decision 8;
                     // corpus probes TableGlobals_PageFieldValidate_*, TableGlobals_PageRec_ActionGlobalsAreLostAfterPageFieldValidation).
                     self.reset_table_globals(&rec);
-                    let validated = self.record_op(
-                        RecordOp::Validate,
-                        &rec,
-                        &mut [Value::Integer(pos as i32), parsed.clone()],
-                    );
+                    let validated = self.platform_validate(ValidateSite::TestPageControl, &rec, pos, parsed.clone());
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
@@ -1957,14 +1915,23 @@ impl Session {
     /// TestPage: the extensions' OnBeforeValidate in extension order, the control's own OnValidate when it has one, then the
     /// extensions' OnAfterValidate (corpus pages/extensions/W2ExtModify.al:367-386 Validate_VariableControl `low.before.VarName(first);
     /// high.before.VarName(first);page.VarName(first);low.after.VarName(first);high.after.VarName(first);`, :388-401
-    /// Validate_VariableControlWithoutOwnTrigger; BC 27.5, 28.5 and 29.0; al-runner issue 7372). A page run modally (the
-    /// StandardDialog of the issue, set from a ModalPageHandler), a part and every other page type are not pinned yet (corpus
-    /// probe pages/extensions/ModifyVariableControlOnDialog.al).
+    /// Validate_VariableControlWithoutOwnTrigger; BC 27.5, 28.5 and 29.0; al-runner issue 7372). The same order on a
+    /// StandardDialog page with no source table, run modally and set from a ModalPageHandler or opened with OpenEdit
+    /// (pages/extensions/ModifyVariableControlOnDialog.al:188-190, :207, :232, :258, :282-284). A part and every other page
+    /// type are not pinned yet.
     fn ext_validate_on_variable_pinned(&self, st: &St) -> bool {
-        let s = st.borrow();
-        !s.modal
-            && s.host.is_none()
-            && self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Card)
+        let page_type = {
+            let s = st.borrow();
+            if s.host.is_some() {
+                return false;
+            }
+            (self.engine.object_facts[s.object as usize].page_type.clone(), s.modal)
+        };
+        match page_type {
+            (Some(al_ir::PageType::Card), false) => true,
+            (Some(al_ir::PageType::StandardDialog), _) => !self.has_source(st),
+            _ => false,
+        }
     }
 
     /// Cancel of a list with OnFindRecord that the static Page.RunModal opened in lookup mode finds the current row again (`=`) and

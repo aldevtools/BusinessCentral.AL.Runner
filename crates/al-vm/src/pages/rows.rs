@@ -3106,13 +3106,8 @@ impl Session {
         }
         if st.borrow().open {
             let a = self.unattended_action(&st);
-            let errors_before = st.borrow().errors.len();
-            self.close_with(&st, a, true, false)?;
-            // The save of the edited row raised (OnModifyRecord, OnInsertRecord or the table's trigger), so the page stayed
-            // open: not pinned, and not an OnQueryClosePage refusal (al-runner issue 7400).
-            if st.borrow().open && st.borrow().errors.len() > errors_before {
-                return self.platform_close_failed_or_refuse(&st, super::page_run_close::SAVE_FAILED_AT_PLATFORM_CLOSE);
-            }
+            // A save at close that raises: pages/modal_close_save_error.rs.
+            self.close_modal_left_open(&st, a)?;
             if st.borrow().open {
                 // The platform closes the page the handler left open, and OnQueryClosePage
                 // raises again: a second message, a second refusal. The caller gets control back
@@ -3125,7 +3120,7 @@ impl Session {
                 // handler the platform asks once more with its own action, :129, :148, :255; the next run is a clean one, :309).
                 let vetoed = st.borrow().close_vetoed;
                 if !(modal && (st.borrow().close_error || vetoed)) {
-                    return self.platform_close_failed_or_refuse(&st, super::page_run_close::QUERY_CLOSE_REFUSED);
+                    return unsupported("a page whose OnQueryClosePage refused the platform's close");
                 }
                 if vetoed {
                     self.refuse_unpinned_modal_veto(&st)?;

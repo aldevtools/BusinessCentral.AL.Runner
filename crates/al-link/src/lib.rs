@@ -1114,10 +1114,7 @@ impl Merges {
                 for m in &p.mods {
                     let c = &mut controls[at(&m.target)?];
                     for (name, val) in &m.props {
-                        match c.props.iter_mut().find(|(n, _)| n == name) {
-                            Some(slot) => slot.1 = val.clone(),
-                            None => c.props.push((name.clone(), val.clone())),
-                        }
+                        al_ir::apply_modify_prop(&mut c.props, &mut c.ext_replaced, name, val.clone());
                     }
                     for (name, r) in &m.triggers {
                         c.ext_triggers.push((name.clone(), *e, *r));
@@ -1876,12 +1873,15 @@ mod tests {
                 part_link: None,
                 owner: None,
                 ext_triggers: vec![],
+                ext_replaced: vec![],
                 run_object: None,
                 action_ref: None,
                 prop_texts: vec![],
                 var_field: None,
                 var_slot: None,
+                array_element_field: None,
                 expr_source: None,
+                expr_row_unordered: false,
                 expr_call: false,
                 array_element: None,
                 source_text: None,

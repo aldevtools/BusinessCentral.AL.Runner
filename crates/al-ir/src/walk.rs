@@ -889,19 +889,22 @@ fn walk_control<V: RefVisitor>(
         part_link,
         owner,
         ext_triggers,
+        ext_replaced: _,
         run_object,
         action_ref: _,
         prop_texts: _,
         var_field,
         var_slot: _,
+        array_element_field,
         expr_source: _,
+        expr_row_unordered: _,
         expr_call: _,
         array_element: _,
         bare_quoted_ext_source: _,
         source_text: _,
         factbox: _,
     } = c;
-    if let Some((table, field)) = var_field {
+    for (table, field) in [var_field, array_element_field].into_iter().flatten() {
         fld(v, field, TableOf::object(Some(*table)));
         obj(v, table);
     }
@@ -1169,6 +1172,7 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         on_post: _,
         on_pre_rendering: _,
         extensions,
+        assumes: _,
         request_flag_slot: _,
         request_rec_routines: _,
         output: _,

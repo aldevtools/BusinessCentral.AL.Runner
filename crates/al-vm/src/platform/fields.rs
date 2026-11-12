@@ -362,18 +362,32 @@ fn rowversion_row(o: &Object, schema: &al_ir::Table, t: &TableDef, blank: &Blank
     r[pos(t, 6)] = Value::Integer(8);
     r[pos(t, 7)] = blank.option(t, 7, 0);
     r[pos(t, 8)] = Value::Boolean(true);
-    let normal = tid < 2_000_000_000
-        && !o
-            .properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("TableType") && !ident(v.trim()).eq_ignore_ascii_case("Normal"));
-    let refuse = (!normal).then(|| {
+    let refuse = (!rowversion_row_pinned(o, tid)).then(|| {
         format!(
-            "the Field row of the rowversion (No. 0, timestamp) of table '{}': it is pinned only for normal tables (types/AjMisc.al:466-521)",
+            "the Field row of the rowversion (No. 0, timestamp) of table '{}': it is pinned only for tables with TableType Normal, Temporary and CRM and for the platform tables User, Field, Integer and Date (types/AjMisc.al:466-521, metadata/platform-tables/FieldTimestampRowTableTypes.al)",
             o.name
         )
     });
     Some(Entry::ok(r).by_name_only(name, refuse))
+}
+
+/// Whether the Field row of the rowversion of table `tid` is pinned: the same row, found the same way, for a table with TableType
+/// Normal (types/AjMisc.al:466-521), Temporary (an own one and Base Application table 33) and CRM (Base Application table 5341),
+/// and for the platform tables User (2000000120), Field (2000000041), Integer (2000000026) and Date (2000000007)
+/// (metadata/platform-tables/FieldTimestampRowTableTypes.al:153-369, al-runner issue 7465). Another TableType and another platform
+/// table are not pinned.
+fn rowversion_row_pinned(o: &Object, tid: u32) -> bool {
+    if tid >= 2_000_000_000 {
+        return [2_000_000_120, 2_000_000_041, 2_000_000_026, 2_000_000_007].contains(&tid);
+    }
+    o.properties
+        .iter()
+        .filter(|(k, _)| k.eq_ignore_ascii_case("TableType"))
+        .all(|(_, v)| {
+            ["Normal", "Temporary", "CRM"]
+                .iter()
+                .any(|t| ident(v.trim()).eq_ignore_ascii_case(t))
+        })
 }
 
 /// The FlowFields every table has under `Gate::PlatformMetadataColumnsFrom29`, with the columns the corpus pins: number, name, type Text, length and class

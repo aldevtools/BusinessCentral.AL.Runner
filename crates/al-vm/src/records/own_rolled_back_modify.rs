@@ -97,6 +97,13 @@ impl Session {
                 t.name
             ));
         }
+        // Modify(true) here is measured only after a Commit kept the Insert (Y7464ModifyAfterRolledBackModify.al:338-361).
+        if run && self.table_trigger(t, "OnModify").is_some() {
+            return unsupported(format!(
+                "Modify(true) of an unchanged {} buffer whose own Modify and the Insert of its row a rollback undid, on a table with an OnModify trigger: not pinned",
+                t.name
+            ));
+        }
         self.own_rolled_back_events(t, rec, run).map(Some)
     }
 
@@ -104,31 +111,50 @@ impl Session {
     /// OnAfterModifyEvent subscribers the events run once each, with Rec and xRec both the buffer and the RunTrigger the call
     /// gave; the stored row stays as the rollback left it (record/events/Y7464ModifyAfterRolledBackModify.al:124-280, :308-336:
     /// _BufferUnchanged, _ModifyFalse, _NoAssignment, _OtherFieldReset, _TwoModifiesBeforeTheError, _CommitBetweenModifies; BC
-    /// 27.5, 28.5, 29.0). The OnModify trigger of Modify(true) and the database triggers are not measured: refused.
+    /// 27.5, 28.5, 29.0). Modify(true) on a table with its own OnModify trigger and both subscribers: the trigger runs between
+    /// the events with xRec the buffer, and nothing is written (:338-361 ModifyTrue_AfterRolledBackModify_BufferUnchanged).
+    /// A trigger without both subscribers, a table extension or database trigger, and a trigger that changes Rec are not
+    /// measured: refused.
     fn own_rolled_back_events(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Value, Signal> {
-        let mut trigger = run && self.table_trigger(t, "OnModify").is_some();
+        let own_trigger = if run { self.table_trigger(t, "OnModify") } else { None };
+        let mut ext_trigger = false;
         for n in ["OnBeforeModify", "OnModify", "OnAfterModify"] {
-            trigger |= run && !self.ext_triggers(t, n).is_empty();
+            ext_trigger |= run && !self.ext_triggers(t, n).is_empty();
         }
-        if trigger || self.global_enabled(t, GlobalOp::Modify)? {
+        if ext_trigger || self.global_enabled(t, GlobalOp::Modify)? {
             return unsupported(format!(
-                "a Modify of a {} buffer that its own rolled-back write left, with triggers: not pinned",
+                "a Modify of a {} buffer that its own rolled-back write left, with table extension or database triggers: not pinned",
                 t.name
             ));
         }
         let before = self.listened(t, "onbeforemodifyevent", None)?;
         let after = self.listened(t, "onaftermodifyevent", None)?;
+        if own_trigger.is_some() && !(before && after) {
+            return unsupported(format!(
+                "Modify(true) of a {} buffer that its own rolled-back write left, whose table has an OnModify trigger but not both Modify event subscribers: not pinned",
+                t.name
+            ));
+        }
         if before || after {
             let image = rec.borrow().fields.clone();
             let xrec = Self::xrec_handle(rec, image.clone());
             self.table_event(t, "onbeforemodifyevent", rec, Some(&xrec), run, None)?;
-            // What the answer is when a subscriber changes the buffer is not measured.
+            // What the answer is when a subscriber or the trigger changes the buffer is not measured.
             let same = |r: &Rec| r.borrow().fields.iter().zip(&image).all(|(a, b)| a.identical(b));
             if !same(rec) || !same(&xrec) {
                 return unsupported(format!(
                     "a Modify of a {} buffer that its own rolled-back write left, whose OnBeforeModifyEvent subscriber changes Rec or xRec: not pinned",
                     t.name
                 ));
+            }
+            if let Some(tr) = own_trigger {
+                self.run_trigger(t.object as usize, tr, rec, Some(&xrec))?;
+                if !same(rec) || !same(&xrec) {
+                    return unsupported(format!(
+                        "Modify(true) of a {} buffer that its own rolled-back write left, whose OnModify trigger changes Rec or xRec: not pinned",
+                        t.name
+                    ));
+                }
             }
             self.table_event(t, "onaftermodifyevent", rec, Some(&xrec), run, None)?;
         }

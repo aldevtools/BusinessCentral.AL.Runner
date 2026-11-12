@@ -1307,14 +1307,16 @@ fn currreport_skip_in_on_after_get_record_skips_the_row() {
     );
 }
 
+// ADR-040 amendment 2026-11-11: a run of a report with an RDLC layout runs and writes no output
+// (reports/runtime/LtTkShowPrintStatus.al:960-984 Layout_T_Run; until then this test expected a refusal).
 #[test]
-fn a_report_that_renders_output_is_refused() {
-    let why = refusal(
-        "var H: Codeunit Helpers; begin
+fn a_report_that_renders_output_runs_without_output() {
+    assert_eq!(
+        f("var H: Codeunit Helpers; begin
             H.Seed(); Report.Run(Report::\"Layout Report\", false, false); exit('ran');
-        end;",
+        end;"),
+        "ran"
     );
-    assert!(why.contains("Layout Report"), "{why}");
 }
 
 // ---------------------------------------------------------------- reportextensions

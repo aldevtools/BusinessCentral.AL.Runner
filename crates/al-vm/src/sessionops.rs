@@ -1,6 +1,7 @@
 //! Builtins that act on session state: number sequences and the transaction state.
 
 use crate::Session;
+use crate::isolated_storage_reads::{isolated_long_key, refuse_missing_key_form};
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal, unsupported};
@@ -28,13 +29,26 @@ pub(crate) struct Sequence {
 }
 
 /// An error with a pinned code.
-fn error_code<T>(message: String, code: &str) -> Result<T, Signal> {
+pub(crate) fn error_code<T>(message: String, code: &str) -> Result<T, Signal> {
     Err(Signal::Error(Box::new(AlError {
         message,
         code: code.into(),
         call_stack: String::new(),
         ..Default::default()
     })))
+}
+
+/// `name` with unreserved URL characters kept and every other byte percent-encoded.
+fn url_name(name: &str) -> String {
+    let mut out = String::new();
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 fn big(args: &[Value], i: usize) -> Option<i64> {
@@ -265,15 +279,7 @@ impl Session {
         if id == ids::COMPANYPROPERTY_URLNAME_1 {
             // The company name as it stands in a URL: unreserved characters kept, the rest percent-encoded
             // (session-system/TestProbeSessionMiscContracts.al:Company_Names scrubs both the name and its `%20` form).
-            let mut out = String::new();
-            for b in self.cx.company.bytes() {
-                if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
-                    out.push(char::from(b));
-                } else {
-                    out.push_str(&format!("%{b:02X}"));
-                }
-            }
-            return Ok(Value::Text(out.into()));
+            return Ok(Value::Text(url_name(&self.cx.company).into()));
         }
         if id == ids::DATABASE_COPYCOMPANY_1 {
             return self.copy_company(args);
@@ -284,6 +290,7 @@ impl Session {
             return Ok(Value::Text(self.cx.company.clone().into()));
         }
         match id {
+            ids::DATABASE_SETUSERPASSWORD_1 => return self.set_user_password(args), // `user_password.rs`
             // The counter has handed out `next_row_version` so far; the database never reports
             // zero (session-system/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al:100-117).
             // What the database holds committed, raised by the rows the open transaction sent: a row inserted in the open
@@ -644,8 +651,13 @@ impl Session {
             ("Set" | "SetEncrypted", _) => Some(2),
             _ => Some(1),
         };
+        // A key of more than 200 characters (isolated_storage_reads.rs `isolated_long_key`).
+        if let Some(r) = isolated_long_key(method, &key, scope_at.and_then(|i| args.get(i)).is_some()) {
+            return r;
+        }
         let scope = self.storage_scope(scope_at.and_then(|i| args.get(i)))?;
-        let slot = (scope, key);
+        // A key that matches a stored key only without their trailing spaces (isolated_storage_reads.rs `trailing_twin`).
+        let slot = self.trailing_twin(method, scope, &key)?;
         let found = self.ret_used;
         match method {
             "Set" | "SetEncrypted" => {
@@ -712,14 +724,30 @@ impl Session {
                 }
                 self.tx.tx_phase = crate::transactions::TX_WRITE;
                 self.isolated_set_in_test.insert(slot.clone());
+                self.isolated_written_in_codeunit.insert(slot.clone());
                 self.isolated_storage
                     .insert(slot, (value, method == "SetEncrypted", secret));
                 Ok(Value::Boolean(true))
             }
             "Contains" => {
-                let hit = self.isolated_storage.get(&slot).cloned();
+                let mut hit = self.isolated_storage.get(&slot).cloned();
+                if self.pages.bg_worker.is_some()
+                    && matches!(
+                        self.worker_sees(&slot)?,
+                        crate::isolated_storage_reads::WorkerSees::Missing
+                    )
+                {
+                    hit = None;
+                }
+                // The isSecret answer is false for a missing key, a plain one and one SetEncrypted stored from a Text
+                // (session-system/P107IsoStorage.al:24-36, :45-52). For a value stored from a SecretText it is not pinned.
                 if n == 2 {
-                    args[2] = Value::Boolean(hit.as_ref().is_some_and(|(_, enc, _)| *enc));
+                    if hit.as_ref().is_some_and(|(_, _, secret)| *secret) {
+                        return unsupported(
+                            "IsolatedStorage.Contains with isSecret of a value stored from a SecretText (not pinned)",
+                        );
+                    }
+                    args[2] = Value::Boolean(false);
                 }
                 Ok(Value::Boolean(hit.is_some()))
             }
@@ -747,35 +775,21 @@ impl Session {
                         Ok(Value::Boolean(false))
                     }
                     None => {
-                        unsupported("IsolatedStorage.Delete of a missing key as a statement (error text not pinned)")
+                        refuse_missing_key_form("Delete", &args[0], false)?;
+                        self.isolated_storage_missing("Delete", scope_at.and_then(|i| args.get(i)), &key)
                     }
                 }
             }
             "Get" => {
                 let target = if n <= 2 { 2 } else { 1 };
                 let mut stored = self.isolated_storage.get(&slot);
-                if self.pages.bg_worker.is_some() && stored.is_some() {
-                    // A worker's Get of a key the caller wrote in this test: not committed yet, the worker reads no key; after
-                    // the caller's Commit it waits on the caller's lock and fails (session-system/
-                    // CnIsolatedStorageLeads.al:445-522). A key the test did not write is not pinned.
-                    let committed = self.isolated_committed.get(&slot);
-                    if !self.isolated_set_in_test.contains(&slot) {
-                        return unsupported(
-                            "IsolatedStorage.Get in a page background task of a key the test did not write (not pinned)",
-                        );
-                    }
-                    match committed {
-                        None => stored = None,
-                        Some(c) if Some(c) == stored => {
-                            return Err(crate::transactions::al_error_code(
-                                "We can't save your changes right now, because a record in table 'Isolated Storage' is being updated in a transaction done by another session.\\\\You'll have to wait until the other transaction has completed, which may take a while. Please try again later.",
-                                "NDBCS:LockTimeout",
-                            ));
-                        }
-                        Some(_) => {
-                            return unsupported(
-                                "IsolatedStorage.Get in a page background task of a committed key the caller changed again (not pinned)",
-                            );
+                // A page background task sees the key by who wrote it (isolated_storage_reads.rs).
+                if self.pages.bg_worker.is_some() {
+                    match self.worker_sees(&slot)? {
+                        crate::isolated_storage_reads::WorkerSees::Stored => {}
+                        crate::isolated_storage_reads::WorkerSees::Missing => stored = None,
+                        crate::isolated_storage_reads::WorkerSees::Locked => {
+                            return Err(Session::isolated_storage_locked());
                         }
                     }
                 }
@@ -804,7 +818,10 @@ impl Session {
                         };
                         Ok(Value::Boolean(false))
                     }
-                    None => unsupported("IsolatedStorage.Get of a missing key as a statement (error text not pinned)"),
+                    None => {
+                        refuse_missing_key_form("Get", &args[0], n == 1 || n == 3)?;
+                        self.isolated_storage_missing("Get", scope_at.and_then(|i| args.get(i)), &key)
+                    }
                 }
             }
             other => unsupported(format!("IsolatedStorage.{other}")),

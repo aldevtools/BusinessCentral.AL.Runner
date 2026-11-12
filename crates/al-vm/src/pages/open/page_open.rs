@@ -353,6 +353,7 @@ impl Session {
             s.opening = true;
             s.or_group_dropped = false;
             s.unpinned_filter_fields = Vec::new();
+            s.view_number_fields = Vec::new();
             s.placeholder_line = false;
             reset_row_line_flags(&mut s);
             s.parts = Vec::new();
@@ -438,7 +439,12 @@ impl Session {
             } else {
                 Vec::new()
             };
-            let (view, enum_consts, blank_dates) = match crate::views::page_source_view(&table, &view) {
+            let crate::views::PageSourceView {
+                view,
+                enum_consts,
+                blank_dates,
+                number_fields,
+            } = match crate::views::page_source_view(&table, &view) {
                 Ok(v) => v,
                 Err(e) => {
                     self.mark_closed(st);
@@ -456,23 +462,13 @@ impl Session {
                 }
                 st.borrow_mut().unpinned_filter_fields = blank_dates;
             }
-            self.set_view_in(&rec, &table, &view, Some(2), sub_view.is_some(), false, false)?;
-            // A field the view filters itself keeps the view's filter alone (two equal filters of one field read as a doubled value
-            // when a new line takes it: Purchase Price List's "Price Type").
-            let mut r = rec.borrow_mut();
-            // An Enum const is held as a typed value, as SetRange holds one (see `page_source_view`).
-            for f in r
-                .filters
-                .iter_mut()
-                .filter(|f| f.group == 2 && enum_consts.contains(&f.field))
-            {
-                if let al_builtins::filter::FilterExpr::Eq(v) = &f.expr {
-                    f.expr = al_builtins::filter::FilterExpr::Range(Some(v.clone()), Some(v.clone()));
-                }
+            // Pinned for a page the test opened itself (OpenView, ViewConstBlankCode.al:429-490); a page run with a record keeps the
+            // earlier reading.
+            if test_open && record.is_none() {
+                st.borrow_mut().view_number_fields = number_fields;
             }
-            let viewed: Vec<usize> = r.filters.iter().filter(|f| f.group == 2).map(|f| f.field).collect();
-            r.filters
-                .extend(kept.into_iter().filter(|f| !viewed.contains(&f.field)));
+            self.set_view_in(&rec, &table, &view, Some(2), sub_view.is_some(), false, false)?;
+            merge_view_filters(&mut rec.borrow_mut(), &enum_consts, kept);
         }
         // A repeater with ShowAsTree over an IndentationColumn that is a field but not an Integer field is not pinned. One over a page
         // variable is refused when the TestPage moves between its rows (`tree_over_variable`). The cut itself is made after
@@ -621,7 +617,7 @@ impl Session {
             }
             let waiting = self.parts_waiting_refresh(st);
             st.borrow_mut().open_read = true;
-            let (loaded, origin) = self.traced(st, |s| s.load_first_row(st, mode, record.is_some()));
+            let (loaded, origin) = self.traced(st, |s| s.load_first_row_at_open(st, mode, record.is_some()));
             st.borrow_mut().open_read = false;
             st.borrow_mut().test_opened_new = false;
             st.borrow_mut().field_captions_settled = true;
@@ -1540,6 +1536,29 @@ impl Session {
 }
 
 /// The flags a list's earlier run left about its rows and its new-row line.
+/// The filters of a page's SourceTableView (group 2) after `set_view_in`, with the filters the caller kept for group 2 merged in.
+/// An Enum const is held as a typed value, as SetRange holds one (see `page_source_view`). A field the view filters itself keeps
+/// the view's filter alone (two equal filters of one field read as a doubled value when a new line takes it: Purchase Price List's
+/// "Price Type").
+fn merge_view_filters(
+    r: &mut al_builtins::value::RecordState,
+    enum_consts: &[usize],
+    kept: Vec<al_builtins::filter::FieldFilter>,
+) {
+    for f in r
+        .filters
+        .iter_mut()
+        .filter(|f| f.group == 2 && enum_consts.contains(&f.field))
+    {
+        if let al_builtins::filter::FilterExpr::Eq(v) = &f.expr {
+            f.expr = al_builtins::filter::FilterExpr::Range(Some(v.clone()), Some(v.clone()));
+        }
+    }
+    let viewed: Vec<usize> = r.filters.iter().filter(|f| f.group == 2).map(|f| f.field).collect();
+    r.filters
+        .extend(kept.into_iter().filter(|f| !viewed.contains(&f.field)));
+}
+
 fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.gone_blank_no_new_line = false;
     s.gone_blank_shows_line = false;

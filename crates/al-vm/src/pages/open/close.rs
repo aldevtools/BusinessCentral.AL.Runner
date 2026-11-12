@@ -44,7 +44,7 @@ impl Session {
             return Err(error_code(message, "TestWrapped"));
         }
         st.borrow_mut().close_error = false;
-        self.pages.close_save_error = false;
+        self.pages.close_save_error = None;
         self.pages.test_close = true;
         let (r, origin) = self.traced(st, |s| s.close_with(st, action, false, false));
         if let Some(r) = self.after_failed_close_save(st, &r) {

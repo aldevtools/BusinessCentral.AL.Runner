@@ -571,8 +571,8 @@ impl Session {
                     Some(other) => return unsupported(format!("{id} with RequestWindow {}", other.describe())),
                 };
                 // SystemPrinter `true` runs as `false`: the request page with its handler, OK, Cancel, a ReportHandler, SaveAsXml
-                // (reports/layouts-saveas/Y43SystemPrinterRequestPage.al, ReportRunSystemPrinter.al:110-150; onprem
-                // reports/layouts-saveas/Y43SystemPrinterSaveAsXml.al).
+                // (reports/layouts-saveas/Y43SystemPrinterRequestPage.al, ReportRunSystemPrinter.al:110-150; onprem reports/layouts-
+                // saveas/Y43SystemPrinterSaveAsXml.al). A run that renders output refuses it once it would print (`report_placeholder`).
                 if let Some(other) = args.get(2).filter(|v| !matches!(v, Value::Boolean(_))) {
                     return unsupported(format!("{id} with SystemPrinter {}", other.describe()));
                 }
@@ -610,10 +610,9 @@ impl Session {
                 if quit {
                     return Ok(Value::Null);
                 }
-                let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_3);
-                let ran = self.report_run(&inst, &schema, Entry::Run, window, None);
-                self.report.run_modal = outer;
-                ran.map(|()| Value::Null)
+                let run = |s: &mut Self| s.report_run(&inst, &schema, Entry::Run, window, None);
+                self.run_started_as(id == ids::REPORT_RUNMODAL_3, args.get(2), run)
+                    .map(|()| Value::Null)
             }
             ids::REPORT_EXECUTE_1 => {
                 let (inst, quit) = self.report_instance(receiver, true)?;
@@ -961,25 +960,16 @@ impl Session {
         };
         match &schema.engine.program.objects[object].report {
             Some(r) => match r.unsupported.first() {
-                None => Ok(schema),
+                None => {
+                    for a in &r.assumes {
+                        al_builtins::assumptions::assume(*a);
+                    }
+                    Ok(schema)
+                }
                 Some(why) => unsupported(format!("Report \"{}\": {why}", schema.name())),
             },
             None => unsupported(format!("object {object} is not a report")),
         }
-    }
-
-    /// Report `arg` (a number) is processing-only and declares UseSystemPrinter: the shape whose `Print` is pinned.
-    fn report_print_runs_as_execute(&self, arg: Option<&Value>) -> bool {
-        let Some(Value::Integer(n)) = arg else { return false };
-        let objects = &self.engine.program.objects;
-        objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
-            .is_some_and(|i| {
-                objects[i].report.as_ref().is_some_and(|r| r.processing_only)
-                    && self.object_property(i, "UseSystemPrinter").is_some()
-            })
     }
 
     fn report_by_number(&mut self, id: al_ir::BuiltinId, arg: Option<&Value>) -> Result<(Inst, Schema), Signal> {
@@ -1939,12 +1929,24 @@ impl Session {
                 RequestClosed::SavedAsXml => return Ok(true),
                 // After the Preview action a report without a valid layout fails as after OK (W3ReportObjectIdPreviewLanguage.al:
                 // 484-511 Preview_RequestPagePreviewAction, `ReportNoLayout`). With a layout the report runs its triggers
-                // (:717-752), which `report_after_page` refuses as for OK: the runtime renders no output. Print without a layout,
+                // (:717-752), which is refused here: the runtime renders no output. Print without a layout,
                 // and either action on a report with neither a layout nor columns, are not pinned.
                 closed @ (RequestClosed::Preview | RequestClosed::Print) => {
                     match (self.no_valid_layout(schema)?, closed) {
                         (Some(e), RequestClosed::Preview) => return Err(Signal::Error(Box::new(e))),
-                        (None, _) if !schema.report().output.is_empty() => {}
+                        // The runtime renders no output, and what these actions print or show is not pinned.
+                        (None, _) if !schema.report().output.is_empty() => {
+                            return unsupported(format!(
+                                "report \"{}\" renders output after the {} action of its request page, which the \
+                                 runtime does not produce",
+                                schema.name(),
+                                if closed == RequestClosed::Preview {
+                                    "Preview"
+                                } else {
+                                    "Print"
+                                }
+                            ));
+                        }
                         _ => {
                             return unsupported(format!(
                                 "a run of report \"{}\" after the {} action of its request page (not pinned)",
@@ -2002,8 +2004,6 @@ impl Session {
                 return Err(Signal::Error(Box::new(e)));
             }
         }
-        // A report that renders output runs up to its request page and no further: there is no
-        // renderer (docs/probes-needed.md). The dataset a `SaveAs` writes is not rendered output.
         // Only the SaveAs Xml dataset of a report with the FormatRegion property is measured (YReportPropsTests.al:34-148).
         if let Some(r) = report.format_region.as_deref().filter(|_| !self.report.region_property) {
             return unsupported(format!(
@@ -2011,11 +2011,9 @@ impl Session {
                 schema.name()
             ));
         }
+        // A run that renders writes no output (ADR-040 amendment 2026-11-11, `report_placeholder::run`).
         if let Some(why) = report.output.first().filter(|_| !run.dataset) {
-            return unsupported(format!(
-                "report \"{}\" renders output, which the runtime does not produce: {why}",
-                schema.name()
-            ));
+            self.run_without_output(schema, why)?;
         }
         // A filter an item gets in OnPreReport is discarded: OnPreDataItem sees the view the item
         // had before it (reports/TestReportRuntimeContracts.al:371-390).
@@ -2210,7 +2208,6 @@ impl Session {
         let mut iterations = 0u32;
         'rows: while more {
             iterations += 1;
-            crate::decimal_column::normalize_read_row(&mut rec.borrow_mut());
             // The CalcFields property: the listed FlowFields of the row, before its triggers. Pinned for one field of a
             // top-level item (reports/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField) and for two
             // fields of a nested item a report extension adds (reports/AqTests.al:184 CalcFields_ExtensionDataItem_Values);
@@ -2482,12 +2479,7 @@ impl<'a> ItemTree<'a> {
 
 // ---------------------------------------------------------------------- Report.SaveAs
 
-/// The text BC raises when the default layout cannot produce the format asked for
-/// (text/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused).
-const FORMAT_NOT_SUPPORTED_BY_LAYOUT: &str =
-    "The Html output format is not supported by the current report layout format.";
-
-use crate::report_pdf_placeholder::SaveOutput;
+use crate::report_placeholder::{Rendered, SaveOutput};
 
 /// Where a rendering save puts its output.
 pub(crate) enum SaveTarget {
@@ -2674,11 +2666,9 @@ impl Session {
             // fails for the layout, and nothing after (reports/layouts-saveas/AMRdlcOutput.al:TextRdlc_SaveAsHtml_IsRefused,
             // `SubstituteReport(79256,SaveAs,req=Yes);`; :460-484 the text is the parameters as given, empty for none). A
             // subscriber that substitutes another report is not pinned.
-            if format == "Html"
-                && record_ref.is_none()
+            if record_ref.is_none()
                 && matches!(target, SaveTarget::Stream(_))
-                && schema.report().layout == ir::ReportLayout::Rdlc
-                && !schema.report().processing_only
+                && crate::report_placeholder::format_refused_by_layout(&schema, &format)
                 && self
                     .engine
                     .events
@@ -2735,64 +2725,14 @@ impl Session {
                 return Err(Signal::Error(Box::new(e)));
             }
         }
-        match format.as_str() {
-            "Xml" => {}
-            // text/TestReportSaveAsDatasetContracts.al:SaveAs_Html_WithAnRdlcLayout_IsRefused: false, the
-            // text in GetLastErrorText, nothing written. Whether the report's triggers run first is not pinned,
-            // so none does.
-            // reports/PRSaveAsFormats.al SaveAs_Formats_OfReportWithoutLayoutFile: Pdf, Html, Word and Excel of a report
-            // with `DefaultLayout` and no layout file answer false, write nothing and set this text. With the answer
-            // dropped BC's behaviour is not pinned.
-            "Pdf" | "Html" | "Word" | "Excel" if schema.report().layout_file_missing && result_used => {
-                self.last_error = al_builtins::native::AlError {
-                    message: format!(
-                        "Report {} does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.",
-                        self.object_id_of(schema.object as u32)
-                    ),
-                    code: "Dialog".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                };
-                return Ok(Value::Boolean(false));
-            }
-            // A layout of Type = Custom is rendered by whoever subscribes to the platform's CustomDocumentMergerEx; the
-            // event is raised below, once the dataset is written (assumption custom-layout-merger).
-            "Pdf" | "Word" | "Excel" | "Html" if custom.is_some() => {}
-            "Html" if schema.report().layout == ir::ReportLayout::Rdlc => {
-                // As a statement BC raises ReportUnsupportedFormat after the layout events SelectReportLayoutCode,
-                // HasCustomLayout, SelectedBuiltinLayoutType and ApplicationReportMergeStrategy (events/platform-triggers/
-                // PeVTests.al:713 PW_RaisedEvents_HtmlFormat), which this runtime does not raise.
-                if !result_used {
-                    return unsupported(
-                        "Report.SaveAs as Html of a report with an RDLC layout, as a statement (the layout events BC raises before its error are not raised here)",
-                    );
+        // ADR-040 and its amendments: the format x layout grid (`report_placeholder::grid`).
+        if format != "Xml" {
+            match self.rendered_save(&schema, &format, &target, result_used, custom.is_some())? {
+                Rendered::Write(o) => output = o,
+                Rendered::False(e) => {
+                    self.last_error = e;
+                    return Ok(Value::Boolean(false));
                 }
-                // The code: al-language-onprem/reports/layouts-saveas/AMRdlcSaveAs.al:461-483, reports/layouts-saveas/AMRdlcOutput.al:386.
-                self.last_error = al_builtins::native::AlError {
-                    message: FORMAT_NOT_SUPPORTED_BY_LAYOUT.into(),
-                    code: "ReportUnsupportedFormat".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                };
-                return Ok(Value::Boolean(false));
-            }
-            // Owner decision 2026-10-22 ("Run triggers, no file"): while Microsoft's DemoTool builds the company, SaveAsPdf to a
-            // file runs the report, triggers and data, and writes no file (MakeCorrections.Codeunit.al:62, PostRevaluation.
-            // Codeunit.al:82, RunPostInventoryCosttoGL.Codeunit.al:17 write a PDF under TemporaryPath that nothing reads). The
-            // file is marked as for a listed report, so a look at it is refused. Outside the company build it stays refused.
-            "Pdf" if self.company_build && matches!(target, SaveTarget::File(_)) => output = SaveOutput::Discard,
-            // A processing-only report goes on to its pinned answer below (TestReportSaveAsColumnTypesContracts.al:372-388,
-            // reports/runtime/LtTkShowPrintStatus.al:621); nothing is rendered.
-            "Pdf" if schema.report().processing_only => {}
-            // Owner decision 2026-11-08 (ADR-040 amendment): a Pdf of a report with an RDLC or Word layout writes a placeholder.
-            "Pdf" if self.pdf_placeholder(&schema)? => output = SaveOutput::Placeholder,
-            "Pdf" | "Html" | "Word" | "Excel" if self.output_is_ignored(&schema) => output = SaveOutput::Discard,
-            other => {
-                return unsupported(format!(
-                    "Report.SaveAs of \"{}\" as {other}: only the Xml dataset is produced (a rendered format needs a layout \
-                     renderer, and the Linux tier the corpus was measured on does not render them either)",
-                    schema.name()
-                ));
             }
         }
         // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388: false with the text and the code
@@ -4002,7 +3942,9 @@ impl Session {
         let mut schema_type = None;
         let mut data = dataset::DataFileText::Same;
         let region = self.report.dataset.as_ref().and_then(|d| d.region.clone());
-        let (regional, media) = (region.is_some(), Self::media_field(&t, c));
+        // A column of the report itself, not one a reportextension adds (`blob_column.rs`, `media_field`).
+        let own = self.engine.program.objects[object].report.is_some();
+        let (regional, media) = (region.is_some(), self.media_field(&t, c, own));
         // In German the values of a Decimal, Date, Time, DateTime, Integer, Boolean and text column read as in en-US
         // (reports/W3ReportObjectIdPreviewLanguage.al:870, :893); an Option or Enum column is not pinned there.
         // An Option column of a German session shows the DEU caption (record/table-properties/XTablePropsTests.al:783); in a
@@ -4120,7 +4062,7 @@ impl Session {
             Value::Option(..) | Value::Enum(..) | Value::Duration(_) => {
                 dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::unsupported)?)?
             }
-            Value::Blob(b) => self.blob_column_text(c, rec, b)?,
+            Value::Blob(b) => self.blob_column_text(c, (rec, owner, own), b)?,
             // An empty Media or MediaSet field is an empty element (reports/layouts-saveas/BcXmlBlob.al:102); one with content holds a
             // re-encoded picture whose bytes the runtime cannot make (:220), and is refused.
             Value::Guid(g) if media => {
@@ -4162,77 +4104,6 @@ impl Session {
             schema_type,
             data,
         })
-    }
-
-    /// Whether column `c` is a Media or MediaSet field of the data item's table.
-    fn media_field(t: &Option<Arc<al_data::TableDef>>, c: &ir::ReportColumn) -> bool {
-        use al_builtins::library_kind::LibraryKind as L;
-        match (t, c.field.or(c.item_field)) {
-            (Some(t), Some(pos)) => t
-                .fields
-                .get(pos)
-                .is_some_and(|f| matches!(f.ty, al_builtins::value::RtType::Library(L::Media | L::MediaSet))),
-            _ => false,
-        }
-    }
-
-    /// The text of a Blob column: the Base64 text of the content, an empty element when there is none (reports/layouts-saveas/
-    /// BcXmlBlob.al:93-154, `Hello BC` is `SGVsbG8gQkM=`, the bytes 0, 255, 65 are `AP9B`). A field of the data item that the report
-    /// did not calculate shows what the row stores (:102, report 80976 has no CalcFields). A Blob a stream wrote after it was read,
-    /// and one that was not calculated and is not a field of the data item, are not pinned.
-    fn blob_column_text(
-        &mut self,
-        c: &ir::ReportColumn,
-        rec: &Rec,
-        b: &al_builtins::stream::BlobRef,
-    ) -> Result<String, Signal> {
-        {
-            let buf = b.borrow();
-            if let Some(what) = buf.render_pending.as_deref()
-                && al_builtins::stream::is_unloaded_write_mark(what)
-            {
-                return Err(al_builtins::stream::render_pending_error(what));
-            }
-            if buf.render_pending.is_some() {
-                return unsupported(format!(
-                    "report column {} holds a Blob a report was saved to in a rendered format (ADR-040)",
-                    c.name
-                ));
-            }
-            if buf.written {
-                return unsupported(format!(
-                    "report column {} holds a Blob a stream wrote after it was read (not pinned)",
-                    c.name
-                ));
-            }
-            if buf.loaded {
-                return Ok(al_builtins::platform_native::b64_encode(&buf.bytes, false));
-            }
-        }
-        let pos = c
-            .field
-            .or(c.item_field)
-            .filter(|&pos| matches!(rec.borrow().fields.get(pos), Some(Value::Blob(x)) if !x.borrow().loaded && !x.borrow().written));
-        let Some(pos) = pos else {
-            return unsupported(format!(
-                "report column {} holds a Blob that was not calculated and is not a field of the data item (not pinned)",
-                c.name
-            ));
-        };
-        let t = self.table(rec)?;
-        let cx = self.cx_for(rec, &t)?;
-        let pk = t.primary_key(&rec.borrow().fields);
-        let stored =
-            al_data::Store::get(self.store_for(rec), &cx, &t, &pk).map_err(|e| Signal::unsupported(format!("{e}")))?;
-        match stored.map(|row| row[pos].clone()) {
-            Some(Value::Blob(src)) if src.borrow().render_pending.is_none() => {
-                Ok(al_builtins::platform_native::b64_encode(&src.borrow().bytes, false))
-            }
-            _ => unsupported(format!(
-                "report column {}: the Blob of a row the store does not hold as written (not pinned)",
-                c.name
-            )),
-        }
     }
 
     /// The CompanyAddressLine elements of the BC 29 dataset header for the Company Information row `rec`: Name, Name 2,
@@ -4589,6 +4460,7 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
     }
 }
 
+mod blob_column;
 mod execute_args;
 use execute_args::RefCall;
 pub(crate) mod format_region;

@@ -184,6 +184,7 @@ impl Lowerer<'_> {
             // `modify` blocks replace what the control states, in the order the extensions apply. What each
             // block changes is also kept apart (`PageMods`), so that the symbolic form can leave it to link.
             let mut ext_triggers = Vec::new();
+            let mut ext_replaced = Vec::new();
             let props_before = (!raw.modifies.is_empty()).then(|| props.clone());
             for (e, msec) in &raw.modifies {
                 let mow = owner_of(Some(*e));
@@ -203,10 +204,7 @@ impl Lowerer<'_> {
                         None => ir::PropVal::Lit(value),
                     };
                     changed.push((name.clone(), val.clone()));
-                    match props.iter_mut().find(|(n, _)| *n == name) {
-                        Some(slot) => slot.1 = val,
-                        None => props.push((name, val)),
-                    }
+                    ir::apply_modify_prop(&mut props, &mut ext_replaced, &name, val);
                 }
                 for t in msec.triggers() {
                     match routine_of(&mow, &t) {
@@ -261,7 +259,9 @@ impl Lowerer<'_> {
             let mut binding = ir::Binding::None;
             let mut var_field = None;
             let mut var_slot = None;
+            let mut array_element_field = None;
             let mut expr_source = None;
+            let mut expr_row_unordered = false;
             let mut expr_call = false;
             let mut array_element = None;
             let mut bare_quoted_ext_source = false;
@@ -356,23 +356,10 @@ impl Lowerer<'_> {
                                 // A field of a record variable of the page itself: the runtime formats the control from
                                 // that field's properties (al-runner issue 5822).
                                 if raw.owner.is_none() {
-                                    let found =
-                                        args.get(1)
-                                            .and_then(|a| crate::pages::var_and_field(a))
-                                            .and_then(|(v, f)| {
-                                                let slot =
-                                                    globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
-                                                let RtType::Record(t, _) = globals[slot].ty else {
-                                                    return None;
-                                                };
-                                                let t = t as usize;
-                                                let p = self.members[t]
-                                                    .fields
-                                                    .iter()
-                                                    .position(|x| x.name.eq_ignore_ascii_case(&f))?;
-                                                Some(((t, p), slot))
-                                            });
+                                    let found = args.get(1).and_then(|a| self.global_record_field(globals, a));
                                     (var_field, var_slot) = (found.map(|f| f.0), found.map(|f| f.1));
+                                    array_element_field =
+                                        args.get(1).and_then(|a| self.array_element_field(globals, a));
                                     expr_call = args.get(1).is_some_and(|a| {
                                         crate::pages::call_shape(a) || crate::pages::member_call_shape(a)
                                     });
@@ -393,30 +380,19 @@ impl Lowerer<'_> {
                                                 .then_some((slot, index - 1))
                                         },
                                     );
-                                    // A call as written, Editable False (record/X3PageControlCalls.al:142-147,
-                                    // `pages::call_source_pinned`). Otherwise only text with no quote and single spaces: how
-                                    // BC writes other text is not pinned.
-                                    let call_source = args
+                                    expr_source =
+                                        args.get(1).and_then(|a| own_expr_source(a, globals, found.is_some()));
+                                }
+                                // An expression of a pinned shape, on a page or added by a page extension: the row names the
+                                // source as written and an undeclared Editable is `False` (`pages::expression_source_pinned`,
+                                // pages/controls/PageControlFieldExpressionShapes.al:211-301; al-runner issue 7442). Where BC
+                                // lists the row among the page's other rows is not pinned (`Control::expr_row_unordered`).
+                                if expr_source.is_none() {
+                                    expr_source = raw_args
                                         .get(1)
-                                        .filter(|a| crate::pages::call_source_pinned(a))
+                                        .filter(|a| crate::pages::expression_source_pinned(a, &ow.names))
                                         .map(|a| (a.trim().to_string(), false));
-                                    expr_source = call_source.or_else(|| {
-                                        args.get(1)
-                                            .filter(|a| crate::pages::source_text_pinned(a, found.is_some()))
-                                            .and_then(|a| {
-                                                let element = crate::pages::array_element(a).is_some_and(|(v, _)| {
-                                                    globals.iter().any(|g| {
-                                                        g.name.eq_ignore_ascii_case(&v)
-                                                            && matches!(g.ty, RtType::Array(..))
-                                                    })
-                                                });
-                                                if element || found.is_some() {
-                                                    Some((a.trim().to_string(), true))
-                                                } else {
-                                                    crate::pages::arithmetic(a).then(|| (a.trim().to_string(), false))
-                                                }
-                                            })
-                                    });
+                                    expr_row_unordered = expr_source.is_some();
                                 }
                             }
                             // A control of an extension that names a variable of the base object
@@ -515,12 +491,15 @@ impl Lowerer<'_> {
                 part_link,
                 owner: raw.owner,
                 ext_triggers,
+                ext_replaced,
                 run_object,
                 action_ref,
                 prop_texts,
                 var_field,
                 var_slot,
+                array_element_field,
                 expr_source,
+                expr_row_unordered,
                 expr_call,
                 array_element,
                 bare_quoted_ext_source,
@@ -855,6 +834,42 @@ impl Lowerer<'_> {
 }
 
 impl Lowerer<'_> {
+    /// The field of `table` named `field`: (table, position).
+    fn field_of(&self, table: u32, field: &str) -> Option<(usize, usize)> {
+        let t = table as usize;
+        let p = self.members[t]
+            .fields
+            .iter()
+            .position(|x| x.name.eq_ignore_ascii_case(field))?;
+        Some((t, p))
+    }
+
+    /// A source that is a field of a record variable among `globals` (`Settings."Avail. Filter"`): the table and field, and the
+    /// variable's slot (`ir::Control::var_field`, `var_slot`).
+    fn global_record_field(&self, globals: &[ir::Slot], text: &str) -> Option<((usize, usize), usize)> {
+        let (v, f) = crate::pages::var_and_field(text)?;
+        let slot = globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
+        let RtType::Record(t, _) = globals[slot].ty else {
+            return None;
+        };
+        Some((self.field_of(t, &f)?, slot))
+    }
+
+    /// A source that is a field of an element of a record array among `globals` (`SetupArr[2]."Logo Position"`) whose records
+    /// are not temporary: the table and field (`ir::Control::array_element_field`, al-runner issue 7376; a temporary array is
+    /// not pinned).
+    fn array_element_field(&self, globals: &[ir::Slot], text: &str) -> Option<(usize, usize)> {
+        let (v, f) = crate::pages::array_element_and_field(text)?;
+        let g = globals.iter().find(|g| g.name.eq_ignore_ascii_case(&v))?;
+        let RtType::Array(_, elem) = &g.ty else {
+            return None;
+        };
+        let RtType::Record(t, false) = **elem else {
+            return None;
+        };
+        self.field_of(t, &f)
+    }
+
     /// Whether `owner` is a reportextension that changes the run.
     fn in_run_changing_report_ext(&self, owner: Option<usize>) -> bool {
         owner.is_some_and(|e| {
@@ -866,6 +881,30 @@ impl Lowerer<'_> {
 /// The control of a data item of a request page: the test client reads and writes the filters of its record (`binding`).
 /// The source of a page's or report's own control, or of a control of a reportextension that changes the run (`listed`), bound to an
 /// expression, as written and trimmed (`ir::Control::source_text`).
+/// The Page Control Field source of a page's own control bound to `text`, and whether its undeclared Editable is `True`. A call as
+/// written, Editable False (record/X3PageControlCalls.al:142-147, `pages::call_source_pinned`). Otherwise only text with no quote and
+/// single spaces (how BC writes other text is not pinned): an element of a page array or a field of a page record variable
+/// (`var_field`), Editable True, or an arithmetic expression, Editable False (record/TestPageControlFieldArraySource.al).
+fn own_expr_source(text: &str, globals: &[ir::Slot], var_field: bool) -> Option<(String, bool)> {
+    let written = text.trim().to_string();
+    if crate::pages::call_source_pinned(text) {
+        return Some((written, false));
+    }
+    if !crate::pages::source_text_pinned(text, var_field) {
+        return None;
+    }
+    let element = crate::pages::array_element(text).is_some_and(|(v, _)| {
+        globals
+            .iter()
+            .any(|g| g.name.eq_ignore_ascii_case(&v) && matches!(g.ty, RtType::Array(..)))
+    });
+    if element || var_field {
+        Some((written, true))
+    } else {
+        crate::pages::arithmetic(text).then_some((written, false))
+    }
+}
+
 fn expr_source_text(binding: &ir::Binding, listed: bool, sec: &ast::Section) -> Option<String> {
     let own_expr = listed && matches!(binding, ir::Binding::Expr(_));
     own_expr
@@ -885,12 +924,15 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         part_link: None,
         owner: None,
         ext_triggers: Vec::new(),
+        ext_replaced: Vec::new(),
         run_object: None,
         action_ref: None,
         prop_texts: Vec::new(),
         var_field: None,
         var_slot: None,
+        array_element_field: None,
         expr_source: None,
+        expr_row_unordered: false,
         expr_call: false,
         array_element: None,
         bare_quoted_ext_source: false,
