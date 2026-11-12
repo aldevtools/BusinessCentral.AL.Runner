@@ -294,9 +294,15 @@ impl Session {
         }
         self.page_instance_gated(st, as_part, page)?;
         let language = al_builtins::format::FormatCtx::language(&*self);
+        let page_type = self.engine.object_facts[st.borrow().object as usize].page_type.clone();
         {
             let mut s = st.borrow_mut();
             let first_run = !s.ran;
+            let reopen = (!first_run).then(|| Reopen {
+                earlier: (s.opened_by_test, s.mode),
+                now: (test_open, mode),
+                page_type,
+            });
             s.open = true;
             s.open_language = Some(language);
             s.ran = true;
@@ -342,6 +348,9 @@ impl Session {
             s.row_prop_vars = Vec::new();
             s.agcr_after_new = false;
             reset_host_row_flags(&mut s);
+            if reopen.is_some_and(|r| forget_earlier_open_flags(&mut s, &r)) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReopenForgetsEarlierOpenFlags);
+            }
             s.expanded = Vec::new();
             s.tree_shown = Vec::new();
             // A caption assigned to the variable before its first run stays.
@@ -1581,6 +1590,39 @@ fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.request_new_blank = false;
 }
 
+/// A second open of a TestPage variable: how the test opened it before and now, and the page's type.
+struct Reopen {
+    earlier: (bool, PageMode),
+    now: (bool, PageMode),
+    page_type: Option<al_ir::PageType>,
+}
+
+/// Clears the flags of three states an earlier open reached, each only in the reopen open corpus PR 1367 measured for it
+/// (testpage/lifecycle/ReopenSameVariableState.al, group G8: nothing carries into the second open): the test opened the page
+/// itself both times, with the same mode, on the same page type. Whether one was cleared, for the assumption
+/// `reopen-forgets-earlier-open-flags`. Every other reopen keeps the flag, as before.
+/// - `action_ran`: a Card opened with OpenEdit, :303;
+/// - `save_failed` (the client's save before Next failed in the table's OnModify): a Card opened with OpenEdit, :335;
+/// - `expr_set_no_source`: a Card without a source table opened with OpenEdit, :437 (the flag is set only on such a page).
+///
+/// Two flags keep carrying: `save_aborted` (a save that ModifyAllowed = false denied; the probe aborts the save through
+/// OnModifyRecord, :386, which sets no flag) and `gone_temp_list` (set when a read-only temporary list lost its only row; the
+/// probe's list keeps two rows, :469, and sets no flag).
+fn forget_earlier_open_flags(s: &mut crate::pages::PageState, r: &Reopen) -> bool {
+    let edit = (true, PageMode::Edit);
+    if !(r.earlier == edit && r.now == edit && r.page_type == Some(al_ir::PageType::Card)) {
+        return false;
+    }
+    let mut cleared = false;
+    for flag in [&mut s.action_ran, &mut s.save_failed, &mut s.expr_set_no_source] {
+        if *flag {
+            *flag = false;
+            cleared = true;
+        }
+    }
+    cleared
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1594,5 +1636,33 @@ mod tests {
         reset_host_row_flags(&mut s);
         assert!(!s.draft_from_open);
         assert!(s.draft_start.is_none());
+    }
+
+    /// The reopen ReopenSameVariableState.al measured clears the flags; a neighbor that differs in one fact keeps them (main's
+    /// result), and the two flags the probe did not reach always carry.
+    #[test]
+    fn earlier_open_flags_clear_only_in_the_measured_reopen() {
+        use al_ir::PageType::{Card, Document, List};
+        let run = |earlier: (bool, PageMode), now: (bool, PageMode), page_type: al_ir::PageType| {
+            let mut s = crate::pages::PageState::closed(1);
+            s.action_ran = true;
+            s.save_failed = true;
+            s.gone_temp_list = true;
+            s.save_aborted = true;
+            let cleared = forget_earlier_open_flags(&mut s, &Reopen { earlier, now, page_type: Some(page_type) });
+            (cleared, [s.action_ran, s.save_failed, s.gone_temp_list, s.save_aborted])
+        };
+        let edit = (true, PageMode::Edit);
+        let view = (true, PageMode::View);
+        assert_eq!(run(edit, edit, Card), (true, [false, false, true, true]));
+        // Another page type, another mode on either open, an open the test did not make: kept.
+        let kept = (false, [true; 4]);
+        assert_eq!(run(edit, edit, Document), kept);
+        assert_eq!(run(view, view, List), kept);
+        assert_eq!(run(view, view, Card), kept);
+        assert_eq!(run(view, edit, Card), kept);
+        assert_eq!(run(edit, (true, PageMode::New), Card), kept);
+        assert_eq!(run((false, PageMode::Edit), edit, Card), kept);
+        assert_eq!(run(edit, (false, PageMode::Edit), Card), kept);
     }
 }
