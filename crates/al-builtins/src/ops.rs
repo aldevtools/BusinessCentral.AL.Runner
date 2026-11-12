@@ -1726,7 +1726,9 @@ fn compare_general(l: &Value, r: &Value) -> Result<Ordering, Signal> {
 /// other forms (32 digits, parentheses, blanks around) are not pinned for a comparison and are refused.
 fn guid_of_text(t: &str) -> Result<[u8; 16], Signal> {
     if t.bytes().filter(u8::is_ascii_hexdigit).count() < 32 {
-        return crate::native::raise(
+        // GetLastErrorText(true) leaves the text (errors/last-error/LastErrorFlagRuntimeCodes.al DateAndConversionSites_ExcludeFlag
+        // `guidtext_true`; corpus pull request 1327).
+        return crate::native::raise_same_text(
             "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
             "InvalidGuidFormat",
         );

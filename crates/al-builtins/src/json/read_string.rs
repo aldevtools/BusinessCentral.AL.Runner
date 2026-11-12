@@ -42,16 +42,19 @@ impl Parser<'_> {
                     };
                     units.push(c);
                 }
-                // A raw TAB is part of the string: assumed from Microsoft's Sales Lines Suggestions test app, whose install
-                // codeunit reads JSONL lines with a raw TAB in a string through JsonToken.ReadFrom (al-runner issue 7812). The
-                // probe is json/JsonReadFrom.al *ReadFromRawControlInString (corpus pull request 1327); it wins when pinned.
-                b'\t' => {
-                    crate::assumptions::assume(crate::assumptions::Assumption::JsonRawTabInString);
-                    units.push(9);
+                // A raw control character is part of the string, in every ReadFrom, in a key and in a single-quoted string:
+                // json/JsonReadFrom.al:440-555 (TAB, LF, CR, 1, 8, 12, 27, 31; corpus pull request 1327, needs the bump).
+                // al-runner issue 7812: a raw TAB in Microsoft's Sales Lines Suggestions dataset.
+                1 | 8 | 9 | 10 | 12 | 13 | 27 | 31 => {
+                    units.push(u16::from(b));
                     self.i += 1;
                 }
-                // The other raw control characters: not valid here (main's rule; the same probe measures them).
-                0..=0x1f => return Err(ParseError::Invalid),
+                // The other control characters are not measured.
+                0..=0x1f => {
+                    return Err(ParseError::Unsupported(
+                        "a raw control character inside a JSON string other than 1, 8, 9, 10, 12, 13, 27 and 31 (not pinned)",
+                    ));
+                }
                 _ => {
                     // A UTF-8 sequence copied through as UTF-16.
                     let len = match b {
@@ -77,5 +80,30 @@ impl Parser<'_> {
         String::from_utf16(&units).map_err(|_| {
             ParseError::Unsupported("a JSON \\u escape that ends up with half of a surrogate pair (not pinned)")
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::parse;
+    use crate::native::Signal;
+
+    /// The measured raw control characters read as part of the string; the others are refused, not read as false.
+    #[test]
+    fn a_raw_control_character_reads_only_where_measured() {
+        for c in [1u8, 8, 9, 10, 12, 13, 27, 31] {
+            let text = format!("{{\"a\":\"x{}y\"}}", c as char);
+            assert!(matches!(parse(&text), Ok(Some(_))), "{c}");
+        }
+        for c in [2u8, 7, 11, 14, 26, 30] {
+            let text = format!("{{\"a\":\"x{}y\"}}", c as char);
+            assert!(
+                matches!(&parse(&text), Err(Signal::Unsupported(w)) if w.contains("raw control character")),
+                "{c}"
+            );
+        }
+        // Between tokens a form feed is a blank and character 1 is not JSON (json/JsonReadFrom.al ReadFromRawControlOtherPlaces).
+        assert!(matches!(parse("{\"a\":\u{c}\"v\"}"), Ok(Some(_))));
+        assert!(matches!(parse("{\"a\":\u{1}\"v\"}"), Ok(None)));
     }
 }

@@ -46,6 +46,9 @@ codeunit 69891 "NE C"
     procedure RefFindFirstEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890); asserterror Ref.FindFirst(); exit(Flag()); end;
     procedure RefFindLastEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890); asserterror Ref.FindLast(); exit(Flag()); end;
     procedure RefFindEqualEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890); asserterror Ref.Find('='); exit(Flag()); end;
+    procedure RefTempFindMinusFiltered(): Text var Ref: RecordRef; begin Ref.Open(69890, true); Ref.Field(1).SetRange(42); asserterror Ref.Find('-'); exit(Flag()); end;
+    procedure RefTempFindFirstEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890, true); asserterror Ref.FindFirst(); exit(Flag()); end;
+    procedure RefTempFindMinusEmpty(): Text var Ref: RecordRef; begin Ref.Open(69890, true); asserterror Ref.Find('-'); exit(Flag()); end;
     procedure RefFindFirstFilteredPlain(): Text var Ref: RecordRef; begin Ref.Open(69890); Ref.Field(1).SetRange(42); asserterror Ref.FindFirst(); exit(GetLastErrorText(false)); end;
 
     // A Variant record slot outside `:=`.
@@ -125,42 +128,57 @@ fn the_flag_answers_at_the_measured_raise_sites() {
 }
 
 #[test]
+fn the_flag_answers_the_sites_measured_by_the_second_probe() {
+    // LastErrorFlagRuntimeCodes.al ListSites_ExcludeFlag, TextSites_ExcludeFlag, DateAndConversionSites_ExcludeFlag,
+    // IndexSites_ExcludeFlag (corpus pull request 1327). These sites were refused before that probe.
+    for routine in ["ListRemoveAt", "ListSet", "PadRight"] {
+        assert_eq!(text(run(routine)), NOT_CLASSIFIED, "{routine}");
+    }
+    assert_eq!(
+        text(run("Dmy2DateDay")),
+        "The value of DMY2Date parameter 1 is outside of the permitted range. The current value is: <redacted>. The permitted range is: from 1 to 31."
+    );
+    assert_eq!(text(run("ArrayRead")), "Index out of bounds.");
+    assert_eq!(
+        text(run("VariantEmptyInt")),
+        "The expression Variant cannot be type-converted to a Integer value."
+    );
+}
+
+#[test]
 fn the_flag_refuses_unmeasured_sites_that_share_a_measured_text() {
-    for routine in [
-        "ListRemoveAt",
-        "ListSet",
-        "ListGetVar",
-        "PadRight",
-        "SubstringCount",
-        "Dmy2DateDay",
-        "JsonGet",
-        "ArrayRead",
-        "VariantEmptyInt",
-        "DictGetVar",
-    ] {
+    // Statement forms of `Get(i, var)` and `JsonArray.Get`, and `Substring(Start, Length)` with the start past the end: the
+    // probe measured only the forms with the result used, and a length within reach.
+    for routine in ["ListGetVar", "SubstringCount", "JsonGet", "DictGetVar"] {
         refused(routine);
     }
 }
 
 #[test]
-fn the_flag_refuses_recordref_finds_on_an_empty_set() {
+fn the_flag_answers_recordref_finds_on_an_empty_set_where_measured() {
     // The Record cells are measured (LastErrorFlagRuntimeCodes.al:NothingInsideFilter_EmptyTable_ExcludeFlag, P86LastError.al:339-353).
     assert_eq!(
         text(run("RecFindFirstFiltered")),
         "There is no NE Row within the filter.\\\\Filters: <redacted>"
     );
     assert_eq!(text(run("RecFindFirstEmpty")), "The NE Row table is empty.");
-    // The same finds through a RecordRef are not measured: the flagged text refuses (al-runner issue 7806).
-    for routine in [
-        "RefFindFirstFiltered",
-        "RefFindSetFiltered",
-        "RefFindMinusFiltered",
-        "RefFindFirstEmpty",
-        "RefFindLastEmpty",
-        "RefFindEqualEmpty",
-    ] {
-        refused(routine);
+    // Through a RecordRef: measured apart (LastErrorFlagRuntimeCodes.al RecordRef_*_ExcludeFlag, corpus pull request 1327).
+    for routine in ["RefFindFirstFiltered", "RefFindSetFiltered", "RefFindMinusFiltered"] {
+        assert_eq!(
+            text(run(routine)),
+            "There is no NE Row within the filter.\\\\Filters: <redacted>",
+            "{routine}"
+        );
     }
+    for routine in ["RefFindFirstEmpty", "RefFindLastEmpty"] {
+        assert_eq!(text(run(routine)), "The NE Row table is empty.", "{routine}");
+    }
+    // Find('=') keeps the text only where the Record rule gives it (BC 28 and later, FindEmptyTableExcludeFlag.al:123).
+    assert!(text(run("RefFindEqualEmpty")).ends_with("Identification fields and values: <redacted>"));
+    // A temporary RecordRef: Find('-') of a filtered set and FindFirst of an empty one are not measured.
+    refused("RefTempFindMinusFiltered");
+    refused("RefTempFindFirstEmpty");
+    assert_eq!(text(run("RefTempFindMinusEmpty")), "The NE Row table is empty.");
     // The error itself and its text without the flag stay as on main.
     assert_eq!(
         text(run("RefFindFirstFilteredPlain")),

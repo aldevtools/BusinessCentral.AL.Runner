@@ -1361,7 +1361,7 @@ impl Session {
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
-                let (arr, flat) = match self.element(base, idx, f, false) {
+                let (arr, flat) = match self.element(base, idx, f) {
                     Ok(e) => e,
                     // A row of a two-dimensional array, as an argument.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1714,7 +1714,7 @@ impl Session {
             }
             ir::Place::Index(base, idx) => {
                 let el_ty = self.place_type(p, f);
-                let (arr, flat) = match self.element(base, idx, f, true) {
+                let (arr, flat) = match self.element(base, idx, f) {
                     Ok(e) => e,
                     // The row a callee wrote through a `var` array parameter goes back into the row.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1905,13 +1905,12 @@ impl Session {
         Ok(Some((arr, start, len)))
     }
 
-    /// The array behind `base` and the flat position of `idx` (1-based, row-major); `write` for the target of an assignment.
+    /// The array behind `base` and the flat position of `idx` (1-based, row-major).
     pub(crate) fn element(
         &mut self,
         base: &ir::Place,
         idx: &[ir::Expr],
         f: &mut Frame,
-        write: bool,
     ) -> Result<(Cells, usize), Signal> {
         // The dimensions of an array variable (a local or a global, the usual case) are read where they are
         // declared; `place_type` would clone the type, and its dimension list, on every element access.
@@ -1976,11 +1975,8 @@ impl Session {
         // elements is an index error (types/arrays/PnE01Arrays.al:SmallerArray_VarParameter, SmallerArray_ByValue).
         if flat >= arr.borrow().len() && dims.len() == 1 {
             // GetLastErrorText(true) leaves the text of a write past the end (errors/last-error/LastErrorFlagRuntimeCodes.al:
-            // 188-189, :194); a read is not measured.
-            if write {
-                return al_builtins::native::raise_same_text("Index out of bounds.", "IndexOutOfBounds");
-            }
-            return al_builtins::native::raise("Index out of bounds.", "IndexOutOfBounds");
+            // 188-189, :194) and of a read (IndexSites_ExcludeFlag `arrayread_true`; corpus pull request 1327).
+            return al_builtins::native::raise_same_text("Index out of bounds.", "IndexOutOfBounds");
         }
         if flat >= arr.borrow().len() {
             return Err(Signal::unsupported(format!(

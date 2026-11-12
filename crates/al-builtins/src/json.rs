@@ -300,7 +300,8 @@ impl Parser<'_> {
     /// Blanks and `/* */` comments (json/JsonReadFrom.al:ObjectReadFromErrors `comment`).
     fn ws(&mut self) {
         loop {
-            while self.i < self.s.len() && matches!(self.s[self.i], b' ' | b'\t' | b'\n' | b'\r') {
+            // A form feed is a blank too (json/JsonReadFrom.al:553 `tok_12_between`; character 1 is not: :552).
+            while self.i < self.s.len() && matches!(self.s[self.i], b' ' | b'\t' | b'\n' | b'\r' | 0x0c) {
                 self.i += 1;
             }
             if self.s[self.i..].starts_with(b"/*") {
@@ -2058,11 +2059,17 @@ fn token_as_value(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Re
     if with_node(&h, |n| matches!(n, JsonNode::Scalar(_))) {
         Ok(tagged("JsonValue", h))
     } else {
-        // json/TestJsonRuntimeContracts.al:JsonObject_Errors_TextAndCode
-        Err(conversion(
+        // json/TestJsonRuntimeContracts.al:JsonObject_Errors_TextAndCode. GetLastErrorText(true) leaves the text for an object
+        // (errors/last-error/LastErrorFlagRuntimeCodes.al InvalidOperationSites_ExcludeFlag `asvalue_true`; corpus pull request
+        // 1327); an array is not measured.
+        let e = Err(conversion(
             "Microsoft.Dynamics.Nav.Runtime.NavJsonToken",
             NAV_JSON_VALUE,
-        ))
+        ));
+        if with_node(&h, |n| matches!(n, JsonNode::Object(_))) {
+            return crate::native::with_origin(e, crate::native::ErrorOrigin::SameText);
+        }
+        e
     }
 }
 
@@ -2386,8 +2393,12 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
     };
     let segs = match parse_path(&p) {
         Ok(s) => s,
-        Err(PathErr::Unclosed | PathErr::BadIndex) if used => return Ok(filter::invalid(c)),
-        Err(PathErr::InvalidFilter) if used => return Ok(filter::invalid(c)),
+        // GetLastErrorText(true) of an unclosed indexer leaves the text (errors/last-error/LastErrorFlagRuntimeCodes.al
+        // InvalidOperationSites_ExcludeFlag `selecttoken_true`, the path `[`; corpus pull request 1327); the others are not measured.
+        Err(PathErr::Unclosed) if used => return Ok(filter::invalid(c, crate::native::ErrorOrigin::SameText)),
+        Err(PathErr::BadIndex | PathErr::InvalidFilter) if used => {
+            return Ok(filter::invalid(c, crate::native::ErrorOrigin::Unknown));
+        }
         Err(PathErr::DoubleQuoted) if used => return Ok(Value::Boolean(false)),
         // A name in double quotes as a statement raises the same error (DbJPathLeads.al:785 `stmt_double_quoted`).
         Err(PathErr::DoubleQuoted | PathErr::Unclosed | PathErr::BadIndex) => return Err(invalid_op()),
