@@ -69,7 +69,10 @@ impl Session {
                 let state = p.borrow();
                 state.draft
                     && !state.dirty
-                    && self.engine.object_facts[state.object as usize].page_type == Some(ir::PageType::ListPart)
+                    && self.engine.object_facts[state.object as usize]
+                        .page_type
+                        .as_ref()
+                        .is_some_and(|kind| kind.lower() == "listpart")
             });
         let a = self.unattended_action(st);
         let lookup = st.borrow().lookup;
