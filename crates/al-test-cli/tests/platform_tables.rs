@@ -4735,6 +4735,8 @@ codeunit 50000 "T" { Subtype = Test;
 // The platform renders the layout Tenant Report Layout Selection names for the report. A Pdf save writes a placeholder only
 // while that layout is an RDLC or Word layout of the report (ADR-040 amendment "A placeholder PDF"); an Excel layout writes no
 // output on BC (reports/layouts-saveas/AMReportOutputTests.al:257 ExcelLayout_SaveAsPdf), so a selection of one refuses.
+// The report writes one dataset row: a save of a Word report with no row is a separate rule (`no_row_save`, refused but for
+// the pinned Html-to-stream shape), and this test is about the layout selection.
 #[test]
 fn a_pdf_save_follows_tenant_report_layout_selection_or_refuses() {
     let o = outcomes(
@@ -4743,7 +4745,8 @@ report 50002 "R Word" { UsageCategory = None; DefaultRenderingLayout = WordOne;
   dataset { dataitem(D; "R Row") { column(Id; Id) { } } }
   rendering { layout(WordOne) { Type = Word; LayoutFile = 'W.docx'; } layout(ExcelOne) { Type = Excel; LayoutFile = 'X.xlsx'; } } }
 codeunit 50000 "T" { Subtype = Test;
-  local procedure Save(Name: Text) var S: Record "Tenant Report Layout Selection"; R: Record "R Row"; Out: OutStream; begin
+  local procedure Save(Name: Text) var S: Record "Tenant Report Layout Selection"; R: Record "R Row"; Row: Record "R Row"; Out: OutStream; begin
+    Row.DeleteAll(); Row.Id := 1; Row.Insert();
     S.SetRange("Report ID", Report::"R Word"); S.DeleteAll(); S.Reset();
     S."Report ID" := Report::"R Word"; S."Layout Name" := CopyStr(Name, 1, MaxStrLen(S."Layout Name")); S.Insert();
     R.Data.CreateOutStream(Out); if not Report.SaveAs(Report::"R Word", '', ReportFormat::Pdf, Out) then Error('false'); end;
