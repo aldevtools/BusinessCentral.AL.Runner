@@ -629,6 +629,16 @@ impl Session {
                             }
                             _ => std::borrow::Cow::Borrowed(value),
                         };
+                        // `<> "Enum"::Member`, `Database::"Table"`, `Page::"Page"` and two of them joined by `|` in an object
+                        // property (pages/link-filter/LinkEnumQualifiedAndObjectConstants.al, al-runner issues 7405, 7411; a page's
+                        // SourceTableView: pages/view-filters/ViewConstBlankCode.al:719, :755).
+                        let stripped = match (!runtime && stripped.contains("::"))
+                            .then(|| self.view_qualified_operands(&stripped, &ty))
+                            .flatten()
+                        {
+                            Some(resolved) => std::borrow::Cow::Owned(resolved),
+                            None => stripped,
+                        };
                         let value: &str = &stripped;
                         // `filter('>10')` is an AL text literal: the filter is what it holds, operators included
                         // (testpage/PnGFixtures.al:666 `SubPageView = where("Line No." = filter('>10'))`, opened by

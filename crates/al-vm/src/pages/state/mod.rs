@@ -263,6 +263,12 @@ pub struct PageState {
     pub window_held_above: Option<usize>,
     /// The page is landing on its first row as it opens (the reads of a view that ends inside the window differ there).
     pub landing_first: bool,
+    /// The landing read started with OnFindRecord(`-`) after a TestPart filter (`find_list_part`): the window starts
+    /// at the first row of the view, so the open read's tail does not step back with OnNextRecord(-1).
+    pub landed_from_view_start: bool,
+    /// The window the page holds starts at the first row of the view: such a landing read, or the open read of the same part
+    /// whose OnNextRecord(-1) answered 0 (`part_filter_find.rs`); cleared by the next window read.
+    pub find_window_at_view_start: bool,
     /// The page opens on the row its OnOpenPage left Rec on, not the first of the view: a list's open read also reads the
     /// rows above it (see `read_rows_above_the_moved_rec`).
     pub open_reads_above: bool,
@@ -523,6 +529,14 @@ pub struct PageState {
     pub test_calls: Vec<crate::pages::pinned_shape::TestCall>,
     /// The test made more calls than `test_calls` keeps.
     pub test_calls_overflow: bool,
+    /// The calls the test client made on the page and on its direct parts since it opened, in the order it made them, the
+    /// running one last (`pinned_shape.rs`, `Session::part_steps`).
+    pub tree_calls: Vec<crate::pages::pinned_shape::TreeCall>,
+    /// `tree_calls` does not tell what happened to the page: more calls than it keeps, a call on a part of a part, or a write
+    /// to the store between two calls (the test changed rows the page shows).
+    pub tree_calls_unknown: bool,
+    /// The store's write mark when the last call on the page or its parts ended; `None` before the first one ended.
+    pub tree_calls_mark: Option<(i64, u64)>,
     /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
     pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
@@ -651,6 +665,9 @@ pub struct PageState {
     /// Per row of a repeater (its key): what the page variables its controls show held after the row's OnAfterGetRecord, and
     /// for the current row after OnAfterGetCurrRecord: (control index, value) (pages/row-page-variable/QiRowPageVar.al).
     pub row_vars: Vec<RowVars>,
+    /// Code of another page called a procedure of this page through a `Page` value since the page last noted `row_vars`
+    /// (`row_var_outside_call.rs`).
+    pub row_vars_behind_outside_call: bool,
     /// Per row of a repeater (its key): the page variables the Editable and Enabled expressions of its controls read, as the
     /// row's OnAfterGetRecord left them: (global slot, value) (writer RT's testpage/RtRowEditable.al).
     pub row_prop_vars: Vec<RowVars>,
@@ -708,6 +725,12 @@ pub struct PageState {
     pub placeholder_line: bool,
     /// The current new row was started by `New()` from the placeholder line: AutoSplitKey counts one interval more.
     pub split_burned: bool,
+    /// The row a part read in another order numbered last with AutoSplitKey, and the number of the row the grid shows after it
+    /// (`pages/split_key_view.rs`).
+    pub split_view_last: Option<(Vec<Value>, Option<Value>)>,
+    /// The part reads its row once more when its host closes (`read_part_rows_unsettled`), if the test's calls up to the close
+    /// are the pinned ones (`unsettled_close_pinned`).
+    pub reread_at_close: bool,
     /// `OnOpenPage` left filters in `FilterGroup(-1)`: the page dropped them from the rows it shows.
     pub or_group_dropped: bool,
     /// The record handed to the page carried filters in `FilterGroup(-1)`, dropped before OnOpenPage.
@@ -848,6 +871,9 @@ impl PageState {
     pub(crate) fn forget_pinned_scenario(&mut self) {
         self.test_calls = Vec::new();
         self.test_calls_overflow = false;
+        self.tree_calls = Vec::new();
+        self.tree_calls_unknown = false;
+        self.tree_calls_mark = None;
         self.typed_key_dropped = false;
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
