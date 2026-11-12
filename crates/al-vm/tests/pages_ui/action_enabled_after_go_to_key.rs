@@ -1,6 +1,6 @@
 //! `TestAction.Enabled()` right after a GoToKey on the List of al-runner issue 7916: the action's Enabled expression reads the
 //! variables as OnAfterGetRecord left them for the row GoToKey landed on (assumption `action-enabled-follows-row-after-go-to-key`,
-//! the reporter's repro on BC 29). Other shapes keep the variables' current value. The platform table Field is declared here by its
+//! the reporter's repro on real BC). Other shapes keep the variables' current value. The platform table Field is declared here by its
 //! field list, as the System app declares it (Options as Integer).
 
 use al_builtins::assumptions::{Assumption, take_hits};

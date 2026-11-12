@@ -1,6 +1,6 @@
 //! `TestAction.Enabled()` right after a `GoToKey` on a list whose OnAfterGetRecord sets the page variable the action's Enabled
 //! reads (al-runner issue 7916). The list read its rows at open, so the variable holds what OnAfterGetRecord computed for the
-//! last row read; BC answers from the row the GoToKey landed on: the reporter's repro on BC 29 gives `e2=Yes rel=349` after
+//! last row read; BC answers from the row the GoToKey landed on: the reporter's repro on real BC gives `e2=Yes rel=349` after
 //! `GoToKey(Dimension Set Entry, 3)` where the earlier code answered No. Only the reporter's shape runs here, under the
 //! assumption `action-enabled-follows-row-after-go-to-key`; every other shape keeps the variable's current value.
 
