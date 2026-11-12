@@ -7,6 +7,8 @@ use rayon::prelude::*;
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
+mod moved_tables;
+
 pub use al_ir::ObjKind;
 
 #[derive(Debug, Clone)]
@@ -1228,12 +1230,13 @@ impl Workspace {
             )
     }
 
-    /// Whether a table named `name` (bare) is among the objects `file` searches before the any-namespace fallback of
-    /// [`resolve_ref`](Self::resolve_ref): those of its own namespace, of its `using`s, and those without a namespace.
-    pub fn table_in_scope_tiers(&self, file: usize, name: &str) -> bool {
+    /// Whether an object of `kind` named `name` (bare) is among the objects `file` searches before the any-namespace
+    /// fallback of [`resolve_ref`](Self::resolve_ref): those of its own namespace, of its `using`s, and those without a
+    /// namespace.
+    pub fn in_scope_tiers(&self, file: usize, kind: ObjKind, name: &str) -> bool {
         let f = &self.files[file];
         self.by_name
-            .get(&(ObjKind::Table, name.to_lowercase()))
+            .get(&(kind, name.to_lowercase()))
             .into_iter()
             .flatten()
             .filter(|&&i| self.visible[f.app].contains(&self.objects[i].app))
@@ -1241,6 +1244,18 @@ impl Workspace {
                 let ns = &self.objects[i].namespace;
                 ns.is_none() || eq_ns(ns, &f.namespace) || f.usings.iter().any(|u| eq_ns(ns, &Some(u.clone())))
             })
+    }
+
+    /// The objects of `kind` named `name` (bare) among the apps `file`'s app sees, in object order.
+    pub fn named_objects_visible(&self, file: usize, kind: ObjKind, name: &str) -> Vec<usize> {
+        let app = self.files[file].app;
+        self.by_name
+            .get(&(kind, name.to_lowercase()))
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|&i| self.visible[app].contains(&self.objects[i].app))
+            .collect()
     }
 
     /// Whether `app` or an app it sees declares a dependency that is not among the loaded apps.
@@ -1398,6 +1413,9 @@ impl Workspace {
                     && (v.trim().eq_ignore_ascii_case("Moved") || v.trim().eq_ignore_ascii_case("Removed"))
             })
         };
+        // A workspace table that is the moved stub of its dependency's table gives way the same way
+        // (`moved_table_of_dependency`, assumption `moved-table-stub-of-dependency`).
+        let moved = |i: &usize| moved(i) || self.moved_table_of_dependency(*i).is_some();
         if tier.len() > 1 && tier.iter().any(|i| !moved(i)) {
             return pick(tier.into_iter().filter(|i| !moved(i)).collect());
         }

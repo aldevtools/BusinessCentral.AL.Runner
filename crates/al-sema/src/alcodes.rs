@@ -97,7 +97,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ("AL0197", "two objects of one type and name in one app"),
     (
         "AL0264",
-        "two objects of one type with one id in one app; a codeunit or table with the id of one in a direct dependency",
+        "two objects of one type with one id in one app; a codeunit or table with the id of one in a direct dependency, except a table kept as the Moved stub of that dependency's table (al-runner issue 7914)",
     ),
     (
         "AL0305",
@@ -208,7 +208,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0185",
-        "reported only for the platform table Integer named bare by a Record variable or a report data item of a file in a namespace without `using System.Utilities;` (`platform_integer_without_using`: cases 2081, 2082), for a variable of a codeunit type nobody declares (`unknown_codeunit_variables`: case 0213), and for a TestRequestPage parameter typed on a name no report has (`test_request_pages_of_no_report`: case 2513); any other missing object is not decided.",
+        "reported only for the platform table Integer named bare by a Record variable or a report data item of a file in a namespace without `using System.Utilities;` (`platform_integer_without_using`: cases 2081, 2082), for a variable of a codeunit type nobody declares (`unknown_codeunit_variables`: case 0213), for a TestRequestPage parameter typed on a name no report has (`test_request_pages_of_no_report`: case 2513), and for a procedure variable of an enum type named by a name no app declares or declared only in an unrelated namespace of the file's own app (`enum_variables`: case 0214, al-runner issue 7921); any other missing object is not decided.",
     ),
     (
         "AL0240",
@@ -558,6 +558,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
         action_subscriber::check(ws, oi, &obj, &mut out);
         platform_integer_without_using(ws, oi, &obj, &types, &mut out);
         unknown_codeunit_variables(ws, oi, &decls, &mut out);
+        enum_variables::check(ws, oi, &decls, &mut out);
         test_request_pages_of_no_report(ws, oi, &obj, &mut out);
         ambiguous_dotnet_aliases(ws, oi, &decls, &mut out);
         object_properties(ws, oi, &obj, &mut out);
@@ -705,7 +706,7 @@ fn platform_integer_without_using(
         }
         dataitems(obj.sections(), &bare_integer, &mut at);
     }
-    if at.is_empty() || ws.table_in_scope_tiers(file, "Integer") {
+    if at.is_empty() || ws.in_scope_tiers(file, ObjKind::Table, "Integer") {
         return;
     }
     for offset in at {
@@ -1159,7 +1160,8 @@ fn duplicate_names(ws: &Workspace, out: &mut Vec<Diagnostic>) {
 /// An object with the type and id of an object of a direct dependency is AL0264 as well, on this app's declaration
 /// only (2148-codeunit-id-of-dependency-app.al:1, 2149-table-id-of-dependency-app.al:1). Only codeunits and tables
 /// are pinned across apps, and only for a direct dependency; other types and transitive dependencies are not judged
-/// (docs/probes-needed.md).
+/// (docs/probes-needed.md). A table that is the Moved stub of the dependency's table compiles
+/// (`Workspace::moved_table_of_dependency`, al-runner issue 7914).
 pub(crate) fn duplicate_ids(ws: &Workspace, out: &mut Vec<Diagnostic>) {
     let report = |out: &mut Vec<Diagnostic>, oi: usize| {
         let o = &ws.objects[oi];
@@ -1199,7 +1201,7 @@ pub(crate) fn duplicate_ids(ws: &Workspace, out: &mut Vec<Diagnostic>) {
                 .enumerate()
                 .any(|(ai, a)| ai != o.app && a.id.eq_ignore_ascii_case(d) && by_id.contains(&(ai, o.kind, id)))
         });
-        if in_dependency && !dups.contains(&oi) {
+        if in_dependency && !dups.contains(&oi) && ws.moved_table_of_dependency(oi).is_none() {
             report(out, oi);
         }
     }
@@ -2528,6 +2530,7 @@ fn typed_names(d: &ast::VarDecl) -> Vec<(String, String)> {
 mod action_subscriber;
 mod control_visible;
 mod count_flowfield;
+mod enum_variables;
 mod field_types;
 mod permissions_property;
 #[cfg(test)]

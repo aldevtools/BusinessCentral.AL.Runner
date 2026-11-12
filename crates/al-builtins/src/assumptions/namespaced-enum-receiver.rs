@@ -1,0 +1,11 @@
+NamespacedEnumReceiver => {
+    id: "namespaced-enum-receiver",
+    assumed: "`Ns.Sub.\"Enum\".FromInteger(n)` without `Enum::`, where `Ns` names nothing else in scope, names the enum through its namespace and runs as `Enum::Ns.Sub.\"Enum\".FromInteger(n)` does (pinned by types/ProbeNamespacedEnumQualified.al:14). Only FromInteger is taken; Names, Ordinals and other members on such a receiver keep AL0118.",
+    tests: "No Microsoft test that the runner reaches. An outside report: alc 18.1 compiles it and Base Application's ServIntegrationMgt.Codeunit.al:442 uses it (al-runner issue 7920).",
+    probe: "A types test that calls `Ns.Sub.\"Enum\".FromInteger(1)` from another namespace as a case selector and into a variable, with and without a using (corpus PR PROBE_PR).",
+    awaiting: Awaiting {
+        issues: &[7920],
+        files: &["PROBE_FILE_7920"],
+        since: "2026-11-12",
+    },
+}

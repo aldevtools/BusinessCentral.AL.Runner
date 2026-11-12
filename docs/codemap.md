@@ -183,6 +183,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 ### al-sema
 
 - `alcodes.rs` (520): Compile errors with the AL compiler's own codes (must-not-compile corpus): `IMPLEMENTED`, `NOT_CHECKED`, `check_workspace` (source-only checks, run by `check_with`), `check_context` (target and app.json checks, the caller supplies the `AppContext`). The typed ones (AL0118, AL0122, AL0132, AL0161) are in `check.rs` (`al_unresolved_name`, `al_enum_assignment`, `ABSENT_ENUM_MEMBERS`).
+- `alcodes/enum_variables.rs` (~80): AL0185 `Enum 'X' is missing` for a procedure variable whose enum no app declares (case 0214) or is declared only in an unrelated namespace of the file's own app (al-runner issue 7921). Scope tiers: `Workspace::in_scope_tiers` (shared with the Integer check of issue 5694).
 - `features.rs` (~200): AL0666 for a property, data type, attribute or object type the app's runtime lacks (al-builtins `features`), keyed by element kind (`page/layout/field`, `pageextension/layout/modify:part`). Run by `check_with` next to `alcodes::check_workspace`. Entry: `check`. `for_each_property` walks every property with its element kind (also used by `property_values.rs`).
 - `property_values.rs` (~200): AL0169, a property set to a name that is none of its values. The values per property and element kind are the AL language server's completion lists (`docs/language-catalog.json`; a test keeps the rows equal to it). Run by `alcodes::check_workspace`. Entry: `check`.
 - `base_access.rs` (78): Page and report extension code that names the base object's members (ADR-023): which probes are pinned (`PINNED`), the `AL_UNPINNED_BASE_ACCESS` switch, the base's visible variables and procedures, and the slot of a base variable from syntax. Entry: `PINNED`, `pinned`, `scope_enabled`, `visible_vars`, `visible_procs`, `slot_of`.
@@ -228,6 +229,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `reports.rs` (1035): Report objects: dataset walk, columns, and the IR it lowers to. Entry: `layout` 159, `request_layout` 318, `build` 794, `build_ext` 848.
 - `types.rs` (240): Semantic types (Ty) and their display names. Entry: `Ty` 7, `display_name` 66, `from_type_ref` 71.
 - `workspace.rs` (1561): A set of apps: parse every file, build the object table, resolve names across apps. A run's compile drops the parse trees once lowered (`drop_trees`, from al-testrun `Compiled::for_one_run`) and `green` parses a file again when a tree is needed. Entry: `Workspace` 192, `load_apps` 236, `ObjKind` 10, `ObjectSym` 155, `AppSource` 30, `AppKind` 40, `restrict_to` 535, `subscribers_of` 433, `resolve_ref` 682.
+- `workspace/moved_tables.rs` (~70): a workspace table kept as the `ObsoleteState = Moved` stub of a direct dependency's table (al-runner issue 7914): `alcodes::duplicate_ids` lets it compile, `pick_real` resolves to the dependency's table, `lower/assemble.rs` puts the assumption on `ir::Program::assumes` (marked for every test). Entry: `moved_table_of_dependency`.
 - `xmlports.rs` (712): XmlPort objects (Format = Xml). Entry: `RawNode` 24, `Layout` 33, `layout` 97, `Context` 248.
 
 ### al-syntax
