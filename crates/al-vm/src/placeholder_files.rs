@@ -169,6 +169,6 @@ impl Session {
 fn refusal(mark: &Arc<str>) -> Signal {
     Signal::unsupported(format!(
         "DotNet System.IO.File.Delete of a file holding {mark}: only the Html or Pdf of a Word layout report that one File \
-         wrote to a new file from a stream copy and one File read back, both closed, is measured"
+         wrote to a new file from a stream copy and one File then opened with an InStream, both closed, is measured"
     ))
 }
