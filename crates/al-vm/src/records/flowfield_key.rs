@@ -43,9 +43,6 @@ pub(super) fn runs(method: RecordOp, why: &str, args: &[Value]) -> bool {
                     | RecordOp::GetAscending
                     | RecordOp::GetView
                     | RecordOp::CalcFields
-                    // The rows keep the FlowField's order and the auto-calculated fields carry their values
-                    // (record/keys-sorting/KeyLookupFlowFieldFirst.al:351-352).
-                    | RecordOp::SetAutoCalcFields
             )
             || why == FLOWFIELD_KEY
                 && method == RecordOp::Find
@@ -53,6 +50,25 @@ pub(super) fn runs(method: RecordOp, why: &str, args: &[Value]) -> bool {
 }
 
 impl Session {
+    /// `SetAutoCalcFields` on a record whose key starts with a Lookup FlowField: the rows keep the FlowField's order and the
+    /// auto-calculated fields carry their values (record/keys-sorting/KeyLookupFlowFieldFirst.al:351-352, a Boolean lookup first).
+    /// Under a key that starts with another FlowField kind (sum, count, ...) it is not pinned and refuses.
+    pub(super) fn auto_calc_on_lookup_key(&self, method: RecordOp, rec: &Rec, why: &str) -> bool {
+        if why != FLOWFIELD_KEY || method != RecordOp::SetAutoCalcFields {
+            return false;
+        }
+        let Ok(t) = self.table(rec) else {
+            return false;
+        };
+        let schema = self.engine.program.objects[t.object as usize].table.as_ref();
+        let r = rec.borrow();
+        r.adhoc
+            .as_ref()
+            .and_then(|(_, wanted)| wanted.first())
+            .and_then(|&p| schema.and_then(|s| s.fields.get(p)).and_then(|f| f.calc.as_ref()))
+            .is_some_and(|c| c.method == al_ir::CalcMethod::Lookup)
+    }
+
     /// The FlowField a scan of `rec` orders by, when its key starts with a row-dependent FlowField. Refused for a shape no
     /// test pins.
     fn flowfield_key_field(&self, rec: &Rec, t: &TableDef) -> Result<Option<usize>, Signal> {
@@ -135,6 +151,21 @@ impl Session {
             .is_some_and(|c| c.method == al_ir::CalcMethod::Lookup);
         if !lookup_first || wanted[1..].iter().any(|&p| calc(p).is_some()) {
             return Ok(None);
+        }
+        // Only these type, sign and use pairs are pinned: a Boolean lookup with the answer used (KeyLookupFlowFieldFirst.al:383-386)
+        // and a Text lookup as a statement (SetCurrentKeyFlowFieldOrder.al:316), neither negated.
+        let negated = calc(wanted[0]).is_some_and(|c| c.negate);
+        let pinned = !negated
+            && match t.fields[wanted[0]].ty {
+                RtType::Boolean => self.ret_used,
+                RtType::Text(_) => !self.ret_used,
+                _ => false,
+            };
+        if !pinned {
+            return unsupported(format!(
+                "SetCurrentKey on a temporary record with the Lookup FlowField {} first: only a Boolean lookup with the answer used and a Text lookup as a statement are pinned",
+                t.fields[wanted[0]].name
+            ));
         }
         if self.ret_used {
             return Ok(Some(Value::Boolean(false)));

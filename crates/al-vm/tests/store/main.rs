@@ -38,6 +38,7 @@ mod find_directions;
 mod find_other_key;
 mod fix_records;
 mod flowfield_field_filter_flowfilter;
+mod flowfield_key_lookup_temporary;
 mod flowfield_key_order;
 mod flowfield_lookup_enum_into_option;
 mod flowfield_signed_recordid_lookup;
