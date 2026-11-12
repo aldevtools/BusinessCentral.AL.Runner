@@ -3,11 +3,11 @@
 //!
 //! Three rules, one per measured cell. Each enters only when every fact of its cell holds, by equality; any other write does
 //! what it did before these rules (`hostvalues.rs`, `recmeta.rs`). The facts all four share:
-//! - a Record variable, not a RecordRef (:140, :643), of a table whose Insert and write run no trigger, event subscriber or
+//! - a Record variable, not a RecordRef (:140, :641), of a table whose Insert and write run no trigger, event subscriber or
 //!   global trigger (table 61800, :17-27);
-//! - the buffer is the row the variable itself inserted with `Insert()`, no argument (:146, :651), and then read with `Get`
+//! - the buffer is the row the variable itself inserted with `Insert()`, no argument (:146, :650), and then read with `Get`
 //!   (`OwnRead`: `Seed` at :140-148, the temporary record at :650-655), with no other record method through the variable in
-//!   between but the ones the cell names, no builtin given the variable as an operand but the `Clear` of :653 (RecordRef
+//!   between but the ones the cell names, no builtin given the variable as an operand but the `Clear` of :652 (RecordRef
 //!   GetTable and SetTable, Page.GetRecord, ...), no Commit and no write to the record's store since the Insert;
 //! - the variable is in the state the cells' variables are in: no filter, no MarkedOnly and no other company, and no load
 //!   fields, the default ReadIsolation, filter group 0 and no marks (`default_variable`).
@@ -373,8 +373,8 @@ impl Session {
     }
 
     /// Follows `OwnRead` of `rec` as record method `method` starts. Only the methods the measured cells name keep it: a Get
-    /// after the Insert, a Clear between the two (:653), and the write that reads it (Modify, Rename). Returns the store's
-    /// change counter when `method` is an `Insert()` with no argument (AssignedAuditFields.al:146, :651) AL code called on a
+    /// after the Insert, a Clear between the two (:652), and the write that reads it (Modify, Rename). Returns the store's
+    /// change counter when `method` is an `Insert()` with no argument (AssignedAuditFields.al:146, :650) AL code called on a
     /// Record variable, for `own_read_after`.
     pub(crate) fn own_read_before(
         &mut self,
@@ -483,7 +483,7 @@ impl Session {
     }
 }
 
-/// The variable is in the state the cells' variables are in after `Clear` (:142) or as declared (:643): no filter, no
+/// The variable is in the state the cells' variables are in after `Clear` (:143) or as declared (:641): no filter, no
 /// MarkedOnly, no other company, no load fields, the default ReadIsolation, filter group 0 and no marks.
 fn default_variable(r: &al_builtins::value::RecordState) -> bool {
     r.filters.is_empty()
@@ -497,7 +497,7 @@ fn default_variable(r: &al_builtins::value::RecordState) -> bool {
 
 /// A builtin given record variables as operands (RecordRef.GetTable and SetTable, Page.GetRecord, Codeunit.Run, ...) reads
 /// or writes their buffers outside their own methods: it ends their `OwnRead`. `Clear`, which `Session::own_read_before`
-/// follows, is the one builtin the cells give the variable (AssignedAuditFields.al:653).
+/// follows, is the one builtin the cells give the variable (AssignedAuditFields.al:652).
 #[inline]
 pub(crate) fn own_read_end_for_operands(id: al_builtins::builtin_id::BuiltinId, operands: &[Value]) {
     if id == al_builtins::builtin_id::ids::SYSTEM_CLEAR_1 {
