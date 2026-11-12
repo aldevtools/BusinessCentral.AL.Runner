@@ -259,13 +259,10 @@ fn empty_worksheet_refresh_outside_the_pin_keeps_mains_refusal() {
     }
 }
 
-/// The pinned modal Worksheet of SelectionFilterNoRow.al:346 (page 67999) with a page extension or a page subscriber keeps
-/// main's refusal.
-#[test]
-fn empty_modal_worksheet_with_extension_code_keeps_mains_refusal() {
-    let base = |extra: &str| {
-        format!(
-            r#"
+/// The pinned modal Worksheet of SelectionFilterNoRow.al:346 (page 67999) with `extra` objects next to it.
+fn modal_worksheet(extra: &str) -> String {
+    format!(
+        r#"
 table 69520 Row {{
     fields {{ field(1; Id; Integer) {{ }} field(2; Name; Text[20]) {{ }} }}
     keys {{ key(PK; Id) {{ Clustered = true; }} }}
@@ -274,7 +271,7 @@ page 69521 Worksheet {{
     PageType = Worksheet; InsertAllowed = false; DelayedInsert = true; SourceTable = Row; ApplicationArea = All;
     layout {{ area(Content) {{ repeater(Rows) {{ field(Id; Rec.Id) {{ ApplicationArea = All; }} }} }} }}
     actions {{ area(Processing) {{ action(Check) {{ ApplicationArea = All;
-        trigger OnAction() var Selected: Record Row; begin
+        trigger OnAction() var Selected: Record Row; Other: Record Row; begin
             CurrPage.SetSelectionFilter(Selected);
             if Selected.GetFilter(Id) <> '0' then Error('Got %1', Selected.GetFilters());
         end; }} }} }}
@@ -289,9 +286,13 @@ codeunit 69522 T {{ Subtype = Test;
     [ModalPageHandler] procedure HandleWorksheet(var Window: TestPage Worksheet) begin Window.Check.Invoke(); end;
 }}
 "#
-        )
-    };
-    let pinned = run_with_deps(&[], &base(""));
+    )
+}
+
+/// The pinned modal Worksheet with a page extension or a page subscriber keeps main's refusal.
+#[test]
+fn empty_modal_worksheet_with_extension_code_keeps_mains_refusal() {
+    let pinned = run_with_deps(&[], &modal_worksheet(""));
     assert_eq!(pinned[0].1, Outcome::Pass, "{pinned:?}");
     for extra in [
         "pageextension 69523 WsExt extends Worksheet { trigger OnAfterGetCurrRecord() begin end; }",
@@ -300,8 +301,42 @@ codeunit 69522 T {{ Subtype = Test;
     local procedure OnCurr(var Rec: Record Row) begin end;
 }"#,
     ] {
-        let outcomes = run_with_deps(&[], &base(extra));
+        let outcomes = run_with_deps(&[], &modal_worksheet(extra));
         not_run_with(&outcomes, "on no row", extra);
+    }
+}
+
+/// Facts of the pinned modal Worksheet flipped one at a time keep main's refusal: a row of the view stored before the
+/// selection, a destination that holds a row or another key and order, a stored row with the blank key, an OnOpenPage
+/// without its `FindFirst`, and handler calls the pin does not make (a move or a read before the action, the action twice).
+#[test]
+fn empty_modal_worksheet_facts_outside_the_pin_keep_mains_refusal() {
+    let pinned = modal_worksheet("");
+    let select = "CurrPage.SetSelectionFilter(Selected);";
+    let invoke = "begin Window.Check.Invoke(); end;";
+    let shapes = [
+        pinned.replace(
+            select,
+            &format!("Other.Id := 5; Other.Name := 'VISIBLE'; Other.Insert(); {select}"),
+        ),
+        pinned.replace(select, &format!("Selected.Get(1); {select}")),
+        pinned.replace(
+            select,
+            &format!("Selected.SetCurrentKey(Name); Selected.Ascending(false); {select}"),
+        ),
+        pinned.replace("Row.Id := 1;", "Row.Id := 0;"),
+        pinned.replace("if Rec.FindFirst() then;", ""),
+        pinned.replace(invoke, "begin Window.First(); Window.Check.Invoke(); end;"),
+        pinned.replace(
+            invoke,
+            "begin if Window.Id.Value() = '' then; Window.Check.Invoke(); end;",
+        ),
+        pinned.replace(invoke, "begin Window.Check.Invoke(); Window.Check.Invoke(); end;"),
+    ];
+    for shape in shapes {
+        assert_ne!(shape, pinned);
+        let outcomes = run_with_deps(&[], &shape);
+        not_run_with(&outcomes, "on no row", &shape);
     }
 }
 
@@ -320,5 +355,134 @@ fn new_document_outside_the_gate_keeps_mains_outcome() {
             matches!(&outcomes[0].1, Outcome::Fail(why) if why.contains("does not exist")),
             "{shape}: {outcomes:?}"
         );
+    }
+}
+
+/// A Document like the pinned one with `controls` in its General group, `page_code` on the page and `fields` added to the
+/// table; the test types into Scan on the OpenNew draft and ends with the stored row count: `n=0` is main's outcome.
+fn scan_document(controls: &str, page_code: &str, fields: &str, part: &str) -> String {
+    format!(
+        r#"
+table 69500 Row {{
+    fields {{ field(1; "No."; Code[20]) {{ }} field(2; Description; Text[100]) {{ }} {fields} }}
+    keys {{ key(PK; "No.") {{ Clustered = true; }} }}
+    trigger OnInsert() begin if "No." = '' then "No." := 'AUTO1'; end;
+}}
+table 69504 Line {{
+    fields {{ field(1; "Entry No."; Integer) {{ }} field(2; "Code Field"; Code[20]) {{ }} }}
+    keys {{ key(PK; "Entry No.") {{ Clustered = true; }} }}
+}}
+page 69501 Doc {{
+    PageType = Document; SourceTable = Row; ApplicationArea = All; UsageCategory = None;
+    layout {{ area(Content) {{ group(General) {{ {controls} }} {part} }} }}
+    {page_code}
+    var InputText: Text[20]; Seen: Text;
+}}
+page 69502 Lines {{
+    PageType = ListPart; SourceTable = Line; ApplicationArea = All;
+    layout {{ area(Content) {{ repeater(Rows) {{ field(EntryNo; Rec."Entry No.") {{ ApplicationArea = All; }} }} }} }}
+}}
+codeunit 69503 T {{ Subtype = Test;
+    [Test] procedure P() var Row: Record Row; Doc: TestPage Doc; begin
+        Doc.OpenNew(); Doc.Scan.SetValue('SCANNED');
+        Error('n=%1', Row.Count());
+    end;
+}}
+"#
+    )
+}
+
+const NO_CONTROL: &str = r#"field(No; Rec."No.") { ApplicationArea = All; }"#;
+const PLAIN_SCAN: &str = "field(Scan; InputText) { ApplicationArea = All; }";
+
+/// A variable control without OnValidate, or one the test types into with no focus move from another control, keeps main's
+/// outcome: no header is stored before it validates.
+#[test]
+fn new_document_without_the_validating_focus_move_keeps_mains_outcome() {
+    let harmless_scan =
+        "field(Scan; InputText) { ApplicationArea = All; trigger OnValidate() begin Seen := InputText; end; }";
+    let shapes = [
+        scan_document(&format!("{harmless_scan}{NO_CONTROL}"), "", "", ""),
+        scan_document(&format!("{PLAIN_SCAN}{NO_CONTROL}"), "", "", ""),
+        scan_document(
+            &format!("{NO_CONTROL}{PLAIN_SCAN}"),
+            "trigger OnOpenPage() begin end; trigger OnAfterGetCurrRecord() begin end;",
+            "",
+            "",
+        ),
+        scan_document(
+            &format!("{NO_CONTROL}{PLAIN_SCAN}"),
+            "",
+            "field(3; Kind; Integer) { trigger OnValidate() begin end; }",
+            "",
+        ),
+        scan_document(&format!("{NO_CONTROL}{PLAIN_SCAN}"), "", "", ""),
+        scan_document(&format!("{NO_CONTROL}{PLAIN_SCAN}"), "", "", LINKED_PART),
+    ];
+    for shape in shapes {
+        let outcomes = run_with_deps(&[], &shape);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::Fail(why) if why.contains("n=0")),
+            "{shape}: {outcomes:?}"
+        );
+    }
+}
+
+/// The header's primary key of two fields without a part, and rows stored before OpenNew: the pinned table has the one key
+/// field "No." (TpbkRow.Table.al:16) and no row (TestPageBlankKeyInsert.al:40 `Row.DeleteAll()`). Main fails there; the
+/// focus move refuses.
+#[test]
+fn new_document_key_and_rows_outside_the_pin_refuse() {
+    let pinned = new_document("", "", "", "", "");
+    let shapes = [
+        pinned.replace(
+            r#"field(2; Description; Text[100]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }"#,
+            r#"field(2; Description; Text[100]) { } field(3; Kind; Integer) { } }
+    keys { key(PK; "No.", Kind) { Clustered = true; } }"#,
+        ),
+        new_document("", "", "", "", "Row.\"No.\" := 'OLD'; Row.Insert();"),
+    ];
+    for shape in shapes {
+        assert_ne!(shape, pinned);
+        let outcomes = run_with_deps(&[], &shape);
+        not_run_with(&outcomes, NEW_DOCUMENT_REFUSAL, &shape);
+    }
+}
+
+/// Facts of the pinned Worksheet refresh (SelectionFilterNoRow.al:372, page 67996, table "ALT Universal") flipped one at a
+/// time keep main's refusal of SetSelectionFilter on no row: the table empty before the action (the pin holds the HIDDEN
+/// row), an action that changes the range value, OnOpenPage left in filter group 2, a primary key of two fields, an action
+/// that changes Rec's key after Update(false), and an OnOpenPage without its `FindFirst`.
+#[test]
+fn empty_worksheet_refresh_facts_outside_the_pin_keep_mains_refusal() {
+    let pinned = refresh_sheet(PINNED_SHEET_PROPERTIES, "", "");
+    let shapes = [
+        pinned.replace(
+            "Row.\"Entry No.\" := 1; Row.\"Code Field\" := 'HIDDEN'; Row.\"Boolean Field\" := true; Row.Insert();",
+            "",
+        ),
+        pinned.replace(
+            "Row.\"Code Field\" := 'SELECTED'; Row.\"Boolean Field\" := true; Row.Insert();",
+            "Row.\"Code Field\" := 'OTHER'; Row.\"Boolean Field\" := true; Row.Insert(); Rec.FilterGroup(2); Rec.SetRange(\"Code Field\", 'OTHER'); Rec.FilterGroup(0);",
+        ),
+        pinned.replace(
+            "Rec.SetRange(\"Code Field\", 'SELECTED'); Rec.FilterGroup(0);",
+            "Rec.SetRange(\"Code Field\", 'SELECTED');",
+        ),
+        pinned.replace(
+            "key(PK; \"Entry No.\")",
+            "key(PK; \"Entry No.\", \"Boolean Field\")",
+        ),
+        pinned.replace(
+            "CurrPage.Update(false);",
+            "CurrPage.Update(false); Rec.\"Entry No.\" := 99;",
+        ),
+        pinned.replace("if Rec.FindFirst() then;", ""),
+    ];
+    for shape in shapes {
+        assert_ne!(shape, pinned);
+        let outcomes = run_with_deps(&[], &shape);
+        not_run_with(&outcomes, "on no row", &shape);
     }
 }

@@ -1,7 +1,9 @@
 //! `SetTableView` and `SetRecord` on a Page variable: what the page takes of the record it is handed, and what
 //! `SetSelectionFilter` hands back after the page closed.
 
+use super::pinned_shape::{TestCall, open_page_filters_then_find};
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 impl Session {
     /// `P.SetTableView(Rec)` hands the page variable the view of Rec (filters and sorting) but not its position, so the page opens
@@ -189,10 +191,12 @@ impl Session {
     /// (Page_SetSelectionFilter_EmptyModalWorksheet_FiltersDefaultKey, page 67999) selects the default key: the selection
     /// filters the primary key on its blank value and finds nothing. Every fact required: the page ran by a statement
     /// `Page.RunModal(Page::X)` without a record and without its return value used, under a typed modal handler that invokes
-    /// an action; a Worksheet on no row that declares OnOpenPage and no other trigger, no property but the plain ones,
-    /// DelayedInsert = true and InsertAllowed = false, with no page extension and no event subscriber; Rec is stored and holds
-    /// only OnOpenPage's `SetRange` of one non-blank Text value on a field outside its one-field Integer primary key, in
-    /// filter group 2; the destination record is fresh.
+    /// an action, the only call the handler made on the page so far; a Worksheet on no row that declares OnOpenPage and no
+    /// other trigger, no property but the plain ones, DelayedInsert = true and InsertAllowed = false, with no page extension
+    /// and no event subscriber; OnOpenPage is `open_page_filters_then_find`; Rec is stored and holds only OnOpenPage's
+    /// `SetRange` of one non-blank Text value on a field outside its one-field Integer primary key, in filter group 2; the
+    /// view is empty and no stored row has the blank key (the test stores Id 1, HIDDEN); the destination record is fresh:
+    /// its initial fields, no filter, filter group 0, the primary key, ascending.
     pub(super) fn empty_modal_worksheet_selection(
         &mut self,
         st: &St,
@@ -218,6 +222,8 @@ impl Session {
         };
         if !self.declares(st, "onopenpage")
             || !self.page_declares_within(st, &["onopenpage"], &["delayedinsert", "insertallowed"])
+            || !open_page_filters_then_find(&self.engine.program, object, page_of(&self.engine, st))
+            || Self::test_calls(st).as_deref() != Some(&[TestCall::Other(PageMethod::Invoke)])
         {
             return Ok(false);
         }
@@ -235,8 +241,19 @@ impl Session {
         }
         let source = src.borrow();
         let destination = dst.borrow();
+        let fresh = destination.key == 0
+            && destination.adhoc.is_none()
+            && destination.ascending
+            && destination.field_descending == 0
+            && destination.fields.len() == initial.len()
+            && destination
+                .fields
+                .iter()
+                .zip(initial)
+                .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|order| order.is_eq()));
         if source.temporary
             || destination.temporary
+            || !fresh
             || !destination.filters.is_empty()
             || destination.filter_group != 0
             || source.filter_group != 0
@@ -265,7 +282,14 @@ impl Session {
         {
             return Ok(false);
         }
-        Ok(true)
+        let blank_key = al_builtins::filter::FieldFilter::new(
+            key[0],
+            al_builtins::filter::FilterExpr::Eq(initial[key[0]].clone()),
+            0,
+        );
+        drop(source);
+        drop(destination);
+        Ok(self.view_row_count(st)? == 0 && self.stored_rows_passing(src, vec![blank_key])? == 0)
     }
 
     /// A TestPage whose own filter shows no row of a table that has rows hands the record that filter

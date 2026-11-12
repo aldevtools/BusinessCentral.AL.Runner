@@ -2,6 +2,7 @@
 //! reads the page as when it opens and the first row of the new view becomes current. `action_invoke_body` (actions.rs)
 //! asks `empty_list_view` before the action's trigger and `update_on_empty_list_view` after it.
 
+use super::pinned_shape::open_page_filters_then_find;
 use super::*;
 
 impl Session {
@@ -38,7 +39,7 @@ impl Session {
     /// Update(true) fills the page the same way, read as at open from the first row (pages/actions/ActionFilterEmptyView.al
     /// Action_NoRowsLeft_ThenCleared_UpdateTrue `cleared` `[1|1]:a0;u0;R1;R2;R3;R4;R1;R1;C1`, as _UpdateFalse).
     /// The pinned Worksheet opened for edit (`empty_edit_worksheet`) is filled the same way by Update(false) when the action
-    /// stored the one row of its view and left its filters as they were (pages/currpage/SelectionFilterNoRow.al:372
+    /// stored the one row of its view and left Rec as `empty_edit_worksheet_kept` requires (pages/currpage/SelectionFilterNoRow.al:372
     /// TestPage_Update_NewWorksheetRow_IsSelectable and :385 TestPage_First_AfterWorksheetUpdate_FindsImportedRow: the
     /// action after it selects that row, and First() finds it).
     pub(super) fn update_on_empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
@@ -58,7 +59,7 @@ impl Session {
         let mode = st.borrow().mode;
         match mode {
             PageMode::Edit => {
-                if n != 1 || !st.borrow().refresh_update_false || !self.empty_edit_worksheet_filters(st)? {
+                if !(n == 1 && st.borrow().refresh_update_false && self.empty_edit_worksheet_kept(st)?) {
                     return Ok(false);
                 }
             }
@@ -90,7 +91,9 @@ impl Session {
     /// The Worksheet of SelectionFilterNoRow.al:372 (page 67996) opened for edit by the test page and showing no row, every
     /// fact required: not modal, not run by a handler, no draft, no part; it declares OnOpenPage and no other trigger, no
     /// property but the plain ones, SourceTableView, DelayedInsert = true and InsertAllowed = false, and has no page extension
-    /// and no event subscriber; Rec is a stored table filtered as `empty_edit_worksheet_filters` requires; the view is empty.
+    /// and no event subscriber; OnOpenPage is `open_page_filters_then_find`; Rec is a stored table filtered as
+    /// `empty_edit_worksheet_filters` requires, in filter group 0; the view is empty and the table holds one row, the one
+    /// the filters hide (SelectionFilterNoRow.al:401-405 `Initialize`: Entry No. 1, HIDDEN).
     fn empty_edit_worksheet(&mut self, st: &St) -> Result<bool, Signal> {
         let object = {
             let s = st.borrow();
@@ -106,19 +109,40 @@ impl Session {
                 &["onopenpage"],
                 &["sourcetableview", "delayedinsert", "insertallowed"],
             )
+            || !open_page_filters_then_find(&self.engine.program, object, page_of(&self.engine, st))
             || !flag_denied(&self.engine, object, "InsertAllowed")?
             || !effective_prop(&self.engine, object, "DelayedInsert")?.is_some_and(|v| v.eq_ignore_ascii_case("true"))
             || self.page_rec(st).borrow().temporary
+            || self.page_rec(st).borrow().filter_group != 0
             || !self.empty_edit_worksheet_filters(st)?
         {
             return Ok(false);
         }
-        Ok(self.view_row_count(st)? == 0)
+        Ok(self.view_row_count(st)? == 0 && self.stored_rows_passing(&self.page_rec(st), Vec::new())? == 1)
+    }
+
+    /// After the action on the pinned Worksheet: Rec as the action of page 67996 leaves it, which does not touch Rec
+    /// (SelectionFilterNoRow.al ImportRow): its filters, key and order as before the action (`view_before_action`), filter
+    /// group 0, and the blank primary key OnOpenPage's `FindFirst` left on no row.
+    fn empty_edit_worksheet_kept(&mut self, st: &St) -> Result<bool, Signal> {
+        let Some((filters, key, adhoc, ascending)) = st.borrow().view_before_action.clone() else {
+            return Ok(false);
+        };
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let initial = self.initial_fields(table.object as usize);
+        let r = rec.borrow();
+        Ok(crate::records::same_filters(&filters, &r.filters)
+            && key == r.key
+            && adhoc == r.adhoc.as_ref().map(|(_, f)| f.clone())
+            && ascending == r.ascending
+            && r.filter_group == 0
+            && Self::same_key(&table.primary_key(&r.fields), &table.primary_key(&initial)))
     }
 
     /// Rec's filters are the two of page 67996 (SelectionFilterNoRow.al): the SourceTableView of one `const` condition and
     /// OnOpenPage's `SetRange` of one non-blank Text or Code value on another field that is not in the primary key, both in
-    /// filter group 2. No marks.
+    /// filter group 2. No marks. The primary key is one field (ALTUniversal.al `key(PK; "Entry No.")`).
     fn empty_edit_worksheet_filters(&mut self, st: &St) -> Result<bool, Signal> {
         let object = st.borrow().object as usize;
         let Some(raw) = self.engine.program.objects[object]
@@ -131,6 +155,9 @@ impl Session {
         };
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
+        if table.keys[0].len() != 1 {
+            return Ok(false);
+        }
         let Some(view_field) = crate::views::single_where_const(&table, &crate::views::property_view(&raw)) else {
             return Ok(false);
         };

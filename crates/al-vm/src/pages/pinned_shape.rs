@@ -429,6 +429,29 @@ impl Session {
             && !engine.events.any_subscriber_of(table))
     }
 
+    /// The stored rows of the table of `rec` that pass `filters` alone (none of `rec`'s own filters or marks): a fact the
+    /// entry predicates compare with the rows their pin stored.
+    pub(super) fn stored_rows_passing(
+        &mut self,
+        rec: &Rec,
+        filters: Vec<al_builtins::filter::FieldFilter>,
+    ) -> Result<i32, Signal> {
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        {
+            let mut rows = probe.borrow_mut();
+            rows.filters = filters;
+            rows.marks.clear();
+            rows.marked_only = false;
+        }
+        self.ret_used = true;
+        Ok(
+            match self.record_op(al_builtins::record_op::RecordOp::Count, &probe, &mut [])? {
+                Value::Integer(n) => n,
+                _ => 0,
+            },
+        )
+    }
+
     /// Whether Rec is in the plain view of a pinned page: `key` (a position in the table's key list), ascending, no filter in
     /// any group, no marks.
     pub(super) fn rec_view_is(&self, st: &St, key: usize) -> bool {
@@ -549,4 +572,35 @@ pub(super) fn table_code(engine: &Engine, object: usize) -> Option<(Vec<String>,
     triggers.sort_unstable();
     let more = t.routines.iter().any(|r| r.field.is_some() || !r.is_trigger);
     Some((triggers, more))
+}
+
+/// The OnOpenPage of `page` (object `object`) is, statement by statement, the one of pages 67996 and 67999
+/// (pages/currpage/SelectionFilterNoRow.al): `Rec.FilterGroup(..); Rec.SetRange(..); Rec.FilterGroup(..); if Rec.FindFirst()
+/// then;`. The values the filters take are the callers' to check.
+pub(super) fn open_page_filters_then_find(program: &ir::Program, object: usize, page: &ir::Page) -> bool {
+    use al_builtins::builtin_id::ids;
+    let Some(rec) = program.objects[object].rec_slot else {
+        return false;
+    };
+    let Some((_, r)) = page.triggers.iter().find(|(n, _)| n == "onopenpage") else {
+        return false;
+    };
+    let on_rec = |e: &ir::Expr, want: al_builtins::builtin_id::BuiltinId| {
+        matches!(e, ir::Expr::Builtin { id, receiver: Some(receiver), .. } if *id == want
+            && matches!(&**receiver, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g))
+                if *g == rec))
+    };
+    let call = |s: &ir::Stmt, want| matches!(s, ir::Stmt::Expr(e) if on_rec(e, want));
+    let empty = |b: &[ir::Stmt]| b.iter().all(|s| matches!(s, ir::Stmt::Pos(_)));
+    match code_stmts(program, object, *r).as_slice() {
+        [group, range, group_back, ir::Stmt::If(find, then, otherwise)] => {
+            call(group, ids::RECORD_FILTERGROUP_1)
+                && call(range, ids::RECORD_SETRANGE_1)
+                && call(group_back, ids::RECORD_FILTERGROUP_1)
+                && on_rec(find, ids::RECORD_FINDFIRST_1)
+                && empty(then)
+                && empty(otherwise)
+        }
+        _ => false,
+    }
 }

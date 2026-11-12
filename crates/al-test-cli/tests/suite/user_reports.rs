@@ -2527,14 +2527,15 @@ codeunit 69502 T {{ Subtype = Test;
 }
 
 /// Issue 7770: only the focus move on an unfiltered OpenNew Document without parts
-/// is covered by TestPageBlankKeyInsert.al. The neighboring shapes must refuse.
+/// is covered by TestPageBlankKeyInsert.al. The neighboring focus moves must refuse; a value typed into the variable
+/// control with no focus move (first control, or after `New`) keeps main's outcome (its Modify finds no row).
 #[test]
 fn issue_7770_document_variable_validation_refuses_unmeasured_shapes() {
     let key = "field(Id; Rec.Id) { ApplicationArea = All; }";
     let scan = "field(Scan; Input) { ApplicationArea = All; trigger OnValidate() begin Rec.Payload := Input; Rec.Modify(); end; }";
     for (controls, part, open, extra, insert, refusal) in [
-        (format!("{scan} {key}"), "", "", "", "", "OpenNew focus move"),
-        (format!("{key} {scan}"), "", "Doc.New();", "", "", "OpenNew focus move"),
+        (format!("{scan} {key}"), "", "", "", "", "does not exist"),
+        (format!("{key} {scan}"), "", "Doc.New();", "", "", "does not exist"),
         (
             format!("{key} {scan}"),
             "part(Lines; Lines) { ApplicationArea = All; }",
@@ -2586,7 +2587,7 @@ codeunit 69503 T {{ Subtype = Test;
         );
         let outcomes = run_with_deps(&[], &test);
         assert!(
-            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains(refusal)),
+            matches!(&outcomes[0].1, Outcome::NotRun(why) | Outcome::Fail(why) if why.contains(refusal)),
             "{outcomes:?}"
         );
     }
