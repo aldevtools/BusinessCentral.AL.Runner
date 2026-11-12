@@ -2,8 +2,9 @@
 //! and Vendor Statistics FactBox, Sales Doc. Check Factbox). Every enqueue runs its task, also a second one for the
 //! record of the part's previous enqueue (OpenView and then GoToRecord of the same row): Microsoft's tests pass on BC
 //! with this (Tests-SCM 137275 CalcInventoryWithIncludeItemWithoutTransaction*, 137033
-//! ShowPositiveEntriesOnApplyToEntryLookup*, 137285 ServOrderStatistics*; Tests-ERM-Purchase 133772). Whether BC runs
-//! both tasks is not pinned yet (al-runner issue 7576). A host that moves to another row runs the task again
+//! ShowPositiveEntriesOnApplyToEntryLookup*, 137285 ServOrderStatistics*; Tests-ERM-Purchase 133772), and BC runs the
+//! second task (pending pin, corpus pull request 1332: pages/background-tasks/BgTaskPartReenqueue.al
+//! GoToRecord_TheSameRowTwice; al-runner issue 7576). A host that moves to another row runs the task again
 //! (Customer Card OpenEdit + GoToRecord, Customer List OpenView + Next and OpenView + GoToRecord, Vendor Card GoToRecord
 //! all pass on BC 29).
 
