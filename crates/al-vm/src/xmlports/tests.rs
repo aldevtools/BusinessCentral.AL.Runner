@@ -1,9 +1,14 @@
-use super::{declared_separator, split_variable};
+use super::{declared_separator, split_variable_marked};
 
 // xmlports/TestXmlPortTextFormatsContracts.al:VariableText_Import_QuotedUnquotedAndBlankValues
 #[test]
 fn a_variable_text_record_splits_into_its_values() {
-    let split = |l: &str| split_variable(l, ",", "\"");
+    let split = |l: &str| -> Vec<String> {
+        split_variable_marked(l, ",", "\"")
+            .into_iter()
+            .map(|(v, _)| v)
+            .collect()
+    };
     assert_eq!(
         split("\"1\",\"a,b\",\"1,234.50\",\"03/05/24\""),
         ["1", "a,b", "1,234.50", "03/05/24"]
