@@ -13,6 +13,8 @@
 //!   characters, the user name): no error; Password then holds 27 characters that are not the plain text, a different
 //!   password changes them and the same password again does not (SetUserPasswordStatement.al ExistingUser_*, DisabledUser).
 //!
+//! - `NavUserAccountHelper.IsPasswordSet` reads the same Password field (`user_password_is_set`).
+//!
 //! The 27 characters BC stores are its own hash, which no test can predict; the runner stores 27 characters worked out from
 //! the password alone, with the properties above. Whether two users with the same password get the same text is not pinned.
 //! Refused: a User Property row with no User row (not pinned), and a call whose return value is used (not pinned).
@@ -45,16 +47,7 @@ impl Session {
         let cx = self.cx.clone();
         let key = [Value::Guid(sid)];
         let Some(mut prop) = self.store.get(&cx, &up, &key)? else {
-            let shown = self.message_value(&key[0])?;
-            return raise(
-                format!(
-                    "There is no {} within the filter.{BR}{BR}Filters: {}: {shown}",
-                    self.caption(&up),
-                    self.field_caption(&up, crate::platform::pos(&up, 1)),
-                    BR = crate::records::BR
-                ),
-                "DB:NothingInsideFilter",
-            );
+            return self.no_user_property(&up, sid);
         };
         self.gate_used_try_write("MODIFY")?;
         self.gate_write(RecordOp::Modify)?;
@@ -82,6 +75,44 @@ impl Session {
         prop[field] = Value::Text(stored_text(&password).into());
         self.store.modify(&cx, &up, prop)?;
         Ok(Value::Null)
+    }
+
+    /// `NavUserAccountHelper.IsPasswordSet(UserSecurityId)`, which Base Application's "Identity Management".IsUserPasswordSet
+    /// asks and the User Card reaches (AL Runner issue 7447). Measured on BC 27.5, 28.5 and 29.0 (corpus PR 1330,
+    /// al-language-onprem session-system/database-and-blob-operations/SetUserPasswordStatement.al:284): No for a user row AL
+    /// inserted (its User Property row has a blank Password), Yes after `SetUserPassword` with a strong and with a blank
+    /// password (Password then holds the stored text), and for an unknown user the NothingInsideFilter error of User Property,
+    /// the same error `SetUserPassword` raises.
+    pub(crate) fn user_password_is_set(&mut self, sid: [u8; 16]) -> Result<bool, Signal> {
+        let Some(up) = self.table_def(USER_PROPERTY) else {
+            return unsupported("NavUserAccountHelper.IsPasswordSet in a program that does not compile User Property");
+        };
+        let Some(field) = up.fields.iter().position(|f| f.name.eq_ignore_ascii_case("Password")) else {
+            return unsupported("User Property has no Password field");
+        };
+        let cx = self.cx.clone();
+        let Some(prop) = self.store.get(&cx, &up, &[Value::Guid(sid)])? else {
+            return self.no_user_property(&up, sid);
+        };
+        match &prop[field] {
+            Value::Text(t) | Value::Code(t) => Ok(!t.is_empty()),
+            _ => unsupported("User Property Password that is not a text"),
+        }
+    }
+
+    /// The NothingInsideFilter error of User Property for a User Security ID that has no row (ODatabaseOps.al:73-80;
+    /// SetUserPasswordStatement.al UnknownUser, NullGuid, IsUserPasswordSet).
+    fn no_user_property<T>(&self, up: &al_data::TableDef, sid: [u8; 16]) -> Result<T, Signal> {
+        let shown = self.message_value(&Value::Guid(sid))?;
+        raise(
+            format!(
+                "There is no {} within the filter.{BR}{BR}Filters: {}: {shown}",
+                self.caption(up),
+                self.field_caption(up, crate::platform::pos(up, 1)),
+                BR = crate::records::BR
+            ),
+            "DB:NothingInsideFilter",
+        )
     }
 }
 

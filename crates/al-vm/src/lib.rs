@@ -144,6 +144,7 @@ mod testdata;
 mod transactions;
 mod translations;
 mod ui;
+mod user_account_keys;
 mod user_email;
 mod user_password;
 mod usertable;
