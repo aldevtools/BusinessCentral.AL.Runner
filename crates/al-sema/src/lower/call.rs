@@ -123,20 +123,22 @@ impl Lowerer<'_> {
             .and_then(al_syntax::ast::Routine::cast);
         let is_report = self.ws.objects[self.oi].kind == ObjKind::Report;
         if let Some(trigger) = routine.as_ref().filter(|r| r.is_trigger()) {
+            // The trigger kind comes from where it is declared: the report itself, a `dataitem` or the `requestpage`.
+            let section = trigger
+                .syntax()
+                .ancestors()
+                .find_map(al_syntax::ast::Section::cast)
+                .map(|sec| sec.name().to_ascii_lowercase());
+            let names: &[&str] = match section.as_deref() {
+                None => &["OnInitReport", "OnPreReport", "OnPostReport"],
+                Some("dataitem") => &["OnPreDataItem", "OnAfterGetRecord", "OnPostDataItem"],
+                Some("requestpage") => &["OnOpenPage"],
+                Some(_) => &[],
+            };
             let pinned = is_report
                 && getter
                 && name.eq_ignore_ascii_case("UseRequestPage")
-                && [
-                    "OnInitReport",
-                    "OnPreReport",
-                    "OnPostReport",
-                    "OnPreDataItem",
-                    "OnAfterGetRecord",
-                    "OnPostDataItem",
-                    "OnOpenPage",
-                ]
-                .iter()
-                .any(|t| trigger.name().eq_ignore_ascii_case(t));
+                && names.iter().any(|t| trigger.name().eq_ignore_ascii_case(t));
             if !pinned {
                 return Err(format!(
                     "a bare `{name}` in a trigger of the report runs while the report runs (not pinned; only the read `UseRequestPage` of a report in its run and data item triggers and its request page's OnOpenPage is)"

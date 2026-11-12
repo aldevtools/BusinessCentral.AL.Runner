@@ -76,6 +76,10 @@ enum Entry {
     /// `Execute` never shows the request page
     /// (record/TestTxModelReportExec.al:195-210, Test09).
     Execute,
+    /// `Report.Print(Id, '')` of a processing-only report with UseSystemPrinter, run as an Execute (reports/
+    /// Y13ReportSystemPrinter.al:357-358). Its triggers' `UseRequestPage()` is not pinned and keeps the instance's answer
+    /// (`use_request_page_getter`).
+    Print,
 }
 
 /// The report instance's object, kept alive independently of the session.
@@ -460,6 +464,8 @@ impl Session {
                 // `CurrReport.UseRequestPage()` has no receiver value: it is the running report, as for ObjectId (Copy Sales
                 // Document OnPreReport, 186 Tests-ERM tests; the getter of a report run by Run is pinned by
                 // reports/TestReportRuntimeContracts.al:416-440 for a variable).
+                // The report's own code, not a reportextension's, read without a receiver (`use_request_page_getter`).
+                let own_code = receiver.is_none() && running.borrow().base.is_none();
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
                 let inst = self.report_instance(receiver, false)?.0;
                 let schema = self.report_schema(&inst)?;
@@ -467,7 +473,7 @@ impl Session {
                 // The getter answers what the next Run does; the setter overrides the report's own
                 // property in both directions (reports/TestReportRuntimeContracts.al:416-440).
                 let Some(Value::Boolean(b)) = args.first() else {
-                    return self.use_request_page_getter(&inst, &schema);
+                    return self.use_request_page_getter(&inst, &schema, own_code);
                 };
                 inst.borrow_mut().globals[slot] = Value::Integer(if *b { REQUEST_PAGE_ON } else { REQUEST_PAGE_OFF });
                 Ok(Value::Null)
@@ -511,7 +517,7 @@ impl Session {
                     match self.report_enter_world(&schema, window) {
                         Ok(enters) => {
                             let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_1);
-                            let ran = self.report_run_entered(&inst, &schema, Entry::Run, window, enters);
+                            let ran = self.report_run_entered(&inst, &schema, Entry::Run, window, enters, None);
                             self.report.run_modal = outer;
                             ran
                         }
@@ -605,7 +611,7 @@ impl Session {
                     return Ok(Value::Null);
                 }
                 let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_3);
-                let ran = self.report_run(&inst, &schema, Entry::Run, window);
+                let ran = self.report_run(&inst, &schema, Entry::Run, window, None);
                 self.report.run_modal = outer;
                 ran.map(|()| Value::Null)
             }
@@ -669,7 +675,7 @@ impl Session {
                 if self.report_init(&inst)? {
                     return Ok(Value::Null);
                 }
-                self.report_run(&inst, &schema, Entry::Execute, false)
+                self.report_run(&inst, &schema, Entry::Print, false, None)
                     .map(|()| Value::Null)
             }
             ids::REPORT_PRINT_1 | ids::REPORT_PRINT_2 => {
@@ -1524,7 +1530,15 @@ impl Session {
 
     // ------------------------------------------------------------------ the run
 
-    fn report_run(&mut self, inst: &Inst, schema: &Schema, entry: Entry, window: bool) -> Result<(), Signal> {
+    /// `record_ref`: the RecordRef of an Execute with parameters, whose view the run applies after them (`report_body`).
+    fn report_run(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        entry: Entry,
+        window: bool,
+        record_ref: Option<Value>,
+    ) -> Result<(), Signal> {
         // ADR-062 stage 3: Execute on a report made under restricted permissions (Y24PermExecute.al tdonly_report_run).
         if self.permissions.is_some() && inst.borrow().born.0 {
             self.permission_gate_execute(schema.object)?;
@@ -1536,7 +1550,7 @@ impl Session {
         // requestpage section opens its page as well (reports/TestReportRuntimeContracts.al:416-440).
         let shows_page = entry == Entry::Run && window;
         let enters = self.report_enter_world(schema, shows_page)?;
-        self.report_run_entered(inst, schema, entry, window, enters)
+        self.report_run_entered(inst, schema, entry, window, enters, record_ref)
     }
 
     /// `report_run` once the transaction world is decided (`enters`).
@@ -1547,6 +1561,7 @@ impl Session {
         entry: Entry,
         window: bool,
         enters: bool,
+        record_ref: Option<Value>,
     ) -> Result<(), Signal> {
         self.report.print_only_if_detail = false;
         // Only a SaveAs of a variable with a language or region is pinned (reports/W3ReportObjectIdPreviewLanguage.al:893, :912).
@@ -1560,7 +1575,7 @@ impl Session {
         let shows_page = entry == Entry::Run && window;
         self.report.report_preview_pinned.push(match entry {
             Entry::Run => crate::state::ReportStart::Run,
-            Entry::Execute => crate::state::ReportStart::Execute,
+            Entry::Execute | Entry::Print => crate::state::ReportStart::Execute,
         });
         // The language and region a trigger sets belong to this run (PnC06ReportLanguage.al:Language_Invalid starts three
         // runs with no language set after Language_SetAndRead set one).
@@ -1584,8 +1599,11 @@ impl Session {
             inst: Rc::downgrade(inst),
             by_run: entry == Entry::Run,
             shows_page,
+            answers_getter: entry != Entry::Print,
+            depth: self.depth,
+            page_triggers: self.pages.trigger_kinds.len(),
         });
-        let ran = self.report_in_world(enters, |s| s.report_body(inst, schema, shows_page, None));
+        let ran = self.report_in_world(enters, |s| s.report_body(inst, schema, shows_page, None, record_ref));
         self.report.report_running.pop();
         self.report.format_region = outer_region;
         self.report.region_property = outer_property;
@@ -1869,6 +1887,7 @@ impl Session {
         schema: &Schema,
         shows_page: bool,
         save_as: Option<&str>,
+        record_ref: Option<Value>,
     ) -> Result<bool, Signal> {
         if self.report_handler_takes_run(inst, schema, shows_page, save_as.is_some())? {
             return Ok(true);
@@ -1886,11 +1905,16 @@ impl Session {
             }
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
-            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::SaveAs)?;
-            self.request_page_open_close_unshown(inst, schema, ParamsCall::SaveAs)?;
+            // A SaveAs with parameters and a RecordRef runs the request page's OnOpenPage (`request_page_open_close_unshown`);
+            // without a RecordRef it is not pinned and runs neither, as before.
+            let opens = record_ref.is_some();
+            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::SaveAs, record_ref)?;
+            if opens {
+                self.request_page_open_close_unshown(inst, schema, ParamsCall::SaveAs)?;
+            }
         } else if let Some(xml) = &execute_parameters {
             // An Execute skips a field name no control has (WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField).
-            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::Execute)?;
+            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::Execute, record_ref)?;
             // The values land after the request page's OnInit; its OnOpenPage and OnClosePage follow (no OnQueryClosePage), and a
             // control the parameters do not name keeps OnInit's value (reports/request-page/Y12ExecuteOnInit.al:117-143,
             // corpus branch al-runtime-rs-staging-y12, al-runner issue 6446; RptRequestPage.al:878-893). An empty string runs
@@ -2924,7 +2948,7 @@ impl Session {
         } else {
             RefCall::StaticSaveAs
         };
-        self.report_record_ref(&inst, &schema, record_ref, !parameters.is_empty(), call)?;
+        let deferred = self.report_record_ref(&inst, &schema, record_ref, !parameters.is_empty(), call)?;
         let enters = self.report_enter_world(&schema, false)?;
         let mut fresh = Dataset::default();
         fresh.region = region.clone();
@@ -2948,8 +2972,9 @@ impl Session {
         let outer_language = self.report.curr_report_language.take();
         let outer_run_language = std::mem::replace(&mut self.report.run_language, variable_language);
         let outer_variable_region = std::mem::replace(&mut self.report.variable_region, variable_region.is_some());
-        let ran = self.report_in_world(enters, |s| s.report_body(&inst, &schema, false, Some(&parameters)));
-        self.report.record_ref_after_parameters = None;
+        let ran = self.report_in_world(enters, |s| {
+            s.report_body(&inst, &schema, false, Some(&parameters), deferred)
+        });
         self.report.format_region = outer_region;
         self.report.region_property = outer_property;
         self.report.curr_report_language = outer_language;
@@ -3652,40 +3677,6 @@ impl Session {
                 other.map_or("missing".to_string(), |v| v.describe())
             )),
         }
-    }
-
-    /// Loads the parameters string of a `SaveAs` into the data items' records, the way a request
-    /// page does before the run (reports/TestReportRunRequestPage.al:TestReport_CapturedParameters_
-    /// ReplayThroughSaveAs_FilterTheDataset), or of an `Execute`. Which forms of the text are understood,
-    /// per call: `apply_request_parameters` and `ParamsCall`.
-    fn apply_run_parameters(
-        &mut self,
-        inst: &Inst,
-        schema: &Schema,
-        run: &Run,
-        xml: &str,
-        call: ParamsCall,
-    ) -> Result<(), Signal> {
-        let engine = self.engine.clone();
-        let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
-            return unsupported(format!(
-                "parameters for report \"{}\", which has no request page",
-                schema.name()
-            ));
-        };
-        if let Some(why) = page.unsupported.first() {
-            return unsupported(format!("the request page of report \"{}\": {why}", schema.name()));
-        }
-        let mut exts = Vec::new();
-        for &e in &page.extensions {
-            let ext = match run.exts.iter().find(|(_, re)| *re == e) {
-                Some((i, _)) => i.clone(),
-                None => self.extension_instance(e, inst),
-            };
-            exts.push((e, ext));
-        }
-        self.apply_request_parameters(inst, &exts, schema.object, xml, call)?;
-        self.apply_record_ref_after_parameters(inst, schema)
     }
 
     /// A column bound to a FlowField of the data item's table is calculated for every row before

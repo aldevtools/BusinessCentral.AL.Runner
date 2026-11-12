@@ -423,9 +423,6 @@ pub(crate) struct ReportState {
     pub(crate) report_executed: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// The parameters string of the `Execute` about to run (taken by `report_body`).
     pub(crate) execute_parameters: Option<String>,
-    /// The RecordRef of the `Execute` or `SaveAs` about to run with parameters: its view replaces the data item's after the
-    /// parameters (`reports/execute_args.rs`).
-    pub(crate) record_ref_after_parameters: Option<Value>,
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
@@ -490,6 +487,12 @@ pub(crate) struct RunningReport {
     /// Whether this run showed its request page: what `UseRequestPage()` answers in the run's triggers
     /// (`reports/running.rs`, `use_request_page_getter`).
     pub(crate) shows_page: bool,
+    /// Whether the run's triggers answer `UseRequestPage()` with `shows_page`: not for a Print run as an Execute (not pinned).
+    pub(crate) answers_getter: bool,
+    /// The call depth and the number of page triggers running when the run started: a report trigger entered deeper and the
+    /// one page trigger above them belong to this run (`running_page_answer`).
+    pub(crate) depth: usize,
+    pub(crate) page_triggers: usize,
 }
 
 /// How a running report body was started (`report_preview_pinned`).

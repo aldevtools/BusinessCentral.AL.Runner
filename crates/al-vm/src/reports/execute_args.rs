@@ -63,17 +63,18 @@ impl Session {
         record_ref: Option<&Value>,
         call: RefCall,
     ) -> Result<(), Signal> {
-        self.report_record_ref(inst, schema, record_ref, parameters.is_some(), call)?;
+        let deferred = self.report_record_ref(inst, schema, record_ref, parameters.is_some(), call)?;
         self.report.execute_parameters = parameters;
-        let ran = self.report_run(inst, schema, Entry::Execute, false);
+        let ran = self.report_run(inst, schema, Entry::Execute, false, deferred);
         self.report.execute_parameters = None;
-        self.report.record_ref_after_parameters = None;
         ran
     }
 
     /// The RecordRef of an Execute or a SaveAs. Without parameters it filters the data item over its table as a view does,
     /// before the run (reports/W3ReportSaveAsExecute.al:446-459 Execute_WithRecordRef: `pre filter=[5..6];row 5;row 6`;
-    /// streams/TestReportSaveAsRecordRefFilter.al). With parameters see `record_ref_with_parameters`.
+    /// streams/TestReportSaveAsRecordRefFilter.al). With parameters see `record_ref_with_parameters`: the RecordRef it returns
+    /// goes to the run it belongs to (`report_body`), never into session state, so a report that runs inside this one does
+    /// not take it or drop it.
     pub(super) fn report_record_ref(
         &mut self,
         inst: &Inst,
@@ -81,11 +82,11 @@ impl Session {
         record_ref: Option<&Value>,
         with_parameters: bool,
         call: RefCall,
-    ) -> Result<(), Signal> {
+    ) -> Result<Option<Value>, Signal> {
         match record_ref {
-            None => Ok(()),
+            None => Ok(None),
             Some(rr) if with_parameters => self.record_ref_with_parameters(schema, rr, call),
-            Some(rr) => self.report_set_view(inst, schema, Some(rr)),
+            Some(rr) => self.report_set_view(inst, schema, Some(rr)).map(|()| None),
         }
     }
 
@@ -100,17 +101,38 @@ impl Session {
     ///
     /// Pinned for the static Execute in every shape above; for the static SaveAs a filter on the first item's table and the
     /// second item's table (:556-575, :598-617); for the variable's Execute and SaveAs a filter on the first item's table only
-    /// (:514-554, :577-596). Refused: other shapes of those calls, a RecordRef not open outside the static Execute, a table
-    /// two data items read and a table only a reportextension's item reads (not pinned).
-    fn record_ref_with_parameters(&mut self, schema: &Schema, rr: &Value, call: RefCall) -> Result<(), Signal> {
+    /// (:514-554, :577-596), each with a filter, the primary key and ascending order. Refused: other shapes of those calls
+    /// (another key, descending, no filter), a RecordRef not open outside the static Execute, a table two data items read
+    /// and a table only a reportextension's item reads (not pinned). Returns the RecordRef whose view the run applies, or
+    /// none for an unopened one.
+    fn record_ref_with_parameters(
+        &mut self,
+        schema: &Schema,
+        rr: &Value,
+        call: RefCall,
+    ) -> Result<Option<Value>, Signal> {
         let not_pinned =
             |what: &str| unsupported(format!("a RecordRef {what} next to a parameters string (not pinned)"));
         let Value::Library(_, h) = rr else {
             return not_pinned("that is no RecordRef");
         };
         let table = match &*h.borrow() {
-            al_builtins::value::LibraryValue::RecordRef(rec) => rec.borrow().table,
-            al_builtins::value::LibraryValue::Empty if call == RefCall::StaticExecute => return Ok(()),
+            al_builtins::value::LibraryValue::RecordRef(rec) => {
+                let r = rec.borrow();
+                let filter_shape = r.key == 0
+                    && r.adhoc.is_none()
+                    && r.ascending
+                    && r.field_descending == 0
+                    && !r.marked_only
+                    && !r.filters.is_empty();
+                if call != RefCall::StaticExecute && !filter_shape {
+                    return not_pinned(
+                        "with a view other than a filter on the primary key in ascending order, outside a static Execute,",
+                    );
+                }
+                r.table
+            }
+            al_builtins::value::LibraryValue::Empty if call == RefCall::StaticExecute => return Ok(None),
             al_builtins::value::LibraryValue::Empty => {
                 return not_pinned("that is not open, outside a static Execute,");
             }
@@ -130,13 +152,43 @@ impl Session {
             [_] => return not_pinned("over the table of a data item other than the first, on a report variable,"),
             _ => return not_pinned("over a table two data items read"),
         }
-        self.report.record_ref_after_parameters = Some(rr.clone());
-        Ok(())
+        Ok(Some(rr.clone()))
     }
 
-    /// The RecordRef `record_ref_with_parameters` kept: its view replaces the data item's once the parameters are applied.
-    pub(super) fn apply_record_ref_after_parameters(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
-        match self.report.record_ref_after_parameters.take() {
+    /// Loads the parameters string of a `SaveAs` into the data items' records, the way a request
+    /// page does before the run (reports/TestReportRunRequestPage.al:TestReport_CapturedParameters_
+    /// ReplayThroughSaveAs_FilterTheDataset), or of an `Execute`. Which forms of the text are understood,
+    /// per call: `apply_request_parameters` and `ParamsCall`.
+    pub(super) fn apply_run_parameters(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        run: &Run,
+        xml: &str,
+        call: ParamsCall,
+        record_ref: Option<Value>,
+    ) -> Result<(), Signal> {
+        let engine = self.engine.clone();
+        let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
+            return unsupported(format!(
+                "parameters for report \"{}\", which has no request page",
+                schema.name()
+            ));
+        };
+        if let Some(why) = page.unsupported.first() {
+            return unsupported(format!("the request page of report \"{}\": {why}", schema.name()));
+        }
+        let mut exts = Vec::new();
+        for &e in &page.extensions {
+            let ext = match run.exts.iter().find(|(_, re)| *re == e) {
+                Some((i, _)) => i.clone(),
+                None => self.extension_instance(e, inst),
+            };
+            exts.push((e, ext));
+        }
+        self.apply_request_parameters(inst, &exts, schema.object, xml, call)?;
+        // The RecordRef's view replaces the data item's once the parameters are applied (`record_ref_with_parameters`).
+        match record_ref {
             Some(rr) => self.report_set_view(inst, schema, Some(&rr)),
             None => Ok(()),
         }
