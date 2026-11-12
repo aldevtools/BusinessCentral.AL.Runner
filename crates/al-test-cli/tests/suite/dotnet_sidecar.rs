@@ -247,14 +247,24 @@ fn an_exception_reply_names_the_binding_that_threw_and_a_folded_name() {
     let rel = sess
         .construct(
             &ty("System.Uri"),
-            vec![s("a/b"), arg(DotNetValue::Enum { ty: "System.UriKind".into(), name: "Relative".into(), ordinal: 2 })],
+            vec![
+                s("a/b"),
+                arg(DotNetValue::Enum {
+                    ty: "System.UriKind".into(),
+                    name: "Relative".into(),
+                    ordinal: 2,
+                }),
+            ],
         )
         .unwrap();
     let DotNetValue::Handle { handle, .. } = rel.value else {
         panic!("expected an object, got {:?}", rel.value)
     };
     let e = exception(sess.get_property(DotNetTarget::Instance(handle), "AbsolutePath"));
-    assert_eq!((e.bound.as_str(), e.clr_type.as_str()), ("property", "System.InvalidOperationException"));
+    assert_eq!(
+        (e.bound.as_str(), e.clr_type.as_str()),
+        ("property", "System.InvalidOperationException")
+    );
     // The same property reached through a call is no binding the host lets through.
     let e = exception(sess.invoke(DotNetTarget::Instance(handle), "AbsolutePath", vec![]));
     assert_eq!(e.bound, "");

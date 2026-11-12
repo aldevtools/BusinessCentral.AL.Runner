@@ -59,7 +59,10 @@ fn shape(kind: MemberKind, target: &Target, bound: &str) -> Option<Shape> {
 /// nested type is spelled otherwise by BC (`Dictionary`2[System.Object,System.Object]`, Y17DotNetDictionary.al:126) than the host
 /// reports it.
 fn plain_type_name(name: &str) -> bool {
-    !name.is_empty() && name.split('.').all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+    !name.is_empty()
+        && name
+            .split('.')
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
 }
 
 /// The AL error of the exception `e` thrown by `clr_type.member`, or `None` when the binding is not one of the measured four
@@ -75,7 +78,10 @@ pub(super) fn signal(
     e: &DotNetException,
 ) -> Option<Signal> {
     let shape = shape(kind, target, &e.bound)?;
-    let code = MEASURED.iter().find(|(class, _)| *class == e.clr_type).map(|(_, code)| *code);
+    let code = MEASURED
+        .iter()
+        .find(|(class, _)| *class == e.clr_type)
+        .map(|(_, code)| *code);
     match code {
         Some(code) if plain_type_name(clr_type) && !e.folded && e.inner.is_empty() => {
             assume(Assumption::DotnetExceptionMeasuredText);
@@ -93,7 +99,9 @@ pub(super) fn signal(
         }
         _ => {
             assume(Assumption::DotnetExceptionOtherClass);
-            Some(Signal::Error(Box::new(unpinned_error_for("dotnet-exception-other-class"))))
+            Some(Signal::Error(Box::new(unpinned_error_for(
+                "dotnet-exception-other-class",
+            ))))
         }
     }
 }
@@ -111,7 +119,10 @@ fn inner_exception(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]
     let (Some(Value::Text(text)), Some(Value::Text(code))) = (state.get(EXC_MESSAGE), state.get(EXC_CODE)) else {
         return unsupported("a NavNCLDotNetInvokeException without its text and code");
     };
-    let class = MEASURED.iter().find(|(_, c)| *c == code.as_str()).map(|(class, _)| *class);
+    let class = MEASURED
+        .iter()
+        .find(|(_, c)| *c == code.as_str())
+        .map(|(class, _)| *class);
     let (Some(class), Some((_, msg))) = (class, text.as_str().split_once(BEFORE_MESSAGE)) else {
         return unsupported(format!(
             "InnerException of a NavNCLDotNetInvokeException of code '{code}' (not measured)"

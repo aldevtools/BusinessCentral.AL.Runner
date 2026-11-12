@@ -55,8 +55,8 @@ pub(super) fn get_last_error_object(
     _: &mut [Value],
 ) -> Result<Value, Signal> {
     use crate::dotnet_sigs::{
-        AL_EXCEPTION, NCL_DIALOG_EXCEPTION, NCL_DOTNET_INVOKE_EXCEPTION, NCL_EVALUATE_EXCEPTION, RECORD_NOT_FOUND_EXCEPTION,
-        TEST_FIELD_EXCEPTION,
+        AL_EXCEPTION, NCL_DIALOG_EXCEPTION, NCL_DOTNET_INVOKE_EXCEPTION, NCL_EVALUATE_EXCEPTION,
+        RECORD_NOT_FOUND_EXCEPTION, TEST_FIELD_EXCEPTION,
     };
     let e = ctx.last_error();
     refuse_unpinned(&e, "GetLastErrorObject")?;

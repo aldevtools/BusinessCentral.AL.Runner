@@ -44,7 +44,6 @@ pub(crate) const WITH_EVENTS_TIMER_ELAPSED: &str = "withevents-timer-elapsed";
 /// The builtin `Clear` of a [`WITH_EVENTS_TIMER_ELAPSED`] variable lowers to (al-builtins `native/values.rs`).
 const CLEAR_WITH_EVENTS_TIMER: &str = "System.ClearWithEventsTimer#1";
 
-
 impl Lowerer<'_> {
     /// A use of the WithEvents Timer `name` ([`WITH_EVENTS_TIMER_ELAPSED`]) at `n`: the receiver of a member
     /// ([`Self::with_events_timer_member`] checks which), the target of `name := name.<constructor>()`, or the one argument of
@@ -52,7 +51,8 @@ impl Lowerer<'_> {
     /// reach code that starts it.
     pub(crate) fn with_events_timer_use(&mut self, n: &SyntaxNode, name: &str) -> L<()> {
         let parent = n.parent();
-        let same_var = |e: &SyntaxNode| e.kind() == SyntaxKind::NameRef && e.text_string().trim().eq_ignore_ascii_case(name);
+        let same_var =
+            |e: &SyntaxNode| e.kind() == SyntaxKind::NameRef && e.text_string().trim().eq_ignore_ascii_case(name);
         let allowed = match parent.as_ref().map(|p| (p.kind(), p)) {
             Some((SyntaxKind::MemberExpr, p)) => p.children().next().as_ref() == Some(n),
             Some((SyntaxKind::AssignStmt, p)) => {
@@ -113,7 +113,7 @@ impl Lowerer<'_> {
 
     fn timer_refusal(&mut self, name: &str) -> L<()> {
         let why = format!(
-            "variable `{name}` has the attribute WithEvents and an Elapsed trigger: only its constructor, Interval, Enabled, IsNull and Clear are measured"
+            "variable `{name}` has the attribute WithEvents and an Elapsed trigger: only its constructor without arguments, Interval, Enabled, IsNull and Clear are measured"
         );
         self.run_refusals.insert(why.clone());
         Err(why)
@@ -124,7 +124,9 @@ impl Lowerer<'_> {
         if recv.kind() != SyntaxKind::NameRef || self.in_request_page {
             return None;
         }
-        let Some(Res::Global(name)) = self.res(recv) else { return None };
+        let Some(Res::Global(name)) = self.res(recv) else {
+            return None;
+        };
         self.global_var_attrs
             .get(name)
             .is_some_and(|a| a.iter().any(|a| a == WITH_EVENTS_TIMER_ELAPSED))

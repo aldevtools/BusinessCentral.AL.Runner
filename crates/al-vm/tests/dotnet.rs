@@ -3798,12 +3798,26 @@ fn a_static_method_a_property_get_and_a_constructor_raise_the_measured_texts() {
 #[test]
 fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
     use al_builtins::assumptions::Assumption;
-    let host = throwing("System.OverflowException", "Value was either too large or too small.", "method", false);
+    let host = throwing(
+        "System.OverflowException",
+        "Value was either too large or too small.",
+        "method",
+        false,
+    );
     hits();
-    let r = run(&host, "C: DotNet Convert; N: Integer;", "asserterror N := C.ToInt32('99999999999'); exit('caught');", ": Text");
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer;",
+        "asserterror N := C.ToInt32('99999999999'); exit('caught');",
+        ": Text",
+    );
     assert_eq!(text(r), "caught");
     assert!(hits().contains(&Assumption::DotnetExceptionOtherClass));
-    for read in ["GetLastErrorText()", "GetLastErrorCode()", "Format(IsNull(GetLastErrorObject()))"] {
+    for read in [
+        "GetLastErrorText()",
+        "GetLastErrorCode()",
+        "Format(IsNull(GetLastErrorObject()))",
+    ] {
         let r = run(
             &host,
             "C: DotNet Convert; N: Integer;",
@@ -3813,7 +3827,12 @@ fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
         assert!(unsupported(&r).contains("not pinned"), "{read}: {}", unsupported(&r));
     }
     // A plain call ends the routine on the error, as on BC.
-    let r = run(&host, "C: DotNet Convert; N: Integer;", "N := C.ToInt32('99999999999');", "");
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer;",
+        "N := C.ToInt32('99999999999');",
+        "",
+    );
     assert!(matches!(r.result, Err(Signal::Error(_))), "{:?}", r.result);
 }
 
@@ -3858,8 +3877,17 @@ fn unmeasured_bindings_of_a_dotnet_exception_keep_the_refusal() {
         ("", "U := U.Uri('a'); U.Port := 1;"),
     ] {
         let host = throwing("System.FormatException", "bad", bound, false);
-        let r = run(&host, "C: DotNet Convert; N: Integer; U: DotNet Uri; P: Text;", body, "");
-        assert!(unsupported(&r).contains("raised the .NET exception"), "{bound} {body}: {}", unsupported(&r));
+        let r = run(
+            &host,
+            "C: DotNet Convert; N: Integer; U: DotNet Uri; P: Text;",
+            body,
+            "",
+        );
+        assert!(
+            unsupported(&r).contains("raised the .NET exception"),
+            "{bound} {body}: {}",
+            unsupported(&r)
+        );
     }
 }
 
@@ -3886,9 +3914,18 @@ fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
     let asked = Arc::new(Mutex::new(Vec::new()));
     let host = type_host(asked.clone());
     for (vars, body) in [
-        ("L: DotNet GenList; T: DotNet ClrType;", "T := GetDotNetType(L); exit('ok');"),
-        ("K: DotNet GenKvp; T: DotNet ClrType;", "T := GetDotNetType(K); exit('ok');"),
-        ("D: DotNet GenDict; T: DotNet ClrType;", "D := D.Dictionary(); T := GetDotNetType(D); exit('ok');"),
+        (
+            "L: DotNet GenList; T: DotNet ClrType;",
+            "T := GetDotNetType(L); exit('ok');",
+        ),
+        (
+            "K: DotNet GenKvp; T: DotNet ClrType;",
+            "T := GetDotNetType(K); exit('ok');",
+        ),
+        (
+            "D: DotNet GenDict; T: DotNet ClrType;",
+            "D := D.Dictionary(); T := GetDotNetType(D); exit('ok');",
+        ),
     ] {
         hits();
         assert_eq!(text(run(&host, vars, body, ": Text")), "ok", "{vars}");
@@ -3903,7 +3940,12 @@ fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
         ]
     );
     let host = Fake::new(|r| panic!("unexpected request {r:?}"));
-    let r = run(&host, "Q: DotNet GenQueue; T: DotNet ClrType;", "T := GetDotNetType(Q); exit('ok');", ": Text");
+    let r = run(
+        &host,
+        "Q: DotNet GenQueue; T: DotNet ClrType;",
+        "T := GetDotNetType(Q); exit('ok');",
+        ": Text",
+    );
     assert!(unsupported(&r).contains("Queue`1"), "{}", unsupported(&r));
 }
 
@@ -3927,7 +3969,11 @@ fn run_src(host: &Fake, src: &str, object: &str, routine: &str) -> Ran {
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
     let oi = l.program.objects.iter().position(|o| o.name == object).unwrap();
-    let ri = l.program.objects[oi].routines.iter().position(|r| r.name == routine).unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == routine)
+        .unwrap();
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
             result: Err(Signal::unsupported(r.clone())),
@@ -3977,7 +4023,10 @@ fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
     for (kind, head) in [
         ("codeunit", "codeunit 50100 W"),
         ("page", "page 50100 W"),
-        ("table", "table 50100 W { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } }"),
+        (
+            "table",
+            "table 50100 W { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } }",
+        ),
         ("report", "report 50100 W"),
     ] {
         let open = if kind == "table" { "" } else { " {" };
@@ -4008,7 +4057,11 @@ fn a_with_events_timer_outside_the_measured_uses_stays_refused() {
             "trigger Tm::Elapsed(sender: Variant; e: DotNet ClrObject) begin end; trigger Tm::Disposed(sender: Variant; e: DotNet ClrObject) begin end;",
             "Tm := Tm.Timer();",
         ),
-        ("Tm: DotNet Timer", "trigger Tm::Disposed(sender: Variant; e: DotNet ClrObject) begin end;", "Tm := Tm.Timer();"),
+        (
+            "Tm: DotNet Timer",
+            "trigger Tm::Disposed(sender: Variant; e: DotNet ClrObject) begin end;",
+            "Tm := Tm.Timer();",
+        ),
         ("Tm: DotNet StringBuilder", ELAPSED, "Tm := Tm.StringBuilder();"),
     ] {
         let src = format!(
@@ -4016,7 +4069,11 @@ fn a_with_events_timer_outside_the_measured_uses_stays_refused() {
              procedure F() begin {body} end; procedure Keep(T: DotNet Timer) begin end; }}"
         );
         let r = run_src(&host, &src, "W", "F");
-        assert!(unsupported(&r).contains("WithEvents"), "{decl} {body}: {}", unsupported(&r));
+        assert!(
+            unsupported(&r).contains("WithEvents"),
+            "{decl} {body}: {}",
+            unsupported(&r)
+        );
     }
     // An xmlport is not measured.
     let src = format!(
