@@ -801,7 +801,7 @@ fn language_selection_lists_the_pinned_rows_per_major() {
   [Test] procedure ByLanguageId() var L: Record "Language Selection"; begin L.SetRange("Language ID", 1031); L.FindFirst(); if (L."Language Tag" <> 'de-DE') or (L."Primary Language ID" <> 1031) or not L.Enabled then Error('de %1', L."Language Tag"); end;
   [Test] procedure QucName() var L: Record "Language Selection"; begin L.SetRange("Language Tag", 'quc-Latn-GT'); L.FindFirst(); if L.Name <> 'K''iche'' (Guatemala)' then Error('quc %1', L.Name); end;
   [Test] procedure ZhTw() var L: Record "Language Selection"; begin L.SetRange("Language Tag", 'zh-TW'); if L.IsEmpty() then Error('no zh-TW'); end;
-  [Test] procedure OtherLanguage() var L: Record "Language Selection"; begin GlobalLanguage(1031); if L.FindFirst() then; end; }"#;
+  [Test] procedure OtherLanguage() var L: Record "Language Selection"; begin GlobalLanguage(1053); if L.FindFirst() then; end; }"#;
     for version in ["29.0.0.0", "27.5.0.0"] {
         let o = outcomes_bc("main", src, al_sema::check::Roots::default(), version);
         for t in ["Count", "FirstRow", "ByLanguageId", "QucName", "ZhTw"] {
