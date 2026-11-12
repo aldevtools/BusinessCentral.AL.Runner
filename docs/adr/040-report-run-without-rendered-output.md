@@ -306,9 +306,12 @@ none of them yet (a later change raises them in the pinned order).
   and Html; Word layout to Excel again; `SaveAsWord`/`SaveAsExcel`/`SaveAsHtml(FileName)` then `File.Exists` and size;
   Run/RunModal/Execute of a Word and an Excel layout report with a logging subscriber. When it lands it wins.
 
-## Amendment 2026-11-12: opaque rendered content in Text values (Proposed)
+## Amendment 2026-11-12: opaque rendered content in Text values (Accepted, owner 2026-11-12)
 
-Status: Proposed. The owner approved the design work on 2026-11-12 and accepts or rejects this text. Nothing here is built.
+Status: Accepted by the owner on 2026-11-12, with these answers to the open questions: Part A as written; A7 (run Microsoft's layout
+selection code, a temporary selection of a Word layout no longer refused) yes; the one exact `Regex.Replace` entry yes; Part B is
+built only after the Windows probe is merged; `Contains` only (no `StrPos`/`IndexOf`); `Message` with a marked text stays refused.
+Nothing here is built yet.
 Part A is the opaque value. Part B ("known static text of the chosen layout") is part of the amendment by owner decision
 of 2026-11-12; Part A is written so that it works without Part B.
 
@@ -718,7 +721,7 @@ committed binary fixtures like `Y17LayR1.docx`; the tests are Windows-tier only;
 - After the corpus bump: the probe's cells that the rule answers pass; every other cell stays listed as not passing
   (it asks for false or for text outside the rule), which is the expected state.
 
-## Open questions for the owner (amendment 2026-11-12)
+## Open questions for the owner (amendment 2026-11-12; answered 2026-11-12, see Status)
 
 1. Accept Part A as written: a rendered Html body may be read whole into a Text, moved and compared with `''`, and every
    other use refuses?
