@@ -261,6 +261,7 @@ impl Lowerer<'_> {
             let mut binding = ir::Binding::None;
             let mut var_field = None;
             let mut var_slot = None;
+            let mut array_element_field = None;
             let mut expr_source = None;
             let mut expr_row_unordered = false;
             let mut expr_call = false;
@@ -357,23 +358,10 @@ impl Lowerer<'_> {
                                 // A field of a record variable of the page itself: the runtime formats the control from
                                 // that field's properties (al-runner issue 5822).
                                 if raw.owner.is_none() {
-                                    let found =
-                                        args.get(1)
-                                            .and_then(|a| crate::pages::var_and_field(a))
-                                            .and_then(|(v, f)| {
-                                                let slot =
-                                                    globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
-                                                let RtType::Record(t, _) = globals[slot].ty else {
-                                                    return None;
-                                                };
-                                                let t = t as usize;
-                                                let p = self.members[t]
-                                                    .fields
-                                                    .iter()
-                                                    .position(|x| x.name.eq_ignore_ascii_case(&f))?;
-                                                Some(((t, p), slot))
-                                            });
+                                    let found = args.get(1).and_then(|a| self.global_record_field(globals, a));
                                     (var_field, var_slot) = (found.map(|f| f.0), found.map(|f| f.1));
+                                    array_element_field =
+                                        args.get(1).and_then(|a| self.array_element_field(globals, a));
                                     expr_call = args.get(1).is_some_and(|a| {
                                         crate::pages::call_shape(a) || crate::pages::member_call_shape(a)
                                     });
@@ -510,6 +498,7 @@ impl Lowerer<'_> {
                 prop_texts,
                 var_field,
                 var_slot,
+                array_element_field,
                 expr_source,
                 expr_row_unordered,
                 expr_call,
@@ -846,6 +835,42 @@ impl Lowerer<'_> {
 }
 
 impl Lowerer<'_> {
+    /// The field of `table` named `field`: (table, position).
+    fn field_of(&self, table: u32, field: &str) -> Option<(usize, usize)> {
+        let t = table as usize;
+        let p = self.members[t]
+            .fields
+            .iter()
+            .position(|x| x.name.eq_ignore_ascii_case(field))?;
+        Some((t, p))
+    }
+
+    /// A source that is a field of a record variable among `globals` (`Settings."Avail. Filter"`): the table and field, and the
+    /// variable's slot (`ir::Control::var_field`, `var_slot`).
+    fn global_record_field(&self, globals: &[ir::Slot], text: &str) -> Option<((usize, usize), usize)> {
+        let (v, f) = crate::pages::var_and_field(text)?;
+        let slot = globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
+        let RtType::Record(t, _) = globals[slot].ty else {
+            return None;
+        };
+        Some((self.field_of(t, &f)?, slot))
+    }
+
+    /// A source that is a field of an element of a record array among `globals` (`SetupArr[2]."Logo Position"`) whose records
+    /// are not temporary: the table and field (`ir::Control::array_element_field`, al-runner issue 7376; a temporary array is
+    /// not pinned).
+    fn array_element_field(&self, globals: &[ir::Slot], text: &str) -> Option<(usize, usize)> {
+        let (v, f) = crate::pages::array_element_and_field(text)?;
+        let g = globals.iter().find(|g| g.name.eq_ignore_ascii_case(&v))?;
+        let RtType::Array(_, elem) = &g.ty else {
+            return None;
+        };
+        let RtType::Record(t, false) = **elem else {
+            return None;
+        };
+        self.field_of(t, &f)
+    }
+
     /// Whether `owner` is a reportextension that changes the run.
     fn in_run_changing_report_ext(&self, owner: Option<usize>) -> bool {
         owner.is_some_and(|e| {
@@ -905,6 +930,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         prop_texts: Vec::new(),
         var_field: None,
         var_slot: None,
+        array_element_field: None,
         expr_source: None,
         expr_row_unordered: false,
         expr_call: false,

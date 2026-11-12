@@ -167,6 +167,7 @@ mod background;
 mod end_move_no_read;
 mod flowfield_hidden;
 pub(crate) use background::BgWorker;
+mod choice_entry;
 mod document_handler_error;
 mod filter;
 mod filter_enum;

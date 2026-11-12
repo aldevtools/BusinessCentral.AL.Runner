@@ -29,7 +29,7 @@
 "crates/al-vm/src/exec/compile.rs::expr_into" = 318
 "crates/al-vm/src/exec/run.rs::run_range" = 340
 "crates/al-vm/src/pages/actions.rs::action_invoke_body" = 451
-"crates/al-vm/src/pages/controls.rs::control_set_value_now" = 821
+"crates/al-vm/src/pages/controls.rs::control_set_value_now" = 781
 "crates/al-vm/src/pages/controls.rs::test_control_op" = 479
 "crates/al-vm/src/pages/open/page_open.rs::open_page_as_inner" = 307
 "crates/al-vm/src/pages/pageops.rs::test_page_op" = 276

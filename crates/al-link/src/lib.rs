@@ -1881,6 +1881,7 @@ mod tests {
                 prop_texts: vec![],
                 var_field: None,
                 var_slot: None,
+                array_element_field: None,
                 expr_source: None,
                 expr_row_unordered: false,
                 expr_call: false,
