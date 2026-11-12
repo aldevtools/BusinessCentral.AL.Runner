@@ -28,6 +28,9 @@ impl Session {
     /// expressions, actions with only OnAction, no part, no page extension, no subscriber of the page or of its table, opened
     /// by the test with OpenView or run modally (not as a lookup) into a handler.
     pub(in crate::pages) fn temp_list_refill_pinned(&self, st: &St) -> bool {
+        if !self.has_source(st) {
+            return false;
+        }
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let page = page_of(&engine, st);
