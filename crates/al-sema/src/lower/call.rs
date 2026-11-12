@@ -160,6 +160,86 @@ impl Lowerer<'_> {
         Ok(Some(Box::new(ir::Arg::Value(ir::Expr::ThisInstance))))
     }
 
+    /// The type a builtin argument `a` converts to before the call, when it converts:
+    /// - a generic parameter converts to the collection's element type;
+    /// - the index or count of a List method converts as a checked cast to Integer when the argument is declared Decimal or
+    ///   BigInteger (collections/ListNonIntegerIndex.al:44-98 every method but the GetRange form with a var result; :240-263 a
+    ///   whole value, :266-289 a fraction, :292-321 the Get edge values, :324-367 BigInteger, :370-416 Decimal expressions and
+    ///   statements), or in `R := L.Get(X)` on a List of [Text] when X is a local variable declared Char, Byte, or Option with
+    ///   named members (:163-167 the declarations, :171-178 the calls, :419-430; `char_option_byte_get`). Any other argument
+    ///   reaches the method as it is: a Variant, and a Char, Option or Byte in any other call (a platform option type such as
+    ///   TextEncoding, a global, a parameter, a field, a function result, an Option without members, a List of another type,
+    ///   `exit(L.Get(X))`, `L.Get(X)` as a statement or inside an expression).
+    fn builtin_arg_slot(&self, id: &str, param: &str, receiver: Option<&SyntaxNode>, a: &SyntaxNode) -> Option<Ty> {
+        match (param, receiver.map(|r| self.ty_of(r))) {
+            ("T", Some(Ty::List(el))) => Some(*el),
+            ("TKey", Some(Ty::Dictionary(k, _))) => Some(*k),
+            ("TValue", Some(Ty::Dictionary(_, v))) => Some(*v),
+            ("Integer", Some(Ty::List(_))) => {
+                let pinned = match self.ty_of(a) {
+                    Ty::Decimal | Ty::BigInteger => matches!(
+                        id,
+                        "List.Get#1"
+                            | "List.Get#2"
+                            | "List.Set#1"
+                            | "List.Insert#1"
+                            | "List.RemoveAt#1"
+                            | "List.GetRange#1"
+                            | "List.RemoveRange#1"
+                    ),
+                    Ty::Char | Ty::Option(_) | Ty::Byte => id == "List.Get#1" && self.char_option_byte_get(receiver, a),
+                    _ => false,
+                };
+                pinned.then_some(Ty::Integer)
+            }
+            _ => None,
+        }
+    }
+
+    /// Keeps the names of the routine's local variables whose declaration writes `Char`, `Byte`, or `Option` with named
+    /// members.
+    pub(crate) fn set_char_option_byte_locals(&mut self, decls: impl Iterator<Item = ast::VarDecl>) {
+        self.local_char_option_byte_vars.clear();
+        for v in decls {
+            let pinned = v
+                .type_ref()
+                .is_some_and(|t| match t.type_name().to_ascii_lowercase().as_str() {
+                    "char" | "byte" => true,
+                    // `Option` alone has one nameless member; the pin's members all have names (`Option Zero,One,Two,Three`).
+                    "option" => t.option_members().iter().all(|m| !m.is_empty()),
+                    _ => false,
+                });
+            if pinned {
+                self.local_char_option_byte_vars
+                    .extend(v.names().into_iter().map(|n| n.to_lowercase()));
+            }
+        }
+    }
+
+    /// The `List.Get` call whose argument is `a` has the facts of collections/ListNonIntegerIndex.al:163-178: the receiver is a
+    /// List of [Text], the call is the whole source of a plain assignment `R := L.Get(X)`, and `X` names a local variable
+    /// whose declaration writes `Char`, `Byte`, or `Option` with named members.
+    fn char_option_byte_get(&self, receiver: Option<&SyntaxNode>, a: &SyntaxNode) -> bool {
+        let text_list = receiver.is_some_and(|r| matches!(self.ty_of(r), Ty::List(el) if *el == Ty::Text(None)));
+        let local = a.kind() == SyntaxKind::NameRef
+            && matches!(self.res(a), Some(Res::Local(n)) if self.local_char_option_byte_vars.contains(n));
+        let call = a
+            .parent()
+            .filter(|l| l.kind() == SyntaxKind::ArgList)
+            .and_then(|l| l.parent())
+            .filter(|c| c.kind() == SyntaxKind::CallExpr);
+        let assigned = call.is_some_and(|c| {
+            c.parent().is_some_and(|p| {
+                let mut kids = p.children();
+                p.kind() == SyntaxKind::AssignStmt
+                    && sig_tokens(&p).iter().any(|t| t.kind() == SyntaxKind::Assign)
+                    && kids.next().is_some_and(|lhs| lhs != c)
+                    && kids.next().as_ref() == Some(&c)
+            })
+        });
+        text_list && local && assigned
+    }
+
     /// A call resolved on `node` (the CallExpr, or the callee for a call without parentheses).
     /// The id of the implementation for a call whose argument is written as a Variant, where BC treats it apart.
     fn variant_argument_id(&self, id: &str, args: &[SyntaxNode]) -> Option<&'static str> {
@@ -470,10 +550,7 @@ impl Lowerer<'_> {
             Some(Res::Builtin(id)) if id == "System.GetDotNetType#1" => self.get_dotnet_type_call(args),
             Some(Res::Builtin(id)) => {
                 if al_builtins::native::lookup(&id).is_none() {
-                    return Err(match al_builtins::native::refusal(&id) {
-                        Some(why) => format!("builtin {id}: {why} (docs/probes-needed.md)"),
-                        None => format!("builtin {id} is not implemented"),
-                    });
+                    return Err(format!("builtin {id} is not implemented"));
                 }
                 let sig = self
                     .catalog
@@ -769,13 +846,7 @@ impl Lowerer<'_> {
                             a.text()
                         ));
                     }
-                    // Generic parameters convert to the collection's element types.
-                    let elem = match (p.ty.as_str(), receiver_node.as_ref().map(|r| self.ty_of(r))) {
-                        ("T", Some(Ty::List(el))) => Some(*el),
-                        ("TKey", Some(Ty::Dictionary(k, _))) => Some(*k),
-                        ("TValue", Some(Ty::Dictionary(_, v))) => Some(*v),
-                        _ => None,
-                    };
+                    let elem = self.builtin_arg_slot(&id, &p.ty, receiver_node.as_ref(), a);
                     // CopyArray writes into its destination in place, so both arrays are passed as places: the destination can be a
                     // row of a two-dimensional array (a copy that is written back), and the source's dimensions are checked at run time.
                     out.push(if p.by_var || (id == "System.CopyArray#1" && i < 2) {

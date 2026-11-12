@@ -172,3 +172,27 @@ impl Session {
         Ok(())
     }
 }
+
+impl Session {
+    /// A `leaf_triggered_tree`: its own text refuses, then it is written as any container; Break in a leaf's
+    /// OnBeforePassVariable refuses (see the arm in `xp_export_content`).
+    pub(super) fn xp_export_leaf_triggered_tree(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        child: usize,
+    ) -> Result<Elem, Signal> {
+        if !self.xp_pass_variable(inst, schema, child)?.is_empty() {
+            return unsupported(
+                "XmlPort export of a container text element below a table element with its own text (not pinned)",
+            );
+        }
+        let e = self.xp_export_container(inst, schema, child)?;
+        if matches!(Self::xp_flow(inst), Some(Flow::Break | Flow::Unbound)) {
+            return unsupported(
+                "Break in OnBeforePassVariable of a leaf inside a container text element below a table element (not pinned)",
+            );
+        }
+        Ok(e)
+    }
+}
