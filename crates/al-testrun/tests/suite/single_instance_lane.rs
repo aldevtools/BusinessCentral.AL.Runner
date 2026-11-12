@@ -1266,11 +1266,13 @@ fn a_chain_member_of_the_next_suite_starts_with_fresh_single_instances() {
                 name: "first".into(),
                 app: Some(0),
                 runner: None,
+                driver: None,
             },
             SuiteRun {
                 name: "second".into(),
                 app: Some(1),
                 runner: None,
+                driver: None,
             },
         ],
         &RunOptions {

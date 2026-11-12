@@ -26,6 +26,9 @@ pub enum ChainWhy {
     /// The sequential strict run (ADR-070): it leaves nothing the later codeunits can see, and runs in its place in BC's
     /// order for the single instances it takes over from the one before it and hands to the next.
     InOrder,
+    /// BcContainerHelper's discovery pass (ADR-074, `discovery.rs`): the OnRun trigger of every test codeunit of the BC
+    /// session, before the first one runs; what it leaves stays.
+    Discovery,
 }
 
 impl ChainWhy {
@@ -37,6 +40,7 @@ impl ChainWhy {
             ChainWhy::TestsTakeNumbers => "tests can take NumberSequence numbers",
             ChainWhy::NotRun => "isolation Disabled, not run",
             ChainWhy::InOrder => "in BC's order (sequential strict run)",
+            ChainWhy::Discovery => "BcContainerHelper's discovery pass",
         }
     }
 }
@@ -91,6 +95,17 @@ pub struct ChainReport {
     /// ADR-066 amendment 12, decision 3 (default run only): the test codeunits whose tests can take numbers after an
     /// earlier codeunit of their BC session that can take some too.
     pub numbers_order: Vec<super::NumbersOrder>,
+    /// ADR-074: the test codeunits (suite, id) whose OnRun raised in BcContainerHelper's discovery pass. They get no
+    /// method rows; the run still calls their OnRun (`discovery.rs`).
+    pub discovery_raised: Vec<(usize, u32)>,
+    /// ADR-074: the suites whose discovery pass changed session state the run does not carry, and why: every test of the
+    /// suite is refused (`discovery::refuse_after_pass`).
+    pub discovery_refused: Vec<(usize, String)>,
+    /// ADR-074: the SingleInstance globals each suite's discovery pass changed (`discovery::refuse_after_pass`).
+    pub discovery_singles: Vec<(usize, al_vm::single_track::GlobalKey)>,
+    /// ADR-074: per suite, the test codeunits whose OnRun changed something in the discovery pass (id, tables, number
+    /// sequences or isolated storage).
+    pub discovery_wrote: Vec<(usize, u32, std::collections::BTreeSet<u32>, bool)>,
 }
 
 /// The most `number order:` lines the run output prints before it prints one summary line.
@@ -104,6 +119,10 @@ impl ChainReport {
         self.carried.extend(other.carried);
         self.singles_kept += other.singles_kept;
         self.singles_read_carried += other.singles_read_carried;
+        self.discovery_raised.extend(other.discovery_raised);
+        self.discovery_refused.extend(other.discovery_refused);
+        self.discovery_singles.extend(other.discovery_singles);
+        self.discovery_wrote.extend(other.discovery_wrote);
     }
 
     /// ADR-066 amendment 12, decision 3: the numbers list, one line per codeunit. The run output prints it with or
@@ -230,9 +249,18 @@ pub(super) fn left_something(left: Option<&super::run::Carried>) -> bool {
 
 /// Why runner 130450 carries what test codeunit `oi` leaves to the later codeunits (`Unit::carry`); `None` when it
 /// leaves nothing they can see. Not asked for a codeunit whose isolation is Disabled (it carries everything) or one
-/// on the TestRunnerHub (`corpus.rs` `on_hub`).
-pub(super) fn carry_why(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> Option<ChainWhy> {
-    match onrun_writes(engine, lowered, oi) {
+/// on the TestRunnerHub (`corpus.rs` `on_hub`). Under BcContainerHelper the run's OnRun rows are rolled back
+/// (`TestDriver::run_onrun_carries`): only an OnRun that can change a number sequence or isolated storage, and tests that
+/// take numbers, put the codeunit in the chain (`discovery::run_onrun_left`).
+pub(super) fn carry_why(
+    engine: &Arc<al_vm::Engine>,
+    lowered: &Lowered,
+    oi: usize,
+    driver: super::TestDriver,
+) -> Option<ChainWhy> {
+    let onrun =
+        onrun_writes(engine, lowered, oi).filter(|w| driver.run_onrun_carries() || *w == ChainWhy::OnRunWritesState);
+    match onrun {
         Some(why) => Some(why),
         None if tests_take_numbers(engine, lowered, oi) => Some(ChainWhy::TestsTakeNumbers),
         None => None,

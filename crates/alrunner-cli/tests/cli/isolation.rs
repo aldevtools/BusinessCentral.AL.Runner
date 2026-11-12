@@ -374,3 +374,39 @@ fn al_profile_names_the_statement_and_builtin_of_a_sample() {
         "no record operations named: {profile}"
     );
 }
+
+/// ADR-074: `--isolation required` follows the TestRunnerHub of the bc-linux driver; BcContainerHelper has no hub, so the
+/// two together are an error before anything runs.
+#[test]
+fn isolation_required_with_the_bccontainerhelper_driver_is_an_error() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("driver");
+    write(
+        &dir,
+        "app.json",
+        &app_json("11111111-0000-0000-0000-000000007817", "Driver", &[]),
+    );
+    write(
+        &dir,
+        "src/Tests.al",
+        "codeunit 50690 \"Driver Tests\" { Subtype = Test; [Test] procedure T() begin end; }\n",
+    );
+    let a = dir.to_str().unwrap();
+    let o = alrunner(&[
+        "test",
+        a,
+        "--no-download",
+        "--test-driver",
+        "bccontainerhelper",
+        "--isolation",
+        "required",
+    ]);
+    assert_ne!(code(&o), 0, "{}", text(&o));
+    assert!(
+        text(&o).contains("--test-driver bccontainerhelper has no hub"),
+        "{}",
+        text(&o)
+    );
+    let o = alrunner(&["test", a, "--no-download", "--test-driver", "bccontainerhelper"]);
+    assert_eq!(code(&o), 0, "{}", text(&o));
+}

@@ -20,6 +20,8 @@ use super::*;
 pub(super) enum Link {
     Run(usize),
     Refused(usize, String),
+    /// BcContainerHelper's discovery pass of the suite, before its first codeunit (ADR-074, `discovery.rs`).
+    Discovery(Arc<super::discovery::Pass>),
 }
 
 /// What a chain member left, with what the ones before it in its suite left: (suite, id, leg, carried).
@@ -161,11 +163,12 @@ impl ChainWalk<'_> {
                     Link::Run(k) => {
                         self.sequential || !super::chain::numbers_only(units[*k].isolation, units[*k].carry)
                     }
-                    Link::Refused(..) => true,
+                    Link::Refused(..) | Link::Discovery(_) => true,
                 };
             if keep_member {
                 singles.enter(match &link {
                     Link::Run(k) => Some((si, units[*k].hub_leg)),
+                    Link::Discovery(p) => Some((si, units[p.unit].hub_leg)),
                     // BC runs it and it may change the single instances: what it would leave is not known (R3).
                     Link::Refused(..) => None,
                 });
@@ -180,6 +183,7 @@ impl ChainWalk<'_> {
                     let mut u = units[k].clone();
                     u.leak = before.map(|(_, _, _, c)| Arc::new(c.tables.clone()));
                     u.singles_past_stop = self.sequential;
+                    super::discovery::skip_methods_if_raised(&mut u, &report.discovery_raised);
                     // `--explain` names where a test of the chain failed too (al-runner issue 6924).
                     let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
                         details.insert((si, id, name.to_lowercase()), observed_detail(lowered, seen));
@@ -253,6 +257,7 @@ impl ChainWalk<'_> {
                         )
                     })
                 }
+                Link::Discovery(p) => self.discover(si, &p, &mut taint, report),
                 Link::Refused(oi, why) => {
                     if self.sequential {
                         // `KeptSingles::enter(None)` dropped the single instances the session held (review finding 1).
@@ -294,6 +299,52 @@ impl ChainWalk<'_> {
             super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = None);
         }
         carried
+    }
+
+    /// Runs BcContainerHelper's discovery pass `p` of suite `si` from the walk's start and returns what it left
+    /// (`discovery::run_pass`); notes the codeunits whose OnRun raised in `report`.
+    fn discover(
+        &self,
+        si: usize,
+        p: &super::discovery::Pass,
+        taint: &mut super::strict_taint::Taint,
+        report: &mut super::ChainReport,
+    ) -> super::run::Carried {
+        let mut u = self.units[p.unit].clone();
+        u.discovery = Some(p.objects.clone());
+        u.run_only = Some(Arc::new(BTreeSet::new()));
+        u.leak = None;
+        u.carry = None;
+        let running = (!self.sequential).then(|| self.pool.enter());
+        let r = run_unit(self.engine, self.lowered, self.baseline, &u, None, self.limit);
+        drop(running);
+        let left = super::run::CARRIED.with(|c| c.borrow_mut().take());
+        let found = super::discovery::take_found();
+        report
+            .discovery_raised
+            .extend(found.raised.into_iter().map(|id| (si, id)));
+        report.discovery_refused.extend(found.refused.map(|why| (si, why)));
+        report
+            .discovery_singles
+            .extend(found.singles.into_iter().map(|g| (si, g)));
+        report
+            .discovery_wrote
+            .extend(found.wrote.into_iter().map(|(id, t, st)| (si, id, t, st)));
+        report.members.push(super::ChainEntry {
+            id: 0,
+            name: "BcContainerHelper discovery pass".into(),
+            why: super::ChainWhy::Discovery,
+            took: r.took,
+            left: true,
+        });
+        match (left, &r.result) {
+            (Some(left), Ok(_)) => left,
+            (_, Err(panic)) => {
+                taint.singles_lost();
+                super::discovery::not_known(panic)
+            }
+            (None, Ok(_)) => super::discovery::not_known("it was refused before it ran"),
+        }
     }
 
     /// Member `k` read carried SingleInstance values (`reads`): noted in `report.carried`, and under `fresh_check` run

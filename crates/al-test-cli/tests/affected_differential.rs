@@ -64,6 +64,7 @@ fn run(a: &Apps, apps: Vec<AppSource>, narrow: Option<Narrow>) -> CorpusRuntime 
             name: String::new(),
             app: Some(a.tested),
             runner: None,
+            driver: None,
         }],
         &opts,
     )

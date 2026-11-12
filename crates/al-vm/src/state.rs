@@ -426,9 +426,8 @@ pub(crate) struct ReportState {
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
-    /// Report instances whose Run or RunModal is running now, innermost last: a RunModal of one raises ObjectHasAlreadyBeenRun
-    /// (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
-    pub(crate) report_running: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// Report instances whose Run, RunModal or Execute is running now, innermost last (`RunningReport`).
+    pub(crate) report_running: Vec<RunningReport>,
     /// `RequestOptionsPage.Caption` set by the code of a report outside its request page's OnOpenPage, by report instance: the
     /// getter reads it back (see `reports.rs`, `request_page_caption`).
     pub(crate) request_captions: Vec<(std::rc::Weak<RefCell<Instance>>, String, Option<String>)>,
@@ -477,6 +476,23 @@ impl ReportState {
             .retain(|(w, _)| w.strong_count() > 0 && !std::ptr::eq(w.as_ptr(), Rc::as_ptr(rec)));
         self.set_view_filters.push((Rc::downgrade(rec), origin));
     }
+}
+
+/// One report run in progress (`ReportState::report_running`).
+pub(crate) struct RunningReport {
+    pub(crate) inst: std::rc::Weak<RefCell<Instance>>,
+    /// Started by Run or RunModal (not Execute): a RunModal of the instance raises ObjectHasAlreadyBeenRun (see `reports.rs`,
+    /// `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
+    pub(crate) by_run: bool,
+    /// Whether this run showed its request page: what `UseRequestPage()` answers in the run's triggers
+    /// (`reports/running.rs`, `use_request_page_getter`).
+    pub(crate) shows_page: bool,
+    /// Whether the run's triggers answer `UseRequestPage()` with `shows_page`: not for a Print run as an Execute (not pinned).
+    pub(crate) answers_getter: bool,
+    /// The call depth and the number of page triggers running when the run started: a report trigger entered deeper and the
+    /// one page trigger above them belong to this run (`running_page_answer`).
+    pub(crate) depth: usize,
+    pub(crate) page_triggers: usize,
 }
 
 /// How a running report body was started (`report_preview_pinned`).

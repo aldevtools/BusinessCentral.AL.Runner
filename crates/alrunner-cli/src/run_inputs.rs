@@ -148,6 +148,7 @@ impl RunInputs {
             isolation,
             required_isolation,
             test_runner,
+            test_driver,
             defines,
             tdd,
             ignore_permission_mock,
@@ -237,6 +238,8 @@ impl RunInputs {
         r.outcome.push(("required_isolation", text(required_isolation)));
         // The runner the tests run through (ADR-066).
         r.outcome.push(("test_runner", text(test_runner)));
+        // Whose way of starting the tests the run models (ADR-074).
+        r.outcome.push(("test_driver", text(test_driver)));
         r.outcome.push(("defines", text(defines)));
         r.outcome.push(("tdd", text(tdd)));
         // Not run becomes a flagged pass (issue 5996).
@@ -423,7 +426,7 @@ mod tests {
     type Change = fn(&mut TestArgs, &Path);
 
     /// One change per outcome input, by the name `RunInputs::of` gives it. The path is a file that exists.
-    const CHANGES: [(&str, Change); 40] = [
+    const CHANGES: [(&str, Change); 41] = [
         ("country", |a, _| a.country = Some("de".into())),
         ("bc_version", |a, _| a.bc_version = Some("27.5".into())),
         ("isolation", |a, _| {
@@ -432,6 +435,9 @@ mod tests {
         ("required_isolation", |a, _| a.required_isolation = true),
         ("test_runner", |a, _| {
             a.test_runner = Some(al_testrun::runtime::TestRunner::Builtin)
+        }),
+        ("test_driver", |a, _| {
+            a.test_driver = Some(al_testrun::runtime::TestDriver::BcContainerHelper)
         }),
         ("defines", |a, _| a.defines = vec!["CLEAN27".into()]),
         ("tdd", |a, _| a.tdd = true),

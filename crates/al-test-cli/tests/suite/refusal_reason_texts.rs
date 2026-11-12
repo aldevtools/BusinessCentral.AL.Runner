@@ -55,7 +55,10 @@ codeunit 50403 "RR Save Tests"
     assert!(r.contains("saved") && r.contains("not pinned"), "{r}");
 }
 
-/// Issue 7414: a bare read of `UseRequestPage` in a report trigger is a read, not an assignment.
+/// Issue 7414: a bare read of `UseRequestPage` in a report trigger is a read, not an assignment. It is no longer refused:
+/// in a running report it answers whether that run showed its request page (corpus
+/// reports/bare-report-member/UseRequestPageReadInTriggers.al:244-475, PR 7815), so after `UseRequestPage(false)` the
+/// report's own `Error` ends the test.
 #[test]
 fn issue_7414_bare_use_request_page_read_is_not_called_unassignable() {
     let src = r#"
@@ -82,9 +85,11 @@ codeunit 50412 "RR Batch Tests"
     end;
 }
 "#;
-    let r = reason(src, "RR Batch Tests");
-    assert!(!r.contains("not assignable"), "{r}");
-    assert!(r.contains("UseRequestPage") && r.contains("without parentheses"), "{r}");
+    let o = al_testkit::outcomes_in(src, "RR Batch Tests");
+    assert!(
+        matches!(o.as_slice(), [(_, Outcome::Fail(m))] if m == "no request page"),
+        "{o:#?}"
+    );
 }
 
 /// Issue 7362: a part linked through `Provider` to another part, both with a source table. When the provider part is not among

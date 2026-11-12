@@ -110,11 +110,12 @@ impl Lowerer<'_> {
     }
 
     /// The receiver of a bare report method in a report's procedure (see `call`): the report's own instance for `RunModal`
-    /// and `Run`, else none (the VM takes the report whose code runs). In a trigger only the bare `UseRequestPage()` read in
-    /// OnPreReport of a report is pinned: it reads what the `CurrReport.` form reads there, the setting of the instance
-    /// (corpus reports/bare-report-member/Y36BareReportMember.al:220-282 `pre bare=No curr=No`, `pre bare=Yes curr=Yes`, the
-    /// bare form in a procedure OnPreReport calls; reports/request-page/P147UseRequestPagePreGet.al:65-131, the `CurrReport.`
-    /// form in the trigger itself; al-runner issue 7413). `getter`: the call has no argument.
+    /// and `Run`, else none (the VM takes the report whose code runs). In a trigger only the bare `UseRequestPage` read
+    /// (with or without parentheses) of a report is pinned, in OnInitReport, OnPreReport, OnPostReport, OnPreDataItem,
+    /// OnAfterGetRecord, OnPostDataItem and the request page's OnOpenPage: it reads what the `CurrReport.` form reads there
+    /// (reports/bare-report-member/UseRequestPageReadInTriggers.al:46-117, the `Three(..)` logs of :244-475; corpus
+    /// reports/bare-report-member/Y36BareReportMember.al:220-282, the bare form in a procedure OnPreReport calls;
+    /// al-runner issues 7413, 7414). `getter`: the call has no argument.
     fn bare_report_receiver(&self, node: &SyntaxNode, name: &str, getter: bool) -> L<Option<Box<ir::Arg>>> {
         let routine = node
             .ancestors()
@@ -122,13 +123,25 @@ impl Lowerer<'_> {
             .and_then(al_syntax::ast::Routine::cast);
         let is_report = self.ws.objects[self.oi].kind == ObjKind::Report;
         if let Some(trigger) = routine.as_ref().filter(|r| r.is_trigger()) {
+            // The trigger kind comes from where it is declared: the report itself, a `dataitem` or the `requestpage`.
+            let section = trigger
+                .syntax()
+                .ancestors()
+                .find_map(al_syntax::ast::Section::cast)
+                .map(|sec| sec.name().to_ascii_lowercase());
+            let names: &[&str] = match section.as_deref() {
+                None => &["OnInitReport", "OnPreReport", "OnPostReport"],
+                Some("dataitem") => &["OnPreDataItem", "OnAfterGetRecord", "OnPostDataItem"],
+                Some("requestpage") => &["OnOpenPage"],
+                Some(_) => &[],
+            };
             let pinned = is_report
                 && getter
                 && name.eq_ignore_ascii_case("UseRequestPage")
-                && trigger.name().eq_ignore_ascii_case("OnPreReport");
+                && names.iter().any(|t| trigger.name().eq_ignore_ascii_case(t));
             if !pinned {
                 return Err(format!(
-                    "a bare `{name}` in a trigger of the report runs while the report runs (not pinned; only the read `UseRequestPage()` in OnPreReport of a report is)"
+                    "a bare `{name}` in a trigger of the report runs while the report runs (not pinned; only the read `UseRequestPage` of a report in its run and data item triggers and its request page's OnOpenPage is)"
                 ));
             }
             return Ok(None);
@@ -644,7 +657,7 @@ impl Lowerer<'_> {
                     // A bare report method in a report's or report extension's procedure is the `CurrReport.` form: the VM
                     // takes the report whose code runs (reports/bare-report-member/Y36BareReportMember.al:191-342, also
                     // on a report variable never run and from a report extension; the checker resolves only the pinned names,
-                    // `check::calls::BARE_REPORT_MEMBERS`). In a trigger only the read `UseRequestPage()` in OnPreReport is pinned. The bare `RunModal()` and
+                    // `check::calls::BARE_REPORT_MEMBERS`). In a trigger only the read `UseRequestPage` is pinned (`bare_report_receiver`). The bare `RunModal()` and
                     // `Run()` run the report's own instance: the triggers run once, the globals they set read back through the
                     // variable, a second call raises ObjectHasAlreadyBeenRun (reports/runtime/Y40BareReportRun.al:
                     // 214-377, corpus master ac3499d6). From a report extension they are not pinned.

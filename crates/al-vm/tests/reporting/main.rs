@@ -43,6 +43,7 @@ mod report_show_print_status;
 mod report_substitute_id;
 mod report_temp_globals;
 mod report_trigger_order;
+mod report_use_request_page_owner;
 mod report_use_system_printer;
 mod reportext_calls;
 mod reportext_currreport;
