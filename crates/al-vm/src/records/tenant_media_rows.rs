@@ -6,13 +6,10 @@
 
 use super::*;
 
-/// The object id of the platform table Tenant Media.
-const TENANT_MEDIA: u32 = 2_000_000_184;
-
 impl Session {
     /// Whether `t` is the platform table Tenant Media.
     pub(super) fn is_tenant_media(&self, t: &TableDef) -> bool {
-        self.engine.program.objects.get(t.object as usize).and_then(|o| o.id) == Some(TENANT_MEDIA)
+        self.engine.program.objects.get(t.object as usize).and_then(|o| o.id) == Some(crate::permissions::TENANT_MEDIA)
     }
 
     /// Whether the key of `rec` names a row an AL Insert stored, not one the media store computes.
