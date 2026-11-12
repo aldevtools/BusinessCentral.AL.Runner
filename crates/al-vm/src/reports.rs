@@ -2104,13 +2104,7 @@ impl Session {
         let (owner, object) = run.owner(r);
         let mut rec = self.report_item_record(run, r)?;
         // A `DataItemLinkReference` names another enclosing item than the parent.
-        if let ItemRef::Added(extension, item) = r
-            && run
-                .ext_ir(extension)
-                .is_some_and(|ext| ext.added[item].explicit_parent_link)
-        {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportExtensionExplicitParentLink);
-        }
+        note_explicit_parent_link(run, r);
         let parent_rec = match item.link_item {
             Some(li) => enclosing
                 .iter()
@@ -4478,3 +4472,6 @@ mod request_caption;
 mod request_unshown;
 mod running;
 mod word_xml_part;
+
+mod explicit_parent_link;
+use explicit_parent_link::note_explicit_parent_link;
