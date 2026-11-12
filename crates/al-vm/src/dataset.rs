@@ -137,13 +137,25 @@ pub(crate) fn escape(text: &str) -> Result<String, Signal> {
 }
 
 fn escape_as(text: &str, attribute: bool) -> Result<String, Signal> {
+    escape_xml(text, attribute, false)
+}
+
+fn escape_xml(text: &str, attribute: bool, column_line_breaks: bool) -> Result<String, Signal> {
     let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
         match c {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
             '"' if attribute => out.push_str("&quot;"),
+            '\r' | '\n' if column_line_breaks => {
+                if c == '\r' && chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                out.push_str("\r\n");
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportDatasetColumnLineBreaks);
+            }
             c if c.is_control() => {
                 return unsupported(format!(
                     "text with the control character U+{:04X} in a dataset (its escaping is not pinned)",
@@ -411,6 +423,8 @@ pub(crate) enum DataFileText {
 #[derive(Default)]
 pub(crate) struct Dataset {
     body: String,
+    /// The modern SaveAs XML dataset normalizes text column line breaks.
+    pub(crate) column_line_breaks: bool,
     /// For every open `DataItem`: whether its own `DataItems` element is open.
     open: Vec<bool>,
     /// For every open `DataItem`: whether its data item declares nested items (an empty `DataItems` is written).
@@ -438,6 +452,12 @@ pub(crate) struct Dataset {
     flat: Vec<FlatRow>,
     /// For every open `DataItem`: the state to go back to when `PrintOnlyIfDetail` drops its row, and how many rows its nested items wrote.
     marks: Vec<Mark>,
+}
+
+impl Dataset {
+    pub(crate) fn escape_column_text(&self, text: &str) -> Result<String, Signal> {
+        escape_xml(text, false, self.column_line_breaks)
+    }
 }
 
 /// A row of a data item for a .NET DataSet (`Dataset::finish_data_set`).
@@ -1305,5 +1325,19 @@ mod tests {
     fn text_is_escaped() {
         assert_eq!(escape("one <&>").unwrap(), "one &lt;&amp;&gt;");
         assert!(escape("a\u{1}b").is_err());
+    }
+
+    #[test]
+    fn save_as_column_line_breaks_are_written_as_crlf() {
+        let ds = Dataset {
+            column_line_breaks: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            ds.escape_column_text("a\rb\r\nc\nd<&").unwrap(),
+            "a\r\nb\r\nc\r\nd&lt;&amp;"
+        );
+        assert!(ds.escape_column_text("a\u{1}b").is_err());
+        assert!(Dataset::default().escape_column_text("a\rb").is_err());
     }
 }

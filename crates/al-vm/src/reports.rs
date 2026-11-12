@@ -2891,6 +2891,7 @@ impl Session {
         let deferred = self.report_record_ref(&inst, &schema, record_ref, !parameters.is_empty(), call)?;
         let enters = self.report_enter_world(&schema, false)?;
         let mut fresh = Dataset::default();
+        fresh.column_line_breaks = true;
         fresh.region = region.clone();
         fresh.language = (language == 1031).then(|| "de-DE".to_string());
         let outer = self.report.dataset.replace(fresh);
@@ -3986,7 +3987,11 @@ impl Session {
             Value::BigInteger(n) => n.to_string(),
             Value::Text(s) | Value::TextConst(s) | Value::Code(s) => {
                 schema_type = Some("xs:string");
-                dataset::escape(s)?
+                self.report
+                    .dataset
+                    .as_ref()
+                    .expect("a SaveAs run has a dataset")
+                    .escape_column_text(s)?
             }
             // A SaveAsXml data file writes a Boolean as `xs:boolean`, `true` or `false`, and a Date as `xs:dateTime` at midnight
             // UTC, leaving out a blank one (al-language-onprem/reports/AqSaveAsXml.al:247 SaveAsXml_ColumnTypes_DataFile).
