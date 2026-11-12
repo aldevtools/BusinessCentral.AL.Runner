@@ -901,6 +901,9 @@ impl Session {
                 ir::Arg::Value(_) => None,
             });
         }
+        if al_builtins::placeholder_output::sizes_made() {
+            al_builtins::placeholder_output::size_guard("a DotNet member", None, &values)?;
+        }
         self.dotnet.result_ty = site.result_ty;
         let r = self.dotnet_apply_closing_entry_streams(site.ty, recv, values, places, &site.op, f);
         if let (Err(Signal::Error(_)), Some(p)) = (&r, site.header_pos) {
@@ -932,6 +935,9 @@ impl Session {
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
+        }
+        if al_builtins::placeholder_output::sizes_made() {
+            al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?
@@ -1075,6 +1081,9 @@ impl Session {
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
+        }
+        if al_builtins::placeholder_output::sizes_made() {
+            al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?

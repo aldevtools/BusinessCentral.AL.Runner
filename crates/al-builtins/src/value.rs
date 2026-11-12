@@ -163,6 +163,9 @@ pub enum Value {
     /// A value read from `SessionInformation.SqlStatementsExecuted()` or `SqlRowsRead()`, or computed from such reads
     /// (issue 5580): a BigInteger whose number is the runtime's model, so only the uses `sqlcount` lists are answered.
     SqlCount(SqlCount),
+    /// The byte size of a placeholder report output (`Blob.Length`, `File.Len`), with the placeholder's mark: an Integer known only
+    /// to be greater than 0, so only a comparison with 0 is answered (`crate::placeholder_output::size`).
+    PlaceholderSize(std::sync::Arc<str>),
 }
 
 /// A counter value (`Value::SqlCount`, see `crate::sqlcount`).
@@ -1566,6 +1569,8 @@ impl Value {
             Value::DotNet(_) => k == "dotnet",
             // Never reached: a read of an unknown column is refused before its value reaches a Variant.
             Value::Unknown(_) => false,
+            // An Integer, as Blob.Length is.
+            Value::PlaceholderSize(_) => k == "integer",
             // A BigInteger (session-system/session/SqlCounters.al:87-103).
             Value::SqlCount(c) => {
                 k == match c.ty {
