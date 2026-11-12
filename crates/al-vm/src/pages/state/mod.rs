@@ -396,6 +396,11 @@ pub struct PageState {
     pub pending: Option<Vec<Value>>,
     /// Opened by AL code (`Page.RunModal`, `Page.Run`) and answered by a handler, not by the test.
     pub modal: bool,
+    /// The current run is AL code's non-modal `Page.Run` (`note_page_run`, `page_run_close.rs`); cleared when the page closes.
+    pub page_run: Option<super::page_run_close::PageRun>,
+    /// The first calls AL code made on this page through its Page variable or `CurrPage`, at most three
+    /// (`note_page_code_call`, `page_run_close.rs`).
+    pub code_calls: Vec<al_builtins::page_op::PageMethod>,
     /// Whether the last run of this variable was modal (`None` before the first run): a second non-modal Run runs OnInit again.
     pub last_run_modal: Option<bool>,
     /// The rows of a tree (a repeater with ShowAsTree) expanded with `Expand(true)`, by primary key.

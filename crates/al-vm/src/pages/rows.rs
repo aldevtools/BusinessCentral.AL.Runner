@@ -2845,7 +2845,7 @@ impl Session {
             }
         }
         let kind = if modal { UiKind::ModalPage } else { UiKind::Page };
-        st.borrow_mut().modal = modal && !trapped;
+        self.begin_handled_run(&st, modal, trapped);
         let handler = self.open_page(
             &st,
             PageMode::Edit,
@@ -3050,8 +3050,8 @@ impl Session {
         let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {
-            if modal && matches!(e, Signal::Error(_)) && st.borrow().open {
-                self.close_modal_after_handler_error(&st, &e, caught_before)?;
+            if matches!(e, Signal::Error(_)) && st.borrow().open {
+                self.close_page_after_handler_error(&st, &e, modal, caught_before)?;
             }
             self.mark_closed(&st);
             return Err(e);
