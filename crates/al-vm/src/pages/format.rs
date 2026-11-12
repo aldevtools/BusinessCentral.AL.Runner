@@ -1265,7 +1265,7 @@ impl Session {
     }
 
     /// The caption a TestPage shows: the page caption, then ` - ` and the values of the data caption fields of the row, joined
-    /// by ` âˆ™ `, empty ones left out; a new record has `New - ` in front. A list shows its caption alone. The fields are the
+    /// by ` ∙ `, empty ones left out; a new record has `New - ` in front. A list shows its caption alone. The fields are the
     /// page's `DataCaptionFields` when it names some, else the table's. Pinned by pages/run-modal/
     /// P113DataCaption.al (P113_DC_CardCaption, _CardNewRecord, _PageLevelDataCaptionFields, _EmptyDataCaptionFields, _ListCaption,
     /// _EmptyTable). A `DataCaptionExpression` is refused: the expression is not evaluated here.
@@ -1319,7 +1319,7 @@ impl Session {
         }
         if self.is_list(st) {
             // A list (or worksheet, or list part) adds the one value its record is filtered to on each field the PAGE's
-            // DataCaptionFields names, joined by ` âˆ™ ` (pages/properties/Y37ListCaptionTests.al:153-158 `C313
+            // DataCaptionFields names, joined by ` ∙ ` (pages/properties/Y37ListCaptionTests.al:153-158 `C313
             // Zone List - Z1`, :322-324 two fields, :269-270 a worksheet, :345-347 filter group 2, :364-366 TestPage.Filter,
             // :298 `SetFilter('%1')`). A range, a list, a wildcard, `<>` or a blank value adds nothing (:293-297); the
             // table's DataCaptionFields and the primary key do not count on a list (:196-199, :249-251, :221 a list part).
@@ -1423,7 +1423,7 @@ impl Session {
                 .filter(|v| !v.trim().is_empty())
         };
         // The page's own DataCaptionFields (empty or naming a field) does not change the fields: the table's are shown
-        // (P113_DC_PageLevelDataCaptionFields: `DataCaptionFields = Name` shows `C1 âˆ™ Alpha`).
+        // (P113_DC_PageLevelDataCaptionFields: `DataCaptionFields = Name` shows `C1 ∙ Alpha`).
         let names = names_of(&engine.program.objects[table.object as usize].properties);
         let mut parts = Vec::new();
         // Without DataCaptionFields the caption shows the primary key (pages/lt-page-runtime/P82RunModal*.al:RunModal_Number_OnCard
