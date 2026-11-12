@@ -33,6 +33,7 @@ mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
 mod stale_rule;
+mod tenant_media_rows;
 pub(crate) use stale_rule::{TrappedRollback, same_key};
 mod guarded_run_body;
 pub(crate) use guarded_run_body::GuardedBody;
@@ -1029,47 +1030,6 @@ impl Session {
             self.media.removed.borrow_mut().insert(id);
             self.media_removed.0.push((id, obj));
         }
-        Ok(())
-    }
-
-    /// Locally measured streams/media/Y48TenantMediaRows.al:634: Insert(false) stores a description-only
-    /// row at the caller's nonzero GUID. The ordinary store handles duplicates and rollback.
-    fn check_tenant_media_description_insert(
-        &mut self,
-        t: &TableDef,
-        rec: &Rec,
-        run: bool,
-        arguments: usize,
-    ) -> Result<(), Signal> {
-        if run
-            || arguments != 1
-            || self.listened(t, "onbeforeinsertevent", None)?
-            || self.listened(t, "onafterinsertevent", None)?
-            || self.global_enabled(t, GlobalOp::Insert)?
-        {
-            return unsupported("a direct Tenant Media insert outside the measured Insert(false) call (not pinned)");
-        }
-        let record = rec.borrow();
-        let measured = t
-            .fields
-            .iter()
-            .zip(&record.fields)
-            .all(|(field, value)| match (field.id, value) {
-                (1, Value::Guid(id)) => *id != [0; 16],
-                (2, Value::Text(text)) => !text.is_empty(),
-                (3, Value::Blob(blob)) => {
-                    let content = blob.borrow();
-                    content.bytes.is_empty() && content.render_pending.is_none()
-                }
-                (id, _) if id >= 2_000_000_000 => true,
-                (_, value) => ops::compare(value, &Value::default_for(&field.ty)).is_ok_and(|order| order.is_eq()),
-            });
-        if !measured {
-            return unsupported(
-                "a direct Tenant Media insert with a zero GUID, content or other metadata (not pinned)",
-            );
-        }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TenantMediaDescriptionInsert);
         Ok(())
     }
 

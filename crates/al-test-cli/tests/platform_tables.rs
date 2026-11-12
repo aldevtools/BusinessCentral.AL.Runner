@@ -4809,10 +4809,86 @@ fn recordref_open_of_server_instance_from_an_app_that_is_not_onprem_is_refused()
     );
 }
 
-// Local real-BC DirectTenantMediaInsert.al probe over the actual system table.
+// A Tenant Media row an AL Insert(false) stored: Get, TestField and Delete() of it are pinned (streams/media/
+// Y48TenantMediaRows.al:634-649); every other write and every read of the table while it is there is refused, as is
+// any other insert shape. A table without such a row keeps main's result.
 #[test]
-fn measured_tenant_media_insert_false_stores_description() {
-    let result = outcomes(include_str!("fixtures/tenant-media-description-insert.al"));
-    assert_eq!(result.len(), 1, "{result:?}");
-    assert_eq!(result[0].1, Outcome::Pass, "{result:?}");
+fn a_stored_tenant_media_row_allows_only_the_measured_calls() {
+    let o = outcomes(
+        r#"codeunit 50000 "T" { Subtype = Test; TestPermissions = Disabled;
+  local procedure Ins(Id: Guid) var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := Id; TM.Description := 'Synthetic description'; TM.Insert(false); end;
+  [Test] procedure Measured() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de01'); Clear(TM); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de01');
+    TM.TestField(Description, 'Synthetic description'); TM.Delete(); end;
+  [Test] procedure ModifyAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de02'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de02');
+    TM."Mime Type" := 'text/plain'; TM.Modify(); end;
+  [Test] procedure ModifyAllAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de03'); TM.SetRange(ID, 'eb5700b7-a069-42c4-a86e-404e2839de03');
+    TM.ModifyAll(Description, 'changed'); end;
+  [Test] procedure RecordRefModifyAfterInsert() var TM: Record "Tenant Media"; RR: RecordRef; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de04'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de04');
+    TM.Description := 'changed'; RR.GetTable(TM); RR.Modify(); end;
+  [Test] procedure FindFirstAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de05'); TM.SetRange(ID, 'eb5700b7-a069-42c4-a86e-404e2839de05'); TM.FindFirst(); end;
+  [Test] procedure CountAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de06'); if TM.Count() = 0 then Error('none'); end;
+  [Test] procedure IsEmptyAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de07'); if TM.IsEmpty() then Error('empty'); end;
+  [Test] procedure DeleteTrueAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de08'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de08'); TM.Delete(true); end;
+  [Test] procedure CalcFieldsAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de09'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de09'); TM.CalcFields(Content);
+    if TM.Content.HasValue() then Error('content'); end;
+  [Test] procedure InsertTwice() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de10'); Ins('eb5700b7-a069-42c4-a86e-404e2839de10'); end;
+  [Test] procedure InsertWithMimeType() var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de11'; TM.Description := 'd'; TM."Mime Type" := 'text/plain';
+    TM.Insert(false); end;
+  [Test] procedure InsertTrue() var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de12'; TM.Description := 'd'; TM.Insert(true); end;
+  [Test] procedure InsertNoArgument() var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de13'; TM.Description := 'd'; TM.Insert(); end;
+  [Test] procedure InsertReturnUsed() var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de16'; TM.Description := 'd'; if not TM.Insert(false) then Error('no'); end;
+  [Test] procedure DeleteReturnUsed() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de17'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de17'); if not TM.Delete() then Error('no'); end;
+  [Test] procedure RecordRefInsert() var RR: RecordRef; FR: FieldRef; begin
+    RR.Open(2000000184); RR.Init(); FR := RR.Field(1); FR.Value(CreateGuid()); FR := RR.Field(2); FR.Value('d'); RR.Insert(false); end;
+  [Test] procedure RecordRefDeleteAfterInsert() var RR: RecordRef; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de18'); RR.Open(2000000184);
+    RR.Field(1).SetRange('eb5700b7-a069-42c4-a86e-404e2839de18'); RR.FindFirst(); RR.Delete(); end;
+  [Test] procedure CountWithoutInsert() var TM: Record "Tenant Media"; begin
+    TM.SetRange(ID, 'eb5700b7-a069-42c4-a86e-404e2839de14'); if not TM.IsEmpty() then Error('rows'); end;
+  [Test] procedure DeleteAllWithoutInsert() var TM: Record "Tenant Media"; begin
+    TM.SetRange(ID, 'eb5700b7-a069-42c4-a86e-404e2839de15'); TM.DeleteAll(); end; }"#,
+    );
+    passes(&o, "Measured");
+    let refused = |t: &str| matches!(o.iter().find(|(n, _)| n == t).map(|(_, o)| o), Some(Outcome::NotRun(_)));
+    let ran: Vec<&str> = [
+        "ModifyAfterInsert",
+        "ModifyAllAfterInsert",
+        "RecordRefModifyAfterInsert",
+        "FindFirstAfterInsert",
+        "CountAfterInsert",
+        "IsEmptyAfterInsert",
+        "DeleteTrueAfterInsert",
+        "CalcFieldsAfterInsert",
+        "InsertTwice",
+        "InsertWithMimeType",
+        "InsertTrue",
+        "InsertNoArgument",
+        "InsertReturnUsed",
+        "DeleteReturnUsed",
+        "RecordRefInsert",
+        "RecordRefDeleteAfterInsert",
+    ]
+    .into_iter()
+    .filter(|t| !refused(t))
+    .collect();
+    assert!(ran.is_empty(), "must be refused: {ran:?}\n{o:?}");
+    // Main's results without a stored row: an empty filtered read and DeleteAll (Y48TenantMediaRows.al:654-655).
+    passes(&o, "CountWithoutInsert");
+    passes(&o, "DeleteAllWithoutInsert");
 }
