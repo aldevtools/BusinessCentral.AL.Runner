@@ -23,6 +23,8 @@ struct Shape {
     on_current: &'static str,
     rows: u8,
     open: &'static str,
+    /// What the test does between the open and the read of Visible().
+    then: &'static str,
 }
 
 /// PageExtModifyVisibleVariable.al:86-108 and :175-204, with one modified column.
@@ -38,6 +40,7 @@ const MEASURED: Shape = Shape {
     on_current: "C := true;",
     rows: 2,
     open: "OpenEdit",
+    then: "",
 };
 
 fn source(shapes: &[Shape]) -> String {
@@ -115,11 +118,13 @@ pageextension {ext} "ECV {name} Ext" extends "ECV {name}"
     begin
         Seed({rows});
         P.{open}();
+        {then}
         exit(Format(P.Col.Visible()));
     end;
 "#,
             rows = s.rows,
             open = s.open,
+            then = s.then,
         );
     }
     src + &format!(
@@ -162,17 +167,31 @@ fn visible(shapes: &[Shape], routine: &str) -> String {
     text(al_testkit::run_in(&source(shapes), "C", routine))
 }
 
-/// PageExtModifyVisibleVariable.al:519-547 (`ColRec=Yes` after OpenEdit and after OpenView).
+/// PageExtModifyVisibleVariable.al:519-547 (`ColRec=Yes` after OpenEdit and a GoToKey, after OpenView and a Last).
 #[test]
 fn the_measured_column_counts_its_variable_after_the_first_row_of_the_open() {
-    let view = Shape {
-        name: "MeasuredView",
-        open: "OpenView",
-        ..MEASURED
-    };
-    let shapes = [MEASURED, view];
-    assert_eq!(visible(&shapes, "Measured"), "Yes");
-    assert_eq!(visible(&shapes, "MeasuredView"), "Yes");
+    let shapes = [
+        MEASURED,
+        Shape {
+            name: "MeasuredGoToKey",
+            then: "P.Col.Visible(); P.GoToKey(2);",
+            ..MEASURED
+        },
+        Shape {
+            name: "MeasuredView",
+            open: "OpenView",
+            ..MEASURED
+        },
+        Shape {
+            name: "MeasuredViewLast",
+            open: "OpenView",
+            then: "P.Last();",
+            ..MEASURED
+        },
+    ];
+    for shape in shapes {
+        assert_eq!(visible(&shapes, shape.name), "Yes", "{}", shape.name);
+    }
 }
 
 /// One fact away from the measured page: the column keeps the value frozen at open, as before the rule.
@@ -246,6 +265,58 @@ fn neighbors_of_the_measured_column_keep_the_open_time_value() {
             "No",
             Shape {
                 on_current: "V := true;",
+                ..MEASURED
+            },
+        ),
+        // The rows and what the test does after the open.
+        n("OneRow", "No", Shape { rows: 1, ..MEASURED }),
+        n("ThreeRows", "No", Shape { rows: 3, ..MEASURED }),
+        n(
+            "EditThenLast",
+            "No",
+            Shape {
+                then: "P.Last();",
+                ..MEASURED
+            },
+        ),
+        n(
+            "ViewThenGoToKey",
+            "No",
+            Shape {
+                open: "OpenView",
+                then: "P.GoToKey(2);",
+                ..MEASURED
+            },
+        ),
+        n(
+            "TwoMoves",
+            "No",
+            Shape {
+                then: "P.GoToKey(2); P.GoToKey(1);",
+                ..MEASURED
+            },
+        ),
+        n(
+            "ThenNew",
+            "No",
+            Shape {
+                then: "P.New();",
+                ..MEASURED
+            },
+        ),
+        n(
+            "ThenFilter",
+            "No",
+            Shape {
+                then: "P.Filter.SetFilter(Id, '2');",
+                ..MEASURED
+            },
+        ),
+        n(
+            "ThenValueRead",
+            "No",
+            Shape {
+                then: "if P.Col.Value() = '' then;",
                 ..MEASURED
             },
         ),

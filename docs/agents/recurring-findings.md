@@ -27,6 +27,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
     differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it
     was read).
+  - a stored origin or state compared with a value built from that same state (`o == f(o)`): the copied
+    fields are never checked. Compare with the session's current value (commit count, transaction).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

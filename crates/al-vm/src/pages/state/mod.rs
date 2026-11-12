@@ -326,6 +326,9 @@ pub struct PageState {
     /// The page is in the read of the open itself (not a later read that replays it) and no OnAfterGetRecord of that read has
     /// ended yet: the moment the extension columns of `pages/ext_column_visible.rs` take their Visible after.
     pub before_first_open_row: bool,
+    /// The columns (control indices) that first OnAfterGetRecord turned from hidden to shown (`pages/ext_column_visible.rs`
+    /// `ext_column_shown`); set anew by every open.
+    pub ext_columns_shown: Vec<usize>,
     /// The page opened for edit over an empty view and ran its new-record triggers on a blank record; it shows no row and its
     /// field controls are not editable.
     pub blank_on_open: bool,

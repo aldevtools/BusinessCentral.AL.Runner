@@ -354,8 +354,8 @@ impl Session {
     }
 
     /// Follows `OwnRead` of `rec` as record method `method` starts. Only the methods the measured cells name keep it: a Get
-    /// after the Insert, a Clear between the two (:653), and the write that reads it (Modify, Rename). Returns the store's change counter when `method` is an `Insert()` AL code called on a Record
-    /// variable, for `own_read_after`.
+    /// after the Insert, a Clear between the two (:653), and the write that reads it (Modify, Rename). Returns the store's
+    /// change counter when `method` is an `Insert()` AL code called on a Record variable, for `own_read_after`.
     pub(crate) fn own_read_before(
         &mut self,
         method: RecordOp,
@@ -370,9 +370,7 @@ impl Session {
             return plain.then(|| self.store_for(rec).change_counter());
         }
         let mut r = rec.borrow_mut();
-        let Some(m) = r.own_read.0.as_mut() else {
-            return None;
-        };
+        let m = r.own_read.0.as_mut()?;
         let keeps = match method {
             RecordOp::Get => !m.got,
             RecordOp::Clear => !m.got && !std::mem::replace(&mut m.cleared, true),

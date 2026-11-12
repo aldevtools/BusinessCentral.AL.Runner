@@ -1,12 +1,15 @@
 //! The Visible of a repeater column that a page extension's `modify()` binds to a Boolean variable the extension sets to true
 //! in its OnAfterGetRecord (pages/extensions/PageExtModifyVisibleVariable.al:519-547, `ColRec=Yes` after OpenEdit and
-//! OpenView, also after a move). The column reads the variable after the first OnAfterGetRecord of the open's read; every
-//! other control keeps the value frozen at open (`frozen_visible`).
+//! OpenView, also after a GoToKey or a Last). The column reads Yes when the first OnAfterGetRecord of the open's read set
+//! the variable; every other control keeps the value frozen at open (`frozen_visible`).
 //!
-//! The rule enters only on the measured page, every fact by equality (`measured_columns`): the page (:86-108), its one
-//! extension (:175-204) and what the three triggers do.
+//! The rule enters only on the measured page, every fact by equality: the page (:86-108), its one extension (:175-204) and
+//! what the three triggers do (`measured_columns`), the two rows (:213-226), and the calls the test made since the open
+//! (`ext_column_shown`).
 
+use super::pinned_shape::TestCall;
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 /// The properties page 61822 declares (:88-91).
 const PAGE_PROPERTIES: [&str; 4] = ["applicationarea", "pagetype", "sourcetable", "usagecategory"];
@@ -16,28 +19,53 @@ const EXT_TRIGGERS: [&str; 3] = ["onaftergetcurrrecord", "onaftergetrecord", "on
 impl Session {
     /// `load_first_row` for the open itself: the read the measured columns take their Visible in.
     pub(super) fn load_first_row_at_open(&mut self, st: &St, mode: PageMode, with_record: bool) -> Result<(), Signal> {
+        st.borrow_mut().ext_columns_shown = Vec::new();
         st.borrow_mut().before_first_open_row = true;
         let r = self.load_first_row(st, mode, with_record);
         st.borrow_mut().before_first_open_row = false;
         r
     }
 
-    /// After the page trigger `name` ran: the first OnAfterGetRecord of the open's read turns the measured columns, false at
-    /// open (:519-547 `ColRec`), to true.
+    /// After the page trigger `name` ran: the first OnAfterGetRecord of the open's read notes the measured columns, false at
+    /// open, whose variable it set to true (:519-547 `ColRec`).
     pub(super) fn show_ext_columns_after_first_open_row(&mut self, st: &St, name: &str) -> Result<(), Signal> {
         if name != "onaftergetrecord" || !std::mem::take(&mut st.borrow_mut().before_first_open_row) {
             return Ok(());
         }
-        for idx in self.measured_columns(st) {
-            let now = self.prop_bool_now(st, idx, "visible", true)?;
-            if let Some(slot) = st.borrow_mut().frozen_visible.get_mut(idx)
-                && !*slot
-                && now
-            {
-                *slot = true;
+        let columns = self.measured_columns(st);
+        // The two rows of :213-226, in the plain view.
+        if columns.is_empty() || !self.rec_view_is(st, 0) || self.view_row_count(st)? != 2 {
+            return Ok(());
+        }
+        let mut shown = Vec::new();
+        for idx in columns {
+            let frozen = st.borrow().frozen_visible.get(idx).copied();
+            if frozen == Some(false) && self.prop_bool_now(st, idx, "visible", true)? {
+                shown.push(idx);
             }
         }
+        st.borrow_mut().ext_columns_shown = shown;
         Ok(())
+    }
+
+    /// Whether control `idx` is a measured column that reads Yes in place of its value frozen at open: after the calls the
+    /// cells made since the page opened, Visible() reads and one GoToKey after OpenEdit (:525-528) or one Last after OpenView
+    /// (:541-544). After any other call the column reads its frozen value again.
+    pub(super) fn ext_column_shown(&self, st: &St, idx: usize) -> bool {
+        let s = st.borrow();
+        if !s.ext_columns_shown.contains(&idx) || s.test_calls_overflow {
+            return false;
+        }
+        let moved = match s.mode {
+            PageMode::Edit => PageMethod::GoToKey,
+            PageMode::View => PageMethod::Last,
+            _ => return false,
+        };
+        let moves = s.test_calls.iter().filter(|c| **c == TestCall::Page(moved)).count();
+        moves <= 1
+            && s.test_calls
+                .iter()
+                .all(|c| matches!(c, TestCall::Other(PageMethod::Visible)) || *c == TestCall::Page(moved))
     }
 
     /// The columns of the measured shape; empty for every other page.
