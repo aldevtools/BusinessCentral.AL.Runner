@@ -1,5 +1,5 @@
-//! Refusals whose reason text named the wrong cause (al-runner issues 7400, 7414, 7362). The cases stay refused (nothing pins
-//! them yet); the reason now says what actually stopped the run.
+//! Refusals whose reason text named the wrong cause (al-runner issues 7400, 7414, 7362). The reason now says what actually
+//! stopped the run; the shape of 7414 is pinned since and runs.
 
 use al_test_cli::report::Outcome;
 
@@ -55,7 +55,9 @@ codeunit 50403 "RR Save Tests"
     assert!(r.contains("saved") && r.contains("not pinned"), "{r}");
 }
 
-/// Issue 7414: a bare read of `UseRequestPage` in a report trigger is a read, not an assignment.
+/// Issue 7414: a bare read of `UseRequestPage` in a report trigger is a read, not an assignment. It now runs: after
+/// `UseRequestPage(false)` on the variable it reads false in OnPreReport (reports/bare-report-member/
+/// UseRequestPageReadInTriggers.al:100, :235 UseRp_Read_VariableSetFalse_Run), so the report's own Error is the outcome.
 #[test]
 fn issue_7414_bare_use_request_page_read_is_not_called_unassignable() {
     let src = r#"
@@ -82,9 +84,11 @@ codeunit 50412 "RR Batch Tests"
     end;
 }
 "#;
-    let r = reason(src, "RR Batch Tests");
-    assert!(!r.contains("not assignable"), "{r}");
-    assert!(r.contains("UseRequestPage") && r.contains("without parentheses"), "{r}");
+    let o = al_testkit::outcomes_in(src, "RR Batch Tests");
+    assert_eq!(
+        o,
+        vec![("RunIt".to_string(), Outcome::Fail("no request page".to_string()))]
+    );
 }
 
 /// Issue 7362: a part linked through `Provider` to another part, both with a source table. When the provider part is not among

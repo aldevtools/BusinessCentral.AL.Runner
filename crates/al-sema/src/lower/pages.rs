@@ -865,15 +865,16 @@ impl Lowerer<'_> {
         Some((self.field_of(t, &f)?, slot))
     }
 
-    /// A source that is a field of an element of a record array among `globals` (`SetupArr[2]."Logo Position"`): the table and
-    /// field (`ir::Control::array_element_field`, al-runner issue 7376).
+    /// A source that is a field of an element of a record array among `globals` (`SetupArr[2]."Logo Position"`) whose records
+    /// are not temporary: the table and field (`ir::Control::array_element_field`, al-runner issue 7376; a temporary array is
+    /// not pinned).
     fn array_element_field(&self, globals: &[ir::Slot], text: &str) -> Option<(usize, usize)> {
         let (v, f) = crate::pages::array_element_and_field(text)?;
         let g = globals.iter().find(|g| g.name.eq_ignore_ascii_case(&v))?;
         let RtType::Array(_, elem) = &g.ty else {
             return None;
         };
-        let RtType::Record(t, _) = **elem else {
+        let RtType::Record(t, false) = **elem else {
             return None;
         };
         self.field_of(t, &f)

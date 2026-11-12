@@ -155,6 +155,7 @@ mod recall_never_sent;
 mod record_windows_oracle;
 mod refusal_keys;
 mod refusal_reason_texts;
+mod report_global_blob_column;
 mod report_handler;
 mod report_request_page_save_as_pdf;
 mod report_run_after_write;

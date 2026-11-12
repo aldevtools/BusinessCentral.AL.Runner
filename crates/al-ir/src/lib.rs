@@ -1260,7 +1260,8 @@ pub struct Control {
     #[serde(default)]
     pub var_slot: Option<usize>,
     /// For a page's or report's own control whose source is a field of an element of a global record array with a number
-    /// index (`SetupArr[2]."Logo Position"`): the table's object index and the field's position in it.
+    /// index (`SetupArr[2]."Logo Position"`), when the array's records are not temporary: the table's object index and the
+    /// field's position in it.
     #[serde(default)]
     pub array_element_field: Option<(usize, usize)>,
     /// For a page's own control bound to an expression of a form Page Control Field serves (an element of a page array with a

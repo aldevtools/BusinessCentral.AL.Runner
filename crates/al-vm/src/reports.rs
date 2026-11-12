@@ -4002,7 +4002,9 @@ impl Session {
         let mut schema_type = None;
         let mut data = dataset::DataFileText::Same;
         let region = self.report.dataset.as_ref().and_then(|d| d.region.clone());
-        let (regional, media) = (region.is_some(), self.media_field(&t, c));
+        // A column of the report itself, not one a reportextension adds (`blob_column.rs`, `media_field`).
+        let own = self.engine.program.objects[object].report.is_some();
+        let (regional, media) = (region.is_some(), self.media_field(&t, c, own));
         // In German the values of a Decimal, Date, Time, DateTime, Integer, Boolean and text column read as in en-US
         // (reports/W3ReportObjectIdPreviewLanguage.al:870, :893); an Option or Enum column is not pinned there.
         // An Option column of a German session shows the DEU caption (record/table-properties/XTablePropsTests.al:783); in a
@@ -4120,7 +4122,7 @@ impl Session {
             Value::Option(..) | Value::Enum(..) | Value::Duration(_) => {
                 dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::unsupported)?)?
             }
-            Value::Blob(b) => self.blob_column_text(c, rec, b)?,
+            Value::Blob(b) => self.blob_column_text(c, (rec, owner, own), b)?,
             // An empty Media or MediaSet field is an empty element (reports/layouts-saveas/BcXmlBlob.al:102); one with content holds a
             // re-encoded picture whose bytes the runtime cannot make (:220), and is refused.
             Value::Guid(g) if media => {
@@ -4162,25 +4164,6 @@ impl Session {
             schema_type,
             data,
         })
-    }
-
-    /// Whether column `c` is a Media or MediaSet field of the data item's table, or of a global record variable of the report
-    /// (an empty one is an empty element: reports/dataset/DatasetBlobColumnOfGlobalRecord.al:231 `MediaGetOnly`,
-    /// `MediaNeverRead`; al-runner issue 7399).
-    fn media_field(&self, t: &Option<Arc<al_data::TableDef>>, c: &ir::ReportColumn) -> bool {
-        use al_builtins::library_kind::LibraryKind as L;
-        let global = c.places_table.and_then(|g| self.engine.tables.get(g)?.clone());
-        let (t, pos) = match c.field.or(c.item_field) {
-            Some(pos) => (t.clone(), Some(pos)),
-            None => (global, c.places_field),
-        };
-        match (t, pos) {
-            (Some(t), Some(pos)) => t
-                .fields
-                .get(pos)
-                .is_some_and(|f| matches!(f.ty, al_builtins::value::RtType::Library(L::Media | L::MediaSet))),
-            _ => false,
-        }
     }
 
     /// The CompanyAddressLine elements of the BC 29 dataset header for the Company Information row `rec`: Name, Name 2,
