@@ -848,6 +848,18 @@ impl Session {
         }
         let pinned =
             st.borrow().draft_from_open && self.top_card_or_document(st) && self.key_typed_since_draft_start(st)?;
+        let worksheet = {
+            let page = st.borrow();
+            let engine = self.engine();
+            let object = page.object as usize;
+            page.mode == PageMode::Edit
+                && !page.draft_from_open
+                && engine.object_facts[object].page_type == Some(ir::PageType::Worksheet)
+                && ["AutoSplitKey", "DelayedInsert", "MultipleNewLines"].iter().all(|name| {
+                    effective_prop(&engine, object, name)
+                        .is_ok_and(|value| value.is_some_and(|value| value.trim().eq_ignore_ascii_case("true")))
+                })
+        };
         let mut quiet = Vec::new();
         for c in parts {
             if c.borrow().part_accessed || (c.borrow().draft && c.borrow().dirty) {
@@ -861,9 +873,14 @@ impl Session {
                     .iter()
                     .any(|t| self.engine().events.is_subscribed(object, t));
             if observes && c.borrow().cursor != Cursor::Row && self.has_source(&c) {
-                if !pinned {
+                if !pinned && !worksheet {
                     return unsupported(
                         "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
+                    );
+                }
+                if worksheet {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::WorksheetDraftCloseEmptyPart,
                     );
                 }
                 c.borrow_mut().quiet_at_close = true;

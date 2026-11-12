@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_worksheet_draft_close_does_not_read_empty_part() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/worksheet-draft-close-empty-part.al"),
+    ));
+}
