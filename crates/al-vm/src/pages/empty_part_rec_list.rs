@@ -3,10 +3,10 @@
 //! (the reporter's host is a List page with Base Application page 1178 in its FactBoxes). It runs through the assumption
 //! `empty-part-rec-list-host` until corpus pull request 1339 (pages/parts/EmptyPartRecLinkList.al) is pinned.
 //!
-//! `list_host_cell` is the allowlist: every fact the probe holds fixed is required by equality, each against the probe object
-//! that holds it. A shape with any other fact keeps main's result (`suite/empty_part_rec_list.rs`
-//! `empty_list_part_rec_list_host_unmeasured_shapes_stay_blank`, `empty_list_part_rec_list_host_neighbors_keep_main`). The
-//! facts no probe object varies are named in the entry's text.
+//! `list_host_miss` is the allowlist: every fact the probe holds fixed is required by equality, each against the probe object
+//! that holds it. A shape with any other fact gets the part's filtered fields unknown, and their read is refused with the
+//! first such fact (`empty_part_rec.rs`; `suite/empty_part_rec_list.rs` `empty_list_part_rec_list_host_unmeasured_shapes_refuse`,
+//! `empty_list_part_rec_list_host_neighbors_refuse`). The facts no probe object varies are named in the entry's text.
 
 use super::*;
 use al_builtins::page_op::PageMethod;
@@ -56,40 +56,67 @@ const HOST_TRIGGERS: [&[&str]; 2] = [&[], &["onaftergetcurrrecord", "onaftergetr
 const PART_CONTROL_PROPS: [(&str, Option<&str>); 2] = [("applicationarea", None), ("subpagelink", None)];
 
 impl Session {
-    /// Whether part `st` of `host` is a List-host cell the probe measured (see the module): the host, the part control on it,
-    /// the link and the part page each hold only facts a probe cell holds.
-    pub(super) fn list_host_cell(&self, st: &St, host: &St) -> Result<bool, Signal> {
+    /// Whether `host` is a top-level List page (the probe's hosts, EmptyPartRecLinkList.al page 76843 and its siblings).
+    pub(super) fn top_list(&self, host: &St) -> bool {
+        let h = host.borrow();
+        h.host.is_none() && self.engine().object_facts[h.object as usize].page_type == Some(al_ir::PageType::List)
+    }
+
+    /// `None` when part `st` of `host` is a List-host cell the probe measured (see the module): the host, the part control on
+    /// it, the link and the part page each hold only facts a probe cell holds. Else the first fact no probe cell holds.
+    pub(super) fn list_host_miss(&self, st: &St, host: &St) -> Result<Option<&'static str>, Signal> {
         let Some(control) = st.borrow().host.as_ref().map(|(_, c)| *c) else {
-            return Ok(false);
+            return Ok(Some("the part has no host"));
         };
-        if !(self.list_host_measured(host) && self.list_landing_measured() && self.list_part_page_measured(st)) {
-            return Ok(false);
+        if let Some(miss) = self.list_host_measured(host) {
+            return Ok(Some(miss));
+        }
+        if !self.list_landing_measured() {
+            return Ok(Some(
+                "the part read again at a host move other than the open, a GoToRecord or a Next",
+            ));
+        }
+        if !self.list_part_page_measured(st) {
+            return Ok(Some(
+                "the part page has a property, a trigger, a page extension or an event subscriber no probe part has",
+            ));
         }
         let host_table = self.table(&self.page_rec(host))?;
         let part_table = self.table(&self.page_rec(st))?;
-        Ok(self.list_part_control_measured(host, control, &host_table, &part_table))
+        Ok(self.list_part_control_miss(host, control, &host_table, &part_table))
     }
 
     /// The host: a top-level List page the test opened with TestPage.OpenEdit or OpenView, standing on a stored row, with the
-    /// properties and triggers of a probe host, no page extension and no event subscriber.
-    fn list_host_measured(&self, host: &St) -> bool {
+    /// properties and triggers of a probe host, no page extension and no event subscriber. `None` when it is; else the fact.
+    fn list_host_measured(&self, host: &St) -> Option<&'static str> {
         let engine = self.engine();
-        let (object, top_list, opened, stored_row) = {
+        let (object, opened, stored_row) = {
             let h = host.borrow();
-            let object = h.object as usize;
             (
-                object,
-                h.host.is_none() && engine.object_facts[object].page_type == Some(al_ir::PageType::List),
+                h.object as usize,
                 h.opened_by_test && matches!(h.mode, PageMode::Edit | PageMode::View),
                 h.cursor == Cursor::Row && !h.draft,
             )
         };
-        top_list
-            && opened
-            && stored_row
-            && props_measured(&engine.program.objects[object].properties, &HOST_PROPS)
-            && trigger_set_measured(&page_of(&engine, host).triggers, &HOST_TRIGGERS)
-            && self.unextended_unsubscribed(host)
+        if !self.top_list(host) {
+            return Some("the host is not a top-level List page");
+        }
+        if !opened {
+            return Some("the List host was not opened by the test's OpenEdit or OpenView");
+        }
+        if !stored_row {
+            return Some("the host stands on no stored row");
+        }
+        if !props_measured(&engine.program.objects[object].properties, &HOST_PROPS) {
+            return Some("the List host has a page property no probe host has");
+        }
+        if !trigger_set_measured(&page_of(&engine, host).triggers, &HOST_TRIGGERS) {
+            return Some("the List host has a set of triggers no probe host has");
+        }
+        if !self.unextended_unsubscribed(host) {
+            return Some("the List host has a page extension or an event subscriber");
+        }
+        None
     }
 
     /// The part lands as the host opens (EmptyPartRecLinkList.al :347), after a GoToRecord that left the row (:379), after one
@@ -110,18 +137,19 @@ impl Session {
     /// The part control: the List page's own (no page extension), with the properties of a probe part control, no Provider and
     /// the Provider of no other part, and a link of `const(..)`, `filter(..)` and `field(..)` entries of the probe's types:
     /// a const or filter on an Integer field, a field link from a Code field to a Code field, none on the last key field.
-    fn list_part_control_measured(
+    /// `None` when it is; else the fact.
+    fn list_part_control_miss(
         &self,
         host: &St,
         control: usize,
         host_table: &TableDef,
         part_table: &TableDef,
-    ) -> bool {
+    ) -> Option<&'static str> {
         let engine = self.engine();
         let page = page_of(&engine, host);
         let c = &page.controls[control];
         let Some(link) = c.part_link.as_ref() else {
-            return false;
+            return Some("the part control has no SubPageLink");
         };
         let props = c.props.iter().all(|(k, v)| {
             PART_CONTROL_PROPS.iter().any(|(name, want)| {
@@ -152,7 +180,19 @@ impl Session {
             }
             ir::LinkEntry::FieldFilter(..) => false,
         });
-        c.owner.is_none() && props && link.view.is_none() && link.provider.is_none() && provider_of_none && entries
+        if c.owner.is_some() {
+            return Some("the part control is added by a page extension");
+        }
+        if !props {
+            return Some("the part control has a property other than ApplicationArea and SubPageLink");
+        }
+        if !(link.view.is_none() && link.provider.is_none() && provider_of_none) {
+            return Some("the part control has a SubPageView, a Provider or is the Provider of another part");
+        }
+        if !entries {
+            return Some("the SubPageLink has an entry of a form, a field type or a key position no probe link has");
+        }
+        None
     }
 
     /// The part page: a ListPart on a stored table with the properties and triggers of a probe part, no page extension and no
