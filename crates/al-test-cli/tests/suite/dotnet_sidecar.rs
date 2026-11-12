@@ -1751,3 +1751,39 @@ fn a_text_that_is_no_guid_or_an_overload_set_that_is_not_one_guid_stays_refused(
     assert!(why.contains("no overload taking 1 argument"), "{why}");
     sess.close();
 }
+
+/// P12 of the ADR-040 amendment of 2026-11-12 (`al_builtins::rendered_text::DOTNET_ALLOWED`): the real `Regex.Replace` with the
+/// pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb` hands a text that holds rendered content back
+/// with every mark, so `dotnet_result` takes the answer (in the changed form); a text the pattern matches keeps its marks too.
+#[test]
+fn the_rgba_replace_keeps_every_mark_of_rendered_content() {
+    use al_builtins::rendered_text::{self, DOTNET_ALLOWED, Form};
+    let Some(h) = host() else { return };
+    let entry = &DOTNET_ALLOWED[0];
+    let regex = DotNetTarget::Static(DotNetType {
+        assembly: "System.Text.RegularExpressions".into(),
+        name: entry.ty.into(),
+        ..Default::default()
+    });
+    let n = rendered_text::register("Sidecar Report", "Html", "WordOne").expect("a render");
+    let mark = rendered_text::mark_text(n, Form::Whole);
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    for input in [
+        mark.clone(),
+        format!("<p style=\"color: rgba(1, 2, 3, 0)\">{mark}</p>{mark}"),
+    ] {
+        let r = sess
+            .invoke(
+                regex.clone(),
+                entry.member,
+                vec![s(&input), s(entry.pattern), s(entry.replacement)],
+            )
+            .unwrap();
+        let out = rendered_text::dotnet_result(&input, text_of(&r)).expect("every mark kept");
+        assert_eq!(
+            rendered_text::marks(&out).map(|m| m.len()),
+            rendered_text::marks(&input).map(|m| m.len())
+        );
+    }
+    sess.close();
+}

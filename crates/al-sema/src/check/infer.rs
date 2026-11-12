@@ -1535,7 +1535,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                let base = self.infer(sc, &kids[0]);
+                let base = self.member_receiver(sc, node, &kids[0]);
                 let mname = kids.get(1).map(name_of).unwrap_or_default();
                 if let E::PartialObj(k, mut parts) = base {
                     parts.push(mname);
@@ -1764,8 +1764,47 @@ impl<'a> Checker<'a> {
         Some(E::TypeName(ty))
     }
 
+    /// The receiver `recv` of member access `node`. `Ns.Sub."Enum".FromInteger(n)` names the enum through its namespace when
+    /// the first name `Ns` is no variable, parameter, field or procedure in scope and no object of any kind in any app the
+    /// file sees has that name (al-runner issue 7920, the reporter's alc 18.1 repro: alc compiles it;
+    /// assumption `namespaced-enum-receiver` with probe corpus PR 1363, which lowering marks). Only `FromInteger` called on a chain of two or more names
+    /// is taken; every other receiver is inferred as before.
+    fn member_receiver(&mut self, sc: &mut Scope, node: &SyntaxNode, recv: &SyntaxNode) -> E {
+        let called = node
+            .parent()
+            .is_some_and(|p| p.kind() == SyntaxKind::CallExpr && p.first_child().as_ref() == Some(node));
+        let from_integer = node
+            .children()
+            .nth(1)
+            .is_some_and(|m| name_of(&m).eq_ignore_ascii_case("FromInteger"));
+        if called && from_integer && recv.kind() == SyntaxKind::MemberExpr {
+            let mut first = recv.clone();
+            while first.kind() == SyntaxKind::MemberExpr {
+                let Some(c) = first.first_child() else { break };
+                first = c;
+            }
+            if first.kind() == SyntaxKind::NameRef
+                && self.lookup_name(sc, &first).is_none()
+                && !self.ws.names_any_visible_object(sc.file, &name_of(&first))
+                && let Some(ei) = self.namespaced_enum_index(sc, recv)
+            {
+                self.touch(ei);
+                self.record(sc, recv, Res::NamespacedEnumReceiver(ei));
+                return E::TypeName(Ty::Enum(self.ws.objects[ei].name.as_str().into()));
+            }
+        }
+        self.infer(sc, recv)
+    }
+
     /// `Ns.Sub."Enum"` before `::`: a chain of names that resolves to an enum through its namespace.
     pub(crate) fn namespaced_enum(&self, sc: &Scope, node: &SyntaxNode) -> Option<E> {
+        let i = self.namespaced_enum_index(sc, node)?;
+        self.touch(i);
+        Some(E::TypeName(Ty::Enum(self.ws.objects[i].name.as_str().into())))
+    }
+
+    /// The enum a chain of names `Ns.Sub."Enum"` names through its namespace.
+    fn namespaced_enum_index(&self, sc: &Scope, node: &SyntaxNode) -> Option<usize> {
         fn parts(n: &SyntaxNode, out: &mut Vec<String>) -> bool {
             match n.kind() {
                 SyntaxKind::NameRef => {
@@ -1793,10 +1832,7 @@ impl<'a> Checker<'a> {
             return None;
         }
         match self.ws.resolve_ref(sc.file, ObjKind::Enum, &names) {
-            Resolution::Found(i) => {
-                self.touch(i);
-                Some(E::TypeName(Ty::Enum(self.ws.objects[i].name.as_str().into())))
-            }
+            Resolution::Found(i) => Some(i),
             _ => None,
         }
     }

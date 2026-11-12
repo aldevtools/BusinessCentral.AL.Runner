@@ -48,6 +48,10 @@ pub struct Program {
     /// Empty without `--tdd`.
     #[serde(default)]
     pub tdd_stubs: Vec<String>,
+    /// The unprobed assumptions that whether the program compiles at all rests on; the runner marks them for every test
+    /// it runs of this program.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
 /// An event subscriber that is declared but not compiled (see [`Program::uncompiled_subscribers`]).
@@ -101,6 +105,25 @@ pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
     "OnDocumentReady",
     "SetupPrinters",
 ];
+
+/// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, for a save
+/// while a temporary layout selection is held (ADR-040 amendment 2026-11-12, A7). SelectedBuiltinLayoutType is not raised once
+/// SelectReportLayoutCode answered a selected layout (corpus probe pull request 1362,
+/// reports/layouts-html-text/HtRenderedTextTests.al:494, :530).
+pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 1] = ["SelectReportLayoutCode"];
+
+/// Base Application's app id.
+pub const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+
+/// Base Application's codeunit ReportManagement: its id and name.
+pub const REPORT_MANAGEMENT: (u32, &str) = (44, "ReportManagement");
+
+/// Whether a codeunit with `id` and `name` of the app with `app_id` is Base Application's [`REPORT_MANAGEMENT`].
+pub fn is_report_management(id: Option<u32>, name: &str, app_id: &str) -> bool {
+    id == Some(REPORT_MANAGEMENT.0)
+        && name.eq_ignore_ascii_case(REPORT_MANAGEMENT.1)
+        && app_id.eq_ignore_ascii_case(BASE_APPLICATION_APP_ID)
+}
 
 /// The events of `Filter Helper Triggers` the runtime raises (MakeDateFilter, MakeIntFilter and MakeTimeFilter:
 /// events/platform-triggers/PtObserve.al) or refuses to raise (MakeDateTimeFilter).
@@ -2200,6 +2223,7 @@ mod tests {
             }],
             apps: vec![],
             tdd_stubs: vec!["C: procedure \"P\"()".into()],
+            assumes: vec![al_builtins::assumptions::Assumption::MovedTableStubOfDependency],
             sources: vec![],
             positions: Default::default(),
             uncompiled_subscribers: vec![UncompiledSubscriber {

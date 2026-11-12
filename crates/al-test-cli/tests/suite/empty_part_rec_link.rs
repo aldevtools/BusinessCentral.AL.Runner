@@ -664,7 +664,8 @@ fn empty_list_part_rec_holds_the_link_values() {
 /// Shapes probe 1335 does not measure. Each keeps the blank Rec the runtime gave before the change (`act=0//0/`): a link to a field
 /// outside the key, PopulateAllFields, a SourceTableView, an OnNewRecord, a filter the part sets itself, an unlinked part, a List
 /// or ListPlus host, a host moved by Next() or New(). These are not BC's values; they guard against the rule reaching a shape
-/// nobody measured.
+/// nobody measured. The List host's part has no OnAfterGetCurrRecord, a trigger set no List-host probe cell holds
+/// (`pages/empty_part_rec_list.rs`).
 const UNMEASURED_SRC: &str = r#"
 table 75180 "PG EPU Head" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
 table 75181 "PG EPU Line"

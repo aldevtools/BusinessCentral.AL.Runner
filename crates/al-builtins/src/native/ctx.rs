@@ -377,6 +377,10 @@ pub trait Ctx: FormatCtx {
     fn media_store(&mut self) -> Option<&mut crate::media::MediaStore> {
         None
     }
+    /// Whether `id` is the ID of a Tenant Media row an AL Insert stored, which the media store does not hold.
+    fn is_stored_tenant_media_id(&mut self, _id: [u8; 16]) -> bool {
+        false
+    }
     /// The media and media sets the stored rows hold in Media and MediaSet fields (`FindOrphans`).
     fn media_holders(&mut self) -> Result<crate::media_orphans::MediaHolders, Signal> {
         Err(Signal::Unsupported("FindOrphans: this context has no database".into()))

@@ -21,6 +21,7 @@ mod business_chart_data;
 mod key_vault;
 mod query_metadata;
 pub mod registry;
+mod rendered;
 pub mod server_classes;
 mod server_helpers;
 mod staged_dir;

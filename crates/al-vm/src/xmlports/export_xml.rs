@@ -778,16 +778,25 @@ impl Session {
     pub(super) fn xp_pass_variable(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<String, Signal> {
         self.xp_run_trigger(inst, schema, node, "onbeforepassvariable")?;
         let slot = schema.node(node).slot.expect("text nodes have a slot");
-        match &inst.borrow().globals[slot] {
-            Value::Text(s) | Value::Code(s) => Ok(s.to_string()),
+        let text = match &inst.borrow().globals[slot] {
+            Value::Text(s) | Value::Code(s) => s.to_string(),
             // A BigText element writes its whole text (xmlports/shapes-properties/XmlPortBigText.al:178, :198).
             Value::Library(al_builtins::library_kind::LibraryKind::BigText, h) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::Empty => Ok(String::new()),
-                al_builtins::value::LibraryValue::Text(s) => Ok(s.clone()),
-                _ => unsupported("XmlPort export of a BigText variable of this kind"),
+                al_builtins::value::LibraryValue::Empty => String::new(),
+                al_builtins::value::LibraryValue::Text(s) => s.clone(),
+                _ => return unsupported("XmlPort export of a BigText variable of this kind"),
             },
-            other => unsupported(format!("XmlPort export of the variable {}", other.describe())),
+            other => return unsupported(format!("XmlPort export of the variable {}", other.describe())),
+        };
+        // Rendered content never goes into an exported file: its characters would be written as known bytes into a buffer
+        // without a mark (ADR-040 amendment 2026-11-12, A3b: a use that is not in table A3 refuses).
+        if al_builtins::rendered_text::holds(&text) {
+            return Err(al_builtins::rendered_text::refusal(
+                &text,
+                "a text variable an XmlPort exports",
+            ));
         }
+        Ok(text)
     }
 
     /// `OnBeforePassField` (it runs for every row: xmlports/TestXmlPortTriggersReplaceViewContracts.al:

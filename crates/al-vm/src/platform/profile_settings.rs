@@ -22,10 +22,10 @@ use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
 use al_data::{Store, TableDef};
+use al_ir::BASE_APPLICATION_APP_ID;
 use std::sync::Arc;
 
 pub(crate) const TENANT_PROFILE_SETTING: u32 = 2_000_000_083;
-const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 
 /// The rows of a fresh tenant with the Base Application (Y35StoredTables.al:581): (Profile ID, Default Role Center, Disable
 /// Personalization), App ID the Base Application's.

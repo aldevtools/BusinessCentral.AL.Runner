@@ -693,7 +693,7 @@ impl Session {
     }
 
     /// Live bound instances of codeunit `object`, oldest binding first.
-    fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
+    pub(crate) fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);
         self.events
             .bindings
