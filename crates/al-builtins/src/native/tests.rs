@@ -490,7 +490,10 @@ fn no_builtin_id_is_registered_twice_in_the_registry_lists() {
 fn clear_of_a_with_events_timer_unassigns_only_a_timer() {
     let mut ctx = TestCtx::default();
     let mut args = [Value::Null];
-    assert!(matches!(super::values::clear_with_events_timer(&mut ctx, None, &mut args), Ok(Value::Null)));
+    assert!(matches!(
+        super::values::clear_with_events_timer(&mut ctx, None, &mut args),
+        Ok(Value::Null)
+    ));
     assert!(matches!(args[0], Value::Null));
     let mut args = [Value::Text("x".to_string().into())];
     match super::values::clear_with_events_timer(&mut ctx, None, &mut args) {

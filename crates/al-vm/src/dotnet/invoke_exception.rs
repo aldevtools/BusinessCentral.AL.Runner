@@ -1,5 +1,5 @@
 //! A .NET exception thrown by a DotNet call the host made becomes an AL error (al-runner issue 7924). Measured by corpus PR 1365
-//! (open; onprem-dotnet dotnet/dotnet/DotNetExceptionOutcome.al, BC 27.5, 28.5 and 29.0) for four calls: an instance method
+//! (open; onprem-dotnet dotnet/dotnet/DotNetExceptionOutcome.al, every major its CI runs) for four calls: an instance method
 //! (`Uri.IsBaseOf` of an unassigned Uri, :66, :194), a static method (`Convert.ToInt32('abc')`, :71, :205), a property get on an
 //! object (`AbsolutePath` of a relative Uri, :76, :216) and a constructor (`StringBuilder(-1)`, :79, :224). For each: Codeunit.Run
 //! answers No (:229-256), asserterror catches it (:258-282), a TryFunction answers No (:285-302, :388-430), the text is
