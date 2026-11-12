@@ -306,7 +306,11 @@ fn assert_reads_refused(procs: &[&str]) {
             other => Some(format!("{p}: {other:?}")),
         })
         .collect();
-    assert!(wrong.is_empty(), "not refused as a read of the size:\n{}", wrong.join("\n"));
+    assert!(
+        wrong.is_empty(),
+        "not refused as a read of the size:\n{}",
+        wrong.join("\n")
+    );
 }
 
 #[test]
@@ -327,7 +331,7 @@ fn placeholder_size_read_back_from_a_field_answers_only_against_0() {
 fn placeholder_size_goes_with_the_row_into_number_fields() {
     assert_eq!(al_testkit::text(run("RecordAssignAndCopy")), "Yes|Yes");
     assert_eq!(al_testkit::text(run("TransferFieldsIntoInteger")), "Yes");
-    assert_eq!(al_testkit::boolean(run("FieldRefIntoInteger")), true);
+    assert!(al_testkit::boolean(run("FieldRefIntoInteger")));
 }
 
 #[test]
@@ -345,12 +349,25 @@ fn placeholder_size_into_a_field_of_another_type_is_refused() {
 
 #[test]
 fn placeholder_size_in_a_field_is_refused_by_a_filter_or_a_key() {
-    assert_reads_refused(&["RangeOnField", "FilterNotZeroOnField", "RangeOnTemporaryField", "KeyHoldingField", "FlowExistWhereField"]);
+    assert_reads_refused(&[
+        "RangeOnField",
+        "FilterNotZeroOnField",
+        "RangeOnTemporaryField",
+        "KeyHoldingField",
+        "FlowExistWhereField",
+    ]);
 }
 
 #[test]
 fn placeholder_size_in_a_field_is_refused_by_calcsums_and_flowfields() {
-    assert_reads_refused(&["CalcSumsOfField", "FlowSum", "FlowLookup", "FlowMax", "FlowMin", "FlowAverage"]);
+    assert_reads_refused(&[
+        "CalcSumsOfField",
+        "FlowSum",
+        "FlowLookup",
+        "FlowMax",
+        "FlowMin",
+        "FlowAverage",
+    ]);
 }
 
 #[test]
@@ -360,7 +377,14 @@ fn placeholder_size_in_a_field_is_refused_by_format_and_fieldref() {
 
 #[test]
 fn placeholder_size_in_a_field_is_refused_by_testfield_validate_and_fielderror() {
-    assert_reads_refused(&["TestFieldNoValue", "TestFieldWithValue", "ValidateNoValue", "ValidateRelation", "FieldRefValidateNoValue", "FieldErrorOfField"]);
+    assert_reads_refused(&[
+        "TestFieldNoValue",
+        "TestFieldWithValue",
+        "ValidateNoValue",
+        "ValidateRelation",
+        "FieldRefValidateNoValue",
+        "FieldErrorOfField",
+    ]);
 }
 
 #[test]

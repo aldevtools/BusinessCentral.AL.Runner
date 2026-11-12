@@ -127,7 +127,7 @@ pub struct Layout {
     pub caption: Option<String>,
     /// The `FormatRegion` property (a text literal).
     pub format_region: Option<String>,
-    /// `ExcelLayoutMultipleDataSheets = true` (al-vm `reports/multiple_data_sheets.rs` says which runs of it run).
+    /// `ExcelLayoutMultipleDataSheets = true` (al-vm `reports/property_gates.rs` says which runs of it run).
     pub excel_multiple_data_sheets: bool,
     /// The request page's `AboutTitle` and `AboutText` when they are text literals.
     pub about_title: Option<String>,

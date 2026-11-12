@@ -170,7 +170,10 @@ impl FilterExpr {
             FilterExpr::NumCode(inner) | FilterExpr::UnpinnedMatch(inner, _) | FilterExpr::UnpinnedText(inner) => {
                 inner.placeholder_size()
             }
-            FilterExpr::Like(..) | FilterExpr::NotLike(..) | FilterExpr::AtSignAlone(_) | FilterExpr::EmptyViewValue => None,
+            FilterExpr::Like(..)
+            | FilterExpr::NotLike(..)
+            | FilterExpr::AtSignAlone(_)
+            | FilterExpr::EmptyViewValue => None,
         }
     }
 

@@ -42,9 +42,9 @@ impl Session {
         }
         let rec = self.page_rec(st);
         let r = rec.borrow();
-        r.fields
-            .iter()
-            .try_for_each(|v| al_builtins::placeholder_output::size_read(v, "a page on a record with a field holding the value"))
+        r.fields.iter().try_for_each(|v| {
+            al_builtins::placeholder_output::size_read(v, "a page on a record with a field holding the value")
+        })
     }
 
     /// A save the page refused with SaveAbort (ModifyAllowed is false, see `save_row`) ends the step without raising: the error becomes

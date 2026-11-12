@@ -1332,7 +1332,18 @@ const MONTHS_ES_SHORT: [&str; 12] = [
 /// Dutch month names of formats 4 and 7, the same in 1043 and 2067 (assumption month-names-dutch: MonthNamesLanguages.al
 /// Months_Dutch_Belgium_2067, Months_Dutch_1043).
 const MONTHS_NL: [&str; 12] = [
-    "januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december",
+    "januari",
+    "februari",
+    "maart",
+    "april",
+    "mei",
+    "juni",
+    "juli",
+    "augustus",
+    "september",
+    "oktober",
+    "november",
+    "december",
 ];
 const MONTHS_NL_SHORT: [&str; 12] = [
     "jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec",
@@ -1365,7 +1376,9 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         (1030, 4) if m == 12 => "december",
         (1043 | 2067, 4) if m == 12 => MONTHS_NL[11],
         // Every Dutch month of formats 4 and 7: measured by the corpus probe, not pinned yet (assumption month-names-dutch).
-        (1043 | 2067, 4) if crate::assumptions::hit(crate::assumptions::Assumption::MonthNamesDutch) => MONTHS_NL[m as usize - 1],
+        (1043 | 2067, 4) if crate::assumptions::hit(crate::assumptions::Assumption::MonthNamesDutch) => {
+            MONTHS_NL[m as usize - 1]
+        }
         (1043 | 2067, 7) if crate::assumptions::hit(crate::assumptions::Assumption::MonthNamesDutch) => {
             MONTHS_NL_SHORT[m as usize - 1]
         }
@@ -1439,8 +1452,21 @@ mod tests {
     fn dutch_month_names_of_formats_4_and_7() {
         // Probe MonthNamesLanguages.al Months_Dutch_Belgium_2067 and Months_Dutch_1043 (assumption month-names-dutch).
         let day = |m: u32, d: u32| day_from_civil(2026, m, d);
-        let long = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober"];
-        let short = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+        let long = [
+            "januari",
+            "februari",
+            "maart",
+            "april",
+            "mei",
+            "juni",
+            "juli",
+            "augustus",
+            "september",
+            "oktober",
+        ];
+        let short = [
+            "jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec",
+        ];
         for lang in [2067, 1043] {
             for (i, (l, s)) in long.iter().zip(short).enumerate() {
                 let d = day(i as u32 + 1, 5);
