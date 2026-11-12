@@ -1144,6 +1144,8 @@ pub struct Session {
     /// The find about to start runs through a RecordRef: its flagged error text has rules of its own
     /// (`records/empty_find_origin.rs`).
     pub(crate) find_through_recordref: bool,
+    /// The DeleteAll about to start runs through a RecordRef (`records/delete_all.rs` takes it, `tenant_set_cascade`).
+    pub(crate) deleteall_through_recordref: bool,
     /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
     pub(crate) tx: TxState,
     /// Handler functions and notifications of the running test method.
@@ -1257,6 +1259,7 @@ impl Session {
             sysid_load: false,
             find_load: false,
             find_through_recordref: false,
+            deleteall_through_recordref: false,
             host,
             waited_ms: 0,
             companies,

@@ -1277,10 +1277,6 @@ impl Session {
                 if user_row {
                     self.user_after_delete(t, rec)?;
                 }
-                // A Tenant Permission Set's permissions go with it (`tenant_set_cascade`, assumed).
-                if self.is_tenant_set_row(t, rec.borrow().temporary) {
-                    self.tenant_set_after_delete(t, rec)?;
-                }
                 if run {
                     let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
                     self.run_ext_trigger(t, "OnAfterDelete", rec, Some(&x))?;

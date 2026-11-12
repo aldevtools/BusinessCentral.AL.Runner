@@ -331,64 +331,78 @@ impl Session {
         }
     }
 
-    /// The Guid a Format = Xml import without FormatEvaluate reads: only the text its own export writes, the 8-4-4-4-12 digits in
-    /// upper case inside braces (xmlports/shapes-properties/BdXmlPort.al:425, :436). No corpus test pins the import: it runs under
-    /// the assumption `xmlport-guid-legacy-import` (System Application, Permission Import Export Tests; al-runner issue 7854).
-    /// Every other text and the text formats are refused.
-    pub(super) fn xp_legacy_guid(&mut self, schema: &Schema, text: &str) -> Result<Value, Signal> {
-        let export_form = text.len() == 38
-            && text.starts_with('{')
-            && text.ends_with('}')
-            && text[1..37].char_indices().all(|(i, c)| match i {
+    /// The Guid a Format = Xml import without FormatEvaluate reads from `raw`, the attribute or element text before the trim: only
+    /// the text its own export writes, the 8-4-4-4-12 digits in upper case inside braces (xmlports/shapes-properties/
+    /// BdXmlPort.al:425, :436). No corpus test pins the import: it runs under the assumption `xmlport-guid-legacy-import`
+    /// (System Application, Permission Import Export Tests; al-runner issue 7854). Every other text, white space around it
+    /// included, and the text formats keep main's result (`xp_value`).
+    pub(super) fn xp_legacy_guid(&mut self, schema: &Schema, raw: &str) -> Result<Value, Signal> {
+        let export_form = raw.len() == 38
+            && raw.starts_with('{')
+            && raw.ends_with('}')
+            && raw[1..37].char_indices().all(|(i, c)| match i {
                 8 | 13 | 18 | 23 => c == '-',
                 _ => c.is_ascii_digit() || ('A'..='F').contains(&c),
             });
         if schema.xp().format == ir::XmlFormat::Xml && export_form {
-            if let XmlGuid::Value(g) = xml_guid(text) {
+            if let XmlGuid::Value(g) = xml_guid(raw) {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidLegacyImport);
                 return Ok(Value::Guid(g));
             }
         }
-        unsupported("XmlPort import into a field of type Guid (not pinned)")
+        self.xp_value(raw.trim(), &RtType::Guid, false)
     }
 
-    /// Whether an import without FormatEvaluate reads the caption of an Enum or Option member as that member, once the name and
-    /// the XML forms did not read: pinned for Format = Xml (field attributes and elements) and VariableText
-    /// (xmlports/import/XpEnumOptionRoundTrip.al:221-257, EOR_LegacyAttr, EOR_LegacyElem, EOR_VarText; al-runner issue 7781).
-    /// FixedText is not measured.
+    /// Whether an import without FormatEvaluate may read the caption of an Enum or Option member as that member, once the name
+    /// and the XML forms did not read: pinned for Format = Xml (field attributes and elements) and VariableText under
+    /// GlobalLanguage 1033 (xmlports/import/XpEnumOptionRoundTrip.al:221-257, EOR_LegacyAttr, EOR_LegacyElem, EOR_VarText; the
+    /// test runs in the default language; al-runner issue 7781). FixedText and other languages are not measured.
     pub(super) fn xp_caption_import_pinned(&self, schema: &Schema, ty: &RtType) -> bool {
         matches!(ty, RtType::Enum(_) | RtType::Option(_))
             && matches!(schema.xp().format, ir::XmlFormat::Xml | ir::XmlFormat::VariableText)
+            && al_builtins::format::FormatCtx::language(self) == 1033
     }
 
     /// The member of field `pos` of `rec` whose caption is `text`, exactly as the export writes it (XpEnumOptionRoundTrip.al:224,
-    /// :234, :254: the caption, a member without one by its name); `None` when no caption is `text`. Another case is not measured
-    /// and does not match.
+    /// :234, :254: the caption, a member without one by its name), in the shapes that file measures: an enum no enumextension
+    /// extends (enum 75140) or an Option field with OptionCaption (table 75141 field 3), and exactly one member with this
+    /// caption. `None` keeps main's error: another case, a caption two members share, an extended enum, and a field whose member
+    /// list its owner refuses to read (CaptionML, OptionCaptionML, a translation).
     pub(super) fn xp_value_by_caption(
         &mut self,
         rec: &Rc<RefCell<al_builtins::value::RecordState>>,
         pos: usize,
         text: &str,
         ty: &RtType,
-    ) -> Result<Option<Value>, Signal> {
-        let members = {
-            let r = rec.borrow();
-            match &self.engine.tables[r.table as usize] {
-                Some(t) => self.members_of_field(t, pos)?,
-                None => None,
+    ) -> Option<Value> {
+        if let RtType::Enum(id) = ty {
+            let base = self.engine.program.objects.get(*id as usize)?.id;
+            let extended = self
+                .engine
+                .program
+                .objects
+                .heads()
+                .iter()
+                .any(|o| o.kind == ir::ObjKind::EnumExtension && o.extends_id == base);
+            if extended {
+                return None;
             }
+        }
+        let (_, list) = {
+            let r = rec.borrow();
+            let t = self.engine.tables[r.table as usize].as_ref()?;
+            self.members_of_field(t, pos).ok()??
         };
-        let Some((_, list)) = members else {
-            return Ok(None);
-        };
-        let Some(&(ordinal, _, _)) = list.iter().find(|(_, _, c)| c == text) else {
-            return Ok(None);
-        };
-        Ok(match ty {
-            RtType::Enum(id) => Some(Value::Enum(*id, ordinal)),
-            RtType::Option(names) => Some(Value::Option(ordinal, names.clone())),
+        let mut found = list.iter().filter(|(_, _, c)| c == text);
+        let (ordinal, _, _) = found.next()?;
+        if found.next().is_some() {
+            return None;
+        }
+        match ty {
+            RtType::Enum(id) => Some(Value::Enum(*id, *ordinal)),
+            RtType::Option(names) => Some(Value::Option(*ordinal, names.clone())),
             _ => None,
-        })
+        }
     }
 }
 

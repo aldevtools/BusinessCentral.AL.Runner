@@ -32,6 +32,7 @@ codeunit 50324 C
     procedure ExportForm(): Text begin exit(Import(Xmlport::XmlImp, '<Root><Row Ref="{6F9619FF-8B86-D011-B42D-00C04FC964FF}"><Id>1</Id></Row></Root>')); end;
     procedure LowerCase(): Text begin exit(Import(Xmlport::XmlImp, '<Root><Row Ref="{6f9619ff-8b86-d011-b42d-00c04fc964ff}"><Id>1</Id></Row></Root>')); end;
     procedure NoBraces(): Text begin exit(Import(Xmlport::XmlImp, '<Root><Row Ref="6F9619FF-8B86-D011-B42D-00C04FC964FF"><Id>1</Id></Row></Root>')); end;
+    procedure Spaced(): Text begin exit(Import(Xmlport::XmlImp, '<Root><Row Ref=" {6F9619FF-8B86-D011-B42D-00C04FC964FF} "><Id>1</Id></Row></Root>')); end;
     procedure VarText(): Text begin exit(Import(Xmlport::VtImp, '"1","{6F9619FF-8B86-D011-B42D-00C04FC964FF}"')); end;
 }
 "#;
@@ -46,7 +47,7 @@ fn the_export_form_of_a_guid_imports() {
 
 #[test]
 fn other_guid_texts_and_variable_text_stay_refused() {
-    for routine in ["LowerCase", "NoBraces", "VarText"] {
+    for routine in ["LowerCase", "NoBraces", "Spaced", "VarText"] {
         match al_testkit::run_in(SRC, "C", routine) {
             Err(Signal::Unsupported(why)) => assert!(why.contains("field of type Guid"), "{routine}: {why}"),
             other => panic!("{routine}: {other:?}"),

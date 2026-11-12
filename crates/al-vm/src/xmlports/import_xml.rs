@@ -1162,7 +1162,7 @@ impl Session {
             };
             self.xp_value_xml(text, &ty, members.map(|(_, m)| m))?
         } else if !schema.xp().format_evaluate_declared && ty == RtType::Guid {
-            self.xp_legacy_guid(schema, text)?
+            self.xp_legacy_guid(schema, raw)?
         } else if !schema.xp().format_evaluate_declared {
             if matches!(&ty, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId) {
                 return unsupported("XmlPort import into a RecordId field without FormatEvaluate (not pinned)");
@@ -1173,10 +1173,10 @@ impl Session {
                 Err(Signal::Error(first)) => match self.xp_value_xml(text, &ty, None) {
                     Ok(v) => v,
                     // The caption of an Enum or Option member, which this port's export writes, reads back as that member
-                    // (xmlports/import/XpEnumOptionRoundTrip.al:221-257, Format = Xml with field attributes and elements, and
-                    // VariableText; al-runner issue 7781). FixedText is not measured and keeps the error.
+                    // (xmlports/import/XpEnumOptionRoundTrip.al:221-257; al-runner issue 7781). The shapes that file does not
+                    // measure keep the error (`xp_caption_import_pinned`, `xp_value_by_caption`).
                     Err(Signal::Error(_)) if self.xp_caption_import_pinned(schema, &ty) => {
-                        match self.xp_value_by_caption(&rec, pos, text, &ty)? {
+                        match self.xp_value_by_caption(&rec, pos, text, &ty) {
                             Some(v) => v,
                             None => return Err(Signal::Error(first)),
                         }

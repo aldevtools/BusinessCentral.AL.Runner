@@ -12,6 +12,8 @@ impl Session {
         cx: &al_data::AccessContext,
         run: bool,
     ) -> Result<Value, Signal> {
+        // Read first, so a DeleteAll of a trigger or subscriber this one runs does not see it.
+        let via_recordref = std::mem::take(&mut self.deleteall_through_recordref);
         // The platform takes no delete on Tenant License State (record/TestPlatformTablesWritableContracts.al:96-101).
         self.tenant_license_state_refuses(t, "delete")?;
         self.document_service_trigger_refused(t, rec, run, "DeleteAll")?;
@@ -72,16 +74,17 @@ impl Session {
         // (record/TestTableExtensionTriggerOrderContracts.al:102
         // Delete_And_DeleteAll_WithAndWithoutRunTrigger).
         // The User table has no bulk delete: the platform deletes it row by row.
-        // So does a Tenant Permission Set, whose permissions go with each row (`tenant_set_cascade`).
-        let user_rows =
-            self.is_user_row(t, rec.borrow().temporary) || self.is_tenant_set_row(t, rec.borrow().temporary);
+        let user_rows = self.is_user_row(t, rec.borrow().temporary);
+        // A Tenant Permission Set DeleteAll in the shape Microsoft's tests show deletes row by row too: each row's permissions
+        // go with it (`tenant_set_cascade`, assumed).
+        let tenant_cascade = self.tenant_set_cascade_shape(t, rec, run, via_recordref);
         // MarkedOnly limits the rows to the marked ones, which the store's bulk delete does not know: delete row
         // by row what the scan finds (Post Inventory Cost to G/L ends its data item with
         // `MarkedOnly(true); DeleteAll()` and keeps the capacity entries it has not posted yet). Only the marked
         // rows that pass the filters go, with OnDelete per row for DeleteAll(true)
         // (record/AsMarkedDeleteAll.al:27-94).
         let marked_only = rec.borrow().marked_only;
-        if events || global || user_rows || (run && trigger) || marked_only {
+        if events || global || user_rows || tenant_cascade || (run && trigger) || marked_only {
             // One Delete per row (record/TestTriggerContracts.al:DeleteAll_WithTrigger_FiresForEachFilteredRecord).
             let key = rec.borrow().key;
             let mut rows = Vec::new();
@@ -110,7 +113,11 @@ impl Session {
                 let mut st = state_with_fields(rec, row);
                 st.filters.clear();
                 st.globals = shared.share();
-                self.delete_row(t, &Rc::new(RefCell::new(st)), run)?;
+                let deleted = Rc::new(RefCell::new(st));
+                self.delete_row(t, &deleted, run)?;
+                if tenant_cascade {
+                    self.tenant_set_after_delete(t, &deleted)?;
+                }
             }
             return Ok(Value::Null);
         }

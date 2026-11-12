@@ -25,8 +25,7 @@ use al_data::{AccessContext, Scan, Store, StoreError, TableDef};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-const TENANT_PERMISSION_SET: u32 = 2_000_000_165;
-const TENANT_PERMISSION: u32 = 2_000_000_166;
+use super::{TENANT_PERMISSION, TENANT_PERMISSION_SET};
 const TENANT_PERMISSION_SET_REL: u32 = 2_000_000_253;
 
 /// (App ID, upper-case Role ID).

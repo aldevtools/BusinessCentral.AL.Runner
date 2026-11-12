@@ -56,9 +56,11 @@ impl Session {
             op,
             RecordOp::Find | RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet
         );
+        self.deleteall_through_recordref = op == RecordOp::DeleteAll;
         let r = self.record_op_of_al(op, rec, args);
-        // A path that returned before the find took the mark leaves no mark behind.
+        // A path that returned before the find or the DeleteAll took the mark leaves no mark behind.
         self.find_through_recordref = false;
+        self.deleteall_through_recordref = false;
         r
     }
 
