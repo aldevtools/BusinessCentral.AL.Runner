@@ -7,21 +7,37 @@
 //!   reports/extensions/Y64XappRunOrder.al: A <- B <- C <- the test app);
 //! - two apps with no dependency path between them: app B before app D, whatever their extensions' object ids and names
 //!   (reports/extensions/IndependentAppsReportExtensions.al:93-102 and :118-127, al-runner issue 7358; the two reports swap
-//!   the order of the extension ids and names). B's app id and name both sort before D's (al-language-xapp-b and -d
-//!   app.json; the publisher sorts the other way), so the order is pinned only where the app id and the app name agree.
+//!   the order of the extension ids and names).
+//!
+//! Assumed (assumption `report-ext-independent-app-order`, a flagged pass until the corpus probe lands): two apps with no
+//! dependency path apply by app id where the app name sorts the same way. The one measured pair does not tell that rule
+//! from the publisher (descending), the publish order (descending) or the SQL order of the app id (descending), which
+//! all put B first (al-language-xapp-b and -d app.json; the corpus CI publishes D before B). The reporter's own case needs
+//! an order (al-runner issue 7358).
 //!
 //! Everything else is refused: apps on a path with ids against it, more than two apps where one pair has no path, and two
 //! apps without a path whose app id and app name sort differently.
 
 use crate::workspace::Workspace;
+use al_builtins::assumptions::Assumption;
 use std::cmp::Ordering;
 
+/// The report extensions in the order they apply, and the unprobed assumptions that order rests on.
+pub(crate) struct ExtOrder {
+    pub(crate) exts: Vec<usize>,
+    pub(crate) assumes: Vec<Assumption>,
+}
+
 /// The report extensions `exts` in the order they apply, or why that order is not pinned.
-pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<Vec<usize>, String> {
+pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<ExtOrder, String> {
+    let pinned = |exts| ExtOrder {
+        exts,
+        assumes: Vec::new(),
+    };
     let mut by_id = exts.to_vec();
     by_id.sort_by_key(|&e| (ws.objects[e].id, e));
     if by_id.len() < 2 {
-        return Ok(by_id);
+        return Ok(pinned(by_id));
     }
     let refused =
         || "reportextensions of different apps change the run (their order across apps is not pinned)".to_string();
@@ -33,7 +49,7 @@ pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<V
         .windows(2)
         .all(|w| app(w[0]) == app(w[1]) || ws.app_sees(app(w[1]), app(w[0])));
     if along_path {
-        return Ok(by_id);
+        return Ok(pinned(by_id));
     }
     let mut apps: Vec<usize> = by_id.iter().map(|&e| app(e)).collect();
     apps.sort_unstable();
@@ -50,7 +66,10 @@ pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<V
         _ => return Err(refused()),
     };
     by_id.sort_by_key(|&e| (app(e) != first, ws.objects[e].id, e));
-    Ok(by_id)
+    Ok(ExtOrder {
+        exts: by_id,
+        assumes: vec![Assumption::ReportExtIndependentAppOrder],
+    })
 }
 
 /// How app `a` sorts against app `b` when no dependency path orders them: by app id, pinned only where the app name sorts

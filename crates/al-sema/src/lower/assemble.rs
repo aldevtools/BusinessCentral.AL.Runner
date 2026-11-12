@@ -660,13 +660,13 @@ pub(crate) fn build_shared<'a>(
             }
         }
         layouts[oi] = Some(request);
-        let (exts, extension_reasons) =
+        let (exts, extension_reasons, extension_assumes) =
             match super::ext_order::report_extension_order(ws, &changing.get(&oi).cloned().unwrap_or_default()) {
-                Ok(exts) => (exts, Vec::new()),
+                Ok(order) => (order.exts, Vec::new(), order.assumes),
                 Err(why) => {
                     let mut exts = changing.get(&oi).cloned().unwrap_or_default();
                     exts.sort_by_key(|&e| (ws.objects[e].id, e));
-                    (exts, vec![why])
+                    (exts, vec![why], Vec::new())
                 }
             };
         let cx = crate::reports::Context {
@@ -679,6 +679,7 @@ pub(crate) fn build_shared<'a>(
             request_flag_slot: slots.len(),
             routine_at: &routine_at,
             extension_reasons,
+            extension_assumes,
             extensions: exts.clone(),
         };
         let mut over = super::shared::over_max_length_of(ws, oi);

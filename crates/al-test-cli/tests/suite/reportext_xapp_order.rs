@@ -3,11 +3,12 @@
 //! reports/extensions/Y64XappRunOrder.al with the fixtures in al-language-xapp-a, -b and -c: apps A <- B <- C <- the
 //! test app, extension ids rising along the chain). Pinned only where the dependency order and the object id order agree. Two
 //! apps with no dependency path between them: by app id where the app name sorts the same way (al-runner issue 7358,
-//! reports/extensions/IndependentAppsReportExtensions.al); otherwise, and with ids against the dependency order, refused.
+//! reports/extensions/IndependentAppsReportExtensions.al), a flagged pass (assumption `report-ext-independent-app-order`); otherwise, and with ids against the dependency order, refused.
 
+use al_builtins::assumptions::Assumption;
 use al_sema::workspace::{AppKind, AppSource};
 use al_test_cli::report::Outcome;
-use al_test_cli::runtime::run_codeunit;
+use al_test_cli::runtime::run_codeunit_full;
 use al_vm::Engine;
 
 /// Runs codeunit `T` of the last app; each app depends on the ones listed by index in `deps`.
@@ -18,6 +19,14 @@ fn run(apps: &[(&str, &[usize])]) -> Vec<(String, Outcome)> {
 
 /// [`run`] with the app names `names` (the app ids stay `app0`, `app1`, ...).
 fn run_named(apps: &[(&str, &[usize])], names: &[String]) -> Vec<(String, Outcome)> {
+    run_marked(apps, names).0
+}
+
+/// The unprobed assumptions each test passed through, by test name.
+type Hits = Vec<(String, Vec<Assumption>)>;
+
+/// [`run_named`] that also returns the unprobed assumptions each test passed through.
+fn run_marked(apps: &[(&str, &[usize])], names: &[String]) -> (Vec<(String, Outcome)>, Hits) {
     let ids: Vec<String> = (0..apps.len()).map(|i| format!("app{i}")).collect();
     let sources = apps
         .iter()
@@ -39,7 +48,20 @@ fn run_named(apps: &[(&str, &[usize])], names: &[String]) -> Vec<(String, Outcom
         .iter()
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
-    run_codeunit(&Engine::new(l.program.clone(), blocked), &l, oi)
+    let mut hits = Vec::new();
+    let outcomes = run_codeunit_full(
+        &Engine::new(l.program.clone(), blocked),
+        &l,
+        oi,
+        None,
+        al_test_cli::isolation::TestIsolation::Codeunit,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    (outcomes, hits)
 }
 
 const BASE: &str = r#"
@@ -125,8 +147,14 @@ fn two_apps_without_a_path_run_in_app_id_order_when_the_names_agree() {
     // B (app1) and M (app2) have no dependency path between them; B's extension has the higher object id.
     let b = ext(62940, "B");
     let m = format!("{}{TEST_TWO}", ext(62930, "M"));
-    let o = run(&[(&a, &[]), (&b, &[0]), (&m, &[0])]);
+    let names: Vec<String> = (0..3).map(|i| format!("app{i}")).collect();
+    let (o, hits) = run_marked(&[(&a, &[]), (&b, &[0]), (&m, &[0])], &names);
     assert_eq!(o, vec![("Run".to_string(), Outcome::Pass)]);
+    // One measured pair does not tell the rule: the pass is flagged until the corpus probe lands.
+    assert_eq!(
+        hits,
+        vec![("Run".to_string(), vec![Assumption::ReportExtIndependentAppOrder])]
+    );
 }
 
 #[test]

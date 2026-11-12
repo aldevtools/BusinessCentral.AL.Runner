@@ -98,14 +98,16 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     };
     let whole = steps.round_dp_with_strategy(0, strategy);
     match whole.checked_mul(precision) {
-        Some(r) => Ok(Value::Decimal(r.normalize_to(precision).no_wider_than(number))),
+        Some(r) => Ok(Value::Decimal(
+            r.normalize_to(precision).no_wider_than(number, precision),
+        )),
         None => unsupported("Round outside the Decimal range"),
     }
 }
 
 trait NormalizeTo {
     fn normalize_to(self, precision: Decimal) -> Decimal;
-    fn no_wider_than(self, number: Decimal) -> Decimal;
+    fn no_wider_than(self, number: Decimal, precision: Decimal) -> Decimal;
 }
 
 impl NormalizeTo for Decimal {
@@ -122,9 +124,17 @@ impl NormalizeTo for Decimal {
     /// not `1.00000` (reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450 and :525-530: a variable, an array element
     /// and a field set to it, times one or negated, show `1` and `-1` in the dataset, which writes a Decimal with its scale,
     /// reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309). Digits the rounding needs stay.
-    fn no_wider_than(mut self, number: Decimal) -> Decimal {
+    /// Pinned only for a whole number written without decimals and a precision of a power of ten; a number with decimals
+    /// (`Round(2.5, 0.01)` is `2.5`) or another precision (`Round(3, 0.25)` is `3`) is assumed (al-runner issue 7440,
+    /// assumption `round-scale-no-wider-than-number`).
+    fn no_wider_than(mut self, number: Decimal, precision: Decimal) -> Decimal {
         let keep = number.scale();
         if self.scale() > keep && self.round_dp(keep) == self {
+            let p = precision.normalize();
+            let power_of_ten = p.mantissa() == 1 && p.scale() > 0;
+            if keep != 0 || !power_of_ten {
+                crate::assumptions::assume(crate::assumptions::Assumption::RoundScaleNoWiderThanNumber);
+            }
             self.rescale(keep);
         }
         self
@@ -326,6 +336,24 @@ mod tests {
         // The refusal is for numbers below zero only; zero rounds like any other number.
         is_dec(call("System.Round#1", vec![d("0"), Value::Integer(1), t(">")]), "0");
         is_dec(call("System.Round#1", vec![d("0"), Value::Integer(1), t("<")]), "0");
+    }
+
+    #[test]
+    fn round_marks_the_scale_shapes_no_probe_measured() {
+        use crate::assumptions::{Assumption, clear_hits, take_hits};
+        let marked = |n: &str, p: &str| {
+            clear_hits();
+            let _ = call("System.Round#1", vec![d(n), d(p)]);
+            take_hits().contains(&Assumption::RoundScaleNoWiderThanNumber)
+        };
+        // Pinned (reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450): a whole number without decimals and a
+        // precision of a power of ten, and a result that needs every digit; a result whose scale nothing trims.
+        assert!(!marked("1", "0.00001"));
+        assert!(!marked("1.234567", "0.00001"));
+        assert!(!marked("2.50", "0.01"));
+        // Trimmed beyond the precision, not measured: a number with decimals, a precision that is not a power of ten.
+        assert!(marked("2.5", "0.01"));
+        assert!(marked("3", "0.25"));
     }
 
     #[test]

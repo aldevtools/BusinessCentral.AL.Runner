@@ -961,25 +961,16 @@ impl Session {
         };
         match &schema.engine.program.objects[object].report {
             Some(r) => match r.unsupported.first() {
-                None => Ok(schema),
+                None => {
+                    for a in &r.assumes {
+                        al_builtins::assumptions::assume(*a);
+                    }
+                    Ok(schema)
+                }
                 Some(why) => unsupported(format!("Report \"{}\": {why}", schema.name())),
             },
             None => unsupported(format!("object {object} is not a report")),
         }
-    }
-
-    /// Report `arg` (a number) is processing-only and declares UseSystemPrinter: the shape whose `Print` is pinned.
-    fn report_print_runs_as_execute(&self, arg: Option<&Value>) -> bool {
-        let Some(Value::Integer(n)) = arg else { return false };
-        let objects = &self.engine.program.objects;
-        objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
-            .is_some_and(|i| {
-                objects[i].report.as_ref().is_some_and(|r| r.processing_only)
-                    && self.object_property(i, "UseSystemPrinter").is_some()
-            })
     }
 
     fn report_by_number(&mut self, id: al_ir::BuiltinId, arg: Option<&Value>) -> Result<(Inst, Schema), Signal> {
