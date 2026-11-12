@@ -624,13 +624,9 @@ impl Session {
                 }
                 self.report.report_executed.retain(|w| w.strong_count() > 0);
                 self.report.report_executed.push(Rc::downgrade(&inst));
-                let result = if quit {
-                    Ok(())
-                } else {
-                    self.report.execute_parameters = parameters;
-                    let ran = self.report_run(&inst, &schema, Entry::Execute, false);
-                    self.report.execute_parameters = None;
-                    ran
+                let result = match quit {
+                    true => Ok(()),
+                    false => self.report_execute_run(&inst, &schema, parameters, args.get(1), RefCall::VariableExecute),
                 };
                 // After an Execute the getter of a variable whose UseRequestPage was never set answers false
                 // (reports/PnH2UseRp.al:389, WithRP_UseFalse_Run_RunModal_Execute `getter`). What the triggers
@@ -658,10 +654,7 @@ impl Session {
                 if self.report_init(&inst)? {
                     return Ok(Value::Null);
                 }
-                self.execute_record_ref_view(&inst, &schema, args.get(2))?;
-                self.report.execute_parameters = parameters;
-                let ran = self.report_run(&inst, &schema, Entry::Execute, false);
-                self.report.execute_parameters = None;
+                let ran = self.report_execute_run(&inst, &schema, parameters, args.get(2), RefCall::StaticExecute);
                 ran.map(|()| Value::Null)
             }
             // `Report.Print(Id, '')` of a processing-only report that declares UseSystemPrinter runs it as `Report.Execute(Id, '')`:
@@ -1894,6 +1887,7 @@ impl Session {
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
             self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::SaveAs)?;
+            self.request_page_open_close_unshown(inst, schema, ParamsCall::SaveAs)?;
         } else if let Some(xml) = &execute_parameters {
             // An Execute skips a field name no control has (WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField).
             self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::Execute)?;
@@ -1903,7 +1897,7 @@ impl Session {
             // neither (Y12ExecuteOnInit.al:145-156): `execute_parameters` holds no empty string. A page without OnInit runs its
             // OnOpenPage too, also for the parameters of another report (reports/Y14ReportSubstitute.al:389
             // `B-rp-open`, `A-rp-open`, corpus master).
-            self.request_page_open_close_unshown(inst, schema)?;
+            self.request_page_open_close_unshown(inst, schema, ParamsCall::Execute)?;
             crate::report_no_layout_file::execute_check(self, schema)?;
         }
         // The request page opens once the items' views are in force; what the handler filters is
@@ -2925,9 +2919,8 @@ impl Session {
         if at == 0 {
             self.report_mark_executed(&inst);
         }
-        if let Some(rr) = record_ref {
-            self.report_set_view(&inst, &schema, Some(rr))?;
-        }
+        let call = if at == 0 { RefCall::VariableSaveAs } else { RefCall::StaticSaveAs };
+        self.report_record_ref(&inst, &schema, record_ref, !parameters.is_empty(), call)?;
         let enters = self.report_enter_world(&schema, false)?;
         let mut fresh = Dataset::default();
         fresh.region = region.clone();
@@ -2952,6 +2945,7 @@ impl Session {
         let outer_run_language = std::mem::replace(&mut self.report.run_language, variable_language);
         let outer_variable_region = std::mem::replace(&mut self.report.variable_region, variable_region.is_some());
         let ran = self.report_in_world(enters, |s| s.report_body(&inst, &schema, false, Some(&parameters)));
+        self.report.record_ref_after_parameters = None;
         self.report.format_region = outer_region;
         self.report.region_property = outer_property;
         self.report.curr_report_language = outer_language;
@@ -3686,7 +3680,8 @@ impl Session {
             };
             exts.push((e, ext));
         }
-        self.apply_request_parameters(inst, &exts, schema.object, xml, call)
+        self.apply_request_parameters(inst, &exts, schema.object, xml, call)?;
+        self.apply_record_ref_after_parameters(inst, schema)
     }
 
     /// A column bound to a FlowField of the data item's table is calculated for every row before
@@ -4600,6 +4595,7 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
 }
 
 mod execute_args;
+use execute_args::RefCall;
 pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
