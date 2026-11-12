@@ -9,7 +9,7 @@ use al_testrun::{CaseId, Outcome};
 
 const SRC: &str = r#"
 enum 50500 "VNT Kind" { value(0; Alpha) { } value(1; Beta) { } }
-table 50500 "VNT Row" { fields { field(1; Id; Integer) { } field(2; Txt; Text[50]) { } field(3; Cd; Code[20]) { } } keys { key(PK; Id) { Clustered = true; } } }
+table 50500 "VNT Row" { fields { field(1; Id; Integer) { } field(2; Txt; Text[50]) { } field(3; Cd; Code[20]) { } field(4; Opt; Option) { OptionMembers = " ",First; OptionCaption = ' ,First Caption'; } } keys { key(PK; Id) { Clustered = true; } } }
 codeunit 50500 "T"
 {
     Subtype = Test;
@@ -32,6 +32,16 @@ codeunit 50500 "T"
         FR := RR.Field(1);
         Dst.Txt := FR.Value();
         if Dst.Txt <> '2645' then Error('text %1', Dst.Txt);
+    end;
+    [Test]
+    procedure AnOptionFromAFieldRef()
+    var Row: Record "VNT Row"; Dst: Record "VNT Row"; RR: RecordRef; FR: FieldRef;
+    begin
+        Row.Opt := Row.Opt::First;
+        RR.GetTable(Row);
+        FR := RR.Field(4);
+        Dst.Txt := FR.Value();
+        if Dst.Txt <> 'First Caption' then Error('text %1', Dst.Txt);
     end;
     [Test]
     procedure AnEnumVariantIntoAField()
@@ -72,6 +82,7 @@ fn a_field_ref_number_becomes_text_in_a_field_and_a_variant_number_raises() {
     for name in [
         "IntoAField",
         "FromAFieldRef",
+        "AnOptionFromAFieldRef",
         "AnEnumVariantIntoAField",
         "IntoAVariable",
     ] {

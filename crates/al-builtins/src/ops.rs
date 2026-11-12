@@ -742,9 +742,11 @@ pub fn number_into_text_field(
     t: &RtType,
     ctx: &dyn crate::format::FormatCtx,
 ) -> Option<Result<Value, Signal>> {
+    // An Option goes in as its Format text too: a template line built from `FieldRef.Value` of an Option field holds the
+    // `Format` of that field (a partner test suite that compares the two passes on BC 28).
     if !matches!(
         v,
-        Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..)
+        Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..) | Value::Option(..)
     ) {
         return None;
     }

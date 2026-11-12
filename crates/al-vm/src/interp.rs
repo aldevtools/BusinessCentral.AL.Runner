@@ -1629,7 +1629,7 @@ impl Session {
             // that); the guard is one test on the common path.
             let v = if matches!(
                 v,
-                Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..)
+                Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..) | Value::Option(..)
             ) {
                 match ops::number_into_text_field(&v, &ty, &*self) {
                     Some(r) => r?,
