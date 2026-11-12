@@ -202,6 +202,9 @@ pub fn is_unloaded_write_mark(what: &str) -> bool {
 
 /// The refusal for a look at the output of a report that was run for its effects only (ADR-040).
 pub fn render_pending_error(report: &str) -> Signal {
+    if crate::placeholder_output::is_placeholder(report) {
+        return crate::placeholder_output::refusal(report);
+    }
     if report == UNLOADED_WRITE {
         return Signal::Unsupported(
             "a Blob written through a stream after the record was read without CalcFields, shorter than its stored content \
@@ -448,6 +451,13 @@ pub fn copy_blob_db_row_of(b: &BlobRef, uncompressed: bool) -> BlobRef {
 /// Writes `bytes` at the buffer's write position (over what is there, then past the end) and
 /// moves the position on.
 pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
+    write_bytes_at(b, bytes);
+}
+
+/// [`write_bytes`]; answers whether the write started at the end of what the buffer held (an append). A write that is no
+/// append into a buffer a marked text was written to leaves bytes that no longer stand for what BC holds: the buffer's mark
+/// becomes `rendered_text::WRITTEN_OVER_KIND` (ADR-040 amendment 2026-11-12, A4).
+fn write_bytes_at(b: &BlobRef, bytes: &[u8]) -> bool {
     let mut buf = b.borrow_mut();
     buf.unicode_read = None;
     if !buf.written {
@@ -465,6 +475,17 @@ pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
         }
     }
     let at = buf.write_pos.min(buf.bytes.len());
+    let appended = at == buf.bytes.len();
+    if !appended
+        && !bytes.is_empty()
+        && let Some(over) = buf
+            .render_pending
+            .as_deref()
+            .filter(|m| crate::rendered_text::is_written(m))
+            .map(crate::rendered_text::written_over)
+    {
+        buf.render_pending = Some(over);
+    }
     let overlap = bytes.len().min(buf.bytes.len() - at);
     buf.bytes[at..at + overlap].copy_from_slice(&bytes[..overlap]);
     buf.bytes.extend_from_slice(&bytes[overlap..]);
@@ -477,6 +498,7 @@ pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
     if buf.write_pos == buf.bytes.len() && buf.render_pending.as_deref() == Some(UNLOADED_WRITE) {
         buf.render_pending = None;
     }
+    appended
 }
 
 /// How text becomes bytes in a stream. MSDos is code page 437 and the default (streams/TestStreamsRuntimeContracts.al:
@@ -916,6 +938,21 @@ impl InState {
         self.with_data(|d| d[pos.min(d.len())..].to_vec())
     }
 
+    /// Takes the bytes of a placeholder report output from the read position on and moves to the end, for a byte copy that
+    /// does not look at them (`placeholder_output`). Empty for any other stream.
+    pub fn drain_placeholder(&mut self) -> Vec<u8> {
+        let Source::Live(b) = &self.source else {
+            return Vec::new();
+        };
+        let buf = b.borrow();
+        if crate::placeholder_output::of(&buf).is_none() {
+            return Vec::new();
+        }
+        let rest = buf.bytes[self.pos.min(buf.bytes.len())..].to_vec();
+        self.pos = buf.bytes.len();
+        rest
+    }
+
     /// Takes the bytes from the read position on and moves to the end.
     pub fn drain(&mut self) -> Vec<u8> {
         let rest = self.rest();
@@ -983,8 +1020,11 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.dotnet_view = 0;
         if unloaded_content || buf.render_pending.as_deref().is_some_and(is_unloaded_write_mark) {
             buf.render_pending = Some(UNLOADED_WRITE.into());
-        } else if buf.render_pending.as_deref() != Some(DOTNET_WRITE_AFTER_CLOSE) {
-            // The bytes a .NET stream wrote after Close stay unknown: the new stream writes over the content.
+        } else if buf.render_pending.as_deref() != Some(DOTNET_WRITE_AFTER_CLOSE)
+            && crate::placeholder_output::of(&buf).is_none()
+        {
+            // The bytes a .NET stream wrote after Close stay unknown: the new stream writes over the content. So do a
+            // placeholder report output's: the stream writes over its first bytes and the rest stays (`placeholder_output`).
             buf.render_pending = None;
         }
         buf.write_pos = 0;
@@ -1003,7 +1043,11 @@ fn blob_create_in(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> 
     // carried unread in the company build (`is_carried_mark`) gives a stream that only CopyStream moves on.
     let pending = b.borrow().render_pending.clone();
     let carried = ctx.company_build() && pending.as_deref().is_some_and(is_carried_mark);
-    if pending.as_deref() != Some(QUERY_METADATA) && !carried {
+    // A stream on a placeholder report output is no look at it; a read from the stream is (`placeholder_output`).
+    let placeholder = pending
+        .as_deref()
+        .is_some_and(crate::placeholder_output::is_placeholder);
+    if pending.as_deref() != Some(QUERY_METADATA) && !carried && !placeholder {
         b.borrow().observe()?;
     }
     set_stream(&a[0], LibraryValue::InStream(InState::live(b, enc)))?;
@@ -1058,7 +1102,10 @@ fn blob_has_value(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> 
         crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
         return Ok(Value::Boolean(true));
     }
-    buf.observe()?;
+    // A placeholder report output exists and is not empty, as BC's rendering (ADR-040 amendment 2026-11-11).
+    if crate::placeholder_output::of(&buf).is_none() {
+        buf.observe()?;
+    }
     Ok(Value::Boolean(!buf.bytes.is_empty()))
 }
 
@@ -1111,6 +1158,10 @@ pub fn blob_length_sign(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value])
 fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NResult {
     let b = blob_of(r)?;
     let buf = b.borrow();
+    // The size of a placeholder report output is known only to be greater than 0 (`placeholder_output::size`).
+    if let Some(mark) = crate::placeholder_output::of(&buf) {
+        return Ok(crate::placeholder_output::size(mark));
+    }
     buf.observe()?;
     // Only the sign is pinned for a call stack text: it is not empty (errors/last-error/WdCallStackToBlob.al:96).
     if !sign_only {
@@ -1421,6 +1472,11 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     {
         return Err(crate::xml::uninitialized("InStream"));
     }
+    if let Some(answer) =
+        crate::placeholder_output::pdf_in(r.as_deref(), &mut [], crate::placeholder_output::PdfRead::Eos)
+    {
+        return answer;
+    }
     // A stream HttpContent.WriteFrom took is not at its end (http/content/DbHttpContentLeads.al:310): its position
     // did not move.
     with_in_of(r, true, |s| {
@@ -1528,6 +1584,13 @@ fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     };
     if a.len() > 2 {
         return unsupported("InStream.ReadText with more arguments (not pinned)");
+    }
+    // The PDF placeholder answers inside its pinned prefix (`placeholder_output::pdf_read`).
+    if max_chars != usize::MAX
+        && let Some(answer) =
+            crate::placeholder_output::pdf_in(r.as_deref(), a, crate::placeholder_output::PdfRead::Text(max_chars))
+    {
+        return answer;
     }
     let mut enc_used = Encoding::Windows;
     crate::stream_cleared::refuse_cleared(r.as_deref())?;
@@ -1661,6 +1724,13 @@ fn is_unit(u: &[u8], c: u8) -> bool {
 /// InOutStream_Write_Integer_ReadInteger) or a Byte (one byte: the HexOf helper of
 /// streams/TestStreamsRuntimeContracts.al reads a stream byte by byte). Other types are not pinned.
 fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // A Byte or Char of the PDF placeholder answers inside its pinned prefix (`placeholder_output::pdf_read`).
+    if a.len() == 1
+        && let Some(answer) =
+            crate::placeholder_output::pdf_in(r.as_deref(), a, crate::placeholder_output::PdfRead::Byte)
+    {
+        return answer;
+    }
     // A BigInteger length into a Text reads as the same Integer length, on a stream created without an encoding
     // (streams/instream-outstream/StreamUncreatedUse.al:InStreamRead_TextWithBigIntegerLength, :139-147 and :167-178: 3, 0 and
     // 10 on a six-byte stream). A Code, a negative length and another encoding are not measured and stay refused below.
@@ -1670,6 +1740,14 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         && with_in(r.as_deref_mut(), |s| Ok(s.enc == Encoding::default()))?
     {
         a[1] = Value::Integer(n);
+    }
+    // A whole text read of rendered report content gives its mark (ADR-040 amendment 2026-11-12, A2; `rendered_text`).
+    if a.len() == 1
+        && matches!(a[0], Value::Text(_))
+        && let Some(read) = crate::rendered_text::read_in(r.as_deref(), c.ret_used(), "InStream.Read")
+    {
+        a[0] = Value::Text(read?.into());
+        return Ok(Value::Null);
     }
     // Read(Text) of a stream that holds none raises (StreamUncreatedUse.al:UncreatedInStream_EveryMethod `in_read`).
     if a.len() == 1 && matches!(a[0], Value::Text(_) | Value::Code(_)) {
@@ -1979,6 +2057,15 @@ pub(crate) fn write_serialised_text(stream: &mut Value, text: &str) -> Result<()
 /// `84 B1 3F` for a-umlaut, euro sign and the Cyrillic zhe, for Windows `E4 80 3F`, for UTF-8 and UTF-16 the plain encoding of
 /// the same three (BigTextWriteEdges.al:Write_NonAscii_*). A character beyond those and the characters the other stream writes
 /// pin (`Encoding::encode_pinned`) is refused.
+/// Writes the bytes of `text` to `b`: a text that holds rendered content marks the buffer (ADR-040 amendment 2026-11-12, P7 and
+/// A4; `rendered_text::mark_written`).
+fn write_text_bytes(b: &BlobRef, bytes: &[u8], text: &str) {
+    let appended = write_bytes_at(b, bytes);
+    if crate::rendered_text::holds(text) {
+        crate::rendered_text::mark_written(&mut b.borrow_mut(), crate::rendered_text::written_mark(text), appended);
+    }
+}
+
 pub(crate) fn write_bigtext(stream: &mut Value, text: &str) -> Result<(), Signal> {
     let (b, enc) = out_buf(Some(stream))?;
     // The characters `OutStream.Write(Text)` pins are written the same way, best fit included: é, ß, “, Ω, 中, a surrogate pair
@@ -1988,7 +2075,7 @@ pub(crate) fn write_bigtext(stream: &mut Value, text: &str) -> Result<(), Signal
     if !enc.write_text_pinned(&text) {
         return unsupported("BigText.Write of a character whose bytes in this encoding are not pinned");
     }
-    write_bytes(&b, &enc.encode(&text));
+    write_text_bytes(&b, &enc.encode(&text), &text);
     Ok(())
 }
 
@@ -2119,7 +2206,7 @@ fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
         None => text,
     };
     let bytes = enc.encode(&text);
-    write_bytes(&b, &bytes);
+    write_text_bytes(&b, &bytes, &text);
     Ok(Value::Integer(bytes.len() as i32))
 }
 
@@ -2352,7 +2439,10 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
     if enc == Encoding::Utf16 && !matches!(a[0], Value::Text(_) | Value::Code(_)) {
         b.borrow_mut().utf16_binary = true;
     }
-    write_bytes(&b, &bytes);
+    match &a[0] {
+        Value::Text(t) | Value::Code(t) => write_text_bytes(&b, &bytes, t.as_str()),
+        _ => write_bytes(&b, &bytes),
+    }
     Ok(Value::Integer(bytes.len() as i32))
 }
 
@@ -2432,6 +2522,24 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
     {
         let (out, _) = out_buf(Some(&mut a[0]))?;
         mark_carried(&out, mark);
+        return Ok(Value::Boolean(true));
+    }
+    // A placeholder report output is copied byte for byte and the copy carries its mark (ADR-040 amendment 2026-11-11).
+    if let Some(mark) = crate::placeholder_output::of_in(&a[1]) {
+        let (out, _) = out_buf(Some(&mut a[0]))?;
+        let bytes = match &mut *in_state(Some(&mut a[1]))? {
+            LibraryValue::InStream(s) => s.drain_placeholder(),
+            _ => unreachable!("of_in found an InStream"),
+        };
+        let appended = write_bytes_at(&out, &bytes);
+        // Another mark the target holds refuses more than this one and stays.
+        let mut buf = out.borrow_mut();
+        if crate::rendered_text::is_written(&mark) {
+            // A copy of a text with rendered content is that text only when it was appended (`rendered_text::mark_written`).
+            crate::rendered_text::mark_written(&mut buf, mark, appended);
+        } else if buf.render_pending.is_none() {
+            buf.render_pending = Some(mark);
+        }
         return Ok(Value::Boolean(true));
     }
     let (out, _) = out_buf(Some(&mut a[0]))?;

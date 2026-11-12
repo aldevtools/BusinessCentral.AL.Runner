@@ -171,6 +171,8 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Text.StringBuilder\"; \"StringBuilder\") { }
     type(\"System.String\"; \"ClrString\") { }
     type(\"System.Collections.Generic.Dictionary`2\"; \"GenDict\") { }
+    type(\"System.Collections.Generic.List`1\"; \"GenList\") { }
+    type(\"System.Type\"; \"ClrType\") { }
   }
   assembly(\"Microsoft.Exchange.WebServices\") { type(\"Microsoft.Exchange.WebServices.Data.ExchangeService\"; \"ExchangeService\") { } }
 }\n";
@@ -1754,6 +1756,12 @@ fn the_declared_result_types_match_the_registry() {
             | "GetAzureKeyVaultCertificate" => continue,
             // Needs a length and a minimum; tests/host/server_helpers.rs runs it.
             "GeneratePassword" => continue,
+            // Need a user's Guid and the User tables; tests/store/user_account_keys.rs runs them.
+            "IsPasswordSet"
+            | "TryGetAuthenticationKey"
+            | "TryGetNameIdentifier"
+            | "TryGetWebServicesKey"
+            | "GetAuthenticationStatus" => continue,
             _ => vec![],
         };
         let mut s = Session::new(Engine::new(al_ir::Program::default(), vec![]));
@@ -3634,4 +3642,41 @@ fn position_follows_al_reads_and_a_set_after_the_end_does_not_restart() {
         ": Text",
     );
     assert_eq!(text(r), "1;4|bcd|3;6|ef|2;10|ghij|4|Yes;2|Yes;10||0");
+}
+
+// GetDotNetType of an unassigned Dictionary`2 is System.Type.GetType of its name, marked as assumed
+// (assumption dotnet-type-unassigned-dictionary); an unassigned List`1 keeps main's refusal.
+#[test]
+fn get_dotnet_type_of_an_unassigned_dictionary_is_assumed_and_of_a_list_refused() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == "System.Type" && m == "GetType" => {
+            assert!(
+                matches!(&a[0].value, DotNetValue::Str(s) if s == "System.Collections.Generic.Dictionary`2"),
+                "{a:?}"
+            );
+            reply(handle(7, "System.RuntimeType"))
+        }
+        other => panic!("unexpected request {other:?}"),
+    });
+    al_builtins::assumptions::take_hits();
+    let r = run(
+        &host,
+        "D: DotNet GenDict; T: DotNet ClrType;",
+        "T := GetDotNetType(D); exit('ok');",
+        ": Text",
+    );
+    let hits = al_builtins::assumptions::take_hits();
+    assert_eq!(text(r), "ok");
+    assert!(
+        hits.contains(&al_builtins::assumptions::Assumption::DotnetTypeUnassignedDictionary),
+        "{hits:?}"
+    );
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let r = run(
+        &host,
+        "L: DotNet GenList; T: DotNet ClrType;",
+        "T := GetDotNetType(L); exit('ok');",
+        ": Text",
+    );
+    assert!(unsupported(&r).contains("List`1"), "{}", unsupported(&r));
 }

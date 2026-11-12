@@ -42,6 +42,9 @@ pub(crate) struct TxState {
     /// Why a rollback since the last Commit is not one the stale-buffer rule knows (`Session::note_rollback_for_stale_rule`);
     /// `None` without a rollback or after rollbacks the rule knows only.
     pub(crate) rollback_unpinned: Option<&'static str>,
+    /// What trapped the rollbacks since the last Commit, while they are all of one kind the stale-buffer rule knows
+    /// (`Session::trapped_error_rollback`).
+    pub(crate) rollback_kind: Option<crate::records::TrappedRollback>,
     /// The database reads (table object, company, the key a Get named; `None` for any other read) since the last rollback, while
     /// the transaction then open began at it (`Session::note_read_after_rollback`).
     pub(crate) reads_after_rollback: Vec<(u32, Option<String>, Option<Vec<Value>>)>,
@@ -74,6 +77,8 @@ pub(crate) struct TxState {
     pub(crate) used_tries: Vec<transactions::UsedTry>,
     /// For each guarded `Codeunit.Run` running: the call stack depth of its OnRun frame.
     pub(crate) guarded_runs: Vec<usize>,
+    /// For each guarded `Codeunit.Run` running: how far its body got along the pinned steps (`records/guarded_run_body.rs`).
+    pub(crate) guarded_bodies: Vec<crate::records::GuardedBody>,
     /// What `Database.LastUsedRowVersion` reports inside the open transaction (`Session::last_used_row_version`): the
     /// database tables an Insert wrote rows of that nothing has sent to the database yet (table, company, highest row
     /// version), the highest row version a sent write holds, how many database row versions were handed out and how
@@ -97,6 +102,10 @@ pub(crate) struct TxState {
     /// The tables (object index, company) a locking ReadIsolation locked since the last Commit: UpdLock set on a database
     /// table, or a read under RepeatableRead or UpdLock.
     pub(crate) isolation_lock_tables: Vec<(u32, Option<String>)>,
+    /// The database reads under a locking ReadIsolation since the last Commit or rollback (`Session::locking_read_cell`).
+    pub(crate) locking_reads: Vec<crate::records::LockingReadNote>,
+    /// How many database reads (record methods that read a table that is not temporary) ran since the last Commit or rollback.
+    pub(crate) db_reads: u32,
     /// A read under UpdLock or RepeatableRead whose effect on the write transaction is not pinned ran since the last Commit
     /// (a FindFirst, FindSet, FindLast or another Find under an isolation set in an earlier transaction): `lock_unpinned`
     /// then refuses IsInWriteTransaction. Without it, the pinned reads that set `lock_unpinned` open no write transaction.
@@ -176,6 +185,7 @@ impl TxState {
             rolled_back: false,
             reads_after_rollback: Vec::new(),
             rollback_unpinned: None,
+            rollback_kind: None,
             last_commit_wrote: false,
             deferred_insert: None,
             insert_buffer: Vec::new(),
@@ -186,6 +196,7 @@ impl TxState {
             try_depth: 0,
             used_tries: Vec::new(),
             guarded_runs: Vec::new(),
+            guarded_bodies: Vec::new(),
             row_versions: RowVersionTx::default(),
             xp_export_try_world: None,
             inconsistent: Vec::new(),
@@ -193,6 +204,8 @@ impl TxState {
             lock_unpinned: None,
             recref_lock_tx: false,
             isolation_lock_tables: Vec::new(),
+            locking_reads: Vec::new(),
+            db_reads: 0,
             locking_read_tx_unpinned: false,
         }
     }
@@ -266,8 +279,11 @@ pub(crate) struct PageClients {
     pub(crate) run_page_link_opening: u32,
     /// The close that starts next is a TestPage's own Close() (taken by `close_with`).
     pub(crate) test_close: bool,
-    /// The save of the close running now failed with an AL Error (`pages/close_save_failed.rs`).
-    pub(crate) close_save_error: bool,
+    /// The AL Error the save of the close running now failed with (`pages/close_save_failed.rs`,
+    /// `pages/modal_close_save_error.rs`).
+    pub(crate) close_save_error: Option<al_builtins::native::AlError>,
+    /// The object whose routine raised `close_save_error` (`Session::error_raised_in` when the save failed).
+    pub(crate) close_save_raised_in: Option<usize>,
     /// The TestPage calls running now, innermost last: the root page of the call's page tree and what the pages' own code
     /// did to that tree meanwhile (`pages/shown.rs`).
     pub(crate) shown_frames: Vec<(*const RefCell<crate::pages::PageState>, Vec<crate::pages::ShownNote>)>,
@@ -452,6 +468,9 @@ pub(crate) struct ReportState {
     pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
     pub(crate) run_modal: bool,
+    /// The report running now was started with SystemPrinter `true` (`Report.Run(Id, .., true)`): a run that renders would
+    /// print (`report_placeholder::run`).
+    pub(crate) system_printer: bool,
     /// The filters each data item record got from a `SetTableView`: the request page shows those and not the filters a procedure
     /// of the report set on the item. Held by a `Weak` of the record and not by its address: a `Weak` keeps the allocation, so no
     /// later record can get the address of one that is gone and read its view (al-runner CI flake of reports/request-page/

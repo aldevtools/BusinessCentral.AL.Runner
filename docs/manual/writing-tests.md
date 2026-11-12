@@ -99,7 +99,30 @@ Central code and run as written. Handler attributes work as on a service tier:
 `[PageHandler]`, `[RequestPageHandler]`, `[ReportHandler]`, `[SendNotificationHandler]`
 and `[HttpClientHandler]`. An unhandled dialog fails the test, as it does on
 Business Central. Page and report layout is not rendered; see
-[What works](what-works.md).
+[What works](what-works.md) and [Testing reports](#testing-reports).
+
+## Testing reports
+
+A test of an extension should check what the extension controls. In a report,
+the extension controls two things:
+
+1. The dataset: the data items, the columns, the triggers and the request page
+   values. Assert on it. Save it with `Report.SaveAs(..., ReportFormat::Xml, ...)`
+   or use the `Library - Report Dataset` codeunit, then check the values.
+2. The layout file it ships. A test or a CI step can read the file and check
+   that it uses the expected columns and fields. This needs no rendering.
+
+Together these cover what the extension controls. Checking the rendered output
+on top of them tests Microsoft's layout engine.
+
+One exception: logic written inside the layout itself, such as RDLC expressions,
+RDLC custom code or Word conditional content, only shows when the layout is
+rendered. Keep that logic in AL or in the dataset, where a test can check it.
+
+A save to PDF, Word, Excel or HTML runs the report and writes a placeholder file.
+The test can check that the save succeeded, that the file exists and that it is
+not empty. A test that reads the text of the rendered PDF, Word or HTML output
+tests Microsoft's renderer. AL Runner refuses it and reports it as not run.
 
 ## Choosing tests
 

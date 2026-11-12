@@ -159,8 +159,8 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
-                Op::ReadPlace { d, p } => {
-                    let v = self.read(&chunk.places[p as usize], f)?;
+                Op::ReadPlace { d, p, value } => {
+                    let v = self.read_place(&chunk.places[p as usize], value, f)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::StoreLocal { i, a, p } => {
@@ -440,7 +440,7 @@ impl Session {
             Err(Signal::Error(mut e)) => {
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e);
                 set(&mut f.locals[d as usize], Value::Boolean(false));
                 Ok(stop + 1)
             }
@@ -462,11 +462,12 @@ impl Session {
             }))),
             Ok(at) => Ok(at),
             Err(Signal::Error(mut e)) => {
-                self.assert_error_rollback(&e)?;
+                self.guarded_bodies_leave_pin();
+                self.trapped_error_rollback(&e, crate::records::TrappedRollback::AssertError)?;
                 // The statements the error left open are closed.
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e);
                 // Temporaries of the body that the error left behind hold nothing alive.
                 for r in from.max(nl) as usize..f.locals.len() {
                     f.locals[r] = Value::Null;
@@ -634,6 +635,7 @@ impl Session {
         if let Some(r) = site.cap_loop {
             self.cap_loop_pass(cap_id(f, r));
         }
+        let item = self.rendered_into_place(&site.var, item, f)?;
         self.write(&site.var, item, f)?;
         if site.cap_loop.is_some() {
             self.cap_loop_var(&site.var, f);
@@ -900,8 +902,20 @@ impl Session {
                 ir::Arg::Value(_) => None,
             });
         }
+        if al_builtins::placeholder_output::sizes_made() {
+            al_builtins::placeholder_output::size_guard("a DotNet member", None, &values)?;
+        }
+        let rendered = if al_builtins::rendered_text::active() {
+            self.rendered_dotnet_guard(site.ty, &recv, &site.op, &values)?
+        } else {
+            None
+        };
         self.dotnet.result_ty = site.result_ty;
         let r = self.dotnet_apply_closing_entry_streams(site.ty, recv, values, places, &site.op, f);
+        let r = match rendered {
+            Some(input) => Self::rendered_dotnet_answer(&input, r),
+            None => r,
+        };
         if let (Err(Signal::Error(_)), Some(p)) = (&r, site.header_pos) {
             self.at_line_of(p);
         }
@@ -928,8 +942,15 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
+        crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
+        }
+        if al_builtins::placeholder_output::sizes_made() {
+            al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?
@@ -1070,8 +1091,15 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
+        crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
+        }
+        if al_builtins::placeholder_output::sizes_made() {
+            al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?

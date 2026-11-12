@@ -92,6 +92,7 @@ impl Session {
         }
         for (a, v) in args.iter().zip(values.drain(..)) {
             if let ir::Arg::Ref(p) = a {
+                let v = self.rendered_into_place(p, v, f)?;
                 let v = if class == al_builtins::builtin_id::Class::InStreamRead {
                     self.fit_stream_read(p, v, f)?
                 } else {
@@ -848,7 +849,7 @@ impl Session {
             if let Some(finals) = self.error_finals.take() {
                 for (a, v) in args.iter().zip(finals) {
                     if let ir::Arg::Ref(p) = a {
-                        self.write(p, v, f)?;
+                        self.write_back(p, v, f)?;
                     }
                 }
             }
@@ -860,7 +861,7 @@ impl Session {
             }
             (Err(Signal::Error(mut e)), true) => {
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e);
                 return Ok(Value::Boolean(false));
             }
             (Ok((_, finals)), true) => (Value::Boolean(true), finals),
@@ -1073,6 +1074,8 @@ impl Session {
                 }
             }
         }
+        // A `var Text` parameter can stand for a variable of a declared length.
+        let v = self.rendered_into_place(p, v, f)?;
         self.write(p, v, f)
     }
 
@@ -1339,6 +1342,13 @@ impl Session {
     }
 
     pub(crate) fn read(&mut self, p: &ir::Place, f: &mut Frame) -> Result<Value, Signal> {
+        self.read_place(p, false, f)
+    }
+
+    /// The value of the place `p`. `value` is true only where an expression reads it as a value (`Op::ReadPlace`); it lets the
+    /// index of an array element convert as a value read does (`element`). An element taken by reference (a `var` argument, the
+    /// record whose field is written) reads with `value` false.
+    pub(crate) fn read_place(&mut self, p: &ir::Place, value: bool, f: &mut Frame) -> Result<Value, Signal> {
         match p {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
             ir::Place::Global(i) => {
@@ -1362,7 +1372,7 @@ impl Session {
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
-                let (arr, flat) = match self.element(base, idx, f) {
+                let (arr, flat) = match self.element(base, idx, value, f) {
                     Ok(e) => e,
                     // A row of a two-dimensional array, as an argument.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1487,6 +1497,13 @@ impl Session {
         if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
             return Err(al_builtins::sqlcount::refusal("storing in a record field"));
         }
+        // A placeholder's size in a field would be stored as a number (`al_builtins::placeholder_output::size`).
+        if let (Value::PlaceholderSize(m), ir::Place::Field(..)) = (&v, p) {
+            return Err(al_builtins::placeholder_output::size_refusal(
+                m,
+                "storing in a record field",
+            ));
+        }
         if self.sql.active && matches!(p, ir::Place::Field(..)) && al_builtins::sqlcount::formatted(&v) {
             return Err(al_builtins::sqlcount::refusal(
                 "storing the formatted value in a record field",
@@ -1603,6 +1620,7 @@ impl Session {
                         let mut d = dst.borrow_mut();
                         d.fields = fields;
                         d.row_origin = row_origin;
+                        d.own_read = Default::default();
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
@@ -1715,7 +1733,7 @@ impl Session {
             }
             ir::Place::Index(base, idx) => {
                 let el_ty = self.place_type(p, f);
-                let (arr, flat) = match self.element(base, idx, f) {
+                let (arr, flat) = match self.element(base, idx, false, f) {
                     Ok(e) => e,
                     // The row a callee wrote through a `var` array parameter goes back into the row.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1800,6 +1818,9 @@ impl Session {
                 "assigning a character into a value that is no text".into(),
             ));
         };
+        if s.has_marker() {
+            Self::char_write_into_marked(s.audited_str(), i)?;
+        }
         let mut units: Vec<u16> = s.units();
         let Some(unit) = unit else {
             return Err(Signal::unsupported(format!(
@@ -1865,6 +1886,60 @@ impl Session {
         self.write(base, Value::Text(text), f)
     }
 
+    /// `T[i] := c` on the text `t` that holds a marker (`al_builtins::native::TEXT_MARKS`), `i` counted from 1. Rendered content
+    /// refuses at every position (ADR-040 amendment 2026-11-12, A3b `T[i]` write). Another marker stands for characters that
+    /// are not known, so only a position inside the known characters before the first marker is a known position: that write
+    /// goes on as for a known text. From the marker on the position is not known, and below 1 the range error would name a
+    /// length that is not known: both refuse.
+    fn char_write_into_marked(t: &str, i: i64) -> Result<(), Signal> {
+        if al_builtins::rendered_text::holds(t) {
+            return Err(al_builtins::rendered_text::refusal(
+                t,
+                "assigning a character of the text (T[i] := c)",
+            ));
+        }
+        let known: usize = t
+            .chars()
+            .take_while(|c| !al_builtins::native::TEXT_MARKS.contains(c))
+            .map(char::len_utf16)
+            .sum();
+        if usize::try_from(i).is_ok_and(|i| (1..=known).contains(&i)) {
+            return Ok(());
+        }
+        Err(Signal::unsupported(
+            "assigning a character of a text at or after characters this runtime does not know, or outside the text \
+             (the position and the length are not known)"
+                .to_string(),
+        ))
+    }
+
+    /// A text that holds rendered content, on its way into the variable `p` outside an assignment (the write-back of a
+    /// `var` argument of a builtin or a procedure, the loop variable of a `foreach`): it takes the conversion an assignment takes, which lets
+    /// it into an unbounded Text and a Variant only (`ops::convert`; ADR-040 amendment 2026-11-12, A5, loss mode L3). An array
+    /// (the destination of `CopyArray`, a `var` array parameter) gives each element that holds rendered content the conversion
+    /// to its element type (loss mode L23). Any other value is given back as it is.
+    pub(crate) fn rendered_into_place(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<Value, Signal> {
+        let rendered = |v: &Value| matches!(v, Value::Text(t) | Value::Code(t) if t.has_marker() && al_builtins::rendered_text::holds(t.audited_str()));
+        match &v {
+            v2 if rendered(v2) => {
+                let ty = self.place_type(p, f);
+                ops::convert(v, &ty)
+            }
+            Value::Array(cells) if cells.borrow().iter().any(rendered) => {
+                let RtType::Array(_, el) = self.place_type(p, f) else {
+                    return Err(Signal::unsupported(
+                        "an array that holds rendered content written into a place that is no array".to_string(),
+                    ));
+                };
+                for cell in cells.borrow_mut().iter_mut().filter(|c| rendered(c)) {
+                    *cell = ops::convert(cell.clone(), &el)?;
+                }
+                Ok(v)
+            }
+            _ => Ok(v),
+        }
+    }
+
     /// The cells of row `idx` of the two-dimensional array behind `base`, as (cells, first position, length): `None` for an
     /// array of another number of dimensions or an index that is not one position. A row passed as an argument is a copy for a
     /// value parameter, and for a `var` parameter it is written back into the row when the call returns (corpus
@@ -1911,6 +1986,7 @@ impl Session {
         &mut self,
         base: &ir::Place,
         idx: &[ir::Expr],
+        value_read: bool,
         f: &mut Frame,
     ) -> Result<(Cells, usize), Signal> {
         // The dimensions of an array variable (a local or a global, the usual case) are read where they are
@@ -1958,7 +2034,19 @@ impl Session {
         };
         let mut flat = 0usize;
         for (d, e) in dims.iter().zip(idx) {
-            let i = int(&Self::index_value(e, f)?)?;
+            let at = Self::index_value(e, f)?;
+            // An element of a one-dimensional array read as a value (`R := A[D]`, collections/ListNonIntegerIndex.al:196-217 with
+            // :433-452) converts a Decimal or BigInteger index as a checked cast to System.Int32: a fraction or a value past the
+            // Int32 range raises ConversionCast. A write, an element taken by reference and an array of more dimensions keep `int`.
+            let i = match &at {
+                Value::Decimal(_) | Value::BigInteger(_) if value_read && dims.len() == 1 => {
+                    match al_builtins::conv::convert_cell(&at, &RtType::Integer) {
+                        Some(conv) => int(&conv?)?,
+                        None => int(&at)?,
+                    }
+                }
+                _ => int(&at)?,
+            };
             // A one-dimensional array is measured by the array the variable holds: a parameter declared `array[3]` takes the caller's
             // array of any length and indexes within it (types/W7VarArray.al; Tests-Bank, Tests-Cash Flow and Tests-SCM-Manufacturing
             // index a parameter within the argument's length), so the check against the length follows below.

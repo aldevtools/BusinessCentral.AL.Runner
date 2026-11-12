@@ -185,6 +185,7 @@ impl Lowerer<'_> {
             // block changes is also kept apart (`PageMods`), so that the symbolic form can leave it to link.
             let mut ext_triggers = Vec::new();
             let mut caption_modifies = Vec::new();
+            let mut ext_replaced = Vec::new();
             let props_before = (!raw.modifies.is_empty()).then(|| props.clone());
             for (e, msec) in &raw.modifies {
                 let mow = owner_of(Some(*e));
@@ -204,10 +205,7 @@ impl Lowerer<'_> {
                         None => ir::PropVal::Lit(value),
                     };
                     changed.push((name.clone(), val.clone()));
-                    match props.iter_mut().find(|(n, _)| *n == name) {
-                        Some(slot) => slot.1 = val,
-                        None => props.push((name, val)),
-                    }
+                    ir::apply_modify_prop(&mut props, &mut ext_replaced, &name, val);
                 }
                 for t in msec.triggers() {
                     match routine_of(&mow, &t) {
@@ -484,6 +482,7 @@ impl Lowerer<'_> {
                 owner: raw.owner,
                 ext_triggers,
                 caption_modifies,
+                ext_replaced,
                 run_object,
                 action_ref,
                 prop_texts,
@@ -935,6 +934,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         owner: None,
         ext_triggers: Vec::new(),
         caption_modifies: Vec::new(),
+        ext_replaced: Vec::new(),
         run_object: None,
         action_ref: None,
         prop_texts: Vec::new(),

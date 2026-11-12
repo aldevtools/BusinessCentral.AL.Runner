@@ -198,13 +198,21 @@ fn pending_of(v: Option<&Value>) -> Option<std::sync::Arc<str>> {
 fn import_object(c: &mut dyn Ctx, a: &[Value]) -> Result<Id, Signal> {
     // ImportStream(Stream, Description[, MimeType[, FileName]]).
     let pending = pending_of(a.first());
-    let bytes = if pending.is_some() {
-        Vec::new()
-    } else {
-        drain(
+    let bytes = match &pending {
+        // A placeholder report output is imported byte for byte with its mark (an e-mail attachment: Email Message Impl.
+        // InsertAttachment, ADR-040 amendment 2026-11-11); a read of the content stays refused.
+        Some(mark) if crate::placeholder_output::is_placeholder(mark) => match a.first() {
+            Some(Value::Library(_, h)) => match &mut *h.borrow_mut() {
+                LibraryValue::InStream(s) => s.drain_placeholder(),
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
+        },
+        Some(_) => Vec::new(),
+        None => drain(
             a.first()
                 .ok_or_else(|| Signal::Unsupported("ImportStream without a stream".into()))?,
-        )?
+        )?,
     };
     let description = text_arg(a, 1)?;
     let mime = match a.get(2) {
@@ -333,6 +341,22 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
     // ignores only the bytes; Config. XML Exchange.ExportMedia in the DemoTool company build): the stream is marked with the
     // import's mark, so a look at what it holds is refused.
     let docx_mark = obj.pending.as_deref() == Some(crate::stream::MEDIA_DOCX_REZIPPED);
+    // A placeholder report output exports byte for byte with its mark (`placeholder_output`).
+    if let Some(mark) = obj
+        .pending
+        .as_ref()
+        .filter(|m| crate::placeholder_output::is_placeholder(m))
+    {
+        let Some(Value::Library(_, h)) = a.first() else {
+            return unsupported("Media.ExportStream without an OutStream");
+        };
+        let LibraryValue::OutStream(blob, _) = &*h.borrow() else {
+            return unsupported("Media.ExportStream to a value that is not an OutStream");
+        };
+        crate::stream::write_bytes(blob, &obj.bytes);
+        blob.borrow_mut().render_pending = Some(mark.clone());
+        return Ok(Value::Boolean(true));
+    }
     if let Some(report) = obj.pending.as_ref().filter(|_| !docx_mark) {
         return Err(crate::stream::render_pending_error(report));
     }
@@ -435,13 +459,17 @@ fn set_remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 /// then gets a set id of its own, and the call answers true. An id the set already holds, an id of no media and the null
 /// id answer false and raise nothing. The field holds the new set id at once, a row not yet inserted too; a Modify or
 /// Insert stores it. Not pinned, so refused: adding to a set that holds other media, and the id of a media no set holds
-/// (a Media field's).
+/// (a Media field's), and the ID of a Tenant Media row an AL Insert stored.
 fn set_insert(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let id = id_of(&r)?;
     let Some(Value::Guid(m)) = a.first() else {
         return unsupported("MediaSet.Insert with this argument");
     };
     let m = *m;
+    // The case that stores such a row (streams/media/Y48TenantMediaRows.al:634-649) puts it into no MediaSet.
+    if c.is_stored_tenant_media_id(m) {
+        return unsupported("MediaSet.Insert of the ID of a Tenant Media row an AL Insert stored (not pinned)");
+    }
     let s = store(c)?;
     if m == [0; 16] || !s.objects.borrow().contains_key(&m) {
         return Ok(Value::Boolean(false));

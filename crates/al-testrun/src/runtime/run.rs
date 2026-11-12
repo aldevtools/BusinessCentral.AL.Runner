@@ -689,9 +689,7 @@ fn run_codeunit_inner(
                             .watch(company_open.watched().union(&leak).copied().collect());
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        if on_run_shape_assumed {
-                            al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
-                        }
+                        mark_test_start_assumptions(lowered, on_run_shape_assumed);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                         session.start_random_scope();
@@ -1792,5 +1790,16 @@ fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: b
         TestIsolation::Codeunit => session.freeze_min_active_row_version(),
         TestIsolation::Function if hub => session.freeze_min_active_row_version(),
         _ => {}
+    }
+}
+
+/// The marks every test of the codeunit starts with: the program's own (`ir::Program::assumes`: it compiled only through
+/// them) and, when the codeunit's OnRun shape is assumed, `TestCodeunitOnRunRows`.
+fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool) {
+    if on_run_shape_assumed {
+        al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
+    }
+    for &a in &lowered.program.assumes {
+        al_builtins::assumptions::assume(a);
     }
 }

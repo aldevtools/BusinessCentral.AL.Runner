@@ -1161,6 +1161,8 @@ impl Session {
                 }
             };
             self.xp_value_xml(text, &ty, members.map(|(_, m)| m))?
+        } else if !schema.xp().format_evaluate_declared && ty == RtType::Guid {
+            self.xp_legacy_guid(schema, raw)?
         } else if !schema.xp().format_evaluate_declared {
             if matches!(&ty, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId) {
                 return unsupported("XmlPort import into a RecordId field without FormatEvaluate (not pinned)");
@@ -1170,6 +1172,15 @@ impl Session {
                 Ok(v) => v,
                 Err(Signal::Error(first)) => match self.xp_value_xml(text, &ty, None) {
                     Ok(v) => v,
+                    // The caption of an Enum or Option member, which this port's export writes, reads back as that member
+                    // (xmlports/import/XpEnumOptionRoundTrip.al:221-257; al-runner issue 7781). The shapes that file does not
+                    // measure keep the error (`xp_caption_import_pinned`, `xp_value_by_caption`).
+                    Err(Signal::Error(_)) if self.xp_caption_import_pinned(schema, &ty) => {
+                        match self.xp_value_by_caption(&rec, pos, text, &ty) {
+                            Some(v) => v,
+                            None => return Err(Signal::Error(first)),
+                        }
+                    }
                     // A Date that neither reads gives the long text with the code Evaluate (XpTImportBasic.al: Import_BadDate,
                     // Import_DateWrongFormat).
                     Err(Signal::Error(_)) if matches!(ty, RtType::Date) => {
@@ -1260,6 +1271,9 @@ impl Session {
         rec.borrow_mut().fields[pos] = value.clone();
         // One blank names member 0 of an Enum or Option as the empty text does (Y72XpTextTypeBlankEnum.al:847 `one blank attributes`).
         let blank = text.is_empty() || (matches!(ty, RtType::Enum(_) | RtType::Option(_)) && text.trim().is_empty());
+        if let Some(shape) = self.xp_after_assign_shape(schema, node, &rec, pos)? {
+            return self.xp_after_assign_then_validate(inst, schema, node, &rec, pos, shape, blank);
+        }
         self.xp_validate_field(schema, node, &rec, pos, value, blank)?;
         let flow = self.xp_site(inst, schema, node, "onafterassignfield")?;
         Ok((pos, flow))
@@ -1272,8 +1286,8 @@ impl Session {
     /// validated, the value is stored as it is. Where validation can be seen (an OnValidate, a table extension's validate
     /// trigger, a checked TableRelation, a subscriber to the validate events), these are refused as not pinned: another
     /// format, a blank field attribute into a field without a TableRelation, and a validated element with an
-    /// OnAfterAssignField trigger (which runs first is not pinned). A field attribute follows the same rule as an element,
-    /// except that a blank one is not validated.
+    /// OnAfterAssignField trigger outside the shapes `after_assign.rs` runs (which runs first is not pinned there). A field
+    /// attribute follows the same rule as an element, except that a blank one is not validated.
     pub(super) fn xp_validate_field(
         &mut self,
         schema: &Schema,
@@ -1330,6 +1344,19 @@ impl Session {
                 n.name, t.name, field.name
             ));
         }
+        // A blank field attribute runs no OnAfterAssignField where the port validates by default
+        // (corpus PR 1366, not pinned yet: XpAfterAssignTableRelation.al:583, :609); with DefaultFieldsValidation = false it is not
+        // measured.
+        if xp.no_default_fields_validation
+            && n.kind == al_ir::XmlNodeKind::FieldAttr
+            && blank
+            && n.trigger("onafterassignfield").is_some()
+        {
+            return unsupported(format!(
+                "XmlPort import of a blank field attribute {} with OnAfterAssignField on a port with DefaultFieldsValidation = false: whether the trigger runs is not pinned",
+                n.name
+            ));
+        }
         if !n.field_validate.unwrap_or(!xp.no_default_fields_validation) {
             return Ok(());
         }
@@ -1353,7 +1380,7 @@ impl Session {
                 n.name
             ));
         }
-        self.record_op(RecordOp::Validate, rec, &mut [Value::Integer(pos as i32), value])?;
+        self.platform_validate(crate::records::ValidateSite::XmlPortField, rec, pos, value)?;
         Ok(())
     }
 }

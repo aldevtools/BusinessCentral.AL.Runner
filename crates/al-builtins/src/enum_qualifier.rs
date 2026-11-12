@@ -9,22 +9,34 @@
 
 use std::borrow::Cow;
 
-/// `value` without the qualifier when it is `<enum_name>::<member>` of the enum `enum_name` (the name may be namespace
-/// qualified, the qualifier may be quoted, in single quotes too: a property view has its double quotes rewritten that way), otherwise `value` as it is.
-/// A list `E::A | E::B` and a range `E::A .. E::B` read the same way when every member is qualified with the enum
+/// `value` without the qualifier when it is `<qualifier>::<member>` with one of `qualifiers` (a name may be namespace qualified,
+/// the qualifier may be quoted, in single quotes too: a property view has its double quotes rewritten that way), otherwise
+/// `value` as it is. The qualifiers a caller passes:
+/// - the field's enum: `"ALT Status"::Active` (record/qualified-enum-filters/TestQualifiedEnumFilters.al, al-runner issue 7189);
+/// - the field's own name, on an enum or an Option field: `Type::Item` on the field Type (reports/dataset/
+///   DataItemTableViewFieldQualifiedEnum.al:48-52 in a DataItemTableView, :69-70 with two fields and on an Option field, :92 in a
+///   page SourceTableView, :111-115 in a CalcFormula, :132 in a query DataItemTableFilter; al-runner issue 7423).
+///
+/// A list `E::A | E::B` and a range `E::A .. E::B` read the same way when every member is qualified
 /// (record/enum-lists-ranges/EnumFilterListsRanges.al: CalcFormula_QualifiedEnumList_And_Range, SourceTableView_QualifiedEnumList,
-/// SourceTableView_QualifiedEnumRange); the result is `A|B` and `A..B`. A list or range that mixes a qualified and an
-/// unqualified member, and every other operator after the `::`, is returned as it is.
-pub fn strip_enum_qualifier<'a>(value: &'a str, enum_name: &str) -> Cow<'a, str> {
+/// SourceTableView_QualifiedEnumRange; DataItemTableViewFieldQualifiedEnum.al:51-52); the result is `A|B` and `A..B`. `<>` before
+/// one member keeps the `<>` (DataItemTableViewFieldQualifiedEnum.al:50, :112, and the SourceTableView of :248). A list or range
+/// that mixes a qualified and an unqualified member, and every other operator, is returned as it is.
+pub fn strip_enum_qualifier<'a>(value: &'a str, qualifiers: &[&str]) -> Cow<'a, str> {
     let unquote = |s: &str| s.trim().trim_matches(['"', '\'']).to_string();
-    let wanted = unquote(enum_name.rsplit(['.', '\u{1f}']).next().unwrap_or(enum_name));
+    let wanted: Vec<String> = qualifiers
+        .iter()
+        .map(|q| unquote(q.rsplit(['.', '\u{1f}']).next().unwrap_or(q)))
+        .filter(|q| !q.is_empty())
+        .collect();
     let member_of = |token: &str| -> Option<String> {
         let (qualifier, member) = token.trim().split_once("::")?;
         let member = member.trim();
         let single =
             !member.is_empty() && !member.contains(['|', '&', '<', '>', '(', ')', ':']) && !member.contains("..");
         let given = unquote(qualifier.rsplit('.').next().unwrap_or(qualifier));
-        (single && !given.is_empty() && given.eq_ignore_ascii_case(&wanted)).then(|| member.to_string())
+        (single && !given.is_empty() && wanted.iter().any(|w| given.eq_ignore_ascii_case(w)))
+            .then(|| member.to_string())
     };
     if !value.contains("::") {
         return Cow::Borrowed(value);
@@ -32,6 +44,9 @@ pub fn strip_enum_qualifier<'a>(value: &'a str, enum_name: &str) -> Cow<'a, str>
     // One member keeps its borrowed text; a list or a range needs a separator (`|` or `..`) and every part qualified.
     if let Some(m) = member_of(value) {
         return Cow::Owned(m);
+    }
+    if let Some(m) = value.trim().strip_prefix("<>").and_then(member_of) {
+        return Cow::Owned(format!("<>{m}"));
     }
     let (sep, parts): (&str, Vec<&str>) = if value.contains('|') && !value.contains("..") {
         ("|", value.split('|').collect())
@@ -187,26 +202,26 @@ mod tests {
 
     #[test]
     fn strips_one_member_of_the_named_enum() {
-        assert_eq!(strip(r#""ALT Status"::Active"#, "ALT Status"), "Active");
+        assert_eq!(strip(r#""ALT Status"::Active"#, &["ALT Status"]), "Active");
         assert_eq!(
-            strip(r#""ALT Status"::Draft | "ALT Status"::Active"#, "ALT Status"),
+            strip(r#""ALT Status"::Draft | "ALT Status"::Active"#, &["ALT Status"]),
             "Draft|Active"
         );
         assert_eq!(
-            strip(r#""ALT Status"::Draft .. "ALT Status"::Active"#, "ALT Status"),
+            strip(r#""ALT Status"::Draft .. "ALT Status"::Active"#, &["ALT Status"]),
             "Draft..Active"
         );
         assert_eq!(
-            strip(r#" ALT.Status::Active "#, "Ns.ALT Status"),
+            strip(r#" ALT.Status::Active "#, &["Ns.ALT Status"]),
             r#" ALT.Status::Active "#
         );
-        assert_eq!(strip("'ALT Status'::Active", "ALT Status"), "Active");
-        assert_eq!(strip(r#"Ns."ALT Status"::"In Work""#, "ALT Status"), r#""In Work""#);
+        assert_eq!(strip("'ALT Status'::Active", &["ALT Status"]), "Active");
+        assert_eq!(strip(r#"Ns."ALT Status"::"In Work""#, &["ALT Status"]), r#""In Work""#);
     }
 
     #[test]
     fn keeps_everything_else() {
-        assert_eq!(strip(r#""Other"::Active"#, "ALT Status"), r#""Other"::Active"#);
+        assert_eq!(strip(r#""Other"::Active"#, &["ALT Status"]), r#""Other"::Active"#);
         // A part that is unqualified or of another enum, a mix of `|` and `..`, and other operators stay as written.
         for v in [
             r#""ALT Status"::Active|Draft"#,
@@ -214,8 +229,20 @@ mod tests {
             r#""ALT Status"::Active|"ALT Status"::Draft..Closed"#,
             r#""ALT Status"::Active&"ALT Status"::Draft"#,
         ] {
-            assert_eq!(strip(v, "ALT Status"), v);
+            assert_eq!(strip(v, &["ALT Status"]), v);
         }
-        assert_eq!(strip("Active", "ALT Status"), "Active");
+        assert_eq!(strip("Active", &["ALT Status"]), "Active");
+    }
+
+    #[test]
+    fn takes_the_field_name_as_a_qualifier_and_keeps_a_leading_not_equal() {
+        let q = &["RPT TvQ Kind", "Type"];
+        assert_eq!(strip("Type::Item", q), "Item");
+        assert_eq!(strip("<> Type::Item", q), "<>Item");
+        assert_eq!(strip("Type::Item | Type::Charge", q), "Item|Charge");
+        assert_eq!(strip("Type::Item .. Type::Resource", q), "Item..Resource");
+        assert_eq!(strip(r#""Document Type"::"Order""#, &["Document Type"]), r#""Order""#);
+        assert_eq!(strip("Kind::Item", &["Type"]), "Kind::Item");
+        assert_eq!(strip("<> Type::Item | Type::Charge", q), "<> Type::Item | Type::Charge");
     }
 }

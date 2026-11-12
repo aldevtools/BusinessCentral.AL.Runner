@@ -891,6 +891,7 @@ fn walk_control<V: RefVisitor>(
         owner,
         ext_triggers,
         caption_modifies,
+        ext_replaced: _,
         run_object,
         action_ref: _,
         prop_texts: _,
@@ -1090,6 +1091,8 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
             big_text: _,
             source_view: _,
             calc_fields,
+            after_assign_layout: _,
+            text_attr_export: _,
             triggers: _,
         } = n;
         let of_node = |i: &Option<usize>| TableOf::object(i.and_then(|i| tables.get(i).copied().flatten()));
@@ -1176,6 +1179,7 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         on_post: _,
         on_pre_rendering: _,
         extensions,
+        assumes: _,
         request_flag_slot: _,
         request_rec_routines: _,
         output: _,

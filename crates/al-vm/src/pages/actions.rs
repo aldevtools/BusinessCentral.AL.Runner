@@ -830,6 +830,7 @@ impl Session {
             s.editable_set_later = None;
             s.marking_action = false;
             s.unmarking_action = false;
+            s.gone_new_line_settled = false;
             std::mem::take(&mut s.marked_rows_held)
         };
         // Pinned by pages/onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
@@ -1409,21 +1410,10 @@ impl Session {
                 );
             }
             if std::mem::take(&mut st.borrow_mut().rec_moved_other) {
-                // An action that emptied the view of a list without the new-row line and left Rec, with CurrPage.Update(false), on
-                // a primary key no row has: the list stands on the blank Rec as when Rec keeps the deleted row's key
-                // (`settle_on_blank_rec`; pages/RtFilteredGoneRow.al:640 TD_LeavesKey_Line1WithUpdate_OneLine
-                // `R:10000;N:B1:0;C:B1:0;`, :700 _OtherBatchRowRemains; al-runner issue 6027). With two to six rows shown before
-                // the action BC 28 runs OnNewRecord and OnAfterGetCurrRecord once, BC 27 and BC 29 twice (:656
-                // TD_LeavesKey_Line1WithUpdate_ThreeLines, :679 _TwoLines, :701 _FourLines, :724 _FiveLines, :747 _SixLines,
-                // `#if BC28PLUS and not BC29PLUS`; the reporter's page testpage/Y1WorksheetPostLog.al:161 Y1_Post_TwoLines,
-                // :177 Y1_Post_ThreeLines; al-runner issues 6292, 7197). Rows left in the view, seven or more rows shown
-                // before (not pinned) or no CurrPage.Update(false) are not built.
+                // An action that emptied the view and left Rec, with CurrPage.Update(false), on a primary key no row has
+                // (`post_left_new_line.rs` says what is pinned, with and without the new-row line).
                 let rows_before = held_before.as_ref().map_or(0, Vec::len);
-                let on_blank = (1..=6).contains(&rows_before) && {
-                    let s = st.borrow();
-                    s.gone_blank_no_new_line && s.open && s.cursor == Cursor::None && !s.draft
-                };
-                if !(on_blank && moved_to_unstored_by_update_false) {
+                if !(moved_to_unstored_by_update_false && self.post_left_other_key_settled(st, rows_before)?) {
                     return unsupported(
                         "an action left another row (another primary key) in Rec on a list that is not read again from that row (not pinned)",
                     );
@@ -1555,69 +1545,6 @@ impl Session {
             }
             _ => Ok(None),
         }
-    }
-
-    /// A list opened for view that shows no row (its view was empty), with or without OnFindRecord and OnNextRecord.
-    fn empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
-        let shape = {
-            let s = st.borrow();
-            s.open
-                && s.host.is_none()
-                && s.parts.is_empty()
-                && s.window.is_empty()
-                && !s.dirty
-                && s.cursor == Cursor::None
-                && s.mode == PageMode::View
-        };
-        Ok(shape && self.is_list(st) && self.has_source(st) && !self.is_request_page(st))
-    }
-
-    /// After an action on a list opened for view that showed no row, which changed the filters so the view has rows and
-    /// called `CurrPage.Update(false)`, while Rec stands on no row of the view: the client fills the page as when it opens,
-    /// from the first row of the new view, which becomes current; a page with OnFindRecord asks `=><` and then `=`
-    /// (pages/list-order/AiListOrderTests.al QP_EmptyView_UpdateFalse_ShowAll_Nav, _ShowFromThree_Nav, _ShowAll_Plain,
-    /// _ShowFromThree_Plain; pages 87158, 87159 in QpUpdateEmptyList.al; the traces equal the open traces of :105 and :265).
-    /// Pinned for views of 4 and 6 rows that the window holds. A view of one row is `empty_page_after_action`'s; Update(true),
-    /// no Update, or Rec on a row of the view go on as before. On the blank row an earlier action left (`empty_after_action`)
-    /// Update(true) fills the page the same way, read as at open from the first row (pages/actions/ActionFilterEmptyView.al
-    /// Action_NoRowsLeft_ThenCleared_UpdateTrue `cleared` `[1|1]:a0;u0;R1;R2;R3;R4;R1;R1;C1`, as _UpdateFalse).
-    fn update_on_empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
-        {
-            let s = st.borrow();
-            if !(s.open
-                && s.refresh
-                && s.refresh_by_update
-                && (s.refresh_update_false || s.empty_after_action)
-                && !s.dirty
-                && s.cursor == Cursor::None)
-            {
-                return Ok(false);
-            }
-        }
-        let n = self.view_row_count(st)?;
-        if n < 2 {
-            return Ok(false);
-        }
-        let rec = self.page_rec(st);
-        let row = self.stored_row(&rec)?;
-        let on_row = al_builtins::filter::passing(&rec.borrow().filters, row)?.is_some();
-        if on_row {
-            return Ok(false);
-        }
-        if n > 6 {
-            return unsupported(
-                "CurrPage.Update(false) after an action on a list opened for view that showed no row, whose new view has more than 6 rows (the fill is pinned for 4 and 6)",
-            );
-        }
-        {
-            let mut s = st.borrow_mut();
-            s.refresh = false;
-            s.refresh_by_update = false;
-            s.refresh_update_false = false;
-            s.empty_after_action = false;
-        }
-        self.page_first_row(st)?;
-        Ok(true)
     }
 
     /// After an action on a list opened for view that stands on the draft row New() started, untouched: the client drops the
@@ -3166,7 +3093,9 @@ impl Session {
             }
             st.borrow_mut().cursor = Cursor::None;
             if new_line {
-                st.borrow_mut().gone_blank_shows_line = !filtered;
+                let mut s = st.borrow_mut();
+                (s.gone_blank_shows_line, s.gone_new_line_settled) = (!filtered, true);
+                drop(s);
                 for _ in 0..3 {
                     let fresh = self.initial_fields(table);
                     rec.borrow_mut().fields = fresh;
@@ -3265,15 +3194,15 @@ impl Session {
             };
             rec.borrow_mut().fields = stamped.clone();
             // A stamped key field with a TableRelation: the value is checked against the related table. With the related row
-            // there the blank Rec takes it as without the relation; without it nothing runs
-            // (pages/RtFilteredGoneRow.al:533 SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, :550
-            // _BatchMissing).
+            // there the blank Rec takes it as without the relation; without it nothing runs (pages/RtFilteredGoneRow.al:533
+            // SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, :550 _BatchMissing).
             for pos in related {
                 self.ret_used = false;
-                match self.record_op(
-                    RecordOp::Validate,
+                match self.platform_validate(
+                    crate::records::ValidateSite::ActionStamp,
                     rec,
-                    &mut [Value::Integer(pos as i32), stamped[pos].clone()],
+                    pos,
+                    stamped[pos].clone(),
                 ) {
                     Ok(_) => {}
                     Err(Signal::Error(_)) => return self.blank_rec_relation_failed(st, rec),

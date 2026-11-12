@@ -48,6 +48,10 @@ pub struct Program {
     /// Empty without `--tdd`.
     #[serde(default)]
     pub tdd_stubs: Vec<String>,
+    /// The unprobed assumptions that whether the program compiles at all rests on; the runner marks them for every test
+    /// it runs of this program.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
 /// An event subscriber that is declared but not compiled (see [`Program::uncompiled_subscribers`]).
@@ -101,6 +105,25 @@ pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
     "OnDocumentReady",
     "SetupPrinters",
 ];
+
+/// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, for a save
+/// while a temporary layout selection is held (ADR-040 amendment 2026-11-12, A7). SelectedBuiltinLayoutType is not raised once
+/// SelectReportLayoutCode answered a selected layout (corpus probe pull request 1362,
+/// reports/layouts-html-text/HtRenderedTextTests.al:494, :530).
+pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 1] = ["SelectReportLayoutCode"];
+
+/// Base Application's app id.
+pub const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+
+/// Base Application's codeunit ReportManagement: its id and name.
+pub const REPORT_MANAGEMENT: (u32, &str) = (44, "ReportManagement");
+
+/// Whether a codeunit with `id` and `name` of the app with `app_id` is Base Application's [`REPORT_MANAGEMENT`].
+pub fn is_report_management(id: Option<u32>, name: &str, app_id: &str) -> bool {
+    id == Some(REPORT_MANAGEMENT.0)
+        && name.eq_ignore_ascii_case(REPORT_MANAGEMENT.1)
+        && app_id.eq_ignore_ascii_case(BASE_APPLICATION_APP_ID)
+}
 
 /// The events of `Filter Helper Triggers` the runtime raises (MakeDateFilter, MakeIntFilter and MakeTimeFilter:
 /// events/platform-triggers/PtObserve.al) or refuses to raise (MakeDateTimeFilter).
@@ -561,10 +584,14 @@ pub struct Report {
     /// `OnPreRendering(var RenderingPayload: JsonObject)` as a routine index.
     #[serde(default)]
     pub on_pre_rendering: Option<usize>,
-    /// The reportextensions (object indices) that change what a run does, in the order they apply:
-    /// by object id (ADR-025). Empty: none does.
+    /// The reportextensions (object indices) that change what a run does, in the order they apply (al-sema
+    /// `lower/ext_order.rs`). Empty: none does.
     #[serde(default)]
     pub extensions: Vec<usize>,
+    /// The unprobed assumptions the report's run rests on (the order of `extensions`); the VM marks them when the report
+    /// runs or its layout parts are read.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
     /// Global slot of the hidden flag `Report.UseRequestPage(x)` sets: 0 = not set, 1 = true, 2 = false.
     pub request_flag_slot: usize,
     /// Procedures of the report whose body names `Rec` or `xRec` of a request page that states `SourceTable`: one called
@@ -1022,6 +1049,15 @@ pub struct XmlNode {
     /// OnAfterGetRecord (xmlports/shapes-properties/Y68XmlPortShapes.al:567-621).
     #[serde(default)]
     pub calc_fields: Vec<usize>,
+    /// A field node in the import layout of al-sema `xmlports/assumed_shapes.rs` `after_assign_layout` (corpus PR 1366,
+    /// XpAfterAssignTableRelation.al): al-vm `xmlports/after_assign.rs` checks the field and the record, then runs
+    /// OnAfterAssignField before the validation.
+    #[serde(default)]
+    pub after_assign_layout: bool,
+    /// A text element in the export shape of al-sema `xmlports/assumed_shapes.rs` `text_attr_export` (corpus PR 1366,
+    /// XpTextElemFieldAttrExport.al): al-vm `xmlports/text_attr_export.rs` writes it.
+    #[serde(default)]
+    pub text_attr_export: bool,
     /// Triggers by lower-case name (`onbeforepassvariable`, ...) to routine index.
     pub triggers: Vec<(String, usize)>,
 }
@@ -1218,6 +1254,18 @@ pub enum PropVal {
     Ext(usize, usize),
 }
 
+/// Applies property `name` = `val` of a page extension's `modify` block to a control's `props`, and notes in `replaced`
+/// (`Control::ext_replaced`) a property the control had already.
+pub fn apply_modify_prop(props: &mut Vec<(String, PropVal)>, replaced: &mut Vec<String>, name: &str, val: PropVal) {
+    match props.iter_mut().find(|(n, _)| n == name) {
+        Some(slot) => {
+            slot.1 = val;
+            replaced.push(name.to_string());
+        }
+        None => props.push((name.to_string(), val)),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Control {
     pub name: String,
@@ -1247,6 +1295,10 @@ pub struct Control {
     /// extension and that name (`PageExtension <ext> - Change <name> - Property Caption`).
     #[serde(default)]
     pub caption_modifies: Vec<(usize, String)>,
+    /// The properties (lower-case names) a `modify` block of a page extension set over a value the control had already, from
+    /// its own declaration or an earlier extension ([`apply_modify_prop`]).
+    #[serde(default)]
+    pub ext_replaced: Vec<String>,
     /// For actions: what `RunObject` runs (ADR-012 follow-up).
     #[serde(default)]
     pub run_object: Option<RunObject>,
@@ -2189,6 +2241,7 @@ mod tests {
             }],
             apps: vec![],
             tdd_stubs: vec!["C: procedure \"P\"()".into()],
+            assumes: vec![al_builtins::assumptions::Assumption::MovedTableStubOfDependency],
             sources: vec![],
             positions: Default::default(),
             uncompiled_subscribers: vec![UncompiledSubscriber {

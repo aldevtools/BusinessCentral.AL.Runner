@@ -2,6 +2,7 @@
 
 mod action_deleted_current_row;
 mod action_empty_view;
+mod action_enabled_after_go_to_key;
 mod action_moved_rec;
 mod action_moved_rec_beyond_window;
 mod after_get_record_event;
@@ -34,6 +35,7 @@ mod drilldown_marked_refill_other_key;
 mod empty_list_action;
 mod empty_to_empty_batch_switch;
 mod empty_tree_part_landing_shape;
+mod ext_column_visible;
 mod ext_record_method_source;
 mod ext_validate_variable;
 mod filterpage;

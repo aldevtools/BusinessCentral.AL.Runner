@@ -17,6 +17,9 @@ pub trait Describe {
 const TEXT_SHOWN: usize = 30;
 
 fn quoted(s: &str) -> String {
+    // Rendered content prints as `<rendered content of report X>`, never as the mark (ADR-040 amendment 2026-11-12, A6).
+    let shown = crate::rendered_text::describe(s);
+    let s = shown.as_str();
     if s.chars().count() > TEXT_SHOWN {
         format!("'{}...'", s.chars().take(TEXT_SHOWN).collect::<String>())
     } else {
@@ -30,6 +33,7 @@ impl Describe for Value {
             Value::Null => "an unassigned Variant".into(),
             Value::Unknown(why) => format!("an unknown value ({why})"),
             Value::SqlCount(_) => "a SQL counter value".into(),
+            Value::PlaceholderSize(m) => format!("the byte size of {m}"),
             Value::Boolean(b) => format!("Boolean {b}"),
             Value::Integer(i) => format!("Integer {i}"),
             Value::BigInteger(i) => format!("BigInteger {i}"),
@@ -303,6 +307,7 @@ mod tests {
             last_modify: None,
             failed_insert: None,
             row_origin: None,
+            own_read: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,
             run_page_link: None,

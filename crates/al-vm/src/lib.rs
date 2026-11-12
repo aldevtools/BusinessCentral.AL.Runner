@@ -51,6 +51,7 @@ pub use profile::{
 pub use state_stamp::StateStamp;
 pub use test_runner_host::TestCodeunitHost;
 mod callstack;
+mod caught_errors;
 mod clear_all_page_ext;
 mod code_storage_check;
 mod column_formatter;
@@ -71,6 +72,7 @@ mod enum_caption_ml;
 mod order_trial;
 mod page_held_bindings;
 pub use empty_reads::{InstallRows, KnownValue};
+mod assigned_audit;
 mod caller_writes;
 mod errorcollect;
 pub mod events;
@@ -125,7 +127,7 @@ mod report_handler_unshown;
 mod report_layout_export;
 mod report_layout_streams;
 mod report_no_layout_file;
-pub mod report_pdf_placeholder;
+pub mod report_placeholder;
 mod reports;
 mod run_page_link_open;
 mod sessionops;
@@ -139,13 +141,16 @@ mod state_stamp;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
+mod tenant_set_delete;
 mod test_rows;
 mod test_runner_host;
 mod testdata;
 mod transactions;
 mod translations;
 mod ui;
+mod user_account_keys;
 mod user_email;
+mod user_password;
 mod usertable;
 mod view_empty;
 mod view_unknown;
@@ -785,6 +790,8 @@ pub struct StorageCheckpoint {
 pub struct Session {
     pub engine: Arc<Engine>,
     pub last_error: AlError,
+    /// How many errors AL code caught in this session (`Session::catch_error`, caught_errors.rs).
+    caught_errors: u64,
     depth: usize,
     /// Emptied vectors of call values (arguments, a frame's slots, a builtin's operands), taken again by the next call
     /// (`spare_vec`, `return_vec`): a call of a procedure or a builtin allocates nothing once there are some.
@@ -804,6 +811,8 @@ pub struct Session {
     /// The routine and current statement position of every frame, parallel to `frames`
     /// (`callstack.rs`).
     pub(crate) call_stack: Vec<CallFrame>,
+    /// The object whose routine raised the last AL error that left a routine (the innermost frame of its call stack).
+    pub(crate) error_raised_in: Option<usize>,
     /// The test runner's frames below a test, in `Callstack` form (`callstack.rs`); empty
     /// outside a test run.
     pub(crate) runner_frames: String,
@@ -932,6 +941,10 @@ pub struct Session {
     /// The records (by handle) whose `validating` entry a part's link stamp pushed (`stamp_from_filters_seen_as`): the
     /// platform validates the link value, so the entry holds whatever code runs at that moment.
     pub(crate) stamp_validating: Vec<usize>,
+    /// The call site named for the Validate about to start, with its record's handle (`Session::validate_at`).
+    pub(crate) validate_site: Option<(usize, crate::records::ValidateSite)>,
+    /// The Validates running now, innermost last: the record's handle and the call site (`Session::take_validate_site`).
+    pub(crate) validate_sites: Vec<(usize, Option<crate::records::ValidateSite>)>,
     /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
@@ -1072,6 +1085,9 @@ pub struct Session {
     pub(crate) host_new_running: bool,
     /// Set while a host page's open links its parts (`sync_parts_at_open`).
     pub(crate) part_open_running: bool,
+    /// The host move whose parts are reading again: Next and Previous, a GoToKey or GoToRecord that stayed on the row, and the
+    /// moves `pageops.rs` syncs in its last branch (GoToRecord, GoToKey and the others) (`pages/empty_part_rec.rs`).
+    pub(crate) host_move_running: Option<pages::HostMove>,
     /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
     /// values did not change (`pages/parts.rs` `sync_parts_with`).
     /// `Some(true)`: a part that shows no row or only its blank line stays as it is too (a part linked through a Provider that
@@ -1143,6 +1159,9 @@ pub struct Session {
     /// The find about to start runs through a RecordRef: its flagged error text has rules of its own
     /// (`records/empty_find_origin.rs`).
     pub(crate) find_through_recordref: bool,
+    /// A RecordRef method that forwards to the record method of its name is running: that method, and those nested in it,
+    /// are not a Record variable's (`assigned_audit.rs`).
+    pub(crate) through_recordref: bool,
     /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
     pub(crate) tx: TxState,
     /// Handler functions and notifications of the running test method.
@@ -1234,7 +1253,8 @@ impl Session {
             ident.clone(),
             event_stats.clone(),
             media.clone(),
-        )));
+        )))
+        .as_database();
         if let Some(td) = &engine.test_data {
             store = store.with_backing(Rc::new(testdata::TestBacking::new(&engine, td.clone())));
         }
@@ -1256,6 +1276,7 @@ impl Session {
             sysid_load: false,
             find_load: false,
             find_through_recordref: false,
+            through_recordref: false,
             host,
             waited_ms: 0,
             companies,
@@ -1275,6 +1296,7 @@ impl Session {
             work_date: None,
             engine,
             last_error: AlError::default(),
+            caught_errors: 0,
             depth: 0,
             spare_vecs: Vec::new(),
             xp_pass_views: Vec::new(),
@@ -1312,6 +1334,8 @@ impl Session {
             truncate_undo: Default::default(),
             validating: Vec::new(),
             stamp_validating: Vec::new(),
+            validate_site: None,
+            validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
@@ -1326,6 +1350,7 @@ impl Session {
             var_alias_watch: Vec::new(),
             frames: Vec::new(),
             call_stack: Vec::new(),
+            error_raised_in: None,
             runner_frames: String::new(),
             fault_trace: false,
             fault_site_lost: false,
@@ -1394,6 +1419,7 @@ impl Session {
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
+            host_move_running: None,
             part_sync_keeps_same_link: None,
             dotnet: Default::default(),
             application_areas: String::new(),
@@ -1462,12 +1488,15 @@ impl Session {
         self.tx.lock_unpinned = None;
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
+        self.tx.locking_reads.clear();
+        self.tx.db_reads = 0;
         self.tx.locking_read_tx_unpinned = false;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
         self.tx.deferred_insert = None;
+        self.guarded_body_commit();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
         self.commits += 1;
@@ -1485,6 +1514,7 @@ impl Session {
         self.tx.rolled_back = false;
         self.tx.reads_after_rollback.clear();
         self.tx.rollback_unpinned = None;
+        self.tx.rollback_kind = None;
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
         self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
         self.isolated_committed = self.isolated_storage.clone();
@@ -1551,6 +1581,8 @@ impl Session {
         self.tx.lock_unpinned = None;
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
+        self.tx.locking_reads.clear();
+        self.tx.db_reads = 0;
         self.tx.locking_read_tx_unpinned = false;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {
             self.tx.tx_phase = crate::transactions::TX_FRESH;
@@ -1661,6 +1693,7 @@ impl Session {
                     last_modify: None,
                     failed_insert: None,
                     row_origin: None,
+                    own_read: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
                     run_page_link: None,
@@ -2531,6 +2564,8 @@ impl Session {
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), _) => a,
                 // An HttpContent passed by reference is the caller's own object; only a by-value one is a copy (see `ops::convert`).
                 (a @ Value::Library(..), true) if matches!(&a, Value::Library(n, _) if n == "HttpContent") => a,
+                // An HttpRequestMessage passed by reference is not handed on (`ops::convert`, `http::request_handed_on`).
+                (a @ Value::Library(..), true) if matches!(&a, Value::Library(n, _) if n == "HttpRequestMessage") => a,
                 // A BigText passed by reference too; a by-value one is a copy (`ops::convert`, al-runner issue 5940).
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::BigText, _), true) => a,
                 // A Variant holding an Integer handed to a `var` Text parameter is passed as it is: no conversion, the callee's
@@ -2663,6 +2698,9 @@ impl Session {
         }
         // An error that leaves the routine takes the routine's frame into its call stack.
         if let (Err(Signal::Error(e)), Some(&top)) = (&mut outcome, self.call_stack.last()) {
+            if e.call_stack.is_empty() {
+                self.error_raised_in = Some(object);
+            }
             self.add_frame(e, object, top);
         }
         self.profile_leave();

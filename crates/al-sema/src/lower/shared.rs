@@ -191,6 +191,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         in_request_page: false,
         in_report_init_with_rec: None,
         locals: Default::default(),
+        local_char_option_byte_vars: Default::default(),
         global_labels: HashMap::default(),
         local_labels: HashMap::default(),
         global_label_xliff: HashMap::default(),
@@ -493,8 +494,13 @@ pub(crate) fn lower_object<'a>(
         });
         for n in v.names() {
             if !attrs.is_empty() {
-                lw.global_var_attrs
-                    .insert(n.to_lowercase(), attrs_left(&attrs, &declared));
+                let mut left = attrs_left(&attrs, &declared);
+                if with_events_without_trigger(o.kind, &ty, &obj, &n) {
+                    for a in left.iter_mut().filter(|a| *a == "withevents") {
+                        *a = WITH_EVENTS_NO_TRIGGER.into();
+                    }
+                }
+                lw.global_var_attrs.insert(n.to_lowercase(), left);
             }
             if let Some(Err(e)) = &declared {
                 global_reasons.push(format!("global `{n}`: {e}"));
@@ -946,6 +952,18 @@ pub(crate) fn init_const(text: &str, ty: &Ty) -> Option<ir::Const> {
     })
 }
 
+/// The value `raw` of a filter or const condition on field `field` of type `ty`, with a member qualifier dropped: the field's enum
+/// or the field's own name on an enum field, the field's name on an Option field (`al_builtins::enum_qualifier::strip_enum_qualifier`
+/// holds the pins). Any other value as it is.
+pub(crate) fn unqualified_member(raw: &str, ty: &Ty, field: &str) -> String {
+    use al_builtins::enum_qualifier::strip_enum_qualifier;
+    match ty {
+        Ty::Enum(name) => strip_enum_qualifier(raw, &[&crate::types::display_name(name), field]).into_owned(),
+        Ty::Option(_) => strip_enum_qualifier(raw, &[field]).into_owned(),
+        _ => raw.to_string(),
+    }
+}
+
 /// A `const(..)` value as a constant of the source field's type.
 pub(crate) fn calc_const(
     ws: &Workspace,
@@ -1274,6 +1292,21 @@ pub(crate) fn attrs_left(attrs: &[String], declared: &Option<Result<i32, String>
     }
     attrs
 }
+
+/// Whether the global `name` of the object `obj` is a `[WithEvents]` DotNet variable of a codeunit that declares no
+/// `trigger name::Event` for it. No AL code then runs on its events, and its uses run as a plain DotNet variable's, marked
+/// with assumption `with-events-no-trigger` (Microsoft's Sales and Inventory Forecast Tests, codeunit 139540
+/// TestMissingApiUriOpenSetup, passes on real BC through Base App's Azure ML Connector, whose WithEvents variables have no
+/// trigger). Every other WithEvents variable keeps the refusal (`Lowerer::var_attr_refusal`).
+fn with_events_without_trigger(kind: ObjKind, ty: &Ty, obj: &ast::Object, name: &str) -> bool {
+    let prefix = format!("{}::", name.to_lowercase());
+    kind == ObjKind::Codeunit
+        && matches!(ty, Ty::DotNet(_))
+        && !obj.triggers().any(|t| t.name().to_lowercase().starts_with(&prefix))
+}
+
+/// The name a `[WithEvents]` attribute gets for a variable [`with_events_without_trigger`] accepts.
+pub(crate) const WITH_EVENTS_NO_TRIGGER: &str = "withevents-no-trigger";
 
 /// The name [`attrs_left`] gives the attribute SecurityFiltering of a variable whose declared value the runtime keeps: its
 /// read is not refused, an array assignment or CopyArray of it is (`Lowerer::security_filtering_array_refusal`).

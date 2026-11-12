@@ -567,8 +567,8 @@ impl Session {
 
     /// `TestRequestPage.SaveAsPdf(FileName)` and `SaveAsExcel(FileName)` from a request page handler (ADR-040): for a
     /// report on the allow-list the report runs there and then with the page's values, no output is written, the file
-    /// name is marked as pending, and the page is closed as after `SaveAsXml`. `SaveAsPdf` of a report with an RDLC or
-    /// Word layout runs the same way and writes a placeholder PDF (ADR-040 amendment of 2026-11-08). Any other report
+    /// name is marked as pending, and the page is closed as after `SaveAsXml`. `SaveAsPdf` and `SaveAsExcel` of a report whose
+    /// default layout gives the format run the same way and write a placeholder (ADR-040 amendments of 2026-11-08 and 2026-11-11). Any other report
     /// stays refused.
     pub(super) fn request_save_as_render(
         &mut self,
@@ -587,12 +587,18 @@ impl Session {
         let object = st.borrow().object as usize;
         let inst = st.borrow().instance.clone().expect("open page");
         let schema = self.report_schema_of(&inst)?;
-        // Owner decision 2026-11-08 (ADR-040 amendment): SaveAsPdf of a report with an RDLC or Word layout writes a placeholder PDF.
-        let placeholder = format == "Pdf" && self.pdf_placeholder(&schema)?;
-        if !placeholder && !self.output_is_ignored(&schema) {
+        // ADR-040 amendments of 2026-11-08 and 2026-11-11: a format the default layout gives writes a placeholder
+        // (`report_placeholder::grid`).
+        let target = crate::reports::SaveTarget::File(name);
+        let placeholder = match crate::report_placeholder::Format::from_name(format) {
+            Some(f) => self.placeholder_allowed(&schema, f, &target)?,
+            None => None,
+        };
+        if placeholder.is_none() && !self.output_is_ignored(&schema) {
             return unsupported(format!(
-                "SaveAs{format} of \"{}\": only the Xml dataset is produced (a rendered format needs a layout renderer, \
-                 and the Linux tier the corpus was measured on does not render them either)",
+                "SaveAs{format} of \"{}\": only the Xml dataset and placeholders of the formats a default layout gives are \
+                 produced (a rendered format needs a layout renderer, and the Linux tier the corpus was measured on does not \
+                 render them either)",
                 schema.name()
             ));
         }
@@ -614,16 +620,10 @@ impl Session {
         }
         let (written, _) = self.request_page_report_run(st, object, &inst, &schema)?;
         // The dataset is built to run the triggers and dropped.
+        let rows = written.rows;
         drop(written);
-        let (target, output) = (
-            crate::reports::SaveTarget::File(name),
-            if placeholder {
-                crate::report_pdf_placeholder::SaveOutput::Placeholder
-            } else {
-                crate::report_pdf_placeholder::SaveOutput::Discard
-            },
-        );
-        self.write_save_output(target, output, &schema, &[])?;
+        let output = placeholder.unwrap_or(crate::report_placeholder::SaveOutput::Discard);
+        self.write_save_output(target, output, &schema, &[], rows, None)?;
         st.borrow_mut().result = Some(format!("SaveAs{format}"));
         self.mark_closed(st);
         Ok(Value::Null)

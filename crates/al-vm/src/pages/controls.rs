@@ -1,6 +1,6 @@
 use super::*;
+use crate::records::ValidateSite;
 use al_builtins::page_op::{PageMethod, PageOp};
-use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// `TestField.SetValue`: activates the control, turns the value into what the control would
@@ -28,6 +28,10 @@ impl Session {
         let expanded = st.borrow().expanded.clone();
         // A control write ends the shape `next_held_row_read` reads in (`set_value_reading_held_row` read before this).
         st.borrow_mut().next_held_row = None;
+        // The row a part held before this write (`part_refresh_find_forward.rs` compares it with the row after).
+        let held_row =
+            (st.borrow().host.is_some() && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
+        st.borrow_mut().row_before_write = held_row;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
             if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
@@ -259,7 +263,7 @@ impl Session {
         }
         let writes = self.write_mark();
         let inserted_by_trigger = st.borrow().new_row_inserted_by_trigger;
-        let (activated, origin) = self.traced(st, |s| s.activate(st, idx));
+        let (activated, origin) = self.traced(st, |s| s.activate(st, idx, true));
         if inserted_by_trigger {
             return Err(self.insert_of_trigger_inserted_row(st, idx, activated)?);
         }
@@ -949,11 +953,7 @@ impl Session {
                     // globals, and leaves the page's record with fresh globals (ADR-021 decision 8;
                     // corpus probes TableGlobals_PageFieldValidate_*, TableGlobals_PageRec_ActionGlobalsAreLostAfterPageFieldValidation).
                     self.reset_table_globals(&rec);
-                    let validated = self.record_op(
-                        RecordOp::Validate,
-                        &rec,
-                        &mut [Value::Integer(pos as i32), parsed.clone()],
-                    );
+                    let validated = self.platform_validate(ValidateSite::TestPageControl, &rec, pos, parsed.clone());
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
@@ -1581,7 +1581,7 @@ impl Session {
                         return Ok(shown);
                     }
                 }
-                let text = self.control_text(st, idx, &v)?;
+                let text = self.field_value_text(st, idx, &v)?;
                 Ok(Value::Text(text.into()))
             }
             PageMethod::AsInteger => self.control_as(st, idx, &RtType::Integer),
@@ -1732,10 +1732,7 @@ impl Session {
                 None if self.read_only_expression_control(st, idx) => Ok(Value::Boolean(false)),
                 None => Ok(Value::Boolean(self.control_editable(st, idx)?)),
             },
-            PageMethod::Enabled => match self.part_field_gate(st, false)? {
-                Some(b) => Ok(Value::Boolean(b)),
-                None => Ok(Value::Boolean(self.control_enabled(st, idx)?)),
-            },
+            PageMethod::Enabled => self.test_control_enabled(st, idx),
             // A control of a part also answers what its part control says (see `part_visible_gate`).
             PageMethod::Visible => Ok(Value::Boolean(self.control_visible_in_part(st, idx)?)),
             PageMethod::Invoke => self.action_invoke(st, idx),
@@ -1755,7 +1752,7 @@ impl Session {
                 Ok(r)
             }
             PageMethod::Activate => {
-                let (activated, origin) = self.traced(st, |s| s.activate(st, idx));
+                let (activated, origin) = self.traced(st, |s| s.activate(st, idx, false));
                 if let (Err(Signal::Error(_)), Some("oninsertrecord")) = (&activated, origin.as_deref()) {
                     return unsupported("an error in OnInsertRecord on Activate() (only SetValue is pinned)");
                 }
@@ -1914,14 +1911,23 @@ impl Session {
     /// TestPage: the extensions' OnBeforeValidate in extension order, the control's own OnValidate when it has one, then the
     /// extensions' OnAfterValidate (corpus pages/extensions/W2ExtModify.al:367-386 Validate_VariableControl `low.before.VarName(first);
     /// high.before.VarName(first);page.VarName(first);low.after.VarName(first);high.after.VarName(first);`, :388-401
-    /// Validate_VariableControlWithoutOwnTrigger; BC 27.5, 28.5 and 29.0; al-runner issue 7372). A page run modally (the
-    /// StandardDialog of the issue, set from a ModalPageHandler), a part and every other page type are not pinned yet (corpus
-    /// probe pages/extensions/ModifyVariableControlOnDialog.al).
+    /// Validate_VariableControlWithoutOwnTrigger; BC 27.5, 28.5 and 29.0; al-runner issue 7372). The same order on a
+    /// StandardDialog page with no source table, run modally and set from a ModalPageHandler or opened with OpenEdit
+    /// (pages/extensions/ModifyVariableControlOnDialog.al:188-190, :207, :232, :258, :282-284). A part and every other page
+    /// type are not pinned yet.
     fn ext_validate_on_variable_pinned(&self, st: &St) -> bool {
-        let s = st.borrow();
-        !s.modal
-            && s.host.is_none()
-            && self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Card)
+        let page_type = {
+            let s = st.borrow();
+            if s.host.is_some() {
+                return false;
+            }
+            (self.engine.object_facts[s.object as usize].page_type.clone(), s.modal)
+        };
+        match page_type {
+            (Some(al_ir::PageType::Card), false) => true,
+            (Some(al_ir::PageType::StandardDialog), _) => !self.has_source(st),
+            _ => false,
+        }
     }
 
     /// Cancel of a list with OnFindRecord that the static Page.RunModal opened in lookup mode finds the current row again (`=`) and

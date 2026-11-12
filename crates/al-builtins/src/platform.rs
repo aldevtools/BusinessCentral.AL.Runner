@@ -77,6 +77,9 @@ pub enum Virtual {
     Unprovided,
     /// No rows (metadata/platform-tables/Y21EnvColumns.al:30-40 Y21_Printer_NoRows).
     Printer,
+    /// No rows, and every write refused: Table Synch. Setup (al-language-onprem metadata/TableSynchSetupRows.al:275-304, 98208
+    /// TableSynchSetup_RowsAtTestTime; no row at install either, :243-273). Insert and Delete are not measured (:20).
+    TableSynchSetup,
     /// One row, the server instance the session runs on (al-language-onprem
     /// metadata/platform-tables/Y21EnvColumnsOnPrem.al:276-301 Y21_ServerInstance_OwnRow).
     ServerInstance,
@@ -125,6 +128,11 @@ pub const REGISTRY: &[(u32, &str, Provider)] = &[
         Provider::Virtual(Virtual::PageControlField),
     ),
     (2_000_000_039, "Printer", Provider::Virtual(Virtual::Printer)),
+    (
+        2_000_000_135,
+        "Table Synch. Setup",
+        Provider::Virtual(Virtual::TableSynchSetup),
+    ),
     (
         2_000_000_112,
         "Server Instance",

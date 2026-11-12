@@ -5,6 +5,22 @@ use super::*;
 const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 
 impl Session {
+    /// The value a CaptionClass expression gave (a page control's, `populate_expressions`, `control_caption`,
+    /// `refresh_caption_classes`; a table field's, `recmeta::field_caption_class_value`): rendered content refuses. A class text
+    /// is parsed by its characters (the area before the first comma decides the resolver and the event), and the characters
+    /// of rendered content are not known; table A3 of ADR-040 amendment 2026-11-12 has no CaptionClass row (loss mode L22).
+    pub(crate) fn refuse_rendered_caption_class(v: &Value) -> Result<(), Signal> {
+        match v {
+            Value::Text(t) | Value::Code(t) if t.has_marker() && al_builtins::rendered_text::holds(t.audited_str()) => {
+                Err(al_builtins::rendered_text::refusal(
+                    t.audited_str(),
+                    "a CaptionClass text (its area is read from its characters)",
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// The caption a CaptionClass text stands for. Area 3 is the literal text. Other numeric areas
     /// go to the platform's translation (`caption_class_translate`). An area that is not a number, or no
     /// area at all, goes to no built-in resolver: the System Application's Caption Class codeunit

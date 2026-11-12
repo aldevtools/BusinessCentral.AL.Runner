@@ -204,6 +204,8 @@ pub struct MemStore {
     /// While set, the tables whose access is watched and the first one that was read or written ([`MemStore::watch`]).
     /// Shared by the clones of the store, so a snapshot, a restore or a rollback does not lose it.
     watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
+    /// The store stands for the database ([`MemStore::as_database`]): a Decimal it keeps carries no trailing zeros.
+    database: bool,
 }
 
 /// The tables [`MemStore::watch`] watches and the first of them that was read or written, and the window open on top
@@ -594,6 +596,27 @@ impl MemStore {
             virtuals: Some(v),
             ..Default::default()
         }
+    }
+
+    /// This store as the database: a row it keeps holds each Decimal without trailing zeros, as BC reads a row back from
+    /// SQL (reports/dataset/DatasetDecimalPlacesValueOrigins.al:495-510: the stored `1.50` read by `Get` is `1.5`, times
+    /// two `3.0`; :535-550: a FlowField summed over the rows `1` and `1.50` is `2.5`; :241-247: a data item's row read
+    /// back from `1.00000` gives `D05 * 1` = `1`). A temporary table stays in memory and keeps the values as written.
+    pub fn as_database(mut self) -> MemStore {
+        self.database = true;
+        self
+    }
+
+    /// `row` as this store keeps it ([`MemStore::as_database`]).
+    fn kept(&self, mut row: Row) -> Row {
+        if self.database {
+            for v in row.iter_mut() {
+                if let Value::Decimal(d) = v {
+                    *d = d.normalize();
+                }
+            }
+        }
+        row
     }
 
     /// This store with `b` as the rows its untouched tables read.
@@ -1465,6 +1488,7 @@ pub fn store_ops() -> u64 {
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
         bump();
+        let row = self.kept(row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             if !v.takes_inserts(t) {
@@ -1502,10 +1526,11 @@ impl Store for MemStore {
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
         bump();
+        let row = self.kept(row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             let k = Key::of(t, t.primary_key(&row));
-            if v.takes_inserts(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k)) {
+            if v.modifies_stored_rows(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k)) {
                 self.table_mut(cx, t).insert(k, row);
                 self.touch(cx, t);
                 return Ok(WriteOutcome::Done);
@@ -1607,6 +1632,7 @@ impl Store for MemStore {
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
         bump();
+        let row = self.kept(row);
         t.check_primary_key(old)?;
         t.check_key_values(&row)?;
         if self.virtual_of(t).is_some() {
@@ -1869,8 +1895,11 @@ impl SnapshotStore for MemStore {
     fn restore(&mut self, s: MemStore) {
         bump();
         let counter = self.counter.max(s.counter);
+        // Whether the store stands for the database is its role, not part of the rows a snapshot holds.
+        let database = self.database;
         *self = s;
         self.counter = counter;
+        self.database = database;
     }
 }
 

@@ -46,6 +46,7 @@ impl Session {
     pub(super) fn mark_closed(&mut self, st: &St) {
         st.borrow_mut().open = false;
         st.borrow_mut().closed_by = Some(ClosedBy::Other);
+        st.borrow_mut().page_run = None;
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
         let hidden = st.borrow().hidden_parts.clone();
@@ -1874,7 +1875,7 @@ impl Session {
         self.set_xrec(st);
         if !both {
             if !self.part_keeps_later_row(st)? {
-                self.sync_part(host, c, st)?;
+                self.part_reread_from_first_row(host, c, st)?;
             }
             return Ok(true);
         }

@@ -163,6 +163,9 @@ pub enum Value {
     /// A value read from `SessionInformation.SqlStatementsExecuted()` or `SqlRowsRead()`, or computed from such reads
     /// (issue 5580): a BigInteger whose number is the runtime's model, so only the uses `sqlcount` lists are answered.
     SqlCount(SqlCount),
+    /// The byte size of a placeholder report output (`Blob.Length`, `File.Len`), with the placeholder's mark: an Integer known only
+    /// to be greater than 0, so only a comparison with 0 is answered (`crate::placeholder_output::size`).
+    PlaceholderSize(std::sync::Arc<str>),
 }
 
 /// A counter value (`Value::SqlCount`, see `crate::sqlcount`).
@@ -450,6 +453,8 @@ pub struct RecordState {
     /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
     /// written (record/TestRecordStaleBufferWrite.al:395-690, `Session::stale_verdict`).
     pub row_origin: Option<RowOrigin>,
+    /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
+    pub own_read: OwnRead,
     /// The table's and its extensions' global variables of this record variable (ADR-021).
     pub globals: TableGlobals,
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
@@ -458,6 +463,38 @@ pub struct RecordState {
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
+}
+
+/// A record variable inserted a row with `Insert()` and then read it with `Get`, with nothing written to the record's store
+/// in between: the buffer the assigned audit field cells measure (record/system-fields/AssignedAuditFields.al:140-148 `Seed`,
+/// :650-655; the rules are in al-vm `assigned_audit.rs`). `None` for every other buffer: after any other read, an `Init`, a
+/// `Modify` or a `Rename` through the variable.
+///
+/// `Clone` gives `None`: a copy of a record state (`:=`, a record passed by value, xRec) is not the variable that read the row.
+#[derive(Debug, Default)]
+pub struct OwnRead(pub Option<OwnReadAt>);
+
+impl Clone for OwnRead {
+    fn clone(&self) -> Self {
+        OwnRead(None)
+    }
+}
+
+/// See [`OwnRead`].
+#[derive(Debug, Clone)]
+pub struct OwnReadAt {
+    /// The Get ran; before it only the Insert did.
+    pub got: bool,
+    /// A `Clear` of the variable ran between the Insert and the Get (AssignedAuditFields.al:652).
+    pub cleared: bool,
+    /// The row's SystemId.
+    pub system_id: Value,
+    /// The row's SystemRowVersion; `None` where the buffer holds none.
+    pub version: Option<i64>,
+    /// The session's commit count at the Insert.
+    pub commits: u64,
+    /// The change counter of the record's store after the Insert.
+    pub store_changes: u64,
 }
 
 /// See [`RecordState::row_origin`].
@@ -941,10 +978,14 @@ pub struct HttpRequestState {
     /// The uri came from `SetSecretRequestUri`: `GetRequestUri` then reads empty
     /// (xml/xml/P97ReqSecretUri.al:79, :110).
     pub uri_secret: bool,
-    /// The `Content` set on the request: the `HttpContent` handle itself, so the request and the
-    /// variable it was set from share it (nothing pins a copy; no corpus test tells them apart).
+    /// The request's content: a copy of the content it was set from, or the uninitialized one its first read handed out
+    /// (`http::request_content`).
     pub content: Option<Value>,
     pub headers: HttpHeaderList,
+    /// The request was assigned, passed by value, put into a Variant or sent (`http::request_handed_on`). The variables
+    /// share the request; the mark
+    /// only says that no evidence for `ReadAs(SecretText)` covers its content (`http::SecretReadShape`).
+    pub handed_on: bool,
 }
 
 impl Default for HttpRequestState {
@@ -955,6 +996,7 @@ impl Default for HttpRequestState {
             uri_secret: false,
             content: None,
             headers: new_header_list(HeaderKind::Request),
+            handed_on: false,
         }
     }
 }
@@ -980,6 +1022,12 @@ pub struct HttpContentState {
     pub from_stream: bool,
     /// The last `WriteFrom` took a `SecretText` (xml/xml/P97ContentSecret.al).
     pub secret: bool,
+    /// The calls made on the content so far, as far as the evidence for `ReadAs(SecretText)` follows them
+    /// (`http::SecretReadShape`).
+    pub secret_read: crate::http::SecretReadShape,
+    /// No method was called on this content yet; it was only assigned, passed by value or handed on otherwise
+    /// (`http::content_handed_on`). It stands for the variable main keeps as `LibraryValue::Empty` (`http::content_unused`).
+    pub untouched: bool,
 }
 
 impl Default for HttpContentState {
@@ -998,6 +1046,8 @@ impl Default for HttpContentState {
             copied: false,
             from_stream: false,
             secret: false,
+            secret_read: crate::http::SecretReadShape::Other,
+            untouched: false,
         }
     }
 }
@@ -1207,8 +1257,12 @@ pub struct HandlerContext {
     pub procedure: String,
     /// Empty except in the case callbacks.
     pub case: String,
-    /// Whether the test passed, in the After callbacks; `None` in the Before callbacks (not pinned there).
-    pub success: Option<bool>,
+    /// Whether the test passed, in the After callbacks; false in every Before callback
+    /// (BiTestHandlerSuccess.al:116, al-runner issue 7181).
+    pub success: bool,
+    /// A Before callback of a default handler: its `success` (false) rests on assumption
+    /// `test-handler-default-before-success` (the corpus pins it for a `TestHandlers` handler only).
+    pub success_assumed: bool,
     /// The reason of a `Skip` call in this callback.
     pub skip: Option<String>,
 }
@@ -1532,6 +1586,8 @@ impl Value {
             Value::DotNet(_) => k == "dotnet",
             // Never reached: a read of an unknown column is refused before its value reaches a Variant.
             Value::Unknown(_) => false,
+            // An Integer, as Blob.Length is.
+            Value::PlaceholderSize(_) => k == "integer",
             // A BigInteger (session-system/session/SqlCounters.al:87-103).
             Value::SqlCount(c) => {
                 k == match c.ty {
