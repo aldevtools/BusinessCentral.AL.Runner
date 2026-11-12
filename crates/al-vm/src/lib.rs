@@ -1144,9 +1144,9 @@ pub struct Session {
     /// The find about to start runs through a RecordRef: its flagged error text has rules of its own
     /// (`records/empty_find_origin.rs`).
     pub(crate) find_through_recordref: bool,
-    /// A RecordRef.Modify or RecordRef.Rename is running: its writes, and those nested in it, are not a Record variable's
-    /// (`assigned_audit.rs`).
-    pub(crate) write_through_recordref: bool,
+    /// A RecordRef method that forwards to the record method of its name is running: that method, and those nested in it,
+    /// are not a Record variable's (`assigned_audit.rs`).
+    pub(crate) through_recordref: bool,
     /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
     pub(crate) tx: TxState,
     /// Handler functions and notifications of the running test method.
@@ -1260,7 +1260,7 @@ impl Session {
             sysid_load: false,
             find_load: false,
             find_through_recordref: false,
-            write_through_recordref: false,
+            through_recordref: false,
             host,
             waited_ms: 0,
             companies,
@@ -1666,6 +1666,7 @@ impl Session {
                     last_modify: None,
                     failed_insert: None,
                     row_origin: None,
+                    own_read: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
                     run_page_link: None,

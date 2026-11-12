@@ -1,194 +1,324 @@
-//! A repeater column whose Visible a page extension's modify() binds to a variable the extension sets in OnAfterGetRecord
-//! (pages/extensions/PageExtModifyVisibleVariable.al:519-547). Only that shape counts the value after the open read's
-//! OnAfterGetRecord; the neighbors keep the value frozen at open, as before.
+//! A repeater column whose Visible a page extension's modify() binds to a variable the extension sets to true in
+//! OnAfterGetRecord (pages/extensions/PageExtModifyVisibleVariable.al:519-547). Only the measured page counts the value
+//! after the open read's first OnAfterGetRecord; every shape one fact away keeps the value frozen at open, as before the rule.
 
 use al_testkit::text;
 
-const SRC: &str = r#"
+/// One list page with one page extension, and how the test opens it.
+#[derive(Clone, Copy)]
+struct Shape {
+    name: &'static str,
+    /// Further page properties.
+    page: &'static str,
+    /// Further properties of the column.
+    column: &'static str,
+    /// Further layout areas.
+    layout: &'static str,
+    /// Page triggers.
+    triggers: &'static str,
+    /// The Visible expression of the extension's modify().
+    visible: &'static str,
+    on_open: &'static str,
+    on_record: &'static str,
+    on_current: &'static str,
+    rows: u8,
+    open: &'static str,
+}
+
+/// PageExtModifyVisibleVariable.al:86-108 and :175-204, with one modified column.
+const MEASURED: Shape = Shape {
+    name: "Measured",
+    page: "",
+    column: "",
+    layout: "",
+    triggers: "",
+    visible: "V",
+    on_open: "O := true;",
+    on_record: "V := true;",
+    on_current: "C := true;",
+    rows: 2,
+    open: "OpenEdit",
+};
+
+fn source(shapes: &[Shape]) -> String {
+    let mut src = String::from(
+        r#"
 table 69880 "ECV Row"
 {
     fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } }
     keys { key(PK; Id) { } }
 }
-page 69881 "ECV List"
+page 69881 "ECV Fact"
 {
-    PageType = List; SourceTable = "ECV Row"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { } field(ColRec; Rec.Name) { } } } }
-}
-pageextension 69882 "ECV List Ext" extends "ECV List"
-{
-    layout { modify(ColRec) { Visible = SetInRec; } }
-    var SetInRec: Boolean;
-    trigger OnOpenPage() begin end;
-    trigger OnAfterGetRecord() begin SetInRec := true; end;
-    trigger OnAfterGetCurrRecord() begin end;
-}
-page 69887 "ECV List Not"
-{
-    PageType = List; SourceTable = "ECV Row"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { } field(ColRec; Rec.Name) { } } } }
-}
-pageextension 69888 "ECV List Not Ext" extends "ECV List Not"
-{
-    layout { modify(ColRec) { Visible = not SetInRec; } }
-    var SetInRec: Boolean;
-    trigger OnOpenPage() begin end;
-    trigger OnAfterGetRecord() begin SetInRec := true; end;
-    trigger OnAfterGetCurrRecord() begin end;
-}
-page 69889 "ECV List BaseVis"
-{
-    PageType = List; SourceTable = "ECV Row"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { } field(ColRec; Rec.Name) { Visible = false; } } } }
-}
-pageextension 69890 "ECV List BaseVis Ext" extends "ECV List BaseVis"
-{
-    layout { modify(ColRec) { Visible = SetInRec; } }
-    var SetInRec: Boolean;
-    trigger OnOpenPage() begin end;
-    trigger OnAfterGetRecord() begin SetInRec := true; end;
-    trigger OnAfterGetCurrRecord() begin end;
-}
-page 69891 "ECV List BaseTrig"
-{
-    PageType = List; SourceTable = "ECV Row"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { } field(ColRec; Rec.Name) { } } } }
-    trigger OnOpenPage() begin end;
-}
-pageextension 69892 "ECV List BaseTrig Ext" extends "ECV List BaseTrig"
-{
-    layout { modify(ColRec) { Visible = SetInRec; } }
-    var SetInRec: Boolean;
-    trigger OnOpenPage() begin end;
-    trigger OnAfterGetRecord() begin SetInRec := true; end;
-    trigger OnAfterGetCurrRecord() begin end;
-}
-page 69893 "ECV List Rows"
-{
-    PageType = List; SourceTable = "ECV Row"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { } field(ColRec; Rec.Name) { } } } }
-}
-pageextension 69894 "ECV List Rows Ext" extends "ECV List Rows"
-{
-    layout { modify(ColRec) { Visible = SetInRec; } }
-    var SetInRec: Boolean;
-    trigger OnOpenPage() begin end;
-    trigger OnAfterGetRecord() begin SetInRec := Rec.Id = 1; end;
-    trigger OnAfterGetCurrRecord() begin end;
+    PageType = CardPart; SourceTable = "ECV Row";
+    layout { area(Content) { field(Name; Rec.Name) { ApplicationArea = All; } } }
 }
 page 69883 "ECV Card"
 {
     PageType = Card; SourceTable = "ECV Row"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { field(IdCtl; Rec.Id) { } field(CtlRec; Rec.Name) { } } }
+    layout { area(Content) { field(IdCtl; Rec.Id) { ApplicationArea = All; } field(Col; Rec.Name) { ApplicationArea = All; } } }
 }
 pageextension 69884 "ECV Card Ext" extends "ECV Card"
 {
-    layout { modify(CtlRec) { Visible = SetInRec; } }
-    var SetInRec: Boolean;
-    trigger OnAfterGetRecord() begin SetInRec := true; end;
+    layout { modify(Col) { Visible = V; } }
+    var V: Boolean; O: Boolean; C: Boolean;
+    trigger OnOpenPage() begin O := true; end;
+    trigger OnAfterGetRecord() begin V := true; end;
+    trigger OnAfterGetCurrRecord() begin C := true; end;
 }
-page 69885 "ECV List Own"
+page 69885 "ECV Own"
 {
     PageType = List; SourceTable = "ECV Row"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { } field(ColRec; Rec.Name) { Visible = SetInRec; } } } }
-    var SetInRec: Boolean;
-    trigger OnAfterGetRecord() begin SetInRec := true; end;
+    layout { area(Content) { repeater(Rows) { field(IdCtl; Rec.Id) { ApplicationArea = All; } field(Col; Rec.Name) { ApplicationArea = All; Visible = V; } } } }
+    var V: Boolean;
+    trigger OnAfterGetRecord() begin V := true; end;
 }
+"#,
+    );
+    let mut calls = String::new();
+    for (i, s) in shapes.iter().enumerate() {
+        let (id, name) = (69900 + 2 * i, s.name);
+        src += &format!(
+            r#"
+page {id} "ECV {name}"
+{{
+    PageType = List; SourceTable = "ECV Row"; ApplicationArea = All; UsageCategory = None; {page}
+    layout {{ area(Content) {{ repeater(Rows) {{
+        field(IdCtl; Rec.Id) {{ ApplicationArea = All; }}
+        field(Col; Rec.Name) {{ ApplicationArea = All; {column} }}
+    }} }} {layout} }}
+    {triggers}
+}}
+pageextension {ext} "ECV {name} Ext" extends "ECV {name}"
+{{
+    layout {{ modify(Col) {{ Visible = {visible}; }} }}
+    var V: Boolean; O: Boolean; C: Boolean; N: Integer;
+    trigger OnOpenPage() begin {on_open} end;
+    trigger OnAfterGetRecord() begin {on_record} end;
+    trigger OnAfterGetCurrRecord() begin {on_current} end;
+}}
+"#,
+            ext = id + 1,
+            page = s.page,
+            column = s.column,
+            layout = s.layout,
+            triggers = s.triggers,
+            visible = s.visible,
+            on_open = s.on_open,
+            on_record = s.on_record,
+            on_current = s.on_current,
+        );
+        calls += &format!(
+            r#"
+    procedure {name}(): Text
+    var P: TestPage "ECV {name}";
+    begin
+        Seed({rows});
+        P.{open}();
+        exit(Format(P.Col.Visible()));
+    end;
+"#,
+            rows = s.rows,
+            open = s.open,
+        );
+    }
+    src + &format!(
+        r#"
 codeunit 69886 C
-{
-    local procedure Seed()
-    var R: Record "ECV Row";
+{{
+    local procedure Seed(Rows: Integer)
+    var
+        R: Record "ECV Row";
+        I: Integer;
     begin
         R.DeleteAll();
-        R.Id := 1; R.Insert();
+        for I := 1 to Rows do begin
+            R.Id := I;
+            R.Insert();
+        end;
     end;
-
-    procedure ExtList(): Text
-    var P: TestPage "ECV List";
-    begin
-        Seed();
-        P.OpenView();
-        exit(Format(P.ColRec.Visible()));
-    end;
-
-    procedure ListNot(): Text
-    var P: TestPage "ECV List Not";
-    begin
-        Seed();
-        P.OpenView();
-        exit(Format(P.ColRec.Visible()));
-    end;
-
-    procedure ListBaseVisible(): Text
-    var P: TestPage "ECV List BaseVis";
-    begin
-        Seed();
-        P.OpenView();
-        exit(Format(P.ColRec.Visible()));
-    end;
-
-    procedure ListBaseTrigger(): Text
-    var P: TestPage "ECV List BaseTrig";
-    begin
-        Seed();
-        P.OpenView();
-        exit(Format(P.ColRec.Visible()));
-    end;
-
-    procedure ListRowsDiffer(): Text
-    var
-        P: TestPage "ECV List Rows";
-        R: Record "ECV Row";
-    begin
-        Seed();
-        R.Id := 2; R.Insert();
-        P.OpenView();
-        exit(Format(P.ColRec.Visible()));
-    end;
-
-    procedure ExtCard(): Text
+    {calls}
+    procedure Card(): Text
     var P: TestPage "ECV Card";
     begin
-        Seed();
-        P.OpenView();
-        exit(Format(P.CtlRec.Visible()));
+        Seed(2);
+        P.OpenEdit();
+        exit(Format(P.Col.Visible()));
     end;
 
-    procedure OwnList(): Text
-    var P: TestPage "ECV List Own";
+    procedure Own(): Text
+    var P: TestPage "ECV Own";
     begin
-        Seed();
-        P.OpenView();
-        exit(Format(P.ColRec.Visible()));
+        Seed(2);
+        P.OpenEdit();
+        exit(Format(P.Col.Visible()));
     end;
-}
-"#;
-
-/// PageExtModifyVisibleVariable.al:534-547 (`ColRec=Yes` after OpenView).
-#[test]
-fn an_extension_column_counts_its_variable_after_the_open_read() {
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "ExtList")), "Yes");
+}}
+"#
+    )
 }
 
-/// Neighbors outside the pinned shape keep the open-time value, as on main: a card field, and a list's own column.
-#[test]
-fn a_card_field_and_a_list_own_column_keep_the_open_time_value() {
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "ExtCard")), "No");
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "OwnList")), "No");
+fn visible(shapes: &[Shape], routine: &str) -> String {
+    text(al_testkit::run_in(&source(shapes), "C", routine))
 }
 
-/// Neighbors of the pinned extension column keep the open-time value, as on main: `not` of the variable (open value Yes), a
-/// base column that declares Visible itself, and a base page that declares a trigger.
+/// PageExtModifyVisibleVariable.al:519-547 (`ColRec=Yes` after OpenEdit and after OpenView).
 #[test]
-fn extension_column_neighbors_keep_the_open_time_value() {
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "ListNot")), "Yes");
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "ListBaseVisible")), "No");
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "ListBaseTrigger")), "No");
+fn the_measured_column_counts_its_variable_after_the_first_row_of_the_open() {
+    let view = Shape {
+        name: "MeasuredView",
+        open: "OpenView",
+        ..MEASURED
+    };
+    let shapes = [MEASURED, view];
+    assert_eq!(visible(&shapes, "Measured"), "Yes");
+    assert_eq!(visible(&shapes, "MeasuredView"), "Yes");
 }
 
-/// The rows the open reads give the variable different values: not measured, refused.
+/// One fact away from the measured page: the column keeps the value frozen at open, as before the rule.
 #[test]
-fn an_extension_column_whose_variable_differs_between_rows_is_refused() {
-    let r = al_testkit::run_in(SRC, "C", "ListRowsDiffer");
-    assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{r:?}");
+fn neighbors_of_the_measured_column_keep_the_open_time_value() {
+    let n = |name, expected: &'static str, shape: Shape| (Shape { name, ..shape }, expected);
+    let neighbors = [
+        // What the triggers do.
+        n(
+            "OpenTrueRecordFalse",
+            "Yes",
+            Shape {
+                on_open: "V := true;",
+                on_record: "V := false;",
+                ..MEASURED
+            },
+        ),
+        n(
+            "RowsDiffer",
+            "No",
+            Shape {
+                on_record: "V := Rec.Id = 1;",
+                ..MEASURED
+            },
+        ),
+        n(
+            "FromTheOneRow",
+            "No",
+            Shape {
+                on_record: "V := Rec.Id = 1;",
+                rows: 1,
+                ..MEASURED
+            },
+        ),
+        n(
+            "Toggled",
+            "No",
+            Shape {
+                on_record: "V := not V;",
+                rows: 1,
+                ..MEASURED
+            },
+        ),
+        n(
+            "TwoStatements",
+            "No",
+            Shape {
+                on_record: "V := true; N := 1;",
+                ..MEASURED
+            },
+        ),
+        n(
+            "OtherTriggersEmpty",
+            "No",
+            Shape {
+                on_open: "",
+                on_current: "",
+                ..MEASURED
+            },
+        ),
+        n(
+            "SetFalseAtOpen",
+            "No",
+            Shape {
+                on_open: "V := false;",
+                ..MEASURED
+            },
+        ),
+        n(
+            "SetInCurrentToo",
+            "No",
+            Shape {
+                on_current: "V := true;",
+                ..MEASURED
+            },
+        ),
+        // The expression and the base column.
+        n(
+            "NotTheVariable",
+            "Yes",
+            Shape {
+                visible: "not V",
+                ..MEASURED
+            },
+        ),
+        n(
+            "BaseColumnVisibleFalse",
+            "No",
+            Shape {
+                column: "Visible = false;",
+                ..MEASURED
+            },
+        ),
+        n(
+            "BaseColumnEditable",
+            "No",
+            Shape {
+                column: "Editable = false;",
+                ..MEASURED
+            },
+        ),
+        // The base page.
+        n(
+            "BasePageTrigger",
+            "No",
+            Shape {
+                triggers: "trigger OnOpenPage() begin end;",
+                ..MEASURED
+            },
+        ),
+        n(
+            "PageNotEditable",
+            "No",
+            Shape {
+                page: "Editable = false;",
+                ..MEASURED
+            },
+        ),
+        n(
+            "PageSourceTableView",
+            "No",
+            Shape {
+                page: "SourceTableView = sorting(Id);",
+                ..MEASURED
+            },
+        ),
+        n(
+            "PageWithFactBox",
+            "No",
+            Shape {
+                layout: r#"area(FactBoxes) { part(Fact; "ECV Fact") { ApplicationArea = All; } }"#,
+                ..MEASURED
+            },
+        ),
+    ];
+    let shapes: Vec<Shape> = neighbors.iter().map(|(s, _)| *s).collect();
+    let src = source(&shapes);
+    for (shape, expected) in neighbors {
+        assert_eq!(
+            text(al_testkit::run_in(&src, "C", shape.name)),
+            expected,
+            "{}",
+            shape.name
+        );
+    }
+    // A card field and a list's own column.
+    assert_eq!(text(al_testkit::run_in(&src, "C", "Card")), "No");
+    assert_eq!(text(al_testkit::run_in(&src, "C", "Own")), "No");
 }

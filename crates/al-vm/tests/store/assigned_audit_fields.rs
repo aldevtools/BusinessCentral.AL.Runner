@@ -1,7 +1,7 @@
 //! Audit fields assigned by AL code, then written (record/system-fields/AssignedAuditFields.al). The corpus pins the measured
-//! shapes; these tests hold the refusals around them and the neighbor shapes that keep their earlier result.
+//! cells; these tests repeat each cell once and hold the neighbor shapes, each one fact away from its cell, at the result
+//! they had before the rules.
 
-use al_builtins::native::Signal;
 use al_testkit::{run_in, text};
 
 const SRC: &str = r#"
@@ -59,7 +59,493 @@ codeunit 50331 T
         exit(Id);
     end;
 
-    // ---- Rename neighbors: each writes the buffer's created pair, as on main.
+    // AssignedAuditFields.al:140-148.
+    local procedure Seed(var Row: Record R)
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Name := 'first';
+        Row.Insert();
+        Row.Get('A');
+    end;
+
+    local procedure SeedNoGet(var Row: Record R)
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Name := 'first';
+        Row.Insert();
+    end;
+
+    // What a Modify left: the buffer holds the assigned SystemModifiedAt | the stored row holds it.
+    local procedure AfterModify(var Row: Record R): Text
+    var
+        Stored: Record R;
+    begin
+        Stored.Get('A');
+        exit(Format(Row.SystemModifiedAt = At()) + '|' + Format(Stored.SystemModifiedAt = At()));
+    end;
+
+    // ---- The no-change Modify cell (:271-283) and its neighbors.
+
+    procedure ModifyPinned(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyTwice(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyThenAssignAgain(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemModifiedAt := CreateDateTime(20210102D, 120000T);
+        Row.Modify();
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyCommitAfterGet(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Commit();
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyCommitAfterAssign(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemModifiedAt := At();
+        Commit();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyCommitBeforeGet(): Text
+    var
+        Row: Record R;
+    begin
+        SeedNoGet(Row);
+        Commit();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyCopy(): Text
+    var
+        Row: Record R;
+        Copy: Record R;
+    begin
+        Seed(Row);
+        Copy := Row;
+        Copy.SystemModifiedAt := At();
+        Copy.Modify();
+        exit(AfterModify(Copy));
+    end;
+
+    procedure ModifyAfterFindFirst(): Text
+    var
+        Row: Record R;
+    begin
+        SeedNoGet(Row);
+        Row.FindFirst();
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyAfterGetBySystemId(): Text
+    var
+        Row: Record R;
+    begin
+        SeedNoGet(Row);
+        Row.GetBySystemId(Row.SystemId);
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyOtherVariableGet(): Text
+    var
+        Row: Record R;
+        Other: Record R;
+    begin
+        Seed(Row);
+        Other.Get('A');
+        Other.SystemModifiedAt := At();
+        Other.Modify();
+        exit(AfterModify(Other));
+    end;
+
+    procedure ModifySecondGet(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyNoGet(): Text
+    var
+        Row: Record R;
+    begin
+        SeedNoGet(Row);
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyInsertRunTrigger(): Text
+    var
+        Row: Record R;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Insert(true);
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyClearBeforeGet(): Text
+    var
+        Row: Record R;
+    begin
+        SeedNoGet(Row);
+        Clear(Row);
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyResetAfterGet(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Reset();
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyFilterAfterGet(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SetRange("No.", 'A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyFilterBeforeInsert(): Text
+    var
+        Row: Record R;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row.SetRange("No.", 'A');
+        Row."No." := 'A';
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyOtherRowWrittenAfterGet(): Text
+    var
+        Row: Record R;
+        Other: Record R;
+    begin
+        Seed(Row);
+        Other."No." := 'B';
+        Other.Insert();
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyBothAtAssigned(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemCreatedAt := At();
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyBothModifiedAssigned(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemModifiedAt := At();
+        Row.SystemModifiedBy := By();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyBlank(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemModifiedAt := 0DT;
+        Row.Modify();
+        exit(Format(Row.SystemModifiedAt = 0DT));
+    end;
+
+    procedure ModifyRunTrigger(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemModifiedAt := At();
+        Row.Modify(true);
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyThroughRecordRef(): Text
+    var
+        Row: Record R;
+        RecRef: RecordRef;
+    begin
+        Seed(Row);
+        RecRef.GetTable(Row);
+        RecRef.Field(RecRef.SystemModifiedAtNo()).Value := At();
+        RecRef.Modify();
+        exit(Format(RecRef.Field(RecRef.SystemModifiedAtNo()).Value = At()));
+    end;
+
+    procedure ModifyTableWithOnModify(): Text
+    var
+        Row: Record RT;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(Format(Row.SystemModifiedAt = At()));
+    end;
+
+    procedure ModifyWithSubscriber(): Text
+    var
+        Row: Record RS;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(Format(Row.SystemModifiedAt = At()));
+    end;
+
+    // A stale buffer (another variable changed the row) with nothing changed: the buffer takes the stored modified pair.
+    procedure ModifyStaleBuffer(): Text
+    var
+        Row: Record R;
+        Other: Record R;
+    begin
+        Seed(Row);
+        Other.Get('A');
+        Sleep(20);
+        Other.Name := 'x';
+        Other.Modify();
+        Row.Name := 'x';
+        Row.Modify();
+        Other.Get('A');
+        exit(Format(Row.SystemModifiedAt = Other.SystemModifiedAt));
+    end;
+
+    // ---- The Rename cell (:568-590) and its neighbors. The answer: the stored row holds the assigned SystemCreatedAt.
+
+    local procedure AfterRename(): Text
+    var
+        Stored: Record R;
+    begin
+        Stored.Get('B');
+        exit(Format(Stored.SystemCreatedAt = At()));
+    end;
+
+    procedure RenamePinned(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemCreatedAt := At();
+        Row.SystemCreatedBy := By();
+        Row.Rename('B');
+        exit(AfterRename());
+    end;
+
+    procedure RenameOneCreatedAssigned(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemCreatedAt := At();
+        Row.Rename('B');
+        exit(AfterRename());
+    end;
+
+    procedure RenameNameChanged(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemCreatedAt := At();
+        Row.SystemCreatedBy := By();
+        Row.Name := 'x';
+        Row.Rename('B');
+        exit(AfterRename());
+    end;
+
+    procedure RenameCommitAfterGet(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Commit();
+        Row.SystemCreatedAt := At();
+        Row.SystemCreatedBy := By();
+        Row.Rename('B');
+        exit(AfterRename());
+    end;
+
+    procedure RenameCopy(): Text
+    var
+        Row: Record R;
+        Copy: Record R;
+    begin
+        Seed(Row);
+        Copy := Row;
+        Copy.SystemCreatedAt := At();
+        Copy.SystemCreatedBy := By();
+        Copy.Rename('B');
+        exit(AfterRename());
+    end;
+
+    procedure RenameNoGet(): Text
+    var
+        Row: Record R;
+    begin
+        SeedNoGet(Row);
+        Row.SystemCreatedAt := At();
+        Row.SystemCreatedBy := By();
+        Row.Rename('B');
+        exit(AfterRename());
+    end;
+
+    procedure RenameAfterModify(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Modify();
+        Row.SystemCreatedAt := At();
+        Row.SystemCreatedBy := By();
+        Row.Rename('B');
+        exit(AfterRename());
+    end;
+
+    procedure RenameAllFourAssigned(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemCreatedAt := At();
+        Row.SystemCreatedBy := By();
+        Row.SystemModifiedAt := At();
+        Row.SystemModifiedBy := By();
+        Row.Rename('B');
+        exit(AfterRename());
+    end;
+
+    procedure RenameBothCreatedBlank(): Text
+    var
+        Row: Record R;
+        Stored: Record R;
+        NoUser: Guid;
+    begin
+        Seed(Row);
+        Row.SystemCreatedAt := 0DT;
+        Row.SystemCreatedBy := NoUser;
+        Row.Rename('B');
+        Stored.Get('B');
+        exit(Format(Stored.SystemCreatedAt = 0DT));
+    end;
+
+    procedure RenameTableWithOnRename(): Text
+    var
+        Row: Record RT;
+        Stored: Record RT;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemCreatedAt := At();
+        Row.SystemCreatedBy := By();
+        Row.Rename('B');
+        Stored.Get('B');
+        exit(Format(Stored.SystemCreatedAt = At()));
+    end;
+
+    procedure RenameThroughRecordRef(): Text
+    var
+        Row: Record R;
+        RecRef: RecordRef;
+    begin
+        Seed(Row);
+        RecRef.GetTable(Row);
+        RecRef.Field(RecRef.SystemCreatedAtNo()).Value := At();
+        RecRef.Field(RecRef.SystemCreatedByNo()).Value := By();
+        RecRef.Rename('B');
+        exit(AfterRename());
+    end;
 
     procedure RenameBufferCopiedFromOtherRow(): Text
     var
@@ -87,7 +573,6 @@ codeunit 50331 T
         Other: Record R;
     begin
         Seed(Row);
-        Row.Get('A');
         Other.Get('A');
         Other.Delete();
         Sleep(20);
@@ -95,63 +580,162 @@ codeunit 50331 T
         exit(Format(Row.Rename('B')));
     end;
 
-    procedure RenameBothCreatedBlank(): Text
+    procedure RenamePlain(): Text
     var
         Row: Record R;
-        Stored: Record R;
-        NoUser: Guid;
     begin
         Seed(Row);
-        Row.Get('A');
-        Row.SystemCreatedAt := 0DT;
-        Row.SystemCreatedBy := NoUser;
         Row.Rename('B');
-        Stored.Get('B');
-        exit(Format(Stored.SystemCreatedAt = 0DT));
+        exit(Format(Row.Get('B')));
     end;
 
-    procedure RenameBothCreatedWithOnRename(): Text
+    // ---- ModifyAll on an audit field: no rule of this file covers it.
+
+    procedure ModifyAllCreatedAt(): Text
     var
-        Row: Record RT;
-        Stored: Record RT;
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Reset();
+        Row.ModifyAll(SystemCreatedAt, At());
+        exit('no error');
+    end;
+
+    procedure ModifyAllModifiedBy(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Reset();
+        Row.ModifyAll(SystemModifiedBy, By());
+        exit('no error');
+    end;
+
+    procedure ModifyAllNoRows(): Text
+    var
+        Row: Record R;
     begin
         Row.DeleteAll();
+        Row.ModifyAll(SystemCreatedAt, At());
+        exit('no error');
+    end;
+
+    procedure ModifyAllTableWithOnModify(): Text
+    var
+        Row: Record RT;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
         Row."No." := 'A';
         Row.Insert();
-        Row.Get('A');
-        Row.SystemCreatedAt := At();
-        Row.SystemCreatedBy := By();
-        Row.Rename('B');
-        Stored.Get('B');
-        exit(Format(Stored.SystemCreatedAt = At()));
+        Row.ModifyAll(SystemCreatedAt, At(), true);
+        exit('no error');
     end;
 
-    procedure RenameBothCreatedThroughRecordRef(): Text
-    var
-        Row: Record R;
-        Stored: Record R;
-        RecRef: RecordRef;
-    begin
-        Seed(Row);
-        Row.Get('A');
-        RecRef.GetTable(Row);
-        RecRef.Field(RecRef.SystemCreatedAtNo()).Value := At();
-        RecRef.Field(RecRef.SystemCreatedByNo()).Value := By();
-        RecRef.Rename('B');
-        Stored.Get('B');
-        exit(Format(Stored.SystemCreatedAt = At()));
-    end;
+    // ---- The temporary Modify cell (:638-666) and its neighbors. The answer: the stored row holds a blank SystemCreatedAt.
 
-    // ---- Temporary Modify neighbors: the row keeps the stored created pair, as on main.
-
+    // :645-655.
     local procedure TempSeed(var TempRow: Record R temporary)
     begin
         TempRow."No." := 'A';
         TempRow.SystemCreatedAt := At();
         TempRow.SystemCreatedBy := By();
+        TempRow.SystemModifiedAt := At();
+        TempRow.SystemModifiedBy := By();
         TempRow.Insert();
         Clear(TempRow);
         TempRow.Get('A');
+    end;
+
+    local procedure TempAfterModify(var TempRow: Record R temporary): Text
+    begin
+        Clear(TempRow);
+        TempRow.Get('A');
+        exit(Format(TempRow.SystemCreatedAt = 0DT));
+    end;
+
+    procedure TempPinned(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempSeed(TempRow);
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Name := 'second';
+        TempRow.Modify();
+        exit(TempAfterModify(TempRow));
+    end;
+
+    procedure TempNoClearBeforeGet(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempRow."No." := 'A';
+        TempRow.SystemCreatedAt := At();
+        TempRow.Insert();
+        TempRow.Get('A');
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Name := 'second';
+        TempRow.Modify();
+        exit(TempAfterModify(TempRow));
+    end;
+
+    procedure TempNoGet(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempRow."No." := 'A';
+        TempRow.SystemCreatedAt := At();
+        TempRow.Insert();
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Name := 'second';
+        TempRow.Modify();
+        exit(TempAfterModify(TempRow));
+    end;
+
+    procedure TempSecondModify(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempSeed(TempRow);
+        TempRow.Modify();
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Name := 'second';
+        TempRow.Modify();
+        exit(TempAfterModify(TempRow));
+    end;
+
+    procedure TempCopy(): Text
+    var
+        TempRow: Record R temporary;
+        TempCopy: Record R temporary;
+    begin
+        TempSeed(TempRow);
+        TempCopy.Copy(TempRow, true);
+        TempCopy.SystemCreatedAt := 0DT;
+        TempCopy.Name := 'second';
+        TempCopy.Modify();
+        exit(TempAfterModify(TempRow));
+    end;
+
+    procedure TempNothingElseChanged(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempSeed(TempRow);
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Modify();
+        exit(TempAfterModify(TempRow));
+    end;
+
+    procedure TempRunTrigger(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempSeed(TempRow);
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Name := 'second';
+        TempRow.Modify(true);
+        exit(TempAfterModify(TempRow));
     end;
 
     procedure TempCreatedByBlank(): Text
@@ -165,352 +749,140 @@ codeunit 50331 T
         TempRow.Modify();
         Clear(TempRow);
         TempRow.Get('A');
-        exit(Format(TempRow.SystemCreatedBy = By()));
+        exit(Format(IsNullGuid(TempRow.SystemCreatedBy)));
     end;
 
-    procedure TempCreatedAtBlankNothingElse(): Text
+    procedure TempCreatedAtOtherValue(): Text
     var
         TempRow: Record R temporary;
     begin
         TempSeed(TempRow);
-        TempRow.SystemCreatedAt := 0DT;
-        TempRow.Modify();
-        Clear(TempRow);
-        TempRow.Get('A');
-        exit(Format(TempRow.SystemCreatedAt = At()));
-    end;
-
-    procedure TempCreatedAtBlankRunTrigger(): Text
-    var
-        TempRow: Record R temporary;
-    begin
-        TempSeed(TempRow);
-        TempRow.SystemCreatedAt := 0DT;
-        TempRow.Name := 'second';
-        TempRow.Modify(true);
-        Clear(TempRow);
-        TempRow.Get('A');
-        exit(Format(TempRow.SystemCreatedAt = At()));
-    end;
-
-    procedure TempCreatedAtBlankPinned(): Text
-    var
-        TempRow: Record R temporary;
-    begin
-        TempSeed(TempRow);
-        TempRow.SystemCreatedAt := 0DT;
+        TempRow.SystemCreatedAt := CreateDateTime(20210102D, 120000T);
         TempRow.Name := 'second';
         TempRow.Modify();
         Clear(TempRow);
         TempRow.Get('A');
-        exit(Format(TempRow.SystemCreatedAt = 0DT));
-    end;
-
-    // ---- No-change Modify neighbors: the buffer takes the stored modified pair, as on main.
-
-    procedure NoChangeCreatedAndModifiedAtAssigned(): Text
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        Row.Get('A');
-        Row.SystemCreatedAt := At();
-        Row.SystemModifiedAt := At();
-        Row.Modify();
-        exit(Format(Row.SystemModifiedAt = At()));
-    end;
-
-    procedure NoChangeModifiedAtBlank(): Text
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        Row.Get('A');
-        Row.SystemModifiedAt := 0DT;
-        Row.Modify();
-        exit(Format(Row.SystemModifiedAt = 0DT));
-    end;
-
-    procedure NoChangeThroughRecordRef(): Text
-    var
-        Row: Record R;
-        RecRef: RecordRef;
-    begin
-        Seed(Row);
-        Row.Get('A');
-        RecRef.GetTable(Row);
-        RecRef.Field(RecRef.SystemModifiedAtNo()).Value := At();
-        RecRef.Modify();
-        exit(Format(RecRef.Field(RecRef.SystemModifiedAtNo()).Value = At()));
-    end;
-
-    procedure NoChangeAfterOwnInsert(): Text
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        Row.SystemModifiedAt := At();
-        Row.Modify();
-        exit(Format(Row.SystemModifiedAt = At()));
-    end;
-
-    procedure NoChangeTableWithOnModify(): Text
-    var
-        Row: Record RT;
-    begin
-        Row.DeleteAll();
-        Row."No." := 'A';
-        Row.Insert();
-        Row.Get('A');
-        Row.SystemModifiedAt := At();
-        Row.Modify();
-        exit(Format(Row.SystemModifiedAt = At()));
-    end;
-
-    procedure NoChangeWithSubscriber(): Text
-    var
-        Row: Record RS;
-    begin
-        Row.DeleteAll();
-        Row."No." := 'A';
-        Row.Insert();
-        Row.Get('A');
-        Row.SystemModifiedAt := At();
-        Row.Modify();
-        exit(Format(Row.SystemModifiedAt = At()));
-    end;
-
-    procedure NoChangeRunTrigger(): Text
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        Row.Get('A');
-        Row.SystemModifiedAt := At();
-        Row.Modify(true);
-        exit(Format(Row.SystemModifiedAt = At()));
-    end;
-
-    // ---- ModifyAll shapes the pin does not cover.
-
-    procedure ModifyAllFiltered()
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        Row.SetRange("No.", 'A');
-        Row.ModifyAll(SystemCreatedAt, At());
-    end;
-
-    procedure ModifyAllTableWithOnModify()
-    var
-        Row: Record RT;
-    begin
-        Row.DeleteAll();
-        Row."No." := 'A';
-        Row.Insert();
-        Row.ModifyAll(SystemCreatedAt, At());
-    end;
-
-    procedure ModifyAllWithSubscriber()
-    var
-        Row: Record RS;
-    begin
-        Row.DeleteAll();
-        Row."No." := 'A';
-        Row.Insert();
-        Row.ModifyAll(SystemCreatedAt, At());
-    end;
-
-    local procedure Seed(var Row: Record R)
-    begin
-        Row.DeleteAll();
-        Row."No." := 'A';
-        Row.Insert();
-    end;
-
-    procedure ModifyAllCreatedAt(): Text
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        asserterror Row.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
-        exit(GetLastErrorText() + '|' + GetLastErrorCode());
-    end;
-
-    procedure ModifyAllModifiedBy()
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        Row.ModifyAll(SystemModifiedBy, CreateGuid());
-    end;
-
-    procedure ModifyAllCreatedAtNoRows()
-    var
-        Row: Record R;
-    begin
-        Row.DeleteAll();
-        Row.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
-    end;
-
-    procedure ModifyAllCreatedAtRunTrigger()
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        Row.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T), true);
-    end;
-
-    procedure ModifyAllCreatedAtTemporary()
-    var
-        Row: Record R temporary;
-    begin
-        Row."No." := 'A';
-        Row.Insert();
-        Row.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
-    end;
-
-    procedure RenameOneCreatedAssigned()
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        Row.Get('A');
-        Row.SystemCreatedAt := CreateDateTime(20200102D, 120000T);
-        Row.Rename('B');
-    end;
-
-    // Neighbor: a plain Rename keeps main's result.
-    procedure RenamePlain(): Text
-    var
-        Row: Record R;
-    begin
-        Seed(Row);
-        Row.Get('A');
-        Row.Rename('B');
-        exit(Format(Row.Get('B')));
-    end;
-
-    // Neighbor: a stale buffer (another variable changed the row) with nothing changed keeps the earlier result: the buffer
-    // takes the stored modified pair.
-    procedure StaleBufferNoChange(): Text
-    var
-        Row: Record R;
-        Other: Record R;
-    begin
-        Seed(Row);
-        Row.Get('A');
-        Other.Get('A');
-        Sleep(20);
-        Other.Name := 'x';
-        Other.Modify();
-        Row.Name := 'x';
-        Row.Modify();
-        Other.Get('A');
-        exit(Format(Row.SystemModifiedAt = Other.SystemModifiedAt));
-    end;
-
-    // The pinned shape: SystemModifiedAt assigned, nothing else changed; the buffer keeps it, the stored row does not.
-    procedure AssignedModifiedAtNoChange(): Text
-    var
-        Row: Record R;
-        Stored: Record R;
-        At: DateTime;
-    begin
-        Seed(Row);
-        Row.Get('A');
-        At := CreateDateTime(20200102D, 120000T);
-        Row.SystemModifiedAt := At;
-        Row.Modify();
-        Stored.Get('A');
-        exit(Format(Row.SystemModifiedAt = At) + '|' + Format(Stored.SystemModifiedAt = At));
+        exit(Format(TempRow.SystemCreatedAt = At()));
     end;
 }
 "#;
 
-fn refused(r: Result<al_builtins::value::Value, Signal>) -> bool {
-    matches!(r, Err(Signal::Unsupported(_)))
+fn answers(routines: &[&str], expected: &str) {
+    for routine in routines {
+        assert_eq!(text(run_in(SRC, "T", routine)), expected, "{routine}");
+    }
 }
 
+/// AssignedAuditFields.al:271-283: the buffer keeps the assigned SystemModifiedAt, the stored row does not take it.
 #[test]
-fn modifyall_of_a_pinned_audit_field_raises_the_pinned_text() {
-    assert_eq!(
-        text(run_in(SRC, "T", "ModifyAllCreatedAt")),
-        "You cannot change the value of the SystemCreatedAt field.\\\\Table: R|DB:Ok"
+fn the_no_change_modify_cell_keeps_the_assigned_value_in_the_buffer_only() {
+    answers(&["ModifyPinned"], "Yes|No");
+}
+
+/// One fact away from the cell: the buffer takes the stored modified pair, as before the rule.
+#[test]
+fn no_change_modify_neighbors_take_the_stored_modified_pair() {
+    answers(
+        &[
+            "ModifyTwice",
+            "ModifyThenAssignAgain",
+            "ModifyCommitAfterGet",
+            "ModifyCommitAfterAssign",
+            "ModifyCommitBeforeGet",
+            "ModifyCopy",
+            "ModifyAfterFindFirst",
+            "ModifyAfterGetBySystemId",
+            "ModifyOtherVariableGet",
+            "ModifySecondGet",
+            "ModifyNoGet",
+            "ModifyInsertRunTrigger",
+            "ModifyClearBeforeGet",
+            "ModifyResetAfterGet",
+            "ModifyFilterAfterGet",
+            "ModifyFilterBeforeInsert",
+            "ModifyOtherRowWrittenAfterGet",
+            "ModifyBothAtAssigned",
+            "ModifyBothModifiedAssigned",
+            "ModifyRunTrigger",
+        ],
+        "No|No",
+    );
+    answers(
+        &[
+            "ModifyBlank",
+            "ModifyThroughRecordRef",
+            "ModifyTableWithOnModify",
+            "ModifyWithSubscriber",
+        ],
+        "No",
+    );
+    answers(&["ModifyStaleBuffer"], "Yes");
+}
+
+/// AssignedAuditFields.al:568-590: the stored row keeps its created pair.
+#[test]
+fn the_rename_cell_keeps_the_stored_created_pair() {
+    answers(&["RenamePinned"], "No");
+}
+
+/// One fact away from the cell: the Rename writes the buffer's created pair, as before the rule.
+#[test]
+fn rename_neighbors_write_the_buffer_created_pair() {
+    answers(
+        &[
+            "RenameOneCreatedAssigned",
+            "RenameNameChanged",
+            "RenameCommitAfterGet",
+            "RenameCopy",
+            "RenameNoGet",
+            "RenameAfterModify",
+            "RenameAllFourAssigned",
+            "RenameBothCreatedBlank",
+            "RenameTableWithOnRename",
+            "RenameThroughRecordRef",
+            "RenameBufferCopiedFromOtherRow",
+            "RenameRowReinsertedByOtherVariable",
+            "RenamePlain",
+        ],
+        "Yes",
     );
 }
 
+/// ModifyAll on an audit field runs as before: the measured cell (AssignedAuditFields.al:594-632) is not built, see the
+/// module doc of `assigned_audit.rs`.
 #[test]
-fn audit_field_writes_outside_the_pinned_shapes_are_refused() {
-    for routine in [
-        "ModifyAllModifiedBy",
-        "ModifyAllCreatedAtNoRows",
-        "ModifyAllCreatedAtRunTrigger",
-        "ModifyAllCreatedAtTemporary",
-        "RenameOneCreatedAssigned",
-        "ModifyAllFiltered",
-        "ModifyAllTableWithOnModify",
-        "ModifyAllWithSubscriber",
-    ] {
-        assert!(refused(run_in(SRC, "T", routine)), "{routine} must be refused");
-    }
+fn modifyall_of_an_audit_field_raises_no_error() {
+    answers(
+        &[
+            "ModifyAllCreatedAt",
+            "ModifyAllModifiedBy",
+            "ModifyAllNoRows",
+            "ModifyAllTableWithOnModify",
+        ],
+        "no error",
+    );
 }
 
+/// AssignedAuditFields.al:638-666: the row takes the blank SystemCreatedAt.
 #[test]
-fn a_no_change_modify_keeps_the_assigned_modified_at_only_in_the_buffer() {
-    assert_eq!(text(run_in(SRC, "T", "AssignedModifiedAtNoChange")), "Yes|No");
+fn the_temporary_modify_cell_writes_the_blank_created_at() {
+    answers(&["TempPinned"], "Yes");
 }
 
-#[test]
-fn a_stale_buffer_without_change_keeps_the_earlier_result() {
-    assert_eq!(text(run_in(SRC, "T", "StaleBufferNoChange")), "Yes");
-}
-
-#[test]
-fn a_plain_rename_keeps_working() {
-    assert_eq!(text(run_in(SRC, "T", "RenamePlain")), "Yes");
-}
-
-/// A Rename whose buffer is not the stored row's own image, or that the pin does not cover, writes the buffer's created pair.
-#[test]
-fn rename_neighbors_write_the_buffer_created_pair() {
-    for routine in [
-        "RenameBufferCopiedFromOtherRow",
-        "RenameRowReinsertedByOtherVariable",
-        "RenameBothCreatedBlank",
-        "RenameBothCreatedWithOnRename",
-        "RenameBothCreatedThroughRecordRef",
-    ] {
-        assert_eq!(text(run_in(SRC, "T", routine)), "Yes", "{routine}");
-    }
-}
-
-/// Only the pinned temporary cell writes the buffer's SystemCreatedAt; the neighbors keep the stored created pair.
+/// One fact away from the cell: the row keeps the stored created pair, as before the rule.
 #[test]
 fn temporary_modify_neighbors_keep_the_stored_created_pair() {
-    assert_eq!(text(run_in(SRC, "T", "TempCreatedAtBlankPinned")), "Yes");
-    for routine in [
-        "TempCreatedByBlank",
-        "TempCreatedAtBlankNothingElse",
-        "TempCreatedAtBlankRunTrigger",
-    ] {
-        assert_eq!(text(run_in(SRC, "T", routine)), "Yes", "{routine}");
-    }
-}
-
-/// A no-change Modify outside the pinned cell gives the buffer the stored modified pair.
-#[test]
-fn no_change_modify_neighbors_take_the_stored_modified_pair() {
-    for routine in [
-        "NoChangeCreatedAndModifiedAtAssigned",
-        "NoChangeModifiedAtBlank",
-        "NoChangeThroughRecordRef",
-        "NoChangeAfterOwnInsert",
-        "NoChangeTableWithOnModify",
-        "NoChangeWithSubscriber",
-        "NoChangeRunTrigger",
-    ] {
-        assert_eq!(text(run_in(SRC, "T", routine)), "No", "{routine}");
-    }
+    answers(
+        &[
+            "TempNoClearBeforeGet",
+            "TempNoGet",
+            "TempSecondModify",
+            "TempCopy",
+            "TempNothingElseChanged",
+            "TempRunTrigger",
+            "TempCreatedByBlank",
+        ],
+        "No",
+    );
+    answers(&["TempCreatedAtOtherValue"], "Yes");
 }

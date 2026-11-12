@@ -1603,6 +1603,7 @@ impl Session {
                         let mut d = dst.borrow_mut();
                         d.fields = fields;
                         d.row_origin = row_origin;
+                        d.own_read = Default::default();
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;

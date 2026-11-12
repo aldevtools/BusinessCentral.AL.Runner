@@ -382,7 +382,7 @@ impl Session {
         self.data_caption_before_trigger(st, name)?;
         let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args))?;
         self.data_caption_after_trigger(st, name);
-        self.refreeze_ext_columns_after_open_read(st, name)?;
+        self.show_ext_columns_after_first_open_row(st, name)?;
         Ok(r)
     }
 

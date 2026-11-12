@@ -65,8 +65,8 @@ pub(crate) fn mentions_table(relation: &str, table: &str) -> bool {
         .any(|w| !w.is_empty() && w == table)
 }
 
-/// The text of the error a write raises on a field it may not change (`ModifyAll` on SystemId, an AutoIncrement field or an
-/// audit field): "You cannot change the value of the <field> field.", two `BR`, "Table: <table>".
+/// The text of the error a write raises on a field it may not change (`ModifyAll` on SystemId or an AutoIncrement field):
+/// "You cannot change the value of the <field> field.", two `BR`, "Table: <table>".
 pub(crate) fn cannot_change_value_text(field: &str, table: &str) -> String {
     let br = crate::records::BR;
     format!("You cannot change the value of the {field} field.{br}{br}Table: {table}")
@@ -1991,17 +1991,6 @@ impl Session {
             }
             return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
         }
-        let shape = crate::assigned_audit::ModifyAllShape {
-            rows: rows.len(),
-            run_trigger,
-            temporary: rec.borrow().temporary,
-            table_caption_is_name: self.caption(t) == t.name,
-            unfiltered: rec.borrow().filters.is_empty() && !rec.borrow().marked_only,
-            plain: self.audit_write_plain(t, crate::globaltriggers::GlobalOp::Modify, rec.borrow().temporary),
-        };
-        if let Some(audit) = crate::assigned_audit::modify_all_audit_error(t, pos, &shape) {
-            return Err(audit.map_or_else(|refused| refused, |text| error(text, "DB:Ok")));
-        }
         // One fresh set of table globals for all rows, not the caller's (ADR-021 decision 6; corpus
         // probe TableGlobals_ModifyAll_WhatTheTriggersAndSubscribersSee).
         let shared = al_builtins::value::TableGlobals::new_shared();
@@ -2047,6 +2036,7 @@ impl Session {
                     last_modify: None,
                     failed_insert: None,
                     row_origin: None,
+                    own_read: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
                     load: Default::default(),

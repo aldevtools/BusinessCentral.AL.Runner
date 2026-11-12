@@ -66,19 +66,6 @@ pub enum PageMode {
     New,
 }
 
-/// Where the read of the rows a page shows as it opens stands, for the extension columns whose Visible counts after it
-/// (`pages/ext_column_visible.rs`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ExtColumnsAtOpen {
-    /// Not in the open's own read (also a later read that replays it).
-    #[default]
-    Off,
-    /// In the open's read, before its first OnAfterGetRecord.
-    Open,
-    /// In the open's read, after its first OnAfterGetRecord took the columns' Visible.
-    Taken,
-}
-
 /// What put a page into lookup mode. `PageState::lookup` says whether the mode is on (a page's code can switch it with
 /// `LookupMode`); this says who asked for it first. The pins differ by kind, so a reader names the kinds it is pinned for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -336,8 +323,9 @@ pub struct PageState {
     /// The page is reading the rows it shows as it opens: from the open, or from a refresh that reads them again as the open
     /// does (`replay_open_reads`, `lookup_next_refresh`).
     pub open_read: bool,
-    /// See [`ExtColumnsAtOpen`]; set by the open only (`load_first_row_at_open`).
-    pub ext_columns_at_open: ExtColumnsAtOpen,
+    /// The page is in the read of the open itself (not a later read that replays it) and no OnAfterGetRecord of that read has
+    /// ended yet: the moment the extension columns of `pages/ext_column_visible.rs` take their Visible after.
+    pub before_first_open_row: bool,
     /// The page opened for edit over an empty view and ran its new-record triggers on a blank record; it shows no row and its
     /// field controls are not editable.
     pub blank_on_open: bool,
