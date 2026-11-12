@@ -418,6 +418,18 @@ impl Lowerer<'_> {
                                             })
                                     });
                                 }
+                                // Any other expression, on a page or added by a page extension: the row names the source as
+                                // written and an undeclared Editable is `False` (not, parentheses, comparisons, and / or, in,
+                                // arithmetic, unary minus, div, mod, concatenation with text constants, built-in and nested calls,
+                                // literals, a page variable in an expression; pages/controls/PageControlFieldExpressionShapes.al:
+                                // 211-219, :238-246, :261-265, :281-285, :299-301; al-runner issue 7442). Text with a tab, a line
+                                // break or two spaces in a row is not pinned.
+                                if expr_source.is_none() {
+                                    expr_source = raw_args
+                                        .get(1)
+                                        .filter(|a| crate::pages::expression_source_pinned(a))
+                                        .map(|a| (a.trim().to_string(), false));
+                                }
                             }
                             // A control of an extension that names a variable of the base object
                             // (`pages::needed` made no routine for it).

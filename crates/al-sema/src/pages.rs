@@ -489,6 +489,21 @@ pub fn source_text_pinned(text: &str, var_field: bool) -> bool {
     plain_spacing(t) || (var_field && !t.contains(['\'', '\t', '\n', '\r']) && !t.contains("  "))
 }
 
+/// Source text of an expression-bound control whose Page Control Field row names it as written (quotes included): no tab, no line
+/// break and no two spaces in a row (pages/controls/PageControlFieldExpressionShapes.al, al-runner issue 7442). Not these, whose row
+/// differs or is not pinned: a bare name with no argument list (`CompanyName`: written with or without `()`?), a field of a record
+/// variable and an array element (Editable `True` on a page's own control, `TestPageControlFieldArraySource.al`).
+pub fn expression_source_pinned(text: &str) -> bool {
+    let t = text.trim();
+    let bare_name = call_shape(t) && !t.contains('(');
+    !t.is_empty()
+        && !t.contains(['\t', '\n', '\r'])
+        && !t.contains("  ")
+        && !bare_name
+        && var_and_field(t).is_none()
+        && array_element(t).is_none()
+}
+
 /// Text with a `+`, `-`, `*` or `/` between spaces outside quotes and brackets (`Costs[1] + Costs[2]`): an arithmetic expression
 /// (record/TestPageControlFieldArraySource.al, ExpressionControlRow).
 pub fn arithmetic(text: &str) -> bool {
