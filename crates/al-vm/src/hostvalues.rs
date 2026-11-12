@@ -547,7 +547,7 @@ impl Session {
             .into_iter()
             .filter_map(|id| position_of(t, id).map(|i| (id, stored[i].clone())))
             .collect();
-        // The measured table has no modify-event subscriber (AssignedAuditFields.al:17-27).
+        // The measured table has no modify-event subscriber and no trigger (AssignedAuditFields.al:17-27).
         let subscribed = |ev: &str| self.engine.events.is_subscribed(t.object as usize, ev);
         let no_subscriber = !subscribed("onbeforemodifyevent") && !subscribed("onaftermodifyevent");
         if no_subscriber && no_change_keeps_buffer_pair(t, stored, &rec.borrow().fields, buffer_version) {

@@ -1,6 +1,6 @@
 //! The Visible of a repeater column that a page extension's `modify()` binds to a variable of the extension: on a List opened by
 //! OpenEdit or OpenView, the value counts as it stands after the extension's OnAfterGetRecord of the open read, and before
-//! OnAfterGetCurrRecord (pages/extensions/PageExtModifyVisibleVariable.al:519-547: `ColRec` set in OnAfterGetRecord reads Yes,
+//! OnAfterGetCurrRecord (pages/extensions/PageExtModifyVisibleVariable.al:519-547, :529, :545: `ColRec` set in OnAfterGetRecord reads Yes,
 //! `ColCurr` set in OnAfterGetCurrRecord reads No, `ColOpen` set in OnOpenPage reads Yes, also after a move). Every other
 //! control keeps the value frozen at open (`frozen_visible`).
 
@@ -16,8 +16,8 @@ impl Session {
         let object = st.borrow().object as usize;
         {
             let s = st.borrow();
-            // Pinned facts: the open read (:522, :537) of a top-level page the test opened with OpenEdit or OpenView (:519,
-            // :534), not modal, not a part; a page of type List (:84).
+            // Pinned facts: the open read of a top-level page the test opened with OpenEdit or OpenView (:525, :541), not
+            // modal, not a part; a page of type List (:88).
             let pinned = s.open_read
                 && s.opened_by_test
                 && matches!(s.mode, PageMode::Edit | PageMode::View)
@@ -32,7 +32,7 @@ impl Session {
             return Ok(());
         }
         let page = page_of(&engine, st);
-        // The base page declares no OnAfterGetRecord, one page extension does (:200-203).
+        // The base page declares no OnAfterGetRecord (:86-106), one page extension does (:196-199).
         if page.triggers.iter().any(|(n, _)| n == name) {
             return Ok(());
         }
@@ -47,7 +47,7 @@ impl Session {
         };
         for idx in 0..page.controls.len() {
             let c = &page.controls[idx];
-            // A field whose parent is the repeater (:94-101), Visible bound by that extension's modify() (:182-185).
+            // A field whose parent is the repeater (:97-104), Visible bound by that extension's modify() (:182).
             let in_repeater = c
                 .parent
                 .is_some_and(|p| page.controls[p].kind == ir::ControlKind::Repeater);
