@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_group_two_enum_flowfilter_constrains_relation() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/group-two-enum-flowfilter-relation.al"),
+    ));
+}
