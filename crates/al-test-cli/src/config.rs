@@ -97,6 +97,9 @@ pub struct SuiteEntry {
     pub app: String,
     /// Oracle path, relative to the directory of `oracle.toml`.
     pub oracle: String,
+    /// The oracle's format, which also names the test driver it was recorded with ([`OracleFormat::driver`]). Absent:
+    /// JUnit; an oracle whose document is the other format is an error when it is read (`oracle::OracleError::WrongFormat`),
+    /// so a missing `format` never runs an XUnit oracle's suite under the bc-linux driver.
     #[serde(default)]
     pub format: OracleFormat,
     /// The test runner codeunit of the app the real run used (`-testRunnerCodeunitId`). Its

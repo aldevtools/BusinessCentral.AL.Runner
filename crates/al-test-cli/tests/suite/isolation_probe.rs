@@ -109,7 +109,7 @@ fn under_codeunit_isolation_t5_fails_with_bcs_message_and_every_method_ends_as_i
     assert!(matches!(t5, Outcome::Fail(_)), "{t5:?}");
 }
 
-/// ADR-074: the reader of SwOnRunRunner.al (:262-266) under BcContainerHelper with BC's order: the discovery pass wrote
+/// ADR-074: the reader of SwOnRunRunner.al (:282-286) under BcContainerHelper with BC's order: the discovery pass wrote
 /// row 1 and the run's OnRun row 2, which the codeunit's rollback takes back. Under bc-linux OnRun runs once. The probe
 /// app's own Windows oracle for runner 130450 is not an oracle file of this repository; the reader's expectation is.
 #[test]

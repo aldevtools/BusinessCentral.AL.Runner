@@ -704,6 +704,9 @@ pub(crate) struct Scratch {
     onrun_carry: bool,
     /// See `Unit::driver`.
     driver: TestDriver,
+    /// Under [`TestDriver::watches_reads`]: the tables the codeunit's record operations used, measured (typed records,
+    /// `RecordRef` and the page client; `discovery::refuse_after_pass`).
+    pub(crate) read_tables: BTreeSet<u32>,
     /// See `Unit::discovery`.
     discovery: Option<Arc<Vec<usize>>>,
     /// How the codeunit's `OnRun` shows in its rows (`RunOptions::on_run_rows`).
@@ -756,6 +759,14 @@ pub(crate) struct Ends {
 }
 
 impl Scratch {
+    /// Adds the tables `touched` used to `read_tables` under [`TestDriver::watches_reads`], and gives `touched` back.
+    pub(crate) fn note_reads(&mut self, touched: al_vm::impact::Touches) -> al_vm::impact::Touches {
+        if self.driver.watches_reads() {
+            self.read_tables.extend(touched.tables.iter().copied());
+        }
+        touched
+    }
+
     /// How the codeunit's tests ended (`unfinished_after_start`, `refused_mid_run`, `test_panicked`).
     pub(crate) fn note_ended(&mut self, e: Ends) {
         self.unfinished_after_start = e.unfinished_after_start;

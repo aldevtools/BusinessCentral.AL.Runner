@@ -276,7 +276,7 @@ fn run_codeunit_inner(
     if covering {
         session.enable_coverage();
     }
-    if scratch.trace {
+    if scratch.trace || scratch.driver.watches_reads() {
         session.enable_impact_trace();
     }
     let is_on_run = |r: usize| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun");
@@ -1184,7 +1184,7 @@ fn run_codeunit_inner(
             times.push((name.clone(), took));
             let cov = if covering { session.take_coverage() } else { Vec::new() };
             if scratch.trace {
-                let touched = session.take_impact_trace();
+                let touched = scratch.note_reads(session.take_impact_trace());
                 scratch.entered.push((
                     routine.name.clone(),
                     crate::affected::entered_keys(&lowered.program, &touched, &lowered.dependency),
@@ -1416,9 +1416,12 @@ fn ended(
     object: usize,
     times: &[(String, std::time::Duration)],
     execute: bool,
-    scratch: &Scratch,
+    scratch: &mut Scratch,
 ) -> Option<al_vm::single_track::SingleOut> {
     crate::profiling::end(session, &lowered.program, object, times);
+    if scratch.driver.watches_reads() {
+        scratch.note_reads(session.take_impact_trace());
+    }
     singles_out(session, execute, scratch.refused_mid_run, scratch.hands_on_none())
 }
 

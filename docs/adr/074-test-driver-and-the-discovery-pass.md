@@ -125,11 +125,20 @@ One owner module, `al-testrun` `runtime/discovery.rs`:
 - A codeunit whose OnRun raised in the pass reports no method rows; the run still calls its OnRun (SwOnRunRunner.al:24-26).
 
 Refused under `bccontainerhelper` until a probe pins them:
-- A codeunit whose reach touches a table, or can read a number sequence or isolated storage, that a later codeunit's
-  OnRun changed in the pass (measured per pass, `discovery::sees_later`); under `--strict-order` also one that reads a
-  SingleInstance global a later codeunit's OnRun can write.
+- A codeunit whose reach touches a table that a later codeunit's OnRun changed in the pass, or, when its reach opens
+  tables through a RecordRef or is partly unknown, one that its run read (measured, `Scratch::read_tables`;
+  `discovery::unpinned_reach`); under `--strict-order` also one that reads a SingleInstance global a later codeunit's
+  OnRun can write.
+- Any codeunit of the session (the writer itself included) whose reach can read a number sequence or isolated storage
+  that the pass changed: only the rows and the SingleInstance state the pass leaves are pinned.
+- Any runner other than 130450 (`--test-runner ID`, `--isolation test` or `disabled`, `--isolation required`): every
+  test of the session (an allowlist, `discovery::unmeasured`). A corpus harness suite whose oracle BcContainerHelper
+  recorded runs under exactly the runner of that oracle (the isolation suites, runners 61300 and 61301); the harness
+  compares every case with it.
 - Without `--strict-order`: a codeunit whose reach reads a SingleInstance global the pass changed (each codeunit starts
-  with fresh single instances there, ADR-066 amendment 12).
+  with fresh single instances there, ADR-066 amendment 12). `al-runner` and `serve` never run `bccontainerhelper` that
+  way: the pass and the run are one session (SwOnRunRunner.al:18-20), so they always take BC's order
+  (`TestDriver::one_session`). Only the harness's isolation suites run it in the default order.
 - A pass whose OnRun raised after it changed the database or session state, was refused, stopped by the time limit or
   went through an unprobed assumption: the codeunits that read what it may have written.
 - A pass that changed the session language or WorkDate (each codeunit has a session of its own here): every test of

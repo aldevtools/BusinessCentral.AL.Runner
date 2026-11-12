@@ -948,9 +948,11 @@ ISOLATION
                          without test isolation; what it writes stays for the run. Then each
                          codeunit's OnRun runs again before its tests, and its writes are rolled
                          back with the codeunit. A codeunit whose OnRun fails in the discovery
-                         pass reports no tests. Shapes no probe pins yet are refused. Not with
-                         `--isolation required`. With --strict-order the SingleInstance state the
-                         discovery pass leaves carries into the run, as on Business Central.
+                         pass reports no tests. The whole run is one Business Central session,
+                         so it takes Business Central's order, as --strict-order does. Shapes no
+                         probe pins yet are refused, and so is any runner other than 130450.
+                         Not with `--isolation required`. In `serve`: the runTests field
+                         `testDriver`.
     --isolation MODE     (`--test-isolation MODE` is the same) `codeunit` (default): the database
                          is rolled back when a test codeunit ends. `test` (also `function`, `method`): it is rolled back to its state after OnRun
                          after every test method; the codeunit's AL variables are kept, as BC's
@@ -2206,7 +2208,7 @@ pub(crate) fn parse_test_runner(v: &str) -> Result<al_testrun::runtime::TestRunn
 }
 
 /// The value of `--test-driver` (ADR-074).
-fn parse_test_driver(v: &str) -> Result<al_testrun::runtime::TestDriver, String> {
+pub(crate) fn parse_test_driver(v: &str) -> Result<al_testrun::runtime::TestDriver, String> {
     use al_testrun::runtime::TestDriver;
     TestDriver::parse(v).ok_or_else(|| format!("--test-driver needs {}, got `{v}`", TestDriver::VALUES))
 }

@@ -99,7 +99,7 @@ pub struct ChainReport {
     /// method rows; the run still calls their OnRun (`discovery.rs`).
     pub discovery_raised: Vec<(usize, u32)>,
     /// ADR-074: the suites whose discovery pass changed session state the run does not carry, and why: every test of the
-    /// suite is refused (`discovery::refuse_sessions`).
+    /// suite is refused (`discovery::refuse_after_pass`).
     pub discovery_refused: Vec<(usize, String)>,
     /// ADR-074: the SingleInstance globals each suite's discovery pass changed (`discovery::refuse_after_pass`).
     pub discovery_singles: Vec<(usize, al_vm::single_track::GlobalKey)>,
