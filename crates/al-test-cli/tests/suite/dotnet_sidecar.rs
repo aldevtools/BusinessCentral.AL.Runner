@@ -231,6 +231,36 @@ fn exceptions_carry_the_clr_type_and_message_and_the_sidecar_survives_them() {
     sess.close();
 }
 
+// An exception reply says what threw (al-runner issue 7924): a method called as one, a property read by a get, a constructor;
+// nothing for an indexer or a property reached through a call. `folded` when the member was written in another letter case.
+#[test]
+fn an_exception_reply_names_the_binding_that_threw_and_a_folded_name() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let e = exception(sess.invoke(st("System.Convert"), "ToInt32", vec![s("abc")]));
+    assert_eq!((e.bound.as_str(), e.folded), ("method", false));
+    let e = exception(sess.invoke(st("System.Convert"), "toint32", vec![s("abc")]));
+    assert_eq!((e.bound.as_str(), e.folded), ("method", true));
+    let e = exception(sess.construct(&ty("System.Text.StringBuilder"), vec![arg(DotNetValue::Int32(-1))]));
+    assert_eq!((e.bound.as_str(), e.folded), ("constructor", false));
+    assert_eq!(e.clr_type, "System.ArgumentOutOfRangeException");
+    let rel = sess
+        .construct(
+            &ty("System.Uri"),
+            vec![s("a/b"), arg(DotNetValue::Enum { ty: "System.UriKind".into(), name: "Relative".into(), ordinal: 2 })],
+        )
+        .unwrap();
+    let DotNetValue::Handle { handle, .. } = rel.value else {
+        panic!("expected an object, got {:?}", rel.value)
+    };
+    let e = exception(sess.get_property(DotNetTarget::Instance(handle), "AbsolutePath"));
+    assert_eq!((e.bound.as_str(), e.clr_type.as_str()), ("property", "System.InvalidOperationException"));
+    // The same property reached through a call is no binding the host lets through.
+    let e = exception(sess.invoke(DotNetTarget::Instance(handle), "AbsolutePath", vec![]));
+    assert_eq!(e.bound, "");
+    sess.close();
+}
+
 #[test]
 fn a_missing_type_or_member_is_a_refusal_not_an_exception() {
     let Some(h) = host() else { return };

@@ -10,6 +10,7 @@ mod exception_frames;
 mod generic_dictionary;
 mod generic_dictionary_more;
 mod gettype;
+mod invoke_exception;
 pub(crate) mod instream_arg;
 mod last_error;
 mod not_created;
@@ -582,6 +583,9 @@ impl Session {
                     &values,
                     &e,
                 )?;
+                if let Some(error) = invoke_exception::signal(kind, &target, &clr_type, &member, &e) {
+                    return Err(error);
+                }
                 let inner: String = e.inner.iter().map(|(t, m)| format!(" <- {t}: {m}")).collect();
                 unsupported(format!(
                     "DotNet {shown} raised the .NET exception {}: {}{inner}; the text AL would see is not pinned (ADR-014 section 7)",

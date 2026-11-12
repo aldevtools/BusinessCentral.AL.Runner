@@ -125,11 +125,16 @@ impl DotNetReply {
 }
 
 /// A .NET exception, with its inner exceptions (outermost first).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct DotNetException {
     pub clr_type: String,
     pub message: String,
     pub inner: Vec<(String, String)>,
+    /// What the request called when the code threw: `constructor`, `method` (a method called as one) or `property` (a
+    /// property read by a get). Empty for any other binding (an indexer, a setter, a property reached through a call).
+    pub bound: String,
+    /// The member was written in another letter case than its .NET name.
+    pub folded: bool,
 }
 
 impl fmt::Display for DotNetException {
