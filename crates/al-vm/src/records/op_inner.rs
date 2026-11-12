@@ -2074,6 +2074,9 @@ impl Session {
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
                 }
+                // After the All Profile key check: a tenant profile renamed from the empty App ID gets that error
+                // (profiles/TestAllProfileTable.al:186).
+                self.rename_blank_key(&cx, rec, &t, &refs, &old, &new)?;
                 // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
                 // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).
                 let old_pk = Self::sql_key(rec, &t, &old);

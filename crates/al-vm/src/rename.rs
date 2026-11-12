@@ -24,6 +24,13 @@ pub(crate) struct RenameRef {
     arm: ir::RelationArm,
 }
 
+impl RenameRef {
+    /// The referencing table object, the position of its field and the arm.
+    pub(crate) fn parts(&self) -> (usize, usize, &ir::RelationArm) {
+        (self.table, self.pos, &self.arm)
+    }
+}
+
 impl Session {
     /// Every relation arm that points at table `t`, or why the rename cannot be done faithfully.
     pub(crate) fn rename_references(&self, t: &TableDef) -> Result<Vec<RenameRef>, Signal> {

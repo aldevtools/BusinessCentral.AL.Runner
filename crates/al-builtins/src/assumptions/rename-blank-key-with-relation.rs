@@ -1,0 +1,11 @@
+RenameBlankKeyWithRelation => {
+    id: "rename-blank-key-with-relation",
+    assumed: "Record.Rename from a blank Code primary key to a non-blank one fails with `The <field> field on the <table> table cannot be renamed from \"\" to \"<new>\".` then an empty line (two LF characters) and `When a field has a relation defined, the field cannot be renamed to and from zero or an empty value.`, before any trigger runs and with nothing written; GetLastErrorCode is not known and refuses (al-vm rename_blank_key.rs). Only the reporter's shape on BC 29: a database record of a per-company table whose primary key is one Code field, the table and the field without a Caption, no table extension, no OnRename trigger, no subscriber to its events, and as subscribers of the Global Triggers rename events none or only Base Application's GlobalTriggerManagement (codeunit 49, present in the reporter's sandbox); exactly one field of another per-company table without extensions relates to it, by a plain `TableRelation = <table>` (one arm, no condition, no where(), no related field named), validated, outside that table's primary key, of type Code; exactly one row of that table holds the blank value. Every other rename to or from a blank or zero primary key value of a table other tables relate to is refused.",
+    tests: "No Microsoft test. An outside report: the reporter's own repro on BC online 29.1 (al-runner issue 7937, tables 50100 RB Master and 50101 RB Child, codeunit 50150): `asserterror Master.Rename('X')` from a blank Code fails with this text; their app hits the same error on another table.",
+    probe: "Not yet written (corpus file record/table-relation/RenameBlankKeyRelation.al): rename to and from blank and zero for Code and Integer keys, a multi-field key, with no, one and two related rows, a relation with a condition, a where() or a named related field, ValidateTableRelation = false, a relation from a table extension field and from a field of the same table, a temporary record, an OnRename trigger and a subscriber (order against the error), table and field captions, BC 27, 28 and 29; GetLastErrorText exactly (the line break characters) and GetLastErrorCode.",
+    awaiting: Awaiting {
+        issues: &[7937],
+        files: &["tests/al-language/record/table-relation/RenameBlankKeyRelation.al"],
+        since: "2026-11-13",
+    },
+}
