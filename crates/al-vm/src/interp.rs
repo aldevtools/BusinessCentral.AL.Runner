@@ -2227,3 +2227,20 @@ fn field_blob(cur: &Value, v: Value, assign: bool) -> Value {
         v
     }
 }
+
+/// The Blob value `FieldRef.Value := v` stores. Into a field of a temporary record, a loaded Blob that another holder still
+/// has (the source field, a Variant) is copied as [`field_blob`] copies it: assumption `fieldref-value-blob-copy` (al-runner
+/// issue 7935; System Application Test 135032 Temp Blob List Test passes on BC). Every other value is stored as it comes.
+pub(crate) fn fieldref_blob(cur: &Value, v: Value, temporary: bool) -> Value {
+    let Value::Blob(b) = &v else { return v };
+    if matches!(cur, Value::Blob(c) if std::sync::Arc::ptr_eq(c, b)) {
+        return v;
+    }
+    let copied = temporary && b.borrow().loaded && std::sync::Arc::strong_count(b) > 1;
+    if copied {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldrefValueBlobCopy);
+        Value::Blob(al_builtins::stream::copy_for_assignment(b))
+    } else {
+        v
+    }
+}

@@ -1590,6 +1590,7 @@ impl Session {
                     }
                     let v = self.fieldref_value_into(&t, pos, &field.ty, v)?;
                     let mut r = rec.borrow_mut();
+                    let v = crate::interp::fieldref_blob(&r.fields[pos], v, r.temporary);
                     r.fields[pos] = v;
                     if r.load.partial {
                         r.load.written(pos);
