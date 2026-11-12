@@ -185,12 +185,25 @@ impl Session {
                 .properties
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case("DelayedInsert") && v.trim().eq_ignore_ascii_case("true"));
+            // A new row of a DelayedInsert ListPart on a Document host is not saved first: the control's OnValidate runs on the
+            // typed row, and a CurrPage.Update() in it inserts the row (pages/parts/PartNewRowPageVariable.al:966
+            // Delayed_NewRow_RecordFieldsThenVariableWithUpdate `V-UPD 0 | T-V 0 1 | INS 0 1`; :1023 without the update the row
+            // is inserted at Close; the same with AutoSplitKey :1470 and PopulateAllFields :1722).
+            if delayed && self.new_row_part_pinned(st) {
+                return Ok(());
+            }
             if delayed || st.borrow().typed_before_key {
                 return unsupported(
                     "SetValue on a page variable control of a new row typed before its key or on a DelayedInsert page (whether the row is inserted first is not pinned)",
                 );
             }
         } else if Self::same_values(&self.page_rec(st).borrow().fields, &self.page_xrec_fields(st)) {
+            // A stored row of a ListPart on a Document host set to the values it holds is not saved first, as an untouched one
+            // (PartNewRowPageVariable.al:885 Plain_StoredRow_SameValueThenVariableWithUpdate `V-UPD 10000 | T-V 10000 2 | MOD 10000 2`,
+            // the same with DelayedInsert :1137, AutoSplitKey :1389, both :1641 and PopulateAllFields :1893).
+            if self.new_row_part_pinned(st) {
+                return Ok(());
+            }
             return unsupported(
                 "SetValue on a page variable control of a row set to the values it holds (whether the row is saved first is not pinned)",
             );
@@ -259,7 +272,7 @@ impl Session {
     /// `TestPage.*` with the rules above in front. The page notes the call (`note_test_call`), so a rule pinned for one
     /// scenario knows what the test did since the page opened.
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
-        Self::note_test_call(st, method, None, args.len());
+        self.note_test_call(st, method, None, args.len());
         Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestPage method ends the shape `next_held_row_read` reads in; a `Next` notes its row again.
         st.borrow_mut().next_held_row = None;
@@ -340,7 +353,7 @@ impl Session {
     ) -> Result<Value, Signal> {
         let m = method.method();
         let st = &c.page;
-        Self::note_test_call(st, method, Some(&c.target), args.len());
+        self.note_test_call(st, method, Some(&c.target), args.len());
         Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestField or TestAction call but SetValue ends the shape `next_held_row_read` reads in.
         if m != PageMethod::SetValue {

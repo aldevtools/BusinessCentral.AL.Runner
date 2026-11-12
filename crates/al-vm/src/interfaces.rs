@@ -14,12 +14,14 @@ use std::rc::Rc;
 
 /// A call on an interface variable that holds no implementation
 /// (codeunits/TestInterfaceRuntimeContracts.al:76,
-/// Interface_CallOnUnassignedVariable_Throws_InterfaceNotInitialized).
+/// Interface_CallOnUnassignedVariable_Throws_InterfaceNotInitialized). GetLastErrorText(true) leaves the text
+/// (errors/last-error/LastErrorFlagRuntimeCodes.al InvalidOperationSites_ExcludeFlag `interface_true`; corpus pull request 1327).
 fn not_initialized() -> Signal {
     Signal::Error(Box::new(AlError {
         message: "Interface not initialized".into(),
         code: "InvalidOperation".into(),
         call_stack: String::new(),
+        origin: al_builtins::native::ErrorOrigin::SameText,
         ..Default::default()
     }))
 }
