@@ -337,17 +337,18 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(not_run(&o, "DeleteWithMetadata").contains("Tenant Profile Page Metadata"));
 }
 
-// A name that ends in a dot (`Table Synch. Setup`; until gap cycle 6 `Metadata Permission Set Rel.`, 23 of Microsoft's
-// permission tests) is a platform table with no provider, not an object outside the workspace.
+// A name that ends in a dot (`Agent Task Timeline Step Det.`; before natives round 3 `Table Synch. Setup`, before gap cycle 6
+// `Metadata Permission Set Rel.`, 23 of Microsoft's permission tests) is a platform table with no provider, not an object
+// outside the workspace.
 #[test]
 fn a_platform_table_whose_name_ends_in_a_dot_names_the_missing_provider() {
     let o = outcomes(
         r#"codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure UsesIt() var P: Record "Table Synch. Setup"; begin if P.IsEmpty() then; end; }"#,
+  [Test] procedure UsesIt() var P: Record "Agent Task Timeline Step Det."; begin if P.IsEmpty() then; end; }"#,
     );
     let why = not_run(&o, "UsesIt");
     assert!(
-        why.contains("platform table 'Table Synch. Setup' (") && why.contains("has no provider"),
+        why.contains("platform table 'Agent Task Timeline Step Det.' (") && why.contains("has no provider"),
         "{why}"
     );
 }
