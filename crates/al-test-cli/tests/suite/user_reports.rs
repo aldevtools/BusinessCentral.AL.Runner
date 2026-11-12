@@ -2530,3 +2530,22 @@ codeunit 69502 T {{ Subtype = Test;
 fn measured_literal_field_caption_reuses_the_resolution_on_repeated_reads() {
     all_pass(run_with_deps(&[], include_str!("../fixtures/literal-field-caption.al")));
 }
+
+#[test]
+fn issue_7884_caption_after_language_or_binding_change_stays_refused() {
+    let source = include_str!("../fixtures/literal-field-caption.al");
+    let needle = "        SecondCaption := Pg.Payload.Caption();";
+    for operation in [
+        "GlobalLanguage(1031);",
+        "UnbindSubscription(Subscriber); BindSubscription(Subscriber);",
+    ] {
+        let changed = source.replace(needle, &format!("        {operation}\n{needle}"));
+        assert_ne!(source, changed);
+        let results = run_with_deps(&[], &changed);
+        assert!(
+            matches!(results.as_slice(), [(_, Outcome::NotRun(reason))]
+            if reason.contains("a second Caption()")),
+            "{results:?}"
+        );
+    }
+}

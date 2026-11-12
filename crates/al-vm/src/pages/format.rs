@@ -1101,22 +1101,7 @@ impl Session {
                 );
             }
             if raises_resolve(&c) {
-                // Local LiteralCaption.al: reading the same literal CaptionClass again keeps
-                // the resolved value without raising OnResolveCaptionClass, also after an unrelated edit.
-                if let Some((_, _, caption)) = st
-                    .borrow()
-                    .control_captions
-                    .iter()
-                    .find(|(i, text, _)| *i == idx && *text == c)
-                {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::LiteralFieldCaptionResolutionReused,
-                    );
-                    return Ok(caption.clone());
-                }
-                let caption = self.caption_class_text(st, &c)?;
-                st.borrow_mut().control_captions.push((idx, c, caption.clone()));
-                return Ok(caption);
+                return self.read_literal_field_caption(st, idx, c);
             }
             return self.caption_class_text(st, &c);
         }

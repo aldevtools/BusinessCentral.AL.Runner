@@ -311,6 +311,7 @@ impl Session {
             s.dirty = false;
             s.frozen_visible = Vec::new();
             s.control_captions = Vec::new();
+            s.literal_field_caption_contexts.clear();
             s.forget_field_captions();
             s.moving_next = false;
             s.window = Vec::new();

@@ -766,6 +766,7 @@ impl Session {
             }
             self.ensure_initialized(&inst);
             self.forget_page_held(&inst);
+            self.events.caption_context_revision += 1;
             self.events.bindings.push(Binding {
                 instance: Rc::downgrade(&inst),
             });
@@ -776,6 +777,7 @@ impl Session {
             // True even when it was never bound (Contract 6, "container-verified").
             if let Some(i) = at {
                 self.events.bindings.remove(i);
+                self.events.caption_context_revision += 1;
             }
             self.forget_page_held(&inst);
             self.sync_active_instances();
