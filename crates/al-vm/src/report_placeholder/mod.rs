@@ -114,6 +114,8 @@ impl Session {
                     Format::Html => self.html_render_mark(schema, rows, selected.as_deref()),
                     _ => al_builtins::placeholder_output::mark(format.name(), schema.name()),
                 };
+                self.placeholder_files
+                    .saved(&mark, &schema.report().default_layout_kind);
                 match target {
                     SaveTarget::Stream(blob) => {
                         al_builtins::stream::write_bytes(&blob, &format.bytes());
@@ -137,6 +139,7 @@ impl Session {
                 assume(Assumption::ReportRenderDiscarded);
             }
             (SaveOutput::Discard, SaveTarget::File(name)) => {
+                self.placeholder_files.written(&name);
                 self.render_pending_files
                     .insert(crate::ctx::pending_key(&name), schema.name().into());
                 assume(Assumption::ReportRenderDiscarded);
