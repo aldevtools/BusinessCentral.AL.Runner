@@ -202,6 +202,9 @@ pub fn is_unloaded_write_mark(what: &str) -> bool {
 
 /// The refusal for a look at the output of a report that was run for its effects only (ADR-040).
 pub fn render_pending_error(report: &str) -> Signal {
+    if crate::placeholder_output::is_placeholder(report) {
+        return crate::placeholder_output::refusal(report);
+    }
     if report == UNLOADED_WRITE {
         return Signal::Unsupported(
             "a Blob written through a stream after the record was read without CalcFields, shorter than its stored content \
@@ -916,6 +919,21 @@ impl InState {
         self.with_data(|d| d[pos.min(d.len())..].to_vec())
     }
 
+    /// Takes the bytes of a placeholder report output from the read position on and moves to the end, for a byte copy that
+    /// does not look at them (`placeholder_output`). Empty for any other stream.
+    pub fn drain_placeholder(&mut self) -> Vec<u8> {
+        let Source::Live(b) = &self.source else {
+            return Vec::new();
+        };
+        let buf = b.borrow();
+        if crate::placeholder_output::of(&buf).is_none() {
+            return Vec::new();
+        }
+        let rest = buf.bytes[self.pos.min(buf.bytes.len())..].to_vec();
+        self.pos = buf.bytes.len();
+        rest
+    }
+
     /// Takes the bytes from the read position on and moves to the end.
     pub fn drain(&mut self) -> Vec<u8> {
         let rest = self.rest();
@@ -1003,7 +1021,11 @@ fn blob_create_in(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> 
     // carried unread in the company build (`is_carried_mark`) gives a stream that only CopyStream moves on.
     let pending = b.borrow().render_pending.clone();
     let carried = ctx.company_build() && pending.as_deref().is_some_and(is_carried_mark);
-    if pending.as_deref() != Some(QUERY_METADATA) && !carried {
+    // A stream on a placeholder report output is no look at it; a read from the stream is (`placeholder_output`).
+    let placeholder = pending
+        .as_deref()
+        .is_some_and(crate::placeholder_output::is_placeholder);
+    if pending.as_deref() != Some(QUERY_METADATA) && !carried && !placeholder {
         b.borrow().observe()?;
     }
     set_stream(&a[0], LibraryValue::InStream(InState::live(b, enc)))?;
@@ -1058,7 +1080,10 @@ fn blob_has_value(ctx: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> 
         crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
         return Ok(Value::Boolean(true));
     }
-    buf.observe()?;
+    // A placeholder report output exists and is not empty, as BC's rendering (ADR-040 amendment 2026-11-11).
+    if crate::placeholder_output::of(&buf).is_none() {
+        buf.observe()?;
+    }
     Ok(Value::Boolean(!buf.bytes.is_empty()))
 }
 
@@ -1111,7 +1136,11 @@ pub fn blob_length_sign(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value])
 fn blob_length_of(c: &mut dyn Ctx, r: Option<&mut Value>, sign_only: bool) -> NResult {
     let b = blob_of(r)?;
     let buf = b.borrow();
-    buf.observe()?;
+    // The size of a placeholder report output answers from its bytes; only "> 0" is meant to match BC (ADR-040 amendment
+    // 2026-11-11, `placeholder_output`).
+    if crate::placeholder_output::of(&buf).is_none() {
+        buf.observe()?;
+    }
     // Only the sign is pinned for a call stack text: it is not empty (errors/last-error/WdCallStackToBlob.al:96).
     if !sign_only {
         crate::stream_call_stack::refuse_length(&buf.bytes, "Blob.Length")?;
@@ -2432,6 +2461,21 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
     {
         let (out, _) = out_buf(Some(&mut a[0]))?;
         mark_carried(&out, mark);
+        return Ok(Value::Boolean(true));
+    }
+    // A placeholder report output is copied byte for byte and the copy carries its mark (ADR-040 amendment 2026-11-11).
+    if let Some(mark) = crate::placeholder_output::of_in(&a[1]) {
+        let (out, _) = out_buf(Some(&mut a[0]))?;
+        let bytes = match &mut *in_state(Some(&mut a[1]))? {
+            LibraryValue::InStream(s) => s.drain_placeholder(),
+            _ => unreachable!("of_in found an InStream"),
+        };
+        write_bytes(&out, &bytes);
+        // Another mark the target holds refuses more than this one and stays.
+        let mut buf = out.borrow_mut();
+        if buf.render_pending.is_none() {
+            buf.render_pending = Some(mark);
+        }
         return Ok(Value::Boolean(true));
     }
     let (out, _) = out_buf(Some(&mut a[0]))?;

@@ -1284,9 +1284,7 @@
 79013 OutStream_Write_Variant
 79013 SG_FieldTable_RowVersion_NameAlone
 79255 ExcelLayout_SaveAsExcel
-79255 ExcelLayout_SaveAsPdf
 79255 RdlcLayout_SaveAsPdf
-79255 WordLayout_SaveAsExcel
 79255 WordLayout_SaveAsHtml
 79255 WordLayout_SaveAsPdf
 79255 WordLayout_SaveAsWord
@@ -1508,9 +1506,7 @@
 84592 TargetFormat_PageNo_NoLayout
 84592 TargetFormat_PageNo_WordDefaultLayout
 84646 ExcelOnly_SaveAs_EachFormat
-84646 WordOnly_SaveAsExcel_IfNot_Statement
 84646 WordOnly_SaveAs_EachFormat
-84650 TempRecord_Execute
 84653 ExtVariable_Default_FieldVisible
 84653 ExtVariable_SetTrue_FieldHidden
 84658 SectionBreaks_WordMergeDataItem
@@ -1663,15 +1659,6 @@
 89270 InsertDuplicateTemporary_ExcludeFlag
 89775 ActivateAction_Bare
 89775 ActivateAction_Curr
-89950 Layout_F_Execute
-89950 Layout_F_Run
-89950 Layout_F_RunModal
-89950 Layout_T_Execute
-89950 Layout_T_Run
-89950 Layout_T_RunModal
-89950 Layout_U_Execute
-89950 Layout_U_Run
-89950 Layout_U_RunModal
 90367 PerDatabasePart_IsEmptyOfPerCompanyTable_NoCompany
 90367 TriggerSetup_AskedPerCompanyInInstall_NeverInPerDatabasePart
 90510 MainApp_InstallPlainInsert_RowVersionAgainstLaterInsert

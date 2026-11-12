@@ -215,7 +215,7 @@ fn utf16_text(data: &[u8]) -> Option<String> {
 
 /// The entries of a zip archive read through its central directory: (name, uncompressed bytes) of the stored and deflated
 /// entries. `None` when the bytes are not a zip archive this reader understands.
-fn zip_entries(bytes: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
+pub(crate) fn zip_entries(bytes: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
     let u16_at = |i: usize| bytes.get(i..i + 2).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize);
     let u32_at = |i: usize| {
         bytes

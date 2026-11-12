@@ -305,3 +305,20 @@ none of them yet (a later change raises them in the pinned order).
 - Probe to queue (Windows nightly, since the Linux tier does not render): RDLC layout to Word and Excel; Excel layout to Word
   and Html; Word layout to Excel again; `SaveAsWord`/`SaveAsExcel`/`SaveAsHtml(FileName)` then `File.Exists` and size;
   Run/RunModal/Execute of a Word and an Excel layout report with a logging subscriber. When it lands it wins.
+
+### Implementation notes (2026-11-12)
+
+- Code: `al-vm/src/report_placeholder/` (`grid.rs` the table above, `files.rs` the bytes, `run.rs` Run/RunModal/Execute) and the
+  content mark `al-builtins/src/placeholder_output.rs`. Tests: `al-vm/tests/reporting/report_placeholder_outputs.rs`.
+- Two cells the table marks "refused: not measured" are pinned by reports/CiReportRunLeads.al (BC 29.0 tier): an Excel layout
+  to Word (:267-270) and to Html (:662-666) answer false with `ReportUnsupportedFormat`, as Pdf does (:657-661). They are built
+  that way. RDLC to Word and Excel stays refused.
+- `Report.Run`/`RunModal`/`Execute` of a report with an Excel default layout do not run on BC: they raise "The current report
+  operation is not supported for Excel Layout reports." (`ReportUnsupportedOperation`) before OnPreReport
+  (CiReportRunLeads.al:236-260). That pinned error is built (for a report without OnInitReport, request page or reportextension;
+  with one of them it stays refused). RDLC and Word layouts run without output as decided.
+- The content mark applies to the Word, Excel and Html placeholders. The PDF placeholder stays readable as the 2026-11-08
+  amendment built it: corpus cases that pass read its `%PDF-` header (reports/TestReportSaveAsPdfContent.al,
+  reports/layouts-saveas/ReportExtensionSaveAs.al, streams/CjWordSections.al); marking it would turn them into regressions.
+- The false answers raise SubstituteReport (static form, as the RDLC to Html answer) and not OnDocumentReady (AMReportOutputTests.al:221,
+  :257); a subscriber the test can see to another layout event refuses them.

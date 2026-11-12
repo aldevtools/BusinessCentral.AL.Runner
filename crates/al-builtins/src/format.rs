@@ -786,6 +786,8 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
             crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
             "*".to_string()
         }
+        // A placeholder report output is not empty, as BC's rendering (ADR-040 amendment 2026-11-11, `placeholder_output`).
+        Some(mark) if crate::placeholder_output::is_placeholder(mark) => "*".to_string(),
         pending => {
             if let Some(report) = pending {
                 crate::stream::note_pending_observation(report);

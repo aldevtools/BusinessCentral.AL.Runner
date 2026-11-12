@@ -744,15 +744,15 @@ fn the_request_page_of_a_report_that_renders_has_no_ok_action() {
     ));
 }
 
-// A run of a report that renders gets as far as its output and is refused there (docs/probes-needed.md)
+// A run of a report with an RDLC layout runs and writes no output (ADR-040 amendment 2026-11-11; reports/runtime/
+// LtTkShowPrintStatus.al:960-984 Layout_T_Run). Until then this test expected a refusal.
 #[test]
-fn a_run_that_would_render_is_refused() {
-    let why = refused(&format!(
+fn a_run_that_would_render_runs_without_output() {
+    passes(&format!(
         "{HELPERS}
         [Test]
         procedure Renders() begin Seed(); Report.Run(Report::\"RQ Dataset No Page\"); end;"
     ));
-    assert!(why.contains("renders output"), "{why}");
 }
 
 const TX_HELPERS: &str = "var HandlerRan: Boolean;

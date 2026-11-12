@@ -402,6 +402,15 @@ pub trait Ctx: FormatCtx {
     fn fs_write_unproduced(&mut self, _path: &str, _mark: &str) -> Result<(), String> {
         Err("this context has no file system".into())
     }
+    /// Creates the file at `path` with the bytes of a placeholder report output and its mark (`placeholder_output`): it exists,
+    /// its size answers, and a read of its content is refused until AL code writes it again.
+    fn fs_write_placeholder(&mut self, _path: &str, _bytes: &[u8], _mark: std::sync::Arc<str>) -> Result<(), String> {
+        Err("this context has no file system".into())
+    }
+    /// The mark and the bytes of a file that holds a placeholder report output (`fs_write_placeholder`).
+    fn fs_placeholder(&mut self, _path: &str) -> Option<(std::sync::Arc<str>, Vec<u8>)> {
+        None
+    }
     /// Whether `Clear` of a DotNet variable holding the host object `handle` of type `clr_type` changes nothing AL can see, so
     /// the variable just becomes unassigned (an OpenXml workbook writer after its `Close` and the worksheet writers it handed
     /// out, a workbook reader and its worksheet readers). The context marks the assumption it relies on.

@@ -1,15 +1,28 @@
-//! A Pdf save writes a placeholder PDF (owner decision 2026-11-08, ADR-040 amendment "A placeholder PDF").
+//! A rendering save writes a placeholder file, and a run renders nothing (ADR-040 amendments "A placeholder PDF" of
+//! 2026-11-08 and "Placeholder Word, Excel and Html outputs, and a run without output" of 2026-11-11).
 //!
-//! `Report.SaveAs(.., ReportFormat::Pdf, ..)`, `Report.SaveAsPdf` and `TestRequestPage.SaveAsPdf` of a report whose
-//! default layout is RDLC or Word run the report exactly as the Xml path does (request parameters, triggers, data items,
-//! errors) and write [`placeholder_pdf`] where BC writes its rendering. The bytes are not BC's: only that the output
-//! exists, is a PDF and is not empty is meant to match. The path marks the assumption `report-pdf-placeholder`, so a
-//! test that passes through it is a flagged pass.
+//! `Report.SaveAs(.., Pdf | Word | Excel | Html, ..)`, `SaveAsPdf`/`SaveAsWord`/`SaveAsExcel`/`SaveAsHtml` (by number and on
+//! a variable) and `TestRequestPage.SaveAsPdf`/`SaveAsExcel` run the report exactly as the Xml path does (request
+//! parameters, triggers, data items, errors) and write a small valid file of the format (`files`) where BC writes its
+//! rendering. Which format a default layout gives is the grid of `grid`. The bytes are not BC's: only that the output exists,
+//! is of the right kind and is not empty is meant to match. The output carries the mark of `al_builtins::placeholder_output`,
+//! so a read of its content is refused. Each path marks its assumption (`report-pdf-placeholder`, `report-word-placeholder`,
+//! `report-excel-placeholder`, `report-html-placeholder`), so a test that passes through it is a flagged pass.
+//! `run` is the Run/RunModal/Execute of a report that renders: it runs the Xml path and writes nothing
+//! (`report-run-without-output`).
 //!
-//! Microsoft tests that need it (none reads the bytes): `Library - Post Inventory to G/L`.PostInvtCostToGL calls
+//! Microsoft tests that need the Pdf form (none reads the bytes): `Library - Post Inventory to G/L`.PostInvtCostToGL calls
 //! `Post Inventory Cost to G/L`.SaveAsPdf (SCM-Costing, SCM-Manufacturing, SCM-Assembly, SCM); the request page
 //! handlers of Report Layout, ERM Account Schedule II and ERM Purchase Reports III call `SaveAsPdf`;
-//! ReportCatalogTests CustomerStatementReport checks the file is not empty (`CheckFileNotEmpty`).
+//! ReportCatalogTests CustomerStatementReport checks the file is not empty (`CheckFileNotEmpty`). The Html form: e-mail body
+//! reports of an outside reporter's suite (al-runner issue 6924) that copy the Html into an attachment or check that it saved.
+
+mod files;
+mod grid;
+mod run;
+
+pub use files::{Format, placeholder_pdf};
+pub(crate) use grid::{Rendered, format_refused_by_layout};
 
 use crate::reports::{SaveTarget, Schema};
 use crate::{Session, Signal};
@@ -22,34 +35,8 @@ pub(crate) enum SaveOutput {
     Dataset,
     /// Nothing; the target is marked as pending (ADR-040 allow-list, and the company build).
     Discard,
-    /// [`placeholder_pdf`].
-    Placeholder,
-}
-
-/// A small valid PDF: the `%PDF-1.4` header, a catalog, a page tree and one blank Letter page, with a correct
-/// cross-reference table.
-pub fn placeholder_pdf() -> Vec<u8> {
-    let objects = [
-        "<< /Type /Catalog /Pages 2 0 R >>",
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
-    ];
-    let mut out = String::from("%PDF-1.4\n");
-    let mut offsets = Vec::with_capacity(objects.len());
-    for (i, body) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
-    }
-    let xref = out.len();
-    out.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1));
-    for at in offsets {
-        out.push_str(&format!("{at:010} 00000 n \n"));
-    }
-    out.push_str(&format!(
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
-        objects.len() + 1
-    ));
-    out.into_bytes()
+    /// The placeholder file of the format, marked so a read of its content is refused.
+    Placeholder(Format),
 }
 
 /// The events of codeunit "Reporting Triggers" BC raises around a render (reports/layouts-saveas, events/platform-
@@ -101,13 +88,31 @@ impl Session {
         match (output, target) {
             (SaveOutput::Dataset, SaveTarget::Stream(blob)) => al_builtins::stream::write_bytes(&blob, dataset),
             (SaveOutput::Dataset, SaveTarget::File(name)) => self.write_save_file(&name, dataset)?,
-            (SaveOutput::Placeholder, SaveTarget::Stream(blob)) => {
-                al_builtins::stream::write_bytes(&blob, &placeholder_pdf());
-                assume(Assumption::ReportPdfPlaceholder);
-            }
-            (SaveOutput::Placeholder, SaveTarget::File(name)) => {
-                self.write_save_file(&name, &placeholder_pdf())?;
-                assume(Assumption::ReportPdfPlaceholder);
+            (SaveOutput::Placeholder(format), target) => {
+                // The Word, Excel and Html placeholders carry the mark, so a read of their content is refused (amendment
+                // 2026-11-11). The PDF stays readable as the 2026-11-08 amendment built it: corpus cases that pass read its
+                // header (reports/TestReportSaveAsPdfContent.al, reports/layouts-saveas/ReportExtensionSaveAs.al, streams/CjWordSections.al: `%PDF-`).
+                let mark = (format != Format::Pdf)
+                    .then(|| al_builtins::placeholder_output::mark(format.name(), schema.name()));
+                match (target, mark) {
+                    (SaveTarget::Stream(blob), mark) => {
+                        al_builtins::stream::write_bytes(&blob, &format.bytes());
+                        if mark.is_some() {
+                            blob.borrow_mut().render_pending = mark;
+                        }
+                    }
+                    (SaveTarget::File(name), Some(mark)) => {
+                        al_builtins::native::Ctx::fs_write_placeholder(self, &name, &format.bytes(), mark)
+                            .map_err(Signal::unsupported)?;
+                    }
+                    (SaveTarget::File(name), None) => self.write_save_file(&name, &format.bytes())?,
+                }
+                assume(match format {
+                    Format::Pdf => Assumption::ReportPdfPlaceholder,
+                    Format::Word => Assumption::ReportWordPlaceholder,
+                    Format::Excel => Assumption::ReportExcelPlaceholder,
+                    Format::Html => Assumption::ReportHtmlPlaceholder,
+                });
             }
             (SaveOutput::Discard, SaveTarget::Stream(blob)) => {
                 // The dataset is dropped; the buffer is marked and any look at it is refused.
@@ -128,30 +133,44 @@ impl Session {
         al_builtins::native::Ctx::fs_write(self, name, bytes).map_err(Signal::unsupported)
     }
 
-    /// Whether a Pdf save of the report writes the placeholder: its default layout is RDLC or Word, and no subscriber the
-    /// test can see listens to an event BC raises around the render. Such a subscriber refuses the save, and so does one
-    /// the compile left out (other than Base Application's ReportManagement, which picks a layout from data: a layout
-    /// selection other than the report's RDLC or Word layout refuses too, [`Session::layout_selection`]).
-    pub(crate) fn pdf_placeholder(&self, schema: &Schema) -> Result<bool, Signal> {
+    /// Whether a save of the report as `format` writes the placeholder: its default layout gives the format (`grid`), and no
+    /// subscriber the test can see listens to an event BC raises around the render. Such a subscriber refuses the save, and so
+    /// does one the compile left out (other than Base Application's ReportManagement, which picks a layout from data: a layout
+    /// selection other than the report's own layout refuses too, [`Session::layout_selection`]).
+    pub(crate) fn placeholder_allowed(&self, schema: &Schema, format: Format) -> Result<bool, Signal> {
         let report = schema.report();
-        if !matches!(report.default_layout_kind.as_str(), "rdlc" | "word") || report.layout_file_missing {
+        if report.processing_only || report.layout_file_missing || !grid::writes(&report.default_layout_kind, format) {
             return Ok(false);
         }
-        if let Some(who) = self.layout_event_subscriber() {
-            return Err(Signal::unsupported(format!(
-                "Report.SaveAs of \"{}\" as Pdf with {who} (BC raises the layout events before it renders; this runtime \
-                 writes a placeholder PDF and raises none of them)",
-                schema.name()
-            )));
-        }
-        if let Some(what) = self.layout_selection(schema)? {
-            return Err(Signal::unsupported(format!(
-                "Report.SaveAs of \"{}\" as Pdf while {what} (BC may render another layout, and an Excel one writes no \
-                 output; this runtime writes a placeholder PDF only for the report's own RDLC or Word layout)",
-                schema.name()
-            )));
-        }
+        self.refuse_unraised_layout_events(schema, &format!("Report.SaveAs as {}", format.name()), &[])?;
         Ok(true)
+    }
+
+    /// Refuses `what` (a save as a format, a run) while a subscriber the test can see listens to a layout event this runtime
+    /// does not raise (`except` names
+    /// the events BC does not raise on the path, or that the caller raised), or while a layout selection may pick another
+    /// layout than the report's own.
+    pub(crate) fn refuse_unraised_layout_events(
+        &self,
+        schema: &Schema,
+        what: &str,
+        except: &[&str],
+    ) -> Result<(), Signal> {
+        if let Some(who) = self.layout_event_subscriber(except) {
+            return Err(Signal::unsupported(format!(
+                "{what} of report \"{}\" with {who} (BC raises the layout events around a render; this runtime \
+                 writes a placeholder or answers without a render and raises none of them)",
+                schema.name()
+            )));
+        }
+        if let Some(why) = self.layout_selection(schema)? {
+            return Err(Signal::unsupported(format!(
+                "{what} of report \"{}\" while {why} (BC may render another layout, and an Excel one writes no \
+                 output; this runtime answers only for the report's own layout)",
+                schema.name()
+            )));
+        }
+        Ok(())
     }
 
     /// A layout selection BC follows when it renders that may pick something other than an RDLC or Word layout of the report,
@@ -231,14 +250,14 @@ impl Session {
         Ok(None)
     }
 
-    /// The first subscriber to a layout event that refuses a placeholder, as text for a refusal.
-    fn layout_event_subscriber(&self) -> Option<String> {
+    /// The first subscriber to a layout event (other than those in `except`) that refuses a placeholder, as text for a refusal.
+    fn layout_event_subscriber(&self, except: &[&str]) -> Option<String> {
         let events = &self.engine.events;
         let program = &self.engine.program;
         // A subscriber the test cannot see (it names neither the subscriber's codeunit nor a SingleInstance codeunit the
         // subscriber holds) cannot tell whether the event ran, as for CaptionClassTranslate (`Registry::unraised_subscriber`).
         let test = self.test_object.and_then(|t| program.objects.get(t));
-        for (key, name) in LAYOUT_EVENTS {
+        for (key, name) in LAYOUT_EVENTS.iter().filter(|(k, _)| !except.contains(k)) {
             if let Some((_, sub)) = events.unraised_subscriber("reporting triggers", Some(key), test, self.test_object)
             {
                 return Some(format!("a subscriber to {name} ({sub})"));
@@ -251,10 +270,13 @@ impl Session {
                 return Some(format!("a subscriber to {name} ({})", m.subscriber));
             }
         }
-        REPORT_MANAGEMENT_EVENTS.iter().find_map(|e| {
-            events
-                .unraised_subscriber("reportmanagement", Some(e), test, self.test_object)
-                .map(|(_, sub)| format!("a subscriber to ReportManagement's {e} ({sub})"))
-        })
+        REPORT_MANAGEMENT_EVENTS
+            .iter()
+            .filter(|e| !except.contains(e))
+            .find_map(|e| {
+                events
+                    .unraised_subscriber("reportmanagement", Some(e), test, self.test_object)
+                    .map(|(_, sub)| format!("a subscriber to ReportManagement's {e} ({sub})"))
+            })
     }
 }

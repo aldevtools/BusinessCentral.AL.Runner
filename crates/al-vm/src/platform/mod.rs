@@ -465,8 +465,13 @@ impl Providers {
                             .into(),
                     );
                 }
-                // ADR-044: the picture was never produced; its content, MIME type and size are unknown.
-                if let Some(what) = &o.pending {
+                // ADR-044: the picture was never produced; its content, MIME type and size are unknown. A placeholder report
+                // output (ADR-040 amendment 2026-11-11) has its bytes, and its Content carries the mark.
+                let placeholder = o
+                    .pending
+                    .as_ref()
+                    .filter(|m| al_builtins::placeholder_output::is_placeholder(m));
+                if let Some(what) = o.pending.as_ref().filter(|_| placeholder.is_none()) {
                     let al_builtins::native::Signal::Unsupported(why) = al_builtins::stream::render_pending_error(what)
                     else {
                         unreachable!("render_pending_error is a refusal")
@@ -476,7 +481,9 @@ impl Providers {
                 row[pos(t, 2)] = Value::Text(description.into());
                 let blob = al_builtins::stream::new_blob();
                 al_builtins::stream::write_bytes(&blob, &o.bytes);
-                if al_builtins::media::jpg_holding_png(o) {
+                if let Some(mark) = placeholder {
+                    blob.borrow_mut().render_pending = Some(mark.clone());
+                } else if al_builtins::media::jpg_holding_png(o) {
                     blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_JPG_HOLDING_PNG.into());
                 } else if al_builtins::media::png_size(&o.bytes).is_some() {
                     // BC stores an imported PNG re-encoded (onprem session-system/UsAppLogo.al:7, the Icon of an app's logo; types/W7Media.al:141-145):

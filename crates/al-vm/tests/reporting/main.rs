@@ -31,6 +31,7 @@ mod report_option_caption_ml;
 mod report_params_bare_root;
 mod report_params_self_closing;
 mod report_pdf_placeholder;
+mod report_placeholder_outputs;
 mod report_properties;
 mod report_region_after_language;
 mod report_request_rec_in_init;

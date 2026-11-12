@@ -198,13 +198,21 @@ fn pending_of(v: Option<&Value>) -> Option<std::sync::Arc<str>> {
 fn import_object(c: &mut dyn Ctx, a: &[Value]) -> Result<Id, Signal> {
     // ImportStream(Stream, Description[, MimeType[, FileName]]).
     let pending = pending_of(a.first());
-    let bytes = if pending.is_some() {
-        Vec::new()
-    } else {
-        drain(
+    let bytes = match &pending {
+        // A placeholder report output is imported byte for byte with its mark (an e-mail attachment: Email Message Impl.
+        // InsertAttachment, ADR-040 amendment 2026-11-11); a read of the content stays refused.
+        Some(mark) if crate::placeholder_output::is_placeholder(mark) => match a.first() {
+            Some(Value::Library(_, h)) => match &mut *h.borrow_mut() {
+                LibraryValue::InStream(s) => s.drain_placeholder(),
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
+        },
+        Some(_) => Vec::new(),
+        None => drain(
             a.first()
                 .ok_or_else(|| Signal::Unsupported("ImportStream without a stream".into()))?,
-        )?
+        )?,
     };
     let description = text_arg(a, 1)?;
     let mime = match a.get(2) {
@@ -333,6 +341,22 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
     // ignores only the bytes; Config. XML Exchange.ExportMedia in the DemoTool company build): the stream is marked with the
     // import's mark, so a look at what it holds is refused.
     let docx_mark = obj.pending.as_deref() == Some(crate::stream::MEDIA_DOCX_REZIPPED);
+    // A placeholder report output exports byte for byte with its mark (`placeholder_output`).
+    if let Some(mark) = obj
+        .pending
+        .as_ref()
+        .filter(|m| crate::placeholder_output::is_placeholder(m))
+    {
+        let Some(Value::Library(_, h)) = a.first() else {
+            return unsupported("Media.ExportStream without an OutStream");
+        };
+        let LibraryValue::OutStream(blob, _) = &*h.borrow() else {
+            return unsupported("Media.ExportStream to a value that is not an OutStream");
+        };
+        crate::stream::write_bytes(blob, &obj.bytes);
+        blob.borrow_mut().render_pending = Some(mark.clone());
+        return Ok(Value::Boolean(true));
+    }
     if let Some(report) = obj.pending.as_ref().filter(|_| !docx_mark) {
         return Err(crate::stream::render_pending_error(report));
     }

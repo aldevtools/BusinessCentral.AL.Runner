@@ -166,9 +166,13 @@ fn open(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     // A file of content carried unread in the company build (owner decision 2026-10-23 "Carry bytes unread"): the open file is
     // an opaque buffer, so its streams only move it on (CopyStream) and any look at it is refused.
     let carried = c.fs_carried_mark(&name);
-    let bytes = match &carried {
-        Some(_) => Vec::new(),
-        None => match c.fs_read(&name)? {
+    // A placeholder report output opens with its bytes and its mark: only a read of the content is refused
+    // (`placeholder_output`).
+    let placeholder = c.fs_placeholder(&name);
+    let bytes = match (&carried, &placeholder) {
+        (Some(_), _) => Vec::new(),
+        (None, Some((_, bytes))) => bytes.clone(),
+        (None, None) => match c.fs_read(&name)? {
             Some(bytes) => bytes,
             None => return fs_failure(c, &format!("File.Open of the missing file {name}")),
         },
@@ -179,6 +183,8 @@ fn open(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         if let Some(mark) = carried {
             crate::stream::mark_carried(&blob, mark);
             blob.borrow_mut().written = false;
+        } else if let Some((mark, _)) = placeholder {
+            blob.borrow_mut().render_pending = Some(mark);
         }
         s.name = name;
         s.blob = blob;
@@ -226,9 +232,15 @@ fn close(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     })?;
     if let Some((name, bytes, mark)) = pending {
         // Content carried unread in the company build stays unread in the file it is written to.
-        let wrote = match mark.filter(|m| c.company_build() && crate::stream::is_carried_mark(m)) {
-            Some(mark) => c.fs_write_unproduced(&name, &mark),
-            None => c.fs_write(&name, &bytes),
+        let wrote = match mark {
+            Some(mark) if c.company_build() && crate::stream::is_carried_mark(&mark) => {
+                c.fs_write_unproduced(&name, &mark)
+            }
+            // A placeholder report output copied into the file keeps its mark there.
+            Some(mark) if crate::placeholder_output::is_placeholder(&mark) => {
+                c.fs_write_placeholder(&name, &bytes, mark)
+            }
+            _ => c.fs_write(&name, &bytes),
         };
         if let Err(e) = wrote {
             return unsupported(format!("File.Close({name}): {e}"));
@@ -264,8 +276,13 @@ fn write(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn len(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_file(r, |s| {
         open_file_needed(s, "File.Len")?;
-        // The length of content carried unread (`stream::is_carried_mark`) is a look at it.
-        s.blob.borrow().observe()?;
+        // The length of content carried unread (`stream::is_carried_mark`) is a look at it; a placeholder report output's
+        // answers from its bytes (`placeholder_output`).
+        let buf = s.blob.borrow();
+        if crate::placeholder_output::of(&buf).is_none() {
+            buf.observe()?;
+        }
+        drop(buf);
         Ok(Value::Integer(s.blob.borrow().bytes.len() as i32))
     })
 }

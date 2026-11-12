@@ -385,7 +385,7 @@ fn report_pdf_placeholder_a_subscriber_to_a_layout_event_is_refused() {
 
 #[test]
 fn report_pdf_placeholder_the_bytes_are_a_valid_pdf_with_one_page() {
-    let bytes = al_vm::report_pdf_placeholder::placeholder_pdf();
+    let bytes = al_vm::report_placeholder::placeholder_pdf();
     let text = String::from_utf8(bytes.clone()).expect("ascii");
     assert!(text.starts_with("%PDF-1.4\n"));
     assert!(text.ends_with("%%EOF\n"));
