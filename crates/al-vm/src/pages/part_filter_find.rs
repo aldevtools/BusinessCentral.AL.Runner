@@ -2,7 +2,49 @@
 //! client reads the rows again from the first row of the view, and the function controls' first repeated read of each window of a part. The function controls of such a
 //! read are `fn_controls.rs`.
 
+use super::pinned_shape::{PartStep, PinnedPart, TestCall};
 use super::*;
+use al_builtins::page_op::PageMethod;
+
+/// The pages of the pin (PartFilterExpressionControl.al, host 62656 and parts 62653, 62655), see `part_pages_are`: a ListPlus
+/// host whose only trigger is OnAfterGetRecord (:278), with fields of Rec and several parts (:261..:270); a ListPart with
+/// `Editable = false` (:103) that declares OnFindRecord, OnNextRecord, OnAfterGetRecord, OnAfterGetCurrRecord and, one of
+/// them, OnOpenPage (:126); controls over fields of Rec, expressions and page variables, none with a trigger (:111..:114); no
+/// SubPageLink (:261) or `"Item No." = field("No.")` (:273), no view; no filter but the link's and filter group 0 (the test's
+/// filter; the Periods part sets its own there in OnFindRecord, :135); no page extension, table extension or subscriber.
+const FIND_PAGES: PinnedPart = PinnedPart {
+    host_type: ir::PageType::ListPlus,
+    host_triggers: &["onaftergetrecord"],
+    part_triggers: &[
+        "onopenpage",
+        "onfindrecord",
+        "onnextrecord",
+        "onaftergetrecord",
+        "onaftergetcurrrecord",
+    ],
+    part_properties: &["editable"],
+    part_variable_controls: true,
+    part_variable_validate: false,
+    part_expression_controls: true,
+    unlinked: true,
+    sibling_parts: true,
+    user_filter: true,
+};
+
+/// The rule that asks `Session::find_part_calls`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FindPartAt {
+    /// The read after `Filter.SetFilter` (`filter_changed`).
+    FilterLanding,
+    /// `First()` that reads nothing (`end_move_no_read.rs`).
+    First,
+    /// `Last()` that reads nothing.
+    Last,
+    /// The host's `GoToKey` moved: a part without a link is not read again (`parts.rs`).
+    HostGoToKey,
+    /// The host's `Next` moved: the open read of the part starts at the view's start (`open_read_steps_back`).
+    HostNext,
+}
 
 impl Session {
     /// A ListPart with OnFindRecord, OnNextRecord, OnAfterGetRecord and OnAfterGetCurrRecord reads its rows again after a
@@ -16,14 +58,18 @@ impl Session {
     /// of the view (:758 EntriesFind_FilterOneDay_HostMovesToNextItem `I3 no move log` `F.find(=><)=1 F.agr=2 F.next=2`): that window
     /// starts at the view's start too.
     ///
-    /// Every fact the corpus pins is required (the `TP PF Host` page, PartFilterExpressionControl.al:251): the host is a ListPlus
-    /// opened for view (`OpenHost`, :334), the part a ListPart that declares the four triggers, neither page has a page extension
-    /// or an event subscriber, and no `Filter.SetCurrentKey` or `Ascending` changed the order since it opened. Any other host,
-    /// open mode or part keeps `=><` and the step back.
-    pub(super) fn find_list_part(&self, st: &St) -> bool {
-        self.part_on_list_plus_view_host(st)
-            && self.is_list(st)
-            && !st.borrow().test_view_reordered
+    /// Every fact the corpus pins is required (`FIND_PAGES`, the `TP PF Host` page, PartFilterExpressionControl.al:251): the
+    /// test opened the ListPlus host with OpenView (`OpenHost`, :334); the part declares the four triggers and reads in its
+    /// primary key, ascending. The rules that ask this also require the test's calls of their pin (`find_part_calls`). Any
+    /// other host, open mode, part or call keeps `=><` and the step back.
+    pub(super) fn find_list_part(&self, st: &St) -> Result<bool, Signal> {
+        let plain_order = {
+            let rec = self.page_rec(st);
+            let r = rec.borrow();
+            r.key == 0 && r.ascending
+        };
+        Ok(Self::part_host_opened(st) == Some((true, PageMode::View, false, false))
+            && plain_order
             && [
                 "onfindrecord",
                 "onnextrecord",
@@ -32,6 +78,47 @@ impl Session {
             ]
             .iter()
             .all(|t| self.declares(st, t))
+            && self.part_pages_are(st, &FIND_PAGES)?)
+    }
+
+    /// Whether the test's calls on the host and the part since the host opened, the running one last, are the ones `at` is
+    /// pinned for (reads of the part's fields and of its filter stand between them). After `OpenHost`'s `GoToKey` (:338):
+    /// - `FilterLanding`: `Filter.SetFilter` as the first call on the part (:361, :681), or after one `SetFilter` and `First`
+    ///   (:501, :810 the filter cleared again);
+    /// - `First`: after the landing (:363, :683, :718), after the landing, `First` and the landing of a second filter (:812),
+    ///   or after the landing, `First` and a host `Next` that moved (:461, :769);
+    /// - `Last`: after the landing, `First`, one or more `Next` that moved and one that answered No (:428);
+    /// - `HostGoToKey`: the host's `GoToKey` itself, nothing on the part yet (:338);
+    /// - `HostNext`: the host's `Next` after the landing and `First` (:766).
+    ///
+    /// A call on another part of the host, any other call, or a write to the store between two calls is not pinned.
+    pub(super) fn find_part_calls(st: &St, at: FindPartAt) -> bool {
+        use PageMethod as M;
+        use PartStep::{Host, Own, OwnNo};
+        use TestCall::{Other, Page};
+        const GO: PartStep = Host(Page(M::GoToKey));
+        const FILTER: PartStep = Own(Other(M::SetFilter));
+        const FIRST: PartStep = Own(Page(M::First));
+        let Some(steps) = Self::part_steps(st) else {
+            return false;
+        };
+        match at {
+            FindPartAt::FilterLanding => matches!(&steps[..], [GO, FILTER] | [GO, FILTER, FIRST, FILTER]),
+            FindPartAt::First => matches!(
+                &steps[..],
+                [GO, FILTER, FIRST]
+                    | [GO, FILTER, FIRST, FILTER, FIRST]
+                    | [GO, FILTER, FIRST, Host(Page(M::Next)), FIRST]
+            ),
+            FindPartAt::Last => match &steps[..] {
+                [GO, FILTER, FIRST, moved @ .., OwnNo(Page(M::Next)), Own(Page(M::Last))] => {
+                    !moved.is_empty() && moved.iter().all(|c| *c == Own(Page(M::Next)))
+                }
+                _ => false,
+            },
+            FindPartAt::HostGoToKey => matches!(&steps[..], [GO]),
+            FindPartAt::HostNext => matches!(&steps[..], [GO, FILTER, FIRST, Host(Page(M::Next))]),
+        }
     }
 
     /// A ListPart on a ListPlus host opened for view, neither page with a page extension or an event subscriber (the host and the
@@ -52,8 +139,10 @@ impl Session {
     /// `find_list_part` with a TestPart filter on the part (filter group 0, `filter.rs`): the open read after a host move then
     /// starts at the view's start (:758 EntriesFind_FilterOneDay_HostMovesToNextItem, the filter `03/16/25` still set). Without a
     /// filter the open read is not pinned to do so and keeps the step back.
-    fn find_list_part_filtered(&self, st: &St) -> bool {
-        self.find_list_part(st) && self.page_rec(st).borrow().filters.iter().any(|f| f.group == 0)
+    fn find_list_part_filtered(&self, st: &St) -> Result<bool, Signal> {
+        Ok(self.page_rec(st).borrow().filters.iter().any(|f| f.group == 0)
+            && Self::find_part_calls(st, FindPartAt::HostNext)
+            && self.find_list_part(st)?)
     }
 
     /// A ListPart that a TestPart filter left on no row (pinned for the ListPlus host opened for view of `find_list_part`, where the part shows no blank line; for edit it is not pinned) runs its function
@@ -82,7 +171,7 @@ impl Session {
     pub(super) fn open_read_steps_back(&mut self, st: &St, moved_open: bool) -> Result<bool, Signal> {
         let from_start = st.borrow().landed_from_view_start;
         let stepped_back = !from_start && self.declares(st, "onnextrecord") && self.nav_next(st, -1)?;
-        if !stepped_back && !moved_open && self.find_list_part_filtered(st) {
+        if !stepped_back && !moved_open && self.find_list_part_filtered(st)? {
             st.borrow_mut().find_window_at_view_start = true;
         }
         Ok(stepped_back)

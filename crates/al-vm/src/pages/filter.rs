@@ -2,6 +2,7 @@
 //! rows an open page has and in what order. It writes the page's user filter, filter group 0
 //! (corpus testpage/filters/TestTestFilter.al, TestTestFilterFilterGroups.al).
 
+use super::part_filter_find::FindPartAt;
 use super::*;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FieldFilter;
@@ -187,14 +188,12 @@ impl Session {
                     return unsupported("TestFilter.SetCurrentKey without a matching key (error text not pinned)");
                 };
                 rec.borrow_mut().key = key;
-                st.borrow_mut().test_view_reordered = true;
                 self.filter_changed(st, false)?;
                 Ok(Value::Null)
             }
             PageMethod::Ascending => match args.first() {
                 Some(v) => {
                     rec.borrow_mut().ascending = ops::truthy(v)?;
-                    st.borrow_mut().test_view_reordered = true;
                     self.filter_changed(st, false)?;
                     Ok(Value::Null)
                 }
@@ -230,7 +229,7 @@ impl Session {
         // DCE_TestPage_OpenView_Rows `OnFindRecord(-)`, DCE_TestPage_OpenEdit_Rows, DCE_TestPage_OpenView_Empty); a list keeps `=><`.
         let r = if !self.is_list(st) && self.declares(st, "onfindrecord") {
             self.page_first_row_from(st, "-", false)
-        } else if set_filter && self.find_list_part(st) {
+        } else if set_filter && Self::find_part_calls(st, FindPartAt::FilterLanding) && self.find_list_part(st)? {
             st.borrow_mut().landed_from_view_start = true;
             let r = self.page_first_row_from(st, "-", false);
             let mut s = st.borrow_mut();

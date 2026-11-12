@@ -266,9 +266,6 @@ pub struct PageState {
     /// The landing read started with OnFindRecord(`-`) after a TestPart filter (`find_list_part`): the window starts
     /// at the first row of the view, so the open read's tail does not step back with OnNextRecord(-1).
     pub landed_from_view_start: bool,
-    /// `TestPage.Filter.SetCurrentKey` or `Ascending` changed the order of the page's rows since it opened: a find ListPart then
-    /// reads as any list (`find_list_part`).
-    pub test_view_reordered: bool,
     /// The window the page holds starts at the first row of the view: such a landing read, or the open read of the same part
     /// whose OnNextRecord(-1) answered 0 (`part_filter_find.rs`); cleared by the next window read.
     pub find_window_at_view_start: bool,
@@ -532,6 +529,14 @@ pub struct PageState {
     pub test_calls: Vec<crate::pages::pinned_shape::TestCall>,
     /// The test made more calls than `test_calls` keeps.
     pub test_calls_overflow: bool,
+    /// The calls the test client made on the page and on its direct parts since it opened, in the order it made them, the
+    /// running one last (`pinned_shape.rs`, `Session::part_steps`).
+    pub tree_calls: Vec<crate::pages::pinned_shape::TreeCall>,
+    /// `tree_calls` does not tell what happened to the page: more calls than it keeps, a call on a part of a part, or a write
+    /// to the store between two calls (the test changed rows the page shows).
+    pub tree_calls_unknown: bool,
+    /// The store's write mark when the last call on the page or its parts ended; `None` before the first one ended.
+    pub tree_calls_mark: Option<(i64, u64)>,
     /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
     pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
@@ -723,7 +728,8 @@ pub struct PageState {
     /// The row a part read in another order numbered last with AutoSplitKey, and the number of the row the grid shows after it
     /// (`pages/split_key_view.rs`).
     pub split_view_last: Option<(Vec<Value>, Option<Value>)>,
-    /// The part reads its row once more when its host closes (`read_part_rows_unsettled`).
+    /// The part reads its row once more when its host closes (`read_part_rows_unsettled`), if the test's calls up to the close
+    /// are the pinned ones (`unsettled_close_pinned`).
     pub reread_at_close: bool,
     /// `OnOpenPage` left filters in `FilterGroup(-1)`: the page dropped them from the rows it shows.
     pub or_group_dropped: bool,
@@ -865,6 +871,9 @@ impl PageState {
     pub(crate) fn forget_pinned_scenario(&mut self) {
         self.test_calls = Vec::new();
         self.test_calls_overflow = false;
+        self.tree_calls = Vec::new();
+        self.tree_calls_unknown = false;
+        self.tree_calls_mark = None;
         self.typed_key_dropped = false;
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;

@@ -10,7 +10,9 @@
 //! Only the shapes the corpus pins take this path (`auto_split_part_pinned`); any other part read in another order is refused as
 //! before.
 
+use super::pinned_shape::{PartStep, PinnedPart, TestCall};
 use super::*;
+use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
 use rust_decimal::Decimal as D;
 
@@ -24,44 +26,84 @@ impl Session {
         r.key != 0 || !r.ascending
     }
 
-    /// The pinned shape: a ListPart with AutoSplitKey on a Card host, its rows filtered by a field link, a stored (not
-    /// temporary) table whose last primary-key field is an Integer (PartSplitKeyOtherSortKey.al pages 62613..62621: SubPageLink
-    /// `"Head Code" = field(Code)`, with and without DelayedInsert, SubPageView or the part's SourceTableView). Every fact is
-    /// required: no TestPart filter (filter group 0) on the part, whose hidden rows the grid neighbours would not show, and
-    /// neither page with a page extension or an event subscriber.
-    pub(in crate::pages) fn auto_split_part_pinned(&mut self, st: &St, rec: &Rec) -> Result<bool, Signal> {
-        let engine = self.engine();
-        let object = st.borrow().object as usize;
-        if engine.object_facts[object].page_type != Some(al_ir::PageType::Other("listpart".into()))
-            || rec.borrow().temporary
-            || rec.borrow().filters.iter().any(|f| f.group == 0)
-            || !self.unextended_unsubscribed(st)
-        {
-            return Ok(false);
-        }
-        let Some((host, idx)) = st
-            .borrow()
-            .host
-            .as_ref()
-            .and_then(|(h, c)| h.upgrade().map(|h| (h, *c)))
-        else {
-            return Ok(false);
+    /// The pinned scenario (PartSplitKeyOtherSortKey.al, pages 62613..62621 and codeunit 62622), every fact required; any
+    /// other part read in another order is refused as before:
+    /// - the pages (`part_pages_are`): a Card host with no trigger whose controls are fields of Rec and this part; a ListPart
+    ///   that declares AutoSplitKey, with or without DelayedInsert, a SourceTableView that only sorts, and no trigger but
+    ///   OnNewRecord and OnInsertRecord (:104, :111; they only log, so a part with fewer runs less code); controls over fields
+    ///   of Rec without a trigger; no page extension, table extension or subscriber;
+    /// - the link and the view: `SubPageLink = "Head Code" = field(Code)` (:211) on every primary key field but the last,
+    ///   which is an Integer (:50); a SubPageView that only sorts (:233, :256, :278); no filter in any filter group but the
+    ///   link's (no `where`, no filter the part's code or the test set), a stored table, no marks;
+    /// - how the host opened: the test's OpenEdit, or the static `Page.RunModal` whose handler gets the page (:560);
+    /// - the test's calls since then (`split_calls_pinned`).
+    pub(in crate::pages) fn auto_split_part_pinned(&mut self, st: &St, _rec: &Rec) -> Result<bool, Signal> {
+        const PAGES: PinnedPart = PinnedPart {
+            host_type: ir::PageType::Card,
+            host_triggers: &[],
+            part_triggers: &["onnewrecord", "oninsertrecord"],
+            part_properties: &["autosplitkey", "delayedinsert", "sourcetableview"],
+            part_variable_controls: false,
+            part_variable_validate: false,
+            part_expression_controls: false,
+            unlinked: false,
+            sibling_parts: false,
+            user_filter: false,
         };
-        let host_object = host.borrow().object as usize;
-        if engine.object_facts[host_object].page_type != Some(al_ir::PageType::Card)
-            || !self.unextended_unsubscribed(&host)
-        {
-            return Ok(false);
+        let by_test = match Self::part_host_opened(st) {
+            Some((true, PageMode::Edit, false, false)) => true,
+            Some((false, PageMode::Edit, true, true)) => false,
+            _ => return Ok(false),
+        };
+        Ok(self.has_auto_split_key(st)
+            && self.part_pages_are(st, &PAGES)?
+            && self.part_key_is_link_then_integer(st)?
+            && Self::split_calls_pinned(st, by_test))
+    }
+
+    /// The calls of the pinned tests on the host and the part, the running one last (reads of the part's fields stand between
+    /// them): `GoToKey` on a host the test opened (:386, none in the modal handler :568); then no move (:479), `Last` (:387),
+    /// `First` (:420) or `First` and a `Next` that moved (:454); then `New` and one or two values typed into the row (:394,
+    /// :553), at most twice (:538 PkAsc_TwoNewRowsInARow); then the host's `Close` or its OK action (:571). Any other call, a
+    /// call on the host between them, or a write to the store between two calls is not pinned.
+    fn split_calls_pinned(st: &St, by_test: bool) -> bool {
+        use PageMethod as M;
+        use PartStep::{Host, Own};
+        use TestCall::{Other, Page, Write};
+        let Some(steps) = Self::part_steps(st) else {
+            return false;
+        };
+        let mut s = &steps[..];
+        s = match (by_test, s) {
+            (true, [Host(Page(M::GoToKey)), rest @ ..]) => rest,
+            (false, _) => s,
+            _ => return false,
+        };
+        s = match s {
+            [Own(Page(M::First)), Own(Page(M::Next)), rest @ ..] => rest,
+            [Own(Page(M::First | M::Last)), rest @ ..] => rest,
+            _ => s,
+        };
+        for _ in 0..2 {
+            let [Own(Page(M::New)), rest @ ..] = s else {
+                break;
+            };
+            let typed = rest.iter().take_while(|c| matches!(c, Own(Write(_)))).count();
+            if typed == 0 {
+                // The running `New`, or the one that raised "The line cannot be split.".
+                return rest.is_empty();
+            }
+            if typed > 2 {
+                return false;
+            }
+            s = &rest[typed..];
         }
-        let field_link = page_of(&engine, &host).controls[idx]
-            .part_link
-            .as_ref()
-            .is_some_and(|l| !l.entries.is_empty() && l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..))));
-        let table = self.table(rec)?;
-        let integer_key = table.keys[0]
-            .last()
-            .is_some_and(|&last| matches!(table.fields[last].ty, RtType::Integer));
-        Ok(field_link && integer_key)
+        match s {
+            [] => true,
+            [Host(Page(M::Close))] => by_test,
+            [Host(Page(M::OK))] | [Host(Page(M::OK)), Host(Other(M::Invoke))] | [Host(Other(M::Invoke))] => !by_test,
+            _ => false,
+        }
     }
 
     /// `New()` below a row whose next row in the grid has a lower number raises "The line cannot be split." before the line

@@ -266,14 +266,15 @@ impl Session {
                 if method.method() != PageMethod::New {
                     st.borrow_mut().saved_by_update = false;
                 }
-                self.end_part_reread_at_close(&st, method.method(), false);
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
                 self.lookup_refresh_deferred_call(method, &st, None)?;
                 let moved = self.code_close_client_call(method, &st, |s| {
                     s.marked_only_unshown_call(method, &st, |s| {
                         s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op_held(method, &st, args))
                     })
-                })?;
+                });
+                self.test_call_ended(&st, &moved);
+                let moved = moved?;
                 self.lookup_move_refresh_after(&st, &moved)?;
                 Ok(moved)
             }
@@ -282,15 +283,16 @@ impl Session {
                 let page = c.page.clone();
                 self.pending_add_in_reread(&page, method.method())?;
                 page.borrow_mut().saved_by_update = false;
-                self.end_part_reread_at_close(&page, method.method(), true);
                 self.lookup_refresh_deferred_call(method, &page, Some(&c.target))?;
-                self.code_close_client_call(method, &page, |s| {
+                let result = self.code_close_client_call(method, &page, |s| {
                     s.marked_only_unshown_call(method, &page, |s| {
                         s.shown_client_call(method, &c.page, Some(&c.target), false, |s| {
                             s.test_control_op_held(method, &c, args)
                         })
                     })
-                })
+                });
+                self.test_call_ended(&page, &result);
+                result
             }
             other => unsupported(format!("{method} on {}", other.describe())),
         }

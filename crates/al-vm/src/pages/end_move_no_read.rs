@@ -1,6 +1,7 @@
 //! `First()` and `Last()` that read nothing: they stand on the row they would go to already, or the view holds no row. The
 //! pinned shapes, each with its own predicate (`end_move_without_read`, asked by `page_move`).
 
+use super::part_filter_find::FindPartAt;
 use super::*;
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
@@ -22,7 +23,9 @@ impl Session {
     /// Periods_FilterOneDay_First_Read `row log` `[]`, :414 Periods_FilterThreeDays_FirstNextNextNext `row 1 log`, :676
     /// EntriesFind_FilterOneDay_First_Read `row log` `[]`, :710 EntriesFind_ReadBeforeFilter_ThenFilter_ThenFirst `after First log`
     /// `[]`, :758 EntriesFind_FilterOneDay_HostMovesToNextItem `I3 after First log` `[]`). `Last()` on the last row of such a
-    /// window that holds the view to its end does the same (:414 `last row log` `[]` after Next answered No). The window
+    /// window that holds the view to its end does the same (:414 `last row log` `[]` after Next answered No). Only after the
+    /// calls of those tests (`find_part_calls`): `Last()` after a `Next` that moved, or `First()` after `Next` and `Previous`,
+    /// reads as before. The window
     /// is the one of the last landing (`PageState::find_window_at_view_start`, set by `part_window_read_starts`, `open_read_steps_back`
     /// and `filter_changed`).
     fn find_part_window_end_move(&self, st: &St, how: PageMethod) -> Result<Option<bool>, Signal> {
@@ -36,7 +39,11 @@ impl Session {
                 s.view_read_to_end,
             )
         };
-        if !at_start || draft || dirty || !self.find_list_part(st) {
+        let at = match how {
+            PageMethod::First => FindPartAt::First,
+            _ => FindPartAt::Last,
+        };
+        if !at_start || draft || dirty || !Self::find_part_calls(st, at) || !self.find_list_part(st)? {
             return Ok(None);
         }
         // The filter left no row: First answers No and reads nothing (PartFilterExpressionControl.al:785

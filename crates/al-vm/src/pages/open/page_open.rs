@@ -1538,11 +1538,10 @@ fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.list_edit_back = false;
 }
 
-/// The flags a new host row, a first part access, a test's `Filter.SetCurrentKey` or `Filter.Ascending` and New() on a request
+/// The flags a new host row, a first part access and New() on a request
 /// page set; a page that runs again starts without them.
 fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.part_accessed = false;
-    s.test_view_reordered = false;
     s.new_host_part_rows = false;
     s.host_stored_blank_key = false;
     s.part_insert_swallowed = false;

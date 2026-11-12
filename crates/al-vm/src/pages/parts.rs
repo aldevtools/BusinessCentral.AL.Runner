@@ -2,6 +2,7 @@
 //! (the `TestPart` handle is that child's `Value::TestPage`). The child opens right after the
 //! host's OnOpenPage, and its rows follow the host's current row through `SubPageLink`.
 
+use super::part_filter_find::FindPartAt;
 use super::*;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::page_op::PageMethod;
@@ -541,13 +542,17 @@ impl Session {
         }
         self.note_hidden_part_found_visible(st, &parts, opening)?;
         if how == Sync::GoToKeyMoved {
-            parts.retain(|(i, child)| {
-                page.controls[*i]
+            let mut read = Vec::new();
+            for (i, child) in parts {
+                let linked = page.controls[i]
                     .part_link
                     .as_ref()
-                    .is_some_and(|l| !l.entries.is_empty())
-                    || !self.find_list_part(child)
-            });
+                    .is_some_and(|l| !l.entries.is_empty());
+                if linked || !Self::find_part_calls(&child, FindPartAt::HostGoToKey) || !self.find_list_part(&child)? {
+                    read.push((i, child));
+                }
+            }
+            parts = read;
         }
         if let Sync::Move { .. } = how {
             let mut linked = Vec::new();
