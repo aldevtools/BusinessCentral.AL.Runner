@@ -5,7 +5,7 @@
 //! from the session's is refused (hard rule 4) until the global group is modelled.
 
 use al_builtins::native::Signal;
-use al_testkit::{Built, int};
+use al_testkit::{Built, int, text};
 
 const SRC: &str = r#"
 table 70950 "LT Glob Row"
@@ -56,6 +56,12 @@ codeunit 70951 C
     begin
         exit(R.Count());
     end;
+    procedure RefNumberAndName(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.Number()) + ' ' + RR.Name());
+    end;
 }
 "#;
 
@@ -92,4 +98,12 @@ fn a_global_filter_cleared_again_leaves_later_records_answered() {
     b.run_in("C", "Seed").unwrap();
     assert_eq!(int(b.run_in("C", "SetAndClearGlobal")), 6);
     assert_eq!(int(b.run_in("C", "CountFresh")), 6);
+}
+
+#[test]
+fn a_record_ref_answers_its_metadata_while_the_global_filter_stands() {
+    let mut b = Built::from_source(SRC);
+    b.run_in("C", "Seed").unwrap();
+    b.run_in("C", "SetGlobal").unwrap();
+    assert_eq!(text(b.run_in("C", "RefNumberAndName")), "70950 LT Glob Row");
 }

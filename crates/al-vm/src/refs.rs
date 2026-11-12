@@ -842,8 +842,27 @@ impl Session {
     }
 
     fn recordref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
-        // A RecordRef on a table whose filter group 1 another record set (records.rs `global_group_check`).
-        if !self.global_group1.is_empty() && method != "FilterGroup" {
+        // A RecordRef on a table whose filter group 1 another record set (records.rs `global_group_check`). Metadata
+        // and the buffer do not depend on filters.
+        if !self.global_group1.is_empty()
+            && !matches!(
+                method,
+                "FilterGroup"
+                    | "Number"
+                    | "Name"
+                    | "Caption"
+                    | "FieldCount"
+                    | "FieldExist"
+                    | "Field"
+                    | "FieldIndex"
+                    | "KeyCount"
+                    | "KeyIndex"
+                    | "IsTemporary"
+                    | "CurrentCompany"
+                    | "RecordId"
+                    | "Close"
+            )
+        {
             if let LibraryValue::RecordRef(rec) = &*lib.borrow() {
                 let table = rec.borrow().table;
                 self.global_group_check(rec, table, &format!("RecordRef.{method}"))?;
