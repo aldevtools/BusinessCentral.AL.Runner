@@ -58,6 +58,26 @@ impl Session {
             Some(d @ V::Dictionary(_)) => copy_dictionary(d),
             _ => V::Dictionary(Default::default()),
         };
+        // A page part that enqueues a second task for the record of its previous enqueue (its OnAfterGetCurrRecord ran again,
+        // as on OpenView and then GoToRecord of the same row): BC reports one task's outcome where the runtime would run two
+        // (session-system/isolated-storage/IsolatedStorageInBackgroundTask.al:242-251, :715-753). Which task BC runs, or
+        // whether it runs OnAfterGetCurrRecord again, is not pinned. A part whose host moved to another record enqueues and
+        // runs its task again, as before this rule (Base Application's Statistics FactBoxes under Customer Card OpenEdit and
+        // GoToRecord, Customer List OpenView and Next: al-test-cli tests/suite/bg_task_part_moves.rs).
+        if st.borrow().host.is_some() {
+            let key = self.row_key(&self.page_rec(st))?;
+            let same = st
+                .borrow()
+                .bg_last_key
+                .as_deref()
+                .is_some_and(|last| Self::same_key(last, &key));
+            if same {
+                return unsupported(
+                    "EnqueueBackgroundTask a second time on a page part for the same record (whether BC runs both tasks is not pinned)",
+                );
+            }
+            st.borrow_mut().bg_last_key = Some(key);
+        }
         let id = {
             let mut s = st.borrow_mut();
             let id = s.bg_next_id;

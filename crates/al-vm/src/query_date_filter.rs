@@ -5,7 +5,7 @@ use al_builtins::native::{AlError, Signal};
 use al_builtins::value::RtType;
 use std::borrow::Cow;
 
-const NO_MATCH: &str = " does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.";
+pub(crate) const NO_MATCH: &str = " does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.";
 
 /// The text to parse for a static query filter on a field of type `ty`.
 /// - `0D` is the empty date, not today: `filter(0D)`, `filter(= 0D)` match the rows without a date, `filter(<> 0D)` and
@@ -106,4 +106,54 @@ impl crate::Session {
                 .collect(),
         )
     }
+}
+
+impl crate::Session {
+    /// The filter a Text field read by `field(filter(F))` in a CalcFormula sets on a Date source field, for a text the earlier
+    /// reading refused (`refusal`): only the forms record/flowfields/FlowFilterDateFilterForms.al:342-353 pins are read, as
+    /// SetFilter reads a date filter in the session's language (one date, a range, an open range `D..`, written as `Format` writes a
+    /// date, and two quotes), and a text of letters that is no date raises the Evaluate error (`abc`; pinned in English only).
+    /// Any other text (digits only, a formula such as `t`, `..D`) keeps `refusal`.
+    pub(crate) fn calc_text_date_filter(
+        &self,
+        text: &str,
+        enums: &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>,
+        refusal: Signal,
+    ) -> Result<al_builtins::filter::FilterExpr, Signal> {
+        let ctx = self.date_filter_context_for(text);
+        let letters = !text.is_empty() && text.chars().all(|c| c.is_ascii_alphabetic());
+        match al_builtins::filter::with_date_context(ctx, || {
+            al_builtins::filter::parse_filter_with(text, &[], &RtType::Date, enums)
+        }) {
+            Ok(e) if pinned_text_date_shape(text) => Ok(e),
+            Err(e) if letters && e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1033 => {
+                let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
+                Err(Signal::Error(Box::new(AlError {
+                    message: format!("The format of the Date '{bad}'{NO_MATCH}"),
+                    code: "InvalidFilterExpression:Evaluate".into(),
+                    call_stack: String::new(),
+                    ..Default::default()
+                })))
+            }
+            _ => Err(refusal),
+        }
+    }
+}
+
+/// `''`, `D`, `D..D` or `D..`, each `D` digits joined by two `/` (`01/15/26`, as `Format` writes a date in English):
+/// the Text field forms FlowFilterDateFilterForms.al:342-352 pins.
+fn pinned_text_date_shape(text: &str) -> bool {
+    let date = |d: &str| {
+        let parts: Vec<&str> = d.split('/').collect();
+        parts.len() == 3
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+    };
+    let t = text.trim();
+    t == "''"
+        || match t.split_once("..") {
+            Some((a, b)) => date(a) && (b.is_empty() || date(b)),
+            None => date(t),
+        }
 }

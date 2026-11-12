@@ -968,7 +968,7 @@ impl Session {
                 // A field bound to a place written as an expression (`BufArr[1].Name`): named by its source as written
                 // (`request_expr_params`).
                 (ir::ControlKind::Field, ir::Binding::Expr(_)) => {
-                    let (name, read, _, who) = self.request_expr_place(c)?;
+                    let (name, read, _, who) = self.request_expr_place(object, c)?;
                     let v = match who {
                         None => self.request_expr_read(object, inst, read)?,
                         Some(e) => self.request_expr_read(e, &owner_inst(inst, exts, Some(e)), read)?,
@@ -1087,7 +1087,7 @@ impl Session {
                     && c.source_text.as_deref() == Some(name.as_str())
             });
             if let Some(c) = expr {
-                let (_, read, write, who) = self.request_expr_place(c)?;
+                let (_, read, write, who) = self.request_expr_place(object, c)?;
                 match who {
                     None => self.request_expr_write(object, inst, &name, &text, (read, write))?,
                     // A field of the extension's own record variable (`request_expr_params`); a field of a data item is

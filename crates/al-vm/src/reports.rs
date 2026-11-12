@@ -4002,7 +4002,9 @@ impl Session {
         let mut schema_type = None;
         let mut data = dataset::DataFileText::Same;
         let region = self.report.dataset.as_ref().and_then(|d| d.region.clone());
-        let (regional, media) = (region.is_some(), Self::media_field(&t, c));
+        // A column of the report itself, not one a reportextension adds (`blob_column.rs`, `media_field`).
+        let own = self.engine.program.objects[object].report.is_some();
+        let (regional, media) = (region.is_some(), self.media_field(&t, c, own));
         // In German the values of a Decimal, Date, Time, DateTime, Integer, Boolean and text column read as in en-US
         // (reports/W3ReportObjectIdPreviewLanguage.al:870, :893); an Option or Enum column is not pinned there.
         // An Option column of a German session shows the DEU caption (record/table-properties/XTablePropsTests.al:783); in a
@@ -4120,7 +4122,7 @@ impl Session {
             Value::Option(..) | Value::Enum(..) | Value::Duration(_) => {
                 dataset::escape(&al_builtins::format::try_format(&value, 0, 0, self).map_err(Signal::unsupported)?)?
             }
-            Value::Blob(b) => self.blob_column_text(c, rec, b)?,
+            Value::Blob(b) => self.blob_column_text(c, (rec, owner, own), b)?,
             // An empty Media or MediaSet field is an empty element (reports/layouts-saveas/BcXmlBlob.al:102); one with content holds a
             // re-encoded picture whose bytes the runtime cannot make (:220), and is refused.
             Value::Guid(g) if media => {
@@ -4162,77 +4164,6 @@ impl Session {
             schema_type,
             data,
         })
-    }
-
-    /// Whether column `c` is a Media or MediaSet field of the data item's table.
-    fn media_field(t: &Option<Arc<al_data::TableDef>>, c: &ir::ReportColumn) -> bool {
-        use al_builtins::library_kind::LibraryKind as L;
-        match (t, c.field.or(c.item_field)) {
-            (Some(t), Some(pos)) => t
-                .fields
-                .get(pos)
-                .is_some_and(|f| matches!(f.ty, al_builtins::value::RtType::Library(L::Media | L::MediaSet))),
-            _ => false,
-        }
-    }
-
-    /// The text of a Blob column: the Base64 text of the content, an empty element when there is none (reports/layouts-saveas/
-    /// BcXmlBlob.al:93-154, `Hello BC` is `SGVsbG8gQkM=`, the bytes 0, 255, 65 are `AP9B`). A field of the data item that the report
-    /// did not calculate shows what the row stores (:102, report 80976 has no CalcFields). A Blob a stream wrote after it was read,
-    /// and one that was not calculated and is not a field of the data item, are not pinned.
-    fn blob_column_text(
-        &mut self,
-        c: &ir::ReportColumn,
-        rec: &Rec,
-        b: &al_builtins::stream::BlobRef,
-    ) -> Result<String, Signal> {
-        {
-            let buf = b.borrow();
-            if let Some(what) = buf.render_pending.as_deref()
-                && al_builtins::stream::is_unloaded_write_mark(what)
-            {
-                return Err(al_builtins::stream::render_pending_error(what));
-            }
-            if buf.render_pending.is_some() {
-                return unsupported(format!(
-                    "report column {} holds a Blob a report was saved to in a rendered format (ADR-040)",
-                    c.name
-                ));
-            }
-            if buf.written {
-                return unsupported(format!(
-                    "report column {} holds a Blob a stream wrote after it was read (not pinned)",
-                    c.name
-                ));
-            }
-            if buf.loaded {
-                return Ok(al_builtins::platform_native::b64_encode(&buf.bytes, false));
-            }
-        }
-        let pos = c
-            .field
-            .or(c.item_field)
-            .filter(|&pos| matches!(rec.borrow().fields.get(pos), Some(Value::Blob(x)) if !x.borrow().loaded && !x.borrow().written));
-        let Some(pos) = pos else {
-            return unsupported(format!(
-                "report column {} holds a Blob that was not calculated and is not a field of the data item (not pinned)",
-                c.name
-            ));
-        };
-        let t = self.table(rec)?;
-        let cx = self.cx_for(rec, &t)?;
-        let pk = t.primary_key(&rec.borrow().fields);
-        let stored =
-            al_data::Store::get(self.store_for(rec), &cx, &t, &pk).map_err(|e| Signal::unsupported(format!("{e}")))?;
-        match stored.map(|row| row[pos].clone()) {
-            Some(Value::Blob(src)) if src.borrow().render_pending.is_none() => {
-                Ok(al_builtins::platform_native::b64_encode(&src.borrow().bytes, false))
-            }
-            _ => unsupported(format!(
-                "report column {}: the Blob of a row the store does not hold as written (not pinned)",
-                c.name
-            )),
-        }
     }
 
     /// The CompanyAddressLine elements of the BC 29 dataset header for the Company Information row `rec`: Name, Name 2,
@@ -4589,6 +4520,7 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
     }
 }
 
+mod blob_column;
 mod execute_args;
 use execute_args::RefCall;
 pub(crate) mod format_region;

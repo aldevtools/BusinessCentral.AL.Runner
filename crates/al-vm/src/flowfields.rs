@@ -1064,14 +1064,16 @@ impl Session {
                     // `field(filter(F))` over a FlowFilter: the caller's filter on F applies, and none set means no constraint
                     // (record/flowfields/FfmSumAverage.al:66, :780-844 and FfmCountExist.al:66, :640-712: an Integer range, a
                     // Decimal `>=`, a Date range of two dates, a Code value, an Option value, two Enum values, two Text values).
-                    // On a Date FlowFilter only the range of two dates is pinned; one date and the other forms wait for a probe
-                    // (al-runner issue 7433, docs/probes-needed.md). Another type is not pinned.
+                    // On a Date FlowFilter the pinned forms are one date (SetRange, `%1`, the date's text, `=%1`), a closed, open or
+                    // reversed range, `>`, `<`, `<>`, the blank date, two quotes and a list of dates and ranges, alone and beside a
+                    // Code FlowFilter (al-runner issue 7433; record/flowfields/FlowFilterDateFilterForms.al:163-169, :196-201,
+                    // :236-244, :271-277). Other forms (`>=`, `<=`, `&`, ...) are not pinned. Another type is not pinned.
                     let pf = &own[*q];
                     match (&pf.ty, flow(*q)) {
                         (_, None) => {}
-                        (RtType::Date, Some(e)) if !matches!(e, FilterExpr::Range(Some(_), Some(_))) => {
+                        (RtType::Date, Some(e)) if !date_flow_filter_pinned(&e) => {
                             return unsupported(
-                                "field(filter()) of a Date FlowFilter whose filter is not a range of two dates (not pinned, docs/probes-needed.md)",
+                                "field(filter()) of a Date FlowFilter whose filter form is not pinned (docs/probes-needed.md)",
                             );
                         }
                         (
@@ -1105,6 +1107,19 @@ impl Session {
                     }
                 }
                 ir::CalcValue::FieldFilter(q) => {
+                    // `field(filter(F))` over a normal Date field raises, blank or not, saved or not (record/flowfields/
+                    // FlowFilterDateFilterForms.al:310-317). Other types that are not text are not pinned.
+                    if matches!(own[*q].ty, RtType::Date) {
+                        let t = self.table(rec)?;
+                        return Err(crate::transactions::al_error_code(
+                            &format!(
+                                "The following field must be a code or text field:\\\\Field: {}\\Type: Date\\Table: {}",
+                                self.field_caption(&t, *q),
+                                self.caption(&t)
+                            ),
+                            "DB:ValueIsFilterNotStr",
+                        ));
+                    }
                     let v = rec.borrow().fields[*q].clone();
                     let Some(text) = text_of(&v) else {
                         return unsupported("field(filter()) of a field that is not text");
@@ -1113,7 +1128,16 @@ impl Session {
                     // read as a filter expression, blank imposes nothing, and a filter takes over
                     // from a link on the same source field.
                     if !text.trim().is_empty() {
-                        parts.push((c.field, parse(&text, sty)?, true));
+                        let expr = match sty {
+                            // A Text field over a Date source field: the earlier reading, then the pinned forms it refused
+                            // (`calc_text_date_filter`). A Code field keeps the earlier reading only.
+                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty) {
+                                Ok(e) => e,
+                                Err(refusal) => self.calc_text_date_filter(&text, &enums, refusal)?,
+                            },
+                            _ => parse(&text, sty)?,
+                        };
+                        parts.push((c.field, expr, true));
                     }
                 }
             }
@@ -1357,6 +1381,19 @@ fn non_number(v: &Value) -> Signal {
         v.unknown()
             .map_or_else(|| "sum over a non-number".to_string(), str::to_string),
     )
+}
+
+/// A filter on a Date FlowFilter whose reading through `field(filter())` is pinned (record/flowfields/
+/// FlowFilterDateFilterForms.al): one date, a range, `>`, `<`, `<>`, and a list of dates and ranges.
+fn date_flow_filter_pinned(e: &FilterExpr) -> bool {
+    match e {
+        FilterExpr::Eq(_) | FilterExpr::RangeSame(_) | FilterExpr::Range(..) => true,
+        FilterExpr::Ne(_) | FilterExpr::Lt(_) | FilterExpr::Gt(_) => true,
+        FilterExpr::Or(parts) => parts
+            .iter()
+            .all(|p| matches!(p, FilterExpr::Eq(_) | FilterExpr::RangeSame(_) | FilterExpr::Range(..))),
+        _ => false,
+    }
 }
 
 #[cfg(test)]

@@ -741,6 +741,9 @@ pub struct PageState {
     pub or_group_handed: bool,
     /// Fields whose page filter reads back as a text nothing pins (a SourceTableView `const(0D)`): a TestPage Filter read refuses.
     pub unpinned_filter_fields: Vec<usize>,
+    /// Fields whose SourceTableView filter (one Enum member in `filter()`, an Option `const`) reads back as the member's number
+    /// in a TestPage Filter read (`views::page_source_view`).
+    pub view_number_fields: Vec<usize>,
     /// The record `Page.SetRecord` handed a page variable, shown when the page runs.
     pub set_record: Option<Rc<RefCell<RecordState>>>,
     /// `Page.SetTableView` gave `set_record` its filters and order: a later `SetRecord` moves the position only
@@ -805,6 +808,8 @@ pub struct PageState {
     /// parameters, the position of the `PageBackgroundTaskErrorLevel` member passed, if any), and the next task id.
     pub bg_tasks: std::collections::VecDeque<(i32, i32, Value, Option<i32>)>,
     pub bg_next_id: i32,
+    /// The key of the record a page part last enqueued a background task for (`pages/background.rs` `bg_enqueue`).
+    pub bg_last_key: Option<Vec<Value>>,
     /// What the page's expression controls showed when it last refreshed: (control index, value; `None` when the expression
     /// raised an error then). Only controls whose expression reads no record and runs no code that writes (al-vm
     /// `pages/shown.rs`, al-runner issue 5765).

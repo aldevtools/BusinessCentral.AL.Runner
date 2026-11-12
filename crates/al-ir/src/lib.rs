@@ -1259,12 +1259,23 @@ pub struct Control {
     /// For a control with a `var_field`: the slot of that record variable among the page's globals.
     #[serde(default)]
     pub var_slot: Option<usize>,
+    /// For a page's or report's own control whose source is a field of an element of a global record array with a number
+    /// index (`SetupArr[2]."Logo Position"`), when the array's records are not temporary: the table's object index and the
+    /// field's position in it.
+    #[serde(default)]
+    pub array_element_field: Option<(usize, usize)>,
     /// For a page's own control bound to an expression of a form Page Control Field serves (an element of a page array with a
     /// number index `Costs[1]`, a field of a page record variable `OtherLine.Amount`, an arithmetic expression `Costs[1] +
     /// Costs[2]`): the source as written, its SourceExpression, and whether the default of its Editable column is `True`
     /// (record/TestPageControlFieldArraySource.al).
     #[serde(default)]
     pub expr_source: Option<(String, bool)>,
+    /// Set when `expr_source` comes from one of the expression shapes of pages/controls/PageControlFieldExpressionShapes.al
+    /// (al-runner issue 7442). BC lists a page's rows in ControlId order, an id the compiler derives, and the order of these rows
+    /// is not pinned (FilterOnFieldNoZero_PageWithExpressionControls_ControlNames, :323-332): a read in key order that chooses
+    /// between two controls of a page leaves the columns that tell this row apart unknown.
+    #[serde(default)]
+    pub expr_row_unordered: bool,
     /// For a page's own control bound to an expression that is a single call written as a name with or without an argument
     /// list (`CompanyName`, `Format(Costs[1])`), or a member call (`Rec.DisplayCode()`, `Names.NameOf(Rec."No.")`): Page
     /// Control Field serves its row with no source field (record/WbPageControlBuiltIn.al, al-runner issue 6284;

@@ -888,7 +888,8 @@ fn isolated_storage_scopes_are_apart_and_encrypted_entries_read_back_as_text() {
          ok := IsolatedStorage.Get('e', v);
          exit(a + ',' + v + Format(secret));",
     );
-    assert_eq!(r.unwrap(), "module,company,secret valueYes");
+    // isSecret of a value SetEncrypted stored from a Text is false (session-system/P107IsoStorage.al:33-35, :50).
+    assert_eq!(r.unwrap(), "module,company,secret valueNo");
 }
 
 #[test]

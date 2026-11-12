@@ -20,7 +20,8 @@ use super::*;
 type Inst = Rc<RefCell<al_builtins::value::Instance>>;
 
 /// Whether `text` has a form the probe pins: a name, an optional number index, and an optional unquoted field name; with
-/// `quoted` (a control of a report extension) the field name may also be in double quotes (W3RpExtRequestPage.al:1281).
+/// `quoted` (a control of a report extension, or one bound to a field of a global record) the field name may also be in double
+/// quotes (W3RpExtRequestPage.al:1281).
 fn pinned_shape(text: &str, quoted: bool) -> bool {
     let ident = |s: &str| {
         let mut c = s.chars();
@@ -80,7 +81,12 @@ pub(super) fn ignored_extension_name(page: &ir::Page, name: &str) -> bool {
 impl Session {
     /// For a request page control bound to an expression: its parameter name and the routines that read and write its
     /// place, when the shape is pinned; otherwise the refusal.
-    pub(super) fn request_expr_place(&self, c: &ir::Control) -> Result<(String, usize, usize, Option<usize>), Signal> {
+    /// `report` is the report object the request page belongs to.
+    pub(super) fn request_expr_place(
+        &self,
+        report: usize,
+        c: &ir::Control,
+    ) -> Result<(String, usize, usize, Option<usize>), Signal> {
         let refuse = || {
             unsupported(format!(
                 "the parameters text for request page control {} bound to this expression (not pinned)",
@@ -93,7 +99,19 @@ impl Session {
         let (Some(text), Some(write)) = (c.source_text.as_deref(), c.trigger("__sourceset")) else {
             return refuse();
         };
-        if !pinned_shape(text, c.owner.is_some()) {
+        // An Option field of the report's own global record or of an element of its record array, on a control of the pinned
+        // shape (`choice_entry::record_choice_field`), may be quoted too (`MySetup."Logo Position"`, `SetupArr[2]."Logo
+        // Position"`: reports/request-page/RequestPageOptionFieldOfGlobalRecord.al:514, RequestPage_FieldsOfGlobalRecord_
+        // ParametersText). A quoted field of another type is not pinned.
+        let option_field = || {
+            let engine = self.engine();
+            matches!(
+                super::choice_entry::record_choice_field(&engine.program, report, c),
+                Some(RtType::Option(_))
+            )
+        };
+        let quoted = c.owner.is_some() || option_field();
+        if !pinned_shape(text, quoted) {
             return refuse();
         }
         Ok((text.to_string(), read, write, c.owner))

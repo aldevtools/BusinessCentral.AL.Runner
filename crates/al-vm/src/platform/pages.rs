@@ -542,6 +542,58 @@ fn bool_prop(o: &Object, ctl: &al_ir::Control, name: &str, default: &str) -> Res
     }
 }
 
+/// A Page Control Field row that a read in key order chose between two controls of one page. The rows of a page come in ControlId
+/// order, an id the compiler derives, which the runtime's ids do not follow (record/TestPageControlFieldPageExtension.al:148), so a
+/// column that tells the chosen row apart from the others is not pinned. Kept as it was before the expression texts were pinned:
+/// an expression text in Enabled, Editable or Visible reads as unknown, and the rest of the row is served, because a baseline case
+/// walks a page's controls that way without depending on their order (TestPageControlFieldPageExtension.al:58-85). A row of an
+/// expression shape of al-runner issue 7442 (`Control::expr_row_unordered`) was never served in such a read: its ControlName,
+/// SourceExpression and Sequence read as unknown too (pages/controls/PageControlFieldExpressionShapes.al:323-332 lists the
+/// controls in an order the runtime does not give).
+pub(super) fn page_control_field_chosen_in_key_order(p: &Providers, t: &TableDef, row: &mut Row) {
+    let unknown = || {
+        Value::Unknown(
+            "Page Control Field: a row read in key order over several controls of a page (the rows come in ControlId order, an id the compiler derives; not pinned)"
+                .into(),
+        )
+    };
+    for id in [6, 7, 8] {
+        let i = pos(t, id);
+        let literal = matches!(&row[i], Value::Text(v) if ["true", "false", "True"].contains(&v.as_str()));
+        if matches!(row[i], Value::Text(_)) && !literal {
+            row[i] = unknown();
+        }
+    }
+    let (Value::Integer(page), Value::Integer(control)) = (&row[pos(t, 1)], &row[pos(t, 2)]) else {
+        return;
+    };
+    if expr_row_unordered(p, *page, *control) {
+        for id in [3, 9, 11] {
+            row[pos(t, id)] = unknown();
+        }
+    }
+}
+
+/// Whether control `control` (its ControlId: its 1-based position in the page's controls) of page `page` has a row whose place
+/// among the page's rows is not pinned (`Control::expr_row_unordered`).
+fn expr_row_unordered(p: &Providers, page: i32, control: i32) -> bool {
+    let engine = p.engine();
+    let c = Catalog::new(&engine);
+    let Some(i) = c
+        .objects
+        .iter()
+        .position(|h| h.kind == al_ir::ObjKind::Page && h.id.is_some_and(|id| id as i32 == page))
+    else {
+        return false;
+    };
+    let index = usize::try_from(control - 1).ok();
+    c.full[i]
+        .page
+        .as_ref()
+        .and_then(|pg| pg.controls.get(index?))
+        .is_some_and(|ctl| ctl.expr_row_unordered)
+}
+
 pub(super) fn page_control_field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
