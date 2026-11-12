@@ -803,6 +803,10 @@ pub struct PageState {
     /// `Page.RunModal(Id, Rec, Field)` with its return value used: a close by the platform after the handler returned hands the
     /// row back as an action does (ui-handlers/F3TrappedAndModal.al:235 Card_HandlerEditsOnly, :341 List_HandlerDoesNothing).
     pub field_run: bool,
+    /// The static `Page.RunModal` that runs the page got a record. Every pinned save error at the close of a static RunModal
+    /// passes one (pages/close-errors/ModalCloseSaveErrorShapes.al:250, :271, :292, :314, :336, :356, :376;
+    /// pages/close-errors/CemModalHandlerTests.al:900, :1743); without one such an error keeps the refusal.
+    pub static_run_record: bool,
     /// The refresh about to run follows an action on a card with OnFindRecord, without CurrPage.Update: pinned
     /// (pages/triggers/BeCardOnFindRecord.al), so it marks no assumption.
     pub refresh_pinned: bool,
@@ -865,6 +869,20 @@ impl PageState {
     /// all open with OpenEdit; another open keeps the earlier behavior or is refused there.
     pub(crate) fn test_open_edit(&self) -> bool {
         self.opened_by_test && self.mode == PageMode::Edit && !self.modal && self.host.is_none()
+    }
+
+    /// A static `Page.RunModal(Id [, Rec [, Field]])` runs the page: `used` says its return value is used, `record` that it
+    /// got a record, `field` a field number, `from_table` that the id was 0 (the table's lookup page). Used, the page opens
+    /// as a lookup (pages/triggers/BeRunModalOnLookup.al:916 Shape_ReturnNotUsed_WalkOnly, :949 Shape_ReturnInIf_WalkOnly).
+    pub(crate) fn static_run_modal(&mut self, used: bool, record: bool, field: bool, from_table: bool) {
+        self.run_static = Some(true);
+        if used {
+            self.open_as_lookup(LookupKind::StaticRunModal);
+        }
+        self.lookup_page_from_table = from_table;
+        self.static_run_record = record;
+        self.statement_run = !used && record;
+        self.field_run = used && record && field;
     }
 
     /// The platform runs the page as a lookup of `kind`: the static `Page.RunModal` whose return value is used, or a

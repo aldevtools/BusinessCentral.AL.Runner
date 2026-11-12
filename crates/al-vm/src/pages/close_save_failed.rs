@@ -16,11 +16,13 @@ use super::*;
 use al_builtins::page_op::{PageMethod, PageOp};
 
 impl Session {
-    /// The client's save of the row at a close (`close_with`): an AL Error of the save is noted for `page_close`.
+    /// The client's save of the row at a close (`close_with`): an AL Error of the save is noted for `page_close` and
+    /// `close_modal_left_open`.
     pub(super) fn close_save_row(&mut self, st: &St) -> Result<(), Signal> {
         let r = self.save_row(st);
-        if matches!(&r, Err(Signal::Error(e)) if e.code == "Dialog") {
-            self.pages.close_save_error = true;
+        if let Err(Signal::Error(e)) = &r {
+            self.pages.close_save_error = Some((**e).clone());
+            self.pages.close_save_raised_in = self.error_raised_in;
         }
         r
     }
@@ -32,7 +34,7 @@ impl Session {
         st: &St,
         r: &Result<Value, Signal>,
     ) -> Option<Result<Value, Signal>> {
-        if !std::mem::take(&mut self.pages.close_save_error) {
+        if !std::mem::take(&mut self.pages.close_save_error).is_some_and(|e| e.code == "Dialog") {
             return None;
         }
         let Err(Signal::Error(e)) = r else { return None };

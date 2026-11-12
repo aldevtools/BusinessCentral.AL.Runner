@@ -806,6 +806,8 @@ pub struct Session {
     /// The routine and current statement position of every frame, parallel to `frames`
     /// (`callstack.rs`).
     pub(crate) call_stack: Vec<CallFrame>,
+    /// The object whose routine raised the last AL error that left a routine (the innermost frame of its call stack).
+    pub(crate) error_raised_in: Option<usize>,
     /// The test runner's frames below a test, in `Callstack` form (`callstack.rs`); empty
     /// outside a test run.
     pub(crate) runner_frames: String,
@@ -934,6 +936,10 @@ pub struct Session {
     /// The records (by handle) whose `validating` entry a part's link stamp pushed (`stamp_from_filters_seen_as`): the
     /// platform validates the link value, so the entry holds whatever code runs at that moment.
     pub(crate) stamp_validating: Vec<usize>,
+    /// The call site named for the Validate about to start, with its record's handle (`Session::validate_at`).
+    pub(crate) validate_site: Option<(usize, crate::records::ValidateSite)>,
+    /// The Validates running now, innermost last: the record's handle and the call site (`Session::take_validate_site`).
+    pub(crate) validate_sites: Vec<(usize, Option<crate::records::ValidateSite>)>,
     /// The table procedures that run on a record by a plain call (no operation of the record called them), innermost
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
@@ -1316,6 +1322,8 @@ impl Session {
             truncate_undo: Default::default(),
             validating: Vec::new(),
             stamp_validating: Vec::new(),
+            validate_site: None,
+            validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
@@ -1330,6 +1338,7 @@ impl Session {
             var_alias_watch: Vec::new(),
             frames: Vec::new(),
             call_stack: Vec::new(),
+            error_raised_in: None,
             runner_frames: String::new(),
             fault_trace: false,
             fault_site_lost: false,
@@ -1467,12 +1476,15 @@ impl Session {
         self.tx.lock_unpinned = None;
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
+        self.tx.locking_reads.clear();
+        self.tx.db_reads = 0;
         self.tx.locking_read_tx_unpinned = false;
     }
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
         self.tx.deferred_insert = None;
+        self.guarded_body_commit();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
         self.commits += 1;
@@ -1490,6 +1502,7 @@ impl Session {
         self.tx.rolled_back = false;
         self.tx.reads_after_rollback.clear();
         self.tx.rollback_unpinned = None;
+        self.tx.rollback_kind = None;
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
         self.tx.last_commit_wrote = self.tx.tx_phase == crate::transactions::TX_WRITE || self.tx.lock_tx;
         self.isolated_committed = self.isolated_storage.clone();
@@ -1556,6 +1569,8 @@ impl Session {
         self.tx.lock_unpinned = None;
         self.tx.recref_lock_tx = false;
         self.tx.isolation_lock_tables.clear();
+        self.tx.locking_reads.clear();
+        self.tx.db_reads = 0;
         self.tx.locking_read_tx_unpinned = false;
         if self.tx.tx_phase == crate::transactions::TX_WRITE {
             self.tx.tx_phase = crate::transactions::TX_FRESH;
@@ -2668,6 +2683,9 @@ impl Session {
         }
         // An error that leaves the routine takes the routine's frame into its call stack.
         if let (Err(Signal::Error(e)), Some(&top)) = (&mut outcome, self.call_stack.last()) {
+            if e.call_stack.is_empty() {
+                self.error_raised_in = Some(object);
+            }
             self.add_frame(e, object, top);
         }
         self.profile_leave();
