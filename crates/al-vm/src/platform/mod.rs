@@ -14,8 +14,8 @@ mod apps;
 
 /// The platform table Media Resources (`al_builtins::platform::REGISTRY`).
 pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
-/// Table "Tenant Report Layout", whose rows are the user-defined rows of Report Layout List.
-const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
+// Table "Tenant Report Layout" (`tenant_layouts`), whose rows are the user-defined rows of Report Layout List.
+use crate::tenant_layouts::TENANT_REPORT_LAYOUT;
 const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
 pub(crate) mod coverage;
 mod date;

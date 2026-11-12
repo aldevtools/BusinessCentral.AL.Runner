@@ -1,0 +1,11 @@
+ReportLayoutTempSelection => {
+    id: "report-layout-temp-selection",
+    assumed: "Report.SaveAs(.., ReportFormat::Html, OutStream) of a report with a Word default layout and no report extension, while Base Application's codeunit \"Design-time Report Selection\" holds a layout name with no app id, renders the Tenant Report Layout row of that report with exactly that name, a blank Company Name, the null App ID and Layout Format Word (ADR-040 amendment 2026-11-12, A7). The runtime raises SelectReportLayoutCode to Base Application's ReportManagement subscriber only (it clears the selection) and no SelectedBuiltinLayoutType, and goes on only when it answers Success with that name and layout type None, no Tenant Report Layout Selection or Report Layout Selection row names the report, and no other Tenant Report Layout row of the report has the name in another case. Every other selection refuses, also a name or custom layout code that matches nothing (BC answers false there).",
+    tests: "al-runner issue 6924: the reporter's e-mail body tests select a user-defined Word layout (a Tenant Report Layout row named by a GUID) through Report Selections.SaveReportAsHTML, whose SaveReportAsHTMLImpl calls Report Layout Selection.SetTempLayoutSelectedName before the save (they pass on BC).",
+    probe: "Corpus pull request 1362 (branch al-runtime-rs-staging-opaque-text, commit 928b6a93, open; measured on BC 27.5 and 28.5, BC 29.0 not yet), reports/layouts-html-text/HtRenderedTextTests.al:506-540 TempLayout_UserDefinedWordRowByGuidName_SaveAsHtml: `SubstituteReport(SaveAs);SelectReportLayoutCode;OnPreReport;OnPreRendering;OnDocumentReady(text/html,<tenant layout>);OnPostReport;` (no SelectedBuiltinLayoutType), saved Yes, output not empty, the selection empty after the save; :486-504 the same for a declared layout by name; :543-603 a name or custom layout code that matches nothing: saved No, no output, no error.",
+    awaiting: Awaiting {
+        issues: &[6924],
+        files: &["tests/al-language/reports/layouts-html-text/HtRenderedTextTests.al"],
+        since: "2026-11-12",
+    },
+}

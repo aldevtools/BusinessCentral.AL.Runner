@@ -1582,7 +1582,7 @@ impl Session {
                         return Ok(shown);
                     }
                 }
-                let text = self.control_text(st, idx, &v)?;
+                let text = self.field_value_text(st, idx, &v)?;
                 Ok(Value::Text(text.into()))
             }
             PageMethod::AsInteger => self.control_as(st, idx, &RtType::Integer),

@@ -248,6 +248,7 @@ mod list_refresh;
 mod list_view_switch;
 mod long_view;
 mod lookup_editable;
+mod rendered_field;
 use lookup_editable::LookupLock;
 mod lookup_next;
 mod lookup_refresh;
