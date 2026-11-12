@@ -1127,7 +1127,12 @@ impl Session {
                     // from a link on the same source field.
                     if !text.trim().is_empty() {
                         let expr = match sty {
-                            RtType::Date => self.calc_text_date_filter(&text, &enums)?,
+                            // A Text field over a Date source field: the earlier reading, then the pinned forms it refused
+                            // (`calc_text_date_filter`). A Code field keeps the earlier reading only.
+                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty) {
+                                Ok(e) => e,
+                                Err(refusal) => self.calc_text_date_filter(&text, &enums, refusal)?,
+                            },
                             _ => parse(&text, sty)?,
                         };
                         parts.push((c.field, expr, true));
