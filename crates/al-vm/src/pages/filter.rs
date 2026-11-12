@@ -47,6 +47,18 @@ impl Session {
                 }
                 use al_builtins::filter::FilterExpr;
                 use al_builtins::value::RtType;
+                // A SourceTableView `filter(Member)` on an Enum and `const(Member)` on an Option read as the member's number
+                // (pages/view-filters/ViewConstBlankCode.al:490, `views::page_source_view`), on a page the test opened, while the
+                // test set no filter of its own on the field (pinned only that way; otherwise the earlier rules below).
+                let own_filter = || rec.borrow().filters.iter().any(|g| g.field == pos && g.group != 2);
+                if let Some(f) = first
+                    .as_ref()
+                    .filter(|f| f.group == 2 && st.borrow().view_number_fields.contains(&pos) && !own_filter())
+                {
+                    if let Some(t) = super::filter_link_numbers::link_filter_numbers(&f.expr) {
+                        return Ok(Value::Text(t.into()));
+                    }
+                }
                 // A part's SubPageLink filter on an Option or Enum field reads as member numbers (filter_link_numbers).
                 if let (RtType::Option(_) | RtType::Enum(_), Some(f)) = (&table.fields[pos].ty, first.as_ref()) {
                     if f.group == super::parts::LINK_GROUP {

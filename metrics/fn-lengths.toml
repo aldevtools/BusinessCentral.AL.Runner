@@ -16,7 +16,7 @@
 "crates/al-sema/src/lower/assemble.rs::lower_core" = 532
 "crates/al-sema/src/lower/call.rs::call" = 682
 "crates/al-sema/src/lower/expr.rs::expr_raw" = 421
-"crates/al-sema/src/lower/pages.rs::page" = 482
+"crates/al-sema/src/lower/pages.rs::page" = 472
 "crates/al-sema/src/lower/shared.rs::lower_object" = 450
 "crates/al-sema/src/lower/stmt.rs::assign" = 407
 "crates/al-test-cli/src/main.rs::run_version_inner" = 736
@@ -29,7 +29,7 @@
 "crates/al-vm/src/exec/compile.rs::expr_into" = 318
 "crates/al-vm/src/exec/run.rs::run_range" = 340
 "crates/al-vm/src/pages/actions.rs::action_invoke_body" = 451
-"crates/al-vm/src/pages/controls.rs::control_set_value_now" = 821
+"crates/al-vm/src/pages/controls.rs::control_set_value_now" = 781
 "crates/al-vm/src/pages/controls.rs::test_control_op" = 479
 "crates/al-vm/src/pages/open/page_open.rs::open_page_as_inner" = 307
 "crates/al-vm/src/pages/pageops.rs::test_page_op" = 276
