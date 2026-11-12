@@ -42,6 +42,9 @@ impl Session {
                 n.name
             ));
         }
+        if !first_of_node {
+            self.xp_after_assign_second_row(inst, schema, node)?;
+        }
         let rec = self.xp_record(inst, n)?;
         let table = rec.borrow().table as usize;
         let mut fresh = self.initial_fields(table);

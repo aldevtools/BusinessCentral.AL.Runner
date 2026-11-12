@@ -82,6 +82,7 @@ mod xmlport_field_validation;
 mod xmlport_field_wrap_more;
 mod xmlport_flowfield_import;
 mod xmlport_flowfilter_export;
+mod xmlport_after_assign_relation;
 mod xmlport_guid_legacy_import;
 mod xmlport_guid_xml;
 mod xmlport_import_again_text_only;
