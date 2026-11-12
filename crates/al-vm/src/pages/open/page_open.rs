@@ -1560,3 +1560,19 @@ fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.blank_key_edit_reread = false;
     s.request_new_blank = false;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A page that runs again starts without the draft its earlier OpenNew started (al-runner issue 7752, item 3).
+    #[test]
+    fn a_page_that_runs_again_forgets_the_draft_of_its_last_open_new() {
+        let mut s = crate::pages::PageState::closed(1);
+        s.draft_from_open = true;
+        s.draft_start = Some(vec![Value::Boolean(true)]);
+        reset_host_row_flags(&mut s);
+        assert!(!s.draft_from_open);
+        assert!(s.draft_start.is_none());
+    }
+}

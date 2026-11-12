@@ -9,16 +9,32 @@ use super::relation_lookup_close::CLOSING_ERRORS;
 use super::*;
 use al_builtins::page_op::PageMethod;
 
+/// The kinds of a part of CEM Doc (CemFixtures.al:383-410), in its order: the content ListPart linked to the row, the
+/// CardPart factbox linked to it, the same hidden by `Visible = false`, the same unlinked and shown by a page variable.
+#[derive(PartialEq)]
+enum CemPart {
+    Lines,
+    Info,
+    Hidden,
+    Extra,
+}
+
 impl Session {
-    /// Whether `st` is the page of the pins, every fact required (CemFixtures.al:348-424, CemDocumentTests.al `CemDocModal`):
-    /// - a top-level Document run modally in lookup mode by the static `Page.RunModal` (CemDocumentTests.al:177);
-    /// - its own triggers exactly OnModifyRecord, OnQueryClosePage and OnClosePage; its control triggers exactly one
-    ///   OnValidate (Name: `CurrPage.Update()`); its controls groups, fields of Rec and parts, declared by the page itself;
-    /// - its parts' pages declare no trigger; neither the page, nor a part page, nor the source table has an extension or a
-    ///   subscriber;
-    /// - the handler's calls on the page: a value typed into one field or not, then nothing, `OK().Invoke()` or
-    ///   `Cancel().Invoke()`, or `First` and a value typed on the ListPart before them (handler modes 0, 1, 2, 4, 5, 7, 8, 9,
-    ///   11, 12).
+    /// Whether `st` is page CEM Doc of the pins, run as they run it, every fact required (CemFixtures.al:348-424,
+    /// CemDocumentTests.al:168-924, al-runner PR 7816 review, round 3):
+    /// - a top-level Document of a stored table, run modally in lookup mode by the static `Page.RunModal`
+    ///   (CemDocumentTests.al:177); no page property but PageType, SourceTable, ApplicationArea, UsageCategory and Caption;
+    /// - its own triggers exactly OnModifyRecord (a procedure of a codeunit variable, then `exit(true)`), OnQueryClosePage
+    ///   (`exit` of a procedure of a codeunit variable) and OnClosePage (a procedure of a codeunit variable); what those
+    ///   procedures do is checked where it shows: an error code the pins do not show, a veto or an unhandled dialog of OnClosePage is
+    ///   refused when the close runs;
+    /// - its controls groups, fields of Rec with ApplicationArea only, exactly one control trigger, an OnValidate whose body is
+    ///   `CurrPage.Update()`, and the four parts of `CemPart`;
+    /// - the part pages declare no trigger and no property but the plain ones; their controls are a repeater and fields of
+    ///   Rec without a trigger;
+    /// - no page, part page or table has an extension or a subscriber; the source table has no trigger but OnInsert and
+    ///   OnModify, the ListPart's table none but OnModify, neither a field trigger or a procedure;
+    /// - the handler's calls are those of `CemDocModal` (`document_handler_calls_pinned`).
     pub(super) fn document_close_pinned(&self, st: &St) -> Result<bool, Signal> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
@@ -29,67 +45,198 @@ impl Session {
         if !shape || engine.object_facts[object].page_type != Some(ir::PageType::Document) {
             return Ok(false);
         }
-        let plain = |s: &St| {
-            let page = page_of(&engine, s);
-            page.extensions.is_empty()
-                && page.ext_triggers.is_empty()
-                && !engine.events.any_subscriber_of(s.borrow().object as usize)
+        let Some((name, lines)) = self.cem_doc_controls(&engine, object) else {
+            return Ok(false);
         };
-        let page = page_of(&engine, st);
-        let mut triggers: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
-        triggers.sort_unstable();
-        let control_triggers: Vec<&str> = page
-            .controls
-            .iter()
-            .flat_map(|c| c.triggers.iter().map(|(n, _)| n.as_str()))
-            .collect();
-        let controls = page.controls.iter().all(|c| {
-            c.owner.is_none()
-                && c.ext_triggers.is_empty()
-                && match c.kind {
-                    ir::ControlKind::Group => true,
-                    ir::ControlKind::Field => matches!(c.binding, ir::Binding::Field(_)),
-                    ir::ControlKind::Part => c.triggers.is_empty(),
-                    _ => false,
-                }
-        });
-        let parts: Vec<St> = st.borrow().parts.iter().map(|(_, p)| p.clone()).collect();
-        let parts_ok = parts
-            .iter()
-            .all(|p| plain(p) && page_of(&engine, p).triggers.is_empty());
-        if triggers != ["onclosepage", "onmodifyrecord", "onqueryclosepage"]
-            || control_triggers != ["onvalidate"]
-            || !controls
-            || !parts_ok
-            || !plain(st)
+        if !Self::cem_doc_triggers(&engine, object)
+            || !Self::document_handler_calls_pinned(&st.borrow().tree_calls, name, lines)
         {
             return Ok(false);
         }
-        let table = self.table(&self.page_rec(st))?.object as usize;
-        let table_ok = engine.program.objects[table]
-            .table
-            .as_ref()
-            .is_some_and(|x| x.extensions.is_empty())
-            && !engine.events.any_subscriber_of(table);
-        Ok(table_ok && Self::document_handler_calls_pinned(&st.borrow().tree_calls))
+        let rec = self.page_rec(st);
+        if rec.borrow().temporary {
+            return Ok(false);
+        }
+        let table = self.table(&rec)?.object as usize;
+        let parts: Vec<St> = st.borrow().parts.iter().map(|(_, p)| p.clone()).collect();
+        let mut part_tables = Vec::new();
+        for p in &parts {
+            part_tables.push(self.table(&self.page_rec(p))?.object as usize);
+        }
+        let code_within = |object: usize, triggers: &[&str]| {
+            pinned_shape::table_code(&engine, object)
+                .is_some_and(|(have, more)| !more && have.iter().all(|t| triggers.contains(&t.as_str())))
+        };
+        let line_table = parts
+            .iter()
+            .zip(&part_tables)
+            .find(|(p, _)| p.borrow().object as usize == lines.1)
+            .map(|(_, t)| *t);
+        Ok(code_within(table, &["oninsert", "onmodify"])
+            && line_table.is_some_and(|t| code_within(t, &["onmodify"]))
+            && part_tables.iter().all(|&t| t == table || Some(t) == line_table))
     }
 
-    /// The handler modes of `CemDocModal`: a value typed into a field of the page, or `First` and a value typed on the
-    /// ListPart (modes 11, 12), or neither; then nothing, OK or Cancel.
-    fn document_handler_calls_pinned(calls: &[TreeCall]) -> bool {
+    /// The page code of CEM Doc (CemFixtures.al:412-423): its own triggers, their bodies, no extension and no subscriber.
+    fn cem_doc_triggers(engine: &Engine, object: usize) -> bool {
+        let program = &engine.program;
+        let page = program.objects[object].page.as_ref().expect("a page");
+        let call = |e: &ir::Expr| pinned_shape::codeunit_var_call(program, object, e);
+        let body_ok = |name: &str, r: usize| {
+            let mut stmts = pinned_shape::code_stmts(program, object, r);
+            // The lowering ends a trigger with a return value by an `exit` of its default, unreachable after an `exit`.
+            if let [.., ir::Stmt::Exit(Some(_)), ir::Stmt::Exit(Some(_))] = stmts.as_slice() {
+                stmts.pop();
+            }
+            match (name, stmts.as_slice()) {
+                ("onmodifyrecord", [ir::Stmt::Expr(e), ir::Stmt::Exit(Some(t))]) => {
+                    call(e)
+                        && matches!(t, ir::Expr::Const(ir::Const::Boolean(true)))
+                            | matches!(t, ir::Expr::Convert(_, b) if matches!(**b, ir::Expr::Const(ir::Const::Boolean(true))))
+                }
+                ("onqueryclosepage", [ir::Stmt::Exit(Some(e))]) | ("onclosepage", [ir::Stmt::Expr(e)]) => call(e),
+                _ => false,
+            }
+        };
+        let mut names: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
+        names.sort_unstable();
+        names == ["onclosepage", "onmodifyrecord", "onqueryclosepage"]
+            && page.triggers.iter().all(|(n, r)| body_ok(n, *r))
+            && page.extensions.is_empty()
+            && page.ext_triggers.is_empty()
+            && !engine.events.any_subscriber_of(object)
+            && program.objects[object]
+                .properties
+                .iter()
+                .all(|(k, _)| pinned_shape::PLAIN_PROPERTIES.contains(&k.to_ascii_lowercase().as_str()))
+    }
+
+    /// The controls of CEM Doc (CemFixtures.al:356-410, see `document_close_pinned`): the control index of the field with
+    /// the OnValidate, and the control index and page object of the ListPart. `None` for any other page.
+    fn cem_doc_controls(&self, engine: &Engine, object: usize) -> Option<(usize, (usize, usize))> {
+        let program = &engine.program;
+        let page = program.objects[object].page.as_ref()?;
+        let lit = |c: &ir::Control, allowed: &[&str]| {
+            c.props
+                .iter()
+                .all(|(k, v)| allowed.contains(&k.as_str()) && matches!(v, ir::PropVal::Lit(_)))
+        };
+        let mut validate = None;
+        let mut parts = Vec::new();
+        for (i, c) in page.controls.iter().enumerate() {
+            if c.owner.is_some() || !c.ext_triggers.is_empty() {
+                return None;
+            }
+            match c.kind {
+                ir::ControlKind::Group if c.binding == ir::Binding::None && c.triggers.is_empty() => {}
+                ir::ControlKind::Field
+                    if matches!(c.binding, ir::Binding::Field(_)) && lit(c, &["applicationarea"]) =>
+                {
+                    match c.triggers.as_slice() {
+                        [] => {}
+                        [(n, r)] if n == "onvalidate" && validate.is_none() => {
+                            let body = pinned_shape::code_stmts(program, object, *r);
+                            if !matches!(body.as_slice(), [s] if pinned_shape::is_curr_page_update(s, page.curr_page_slot))
+                            {
+                                return None;
+                            }
+                            validate = Some(i);
+                        }
+                        _ => return None,
+                    }
+                }
+                ir::ControlKind::Part if c.triggers.is_empty() => parts.push((i, self.cem_part(engine, c)?)),
+                _ => return None,
+            }
+        }
+        let kinds: Vec<&CemPart> = parts.iter().map(|(_, (k, _))| k).collect();
+        if kinds != [&CemPart::Lines, &CemPart::Info, &CemPart::Hidden, &CemPart::Extra] {
+            return None;
+        }
+        let (lines, (_, lines_page)) = parts[0];
+        Some((validate?, (lines, lines_page)))
+    }
+
+    /// Which part of CEM Doc the part control `c` is (`CemPart`), with its page object; `None` for any other part.
+    fn cem_part(&self, engine: &Engine, c: &ir::Control) -> Option<(CemPart, usize)> {
+        let program = &engine.program;
+        let part = c.part_page?;
+        let page = program.objects[part].page.as_ref()?;
+        let plain = page.triggers.is_empty()
+            && page.extensions.is_empty()
+            && page.ext_triggers.is_empty()
+            && !engine.events.any_subscriber_of(part)
+            && program.objects[part]
+                .properties
+                .iter()
+                .all(|(k, _)| pinned_shape::PLAIN_PROPERTIES.contains(&k.to_ascii_lowercase().as_str()))
+            && page.controls.iter().all(|pc| {
+                pc.owner.is_none()
+                    && pc.triggers.is_empty()
+                    && pc.ext_triggers.is_empty()
+                    && pc.props.iter().all(|(_, v)| matches!(v, ir::PropVal::Lit(_)))
+                    && match pc.kind {
+                        ir::ControlKind::Repeater => pc.binding == ir::Binding::None,
+                        ir::ControlKind::Field => matches!(pc.binding, ir::Binding::Field(_)),
+                        _ => false,
+                    }
+            });
+        if !plain {
+            return None;
+        }
+        // An unlinked part has a link without entries or none.
+        let linked = c.part_link.as_ref().filter(|l| !l.entries.is_empty()).map(|l| {
+            l.provider.is_none() && l.view.is_none() && l.entries.iter().all(|e| matches!(e, ir::LinkEntry::Field(..)))
+        });
+        if c.part_link
+            .as_ref()
+            .is_some_and(|l| l.entries.is_empty() && (l.provider.is_some() || l.view.is_some()))
+        {
+            return None;
+        }
+        let visible = c.props.iter().find(|(k, _)| k == "visible").map(|(_, v)| v);
+        let others_plain = c.props.iter().all(|(k, v)| {
+            k == "visible"
+                || (matches!(k.as_str(), "applicationarea" | "subpagelink") && matches!(v, ir::PropVal::Lit(_)))
+        });
+        let page_type = engine.object_facts[part].page_type.clone();
+        let list_part = page_type == Some(ir::PageType::Other("listpart".into()));
+        let card_part = page_type == Some(ir::PageType::Other("cardpart".into()));
+        let kind = match (list_part, card_part, linked, visible) {
+            (true, _, Some(true), None) => CemPart::Lines,
+            (_, true, Some(true), None) => CemPart::Info,
+            (_, true, Some(true), Some(ir::PropVal::Lit(v))) if v.eq_ignore_ascii_case("false") => CemPart::Hidden,
+            (_, true, None, Some(ir::PropVal::Routine(_))) => CemPart::Extra,
+            _ => return None,
+        };
+        others_plain.then_some((kind, part))
+    }
+
+    /// The handler modes of `CemDocModal` (CemDocumentTests.al:886-923) as the calls they make on the page: nothing, or a
+    /// value typed into Name (the field `name` with the OnValidate), or `First` and a value typed into a field of the ListPart
+    /// (part control `lines`, modes 11 and 12); then nothing, OK or Cancel. A typed value that raised ends the calls (modes 8
+    /// and 9 stop there). A handler that raises its own error makes no call (mode 7, see `close_document_after_handler_error`).
+    fn document_handler_calls_pinned(calls: &[TreeCall], name: usize, lines: (usize, usize)) -> bool {
         use PageMethod::{Cancel, First, Invoke, OK};
         use TestCall::{Other, Page, Write};
-        let on_page = |c: &TreeCall| c.part.is_none();
+        let ok = |c: &TreeCall| !c.failed && !c.no;
         let rest = match calls {
-            [w, rest @ ..] if on_page(w) && matches!(w.call, Write(_)) => rest,
+            [w] if w.part.is_none() && w.call == Write(name) => return true,
+            [w, rest @ ..] if w.part.is_none() && w.call == Write(name) && ok(w) => rest,
             [f, w, rest @ ..]
-                if f.part.is_some() && f.part == w.part && f.call == Page(First) && matches!(w.call, Write(_)) =>
+                if f.part == Some(lines.0)
+                    && w.part == Some(lines.0)
+                    && f.call == Page(First)
+                    && matches!(w.call, Write(_))
+                    && ok(f)
+                    && ok(w) =>
             {
                 rest
             }
             all => all,
         };
-        if !rest.iter().all(on_page) {
+        // Only the last call may have raised: the close OK or Cancel asked failed (:349 HandlerOk_QueryCloseError).
+        if !rest.iter().all(|c| c.part.is_none()) || rest.iter().rev().skip(1).any(|c| c.failed) {
             return false;
         }
         let rest: Vec<TestCall> = rest.iter().map(|c| c.call).collect();
@@ -126,19 +273,23 @@ impl Session {
             wrapped.code = "TestWrapped:MissingUIHandler".into();
             return Err(Signal::Error(Box::new(wrapped)));
         }
-        let typed_last = matches!(
-            st.borrow().tree_calls.last(),
-            Some(TreeCall {
+        let calls = st.borrow().tree_calls.clone();
+        let typed_failed = matches!(
+            calls.as_slice(),
+            [TreeCall {
                 part: None,
                 call: TestCall::Write(_),
+                failed: true,
                 ..
-            })
+            }]
         );
-        if typed_last && err.code == "TestValidation" {
+        if typed_failed && err.code == "TestValidation" {
             self.mark_closed(st);
             return Ok(());
         }
-        if st.borrow().dirty || st.borrow().draft || st.borrow().tree_calls.iter().any(|c| c.part.is_some()) {
+        // The handler's own error is pinned only for a handler that made no call (mode 7); a value typed before it, also one
+        // whose save failed and that the handler caught, keeps main's refusal (al-runner PR 7816 review, round 3).
+        if !calls.is_empty() || st.borrow().dirty || st.borrow().draft {
             return unsupported(
                 "a page left open by a ModalPageHandler that raised an error, with an unsaved row or a hidden part (not pinned)",
             );

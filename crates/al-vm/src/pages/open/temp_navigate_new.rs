@@ -13,7 +13,9 @@ impl Session {
     ///   outside the ones both pages declare (Caption, Permissions, `Extensible = false`, `Editable = true`, ApplicationArea,
     ///   UsageCategory), no part, the page's only own trigger OnOpenPage (`Rec.Init(); Rec.Insert();`), no page extension,
     ///   no subscriber of the page;
-    /// - the source table: no TableType, no OnInsert, OnModify or OnRename trigger, no table extension, no subscriber;
+    /// - the source table: no TableType, no OnInsert, OnModify or OnRename trigger, no table extension, no subscriber. Field
+    ///   triggers and OnDelete stay allowed on purpose: Microsoft's table SMTP Account has OnValidate triggers on four fields
+    ///   and an OnDelete trigger, and the wizard tests above type into those fields (al-runner PR 7816 review, round 3);
     /// - how it opened: the test's own OpenNew of a top-level page, not modal, not in lookup mode, no record handed;
     /// - after OnOpenPage: Rec has no filter and stands, as stored, on the one row of the temporary table, and that row holds
     ///   the values of `Init()` (a blank key and every field's InitValue).
