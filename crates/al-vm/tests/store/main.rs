@@ -20,7 +20,7 @@ mod crm_connection;
 mod date_filter_short;
 mod date_formula_operator_date;
 mod datetime_filter_empty_text;
-mod decimal_store_truncation;)
+mod decimal_store_truncation;
 mod delete_all_cascade;
 mod delete_all_flowfield_filter;
 mod dupkey_after_event;

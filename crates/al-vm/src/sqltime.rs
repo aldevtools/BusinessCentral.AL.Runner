@@ -1,6 +1,6 @@
 //! What the SQL `datetime` column behind a Date, Time or DateTime field does to the values of a database (non-temporary)
 //! table: it counts 1/300 s, and it cannot hold every date (corpus record/filters/P130DateFilters.al).
-//! The `decimal(38,20)` column behind a Decimal field cuts it to 20 decimals (docs/decimal-store-probe.md).)
+//! The `decimal(38,20)` column behind a Decimal field cuts it to 20 decimals (docs/decimal-store-probe.md).
 //! A temporary table keeps the values as they are: whether it rounds too is not pinned, and the old behavior stays.
 
 use al_builtins::filter::{FieldFilter, FilterExpr};
