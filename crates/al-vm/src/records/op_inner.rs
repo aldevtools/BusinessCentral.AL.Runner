@@ -1068,6 +1068,7 @@ impl Session {
                 if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
                 }
+                self.tenant_set_delete_one_refuses(&cx, &t, rec)?;
                 self.delete_row(&t, rec, run)
             }
             RecordOp::DeleteAll => {
