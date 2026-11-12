@@ -49,6 +49,11 @@ pub(crate) use permissions::{
 };
 pub(crate) use seed::SESSION_USER_FULL_NAME;
 
+/// The platform tables Tenant Permission Set, Tenant Permission and Tenant Permission Set Rel.
+pub(crate) const TENANT_PERMISSION_SET: u32 = 2_000_000_165;
+pub(crate) const TENANT_PERMISSION: u32 = 2_000_000_166;
+pub(crate) const TENANT_PERMISSION_SET_REL: u32 = 2_000_000_253;
+
 use crate::Engine;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FieldFilter;
