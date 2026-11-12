@@ -142,6 +142,31 @@ page 50323 "PX Reporter Walk"
     trigger OnAfterGetRecord() begin NextEnabled := Rec.RelationTableNo <> 0; end;
     var NextEnabled: Boolean;
 }
+page 50324 "PX Exit Writer"
+{
+    PageType = List;
+    SourceTable = Field;
+    Editable = false;
+    UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field(NoCtl; Rec."No.") { } field(RelCtl; Rec.RelationTableNo) { } } } }
+    actions { area(Processing) { action(NextAction) { Enabled = NextEnabled; trigger OnAction() begin Toggle(); end; } } }
+    trigger OnAfterGetRecord() begin NextEnabled := Rec.RelationTableNo <> 0; end;
+    procedure Toggle(): Boolean begin exit(SetIt(NextEnabled)); end;
+    local procedure SetIt(var B: Boolean): Boolean begin B := true; exit(B); end;
+    var NextEnabled: Boolean;
+}
+page 50325 "PX Case Writer"
+{
+    PageType = List;
+    SourceTable = Field;
+    Editable = false;
+    UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field(NoCtl; Rec."No.") { } field(RelCtl; Rec.RelationTableNo) { } } } }
+    actions { area(Processing) { action(NextAction) { Enabled = NextEnabled; trigger OnAction() begin case SetIt(NextEnabled) of true: ; end; end; } } }
+    trigger OnAfterGetRecord() begin NextEnabled := Rec.RelationTableNo <> 0; end;
+    local procedure SetIt(var B: Boolean): Boolean begin B := true; exit(B); end;
+    var NextEnabled: Boolean;
+}
 codeunit 50312 T
 {
     procedure Trapped(): Text
@@ -283,6 +308,41 @@ codeunit 50312 T
         Steps += Format(Walk.NextAction.Enabled());
         exit(Steps);
     end;
+    procedure ExitWriter(): Text
+    var
+        F: Record Field;
+        Walk: TestPage "PX Exit Writer";
+        Steps: Text;
+    begin
+        F.SetRange(TableNo, 50311);
+        Walk.Trap();
+        Page.Run(Page::"PX Exit Writer", F);
+        Walk.GoToKey(50311, 2);
+        Walk.NextAction.Invoke();
+        Walk.GoToKey(50311, 1);
+        Steps += Format(Walk.NextAction.Enabled()) + ' ';
+        Walk.GoToKey(50311, 2);
+        Steps += Format(Walk.NextAction.Enabled());
+        exit(Steps);
+    end;
+
+    procedure CaseWriter(): Text
+    var
+        F: Record Field;
+        Walk: TestPage "PX Case Writer";
+        Steps: Text;
+    begin
+        F.SetRange(TableNo, 50311);
+        Walk.Trap();
+        Page.Run(Page::"PX Case Writer", F);
+        Walk.GoToKey(50311, 2);
+        Walk.NextAction.Invoke();
+        Walk.GoToKey(50311, 1);
+        Steps += Format(Walk.NextAction.Enabled()) + ' ';
+        Walk.GoToKey(50311, 2);
+        Steps += Format(Walk.NextAction.Enabled());
+        exit(Steps);
+    end;
 }
 "#;
 
@@ -363,4 +423,16 @@ fn the_reporters_on_action_takes_the_path() {
     take_hits();
     assert_eq!(text(run_in(&src(), "T", "ReporterOnAction")), "Yes No Yes");
     assert!(take_hits().contains(&Assumption::ActionEnabledFollowsRowAfterGoToKey));
+}
+
+/// A page procedure OnAction calls hands the variable to a `var` parameter inside `exit(...)` (review round 2, R03).
+#[test]
+fn a_var_argument_inside_exit_keeps_the_current_value() {
+    keeps_main("ExitWriter", "No No");
+}
+
+/// OnAction hands the variable to a `var` parameter in a case scrutinee (review round 2, R04).
+#[test]
+fn a_var_argument_in_a_case_scrutinee_keeps_the_current_value() {
+    keeps_main("CaseWriter", "No No");
 }

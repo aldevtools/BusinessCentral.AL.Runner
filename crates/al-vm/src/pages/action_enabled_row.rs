@@ -3,7 +3,7 @@
 //! last row read; BC answers from the row the GoToKey landed on: the reporter's repro on real BC gives `e2=Yes rel=349` after
 //! `GoToKey(Dimension Set Entry, 3)` where the earlier code answered No, and open corpus PR 1367 (testpage/
 //! ActionEnabledAfterGoToKey.al:610 FieldTable_TrapPageRun_EnabledAfterGoToKey, :430 List_TrapPageRunFiltered) measures the same
-//! after a trapped static Page.Run, on every major its CI ran. Only the reporter's shape runs here, under the assumption
+//! after a trapped static Page.Run (group G1 passes on every major of its CI run). Only the reporter's shape runs here, under the assumption
 //! `action-enabled-follows-row-after-go-to-key`; every other shape keeps the variable's current value.
 
 use super::pinned_shape::{PinnedCode, TestCall};
@@ -150,7 +150,7 @@ impl Session {
 /// The OnAfterGetRecord routine of page `object` and the page variables it sets, when it is a function of Rec alone and the
 /// only code of the page that sets them, as in the repro (al-runner issue 7916: `NextEnabled := Rec.RelationTableNo <> 0`):
 /// each statement assigns a page variable (not Rec or xRec) an expression of constants and fields of Rec, and no other
-/// routine of the page assigns those variables, passes them to a `var` parameter or runs `ClearAll`. Run again on a row, it
+/// routine of the page assigns those variables, passes them to a `var` parameter of any call or runs `ClearAll`. Run again on a row, it
 /// sets those variables from the row's fields and does nothing else. `None` for every other page.
 fn row_function_slots(program: &ir::Program, object: usize) -> Option<(usize, Vec<usize>)> {
     fn of_rec(e: &ir::Expr, rec: usize) -> bool {
@@ -168,6 +168,9 @@ fn row_function_slots(program: &ir::Program, object: usize) -> Option<(usize, Ve
             ir::Place::Index(base, _) | ir::Place::Field(base, _) => root_global(base),
             _ => None,
         }
+    }
+    fn by_ref(a: &ir::Arg, assigned: &[usize]) -> bool {
+        matches!(a, ir::Arg::Ref(p) if root_global(p).is_some_and(|g| assigned.contains(&g)))
     }
     let o = &program.objects[object];
     let rec = o.rec_slot?;
@@ -188,15 +191,21 @@ fn row_function_slots(program: &ir::Program, object: usize) -> Option<(usize, Ve
     for r in (0..o.routines.len()).filter(|r| r != agr) {
         let written = super::written_by_routine(&o.routines, object, r)?;
         let mut clears = false;
+        // Every expression of every statement (`for_each_expr_post`, `exit(...)` and case scrutinees too): a call of any kind
+        // that hands an assigned variable to a `var` parameter writes it.
         ir::types::for_each_expr_post(o.routines[r].body.stmts(), &mut |e| {
-            if let ir::Expr::Builtin { id, receiver, args, .. } = e {
-                let by_ref = receiver
-                    .iter()
-                    .map(|a| a.as_ref())
-                    .chain(args)
-                    .any(|a| matches!(a, ir::Arg::Ref(p) if root_global(p).is_some_and(|g| assigned.contains(&g))));
-                clears |= by_ref || *id == al_builtins::builtin_id::ids::SYSTEM_CLEARALL_1;
-            }
+            let args: &[ir::Arg] = match e {
+                ir::Expr::Builtin { id, receiver, args, .. } => {
+                    clears |= *id == al_builtins::builtin_id::ids::SYSTEM_CLEARALL_1
+                        || receiver.as_deref().is_some_and(|a| by_ref(a, &assigned));
+                    args
+                }
+                ir::Expr::Call { args, .. } | ir::Expr::InterfaceCall { args, .. } | ir::Expr::DotNet { args, .. } => {
+                    args
+                }
+                _ => &[],
+            };
+            clears |= args.iter().any(|a| by_ref(a, &assigned));
         });
         if clears || assigned.iter().any(|g| written.contains(g)) {
             return None;
