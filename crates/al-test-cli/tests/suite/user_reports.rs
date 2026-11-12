@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_recordref_get_table_updates_the_shared_event_buffer() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/recordref-gettable-shared.al"),
+    ));
+}

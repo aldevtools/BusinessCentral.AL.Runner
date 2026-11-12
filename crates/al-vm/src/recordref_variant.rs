@@ -12,7 +12,7 @@
 //! seen by the other (:460-482) and a RecordRef parameter by value that the callee closes (:484-500).
 
 use al_builtins::library_kind::LibraryKind;
-use al_builtins::value::{LibraryValue, Value};
+use al_builtins::value::{LibraryValue, RecordState, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -34,4 +34,25 @@ pub(crate) fn own_copy(h: &Lib) -> Value {
         _ => h.clone(),
     };
     Value::Library(LibraryKind::RecordRef, copy)
+}
+
+/// A GetTable from a typed record of the same table updates the open shared
+/// buffer (RecordRefGetTable.al, by-value integration event subscriber).
+pub(crate) fn install_get_table_buffer(lib: &Lib, copy: RecordState, typed_source: bool) {
+    let shared = match &*lib.borrow() {
+        LibraryValue::RecordRef(current) if typed_source && !copy.temporary && Rc::strong_count(current) > 1 => {
+            let same_table = {
+                let current = current.borrow();
+                !current.temporary && current.table == copy.table
+            };
+            same_table.then(|| current.clone())
+        }
+        _ => None,
+    };
+    if let Some(current) = shared {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecordRefGetTableSharedSameTable);
+        *current.borrow_mut() = copy;
+    } else {
+        *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
+    }
 }
