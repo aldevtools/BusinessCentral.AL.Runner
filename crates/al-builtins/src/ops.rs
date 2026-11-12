@@ -110,6 +110,16 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         return r;
     }
     Ok(match (v, t) {
+        // A Variant holds the value itself; an HttpContent or HttpRequestMessage put into one is marked as used by value,
+        // which only keeps refusals of `HttpContent.ReadAs(SecretText)` (`http::content_handed_on`, `http::request_handed_on`).
+        (Value::Library(n, cell), T::Variant) if n == "HttpContent" => {
+            crate::http::content_handed_on(&cell);
+            Value::Library(n, cell)
+        }
+        (Value::Library(n, cell), T::Variant) if n == "HttpRequestMessage" => {
+            crate::http::request_handed_on(&cell);
+            Value::Library(n, cell)
+        }
         (v, T::Variant) => v,
         // A number into its own type is the number (what the general arm below gives, without the round trip through a
         // Decimal; the scale of a Decimal is kept).
@@ -163,13 +173,24 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // An HttpContent is a value: assignment and a by-value parameter copy its body and headers
         // (json/W4XmlJsonHttp.al:RequestContent_IsCopyOrReference).
         (Value::Library(n, cell), T::Library(_))
-            if n == "HttpContent" && matches!(&*cell.borrow(), LibraryValue::HttpContent(_)) =>
+            if n == "HttpContent" && !crate::http::content_unused(&cell.borrow()) =>
         {
-            let copy = match &*cell.borrow() {
+            let copy = match &mut *cell.borrow_mut() {
                 LibraryValue::HttpContent(c) => LibraryValue::HttpContent(c.deep_copy()),
                 _ => LibraryValue::Empty,
             };
             Value::Library(n, Rc::new(RefCell::new(copy)))
+        }
+        // An HttpContent no method was called on and an HttpRequestMessage stay shared, as before; they are marked as used by
+        // value, which only keeps refusals of `HttpContent.ReadAs(SecretText)` (`http::content_handed_on`,
+        // `http::request_handed_on`).
+        (Value::Library(n, cell), T::Library(_)) if n == "HttpContent" => {
+            crate::http::content_handed_on(&cell);
+            Value::Library(n, cell)
+        }
+        (Value::Library(n, cell), T::Library(_)) if n == "HttpRequestMessage" => {
+            crate::http::request_handed_on(&cell);
+            Value::Library(n, cell)
         }
         (v @ Value::Codeunit(_), T::Codeunit(_) | T::Interface(_)) | (v @ Value::Library(..), T::Library(_)) => v,
         (v @ Value::Record(_), T::Record(..)) => v,

@@ -89,7 +89,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `format.rs` (619): `Format(Value [, Length] [, FormatNumber])`. Entry: `FormatCtx` 8, `FormatFail` 15, `try_format` 29, `format_value` 37.
 - `format_json.rs` (~80): `Format` of a JsonObject, JsonArray, JsonValue or JsonToken. Entry: `format_json`.
 - `formatstr.rs` (389): `Format(Value, Length, FormatString)`. Entry: `format_with_string` 50.
-- `http/mod.rs` (464): HttpClient, HttpRequestMessage, HttpResponseMessage, HttpHeaders, HttpContent, Cookie. Submodules: `content`, `cookies`, `dates`, `headers`, `header_rules`, `messages`, `send`, `uri`. Entry: `native_for` (mod.rs).
+- `http/mod.rs` (464): HttpClient, HttpRequestMessage, HttpResponseMessage, HttpHeaders, HttpContent, Cookie. Submodules: `content`, `cookies`, `dates`, `headers`, `header_rules`, `messages`, `secret_read` (which `ReadAs(SecretText)` call sequences have evidence), `send`, `uri`. Entry: `native_for` (mod.rs).
 - `iso.rs` (121): ISO 8601 text to AL date/time values (JSON strings, XML-format Evaluate). Entry: `days_in_month` 11, `parse_date` 21, `parse_time` 36, `parse_datetime` 56.
 - `json.rs` (1415): JsonObject, JsonArray, JsonToken and JsonValue. Entry: `Handle` 17, `JsonCell` 21, `JsonNode` 27, `Scalar` 34.
 - `lib.rs` (39): Crate root of the AL standard library: values, builtins, catalog.
