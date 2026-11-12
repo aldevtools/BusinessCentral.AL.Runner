@@ -1406,6 +1406,11 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
 /// Ordering for `<`, `<=`, `>` and `>=`: as [`compare`], except that text follows the culture order
 /// (types/TestFormatEvaluateTextContracts.al:Operators_TextComparison_IsCultureOrderAndCaseSensitiveEquality).
 pub fn compare_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
+    // A marker stands for characters that are not known, and the culture order of a text can depend on any of its characters,
+    // so neither the known characters before it nor "not empty" decide the order (ADR-040 amendment 2026-11-12, A5).
+    if let Some(m) = [l, r].into_iter().find_map(marked_text) {
+        return Err(ordered_refusal(m));
+    }
     // Two Codes of digits only (leading zeros and the empty Code included) are ordered by length first, then as text: `'9' < '10'`, `'0010'
     // > '10'`, `'9' < '0010'`, `'0009' > '10'`, `'' < '0'` (types/text-code-char/P145CodeCompare.al:P145_CodeVars_DigitsOnly,
     // P145_CodeVars_NumberSeriesPair; text/text-methods/TextCompare.Codeunit.al:CodeComparison `tenlt`). A Text on either side, and a Code
@@ -1421,6 +1426,23 @@ pub fn compare_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         }
     }
     compare(l, r)
+}
+
+/// The refusal of `<`, `>`, `<=`, `>=` or a range end on the marked text `_t`.
+fn ordered_refusal(_t: &str) -> Signal {
+    Signal::unsupported(
+        "an ordered comparison (<, >, <=, >= or a range) of a text that holds characters this runtime does not know \
+         (BC orders text by culture, so the known characters do not decide it)"
+            .to_string(),
+    )
+}
+
+/// The text of a Text or Code value that holds a marker.
+fn marked_text(v: &Value) -> Option<&str> {
+    match v {
+        Value::Text(t) | Value::Code(t) if t.has_marker() => Some(t.as_str()),
+        _ => None,
+    }
 }
 
 /// The order a range end of `in [a .. z]` or `case` uses. A Code or a Text on either side follows the order of `<` (the culture order, so
