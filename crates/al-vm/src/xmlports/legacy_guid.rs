@@ -1,7 +1,7 @@
 //! The import of a text into a Guid field by a port without FormatEvaluate (Legacy). No pinned corpus test measures it yet: it
 //! runs under the assumption `xmlport-guid-legacy-import`, whose probe is corpus pull request 1340
-//! (`xmlports/import/XpLegacyGuidImport.al`, values from a local BC 27.5 and 28.5 run and that pull request's green CI on 27.5,
-//! 28.5 and 29.0; al-runner issue 7854). Only the cells that file measures are answered; every other text keeps main's
+//! (`xmlports/import/XpLegacyGuidImport.al`, values from a local BC run and that pull request's green corpus CI; al-runner
+//! issue 7854). Only the cells that file measures are answered; every other text keeps main's
 //! refusal (`xp_value`).
 
 use super::shape::{XmlGuid, xml_guid};
