@@ -1533,6 +1533,11 @@ impl Session {
         if self.permissions.is_some() && inst.borrow().born.0 {
             self.permission_gate_execute(schema.object)?;
         }
+        let op = match entry {
+            Entry::Run => multiple_data_sheets::Op::Run { page: window },
+            _ => multiple_data_sheets::Op::Other,
+        };
+        multiple_data_sheets::gate(schema.report(), schema.name(), op)?;
         self.report.print_only_if_detail = false;
         // `window` says whether the request page opens: the instance's UseRequestPage, which falls
         // back on the report's property (record/TestTxModelReportRun.al:11, :60-61: a report with a
@@ -2779,6 +2784,7 @@ impl Session {
         if let Some(why) = schema.report().dataset_unsupported.first() {
             return unsupported(format!("Report.SaveAs of \"{}\": {why}", schema.name()));
         }
+        multiple_data_sheets::gate(schema.report(), schema.name(), multiple_data_sheets::Op::SaveAs(&format))?;
         if schema.report().transaction_type.is_some() {
             return unsupported(format!(
                 "Report.SaveAs of \"{}\", which declares a TransactionType (what SaveAs does with it is not pinned)",
@@ -4464,6 +4470,7 @@ mod blob_column;
 mod execute_args;
 use execute_args::RefCall;
 pub(crate) mod format_region;
+mod multiple_data_sheets;
 #[cfg(test)]
 mod header_tests;
 mod html_record;

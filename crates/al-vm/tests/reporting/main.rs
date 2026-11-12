@@ -16,6 +16,7 @@ mod report_column_source_error;
 mod report_custom_layout;
 mod report_decimal_columns;
 mod report_dutch_language;
+mod report_excel_multiple_data_sheets;
 mod report_execute_hidden_filters;
 mod report_execute_params_date;
 mod report_execute_params_oninit;
