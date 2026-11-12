@@ -54,7 +54,14 @@ impl Session {
                 self.stamp_from_filters(st, false)?;
                 // The values stay only up to the reads the cell measured (`tie_empty_list_stamp`).
                 match Self::part_steps(st) {
-                    Some(steps) => st.borrow_mut().empty_list_stamp = Some((steps.len(), reads)),
+                    Some(steps) => {
+                        st.borrow_mut().empty_list_stamp = Some(EmptyListStamp {
+                            steps: steps.len(),
+                            reads,
+                            store: self.landing_store_state(),
+                        });
+                        host.borrow_mut().part_holds_empty_list_stamp = true;
+                    }
                     None => unknown_filtered_fields(&rec, STAMP_ENDED),
                 }
             }
@@ -70,28 +77,62 @@ impl Session {
         Ok(())
     }
 
-    /// The test's call `call` on part `st`, or a call of page code on it (`None`: `CurrPage.Update`, a Page variable's method).
-    /// The link values a List-host cell put on Rec (`empty_part_rec`) stay only up to the reads the cell measured: Invokes of
-    /// actions of the part (one, or two where `list_host_cell` says so), with no other call on the host or the part and no
-    /// write to the store since the landing (EmptyPartRecLinkList.al:1800-2031 at commit 831ae544: OpenEdit or OpenView, at most
-    /// one GoToRecord, then `P.Box.ReadRec.Invoke()`). A read of the part's controls or of its filter changes nothing and keeps
-    /// them (`Session::part_steps` leaves it out). Any other step ends them: the fields the part's filters name turn unknown, and
-    /// a read of one is refused. A part that reads a row again keeps that row (`page_first_row_from` ends the stamp).
+    /// A test call starts on `st` (`call`), or page code calls a method of it (`None`: `CurrPage.Update`, a Page variable's
+    /// method). The link values a List-host cell put on Rec of a part (`empty_part_rec`) can be read only inside the reads the
+    /// cell measured: test Invokes of actions of the part (one, or two where `list_host_cell` says so), right after the landing
+    /// (EmptyPartRecLinkList.al:1800-2031 at commit 831ae544: OpenEdit or OpenView, at most one GoToRecord, then
+    /// `P.Box.ReadRec.Invoke()`; :1370 the same read-only action twice). Each such Invoke keeps them only when, as it starts:
+    /// - every step on the host and its parts since the landing is such an Invoke (a read of the part's controls or of its
+    ///   filter is no step, `Session::part_steps`);
+    /// - the store is as the landing found it: no insert, modify, delete or rollback since, inside an earlier Invoke or
+    ///   between two calls (`landing_store_state`; the probe's action only appends to a codeunit's text, :630);
+    /// - no call on the host or its parts since the host opened has raised.
+    ///
+    /// Anything else ends them: the fields the part's filters name turn unknown, and a read of one is refused. A call on the
+    /// host (`st` is the host) ends them for each of its parts before any host code runs, so host code that calls into a part
+    /// does not read them; a landing inside that call stamps again. A part that reads a row again keeps that row
+    /// (`page_first_row_from` ends the stamp).
     pub(super) fn tie_empty_list_stamp(&mut self, st: &St, call: Option<TestCall>) {
-        let Some((at, reads)) = st.borrow().empty_list_stamp else {
+        let (on_a_part, stamp) = {
+            let s = st.borrow();
+            (s.part_holds_empty_list_stamp, s.empty_list_stamp)
+        };
+        if on_a_part {
+            let parts: Vec<St> = {
+                let mut h = st.borrow_mut();
+                h.part_holds_empty_list_stamp = false;
+                let all = h.parts.iter().chain(&h.hidden_parts).chain(&h.closed_parts);
+                all.map(|(_, p)| p.clone()).collect()
+            };
+            for part in &parts {
+                self.end_empty_list_stamp(part);
+            }
+        }
+        let Some(stamp) = stamp else {
             return;
         };
         let read = PartStep::Own(TestCall::Other(PageMethod::Invoke));
-        let keep = call
+        let (at, last) = (stamp.steps, stamp.steps + stamp.reads);
+        let measured_read = call
             .and_then(|_| Self::part_steps(st))
-            .is_some_and(|s| s.len() >= at && s.len() <= at + reads && s[at..].iter().all(|step| *step == read));
-        if keep {
-            return;
+            .is_some_and(|s| s.len() >= at && s.len() <= last && s[at..].iter().all(|step| *step == read));
+        let none_raised = Self::tree_root(st).0.borrow().tree_calls.iter().all(|c| !c.failed);
+        if !(measured_read && stamp.store == self.landing_store_state() && none_raised) {
+            self.end_empty_list_stamp(st);
         }
-        st.borrow_mut().empty_list_stamp = None;
-        if st.borrow().cursor != Cursor::Row {
+    }
+
+    /// The link values `empty_part_rec` put on Rec of part `st` at a List-host cell are no longer known (`tie_empty_list_stamp`).
+    fn end_empty_list_stamp(&mut self, st: &St) {
+        if st.borrow_mut().empty_list_stamp.take().is_some() && st.borrow().cursor != Cursor::Row {
             unknown_filtered_fields(&self.page_rec(st), STAMP_ENDED);
         }
+    }
+
+    /// What tells that the store is as a landing found it: the write mark (it moves with every insert, modify and delete) and
+    /// the count of rollbacks (a rollback takes rows back and leaves the write mark).
+    fn landing_store_state(&self) -> ((i64, u64), u64) {
+        (self.write_mark(), self.rollbacks)
     }
 
     /// Runs `f` (a host's parts reading again) with `host_move_running` set to `m`, and restores it after, on an error too.
@@ -157,6 +198,17 @@ impl Session {
     }
 }
 
+/// The landing of a List-host cell whose link values a part's Rec holds (`Session::tie_empty_list_stamp`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmptyListStamp {
+    /// The number of steps on the host and its parts (`Session::part_steps`) up to the landing.
+    steps: usize,
+    /// The number of reads by an action of the part the landing's cell measured.
+    reads: usize,
+    /// The store's state at the landing (`Session::landing_store_state`).
+    store: ((i64, u64), u64),
+}
+
 /// What `empty_part_rec` puts on Rec of a part that shows no row.
 enum Shape {
     /// The pinned Card or Document shape: the link's single values.
@@ -170,8 +222,8 @@ enum Shape {
 
 /// The refusal of a read after a step the List-host cells do not include (`Session::tie_empty_list_stamp`).
 const STAMP_ENDED: &str = "a read of Rec of a part that shows no row, on a field its filters name, on a List host after a call, \
-     a write to the store or a call of page code the List-host cells do not make (they read with actions of the part right \
-     after the landing): whether BC keeps the filter's value on Rec then is not pinned";
+     a write to the store, a rollback, an error or a call of page code the List-host cells do not make (they read with actions \
+     of the part right after the landing): whether BC keeps the filter's value on Rec then is not pinned";
 
 /// The fields the filters of `rec` name hold a `Value::Unknown` whose read is refused with `why`.
 fn unknown_filtered_fields(rec: &Rec, why: &str) {

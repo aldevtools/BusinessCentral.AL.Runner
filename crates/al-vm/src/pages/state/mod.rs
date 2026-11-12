@@ -554,9 +554,11 @@ pub struct PageState {
     /// The store's write mark when the last call on the page or its parts ended; `None` before the first one ended.
     pub tree_calls_mark: Option<(i64, u64)>,
     /// A ListPart that shows no row on a top-level List host holds on Rec the link values of a landing BC was measured at
-    /// (`empty_part_rec.rs`, `tie_empty_list_stamp`): the number of steps on the host and its parts (`Session::part_steps`)
-    /// up to that landing, and the number of reads by an action of the part the landing's cell measured.
-    pub empty_list_stamp: Option<(usize, usize)>,
+    /// (`empty_part_rec.rs`, `tie_empty_list_stamp`).
+    pub empty_list_stamp: Option<crate::pages::empty_part_rec::EmptyListStamp>,
+    /// On a top-level List host: a part of it may hold an `empty_list_stamp`. Set where the stamp is set, cleared by the next
+    /// test call on the host, which ends the stamps of its parts (`tie_empty_list_stamp`), and when the host opens.
+    pub part_holds_empty_list_stamp: bool,
     /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
     pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
@@ -933,6 +935,7 @@ impl PageState {
         self.tree_calls_unknown = false;
         self.tree_calls_mark = None;
         self.empty_list_stamp = None;
+        self.part_holds_empty_list_stamp = false;
         self.typed_key_dropped = false;
         self.pinned_end = None;
         self.empty_selection_given = false;
