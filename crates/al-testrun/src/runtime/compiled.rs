@@ -73,6 +73,9 @@ pub struct RunOptions {
     pub strict_after: Option<StrictAfter>,
     /// The test runner (ADR-066). Default: al-runner's own.
     pub test_runner: TestRunner,
+    /// The driver whose behavior the run models (ADR-074, `discovery.rs`): bc-linux by default; a suite may name its
+    /// own (`SuiteRun::driver`).
+    pub test_driver: super::TestDriver,
     /// Only these test codeunits (app index of the compile, object id) are roots of the compile
     /// and are run. `None`: all of them.
     pub only: Option<Vec<(usize, u32)>>,
@@ -956,6 +959,8 @@ pub struct SuiteRun {
     /// The runner codeunit whose `TestIsolation` the run uses. `None`: Codeunit, which is what
     /// Microsoft's `Test Runner - Isol. Codeunit` the main corpus is recorded under does.
     pub runner: Option<u32>,
+    /// The driver the suite's oracle was recorded with (ADR-074); `None`: the run's (`RunOptions::test_driver`).
+    pub driver: Option<super::TestDriver>,
 }
 
 impl SuiteRun {
@@ -965,6 +970,7 @@ impl SuiteRun {
             name: String::new(),
             app: None,
             runner: None,
+            driver: None,
         }
     }
 }

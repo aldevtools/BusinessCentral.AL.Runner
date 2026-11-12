@@ -16,6 +16,8 @@ pub struct OracleCase {
 pub enum OracleError {
     Xml(String),
     BadCodeunit(String),
+    /// The document is the other format: its root element (`assemblies` for XUnit, `testsuites` for JUnit).
+    WrongFormat(&'static str),
 }
 
 impl std::fmt::Display for OracleError {
@@ -23,6 +25,14 @@ impl std::fmt::Display for OracleError {
         match self {
             OracleError::Xml(why) => write!(f, "not valid XML: {why}"),
             OracleError::BadCodeunit(what) => write!(f, "bad codeunit in the oracle: {what}"),
+            // ADR-074: the format names the test driver the oracle was recorded with, so a missing or wrong `format` of a
+            // suite is an error, not a run under the other driver.
+            OracleError::WrongFormat(root) => write!(
+                f,
+                "the oracle is {} (root element <{root}>): its suite in oracle.toml needs format = \"{}\"",
+                if *root == "assemblies" { "XUnit" } else { "JUnit" },
+                if *root == "assemblies" { "xunit" } else { "junit" }
+            ),
         }
     }
 }
@@ -42,6 +52,9 @@ pub fn parse_junit(xml: &str) -> Result<Vec<OracleCase>, OracleError> {
     loop {
         let ev = reader.read_event().map_err(|e| OracleError::Xml(e.to_string()))?;
         match ev {
+            Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"assemblies" => {
+                return Err(OracleError::WrongFormat("assemblies"));
+            }
             Event::Empty(e) if e.name().as_ref() == b"testcase" => cases.push(testcase(&e)?),
             Event::Start(e) if e.name().as_ref() == b"testcase" => open = Some(testcase(&e)?),
             Event::Start(e) | Event::Empty(e) if matches!(e.name().as_ref(), b"failure" | b"error" | b"skipped") => {
@@ -150,6 +163,9 @@ pub fn parse_xunit(xml: &str) -> Result<Vec<XunitCase>, OracleError> {
     let mut in_message = false;
     loop {
         match reader.read_event().map_err(|e| OracleError::Xml(e.to_string()))? {
+            Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"testsuites" => {
+                return Err(OracleError::WrongFormat("testsuites"));
+            }
             Event::Start(e) if e.name().as_ref() == b"assembly" => {
                 let name = attr(&e, b"name")?.unwrap_or_default();
                 codeunit = Some(
@@ -248,6 +264,17 @@ mod tests {
     <testcase classname="Codeunit 60006" name="C_Works" time="0.040" />
   </testsuite>
 </testsuites>"#;
+
+    /// ADR-074: an oracle read in the other format is an error that names the `format` to set (a suite without `format`
+    /// is read as JUnit and run under the bc-linux driver).
+    #[test]
+    fn an_oracle_in_the_other_format_is_an_error() {
+        let xunit = r#"<assemblies><assembly name="61302 Isol Probe Fixture"><collection name="X"><test name="T" result="Pass" /></collection></assembly></assemblies>"#;
+        let e = parse_junit(xunit).unwrap_err().to_string();
+        assert!(e.contains("format = \"xunit\""), "{e}");
+        let e = parse_xunit(SAMPLE).unwrap_err().to_string();
+        assert!(e.contains("format = \"junit\""), "{e}");
+    }
 
     fn id(cu: u32, n: &str) -> CaseId {
         CaseId {

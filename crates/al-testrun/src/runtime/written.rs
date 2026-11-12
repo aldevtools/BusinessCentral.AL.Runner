@@ -119,6 +119,9 @@ pub(crate) struct ReachFacts {
     pub inserts: BTreeSet<u32>,
     /// A write whose table is not known statically (a `RecordRef`, an xmlport import, media): it may write any table.
     pub writes_any: bool,
+    /// A `RecordRef`, `FieldRef` or `KeyRef` is used: it may read any table, which `touched` does not show (the table it
+    /// opens is known only at run time).
+    pub reads_any: bool,
     /// Global variables of codeunits (object, slot) a reached routine names.
     pub globals_read: BTreeSet<(usize, usize)>,
     /// Global variables of codeunits (object, slot) a reached routine assigns, hands to a `var` parameter, calls a
@@ -143,6 +146,7 @@ impl ReachFacts {
         self.writes.extend(other.writes.iter().copied());
         self.inserts.extend(other.inserts.iter().copied());
         self.writes_any |= other.writes_any;
+        self.reads_any |= other.reads_any;
         self.globals_read.extend(other.globals_read.iter().copied());
         self.globals_written.extend(other.globals_written.iter().copied());
         self.state_reads |= other.state_reads;
@@ -1137,6 +1141,7 @@ impl<'a> Walk<'a> {
             self.out.globals_written.extend(s.globals_written.iter().copied());
             self.out.state_reads |= s.state_reads;
             self.out.state_writes |= s.state_writes;
+            self.out.reads_any |= s.reads_any;
         }
         for step in &s.steps {
             match step {
@@ -1169,6 +1174,7 @@ pub(crate) struct Summary {
     globals_written: Vec<(usize, usize)>,
     state_reads: u16,
     state_writes: u16,
+    reads_any: bool,
     steps: Vec<Step>,
     /// The routines [`Step::Push`] pushes, by range.
     pushes: Vec<(usize, usize)>,
@@ -1224,6 +1230,7 @@ impl Rec<'_> {
         summary.globals_written = out.globals_written.into_iter().collect();
         summary.state_reads = out.state_reads;
         summary.state_writes = out.state_writes;
+        summary.reads_any = out.reads_any;
         summary.steps.shrink_to_fit();
         summary.pushes.shrink_to_fit();
         summary
@@ -1539,7 +1546,9 @@ impl Rec<'_> {
                     }
                 }
             }
+            "KeyRef" => self.out.reads_any = true,
             "RecordRef" | "FieldRef" => {
+                self.out.reads_any = true;
                 let op = ops::of(method);
                 if op != 0 && op != ops::VALIDATE {
                     self.note_table_write(None);
@@ -1922,6 +1931,7 @@ mod tests {
             && a.writes == b.writes
             && a.inserts == b.inserts
             && a.writes_any == b.writes_any
+            && a.reads_any == b.reads_any
             && a.globals_read == b.globals_read
             && a.globals_written == b.globals_written
             && a.state_reads == b.state_reads

@@ -39,6 +39,10 @@ pub struct Touches {
     pub dotnet: bool,
     /// The routines that were called, as (object, routine). Not a raise or a touch: `is_empty` leaves it out.
     pub routines: HashSet<(usize, usize)>,
+    /// Tables read without a record operation on them: a FlowField's source table, a query's data items, a TableRelation
+    /// check, the caption of a list (`Session::note_indirect_read`). For the discovery pass of the `bccontainerhelper`
+    /// driver (al-testrun `Scratch::read_tables`); not part of the impact index: `is_empty` and the keys leave it out.
+    pub indirect_reads: HashSet<u32>,
 }
 
 impl Touches {
@@ -84,6 +88,17 @@ impl crate::Session {
                 t.events
                     .insert((object, format!("{}/{}", event.to_ascii_lowercase(), e.to_lowercase())));
             }
+        }
+    }
+
+    /// A table read without a record operation on it ([`Touches::indirect_reads`]).
+    #[inline]
+    pub(crate) fn note_indirect_read(&self, table: u32) {
+        if !self.coverage.impact_on {
+            return;
+        }
+        if let Some(t) = self.coverage.impact.borrow_mut().as_mut() {
+            t.indirect_reads.insert(table);
         }
     }
 
