@@ -43,6 +43,9 @@ pub(super) fn runs(method: RecordOp, why: &str, args: &[Value]) -> bool {
                     | RecordOp::GetAscending
                     | RecordOp::GetView
                     | RecordOp::CalcFields
+                    // The rows keep the FlowField's order and the auto-calculated fields carry their values
+                    // (record/keys-sorting/KeyLookupFlowFieldFirst.al:351-352).
+                    | RecordOp::SetAutoCalcFields
             )
             || why == FLOWFIELD_KEY
                 && method == RecordOp::Find
@@ -69,10 +72,14 @@ impl Session {
                 // An average, a min and a max of a Decimal field, and a lookup of a Text or a Decimal field (negated or not),
                 // order by their value like a sum: record/flowfields/FfmOperations.al:930-985 (SetCurrentKey(FlowField)) and
                 // :987-1092 (FlowField, then a stored field, with a filter on it, ascending and descending); al-runner issue
-                // 7427. A lookup of another type (Boolean, Integer, Date, Code) is not pinned.
+                // 7427. A lookup of a Boolean, an Integer or a Date field orders the same way, alone, before stored fields and
+                // before the primary key field, with a filter on the stored fields and on the FlowField, a setup row missing
+                // (the type's blank value) and after the looked-up rows changed (record/keys-sorting/KeyLookupFlowFieldFirst.al:
+                // 205-213, :221-229, :253-261, :285-297, :321-322, :340-342, :413-414). A lookup of another type (Code, Option,
+                // ...) is not pinned.
                 // Not these: a lookup of a FlowField is no key at all (SetCurrentKey answers false, record/keys-sorting/
                 // SetCurrentKeyFlowFieldOrder.al:236-262 `nestedFlowField`), and on a temporary record SetCurrentKey with a
-                // lookup FlowField raises "Sorting cannot be done" (:299-322); both stay refused here.
+                // lookup FlowField first does not take the key (`temporary_lookup_key`); both stay refused here.
                 let plain_source = !rec.borrow().temporary
                     && c.field.is_some_and(|at| {
                         self.engine.tables[c.table]
@@ -82,13 +89,19 @@ impl Session {
                 match c.method {
                     M::Sum | M::Count | M::Exist => true,
                     M::Average | M::Min | M::Max => plain_source && t.fields[first].ty == RtType::Decimal,
-                    M::Lookup => plain_source && matches!(t.fields[first].ty, RtType::Decimal | RtType::Text(_)),
+                    M::Lookup => {
+                        plain_source
+                            && matches!(
+                                t.fields[first].ty,
+                                RtType::Decimal | RtType::Text(_) | RtType::Boolean | RtType::Integer | RtType::Date
+                            )
+                    }
                 }
             })
             && fields[1..].iter().all(|&p| calc(p).is_none() && t.fields[p].stored);
         if !pinned {
             return unsupported(format!(
-                "the order of the rows by the FlowField {} of key {}: only a sum, count, exist, Decimal average, min or max, or a lookup of a Text or Decimal field first, then stored fields, is pinned",
+                "the order of the rows by the FlowField {} of key {}: only a sum, count, exist, Decimal average, min or max, or a lookup of a Text, Decimal, Boolean, Integer or Date field first, then stored fields, is pinned",
                 t.fields[fields[at]].name,
                 fields
                     .iter()
@@ -98,6 +111,36 @@ impl Session {
             ));
         }
         Ok(Some(first))
+    }
+
+    /// `SetCurrentKey` on a temporary record with a Lookup FlowField first: BC cannot sort by it. With the answer used it answers
+    /// false and the key stays (record/keys-sorting/KeyLookupFlowFieldFirst.al:383-386, `SetCurrentKey` false, `CurrentKey` Id, the
+    /// rows in primary key order); as a statement it raises "Sorting cannot be done" for the FlowField (SetCurrentKeyFlowFieldOrder.al:
+    /// 319, a lookup and the primary key field). `None` on any other record or key (a second FlowField in the key, another
+    /// FlowField kind first): the scan decides those.
+    pub(super) fn temporary_lookup_key(&self, rec: &Rec, t: &TableDef, wanted: &[usize]) -> Result<Option<Value>, Signal> {
+        if !rec.borrow().temporary {
+            return Ok(None);
+        }
+        let schema = self.engine.program.objects[t.object as usize].table.as_ref();
+        let calc = |p: usize| schema.and_then(|s| s.fields.get(p)).and_then(|f| f.calc.as_ref());
+        let lookup_first = wanted
+            .first()
+            .and_then(|&p| calc(p))
+            .is_some_and(|c| c.method == al_ir::CalcMethod::Lookup);
+        if !lookup_first || wanted[1..].iter().any(|&p| calc(p).is_some()) {
+            return Ok(None);
+        }
+        if self.ret_used {
+            return Ok(Some(Value::Boolean(false)));
+        }
+        Err(crate::transactions::al_error_code(
+            &format!(
+                "Sorting cannot be done based on the {} field(s) in the {} table.",
+                t.fields[wanted[0]].name, t.name
+            ),
+            "DB:Ok",
+        ))
     }
 
     /// [`Session::scan`] of a record whose key starts with a FlowField, `None` for any other key: every row of the filters,
