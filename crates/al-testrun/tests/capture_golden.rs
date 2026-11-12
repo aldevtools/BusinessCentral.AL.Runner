@@ -84,6 +84,7 @@ fn run(code: &str) -> String {
             name: String::new(),
             app: Some(0),
             runner: None,
+            driver: None,
         }],
         &RunOptions {
             execute: true,

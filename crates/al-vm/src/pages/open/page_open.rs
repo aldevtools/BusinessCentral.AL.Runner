@@ -896,6 +896,15 @@ impl Session {
             self.no_source_open_current_record_event(st)?;
             return Ok(());
         }
+        if mode == PageMode::New && self.open_new_on_onopenpage_row(st)? {
+            // A NavigatePage over a temporary source whose OnOpenPage inserted its one row opens on that row as OpenEdit
+            // does (al-runner issue 7811; Microsoft's SMTP Account Auth Tests on page SMTP Account Wizard; not probed).
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::OpenNewTempNavigatePageEditsInsertedRow,
+            );
+            st.borrow_mut().mode = PageMode::Edit;
+            return self.load_first_row(st, PageMode::Edit, with_record);
+        }
         if mode == PageMode::New {
             // corpus testpage/TestPageCreateModeNewRecordArgs.al:212-239: OnOpenPage, then
             // OnNewRecord with BelowxRec true and xRec on the last row.
@@ -1539,12 +1548,31 @@ fn reset_row_line_flags(s: &mut crate::pages::PageState) {
 }
 
 /// The flags a new host row, a first part access and New() on a request
-/// page set; a page that runs again starts without them.
+/// page set, and the draft OpenNew started (`draft_from_open`, `draft_start`); a page that runs again starts without them
+/// (al-runner issue 7752: `start_draft` sets both again, so nothing depends on an earlier run's values).
 fn reset_host_row_flags(s: &mut crate::pages::PageState) {
+    s.draft_from_open = false;
+    s.draft_start = None;
     s.part_accessed = false;
     s.new_host_part_rows = false;
     s.host_stored_blank_key = false;
     s.part_insert_swallowed = false;
     s.blank_key_edit_reread = false;
     s.request_new_blank = false;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A page that runs again starts without the draft its earlier OpenNew started (al-runner issue 7752, item 3).
+    #[test]
+    fn a_page_that_runs_again_forgets_the_draft_of_its_last_open_new() {
+        let mut s = crate::pages::PageState::closed(1);
+        s.draft_from_open = true;
+        s.draft_start = Some(vec![Value::Boolean(true)]);
+        reset_host_row_flags(&mut s);
+        assert!(!s.draft_from_open);
+        assert!(s.draft_start.is_none());
+    }
 }

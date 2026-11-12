@@ -405,6 +405,10 @@ pub struct PageState {
     pub lookup: bool,
     /// What put the page into lookup mode; it stays when the page's code switches the mode off with `LookupMode(false)`.
     pub lookup_kind: LookupKind,
+    /// For a relation's lookup page: the pinned place of the control that opened it, and what closed it
+    /// (`pages/relation_lookup_close.rs`).
+    pub relation_origin: Option<crate::pages::relation_lookup_close::RelationOrigin>,
+    pub relation_close: Option<crate::pages::relation_lookup_close::RelationClose>,
     /// The `Action` the page closed with, once it has.
     pub result: Option<String>,
     /// `TestPage.Trap()` was called on this variable and no page has been caught yet.

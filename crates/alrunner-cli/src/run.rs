@@ -1345,6 +1345,11 @@ fn test_inner(
         && chosen
             .target
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28);
+    // ADR-074: BcContainerHelper runs every test codeunit through the runner codeunit; it has no TestRunnerHub.
+    let driver = a.test_driver.unwrap_or_default();
+    if a.required_isolation && driver == al_testrun::runtime::TestDriver::BcContainerHelper {
+        return Err("--isolation required follows the TestRunnerHub of the bc-linux driver; --test-driver bccontainerhelper has no hub".into());
+    }
     if a.required_isolation && !hub {
         eprintln!(
             "note: --isolation required: Business Central {} runs every test codeunit under TestIsolation = Codeunit, \
@@ -1616,13 +1621,16 @@ fn test_inner(
         no_client: a.no_client,             // issue 7564
         allow_write_in_try_functions: a.allow_write_in_try_functions, // issue 7143
         dependencies_published_global: a.dependencies_published_global, // issue 7169
-        strict_order: a.strict_order,       // `--strict-order` (ADR-066 amendment 12)
-        replay_every_dependent: false,      // only a stability run sets it (ADR-058 amendment 1)
-        max_replay: a.max_replay,           // `--max-replay N` (ADR-066 amendment 7)
-        test_suites,                        // `--test-suites FILE` (ADR-066 amendment 6)
+        // `--strict-order` (ADR-066 amendment 12); BcContainerHelper runs in one session (`TestDriver::one_session`).
+        strict_order: a.strict_order || driver.one_session(),
+        replay_every_dependent: false, // only a stability run sets it (ADR-058 amendment 1)
+        max_replay: a.max_replay,      // `--max-replay N` (ADR-066 amendment 7)
+        test_suites,                   // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
-        strict_sequential: std::env::var_os("AL_STRICT_SEQUENTIAL").is_some(), // ADR-070 step 2 (internal)
+        // ADR-070 step 2 (internal); ADR-074: the discovery pass under strict order needs each BC session in one walk.
+        strict_sequential: std::env::var_os("AL_STRICT_SEQUENTIAL").is_some() || driver.one_session(),
+        test_driver: driver,
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: run_only_picks(a, &selection, &found),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
@@ -1732,6 +1740,7 @@ fn test_inner(
                 name: input.source.name.clone(),
                 app: Some(i),
                 runner: None,
+                driver: None,
             })
             .collect()
     } else {

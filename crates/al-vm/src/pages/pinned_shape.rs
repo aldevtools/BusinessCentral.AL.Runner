@@ -31,6 +31,8 @@ pub struct TreeCall {
     pub call: TestCall,
     /// The call answered No (a move that did not move, `GoToKey` that found nothing).
     pub no: bool,
+    /// The call raised an error (a SetValue whose validation or save failed).
+    pub failed: bool,
 }
 
 /// One call of `PageState::tree_calls` as a part of the page sees it (`Session::part_steps`). The reads of the part's own
@@ -77,7 +79,8 @@ pub(super) struct PinnedPart<'a> {
 }
 
 /// Properties that run nothing and change no read.
-const PLAIN_PROPERTIES: [&str; 5] = ["pagetype", "sourcetable", "applicationarea", "usagecategory", "caption"];
+pub(super) const PLAIN_PROPERTIES: [&str; 5] =
+    ["pagetype", "sourcetable", "applicationarea", "usagecategory", "caption"];
 
 /// More calls than this are not kept; a page with that many is no pinned scenario (`test_calls_overflow`).
 const KEPT_CALLS: usize = 256;
@@ -139,15 +142,25 @@ impl Session {
             r.tree_calls_unknown = true;
         }
         if r.tree_calls.len() < KEPT_TREE_CALLS {
-            r.tree_calls.push(TreeCall { part, call, no: false });
+            r.tree_calls.push(TreeCall {
+                part,
+                call,
+                no: false,
+                failed: false,
+            });
         }
     }
 
-    /// The test's call on `st` ended with `result`: its answer and the store's write mark are noted.
+    /// The test's call on `st` ended with `result`: its answer, whether it raised, and the store's write mark are noted.
     pub(super) fn test_call_ended(&self, st: &St, result: &Result<Value, Signal>) {
         let (root, _) = Self::tree_root(st);
         let mut r = root.borrow_mut();
         r.tree_calls_mark = Some(self.write_mark());
+        if result.is_err()
+            && let Some(last) = r.tree_calls.last_mut()
+        {
+            last.failed = true;
+        }
         if matches!(result, Ok(Value::Boolean(false)))
             && let Some(last) = r.tree_calls.last_mut()
         {
@@ -404,4 +417,73 @@ impl Session {
         let h = host.borrow();
         h.open.then_some((h.opened_by_test, h.mode, h.modal, h.lookup))
     }
+}
+
+/// The statements of routine `r` of `object` that run code: position, assumption and `--tdd` markers left out.
+pub(super) fn code_stmts(program: &ir::Program, object: usize, r: usize) -> Vec<&ir::Stmt> {
+    program.objects[object]
+        .routines
+        .get(r)
+        .map_or_else(Vec::new, |routine| {
+            routine
+                .body
+                .stmts()
+                .iter()
+                .filter(|s| !matches!(s, ir::Stmt::Pos(_) | ir::Stmt::Assume(_) | ir::Stmt::TddMark(_)))
+                .collect()
+        })
+}
+
+/// `e` calls a procedure of a codeunit that a global variable of `object` holds (`Cfg.Query('doc', CloseAction)`), not
+/// as a try call.
+pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Expr) -> bool {
+    let e = match e {
+        ir::Expr::Convert(_, inner) => inner,
+        e => e,
+    };
+    match e {
+        ir::Expr::Call {
+            instance: Some(inst),
+            try_call: false,
+            ..
+        } => matches!(&**inst, ir::Expr::Load(ir::Place::Global(g))
+            if program.objects[object].globals.get(*g).is_some_and(|s| matches!(s.ty, RtType::Codeunit(_)))),
+        _ => false,
+    }
+}
+
+/// `s` is `CurrPage.Update()` without an argument (it saves the row: the parameter defaults to true) on the page whose
+/// `CurrPage` is global slot `curr_page`.
+pub(super) fn is_curr_page_update(s: &ir::Stmt, curr_page: usize) -> bool {
+    let ir::Stmt::Expr(ir::Expr::Builtin {
+        id,
+        receiver: Some(receiver),
+        args,
+        ..
+    }) = s
+    else {
+        return false;
+    };
+    *id == al_builtins::builtin_id::ids::PAGE_UPDATE_1
+        && args.is_empty()
+        && matches!(&**receiver, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g))
+            if *g == curr_page)
+}
+
+/// The code table `object` can run: its own triggers (lower case, sorted) and whether it has a field trigger or a
+/// procedure; `None` when it has a table extension or an event subscriber.
+pub(super) fn table_code(engine: &Engine, object: usize) -> Option<(Vec<String>, bool)> {
+    let t = &engine.program.objects[object];
+    if !t.table.as_ref().is_some_and(|x| x.extensions.is_empty()) || engine.events.any_subscriber_of(object) {
+        return None;
+    }
+    let mut triggers: Vec<String> = t
+        .routines
+        .iter()
+        .filter(|r| r.is_trigger && r.field.is_none())
+        .map(|r| r.name.to_ascii_lowercase())
+        .collect();
+    triggers.sort_unstable();
+    let more = t.routines.iter().any(|r| r.field.is_some() || !r.is_trigger);
+    Some((triggers, more))
 }

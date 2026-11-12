@@ -55,9 +55,10 @@ codeunit 50403 "RR Save Tests"
     assert!(r.contains("saved") && r.contains("not pinned"), "{r}");
 }
 
-/// Issue 7414: a bare read of `UseRequestPage` in a report trigger is a read, not an assignment. It now runs: after
-/// `UseRequestPage(false)` on the variable it reads false in OnPreReport (reports/bare-report-member/
-/// UseRequestPageReadInTriggers.al:100, :235 UseRp_Read_VariableSetFalse_Run), so the report's own Error is the outcome.
+/// Issue 7414: a bare read of `UseRequestPage` in a report trigger is a read, not an assignment. It is no longer refused:
+/// in a running report it answers whether that run showed its request page (corpus
+/// reports/bare-report-member/UseRequestPageReadInTriggers.al:244-475, PR 7815), so after `UseRequestPage(false)` the
+/// report's own `Error` ends the test.
 #[test]
 fn issue_7414_bare_use_request_page_read_is_not_called_unassignable() {
     let src = r#"
@@ -85,9 +86,9 @@ codeunit 50412 "RR Batch Tests"
 }
 "#;
     let o = al_testkit::outcomes_in(src, "RR Batch Tests");
-    assert_eq!(
-        o,
-        vec![("RunIt".to_string(), Outcome::Fail("no request page".to_string()))]
+    assert!(
+        matches!(o.as_slice(), [(_, Outcome::Fail(m))] if m == "no request page"),
+        "{o:#?}"
     );
 }
 

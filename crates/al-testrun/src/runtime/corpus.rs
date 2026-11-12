@@ -1456,6 +1456,7 @@ impl CorpusRuntime {
             let mut units: Vec<Unit> = Vec::new();
             // Codeunits with RequiredTestIsolation = Disabled under the TestRunnerHub that are not run (suite, id, object, why).
             let mut refused_disabled: Vec<(usize, u32, usize, String)> = Vec::new();
+            let mut plans: Vec<super::discovery::Plan> = Vec::new();
             for (si, suite) in suites.iter().enumerate() {
                 if opts.execute {
                     // A scratch run: the `OnRun` trigger of one codeunit of the suite's app.
@@ -1464,28 +1465,17 @@ impl CorpusRuntime {
                     }
                     continue;
                 }
-                // `--test-runner ID` (ADR-066): the isolation is that runner's, as for a suite's runner.
-                let isolation = match suite.runner.or(opts.test_runner.codeunit()) {
-                    None => Ok(TestIsolation::default()),
-                    Some(r) => runner_isolation(lowered, r),
-                };
+                let isolation = suite_isolation(lowered, suite, opts, &refused);
+                let driver = super::discovery::driver_of(suite, opts);
+                let plan = super::discovery::Plan::new(&engine, lowered, si, suite, opts, opts_only);
                 for (oi, o) in lowered.program.objects.heads().iter().enumerate() {
                     let is_test = is_selected_test(lowered, oi, suite, opts_only);
                     let Some(id) = o.id.filter(|_| is_test) else { continue };
-                    let isolation = match (&isolation, &refused) {
-                        (_, Some(why)) => &Err(why.clone()),
-                        (i, None) => i,
-                    };
-                    // The corpus CI on BC 28 and later runs a codeunit without handlers through the TestRunnerHub, under
-                    // its RequiredTestIsolation (`RunOptions::required_isolation`).
-                    let hub_path = suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none();
-                    let this = match isolation {
-                        Ok(i) if hub_path => hub_isolation(lowered, oi).map(|h| h.map_or((*i, false), |h| (h, true))),
-                        Ok(i) => Ok((opts.isolation.unwrap_or(*i), false)),
-                        Err(why) => Err(why.clone()),
-                    };
-                    // The runner codeunit the unit runs through (ADR-066), or al-runner's own.
-                    let this = super::al_runner::with_runner(this, opts.test_runner, &engine, hub_path);
+                    let hub_path = hub_path(suite, opts, driver);
+                    let this = unit_runner(lowered, &engine, oi, &isolation, hub_path, opts).and_then(|t| {
+                        let refused = plan.as_ref().and_then(|p| p.refusal(&engine, lowered, oi, id));
+                        refused.map_or(Ok(t), Err)
+                    });
                     match &this {
                         Ok((i, hub, runner)) => units.push(Unit {
                             si,
@@ -1496,7 +1486,7 @@ impl CorpusRuntime {
                             hub_leg: on_hub(lowered, oi, *hub, hub_path),
                             // Under Disabled isolation OnRun's writes are carried with the rest.
                             carry: (*i != TestIsolation::Disabled && !on_hub(lowered, oi, *hub, hub_path))
-                                .then(|| super::chain::carry_why(&engine, lowered, oi))
+                                .then(|| super::chain::carry_why(&engine, lowered, oi, driver))
                                 .flatten(),
                             leak: None,
                             without_baseline: false,
@@ -1518,12 +1508,11 @@ impl CorpusRuntime {
                             watch: false,
                             takes_numbers: false,
                             singles_past_stop: false,
+                            driver,
+                            discovery: None,
                         }),
                         Err(why) => {
-                            if suite.runner.is_none()
-                                && opts.required_isolation
-                                && requires_disabled(&lowered.program.objects[oi])
-                            {
+                            if hub_path && requires_disabled(&lowered.program.objects[oi]) {
                                 refused_disabled.push((si, id, oi, why.clone()));
                             }
                             for r in test_routines(&lowered.program.objects[oi]) {
@@ -1540,6 +1529,7 @@ impl CorpusRuntime {
                         }
                     }
                 }
+                plans.extend(plan);
             }
             // `isolation.alone` of a stability run (ADR-058): each test method runs as the only selected test of its
             // codeunit, on a session of its own, as `--run-selected-only` with that one test.
@@ -1575,6 +1565,7 @@ impl CorpusRuntime {
             super::order_hint::numbers_unchained(&mut units, opts.strict_order);
             // Codeunits runner 130450 runs whose OnRun can write (`Unit::carry`) join the chain after them: the hub runs
             // its codeunits first (RqIsolationModes.al:12), and each carries what its OnRun left (leg 1).
+            let discovery: Vec<(usize, u8, u32, Link)> = plans.iter().filter_map(|p| p.link(&units)).collect();
             let mut chain: Vec<(usize, u8, u32, Link)> = (0..units.len())
                 // A test runner's TestIsolation = Disabled (al-runner --isolation disabled, a runner codeunit of the suite)
                 // runs every codeunit this way, in id order: corpus PR 735, IsolProbeReader.Codeunit.al:82-89 and
@@ -1593,6 +1584,8 @@ impl CorpusRuntime {
                         .iter()
                         .map(|(si, id, oi, why)| (*si, 0, *id, Link::Refused(*oi, why.clone()))),
                 )
+                // ADR-074: BcContainerHelper's discovery pass runs first in its BC session (`discovery.rs`).
+                .chain(discovery.iter().cloned())
                 .collect();
             // `order.codeunits` of a stability run (ADR-058): under al-runner's `--isolation disabled` the runner picks the
             // order of the test codeunits, so a variant may run them in another order. The TestRunnerHub's ascending id
@@ -1648,10 +1641,13 @@ impl CorpusRuntime {
             // ADR-070 step 2 (`RunOptions::strict_sequential`): the sequential strict run walks every BC session on a thread of its
             // own (`strict_walk.rs`) and leaves nothing for `note_leaks`, the parallel part and the lane to do.
             #[rustfmt::skip]
-            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: keep_singles || opts.sequential_strict(), fresh_check: opts.single_fresh_check && !opts.sequential_strict(), sequential: opts.sequential_strict() }; if opts.sequential_strict() { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
+            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: keep_singles || opts.sequential_strict(), fresh_check: opts.single_fresh_check && !opts.sequential_strict(), sequential: opts.sequential_strict() }; if opts.sequential_strict() { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);
+            units
+                .iter_mut()
+                .for_each(|u| super::discovery::skip_methods_if_raised(u, &chain_report.discovery_raised));
             let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
             let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
                 run_serially(&engine, lowered, baseline.as_ref(), &units, &rest, &mut details, opts)
@@ -1727,6 +1723,7 @@ impl CorpusRuntime {
             #[rustfmt::skip]
             let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, bc_order: opts.strict_order, strict: opts.replay_every_dependent, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
             (!opts.sequential_strict()).then(|| lane.run(&mut slots, &mut chain_report.single_lane));
+            super::discovery::refuse_after_pass(&mut slots, &chain_report, &engine, lowered, opts.strict_order);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
                 suite_work.push((r.si, r.took));
@@ -2329,6 +2326,48 @@ fn run_serially(
             run_unit(engine, lowered, baseline, u, trace, opts.test_time_limit)
         })
         .collect()
+}
+
+/// Whether test codeunits of `suite` without handlers run on the TestRunnerHub: the corpus CI on BC 28 and later runs
+/// them there, under their RequiredTestIsolation (`RunOptions::required_isolation`); BcContainerHelper has no hub
+/// (ADR-074).
+fn hub_path(suite: &SuiteRun, opts: &RunOptions, driver: super::TestDriver) -> bool {
+    suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none() && driver.has_hub()
+}
+
+/// The isolation of the runner the test codeunits of `suite` run under, or why none of them runs (`refused`). With
+/// `--test-runner ID` (ADR-066) the isolation is that runner's, as for a suite's runner.
+fn suite_isolation(
+    lowered: &Lowered,
+    suite: &SuiteRun,
+    opts: &RunOptions,
+    refused: &Option<String>,
+) -> Result<TestIsolation, String> {
+    if let Some(why) = refused {
+        return Err(why.clone());
+    }
+    match suite.runner.or(opts.test_runner.codeunit()) {
+        None => Ok(TestIsolation::default()),
+        Some(r) => runner_isolation(lowered, r),
+    }
+}
+
+/// The isolation, hub flag and runner codeunit test codeunit `oi` runs under, from the runner's `isolation`.
+fn unit_runner(
+    lowered: &Lowered,
+    engine: &Arc<al_vm::Engine>,
+    oi: usize,
+    isolation: &Result<TestIsolation, String>,
+    hub_path: bool,
+    opts: &RunOptions,
+) -> Result<(TestIsolation, bool, Option<usize>), String> {
+    let this = match isolation {
+        Ok(i) if hub_path => hub_isolation(lowered, oi).map(|h| h.map_or((*i, false), |h| (h, true))),
+        Ok(i) => Ok((opts.isolation.unwrap_or(*i), false)),
+        Err(why) => Err(why.clone()),
+    };
+    // The runner codeunit the unit runs through (ADR-066), or al-runner's own.
+    super::al_runner::with_runner(this, opts.test_runner, engine, hub_path)
 }
 
 /// Whether BC runs test codeunit `oi` on the TestRunnerHub: `hub` (its RequiredTestIsolation is Function or Disabled), or
