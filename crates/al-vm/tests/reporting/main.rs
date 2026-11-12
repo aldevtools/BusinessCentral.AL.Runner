@@ -22,6 +22,7 @@ mod report_execute_recordref;
 mod report_execute_twice_views;
 mod report_generated_layout;
 mod report_header_address;
+mod report_html_no_row;
 mod report_layout_ext_export;
 mod report_layout_list_columns;
 mod report_layout_list_export;

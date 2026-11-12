@@ -466,8 +466,10 @@ table 50978 "RPO Attachment"
 codeunit 50979 "RPO Attachment Tests"
 {
     local procedure Attach(var A: Record "RPO Attachment")
-    var Tmp: Record "RPO Row" temporary; Out: OutStream; I: InStream; TenantMedia: Record "Tenant Media"; MediaId: Guid;
+    var R: Record "RPO Row"; Tmp: Record "RPO Row" temporary; Out: OutStream; I: InStream; TenantMedia: Record "Tenant Media"; MediaId: Guid;
     begin
+        // A run with a row: one with none writes no Html (report_html_no_row.rs).
+        R.DeleteAll(); R.Id := 1; R.Insert();
         Tmp.Data.CreateOutStream(Out);
         Report.SaveAs(Report::"RPO Word", '', ReportFormat::Html, Out);
         Tmp.Data.CreateInStream(I);

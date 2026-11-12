@@ -2943,8 +2943,8 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                self.write_save_output(target, output, &schema, &bytes, rows)?;
-                Ok(Value::Boolean(true))
+                let saved = self.write_save_output(target, output, &schema, &bytes, rows, Some(result_used))?;
+                Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
             // An error a trigger raises: with no layout it reaches the caller

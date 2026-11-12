@@ -102,10 +102,11 @@ pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
     "SetupPrinters",
 ];
 
-/// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, in this
-/// order (events/platform-triggers/PeVTests.al:721), for a save while a temporary layout selection is held (ADR-040 amendment
-/// 2026-11-12, A7).
-pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 2] = ["SelectReportLayoutCode", "SelectedBuiltinLayoutType"];
+/// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, for a save
+/// while a temporary layout selection is held (ADR-040 amendment 2026-11-12, A7). SelectedBuiltinLayoutType is not raised once
+/// SelectReportLayoutCode answered a selected layout (corpus probe pull request 1362,
+/// reports/layouts-html-text/HtRenderedTextTests.al:494, :530).
+pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 1] = ["SelectReportLayoutCode"];
 
 /// Base Application's app id.
 pub const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";

@@ -623,7 +623,7 @@ impl Session {
         let rows = written.rows;
         drop(written);
         let output = placeholder.unwrap_or(crate::report_placeholder::SaveOutput::Discard);
-        self.write_save_output(target, output, &schema, &[], rows)?;
+        self.write_save_output(target, output, &schema, &[], rows, None)?;
         st.borrow_mut().result = Some(format!("SaveAs{format}"));
         self.mark_closed(st);
         Ok(Value::Null)

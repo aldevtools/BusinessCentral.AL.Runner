@@ -1,20 +1,22 @@
 //! A save as Html while Base Application's "Design-time Report Selection" holds a temporary layout selection (ADR-040
 //! amendment 2026-11-12, A7). `Report Selections`.`SaveReportAsHTMLImpl` sets one before every e-mail body save
 //! (`Report Layout Selection`.`SetTempLayoutSelectedName`), and BC asks the layout selection events, which Base Application's
-//! ReportManagement answers from it. Here the two events of `al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS` are raised to
-//! ReportManagement's subscribers only, so Microsoft's selection code runs as AL, in the order
-//! events/platform-triggers/PeVTests.al:721 pins for the default layout, with the entry values it pins there. When the answer
-//! names exactly one user-defined Word layout of the report (a Tenant Report Layout row), the save writes the Html placeholder
-//! of that layout.
+//! ReportManagement answers from it. Here SelectReportLayoutCode (`al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS`) is raised to
+//! ReportManagement's subscriber only, so Microsoft's selection code runs as AL (it clears the selection), with the entry values
+//! events/platform-triggers/PeVTests.al:721 pins. When it answers a selected layout BC raises no SelectedBuiltinLayoutType
+//! (corpus probe pull request 1362, reports/layouts-html-text/HtRenderedTextTests.al:494 a declared layout by name, :530 a
+//! user-defined row named by a GUID: `SubstituteReport(SaveAs);SelectReportLayoutCode;OnPreReport;...`, the selection empty after
+//! the save at :537-538). When the answer names exactly one user-defined Word layout of the report (a Tenant Report Layout row),
+//! the save writes the Html placeholder of that layout.
 //!
-//! No corpus case saves with a temporary selection. This runs under the second exception of CLAUDE.md rule 3 (al-runner issue
-//! 6924: the reporter's tests pass on BC and need the save to use the selected Word layout) and marks
+//! The pinned corpus does not reach it yet: it runs under the second exception of CLAUDE.md rule 3 (al-runner issue 6924: the
+//! reporter's tests pass on BC and need the save to use the selected Word layout), with the probe above open, and marks
 //! `report-layout-temp-selection` on every run. The allow-list is [`Session::temp_selection_entry`] and the checks of
 //! [`Session::temp_selected_layout`]; every other selection keeps the refusal of `Session::layout_selection`.
 
 use std::sync::Arc;
 
-use super::{Format, TENANT_REPORT_LAYOUT_SELECTION};
+use super::{Format, REPORT_LAYOUT_SELECTION, TENANT_REPORT_LAYOUT_SELECTION};
 use crate::reports::{SaveTarget, Schema};
 use crate::tenant_layouts::{TENANT_REPORT_LAYOUT, WORD};
 use crate::{Session, Signal};
@@ -22,7 +24,7 @@ use al_builtins::value::Value;
 
 /// The members of the events' `LayoutType` option (codeunit Reporting Triggers).
 const LAYOUT_TYPES: [&str; 5] = ["None", "RDLC", "Word", "Excel", "Custom"];
-/// `LayoutType::None`: the entry value of both events (PeVTests.al:721 `in=/None/No`, `in=None`).
+/// `LayoutType::None`: the entry value of SelectReportLayoutCode (PeVTests.al:721 `in=/None/No`).
 const NONE: i32 = 0;
 
 fn layout_type(n: i32) -> Value {
@@ -62,11 +64,10 @@ impl Session {
     }
 
     /// The name of the user-defined Word layout a temporary selection names, when the save is the entry of A7
-    /// ([`Session::temp_selection_entry`]); `None` outside it. Raises SelectReportLayoutCode and then SelectedBuiltinLayoutType
-    /// to Base Application's ReportManagement only (with LayoutCode `''`, LayoutType None and Success false on entry,
-    /// PeVTests.al:721), and refuses unless the first answers Success with a name and LayoutType None (no Custom Report Layout
-    /// row has it, and no app id is appended), the second answers None (no built-in layout is selected for the report), no
-    /// Tenant Report Layout Selection row names the report, and the name is that of exactly one Tenant Report Layout row of the
+    /// ([`Session::temp_selection_entry`]); `None` outside it. Raises SelectReportLayoutCode to Base Application's
+    /// ReportManagement only (with LayoutCode `''`, LayoutType None and Success false on entry, PeVTests.al:721), and refuses
+    /// unless it answers Success with a name and LayoutType None (no Custom Report Layout row has it, and no app id is appended),
+    /// no Tenant Report Layout Selection or Report Layout Selection row names the report, and the name is that of exactly one Tenant Report Layout row of the
     /// report: Layout Format Word, a blank Company Name, the null App ID, and no row or declared layout whose name differs only
     /// in case. A subscriber the test can see to a layout event this does not raise refuses as for any placeholder.
     pub(super) fn temp_selected_layout(
@@ -86,23 +87,14 @@ impl Session {
                 schema.name()
             )))
         };
-        let (Some(select), Some(builtin)) = (
-            self.report_management_subscriber("selectreportlayoutcode"),
-            self.report_management_subscriber("selectedbuiltinlayouttype"),
-        ) else {
-            return refuse(
-                "Base Application's ReportManagement subscribers to SelectReportLayoutCode and SelectedBuiltinLayoutType \
-                 are not both compiled",
-            );
+        let Some(select) = self.report_management_subscriber("selectreportlayoutcode") else {
+            return refuse("Base Application's ReportManagement subscriber to SelectReportLayoutCode is not compiled");
         };
-        self.refuse_layout_event_subscribers(schema, what, &[], Some(select.0))?;
+        // The save goes on only when SelectReportLayoutCode answers a selected layout, and then BC raises no
+        // SelectedBuiltinLayoutType (HtRenderedTextTests.al:494, :530): its subscribers do not refuse here.
+        self.refuse_layout_event_subscribers(schema, what, &["selectedbuiltinlayouttype"], Some(select.0))?;
         let id = Value::Integer(self.object_id_of(schema.object as u32) as i32);
-        let mut args = [
-            id.clone(),
-            Value::Text("".into()),
-            layout_type(NONE),
-            Value::Boolean(false),
-        ];
+        let mut args = [id, Value::Text("".into()), layout_type(NONE), Value::Boolean(false)];
         let names = ["ObjectId", "LayoutCode", "LayoutType", "Success"];
         self.raise_to_report_management("selectreportlayoutcode", select, &names, &mut args)?;
         let name = match (text(&args[1]), ordinal(&args[2]), &args[3]) {
@@ -112,16 +104,6 @@ impl Session {
         if name.contains("::") {
             return refuse("the selection names an app id");
         }
-        let mut args = [id, layout_type(NONE)];
-        self.raise_to_report_management(
-            "selectedbuiltinlayouttype",
-            builtin,
-            &["ObjectID", "LayoutType"],
-            &mut args,
-        )?;
-        if ordinal(&args[1]) != Some(NONE) {
-            return refuse("SelectedBuiltinLayoutType answered a built-in layout of the report");
-        }
         if let Some(why) = self.user_word_layout(schema, &name)? {
             return refuse(&why);
         }
@@ -129,7 +111,7 @@ impl Session {
         Ok(Some(name.into()))
     }
 
-    /// The one subscriber the registry holds for `event` of Reporting Triggers among `al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS`
+    /// The one subscriber the registry holds for `event` of Reporting Triggers in `al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS`
     /// (it registers Base Application's ReportManagement only, `events::Registry::build`).
     fn report_management_subscriber(&self, event: &str) -> Option<(usize, usize)> {
         let subs = self
@@ -167,7 +149,7 @@ impl Session {
     }
 
     /// Why `name` does not name exactly one user-defined Word layout of the report for every company, without an app id, while
-    /// no Tenant Report Layout Selection row names the report; `None` when it does.
+    /// no Tenant Report Layout Selection or Report Layout Selection row names the report; `None` when it does.
     fn user_word_layout(&self, schema: &Schema, name: &str) -> Result<Option<String>, Signal> {
         let id = self.object_id_of(schema.object as u32) as i32;
         let cx = self.cx.clone();
@@ -177,9 +159,21 @@ impl Session {
                 .position(|f| f.name.eq_ignore_ascii_case("Report ID"))
                 .is_some_and(|r| matches!(row[r], Value::Integer(n) if n == id))
         };
-        if let Some(t) = self.table_def(TENANT_REPORT_LAYOUT_SELECTION) {
-            if self.all_rows(&cx, &t)?.iter().any(|row| of_report(&t, row)) {
-                return Ok(Some("a Tenant Report Layout Selection row names the report".into()));
+        // A selection row of either table is not measured together with a temporary selection.
+        for (table, what) in [
+            (
+                TENANT_REPORT_LAYOUT_SELECTION,
+                "a Tenant Report Layout Selection row names the report",
+            ),
+            (
+                REPORT_LAYOUT_SELECTION,
+                "a Report Layout Selection row names the report",
+            ),
+        ] {
+            if let Some(t) = self.table_def(table) {
+                if self.all_rows(&cx, &t)?.iter().any(|row| of_report(&t, row)) {
+                    return Ok(Some(what.into()));
+                }
             }
         }
         let Some(t) = self.table_def(TENANT_REPORT_LAYOUT) else {

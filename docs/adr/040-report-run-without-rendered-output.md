@@ -461,6 +461,12 @@ That case is a report with data that runs to its end. Nothing pins the output of
 `CurrReport.Quit` or whose data items read no row. So a read of A2 refuses when the report run that wrote the placeholder
 ended by `CurrReport.Quit` or produced no dataset row, until probe group P (B5) measures both.
 
+Measured since (corpus pull request 1362, `reports/layouts-html-text/HtRenderedTextTests.al`, BC 27.5 and 28.5): a run with no
+dataset row writes no Html and `SaveAs` answers false without an error (:320-335); `CurrReport.Quit` in OnPreReport or
+OnAfterGetRecord gives the same (:364-393), in OnPostReport the output is written and the answer is true (:396-409). The
+runtime answers the first for one data item saved to a stream with the answer used (`report-html-no-dataset-row`); the
+other shapes with no row refuse, a Quit before OnPostReport refuses, and a Quit in OnPostReport writes the placeholder as before.
+
 ### A3. What is allowed
 
 Every row gives a marked result or moves the value unchanged, unless the row says otherwise. "BC" says why the result is
@@ -583,9 +589,10 @@ imported from a .docx), named by a GUID.
 Decision: a save is not refused for a selection alone. The runtime resolves the selected layout and uses its **type** in
 the format x layout grid of the 2026-11-11 amendment:
 
-- The selection is read by raising the platform's layout selection events (`SelectReportLayoutCode`,
-  `SelectedBuiltinLayoutType`) to Base Application's `ReportManagement` subscribers only, so Microsoft's selection code
-  runs as AL (hard rule 7). Subscribers of other apps keep the "a subscriber the test can see" refusal.
+- The selection is read by raising the platform's layout selection event `SelectReportLayoutCode` to Base Application's
+  `ReportManagement` subscriber only, so Microsoft's selection code runs as AL (hard rule 7). BC raises no
+  `SelectedBuiltinLayoutType` once that event answered a selected layout (corpus pull request 1362,
+  `HtRenderedTextTests.al`:494, :530). Subscribers of other apps keep the "a subscriber the test can see" refusal.
 - The answer (layout name and app id, or a custom layout code) must name a layout the runtime can find: a rendering layout
   the report or a reportextension declares, or a `Tenant Report Layout` row for the report. Its type decides the grid
   column. Word gives the Html placeholder.
@@ -647,7 +654,9 @@ and refuses.
   maps a not-empty text to a not-empty text.
 - `report-layout-temp-selection`: marked on every save A7 resolves (the selected layout is a Tenant Report Layout row, never the
   report's default).
-- All three get a row in `docs/probes-needed.md` and a file under `al-builtins/src/assumptions/`.
+- `report-html-no-dataset-row`: marked when an Html save of a Word layout report whose run wrote no dataset row answers false
+  and writes nothing (corpus pull request 1362, `HtRenderedTextTests.al`:320-335).
+- All four get a row in `docs/probes-needed.md` and a file under `al-builtins/src/assumptions/`.
 - Probes to queue on the corpus (Windows tier, it renders): (1) a Word layout report saved as Html to a Temp Blob,
   `InStream.Read(Text)`, then `T <> ''`, `Format(T) = T`, `TB.Append(T); TB.ToText() = T`, a UTF-8 stream round trip
   `= T`, a Blob field stored and read back `= T`. (2) `Email Message`.`Create(.., T, true)` then `GetBody() <> ''`.

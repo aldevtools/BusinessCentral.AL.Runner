@@ -80,8 +80,9 @@ const DESIGN_TIME_REPORT_SELECTION: u32 = 9654;
 const TENANT_REPORT_LAYOUT_SELECTION: u32 = 2_000_000_233;
 
 impl Session {
-    /// Puts the output of a rendering save that ran to its end where the caller asked for it. `rows` is the number of data item
-    /// records the run wrote to its dataset.
+    /// Puts the output of a rendering save that ran to its end where the caller asked for it, and gives the save's answer.
+    /// `rows` is the number of data item records the run wrote to its dataset; `answer_used` whether the caller uses the answer
+    /// (`None` for a test request page's save, which has none).
     pub(crate) fn write_save_output(
         &mut self,
         target: SaveTarget,
@@ -89,8 +90,15 @@ impl Session {
         schema: &Schema,
         dataset: &[u8],
         rows: usize,
-    ) -> Result<(), Signal> {
+        answer_used: Option<bool>,
+    ) -> Result<bool, Signal> {
         use al_builtins::assumptions::{Assumption, assume};
+        if rows == 0
+            && let Some(used) = answer_used
+            && let Some(saved) = self.no_row_save(&output, &target, schema, used)?
+        {
+            return Ok(saved);
+        }
         let (output, selected) = match output {
             SaveOutput::SelectedHtml(layout) => (SaveOutput::Placeholder(Format::Html), Some(layout)),
             other => (other, None),
@@ -135,12 +143,49 @@ impl Session {
             }
             (SaveOutput::SelectedHtml(_), _) => unreachable!("taken apart above"),
         }
-        Ok(())
+        Ok(true)
+    }
+
+    /// The answer of a placeholder save of a Word layout report whose run wrote no dataset row, `None` for any other save (it
+    /// writes as before). BC writes no Html then and answers false without an error: one data item, a stream, the answer used
+    /// (corpus probe pull request 1362, reports/layouts-html-text/HtRenderedTextTests.al:320-335 Html_SaveAs_NoDatasetRow,
+    /// `saved` No, `length > 0` No; BC 27.5 and 28.5), under the assumption `report-html-no-dataset-row` until it is pinned.
+    /// Every other placeholder save of a Word layout report with no dataset row refuses.
+    fn no_row_save(
+        &self,
+        output: &SaveOutput,
+        target: &SaveTarget,
+        schema: &Schema,
+        answer_used: bool,
+    ) -> Result<Option<bool>, Signal> {
+        let report = schema.report();
+        let format = match output {
+            SaveOutput::Placeholder(f) => f.name(),
+            SaveOutput::SelectedHtml(_) => "Html with a temporary layout selection",
+            SaveOutput::Dataset | SaveOutput::Discard => return Ok(None),
+        };
+        if report.default_layout_kind != "word" {
+            return Ok(None);
+        }
+        let pinned = *output == SaveOutput::Placeholder(Format::Html)
+            && matches!(target, SaveTarget::Stream(_))
+            && answer_used
+            && report.items.len() == 1
+            && report.extensions.is_empty();
+        if !pinned {
+            return Err(Signal::unsupported(format!(
+                "Report.SaveAs as {format} of report \"{}\", a Word layout report whose run wrote no dataset row (only an Html \
+                 save to a stream of one data item, with its answer used, is measured)",
+                schema.name()
+            )));
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportHtmlNoDatasetRow);
+        Ok(Some(false))
     }
 
     /// The mark of the Html placeholder a save of `schema` writes, with the number of its render: a whole text read of it gives
     /// the rendered content's mark (`al_builtins::rendered_text`, ADR-040 amendment 2026-11-12, A1 and A2). A run that wrote no
-    /// dataset row gives no render, and such a read refuses: what BC renders then is not pinned. `selected` is the layout a
+    /// dataset row writes nothing (`no_row_save`); the render number is taken only for a run with rows. `selected` is the layout a
     /// temporary layout selection named (A7), else the report's default layout renders.
     fn html_render_mark(&self, schema: &Schema, rows: usize, selected: Option<&str>) -> std::sync::Arc<str> {
         let report = schema.report();

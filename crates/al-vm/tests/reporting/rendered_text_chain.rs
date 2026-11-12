@@ -190,7 +190,7 @@ fn rendered_text_chain_a_multiline_page_field_over_the_body_refuses_until_measur
 /// Stand-ins, in an app with Base Application's id, for the parts of Base Application the selection of a user-defined layout
 /// takes: "Design-time Report Selection" holds the name, ReportManagement's SelectReportLayoutCode subscriber hands it to the
 /// platform when no Custom Report Layout row has it (none exists here) and clears it, and its SelectedBuiltinLayoutType
-/// subscriber answers from "Report Layout Selection".
+/// subscriber fails the test when it is raised.
 const BASE: &str = r#"
 table 9651 "Report Layout Selection"
 {
@@ -210,6 +210,7 @@ codeunit 9654 "Design-time Report Selection"
     procedure SetSelectedLayout(LayoutName: Text[250]; AppID: Guid) begin SelectedPlatformLayoutName := LayoutName; SelectedPlatformLayoutAppID := AppID; end;
     procedure GetSelectedLayout(): Text[250] begin if SelectedPlatformLayoutName = '' then exit(SelectedCustomLayoutCode); exit(SelectedPlatformLayoutName); end;
     procedure GetSelectedAppID(): Guid begin exit(SelectedPlatformLayoutAppID); end;
+    procedure SetSelectedCustomLayout(Code: Code[20]) begin SelectedCustomLayoutCode := Code; end;
     procedure ClearLayoutSelection() begin SelectedPlatformLayoutName := ''; SelectedCustomLayoutCode := ''; SelectedPlatformLayoutAppID := EmptyGuid; end;
 }
 
@@ -232,16 +233,12 @@ codeunit 44 "ReportManagement"
         D.ClearLayoutSelection();
     end;
 
+    // BC does not raise SelectedBuiltinLayoutType after SelectReportLayoutCode answered a selected layout (corpus probe pull
+    // request 1362, reports/layouts-html-text/HtRenderedTextTests.al:494, :530): a raise fails the test.
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'SelectedBuiltinLayoutType', '', false, false)]
     local procedure SelectedBuiltinLayoutType(ObjectID: Integer; var LayoutType: Option "None",RDLC,Word,Excel,Custom)
-    var S: Record "Report Layout Selection";
     begin
-        LayoutType := LayoutType::None;
-        if S.Get(ObjectID, CompanyName()) then
-            case S.Type of
-                S.Type::"RDLC (built-in)": LayoutType := LayoutType::RDLC;
-                S.Type::"Word (built-in)": LayoutType := LayoutType::Word;
-            end;
+        Error('SelectedBuiltinLayoutType raised');
     end;
 }
 "#;
@@ -340,6 +337,15 @@ codeunit 51003 "RC Selection Tests"
     // Neighbours that stay refused.
     procedure RdlcLayout(): Text var NullId: Guid; begin AddLayout(0, ''); exit(SendSelected(LayoutName, NullId)); end;
     procedure NameMatchesNothing(): Text var NullId: Guid; begin AddLayout(1, ''); exit(SendSelected('Other', NullId)); end;
+    procedure UnknownCustomCode(): Text
+    var Tmp: Record "RT Row" temporary; D: Codeunit "Design-time Report Selection"; Out: OutStream;
+    begin
+        AddLayout(1, '');
+        Seed();
+        D.SetSelectedCustomLayout('HTNOSUCHCODE');
+        Tmp.Data.CreateOutStream(Out, TextEncoding::UTF8);
+        exit(Format(Report.SaveAs(Report::"RT Word", '', ReportFormat::Html, Out)));
+    end;
     procedure LayoutOfOneCompany(): Text var NullId: Guid; begin AddLayout(1, CompanyName()); exit(SendSelected(LayoutName, NullId)); end;
     procedure WithAppId(): Text
     var Id: Guid;
@@ -420,9 +426,15 @@ fn rendered_text_chain_other_temporary_selections_stay_refused() {
             "NameMatchesNothing",
             "no Tenant Report Layout row of the report is named \"Other\"",
         ),
+        // A name or a custom layout code that matches nothing: BC answers false and writes nothing (S5,
+        // HtRenderedTextTests.al:543-603); not answered here yet.
+        (
+            "UnknownCustomCode",
+            "no Tenant Report Layout row of the report is named \"HTNOSUCHCODE\"",
+        ),
         ("LayoutOfOneCompany", "is not one Word layout"),
         ("WithAppId", "the selection names an app id"),
-        ("WithBuiltinSelection", "SelectedBuiltinLayoutType answered"),
+        ("WithBuiltinSelection", "a Report Layout Selection row names the report"),
         (
             "WithTenantSelection",
             "a Tenant Report Layout Selection row names the report",
