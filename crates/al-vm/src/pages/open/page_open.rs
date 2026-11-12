@@ -340,7 +340,6 @@ impl Session {
             s.row_exprs_live = false;
             s.row_prop_vars = Vec::new();
             s.agcr_after_new = false;
-            s.part_accessed = false;
             reset_host_row_flags(&mut s);
             s.expanded = Vec::new();
             s.tree_shown = Vec::new();
@@ -1522,7 +1521,6 @@ impl Session {
     }
 }
 
-/// The flags a new host row, a first part access and New() on a request page set; a page that runs again starts without them.
 /// The flags a list's earlier run left about its rows and its new-row line.
 /// The filters of a page's SourceTableView (group 2) after `set_view_in`, with the filters the caller kept for group 2 merged in.
 /// An Enum const is held as a typed value, as SetRange holds one (see `page_source_view`). A field the view filters itself keeps
@@ -1555,7 +1553,10 @@ fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.list_edit_back = false;
 }
 
+/// The flags a new host row, a first part access and New() on a request
+/// page set; a page that runs again starts without them.
 fn reset_host_row_flags(s: &mut crate::pages::PageState) {
+    s.part_accessed = false;
     s.new_host_part_rows = false;
     s.host_stored_blank_key = false;
     s.part_insert_swallowed = false;

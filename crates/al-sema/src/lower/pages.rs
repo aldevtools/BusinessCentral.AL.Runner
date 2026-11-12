@@ -672,6 +672,14 @@ impl Lowerer<'_> {
         let mut entries = Vec::new();
         for (left, rhs) in crate::pages::parse_run_page_link(text).map_err(|e| e.replace("RunPageLink", what))? {
             let pf = field_pos(target_table, &left)?;
+            // `filter(<> "Enum"::Member)`, `filter("Enum"::A | "Enum"::B)` and the like: each operand is resolved first
+            // (`link_qualified_operands`, pages/link-filter/LinkEnumQualifiedAndObjectConstants.al, al-runner issue 7405).
+            let rhs = match rhs {
+                LinkRhs::Filter(t) if t.contains("::") => {
+                    LinkRhs::Filter(self.link_qualified_operands(file, target_table, pf, &t).unwrap_or(t))
+                }
+                rhs => rhs,
+            };
             entries.push(match rhs {
                 LinkRhs::Field(f) => {
                     let ht = host_table
@@ -747,6 +755,36 @@ impl Lowerer<'_> {
             });
         }
         Ok(entries)
+    }
+
+    /// The `filter(...)` value `text` of a link entry on field `pf` of `table` with each qualified operand resolved: a member of the
+    /// field's own enum, quoted as `rewrite_quotes` quotes a member name, or on an Integer field `Database::"Table"` and
+    /// `Page::"Page"` as the object's number. The shapes and their pins: `al_builtins::enum_qualifier::resolve_qualified_operands`.
+    /// `None` for any other value, which then lowers as before.
+    fn link_qualified_operands(&self, file: usize, table: usize, pf: usize, text: &str) -> Option<String> {
+        let field = &self.members[table].fields[pf];
+        al_builtins::enum_qualifier::resolve_qualified_operands(text, |qualifier, name| match &field.ty {
+            Ty::Enum(field_enum) => {
+                let e = self.resolve_obj_in(file, ObjKind::Enum, qualifier).ok()?;
+                if self.resolve_obj_in(file, ObjKind::Enum, field_enum).ok() != Some(e) || name.contains('\'') {
+                    return None;
+                }
+                let (_, member) = self.members[e]
+                    .enum_values
+                    .iter()
+                    .find(|(_, n)| n.eq_ignore_ascii_case(name))?;
+                Some(format!("'{member}'"))
+            }
+            Ty::Integer if qualifier.eq_ignore_ascii_case("Database") => {
+                let t = self.resolve_obj_in(file, ObjKind::Table, name).ok()?;
+                self.ws.objects[t].id.map(|id| id.to_string())
+            }
+            Ty::Integer if qualifier.eq_ignore_ascii_case("Page") => {
+                let p = self.resolve_obj_in(file, ObjKind::Page, name).ok()?;
+                self.ws.objects[p].id.map(|id| id.to_string())
+            }
+            _ => None,
+        })
     }
 
     /// `SubPageLink`, `SubPageView` and `Provider` of the part control `sec` of page `oi`, which

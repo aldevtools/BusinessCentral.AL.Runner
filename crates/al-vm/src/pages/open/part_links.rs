@@ -415,7 +415,9 @@ impl Session {
         if dec(&current).is_none_or(|d| !d.is_zero()) {
             return Ok(());
         }
-        if rec.borrow().key != 0 || !rec.borrow().ascending {
+        // A part read in another order: `split_key_view.rs` owns the pinned shapes.
+        let in_view = Self::reads_in_view_order(&rec);
+        if in_view && !self.auto_split_part_pinned(st, &rec)? {
             return unsupported("AutoSplitKey on a part that is not read in primary key order");
         }
         let burned = st.borrow().split_burned;
@@ -428,6 +430,10 @@ impl Session {
         // The next line after the lower one in the part's view, within the same leading key.
         let upper = match lower {
             None => None,
+            Some(_) if in_view => {
+                let key = st.borrow().lower_key.clone().unwrap_or_default();
+                self.split_view_upper(st, &rec, &key)?
+            }
             Some(l) => {
                 let probe = Rc::new(RefCell::new(rec.borrow().clone()));
                 {
@@ -470,6 +476,9 @@ impl Session {
             let s = st.borrow();
             s.split_starts_low && (s.host.is_none() || s.placeholder_line)
         };
+        if in_view {
+            return self.split_in_view_number(st, &rec, &ty, lower, upper, burned || starts_low);
+        }
         let number = match (lower, upper) {
             // The blank line of a top-level list that took key filter values, typed without New(), starts at 10000
             // (testpage/PnGRefresh.al:672 QL_Jnl_SheetFG2_DeleteNoUpdate_OnlyRow, :792 QL_Jnl_SheetFG2_OpenOnNoRow),

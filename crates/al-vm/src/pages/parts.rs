@@ -2,6 +2,7 @@
 //! (the `TestPart` handle is that child's `Value::TestPage`). The child opens right after the
 //! host's OnOpenPage, and its rows follow the host's current row through `SubPageLink`.
 
+use super::part_filter_find::FindPartAt;
 use super::*;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::page_op::PageMethod;
@@ -21,6 +22,12 @@ enum Sync {
     Open,
     /// Every visible part, first to last.
     Plain,
+    /// The host's GoToKey moved it to another row: as `Plain`, except a part without a link that serves its rows from
+    /// OnFindRecord and OnNextRecord (`find_list_part`), which keeps what it shows and runs no trigger
+    /// (testpage/parts/PartFilterExpressionControl.al:392 Periods_ReadBeforeFilter_ThenFilter_ThenFirst `before`
+    /// `expr=0 var=0 item=I1`: the part still shows what it read while the host stood on I1). Another part without a link is not
+    /// pinned and reads as before.
+    GoToKeyMoved,
     /// The host moved with First, Last, Next or Previous: only the linked parts, hidden ones included.
     Move { backward: bool },
     /// The host's GoToKey or GoToRecord stayed on its row: every visible part as `Plain`, except a list part with OnFindRecord, a
@@ -494,6 +501,20 @@ impl Session {
         }
     }
 
+    /// [`Self::sync_parts`] after a host move other than Next, Previous, a First or Last that moved, a GoToKey or GoToRecord that
+    /// stayed and New: a GoToKey that left the row (`left_row`) and walked no parts is `Sync::GoToKeyMoved`.
+    pub(super) fn sync_parts_after_other_move(
+        &mut self,
+        st: &St,
+        name: PageMethod,
+        left_row: bool,
+    ) -> Result<(), Signal> {
+        if name == PageMethod::GoToKey && left_row && !st.borrow().walk_synced_parts {
+            return self.sync_parts_with(st, Sync::GoToKeyMoved);
+        }
+        self.sync_parts(st)
+    }
+
     pub(super) fn sync_parts_stayed(&mut self, st: &St) -> Result<(), Signal> {
         self.sync_parts_with(st, Sync::Stayed)
     }
@@ -520,6 +541,19 @@ impl Session {
             self.read_blank_before_parts_turning_visible(st)?;
         }
         self.note_hidden_part_found_visible(st, &parts, opening)?;
+        if how == Sync::GoToKeyMoved {
+            let mut read = Vec::new();
+            for (i, child) in parts {
+                let linked = page.controls[i]
+                    .part_link
+                    .as_ref()
+                    .is_some_and(|l| !l.entries.is_empty());
+                if linked || !Self::find_part_calls(&child, FindPartAt::HostGoToKey) || !self.find_list_part(&child)? {
+                    read.push((i, child));
+                }
+            }
+            parts = read;
+        }
         if let Sync::Move { .. } = how {
             let mut linked = Vec::new();
             for (i, child) in parts {
@@ -589,10 +623,10 @@ impl Session {
                     // A FactBox part of a Provider chain does not read again when the host it stands on is inserted by the first
                     // call on a part (ProviderLinkedPartsMatrix.al Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew `new`
                     // ends at `detail-row()`, the read follows with the key: `keyed` `lines-row(0)`).
-                    if how == Sync::Plain && child.borrow().chain_refill == 1 {
+                    if matches!(how, Sync::Plain | Sync::GoToKeyMoved) && child.borrow().chain_refill == 1 {
                         continue;
                     }
-                    if how == Sync::Plain && self.chain_part_back_walk(st, *i, child) {
+                    if matches!(how, Sync::Plain | Sync::GoToKeyMoved) && self.chain_part_back_walk(st, *i, child) {
                         child.borrow_mut().read_backwards = Some(crate::pages::ReadBackwards::AfterMove);
                     }
                     // Such a part reads nothing on a host move that keeps its link values, forward or back (PartReadsOpen.al
@@ -1293,6 +1327,18 @@ impl Session {
                             let p = src_page.borrow();
                             p.host.is_none() && p.draft && !p.draft_stored
                         };
+                        // A Provider that shows no row: on BC the linked part shows no row, also where a row holds the blank
+                        // link value (ProviderPartOutsideFactBoxes.al `h2`, `next-host`: `detail=` with a `Line Ref` 0 row in the
+                        // table; corpus pull request 1324). The runner links to the blank value instead, so on the chains that
+                        // probe admits beyond the pinned ones the read is refused.
+                        if link.provider.is_some()
+                            && src_page.borrow().cursor == Cursor::None
+                            && self.chain_outside_pinned_areas(host)
+                        {
+                            return unsupported(
+                                "a part linked through a Provider part that shows no row, on a Provider chain declared in the base page's FactBoxes or added by a page extension outside FactBoxes (BC shows no row; not modelled)",
+                            );
+                        }
                         let value = if src_page.borrow().cursor == Cursor::None || unsaved_host {
                             let host_ty = engine.program.objects[*src_table]
                                 .table
@@ -1935,15 +1981,10 @@ impl Session {
         if at == Some(0) {
             return Ok(false);
         }
-        let host_document = st
-            .borrow()
-            .host
-            .as_ref()
-            .and_then(|(h, _)| h.upgrade())
-            .is_some_and(|h| {
-                self.engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::Document)
-            });
-        if !self.is_list(st) || !host_document || self.declares(st, "onfindrecord") || self.declares(st, "onnextrecord")
+        if !self.is_list(st)
+            || !self.list_part_on_document_host(st)
+            || self.declares(st, "onfindrecord")
+            || self.declares(st, "onnextrecord")
         {
             return unsupported(
                 "a part's CurrPage.Update in a control's OnValidate on a row other than its first, other than a list part on a Document host without OnFindRecord (which row it shows then is not pinned)",
@@ -1959,8 +2000,27 @@ impl Session {
                 "a part's CurrPage.Update in a control's OnValidate on a row other than its first of a view longer than a window (not pinned)",
             );
         }
-        self.read_part_rows_around(st, &rows, at)?;
+        if self.part_update_unsettled(st, &rows, at)? {
+            self.read_part_rows_unsettled(st, &rows, at)?;
+        } else {
+            self.read_part_rows_around(st, &rows, at)?;
+        }
         Ok(true)
+    }
+
+    /// The page is a ListPart shown in a Document page.
+    pub(super) fn list_part_on_document_host(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let own = &engine.object_facts[st.borrow().object as usize].page_type;
+        matches!(own, Some(al_ir::PageType::Other(o)) if o == "listpart")
+            && st
+                .borrow()
+                .host
+                .as_ref()
+                .and_then(|(h, _)| h.upgrade())
+                .is_some_and(|h| {
+                    engine.object_facts[h.borrow().object as usize].page_type == Some(al_ir::PageType::Document)
+                })
     }
 
     /// A new part row whose code changed the host's stored row and ran `CurrPage.Update(false)`, UpdatePropagation SubPart or not
@@ -2641,7 +2701,10 @@ impl Session {
         if !on_row && !on_blank {
             return Ok(None);
         }
-        let last = st.borrow().window.last().map(|w| w.stored.clone());
+        let last = match self.split_view_last_row(st)? {
+            Some(row) => Some(row),
+            None => st.borrow().window.last().map(|w| w.stored.clone()),
+        };
         if let Some(last) = last {
             // Every part shape: AutoSplitKey and DelayedInsert (the `LT QJ Save Lines` part), DelayedInsert only, AutoSplitKey
             // only, neither, with OnAfterGetRecord, without OnAfterGetCurrRecord (QjPartPropagation.al:2921
@@ -2667,6 +2730,7 @@ impl Session {
             // page of its own (pages/modify-denied/Y80ModifyDenied.al Y80_MD_Doc_PartSet_HostNext `close`; needs corpus bump).
             if child.borrow().open {
                 self.close_denied_modify(&child)?;
+                self.reread_part_at_close(&child)?;
                 self.save_row(&child)?;
             }
         }

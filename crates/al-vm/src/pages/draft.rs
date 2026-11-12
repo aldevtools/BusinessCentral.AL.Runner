@@ -524,6 +524,7 @@ impl Session {
             self.note_lower_key(st)?;
             st.borrow_mut().split_burned = false;
         }
+        self.split_view_check_at_new(st)?;
         st.borrow_mut().placeholder_line = false;
         // A list line started below a stored row: remember the row (see `PageState::after_new`).
         let anchor = (keep_focus && st.borrow().cursor == Cursor::Row && !st.borrow().draft)
@@ -659,6 +660,7 @@ impl Session {
             return Ok(());
         }
         if draft {
+            self.xrec_of_part_line_saved_on_leave(st)?;
             return self.insert_draft(st);
         }
         let rec = self.page_rec(st);
@@ -869,6 +871,26 @@ impl Session {
             }
         }
         Ok(quiet)
+    }
+
+    /// A line of an AutoSplitKey ListPart on a Card host, saved when it is left (Close, another New()), is inserted with the row
+    /// it was started below as xRec, the last row too, or on a part that showed no row with the row the part held before
+    /// (pages/parts/PartSplitKeyOtherSortKey.al:379 PkAsc_NewAfterLast `INS 50000 x=40000`, :509 PkAsc_NewOnEmptyPart
+    /// `INS 20000 x=10000`, :599 SeqAsc_NewAfterLast, :701 SeqAsc_NewOnEmptyPart `x=30000`, and the other hosts of that file,
+    /// with and without DelayedInsert). A line inserted by a field edit keeps the rule of `insert_draft`.
+    fn xrec_of_part_line_saved_on_leave(&mut self, st: &St) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        if !self.has_auto_split_key(st) || !self.is_list(st) || !self.auto_split_part_pinned(st, &rec)? {
+            return Ok(());
+        }
+        let held = {
+            let s = st.borrow();
+            s.after_new.clone().or_else(|| s.empty_part_xrec.clone())
+        };
+        if let Some(held) = held {
+            self.set_xrec_fields(st, held);
+        }
+        Ok(())
     }
 
     /// OnInsertRecord decides whether the typed record is inserted at all (corpus

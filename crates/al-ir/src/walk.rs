@@ -1146,8 +1146,13 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         option_caption_ml: _,
         auto_format_type: _,
         auto_format_expression: _,
+        source_syntax: _,
+        places_table,
+        places_field,
     } = c;
     field_opt(v, field, table);
+    field_opt(v, places_field, TableOf::object(*places_table));
+    object_opt(v, places_table);
     field_opt(v, item_field, table);
     field_opt(v, caption_field, TableOf::object(*caption_table));
     object_opt(v, caption_table);
