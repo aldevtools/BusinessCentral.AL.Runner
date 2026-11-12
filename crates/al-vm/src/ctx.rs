@@ -284,6 +284,7 @@ impl al_builtins::native::Ctx for Session {
         if !self.render_pending_files.is_empty() {
             self.render_pending_files.remove(&pending_key(path));
         }
+        self.placeholder_files.forget_streamed(path);
         self.host.files.write(path, bytes)
     }
     fn fs_remove(&mut self, path: &str) -> Result<bool, Signal> {
@@ -318,11 +319,21 @@ impl al_builtins::native::Ctx for Session {
     fn fs_write_placeholder(&mut self, path: &str, bytes: &[u8], mark: Arc<str>) -> Result<(), String> {
         self.host.files.write(path, bytes)?;
         self.render_pending_files.insert(pending_key(path), mark);
+        self.placeholder_files.forget_streamed(path);
         Ok(())
+    }
+    fn fs_placeholder_streamed(&mut self, path: &str) {
+        self.placeholder_files.note_streamed(path);
     }
     fn fs_placeholder(&mut self, path: &str) -> Option<(Arc<str>, Vec<u8>)> {
         let mark = self.placeholder_file_mark(path)?;
-        Some((mark, self.host.files.read(path)?))
+        let bytes = self.host.files.read(path)?;
+        // `File.Open` asks: the AL File holds the file open until its `Close`.
+        self.placeholder_files.note_open(path);
+        Some((mark, bytes))
+    }
+    fn fs_closed(&mut self, path: &str) {
+        self.placeholder_files.note_closed(path);
     }
     fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
         self.host.files.write(path, &[])?;
@@ -775,7 +786,9 @@ impl Session {
     }
 
     /// Drops the mark of a file that holds a placeholder report output, for a delete of the file: a delete looks at no byte
-    /// (ADR-040 amendment 2026-11-11). Whether the path held one.
+    /// (ADR-040 amendment 2026-11-11). AL `File.Erase` of a saved report file after it was opened, copied and closed:
+    /// reports/layouts-saveas/AMRdlcSaveAs.al:179. The DotNet delete calls it only for the shape of assumption
+    /// dotnet-file-delete-placeholder (`placeholder_files.rs`). Whether the path held one.
     pub(crate) fn forget_placeholder_file(&mut self, path: &str) -> bool {
         if self.placeholder_file_mark(path).is_none() {
             return false;

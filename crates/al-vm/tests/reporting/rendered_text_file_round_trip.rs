@@ -18,14 +18,28 @@ dotnet { assembly("mscorlib") { type("System.IO.File"; "IOFile") { } } }
 codeunit 50997 "RF Tests"
 {
     local procedure Save(var Tmp: Record "RT Row" temporary)
+    begin
+        SaveAs(Tmp, ReportFormat::Html);
+    end;
+
+    local procedure SaveAs(var Tmp: Record "RT Row" temporary; Fmt: ReportFormat)
     var R: Record "RT Row"; Out: OutStream;
     begin
         R.DeleteAll();
         R.Id := 1; R.Insert();
         Tmp.Id := 9;
         Tmp.Data.CreateOutStream(Out);
-        Report.SaveAs(Report::"RT Word", '', ReportFormat::Html, Out);
+        Report.SaveAs(Report::"RT Word", '', Fmt, Out);
         Tmp.Insert();
+    end;
+
+    // A server temp file name, as File Management.ServerTempFileName gives one.
+    local procedure TempName(Ext: Text) Name: Text
+    var TempFile: File;
+    begin
+        TempFile.CreateTempFile();
+        Name := TempFile.Name + '.' + Ext;
+        TempFile.Close();
     end;
 
     // File Management.TempBlobToServerFile: an UTF-8 InStream on the blob, ServerTempFileName, InstreamExportToServerFile.
@@ -80,6 +94,69 @@ codeunit 50997 "RF Tests"
         exit(Format(Deleted) + Format(File.Exists(Name)) + Format(Body <> ''));
     end;
 
+    // The measured chain with a Pdf (HtmlServerFileRoundTrip.al HSF_Pdf_TempBlobToServerFile_RoundTrip).
+    procedure RoundTripPdf(): Text
+    var Tmp: Record "RT Row" temporary; Name: Text; Deleted: Boolean;
+    begin
+        SaveAs(Tmp, ReportFormat::Pdf);
+        Name := ToServerFile(Tmp);
+        Clear(Tmp.Data);
+        FromServerFile(Tmp, Name);
+        Deleted := DeleteServerFile(Name);
+        exit(Format(Deleted) + Format(File.Exists(Name)) + Format(Tmp.Data.HasValue()));
+    end;
+
+    // Not measured: a Word placeholder through the same chain.
+    procedure WordChain(): Boolean
+    var Tmp: Record "RT Row" temporary; Name: Text;
+    begin
+        SaveAs(Tmp, ReportFormat::Word);
+        Name := ToServerFile(Tmp);
+        Clear(Tmp.Data);
+        FromServerFile(Tmp, Name);
+        exit(DeleteServerFile(Name));
+    end;
+
+    // Not measured: the rendering save writes the file itself, then the delete.
+    procedure SaveAsPdfToFileThenDelete(): Boolean
+    var R: Record "RT Row"; Name: Text; Helper: DotNet IOFile;
+    begin
+        R.DeleteAll(); R.Id := 1; R.Insert();
+        Name := TempName('pdf');
+        Report.SaveAsPdf(Report::"RT Word", Name);
+        Helper.Delete(Name);
+        exit(File.Exists(Name));
+    end;
+    procedure SaveAsHtmlToFileThenDelete(): Boolean
+    var R: Record "RT Row"; Name: Text; Helper: DotNet IOFile;
+    begin
+        R.DeleteAll(); R.Id := 1; R.Insert();
+        Name := TempName('html');
+        Report.SaveAsHtml(Report::"RT Word", Name);
+        Helper.Delete(Name);
+        exit(File.Exists(Name));
+    end;
+    procedure SaveAsHtmlToFileThenDeleteServerFile(): Boolean
+    var R: Record "RT Row"; Name: Text;
+    begin
+        R.DeleteAll(); R.Id := 1; R.Insert();
+        Name := TempName('html');
+        Report.SaveAsHtml(Report::"RT Word", Name);
+        exit(DeleteServerFile(Name));
+    end;
+
+    // Not measured: the delete while an AL File holds the file open with a stream on it.
+    procedure DeleteWhileOpen(): Boolean
+    var Tmp: Record "RT Row" temporary; Name: Text; F: File; I: InStream; Helper: DotNet IOFile;
+    begin
+        Save(Tmp);
+        Name := ToServerFile(Tmp);
+        F.Open(Name);
+        F.CreateInStream(I);
+        Helper.Delete(Name);
+        exit(File.Exists(Name));
+    end;
+
     procedure ReadTheFileBeforeTheDelete(): Text
     var Tmp: Record "RT Row" temporary; Name: Text; F: File; I: InStream; Body: Text;
     begin
@@ -112,4 +189,31 @@ fn rendered_text_file_round_trip_a_read_of_the_file_stays_refused() {
         Err(Signal::Unsupported(why)) => assert!(why.contains("a read of the content of a placeholder Html"), "{why}"),
         other => panic!("expected the read refusal, got {other:?}"),
     }
+}
+
+#[test]
+fn rendered_text_file_round_trip_of_a_pdf_deletes_the_file() {
+    assumptions::clear_hits();
+    assert_eq!(al_testkit::text(run("RoundTripPdf")), "YesNoYes");
+    assert!(assumptions::take_hits().contains(&Assumption::DotNetFileDeletePlaceholder));
+}
+
+// Shapes the probe (HtmlServerFileRoundTrip.al) does not measure: a Word placeholder, a file the rendering save wrote
+// itself, and a delete while an AL File holds the file open. Each refuses at the delete.
+#[test]
+fn rendered_text_file_round_trip_unmeasured_deletes_refuse() {
+    let wrong = [
+        "WordChain",
+        "SaveAsPdfToFileThenDelete",
+        "SaveAsHtmlToFileThenDelete",
+        "SaveAsHtmlToFileThenDeleteServerFile",
+        "DeleteWhileOpen",
+    ]
+    .into_iter()
+    .filter_map(|p| match run(p) {
+        Err(Signal::Unsupported(why)) if why.contains("DotNet System.IO.File.Delete") => None,
+        other => Some(format!("{p}: {other:?}")),
+    })
+    .collect::<Vec<_>>();
+    assert!(wrong.is_empty(), "not refused at the delete:\n{}", wrong.join("\n"));
 }

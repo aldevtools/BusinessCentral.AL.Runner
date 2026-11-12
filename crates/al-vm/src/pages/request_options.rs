@@ -119,47 +119,75 @@ pub(crate) fn bare_root_options(xml: &str, call: ParamsCall) -> Option<Result<&s
 const WRITTEN_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"utf-16\" standalone=\"yes\"?>";
 
 /// A parameters string in a form an outside reporter measured on BC (al-runner issue 7908, assumption
-/// report-params-written-declaration), as the string in the pinned form ([`PARAMETERS_DECLARATION`], no whitespace between the
-/// elements) that BC treats alike: under `Report.SaveAs` only, the declaration `XmlDocument.WriteTo(Text)` writes, then a root
-/// without name and id holding one `<Options>` element and no `<DataItems>`, either on one line or indented as `WriteTo` writes
-/// it (CR LF and spaces between two elements, never inside a `Field`). `None` for every other string: it keeps the path it had.
+/// report-params-written-declaration; corpus probe pull request 1368, ReportParametersStrings.al), as the string in the pinned
+/// form ([`PARAMETERS_DECLARATION`], no whitespace between the elements) that BC treats alike: under `Report.SaveAs` only, the
+/// declaration `XmlDocument.WriteTo(Text)` writes, then a root without name and id holding one `<Options>` element of `Field`
+/// elements and no `<DataItems>`, in exactly one of the two measured layouts: one line with nothing between the elements, or
+/// the layout `WriteTo` writes ([`written_layout`]). `None` for every other string: it keeps the path it had.
 pub(crate) fn written_bare_root(xml: &str, call: ParamsCall) -> Option<String> {
     if call != ParamsCall::SaveAs {
         return None;
     }
     let rest = xml.strip_prefix(WRITTEN_DECLARATION)?;
-    let mut body = String::with_capacity(rest.len());
-    let mut chars = rest.char_indices().peekable();
-    while let Some((at, c)) = chars.next() {
-        if c != '\r' {
-            body.push(c);
-            continue;
-        }
-        // CR LF and spaces only between `>` and `<`, and not in front of `</Field>` (a value of a Field stays as written).
-        let mut end = at + 1;
-        if rest[end..].starts_with('\n') {
-            end += 1;
-            while rest[end..].starts_with(' ') {
-                end += 1;
-            }
-        } else {
-            return None;
-        }
-        let after = &rest[end..];
-        // The declaration ends with `>` too.
-        let after_tag = body.is_empty() || body.ends_with('>');
-        if !after_tag || !after.starts_with('<') || after.starts_with("</Field>") {
-            return None;
-        }
-        while chars.peek().is_some_and(|(i, _)| *i < end) {
-            chars.next();
-        }
-    }
-    if body.contains("<DataItems") || body.contains('\n') {
+    let collapsed = collapse_written_breaks(rest);
+    let fields = written_fields(&collapsed)?;
+    let one_line = format!(
+        "<ReportParameters><Options>{}</Options></ReportParameters>",
+        fields.concat()
+    );
+    if rest != one_line && rest != written_layout(&fields) {
         return None;
     }
-    let canonical = format!("{PARAMETERS_DECLARATION}{body}");
+    let canonical = format!("{PARAMETERS_DECLARATION}{one_line}");
     matches!(bare_root_options(&canonical, call), Some(Ok(_))).then_some(canonical)
+}
+
+/// `rest` without every CR LF and the spaces that follow it (the candidate one-line form; the caller compares the original
+/// with the two measured layouts, so a break anywhere else makes the string fail that comparison).
+fn collapse_written_breaks(rest: &str) -> String {
+    let mut out = String::with_capacity(rest.len());
+    let mut parts = rest.split("\r\n");
+    if let Some(first) = parts.next() {
+        out.push_str(first);
+    }
+    for p in parts {
+        out.push_str(p.trim_start_matches(' '));
+    }
+    out
+}
+
+/// The `Field` elements of `<ReportParameters><Options>...</Options></ReportParameters>` with nothing between the elements:
+/// each `<Field .../>` or `<Field ...>value</Field>` with a value that holds no `<`. `None` for anything else.
+fn written_fields(one_line: &str) -> Option<Vec<&str>> {
+    let mut inner = one_line
+        .strip_prefix("<ReportParameters><Options>")?
+        .strip_suffix("</Options></ReportParameters>")?;
+    let mut fields = Vec::new();
+    while !inner.is_empty() {
+        if !inner.starts_with("<Field ") {
+            return None;
+        }
+        let gt = inner.find('>')?;
+        let len = if inner[..gt].ends_with('/') {
+            gt + 1
+        } else {
+            let close = inner[gt..].find("</Field>")? + gt;
+            if inner[gt + 1..close].contains('<') || close == gt + 1 {
+                return None;
+            }
+            close + "</Field>".len()
+        };
+        fields.push(&inner[..len]);
+        inner = &inner[len..];
+    }
+    Some(fields)
+}
+
+/// The layout `XmlDocument.WriteTo(Text)` gives the parameters document after its declaration: CR LF before every element,
+/// two spaces per depth (ReportParametersStrings.al RPS_XmlDocument_WriteTo_Shape).
+fn written_layout(fields: &[&str]) -> String {
+    let fields: String = fields.iter().map(|f| format!("\r\n    {f}")).collect();
+    format!("\r\n<ReportParameters>\r\n  <Options>{fields}\r\n  </Options>\r\n</ReportParameters>")
 }
 
 /// The error of a parameters string without the XML declaration: BC reads the text as a filter on the Parameter Name field of

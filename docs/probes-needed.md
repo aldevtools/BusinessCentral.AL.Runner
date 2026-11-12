@@ -1588,3 +1588,16 @@ Pinned since corpus bump 1111b (al-language/reports/runtime/SFSecurityFilteringF
 |---|---|---|---|
 | `AddJoin` of two fields of the same type other than Code[20] against Code[20]: Integer, BigInteger, Decimal, Guid, Date, Time, DateTime, Boolean, Option, the same Enum, Code of different lengths, Text of any length | Runs on main's path (value equality, the comparison of the AL `=` operator), orchestrator decision; only Code[20] against Code[20] is pinned (install-upgrade/AsDtInstaller.al:163, :195, record/Y47DtInstall.al:350) | Install codeunit with one source and one destination table per type; for each type a CopyFields joined on that field, read back by a test: Integer, Guid, Code[10] against Code[10], Code[10] against Code[20] with a value of up to 10 characters, Text[30] against Text[30] with values that differ only in case and in trailing spaces | al-vm/src/datatransfer.rs join_fields |
 | `AddJoin` of two fields of different types (Code against Guid with a value that is not a Guid, Code against Text, Integer against Option, ...) | Refused before a row is written | The same install codeunit with Code[20] against Guid, where one Code value is a Guid text and one is not; Code against Text; Integer against Option: does BC match, skip or raise an error (and its text) | al-vm/src/datatransfer.rs join_fields |
+
+## DotNet File.Delete of a file holding a placeholder report output (review of al-runner issue 6924, 2026-11-12)
+
+The measured shape (Html or Pdf written to the file by `File.Close` from a stream copy, the file closed, then
+DeleteServerFile; HtmlServerFileRoundTrip.al, corpus probe pull request 1368) runs under assumption
+dotnet-file-delete-placeholder. The neighbors below refuse.
+
+| Shape | Status | Probe wanted | Code |
+|---|---|---|---|
+| A Word (or Excel) placeholder through the same chain | REFUSED at the delete | The round trip of HtmlServerFileRoundTrip.al with `ReportFormat::Word` | `al-vm/src/placeholder_files.rs` |
+| A file the rendering save wrote itself (`Report.SaveAsPdf` or `SaveAsHtml` to a path, `ServerTempFileName` then DeleteServerFile) | REFUSED at the delete | SaveAsPdf and SaveAsHtml to a server temp file name, then DeleteServerFile; Exists before and after | `al-vm/src/placeholder_files.rs` |
+| A delete while an AL File holds the placeholder file open with a stream on it | REFUSED at the delete | `File.Open`, `CreateInStream`, DotNet delete, then CopyStream from the stream: the error or the answers | `al-vm/src/placeholder_files.rs` |
+| A plain file (no placeholder) that an AL File holds open, deleted by DotNet | ANSWERS on main (exists No, the stream still reads): older than this row, not pinned | the same probe with a file AL wrote | `al-vm/src/dotnet/mod.rs` `system.io.file` `delete` |

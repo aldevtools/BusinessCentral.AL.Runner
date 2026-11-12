@@ -223,13 +223,20 @@ fn create_temp(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 /// `Close()`: writes a file opened for writing to the host. Closing a file that is not open does
 /// nothing (assumed, docs/probes-needed.md).
 fn close(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    let pending = with_file(r, |s| {
+    let (closed, pending) = with_file(r, |s| {
         let was = std::mem::take(&mut s.open);
-        Ok((was && s.writable && !s.temp).then(|| {
-            let b = s.blob.borrow();
-            (s.name.clone(), b.bytes.clone(), b.render_pending.clone())
-        }))
+        let closed = (was && !s.temp).then(|| s.name.clone());
+        Ok((
+            closed,
+            (was && s.writable && !s.temp).then(|| {
+                let b = s.blob.borrow();
+                (s.name.clone(), b.bytes.clone(), b.render_pending.clone())
+            }),
+        ))
     })?;
+    if let Some(name) = closed {
+        c.fs_closed(&name);
+    }
     if let Some((name, bytes, mark)) = pending {
         // Content carried unread in the company build stays unread in the file it is written to.
         let wrote = match mark {
@@ -237,9 +244,9 @@ fn close(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
                 c.fs_write_unproduced(&name, &mark)
             }
             // A placeholder report output copied into the file keeps its mark there.
-            Some(mark) if crate::placeholder_output::is_placeholder(&mark) => {
-                c.fs_write_placeholder(&name, &bytes, mark)
-            }
+            Some(mark) if crate::placeholder_output::is_placeholder(&mark) => c
+                .fs_write_placeholder(&name, &bytes, mark)
+                .map(|()| c.fs_placeholder_streamed(&name)),
             _ => c.fs_write(&name, &bytes),
         };
         if let Err(e) = wrote {

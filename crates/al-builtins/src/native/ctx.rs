@@ -415,6 +415,11 @@ pub trait Ctx: FormatCtx {
     fn fs_placeholder(&mut self, _path: &str) -> Option<(std::sync::Arc<str>, Vec<u8>)> {
         None
     }
+    /// `File.Close` of a file that holds a placeholder report output copied into it through a stream: the close wrote the file
+    /// (`fs_write_placeholder`). The context may note how the file came to hold the placeholder.
+    fn fs_placeholder_streamed(&mut self, _path: &str) {}
+    /// `File.Close` of an AL File that was open on `path` (not a temporary file).
+    fn fs_closed(&mut self, _path: &str) {}
     /// Whether `Clear` of a DotNet variable holding the host object `handle` of type `clr_type` changes nothing AL can see, so
     /// the variable just becomes unassigned (an OpenXml workbook writer after its `Close` and the worksheet writers it handed
     /// out, a workbook reader and its worksheet readers). The context marks the assumption it relies on.

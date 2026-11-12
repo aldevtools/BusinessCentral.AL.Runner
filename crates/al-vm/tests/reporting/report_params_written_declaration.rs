@@ -91,6 +91,43 @@ codeunit 50282 "PX Xml Decl Tests"
         exit(Saved(Xml));
     end;
 
+    // Breaks the probe did not measure (review shapes P03, P04, P05, P17, P26).
+    local procedure Crlf(): Text
+    var C: Text[2];
+    begin
+        C[1] := 13; C[2] := 10;
+        exit(C);
+    end;
+
+    procedure BreaksWithoutSpaces(): Text
+    var D: Text;
+    begin
+        D := '<?xml version="1.0" encoding="utf-16" standalone="yes"?>';
+        exit(Saved(D + Crlf() + '<ReportParameters>' + Crlf() + '<Options>' + Crlf() + '<Field name="StartDate">2026-01-15</Field>' + Crlf() + '</Options>' + Crlf() + '</ReportParameters>'));
+    end;
+
+    procedure BreaksWithOtherSpaces(): Text
+    var D: Text;
+    begin
+        D := '<?xml version="1.0" encoding="utf-16" standalone="yes"?>';
+        exit(Saved(D + Crlf() + '<ReportParameters>' + Crlf() + '       <Options>' + Crlf() + ' <Field name="StartDate">2026-01-15</Field>' + Crlf() + '   </Options>' + Crlf() + '</ReportParameters>'));
+    end;
+
+    procedure OneBreakOnly(): Text
+    begin
+        exit(Saved('<?xml version="1.0" encoding="utf-16" standalone="yes"?><ReportParameters><Options>' + Crlf() + '    <Field name="StartDate">2026-01-15</Field></Options></ReportParameters>'));
+    end;
+
+    procedure BreakAfterDeclarationOnly(): Text
+    begin
+        exit(Saved('<?xml version="1.0" encoding="utf-16" standalone="yes"?>' + Crlf() + '<ReportParameters><Options><Field name="StartDate">2026-01-15</Field></Options></ReportParameters>'));
+    end;
+
+    procedure BreakInsideAnAttribute(): Text
+    begin
+        exit(Saved('<?xml version="1.0" encoding="utf-16" standalone="yes"?><ReportParameters><Options><Field name="Start>' + Crlf() + '  Date">2026-01-15</Field></Options></ReportParameters>'));
+    end;
+
     procedure WithDataItems(): Text
     begin
         exit(Saved('<?xml version="1.0" encoding="utf-16" standalone="yes"?><ReportParameters><Options><Field name="StartDate">2026-01-15</Field></Options><DataItems><DataItem name="R">VERSION(1) SORTING(Field1)</DataItem></DataItems></ReportParameters>'));
@@ -162,4 +199,9 @@ fn other_declarations_values_data_items_roots_and_calls_keep_mains_refusal() {
     keeps_mains_refusal("WithDataItems");
     keeps_mains_refusal("NamedRoot");
     keeps_mains_refusal("Executed");
+    keeps_mains_refusal("BreaksWithoutSpaces");
+    keeps_mains_refusal("BreaksWithOtherSpaces");
+    keeps_mains_refusal("OneBreakOnly");
+    keeps_mains_refusal("BreakAfterDeclarationOnly");
+    keeps_mains_refusal("BreakInsideAnAttribute");
 }
