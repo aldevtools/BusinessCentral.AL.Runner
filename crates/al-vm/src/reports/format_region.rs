@@ -124,6 +124,9 @@ impl Session {
         let target = match n {
             1033 => None,
             1031 => Some("de-DE"),
+            // 2067 without a region: `language="nl-BE" formatRegion="en-US"` on the data item and the column values in en-US
+            // (reports/runtime/ReportLanguageNotRunFormats.al:243-247, SaveAs of a report variable and the static SaveAs).
+            2067 => Some("nl-BE"),
             _ => match language_culture(n) {
                 Some(c) => Some(c),
                 None => {
@@ -142,7 +145,7 @@ impl Session {
                 .then(|| format!("CurrReport.Language := {n} after the dataset's first data item was written"))
         } else {
             ds.language = target.map(str::to_string);
-            ds.language_wants_region = (n != 1031 && target.is_some()).then(|| {
+            ds.language_wants_region = (n != 1031 && n != 2067 && target.is_some()).then(|| {
                 format!("the SaveAs dataset after CurrReport.Language := {n} without a FormatRegion set after it (not pinned)")
             });
             // Kept, not pinned: on BC 29 the company captions of the header stay en-US (refusing them would lose

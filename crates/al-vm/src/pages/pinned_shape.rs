@@ -2,7 +2,9 @@
 //! page and its table can run, the properties the page declares, and the calls the test made on the page since it opened.
 //! Each predicate states the pinned value of every fact and requires equality (al-runner PR 7807 review, round 3: a rule that
 //! asks only "is not X" also runs on shapes no probe shows). The predicates are next to their rules: `long_view.rs`,
-//! `open/temp_ws_preloaded.rs`, `currpage_run_typed_key.rs`.
+//! `open/temp_ws_preloaded.rs`, `currpage_run_typed_key.rs`, and for a part on a host `split_key_view.rs`, `part_unsettled.rs`,
+//! `part_filter_find.rs` and `end_move_no_read.rs` (al-runner PR 7805 review, round 3), which compare the calls on the host and
+//! on the part in the order the test made them (`part_steps`) and the pages of the pin (`PinnedPart`).
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
@@ -21,6 +23,62 @@ pub enum TestCall {
     Other(PageMethod),
 }
 
+/// One call on a page or on one of its direct parts (`PageState::tree_calls`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TreeCall {
+    /// The control index of the part the call was made on; `None` for the page itself.
+    pub part: Option<usize>,
+    pub call: TestCall,
+    /// The call answered No (a move that did not move, `GoToKey` that found nothing).
+    pub no: bool,
+}
+
+/// One call of `PageState::tree_calls` as a part of the page sees it (`Session::part_steps`). The reads of the part's own
+/// controls and of its filter are left out: every pin reads between its steps, and a read changes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartStep {
+    /// A call on the host or on one of its controls, a read too, that answered Yes or nothing.
+    Host(TestCall),
+    /// A call on the host that answered No.
+    HostNo(TestCall),
+    /// A call on the part or on one of its controls that answered Yes or nothing.
+    Own(TestCall),
+    /// A call on the part that answered No.
+    OwnNo(TestCall),
+    /// A call on another part of the host.
+    Sibling,
+}
+
+/// More calls on a page and its parts than this are not kept; no pinned scenario of a part has that many.
+const KEPT_TREE_CALLS: usize = 32;
+
+/// The pages of a pinned part scenario (see `Session::part_pages_are`): each list is what the pages of the pin declare, and
+/// the pages asked may declare nothing outside it.
+pub(super) struct PinnedPart<'a> {
+    pub host_type: ir::PageType,
+    /// The host's own triggers, lower case.
+    pub host_triggers: &'a [&'a str],
+    /// The part's own triggers, lower case.
+    pub part_triggers: &'a [&'a str],
+    /// The properties the part may declare next to the plain ones (see `PLAIN_PROPERTIES`), lower case.
+    pub part_properties: &'a [&'a str],
+    /// The part's controls may be bound to a page variable (else: fields of Rec only). No control of Rec has a trigger.
+    pub part_variable_controls: bool,
+    /// A control bound to a page variable may have an OnValidate trigger.
+    pub part_variable_validate: bool,
+    /// The part's controls may show an expression.
+    pub part_expression_controls: bool,
+    /// The part may have no SubPageLink.
+    pub unlinked: bool,
+    /// The host may show other parts next to this one.
+    pub sibling_parts: bool,
+    /// The test's own filter (filter group 0) may be set on the part, next to the link's.
+    pub user_filter: bool,
+}
+
+/// Properties that run nothing and change no read.
+const PLAIN_PROPERTIES: [&str; 5] = ["pagetype", "sourcetable", "applicationarea", "usagecategory", "caption"];
+
 /// More calls than this are not kept; a page with that many is no pinned scenario (`test_calls_overflow`).
 const KEPT_CALLS: usize = 256;
 
@@ -37,7 +95,7 @@ pub(super) struct PinnedCode<'a> {
 
 impl Session {
     /// The test client calls `method` on `st`, on the page itself or on `control`.
-    pub(super) fn note_test_call(st: &St, method: PageOp, control: Option<&ControlTarget>, args: usize) {
+    pub(super) fn note_test_call(&self, st: &St, method: PageOp, control: Option<&ControlTarget>, args: usize) {
         if method.recv() == PageRecv::Page {
             return;
         }
@@ -48,12 +106,203 @@ impl Session {
             (Some(ControlTarget::Control(i)), PageMethod::Value | PageMethod::SetValue) => TestCall::Write(*i),
             (Some(_), _) => TestCall::Other(m),
         };
+        self.note_tree_call(st, call);
         let mut s = st.borrow_mut();
         if s.test_calls.len() < KEPT_CALLS {
             s.test_calls.push(call);
         } else {
             s.test_calls_overflow = true;
         }
+    }
+
+    /// The page `tree_calls` of `st` are kept on (`st` itself, or the host of a part) and the part's control index there.
+    fn tree_root(st: &St) -> (St, Option<usize>) {
+        match st
+            .borrow()
+            .host
+            .as_ref()
+            .and_then(|(h, i)| h.upgrade().map(|h| (h, *i)))
+        {
+            Some((host, idx)) => (host, Some(idx)),
+            None => (st.clone(), None),
+        }
+    }
+
+    /// `call` on `st` joins the calls of its page tree. A write to the store since the call before it ended was made by the
+    /// test between two calls: no pin does that, so the calls no longer tell what the page shows.
+    fn note_tree_call(&self, st: &St, call: TestCall) {
+        let (root, part) = Self::tree_root(st);
+        let nested = root.borrow().host.is_some();
+        let mark = self.write_mark();
+        let mut r = root.borrow_mut();
+        if nested || r.tree_calls.len() >= KEPT_TREE_CALLS || r.tree_calls_mark.is_some_and(|m| m != mark) {
+            r.tree_calls_unknown = true;
+        }
+        if r.tree_calls.len() < KEPT_TREE_CALLS {
+            r.tree_calls.push(TreeCall { part, call, no: false });
+        }
+    }
+
+    /// The test's call on `st` ended with `result`: its answer and the store's write mark are noted.
+    pub(super) fn test_call_ended(&self, st: &St, result: &Result<Value, Signal>) {
+        let (root, _) = Self::tree_root(st);
+        let mut r = root.borrow_mut();
+        r.tree_calls_mark = Some(self.write_mark());
+        if matches!(result, Ok(Value::Boolean(false)))
+            && let Some(last) = r.tree_calls.last_mut()
+        {
+            last.no = true;
+        }
+    }
+
+    /// The calls the test made on the host of `part` and on its parts since the host opened, as `part` sees them, the running
+    /// one last. `None` when the calls do not tell what the page shows (`PageState::tree_calls_unknown`), and for a page
+    /// that is no direct part of a top-level page.
+    pub(super) fn part_steps(part: &St) -> Option<Vec<PartStep>> {
+        let (host, idx) = Self::tree_root(part);
+        let idx = idx?;
+        let h = host.borrow();
+        if h.host.is_some() || h.tree_calls_unknown {
+            return None;
+        }
+        let read = |c: &TestCall| match c {
+            // `P.Part.Filter` only hands out the filter.
+            TestCall::Read | TestCall::Page(PageMethod::Filter) => true,
+            TestCall::Other(m) => *m == PageMethod::GetFilter || Self::field_read(*m),
+            _ => false,
+        };
+        Some(
+            h.tree_calls
+                .iter()
+                .filter(|c| !(c.part == Some(idx) && read(&c.call)))
+                .map(|c| match c.part {
+                    None if c.no => PartStep::HostNo(c.call),
+                    None => PartStep::Host(c.call),
+                    Some(i) if i != idx => PartStep::Sibling,
+                    Some(_) if c.no => PartStep::OwnNo(c.call),
+                    Some(_) => PartStep::Own(c.call),
+                })
+                .collect(),
+        )
+    }
+
+    /// Whether `part` and its host are pages as `pin` lists them, every fact required:
+    /// - the host: a top-level page of `pin.host_type` that declares no property but the plain ones and no trigger outside
+    ///   `pin.host_triggers`; its controls are fields of Rec without a trigger, groups and this one part (other parts with
+    ///   `pin.sibling_parts`);
+    /// - the part: a ListPart that declares no property outside `pin.part_properties` and no trigger outside
+    ///   `pin.part_triggers`; its controls are a repeater and fields of Rec without a trigger (with
+    ///   `pin.part_variable_controls` also page variables, with `pin.part_variable_validate` an OnValidate trigger on them,
+    ///   with `pin.part_expression_controls` also expressions);
+    /// - neither page has a page extension or an event subscriber, and neither does the part's source table have a table
+    ///   extension or a subscriber;
+    /// - the part control: a SubPageLink of `field(..)` entries only, on the leading fields of the part's primary key in
+    ///   their order (none at all with `pin.unlinked`), no Provider, and a SubPageView that only sorts (no `where`); the same
+    ///   for the part's own SourceTableView;
+    /// - the part's Rec: a stored table, no marks, and no filter in any filter group but the link's on the link's fields (with
+    ///   `pin.user_filter` also the test's own, filter group 0).
+    pub(super) fn part_pages_are(&self, part: &St, pin: &PinnedPart) -> Result<bool, Signal> {
+        let (host, Some(idx)) = Self::tree_root(part) else {
+            return Ok(false);
+        };
+        if host.borrow().host.is_some() {
+            return Ok(false);
+        }
+        let engine = self.engine();
+        let object_of = |p: &St| p.borrow().object as usize;
+        let page_type = |p: &St| engine.object_facts[object_of(p)].page_type.clone();
+        let declares_within = |p: &St, triggers: &[&str], properties: &[&str]| {
+            let page = page_of(&engine, p);
+            page.triggers.iter().all(|(n, _)| triggers.contains(&n.as_str()))
+                && page.extensions.is_empty()
+                && page.ext_triggers.is_empty()
+                && !engine.events.any_subscriber_of(object_of(p))
+                && engine.program.objects[object_of(p)].properties.iter().all(|(k, _)| {
+                    let k = k.to_ascii_lowercase();
+                    PLAIN_PROPERTIES.contains(&k.as_str()) || properties.contains(&k.as_str())
+                })
+                && page.controls.iter().all(|c| {
+                    c.owner.is_none()
+                        && c.ext_triggers.is_empty()
+                        && c.props.iter().all(|(_, v)| matches!(v, ir::PropVal::Lit(_)))
+                })
+        };
+        let plain_field = |c: &ir::Control| matches!(c.binding, ir::Binding::Field(_)) && c.triggers.is_empty();
+        let host_page = page_of(&engine, &host);
+        let host_ok = page_type(&host) == Some(pin.host_type.clone())
+            && declares_within(&host, pin.host_triggers, &[])
+            && host_page.controls.iter().enumerate().all(|(i, c)| match c.kind {
+                ir::ControlKind::Group => true,
+                ir::ControlKind::Field => plain_field(c),
+                ir::ControlKind::Part => i == idx || pin.sibling_parts,
+                _ => false,
+            });
+        let part_page = page_of(&engine, part);
+        let part_ok = page_type(part) == Some(ir::PageType::Other("listpart".into()))
+            && declares_within(part, pin.part_triggers, pin.part_properties)
+            && part_page.controls.iter().all(|c| match c.kind {
+                ir::ControlKind::Repeater => true,
+                ir::ControlKind::Field => match c.binding {
+                    ir::Binding::Field(_) => c.triggers.is_empty(),
+                    ir::Binding::Var(_) => {
+                        pin.part_variable_controls
+                            && (c.triggers.is_empty()
+                                || (pin.part_variable_validate && c.triggers.iter().all(|(n, _)| n == "onvalidate")))
+                    }
+                    ir::Binding::Expr(_) => pin.part_expression_controls && c.triggers.is_empty(),
+                    _ => false,
+                },
+                _ => false,
+            });
+        if !host_ok || !part_ok {
+            return Ok(false);
+        }
+        let rec = self.page_rec(part);
+        let table = self.table(&rec)?;
+        let table_object = table.object as usize;
+        let table_ok = engine.program.objects[table_object]
+            .table
+            .as_ref()
+            .is_some_and(|x| x.extensions.is_empty())
+            && !engine.events.any_subscriber_of(table_object);
+        let sorts_only = |view: Option<&str>| view.is_none_or(|v| !v.to_ascii_lowercase().contains("where"));
+        let link = host_page.controls[idx].part_link.as_ref();
+        let link_fields: Option<Vec<usize>> = match link {
+            None => Some(Vec::new()),
+            Some(l) => l
+                .entries
+                .iter()
+                .map(|e| match e {
+                    ir::LinkEntry::Field(part_field, _) => Some(*part_field),
+                    _ => None,
+                })
+                .collect(),
+        };
+        let Some(link_fields) = link_fields else {
+            return Ok(false);
+        };
+        let key = &table.keys[0];
+        let link_ok = link.is_none_or(|l| l.provider.is_none() && sorts_only(l.view.as_deref()))
+            && if link_fields.is_empty() {
+                pin.unlinked
+            } else {
+                link_fields.len() < key.len() && key[..link_fields.len()] == link_fields[..]
+            }
+            && sorts_only(
+                engine.program.objects[object_of(part)]
+                    .properties
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("SourceTableView"))
+                    .map(|(_, v)| v.as_str()),
+            );
+        let r = rec.borrow();
+        let rec_ok = !r.temporary
+            && !r.marked_only
+            && r.filters.iter().all(|f| {
+                (f.group == super::parts::LINK_GROUP && link_fields.contains(&f.field))
+                    || (pin.user_filter && f.group == 0)
+            });
+        Ok(table_ok && link_ok && rec_ok)
     }
 
     /// The calls the test made on the page since it opened, the running one last; `None` when there were too many to keep.
@@ -126,5 +375,33 @@ impl Session {
             && r.field_descending == 0
             && r.filters.is_empty()
             && !r.marked_only
+    }
+}
+
+impl Session {
+    /// Whether the last field of the primary key of the part's table is an Integer and the SubPageLink covers every field
+    /// before it (the line tables of the pins: document number, line number).
+    pub(super) fn part_key_is_link_then_integer(&self, part: &St) -> Result<bool, Signal> {
+        let (host, Some(idx)) = Self::tree_root(part) else {
+            return Ok(false);
+        };
+        let engine = self.engine();
+        let linked = page_of(&engine, &host).controls[idx]
+            .part_link
+            .as_ref()
+            .map_or(0, |l| l.entries.len());
+        let table = self.table(&self.page_rec(part))?;
+        let key = &table.keys[0];
+        Ok(key.len() == linked + 1
+            && key
+                .last()
+                .is_some_and(|&last| matches!(table.fields[last].ty, RtType::Integer)))
+    }
+
+    /// How the host of `part` was opened: by the test's own Open call or not, its mode, modal or not, as a lookup or not.
+    pub(super) fn part_host_opened(part: &St) -> Option<(bool, PageMode, bool, bool)> {
+        let (host, _) = Self::tree_root(part);
+        let h = host.borrow();
+        h.open.then_some((h.opened_by_test, h.mode, h.modal, h.lookup))
     }
 }

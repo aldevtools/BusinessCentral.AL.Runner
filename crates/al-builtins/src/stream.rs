@@ -277,6 +277,12 @@ pub fn render_pending_error(report: &str) -> Signal {
                 .into(),
         );
     }
+    if report.starts_with(LAYOUT_FILE_GENERATED) {
+        return Signal::Unsupported(
+            "the bytes of a report layout file the AL compiler generates (the app does not hold the file; not pinned)"
+                .into(),
+        );
+    }
     // ADR-044 uses the same mark for the picture a `System.Drawing.Bitmap` was asked to save: the name is the .NET type.
     if report.starts_with("System.Drawing.") {
         return Signal::unsupported(format!("picture drawn by {report} is not produced"));
@@ -1282,6 +1288,37 @@ pub fn create_in_of(v: &Value, bytes: Vec<u8>) -> bool {
         return false;
     }
     *g = LibraryValue::InStream(InState::snapshot(bytes, Encoding::default()));
+    true
+}
+
+/// The mark of the stream `Report.WordLayout` (or Rdlc, Excel) gives as a statement for a layout whose file the app does not
+/// hold: the AL compiler generates a missing layout file when it builds the app, and its bytes are not pinned. A Media field
+/// imports it with a value (reports/layouts-saveas/UserDefinedWordExcelLayoutRows.al:60-81 `has layout Yes`); any look at its
+/// bytes is refused. The mark ends with the layout kind ([`layout_file_generated_mark`]).
+pub const LAYOUT_FILE_GENERATED: &str = "a report layout file the AL compiler generates";
+
+/// The mark of a generated layout file of `kind` (`RDLC`, `Word`, `Excel`).
+pub fn layout_file_generated_mark(kind: &str) -> String {
+    format!("{LAYOUT_FILE_GENERATED} ({kind})")
+}
+
+/// A stream that was never created becomes one that reads content behind `mark`: no bytes, and any look refused with the mark.
+/// Answers false, and changes nothing, for a stream that was created.
+pub fn create_in_pending(v: &Value, mark: &str) -> bool {
+    let Value::Library(_, h) = v else {
+        return false;
+    };
+    let mut g = h.borrow_mut();
+    if !crate::stream_cleared::holds_no_stream(&g) {
+        return false;
+    }
+    let blob = new_blob();
+    {
+        let mut b = blob.borrow_mut();
+        b.loaded = true;
+        b.render_pending = Some(mark.into());
+    }
+    *g = LibraryValue::InStream(InState::live(blob, Encoding::default()));
     true
 }
 

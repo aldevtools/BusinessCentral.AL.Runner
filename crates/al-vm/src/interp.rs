@@ -733,6 +733,7 @@ impl Session {
                 Value::TestPage(st) => {
                     let st = crate::pages::into_st(st);
                     let i = self.construct_page(&st)?;
+                    self.note_outside_page_call(&st, &f.instance);
                     lagged = self.enter_server_row(&st);
                     // A procedure a page extension declares runs on the extension's instance.
                     let ext = st

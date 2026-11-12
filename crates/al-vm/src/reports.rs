@@ -2254,6 +2254,7 @@ impl Session {
         let mut iterations = 0u32;
         'rows: while more {
             iterations += 1;
+            crate::decimal_column::normalize_read_row(&mut rec.borrow_mut());
             // The CalcFields property: the listed FlowFields of the row, before its triggers. Pinned for one field of a
             // top-level item (reports/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField) and for two
             // fields of a nested item a report extension adds (reports/AqTests.al:184 CalcFields_ExtensionDataItem_Values);
@@ -3976,6 +3977,9 @@ impl Session {
     fn dataset_identity(&self, rec: &Rec) -> Result<(u32, String), Signal> {
         let object = rec.borrow().table as usize;
         let id = self.object_id_of(object as u32);
+        if id == INTEGER_TABLE {
+            return Ok((id, String::new())); // no systemId (dataset.rs `begin`)
+        }
         let Some(t) = self.engine.tables.get(object).and_then(|t| t.clone()) else {
             return unsupported("a data item over a table the program did not compile");
         };
@@ -3985,18 +3989,8 @@ impl Session {
         let Value::Guid(g) = rec.borrow().fields[i].clone() else {
             return unsupported("a data item row whose SystemId is not a Guid");
         };
-        let hex: String = g.iter().map(|b| format!("{b:02x}")).collect();
-        Ok((
-            id,
-            format!(
-                "{}-{}-{}-{}-{}",
-                &hex[0..8],
-                &hex[8..12],
-                &hex[12..16],
-                &hex[16..20],
-                &hex[20..32]
-            ),
-        ))
+        let text = al_builtins::format::format_guid(&g);
+        Ok((id, text.trim_matches(['{', '}']).to_ascii_lowercase()))
     }
 
     /// One column of a row: the value of its source, as the dataset writes it
@@ -4016,8 +4010,9 @@ impl Session {
         t: &Option<Arc<al_data::TableDef>>,
         c: &ir::ReportColumn,
     ) -> Result<String, Signal> {
-        let from_field = match (t, c.field) {
-            (Some(t), Some(pos)) => self.field_property(t, pos, "DecimalPlaces"),
+        let from_field = match (t, c.field, c.places_table.zip(c.places_field)) {
+            (Some(t), Some(pos), _) => self.field_property(t, pos, "DecimalPlaces"),
+            (_, None, Some(at)) => crate::column_formatter::field_places(&self.engine.program, at),
             _ => None,
         };
         crate::column_formatter::of_column(c, from_field.as_deref())
@@ -4158,12 +4153,10 @@ impl Session {
                 // AqSaveAsXml.al:257 `AmountC`).
                 schema_type = Some("xs:decimal");
                 attribute = Some(("decimalformatter", self.decimal_column_formatter(&t, c)?));
-                // The decimal as it is, scale and all: `12.345678 * 1.5` is `18.5185170`
-                // (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:174-180); Format would trim the zero.
                 let Value::Decimal(d) = &value else {
                     unreachable!("matched a Decimal")
                 };
-                d.to_string()
+                crate::decimal_column::text(&self.engine.program, object, c, *d)
             }
             // The column's OptionCaptionML: the caption of the session language, ENU where it has none
             // (record/table-properties/XTablePropsTests.al:741-785, `EnuOnly` shows `Only B` in 1031).
