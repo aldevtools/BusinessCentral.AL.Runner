@@ -249,6 +249,9 @@ impl Session {
                 {
                     return Ok(v);
                 }
+                if method != PageOp::PageRunModalStatic {
+                    Self::note_page_run(&st, false);
+                }
                 self.run_page_ui_with(&st, record, method == PageOp::PageRunModalStatic, field)
             }
             Some(Value::TestPage(st)) => {

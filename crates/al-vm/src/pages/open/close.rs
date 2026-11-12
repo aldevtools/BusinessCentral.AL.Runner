@@ -46,6 +46,8 @@ impl Session {
         st.borrow_mut().close_error = false;
         self.pages.close_save_error = None;
         self.pages.test_close = true;
+        let page_run = self.page_run_close(st, action, false, true);
+        let changes = self.store_mut().change_counter();
         let (r, origin) = self.traced(st, |s| s.close_with(st, action, false, false));
         if let Some(r) = self.after_failed_close_save(st, &r) {
             return r;
@@ -66,16 +68,20 @@ impl Session {
             // BC28PLUS); another error's text and code cannot be read.
             Err(Signal::Error(e)) if origin.as_deref() == Some("onclosepage") => {
                 self.mark_closed(st);
-                // A Confirm no handler took, in a relation lookup or a Page.Run page closed in its handler (CemLookupTests.al,
-                // CemPageHandlerTests.al CardStaticRun_HandlerClose_ClosePageConfirmUnhandled).
-                let relation_confirm = e.code == "MissingUIHandler"
-                    && (self.relation_closed_in_handler(st) || self.page_run_close_pinned(st));
-                if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED && !relation_confirm {
+                // A Confirm no handler took, in a relation lookup (CemLookupTests.al) or a pinned Page.Run page closed in its
+                // handler (`page_run_test_close_confirm`).
+                let confirm = (e.code == "MissingUIHandler" && self.relation_closed_in_handler(st))
+                    || self.page_run_test_close_confirm(page_run, &e, changes);
+                if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED && !confirm {
                     return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
                 }
                 // Pinned by testpage/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
                 Err(error_code(
-                    format!("One or more errors occurred while closing the page.\\\\{}", e.message),
+                    format!(
+                        "{}\\\\{}",
+                        crate::pages::relation_lookup_close::CLOSING_ERRORS,
+                        e.message
+                    ),
                     "TestWrapped",
                 ))
             }
@@ -211,6 +217,7 @@ impl Session {
         self.require_open(st)?;
         st.borrow_mut().close_vetoed = false;
         self.note_relation_close(st, action, test_close, via_action);
+        let page_run = self.page_run_close(st, action, via_action, test_close);
         let mapped = self.close_action(st, action);
         let action = mapped.as_str();
         // Cancel on a request page whose ModifyAllowed is false drops a changed row: no error, the stored row unchanged
@@ -310,7 +317,7 @@ impl Session {
         }
         match save {
             Err(Signal::Error(e)) if swallow_save_errors => {
-                self.refuse_page_run_save_error_at_action(st, via_action)?;
+                self.refuse_page_run_save_error_at_action(page_run)?;
                 al_builtins::native::refuse_unpinned_text(&e, "The error list of a page row")?;
                 let key_ctl = self.key_control(st);
                 st.borrow_mut().errors.push((key_ctl, e.message));
@@ -402,6 +409,7 @@ impl Session {
         self.modal_card_empty_read_at_close(st)?;
         // An AL error raised in OnQueryClosePage is shown as a message and refuses the close
         // (corpus text/TestPageQueryCloseError_Tests.al:1-25).
+        let changes = self.store_mut().change_counter();
         let veto = match self.query_close_answer(st, vec![Value::Option(ordinal, members)]) {
             Err(Signal::Error(e)) => {
                 // A Confirm with no ConfirmHandler at TestPage.Close() raises its own error (query_close_unhandled.rs).
@@ -409,8 +417,7 @@ impl Session {
                     st.borrow_mut().close_error = true;
                     return Err(raised);
                 }
-                if let Some(r) = self.page_run_query_close_error(st, &e, swallow_save_errors && !via_action, via_action)
-                {
+                if let Some(r) = self.page_run_query_close_error(page_run, st, &e, changes) {
                     return r;
                 }
                 al_builtins::native::refuse_unpinned_text(&e, "The message shown for an error of OnQueryClosePage")?;
@@ -463,8 +470,7 @@ impl Session {
             return Err(e);
         } else if let Some(e) = self.document_close_page_error(st, &r)? {
             return Err(e);
-        } else if let Some(closed) = self.page_run_close_page_error(st, &r, swallow_save_errors && !via_action, changes)
-        {
+        } else if let Some(closed) = self.page_run_close_page_error(page_run, st, &r, changes) {
             closed?;
         } else {
             refuse_error(r, "OnClosePage at a close by an action or a handler")?;
