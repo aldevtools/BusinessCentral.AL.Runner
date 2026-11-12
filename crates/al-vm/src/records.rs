@@ -697,6 +697,8 @@ impl Session {
 
     pub(crate) fn unseeded_read(&self, t: &TableDef, temporary: bool, what: &str) -> Result<(), Signal> {
         if !temporary {
+            // Every read of a table's rows passes here, the indirect ones too (FlowField, TableRelation, list caption).
+            self.note_indirect_read(t.object);
             self.install_assumed(t.object);
             if let Some(why) = self.install_unknown(t.object) {
                 return unsupported(format!("{what} on {}: {why}", t.name));

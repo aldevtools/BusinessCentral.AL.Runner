@@ -356,9 +356,9 @@ pub(super) fn refuse_after_pass(
 /// runs after the writer. So the codeunit is refused when the pass changed a number sequence or isolated storage (or the
 /// session language or WorkDate) and its reach can read them, whichever codeunit's OnRun changed them (its own included);
 /// and when the OnRun of a later codeunit wrote a table the codeunit can read: one its static reach touches, or, when its
-/// reach opens tables through a RecordRef or is partly unknown, one its run used (`read`, measured by every record
-/// operation, `Scratch::read_tables`; a part of the reach that is not compiled refuses when it runs, so a run that ended
-/// read nothing through it). The Test Runner discovers the whole range before it runs the first codeunit (ADR-074); no
+/// reach opens tables through a RecordRef or is partly unknown, one its run read (`read`, measured: every record
+/// operation, FlowField, query and TableRelation read, `Scratch::read_tables`; a part of the reach that is not compiled
+/// refuses when it runs, so a run that ended read nothing through it). The Test Runner discovers the whole range before it runs the first codeunit (ADR-074); no
 /// corpus test reads that order yet.
 fn unpinned_reach(
     report: &super::ChainReport,
@@ -386,7 +386,7 @@ fn unpinned_reach(
         let what = match tables.intersection(&facts.touched).next() {
             Some(&t) => format!("the table {}, which this codeunit can read", table(t)),
             None if dynamic => format!(
-                "the table {}, which this codeunit read (through a RecordRef or a part of its reach not known statically)",
+                "the table {}, which this codeunit read (through a RecordRef, a query, a FlowField or a part of its reach not known statically)",
                 table(*tables.intersection(read).next()?)
             ),
             None => return None,

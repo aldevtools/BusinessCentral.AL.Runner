@@ -637,3 +637,26 @@ fn with_microsofts_apps_the_pinned_shape_runs_in_the_order_bccontainerhelper_imp
     let default = run(false);
     assert!(not_run(&default, "SeesTwoRows", "Server Setting Impl."), "{default:?}");
 }
+
+/// Review finding (round 3): an earlier codeunit whose reach is partly unknown (a codeunit run by an id known only at run
+/// time) and that reads, there, the table a later codeunit's discovery OnRun wrote through a Query or a FlowField is
+/// refused: those reads are measured at run time as record reads are.
+#[test]
+fn an_earlier_codeunit_that_reads_a_pass_written_table_through_a_query_or_flowfield_is_refused() {
+    let src = format!(
+        r#"{LOG}
+query 50695 "Log Query" {{ elements {{ dataitem(L; "Log") {{ column(N; N) {{ }} }} }} }}
+table 50706 "Log Count" {{ fields {{ field(1; K; Integer) {{ }} field(2; Rows; Integer) {{ FieldClass = FlowField; CalcFormula = count("Log"); }} }} keys {{ key(PK; K) {{ Clustered = true; }} }} }}
+codeunit 50693 "Reads Query" {{ trigger OnRun() var Q: Query "Log Query"; begin Q.Open(); if Q.Read() then Error('query sees a row'); end; }}
+codeunit 50694 "Reads FlowField" {{ trigger OnRun() var C: Record "Log Count" temporary; begin C.Insert(); C.CalcFields(Rows); if C.Rows <> 0 then Error('flowfield sees %1', C.Rows); end; }}
+codeunit 50691 "Earlier Query" {{ Subtype = Test; [Test] procedure ViaQuery() var Id: Integer; begin Id := 50693; Codeunit.Run(Id); end; }}
+codeunit 50692 "Earlier FlowField" {{ Subtype = Test; [Test] procedure ViaFlowField() var Id: Integer; begin Id := 50694; Codeunit.Run(Id); end; }}
+"#
+    );
+    for strict in [false, true] {
+        let out = run_apps(&[("a", &src)], bcch(strict), &[SuiteRun::everything()]);
+        for t in ["ViaQuery", "ViaFlowField"] {
+            assert!(not_run(&out, t, "later codeunit 50701"), "strict {strict} {t}: {out:?}");
+        }
+    }
+}

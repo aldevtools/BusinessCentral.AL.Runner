@@ -713,6 +713,8 @@ impl Session {
         let calc = f.calc.as_ref().expect("checked by check_calc_field");
         let filters = self.calc_filters(rec, calc, stack)?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        // The source table is read even when the record holding the FlowField is temporary.
+        self.note_indirect_read(src_t.object);
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {

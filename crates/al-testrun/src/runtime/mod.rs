@@ -704,8 +704,9 @@ pub(crate) struct Scratch {
     onrun_carry: bool,
     /// See `Unit::driver`.
     driver: TestDriver,
-    /// Under [`TestDriver::watches_reads`]: the tables the codeunit's record operations used, measured (typed records,
-    /// `RecordRef` and the page client; `discovery::refuse_after_pass`).
+    /// Under [`TestDriver::watches_reads`]: the tables the codeunit read, measured: record operations (typed records,
+    /// `RecordRef`, the page client) and indirect reads (FlowFields, queries, TableRelation checks;
+    /// `al_vm::impact::Touches::indirect_reads`). Read by `discovery::refuse_after_pass`.
     pub(crate) read_tables: BTreeSet<u32>,
     /// See `Unit::discovery`.
     discovery: Option<Arc<Vec<usize>>>,
@@ -763,6 +764,7 @@ impl Scratch {
     pub(crate) fn note_reads(&mut self, touched: al_vm::impact::Touches) -> al_vm::impact::Touches {
         if self.driver.watches_reads() {
             self.read_tables.extend(touched.tables.iter().copied());
+            self.read_tables.extend(touched.indirect_reads.iter().copied());
         }
         touched
     }

@@ -929,6 +929,9 @@ impl Session {
             self.permission_gate_object_read(self.query_object, &tables)?;
         }
         let stamps = self.query_stamps(def);
+        for (table, _) in &stamps {
+            self.note_indirect_read(*table);
+        }
         let plan = self.query_plan(def, runtime)?;
         // The joined rows: one row of each dataitem's table.
         let mut joined: Vec<JoinedRow> = Vec::new();
