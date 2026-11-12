@@ -681,6 +681,8 @@ impl Session {
                         // A Date text reads as SetFilter reads it in the session's language: `010120..` is 01/01/20..
                         // (events/platform-triggers/PtObserve.al:Filter_View).
                         let date_ctx = self.date_filter_context_for(value);
+                        let database = self.view_database_const(value, &ty, runtime)?;
+                        let value = database.as_deref().unwrap_or(value);
                         let expr = match empty {
                             Some(e) => e,
                             None => {
@@ -865,6 +867,23 @@ pub(crate) fn property_view(raw: &str) -> String {
     property_view_with(raw, true)
 }
 
+/// A page's `SourceTableView` as [`page_source_view`] reads it.
+pub(crate) struct PageSourceView {
+    /// The view to apply, the `const('')` conditions that set no filter taken out.
+    pub view: String,
+    /// The fields of a `const` on an Enum field (held as typed values).
+    pub enum_consts: Vec<usize>,
+    /// The fields of a `const(0D)` or `filter(0D)` on a Date field.
+    pub blank_dates: Vec<usize>,
+    /// The fields whose view filter `Filter.GetFilter` reads as the member's number.
+    pub number_fields: Vec<usize>,
+}
+
+/// A member name alone: no filter operator, quote or qualifier.
+fn is_plain_member(value: &str) -> bool {
+    !value.is_empty() && value.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
 /// A page's `SourceTableView` (already through [`property_view`]) as the page applies it, and the fields it names with a
 /// `const` on an Enum field (the page holds those as typed values: a TestPage's `Filter.GetFilter` reads the ordinal, pages/
 /// lt-ce-page-run/CePageRun.al SetTableView_FilterOnAnotherField `Kind=0`).
@@ -872,16 +891,18 @@ pub(crate) fn property_view(raw: &str) -> String {
 ///   pinned, so the page refuses every read of it) (testpage/CdTestPageLeads.al:508
 ///   Item58_SourceTableView_Const0D, :521 Item58_SourceTableView_Filter0D: the rows with 0D show).
 /// - `const('')` on a Text field sets no filter (CdTestPageLeads.al:539 Item58_SourceTableView_ConstEmptyTextAndEnum: a row
-///   whose field is `x` shows). On a field of another type nothing pins it, so it is refused.
-pub(crate) fn page_source_view(t: &TableDef, view: &str) -> Result<(String, Vec<usize>, Vec<usize>), Signal> {
+///   whose field is `x` shows), and on a Code field too (al-runner issue 7371). On a field of another type nothing pins it, so
+///   it is refused.
+pub(crate) fn page_source_view(t: &TableDef, view: &str) -> Result<PageSourceView, Signal> {
     let mut parts = Vec::new();
     let mut enum_consts = Vec::new();
     let mut blank_dates = Vec::new();
+    let mut number_fields = Vec::new();
     let mut rest = view.trim();
     while !rest.is_empty() {
         let (Some(open), Some((inner, after))) = (rest.find('('), rest.find('(').and_then(|o| balanced(&rest[o..])))
         else {
-            return Ok((view.to_string(), enum_consts, blank_dates));
+            return Ok(PageSourceView { view: view.to_string(), enum_consts, blank_dates, number_fields });
         };
         let word = &rest[..open];
         if word.trim().eq_ignore_ascii_case("where") {
@@ -904,16 +925,34 @@ pub(crate) fn page_source_view(t: &TableDef, view: &str) -> Result<(String, Vec<
                         blank_dates.push(pos);
                         items.push(format!("{field}={kind}(''){tail}"));
                     }
+                    // `filter('')` (written `FILTER()` here) on a Code field selects the blank value, and `Filter.GetFilter` reads `''`
+                    // (pages/view-filters/ViewConstBlankCode.al:559 SourceTableView_C20Filter_RowsAndFilters).
+                    RtType::Code(_) if kind == "FILTER" && value.is_empty() => {
+                        items.push(format!("{field}={kind}(''){tail}"));
+                    }
+                    // `const('')` on a Code[20] or Code[10] field sets no filter either, alone, twice, next to a value const, an
+                    // enum const, an Option const or a sorting() (ViewConstBlankCode.al:454, :524, :629, :699, :804, :489, :839).
                     _ if kind == "CONST" && value == "''" => {
-                        if !matches!(ty, RtType::Text(_)) {
+                        if !matches!(ty, RtType::Text(_) | RtType::Code(_)) {
                             return unsupported(format!(
-                                "SourceTableView const('') on a field of type {} (pinned for a Text field only)",
+                                "SourceTableView const('') on a field of type {} (pinned for a Text or Code field only)",
                                 ty.describe()
                             ));
                         }
                     }
                     RtType::Enum(_) if kind == "CONST" => {
                         enum_consts.push(pos);
+                        items.push(item.to_string());
+                    }
+                    // `filter(Order)` of one Enum member and `const(Item)` of an Option member read back as the member's number
+                    // in `Filter.GetFilter` (pages/view-filters/ViewConstBlankCode.al:490 SourceTableView_Reported_RowsAndFilters
+                    // `Doc Type=[1]`, `Kind=[1]`). Other filter texts keep main's reading.
+                    RtType::Enum(_) if kind == "FILTER" && is_plain_member(value) => {
+                        number_fields.push(pos);
+                        items.push(item.to_string());
+                    }
+                    RtType::Option(_) if kind == "CONST" && is_plain_member(value) => {
+                        number_fields.push(pos);
                         items.push(item.to_string());
                     }
                     _ => items.push(item.to_string()),
@@ -927,7 +966,7 @@ pub(crate) fn page_source_view(t: &TableDef, view: &str) -> Result<(String, Vec<
         }
         rest = after.trim();
     }
-    Ok((parts.join(" "), enum_consts, blank_dates))
+    Ok(PageSourceView { view: parts.join(" "), enum_consts, blank_dates, number_fields })
 }
 
 /// The conditions of a view (already through [`property_view`]) that filter a Date field with `const(0D)` or

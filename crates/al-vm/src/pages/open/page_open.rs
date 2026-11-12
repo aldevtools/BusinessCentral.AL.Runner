@@ -353,6 +353,7 @@ impl Session {
             s.opening = true;
             s.or_group_dropped = false;
             s.unpinned_filter_fields = Vec::new();
+            s.view_number_fields = Vec::new();
             s.placeholder_line = false;
             reset_row_line_flags(&mut s);
             s.parts = Vec::new();
@@ -438,7 +439,7 @@ impl Session {
             } else {
                 Vec::new()
             };
-            let (view, enum_consts, blank_dates) = match crate::views::page_source_view(&table, &view) {
+            let crate::views::PageSourceView { view, enum_consts, blank_dates, number_fields } = match crate::views::page_source_view(&table, &view) {
                 Ok(v) => v,
                 Err(e) => {
                     self.mark_closed(st);
@@ -456,6 +457,7 @@ impl Session {
                 }
                 st.borrow_mut().unpinned_filter_fields = blank_dates;
             }
+            st.borrow_mut().view_number_fields = number_fields;
             self.set_view_in(&rec, &table, &view, Some(2), sub_view.is_some(), false, false)?;
             // A field the view filters itself keeps the view's filter alone (two equal filters of one field read as a doubled value
             // when a new line takes it: Purchase Price List's "Price Type").
