@@ -1992,7 +1992,9 @@ fn empty_list_part_rec_list_host_cells() {
     let mut wrong = Vec::new();
     for (name, outcome, flagged) in &o {
         if NOT_OBSERVED.contains(&name.as_str()) || REFUSED.contains(&name.as_str()) {
-            if !matches!(outcome, Outcome::NotRun(m) if m.contains("a read of Rec of a ListPart that shows no row")) || *flagged {
+            if !matches!(outcome, Outcome::NotRun(m) if m.contains("a read of Rec of a ListPart that shows no row"))
+                || *flagged
+            {
                 wrong.push((name, outcome, flagged));
             }
             continue;

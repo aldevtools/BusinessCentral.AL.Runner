@@ -72,7 +72,9 @@ impl Session {
             return Ok(Some(miss));
         }
         if !self.list_landing_measured() {
-            return Ok(Some("the part read again at a host move other than the open, a GoToRecord or a Next"));
+            return Ok(Some(
+                "the part read again at a host move other than the open, a GoToRecord or a Next",
+            ));
         }
         if !self.list_part_page_measured(st) {
             return Ok(Some(

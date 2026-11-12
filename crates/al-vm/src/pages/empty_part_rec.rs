@@ -103,7 +103,9 @@ impl Session {
             k.eq_ignore_ascii_case("SourceTableView") || (k.eq_ignore_ascii_case("PopulateAllFields") && is_true(v))
         });
         if own_view || self.declares(st, "onnewrecord") || engine.events.is_subscribed(object, "onnewrecordevent") {
-            return Ok(Some("the part has a SourceTableView, PopulateAllFields or an OnNewRecord"));
+            return Ok(Some(
+                "the part has a SourceTableView, PopulateAllFields or an OnNewRecord",
+            ));
         }
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
