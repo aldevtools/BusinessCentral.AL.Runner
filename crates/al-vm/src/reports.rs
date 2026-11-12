@@ -1937,9 +1937,14 @@ impl Session {
                         // The runtime renders no output, and what these actions print or show is not pinned.
                         (None, _) if !schema.report().output.is_empty() => {
                             return unsupported(format!(
-                                "report \"{}\" renders output after the {closed:?} action of its request page, which the \
+                                "report \"{}\" renders output after the {} action of its request page, which the \
                                  runtime does not produce",
-                                schema.name()
+                                schema.name(),
+                                if closed == RequestClosed::Preview {
+                                    "Preview"
+                                } else {
+                                    "Print"
+                                }
                             ));
                         }
                         _ => {
