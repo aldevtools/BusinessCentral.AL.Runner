@@ -72,9 +72,118 @@ pub fn cross_enum_member(
         .then(|| member.trim().to_string())
 }
 
+/// The filter value of a link or view property whose operands are qualified constants, with each operand replaced by the text
+/// `resolve(qualifier, name)` gives for it (both unquoted, the qualifier without its namespace). Pinned by
+/// pages/link-filter/LinkEnumQualifiedAndObjectConstants.al (al-runner issues 7405, 7411), on BC 27.5, 28.5 and 29.0:
+/// one operand, `"Enum"::Member` or `Database::"Table"` (Part_EqQual, Part_DbFilterLink, Part_DbFilterView, Part_PageFilterView);
+/// `<>` before one operand (Part_NeQual, Part_NeQualView, Part_DbNeView, Action_RunNeQual, Action_RunNeQualView); two operands
+/// joined by `|` (Part_OrQual, Part_OrQualView, Part_DbOrView). Any other shape (`<>` before a list, three operands, another
+/// operator, a range) and an operand `resolve` does not know give `None`, so the caller keeps its refusal.
+pub fn resolve_qualified_operands(value: &str, resolve: impl Fn(&str, &str) -> Option<String>) -> Option<String> {
+    let value = value.trim();
+    let (prefix, rest) = match value.strip_prefix("<>") {
+        Some(rest) => ("<>", rest),
+        None => ("", value),
+    };
+    let operands = split_outside_quotes(rest, '|');
+    // One or two operands, or `<>` before one.
+    if !matches!((prefix.is_empty(), operands.len()), (true, 1 | 2) | (false, 1)) {
+        return None;
+    }
+    let unquote = |s: &str| {
+        let s = s.trim();
+        match (s.chars().next(), s.chars().last()) {
+            (Some(a @ ('"' | '\'')), Some(b)) if a == b && s.len() > 1 && !s[1..s.len() - 1].contains(a) => {
+                Some(s[1..s.len() - 1].to_string())
+            }
+            _ if !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_') => Some(s.to_string()),
+            _ => None,
+        }
+    };
+    let mut out = Vec::new();
+    for operand in operands {
+        let at = find_outside_quotes(operand, "::")?;
+        let qualifier = operand[..at].trim();
+        let qualifier = unquote(split_outside_quotes(qualifier, '.').last()?)?;
+        out.push(resolve(&qualifier, &unquote(&operand[at + 2..])?)?);
+    }
+    Some(format!("{prefix}{}", out.join("|")))
+}
+
+/// `text` cut at every `sep` outside double and single quotes.
+fn split_outside_quotes(text: &str, sep: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut quote, mut start) = (None, 0);
+    for (i, c) in text.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (None, '"' | '\'') => quote = Some(c),
+            (None, c) if c == sep => {
+                parts.push(&text[start..i]);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(&text[start..]);
+    parts
+}
+
+/// The byte position of the first `pat` outside double and single quotes.
+fn find_outside_quotes(text: &str, pat: &str) -> Option<usize> {
+    let mut quote = None;
+    for (i, c) in text.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (None, '"' | '\'') => quote = Some(c),
+            (None, _) if text[i..].starts_with(pat) => return Some(i),
+            _ => {}
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
+    use super::resolve_qualified_operands as resolve;
     use super::strip_enum_qualifier as strip;
+
+    fn known(q: &str, n: &str) -> Option<String> {
+        match (q.to_ascii_lowercase().as_str(), n) {
+            ("database", "PG LV Head") => Some("62601".into()),
+            ("database", "PG LV Row") => Some("62602".into()),
+            ("pg lv doc type", m) => Some(format!("'{m}'")),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn resolves_the_pinned_shapes() {
+        assert_eq!(
+            resolve(r#"<> "PG LV Doc Type"::"Outbound Document""#, known).as_deref(),
+            Some("<>'Outbound Document'")
+        );
+        assert_eq!(resolve("Database::'PG LV Head'", known).as_deref(), Some("62601"));
+        assert_eq!(
+            resolve(r#"Database::"PG LV Head" | Database::"PG LV Row""#, known).as_deref(),
+            Some("62601|62602")
+        );
+        assert_eq!(
+            resolve(r#"<>Database::"PG LV Head""#, known).as_deref(),
+            Some("<>62601")
+        );
+    }
+
+    #[test]
+    fn keeps_other_shapes_unresolved() {
+        assert_eq!(
+            resolve(r#"<> Database::"PG LV Head" | Database::"PG LV Row""#, known),
+            None
+        );
+        assert_eq!(resolve(r#"Database::"PG LV Head"..Database::"PG LV Row""#, known), None);
+        assert_eq!(resolve(r#"Database::"Other""#, known), None);
+        assert_eq!(resolve("<> Open", known), None);
+    }
 
     #[test]
     fn strips_one_member_of_the_named_enum() {

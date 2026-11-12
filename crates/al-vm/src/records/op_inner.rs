@@ -1171,6 +1171,7 @@ impl Session {
                 }
             }
             RecordOp::FindFirst | RecordOp::FindSet | RecordOp::FindLast | RecordOp::Find => {
+                let via = empty_find_origin::FindVia::take(self);
                 let asc = {
                     let r = rec.borrow();
                     r.ascending
@@ -1306,20 +1307,12 @@ impl Session {
                             && (matches!(method, RecordOp::FindFirst | RecordOp::FindLast | RecordOp::FindSet)
                                 || (method == RecordOp::Find && matches!(which.as_str(), "-" | "+")))
                         {
-                            // The flag leaves the text as it is, from BC 28 (errors/last-error/
-                            // FindEmptyTableExcludeFlag.al:99-121: FindFirst, FindLast, FindSet, FindSet(true), Find('-'),
-                            // Find('+'); guarded with BC28PLUS). On every version for FindFirst and FindLast
-                            // (format-evaluate/P86LastError.al:339-353, not guarded).
-                            let pinned = self.has(al_version::Gate::EmptyTableFindExcludeFlagFrom28)
-                                || matches!(method, RecordOp::FindFirst | RecordOp::FindLast);
-                            // A temporary record: FindFirst (errors/last-error/LastErrorFlagRuntimeCodes.al:146 `empty_true`).
-                            let origin = if (!rec.borrow().temporary && pinned)
-                                || (rec.borrow().temporary && method == RecordOp::FindFirst)
-                            {
-                                al_builtins::native::ErrorOrigin::SameText
-                            } else {
-                                al_builtins::native::ErrorOrigin::Unknown
-                            };
+                            let origin = self.table_is_empty_origin(empty_find_origin::EmptyFind {
+                                via,
+                                method,
+                                which: &which,
+                                temporary: rec.borrow().temporary,
+                            });
                             return Err(Signal::Error(Box::new(AlError {
                                 message: format!("The {} table is empty.", self.caption(&t)),
                                 code: "DB:TableIsEmpty".into(),
@@ -1380,21 +1373,13 @@ impl Session {
                                     self.caption(&t)
                                 )
                             };
-                            // The flag hides the key of `Find('=')`, from BC 28 (FindEmptyTableExcludeFlag.al:123; guarded with
-                            // BC28PLUS). The other search strings are not pinned.
-                            let origin = if which == "="
-                                && empty_table
-                                && default_key
-                                && !rec.borrow().temporary
-                                && self.has(al_version::Gate::EmptyTableFindExcludeFlagFrom28)
-                            {
-                                al_builtins::native::ErrorOrigin::Redacted(format!(
-                                    "The {} does not exist. Identification fields and values: <redacted>",
-                                    self.caption(&t)
-                                ))
-                            } else {
-                                al_builtins::native::ErrorOrigin::Unknown
+                            let find = empty_find_origin::EmptyFind {
+                                via,
+                                method,
+                                which: &which,
+                                temporary: rec.borrow().temporary,
                             };
+                            let origin = self.record_not_found_origin(&t, find, empty_table, default_key);
                             return Err(Signal::Error(Box::new(AlError {
                                 message,
                                 code: "DB:RecordNotFound".into(),
@@ -1413,18 +1398,13 @@ impl Session {
                                 t.name
                             ));
                         }
-                        // The flag hides the filters: FindFirst, FindLast and FindSet of a table with rows (errors/last-error/
-                        // FindEmptyTableExcludeFlag.al:148, :152, :156), Find('-') and Find('+') of one and all five on an empty table
-                        // (LastErrorFlagRuntimeCodes.al:NothingInsideFilter_EmptyTable_ExcludeFlag, _FindMinusPlus_TableWithRows_);
-                        // FindFirst of a temporary record, with rows or empty (_TemporaryRecord_ExcludeFlag). Other temporary finds: not pinned.
-                        let origin = if rec.borrow().temporary && method != RecordOp::FindFirst {
-                            al_builtins::native::ErrorOrigin::Unknown
-                        } else {
-                            al_builtins::native::ErrorOrigin::Redacted(format!(
-                                "There is no {} within the filter.{BR}{BR}Filters: <redacted>",
-                                self.caption(&t)
-                            ))
+                        let find = empty_find_origin::EmptyFind {
+                            via,
+                            method,
+                            which: &which,
+                            temporary: rec.borrow().temporary,
                         };
+                        let origin = self.nothing_inside_filter_origin(&t, find);
                         Err(Signal::Error(Box::new(AlError {
                             message: format!(
                                 "There is no {} within the filter.{BR}{BR}Filters: {filters}",

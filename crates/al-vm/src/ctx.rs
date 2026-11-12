@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::ReportStart;
 
 impl al_builtins::format::FormatCtx for Session {
     fn format_gate(&self, gate: al_version::Gate) -> bool {
@@ -18,6 +19,15 @@ impl al_builtins::format::FormatCtx for Session {
     }
     fn region(&self) -> Option<String> {
         self.report.format_region.clone()
+    }
+    /// `CurrReport.Language := 2067` in a report started by SaveAs or Execute (reports/runtime/ReportLanguageNotRunFormats.al:
+    /// 228-355) or by Run and RunModal (:358-372).
+    fn dutch_report_language(&self) -> bool {
+        self.report.curr_report_language == Some(2067)
+            && matches!(
+                self.report.report_preview_pinned.last(),
+                Some(ReportStart::Execute | ReportStart::SaveAs | ReportStart::Run)
+            )
     }
     fn key_ref_fields(
         &self,
@@ -43,7 +53,10 @@ impl al_builtins::format::FormatCtx for Session {
     ///
     /// Outside a report started by Run, `CurrReport.Language :=` another language changes what `Format` writes
     /// (reports/W3ReportObjectIdPreviewLanguage.al:546-557 Language_Set1031_FormatAndColumns, a SaveAs: `Format changed=Ja`),
-    /// which is not built.
+    /// which is not built, except for 2067 inside a SaveAs or an Execute: the words follow the language and the patterns stay
+    /// en-US, the same as under Run (reports/runtime/ReportLanguageNotRunFormats.al:228-375; the words themselves are refused
+    /// where a value is not pinned). In a procedure of a report variable that is not running the language stays with the report
+    /// instance and code outside it formats in the session language (:379-396 `set ok = Yes`), which is not built.
     fn region_unpinned(&self) -> Option<String> {
         const INIT_PINNED: [&str; 13] = [
             "de-DE", "en-GB", "fr-FR", "ja-JP", "zz-ZZ", "da-DK", "en-US", "nl-NL", "de-CH", "it-IT", "es-ES", "sv-SE",
@@ -62,7 +75,12 @@ impl al_builtins::format::FormatCtx for Session {
         match self.report.curr_report_language {
             Some(n)
                 if n != self.global_language
-                    && self.report.report_preview_pinned.last() != Some(&crate::state::ReportStart::Run)
+                    && !(n == 2067
+                        && matches!(
+                            self.report.report_preview_pinned.last(),
+                            Some(ReportStart::Execute | ReportStart::SaveAs)
+                        ))
+                    && self.report.report_preview_pinned.last() != Some(&ReportStart::Run)
                     && !self.region_language_pinned_for(n) =>
             {
                 Some(format!(

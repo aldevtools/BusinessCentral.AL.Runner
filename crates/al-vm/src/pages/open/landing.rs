@@ -94,6 +94,13 @@ impl Session {
         page.triggers.iter().any(|(n, _)| n == name) || page.ext_triggers.iter().any(|(n, _, _)| n == name)
     }
 
+    /// The page has no page extension and no event subscriber: nothing outside its own code observes or changes its triggers.
+    pub(in crate::pages) fn unextended_unsubscribed(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        page_of(&engine, st).extensions.is_empty() && !engine.events.any_subscriber_of(object)
+    }
+
     /// Whether the page declares trigger `name` (lower case) of its own.
     pub(in crate::pages) fn declares(&self, st: &St, name: &str) -> bool {
         let engine = self.engine();
@@ -221,6 +228,7 @@ impl Session {
     /// `page_first_row`, finding the first row with `which`. With `handed` (a `=><` from a handed record) a row other than the
     /// first of the view starts a window that does not begin at the view's start.
     pub(in crate::pages) fn page_first_row_from(&mut self, st: &St, which: &str, handed: bool) -> Result<(), Signal> {
+        st.borrow_mut().find_window_at_view_start = false;
         // The first row of the view, to tell whether a `=><` landed on it (a copy of the record, so the page's own is not moved).
         let first_key = if handed && self.is_list(st) {
             let rec = self.page_rec(st);

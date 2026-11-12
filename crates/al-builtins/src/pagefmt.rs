@@ -233,7 +233,9 @@ pub fn control_text(v: &Value, f: &ControlFormat, enum_caption: &dyn Fn(u32, i32
         Value::Date(day, closing) => {
             let (y, m, d) = crate::format::civil_from_day(*day);
             let mark = if *closing && f.closing_dates { "C" } else { "" };
-            format!("{mark}{m}/{d}/{y}")
+            // The year has four digits, zeros in front (testpage/parts/PartFilterExpressionControl.al:493
+            // Periods_FilterThenClearFilter_Read `cleared` `start=1/3/0001`).
+            format!("{mark}{m}/{d}/{y:04}")
         }
         Value::Time(t) => time_text(*t),
         Value::DateTime(ms) => {

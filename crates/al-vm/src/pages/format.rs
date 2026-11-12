@@ -28,8 +28,9 @@ impl Session {
                 drop(s);
                 // A row other than the one OnAfterGetRecord ran with last shows what the variable held for it (pages/
                 // lt-qi-row-page-var/QiRowPageVar.al:297 QI_RV_Part_Navigation `after-action = 2 | agr 2 | cur 2`); the row
-                // OnAfterGetRecord ran with last shows the variable as it is, as before.
-                if ran_for_it && !last {
+                // OnAfterGetRecord ran with last shows the variable as it is, as before, unless another page's code changed it since
+                // (`row_var_shows_noted`).
+                if ran_for_it && (!last || self.row_var_shows_noted(st)) {
                     let s = st.borrow();
                     let shown = s
                         .row_vars

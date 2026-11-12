@@ -148,6 +148,21 @@ impl Session {
         };
         // A second Insert of the same row finds the mark the first one put on the media.
         let marked = object.pending.as_deref() == Some(al_builtins::stream::TENANT_LAYOUT_STORED);
+        // The layout file the compiler generated, of the row's format, as `Report.<Kind>Layout` gave it: the Insert succeeds
+        // (reports/layouts-saveas/UserDefinedWordExcelLayoutRows.al:61, :95 `insert Yes`; UserDefinedLayoutAppIdAndNames.al:180
+        // for RDLC, Word and Excel), and the stored media refuses any look like another stored layout.
+        let kind = match format {
+            RDLC => "RDLC",
+            WORD => "Word",
+            EXCEL => "Excel",
+            _ => "",
+        };
+        if !kind.is_empty()
+            && object.pending.as_deref() == Some(al_builtins::stream::layout_file_generated_mark(kind).as_str())
+        {
+            object.pending = Some(al_builtins::stream::TENANT_LAYOUT_STORED.into());
+            return Ok(());
+        }
         if (object.pending.is_some() && !marked) || object.bytes.is_empty() {
             return refuse("an empty Layout, or one whose content was never produced");
         }
