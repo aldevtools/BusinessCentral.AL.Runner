@@ -331,6 +331,27 @@ impl Session {
         }
     }
 
+    /// The Guid a Format = Xml import without FormatEvaluate reads: only the text its own export writes, the 8-4-4-4-12 digits in
+    /// upper case inside braces (xmlports/shapes-properties/BdXmlPort.al:425, :436). No corpus test pins the import: it runs under
+    /// the assumption `xmlport-guid-legacy-import` (System Application, Permission Import Export Tests; al-runner issue 7854).
+    /// Every other text and the text formats are refused.
+    pub(super) fn xp_legacy_guid(&mut self, schema: &Schema, text: &str) -> Result<Value, Signal> {
+        let export_form = text.len() == 38
+            && text.starts_with('{')
+            && text.ends_with('}')
+            && text[1..37].char_indices().all(|(i, c)| match i {
+                8 | 13 | 18 | 23 => c == '-',
+                _ => c.is_ascii_digit() || ('A'..='F').contains(&c),
+            });
+        if schema.xp().format == ir::XmlFormat::Xml && export_form {
+            if let XmlGuid::Value(g) = xml_guid(text) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidLegacyImport);
+                return Ok(Value::Guid(g));
+            }
+        }
+        unsupported("XmlPort import into a field of type Guid (not pinned)")
+    }
+
     /// Whether an import without FormatEvaluate reads the caption of an Enum or Option member as that member, once the name and
     /// the XML forms did not read: pinned for Format = Xml (field attributes and elements) and VariableText
     /// (xmlports/import/XpEnumOptionRoundTrip.al:221-257, EOR_LegacyAttr, EOR_LegacyElem, EOR_VarText; al-runner issue 7781).

@@ -145,6 +145,7 @@ mod part_unsettled_reread;
 mod part_visible_rec_field;
 mod parts_pinned_exact;
 mod perm_compose;
+mod tenant_permission_set_delete;
 mod prepush_script;
 mod printer_table;
 mod provider_chain_outside_factboxes;

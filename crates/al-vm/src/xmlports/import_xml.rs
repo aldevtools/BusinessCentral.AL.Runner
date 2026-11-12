@@ -1161,6 +1161,8 @@ impl Session {
                 }
             };
             self.xp_value_xml(text, &ty, members.map(|(_, m)| m))?
+        } else if !schema.xp().format_evaluate_declared && ty == RtType::Guid {
+            self.xp_legacy_guid(schema, text)?
         } else if !schema.xp().format_evaluate_declared {
             if matches!(&ty, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId) {
                 return unsupported("XmlPort import into a RecordId field without FormatEvaluate (not pinned)");

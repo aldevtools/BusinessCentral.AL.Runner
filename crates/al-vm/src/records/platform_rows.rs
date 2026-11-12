@@ -16,6 +16,7 @@ impl Session {
         self.crm_method_check(t, rec, method, args)?;
         self.agent_task_check(t, rec, method)?;
         self.mcp_configuration_delete_check(t, rec, method)?;
+        self.tenant_permission_set_delete_check(t, rec, method)?;
         self.tenant_report_layout_check(t, rec, method)?;
         self.tenant_layout_cfg_check(t, rec, method, args)?;
         self.tenant_profile_setting_check(t, rec, method, args)
@@ -76,6 +77,41 @@ impl Session {
         }
         unsupported(
             "a Delete of an MCP Configuration while MCP Configuration Tool holds rows, on a major whose tool table has no API Version field: there the platform deletes the configuration's tools with it (not followed)",
+        )
+    }
+    /// A Delete or DeleteAll of stored Tenant Permission Set (2000000165) rows while Tenant Permission (2000000166) holds rows.
+    /// BC deletes a set's permissions with it: System Application's Permission Set page deletes only the set
+    /// (PermissionSet.Page.al, OnDeleteRecord), and Permission Import Export Tests.ExportImportTenantPermissionSetWithAdditionalPermissions
+    /// reads the set's permissions as the import wrote them after `TenantPermissionSet.DeleteAll()`. No corpus test pins the
+    /// cascade and this runtime does not follow it: refused (al-runner issue 7854).
+    pub(super) fn tenant_permission_set_delete_check(
+        &self,
+        t: &TableDef,
+        rec: &Rec,
+        method: RecordOp,
+    ) -> Result<(), Signal> {
+        if rec.borrow().temporary
+            || !matches!(method, RecordOp::Delete | RecordOp::DeleteAll)
+            || self.engine.program.objects[t.object as usize].id != Some(2000000165)
+        {
+            return Ok(());
+        }
+        let program = &self.engine.program;
+        let Some(oi) = program
+            .objects
+            .iter()
+            .position(|o| o.kind == al_ir::ObjKind::Table && o.id == Some(2000000166))
+        else {
+            return Ok(());
+        };
+        let Some(Some(permissions)) = self.engine.tables.get(oi) else {
+            return Ok(());
+        };
+        if self.store.stored_rows(&self.cx, permissions).is_empty() {
+            return Ok(());
+        }
+        unsupported(
+            "a Delete of a Tenant Permission Set while Tenant Permission holds rows: the platform deletes the set's permissions with it (not followed)",
         )
     }
 }
