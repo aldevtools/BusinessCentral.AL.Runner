@@ -8,7 +8,11 @@ impl Session {
         &mut self,
         st: &St,
         control: usize,
+        method: PageMethod,
     ) -> Result<Option<(usize, Value, Value)>, Signal> {
+        if method != PageMethod::AssistEdit {
+            return Ok(None);
+        }
         let engine = self.engine();
         let Some((host, part)) = st.borrow().host.clone() else {
             return Ok(None);
@@ -69,11 +73,15 @@ impl Session {
     pub(super) fn finish_empty_card_part_assist_edit(
         &mut self,
         st: &St,
-        field: usize,
-        key: Value,
-        blank: Value,
+        linked_key: Option<(usize, Value, Value)>,
         completed: bool,
     ) -> Result<(), Signal> {
+        if !completed {
+            st.borrow_mut().refresh = false;
+        }
+        let Some((field, key, blank)) = linked_key else {
+            return Ok(());
+        };
         let rec = self.page_rec(st);
         if st.borrow().cursor != Cursor::None
             || !Self::same_key(&rec.borrow().fields[field..=field], std::slice::from_ref(&key))
