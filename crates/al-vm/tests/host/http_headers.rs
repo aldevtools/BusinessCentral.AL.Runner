@@ -937,3 +937,169 @@ fn user_agent_product_forms_follow_the_probe() {
         assert_eq!(call("a@b"), bad);
     }
 }
+
+const EMPTY_CONTAINS_SRC: &str = r#"
+codeunit 50196 C
+{
+    [TryFunction]
+    local procedure TryContains(var H: HttpHeaders; N: Text; var Found: Boolean)
+    begin
+        Found := H.Contains(N);
+    end;
+
+    local procedure Check(var H: HttpHeaders): Text
+    var
+        Found: Boolean;
+    begin
+        ClearLastError();
+        if TryContains(H, '', Found) then
+            exit('ok=' + Format(Found));
+        exit('error=' + GetLastErrorCode());
+    end;
+
+    procedure Req(): Text
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+    begin
+        R.GetHeaders(H);
+        exit(Check(H));
+    end;
+
+    procedure Cnt(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.GetHeaders(H);
+        exit(Check(H));
+    end;
+
+    procedure Resp(): Text
+    var
+        R: HttpResponseMessage;
+        H: HttpHeaders;
+    begin
+        H := R.Headers();
+        exit(Check(H));
+    end;
+
+    procedure Cli(): Text
+    var
+        Client: HttpClient;
+        H: HttpHeaders;
+    begin
+        H := Client.DefaultRequestHeaders();
+        exit(Check(H));
+    end;
+}
+"#;
+
+#[test]
+fn contains_with_empty_name_raises_invalid_header_argument() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+
+    for routine in ["Req", "Cnt", "Resp", "Cli"] {
+        take_hits();
+        assert_eq!(
+            text(al_testkit::run(EMPTY_CONTAINS_SRC, routine)),
+            "error=InvalidHeader:Argument",
+            "{routine}"
+        );
+        assert!(take_hits().contains(&Assumption::HttpContainsEmptyName));
+    }
+}
+
+const STREAM_CONTENT_TYPE_SRC: &str = r#"
+table 50197 B
+{
+    TableType = Temporary;
+    fields { field(1; Id; Integer) { } field(2; Data; Blob) { } }
+    keys { key(PK; Id) { } }
+}
+
+codeunit 50197 C
+{
+    local procedure ContainsType(var H: HttpHeaders): Text
+    var
+        Values: List of [Text];
+        Value: Text;
+        Result: Text;
+    begin
+        if not H.GetValues('Content-Type', Values) then
+            exit('No');
+        Result := 'Yes';
+        foreach Value in Values do
+            Result += '[' + Value + ']';
+        exit(Result);
+    end;
+
+    procedure StreamAfterRemove(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        OutS: OutStream;
+        InS: InStream;
+    begin
+        C.WriteFrom('before');
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        Data.Data.CreateOutStream(OutS);
+        OutS.WriteText('after');
+        Data.Data.CreateInStream(InS);
+        C.WriteFrom(InS);
+        exit(ContainsType(H));
+    end;
+
+    procedure FreshStream(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        OutS: OutStream;
+        InS: InStream;
+    begin
+        C.GetHeaders(H);
+        Data.Data.CreateOutStream(OutS);
+        OutS.WriteText('after');
+        Data.Data.CreateInStream(InS);
+        C.WriteFrom(InS);
+        exit(ContainsType(H));
+    end;
+
+    procedure TextAfterRemove(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('before');
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        C.WriteFrom('after');
+        exit(ContainsType(H));
+    end;
+}
+"#;
+
+#[test]
+fn stream_write_keeps_removed_content_type_but_text_write_restores_it() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+
+    take_hits();
+    assert_eq!(
+        text(al_testkit::run(STREAM_CONTENT_TYPE_SRC, "StreamAfterRemove")),
+        "No"
+    );
+    assert!(take_hits().contains(&Assumption::HttpStreamWriteKeepsRemovedContentType));
+    take_hits();
+    assert_eq!(
+        text(al_testkit::run(STREAM_CONTENT_TYPE_SRC, "FreshStream")),
+        "Yes[text/plain; charset=utf-8]"
+    );
+    assert!(take_hits().is_empty());
+    assert_eq!(
+        text(al_testkit::run(STREAM_CONTENT_TYPE_SRC, "TextAfterRemove")),
+        "Yes[text/plain; charset=utf-8]"
+    );
+}

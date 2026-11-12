@@ -956,6 +956,8 @@ pub struct HeaderBag {
     pub unnamed_secret_header: bool,
     /// `HttpRequestMessage.SetCookie` wrote the `Cookie` header of these request headers (http::request_cookies).
     pub set_cookies: bool,
+    /// `HttpHeaders.Remove('Content-Type')` was called on this content's headers.
+    pub content_type_removed: bool,
 }
 
 /// The headers of an `HttpContent`, request, response or client, shared with every `HttpHeaders` handed out.
