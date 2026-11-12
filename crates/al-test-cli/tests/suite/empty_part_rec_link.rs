@@ -661,11 +661,12 @@ fn empty_list_part_rec_holds_the_link_values() {
     }
 }
 
-/// Shapes probe 1335 does not measure. Each keeps the blank Rec the runtime gave before the change (`act=0//0/`): a link to a field
-/// outside the key, PopulateAllFields, a SourceTableView, an OnNewRecord, a filter the part sets itself, an unlinked part, a List
-/// or ListPlus host, a host moved by Next() or New(). These are not BC's values; they guard against the rule reaching a shape
-/// nobody measured. The List host's part has no OnAfterGetCurrRecord, a trigger set no List-host probe cell holds
-/// (`pages/empty_part_rec_list.rs`).
+/// Shapes probe 1335 does not measure: a link to a field outside the key, PopulateAllFields, a SourceTableView, an OnNewRecord, a
+/// filter the part sets itself, an unlinked part, a List or ListPlus host, a host moved by Next() or New(). The Card and ListPlus
+/// shapes keep the blank Rec the runtime gave before the change (`act=0//0/`); these are not BC's values, they guard against the
+/// rule reaching a shape nobody measured. On the List host the blank Rec was a wrong result (al-runner issue 6924): the read of
+/// a field the part's filters name is refused there. The List host's part has no OnAfterGetCurrRecord, a trigger set no
+/// List-host probe cell holds (`pages/empty_part_rec_list.rs`).
 const UNMEASURED_SRC: &str = r#"
 table 75180 "PG EPU Head" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
 table 75181 "PG EPU Line"
@@ -771,14 +772,23 @@ codeunit 75191 "PG EPU Tests"
 }
 "#;
 
-/// Every unmeasured shape reads the blank record, as before the change: each test raises what the part's action logged.
+/// Every unmeasured shape of a Card or ListPlus host reads the blank record, as before the change; on the List host the read
+/// is refused, with the fact that left the measured cells. Each test raises what the part's action logged.
 #[test]
-fn empty_list_part_rec_stays_blank_outside_the_measured_shape() {
+fn empty_list_part_rec_outside_the_measured_shape() {
     let o = outcomes_in(UNMEASURED_SRC, "PG EPU Tests");
     assert_eq!(o.len(), 18, "{o:?}");
     let wrong: Vec<_> = o
         .iter()
-        .filter(|(_, outcome)| !matches!(outcome, Outcome::Fail(m) if m == "act=0//0/"))
+        .filter(|(name, outcome)| match name.as_str() {
+            "ListView" | "ListEdit" => !matches!(outcome, Outcome::NotRun(m)
+                if m.starts_with("a read of Rec of a ListPart that shows no row")
+                    && m.contains("(the part page has a property, a trigger")),
+            _ => {
+                !matches!(outcome, Outcome::Fail(m) if m == "act=0//0/")
+                    && !matches!(outcome, Outcome::NotRun(m) if m.ends_with("this failure is not trusted: act=0//0/"))
+            }
+        })
         .collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }

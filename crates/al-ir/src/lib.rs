@@ -1052,6 +1052,15 @@ pub struct XmlNode {
     /// OnAfterGetRecord (xmlports/shapes-properties/Y68XmlPortShapes.al:567-621).
     #[serde(default)]
     pub calc_fields: Vec<usize>,
+    /// A field node in the import layout of al-sema `xmlports/assumed_shapes.rs` `after_assign_layout` (corpus PR 1366,
+    /// XpAfterAssignTableRelation.al): al-vm `xmlports/after_assign.rs` checks the field and the record, then runs
+    /// OnAfterAssignField before the validation.
+    #[serde(default)]
+    pub after_assign_layout: bool,
+    /// A text element in the export shape of al-sema `xmlports/assumed_shapes.rs` `text_attr_export` (corpus PR 1366,
+    /// XpTextElemFieldAttrExport.al): al-vm `xmlports/text_attr_export.rs` writes it.
+    #[serde(default)]
+    pub text_attr_export: bool,
     /// Triggers by lower-case name (`onbeforepassvariable`, ...) to routine index.
     pub triggers: Vec<(String, usize)>,
 }

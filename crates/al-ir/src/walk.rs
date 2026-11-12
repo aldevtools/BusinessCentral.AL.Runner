@@ -1086,6 +1086,8 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
             big_text: _,
             source_view: _,
             calc_fields,
+            after_assign_layout: _,
+            text_attr_export: _,
             triggers: _,
         } = n;
         let of_node = |i: &Option<usize>| TableOf::object(i.and_then(|i| tables.get(i).copied().flatten()));
