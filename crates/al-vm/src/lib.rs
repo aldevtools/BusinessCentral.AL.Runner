@@ -146,6 +146,7 @@ mod transactions;
 mod translations;
 mod ui;
 mod user_email;
+mod tenant_set_cascade;
 mod usertable;
 mod view_empty;
 mod view_unknown;

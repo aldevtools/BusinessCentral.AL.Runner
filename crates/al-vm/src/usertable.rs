@@ -88,7 +88,7 @@ fn is_blank_guid(v: &Value) -> bool {
 }
 
 impl Session {
-    fn table_id(&self, t: &TableDef) -> Option<u32> {
+    pub(crate) fn table_id(&self, t: &TableDef) -> Option<u32> {
         self.engine.program.objects[t.object as usize].id
     }
 
