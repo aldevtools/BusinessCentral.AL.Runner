@@ -760,7 +760,7 @@ impl Session {
         Ok(())
     }
 
-    /// Whether `Clear` of a DotNet variable holding `handle` only unassigns it: a workbook writer `WorkbookWriter.Create(fileName)`
+    /// Whether `Clear` of a DotNet variable holding `handle` only unassigns it: an object of a type in [`CLEAR_ONLY_UNASSIGNS`], a workbook writer `WorkbookWriter.Create(fileName)`
     /// made, after its `Close` or `Dispose`, or a worksheet writer it handed out while open (Excel Buffer.CloseBook; assumption
     /// clear-closed-workbook-writer). Before the Close a Dispose could change what Close writes, which is not pinned.
     /// A workbook reader `WorkbookReader.Open` made, or a worksheet reader it handed out (Excel Buffer.CloseBook after ReadSheet;
@@ -768,6 +768,9 @@ impl Session {
     /// end when it was handed to .NET. Another variable may still hold the object: a later call on it is refused (`cleared`).
     pub(crate) fn dotnet_clear_is_inert(&mut self, handle: DotNetHandle, clr_type: &str) -> bool {
         use al_builtins::assumptions::{Assumption, assume};
+        if CLEAR_ONLY_UNASSIGNS.iter().any(|t| clr_type.eq_ignore_ascii_case(t)) {
+            return true;
+        }
         let dn = &self.dotnet;
         let (inert, why) = if clr_type.eq_ignore_ascii_case(WORKBOOK_WRITER) {
             (
@@ -1772,6 +1775,17 @@ const WORKBOOK_WRITER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.Workbo
 const WORKBOOK_READER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader";
 const WORKSHEET_WRITER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetWriter";
 const WORKSHEET_READER: &str = "Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorksheetReader";
+
+/// The types whose `Clear` only unassigns the variable: the object is not disposed, and another variable or an object that holds
+/// it keeps using it. A Reference after Clear: IsNull, still counted in the SignedXml it was added to, a second variable reads its
+/// Uri and transforms, Clear twice is fine (al-language-onprem-dotnet dotnet/dotnet/ClearSignedXmlReference.al:144-180, steps 1, 2,
+/// 3 and 7, AL Runner issue 7394; System Application's "SignedXml Impl." clears its Reference after AddReference). A SignedXml
+/// after Clear: a second variable still computes the signature (:157-167, step 5). Clear of the RSA key disposes it (:151-152, step
+/// 6), so key types are not listed.
+const CLEAR_ONLY_UNASSIGNS: &[&str] = &[
+    "System.Security.Cryptography.Xml.Reference",
+    "System.Security.Cryptography.Xml.SignedXml",
+];
 
 fn opens_file_by_path(clr_type: &str, member: &str, kind: MemberKind) -> bool {
     let t = clr_type.to_ascii_lowercase();
