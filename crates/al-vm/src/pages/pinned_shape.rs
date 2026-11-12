@@ -4,7 +4,9 @@
 //! asks only "is not X" also runs on shapes no probe shows). The predicates are next to their rules: `long_view.rs`,
 //! `open/temp_ws_preloaded.rs`, `currpage_run_typed_key.rs`, and for a part on a host `split_key_view.rs`, `part_unsettled.rs`,
 //! `part_filter_find.rs` and `end_move_no_read.rs` (al-runner PR 7805 review, round 3), which compare the calls on the host and
-//! on the part in the order the test made them (`part_steps`) and the pages of the pin (`PinnedPart`).
+//! on the part in the order the test made them (`part_steps`) and the pages of the pin (`PinnedPart`). A rule pinned for an
+//! outside reporter's repro compares the objects line for line (`pinned_body.rs`) and lets through only the calls the repro
+//! makes after it (`PinnedEnd`).
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
@@ -51,6 +53,15 @@ pub enum PartStep {
     Sibling,
 }
 
+/// What a page lets through after a rule pinned for one outside reporter's repro ran (`PageState::pinned_end`): Close of the
+/// page, and with `reads` a read of a control's value or an `AssertEquals`, as the repro makes them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PinnedEnd {
+    /// The refusal of any other call.
+    pub reason: &'static str,
+    pub reads: bool,
+}
+
 /// More calls on a page and its parts than this are not kept; no pinned scenario of a part has that many.
 const KEPT_TREE_CALLS: usize = 32;
 
@@ -68,6 +79,8 @@ pub(super) struct PinnedPart<'a> {
     pub part_variable_controls: bool,
     /// A control bound to a page variable may have an OnValidate trigger.
     pub part_variable_validate: bool,
+    /// A control bound to a field of Rec may have an OnValidate trigger whose only statement is `CurrPage.Update(true)`.
+    pub part_field_validate_update: bool,
     /// The part's controls may show an expression.
     pub part_expression_controls: bool,
     /// The part may have no SubPageLink.
@@ -97,10 +110,34 @@ pub(super) struct PinnedCode<'a> {
 }
 
 impl Session {
-    /// The test client calls `method` on `st`, on the page itself or on `control`.
-    pub(super) fn note_test_call(&self, st: &St, method: PageOp, control: Option<&ControlTarget>, args: usize) {
+    /// After a rule pinned for one repro ran on the page tree of `st` (`PageState::pinned_end`), only the calls the repro makes
+    /// after it are let through; `call` is the test's call on `st` (`note_test_call`).
+    pub(super) fn refuse_after_pinned_end(st: &St, call: Option<TestCall>) -> Result<(), Signal> {
+        let (root, part) = Self::tree_root(st);
+        let Some(end) = root.borrow().pinned_end else {
+            return Ok(());
+        };
+        let let_through = match call {
+            // Not a call of the test client (`note_test_call`).
+            None => true,
+            Some(TestCall::Page(PageMethod::Close)) => part.is_none(),
+            Some(TestCall::Read) => end.reads,
+            Some(TestCall::Other(m)) => end.reads && (m == PageMethod::AssertEquals || Self::field_read(m)),
+            _ => false,
+        };
+        if let_through { Ok(()) } else { unsupported(end.reason) }
+    }
+
+    /// The test client calls `method` on `st`, on the page itself or on `control`; the call as the pins see it.
+    pub(super) fn note_test_call(
+        &self,
+        st: &St,
+        method: PageOp,
+        control: Option<&ControlTarget>,
+        args: usize,
+    ) -> Option<TestCall> {
         if method.recv() == PageRecv::Page {
-            return;
+            return None;
         }
         let m = method.method();
         let call = match (control, m) {
@@ -116,6 +153,7 @@ impl Session {
         } else {
             s.test_calls_overflow = true;
         }
+        Some(call)
     }
 
     /// The page `tree_calls` of `st` are kept on (`st` itself, or the host of a part) and the part's control index there.
@@ -256,7 +294,13 @@ impl Session {
             && part_page.controls.iter().all(|c| match c.kind {
                 ir::ControlKind::Repeater => true,
                 ir::ControlKind::Field => match c.binding {
-                    ir::Binding::Field(_) => c.triggers.is_empty(),
+                    ir::Binding::Field(_) => {
+                        c.triggers.is_empty()
+                            || (pin.part_field_validate_update
+                                && matches!(c.triggers.as_slice(), [(n, r)] if n == "onvalidate"
+                                    && matches!(code_stmts(&engine.program, object_of(part), *r).as_slice(),
+                                        [s] if is_curr_page_update_with(s, part_page.curr_page_slot, Some(true)))))
+                    }
                     ir::Binding::Var(_) => {
                         pin.part_variable_controls
                             && (c.triggers.is_empty()
@@ -455,6 +499,12 @@ pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Ex
 /// `s` is `CurrPage.Update()` without an argument (it saves the row: the parameter defaults to true) on the page whose
 /// `CurrPage` is global slot `curr_page`.
 pub(super) fn is_curr_page_update(s: &ir::Stmt, curr_page: usize) -> bool {
+    is_curr_page_update_with(s, curr_page, None)
+}
+
+/// `s` is `CurrPage.Update(save)` with the literal argument `save`, or without an argument for `None`, on the page whose
+/// `CurrPage` is global slot `curr_page`.
+pub(super) fn is_curr_page_update_with(s: &ir::Stmt, curr_page: usize, save: Option<bool>) -> bool {
     let ir::Stmt::Expr(ir::Expr::Builtin {
         id,
         receiver: Some(receiver),
@@ -464,8 +514,13 @@ pub(super) fn is_curr_page_update(s: &ir::Stmt, curr_page: usize) -> bool {
     else {
         return false;
     };
+    let args_ok = match (save, args.as_slice()) {
+        (None, []) => true,
+        (Some(want), [ir::Arg::Value(ir::Expr::Const(ir::Const::Boolean(b)))]) => *b == want,
+        _ => false,
+    };
     *id == al_builtins::builtin_id::ids::PAGE_UPDATE_1
-        && args.is_empty()
+        && args_ok
         && matches!(&**receiver, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g))
             if *g == curr_page)
 }

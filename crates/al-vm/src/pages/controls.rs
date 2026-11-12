@@ -28,6 +28,10 @@ impl Session {
         let expanded = st.borrow().expanded.clone();
         // A control write ends the shape `next_held_row_read` reads in (`set_value_reading_held_row` read before this).
         st.borrow_mut().next_held_row = None;
+        // The row a part held before this write (`part_refresh_find_forward.rs` compares it with the row after).
+        let held_row =
+            (st.borrow().host.is_some() && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
+        st.borrow_mut().row_before_write = held_row;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
             if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {

@@ -166,6 +166,7 @@ mod report_handler;
 mod report_request_page_save_as_pdf;
 mod report_run_after_write;
 mod report_run_system_printer_true;
+mod reporter_repros_7820_7821;
 mod reportext_own_record_controls;
 mod reportext_request_page_procs;
 mod reportext_request_page_run;

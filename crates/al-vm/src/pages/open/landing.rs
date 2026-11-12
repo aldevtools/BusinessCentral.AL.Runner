@@ -208,7 +208,10 @@ impl Session {
                     matches!(s.lookup_kind, LookupKind::Variable | LookupKind::StaticRunModal),
                 )
             };
-            if lookup && asks_forward && self.is_list(st) {
+            if std::mem::take(&mut st.borrow_mut().part_refind_forward) {
+                // A part's read again after its own CurrPage.Update(true) (`part_refresh_find_forward.rs`, al-runner issue 7820).
+                "=>"
+            } else if lookup && asks_forward && self.is_list(st) {
                 "=>"
             } else if !lookup && self.is_list(st) && self.onopenpage_left_rec_past_the_first_row(st)? {
                 // A list whose OnOpenPage left Rec on a row that is not the first of its view is asked `=>`
