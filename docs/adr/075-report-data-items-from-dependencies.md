@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-11-12
-- Amends: [ADR-025](025-multiple-reportextensions-per-run.md)
+- Amends: [ADR-025](025-multiple-reportextensions-per-run.md), decision 2 (cross-app order) and decision 4 (first refusal)
 - Related: [ADR-022](022-compile-cache.md)
 
 ## Context
@@ -15,13 +15,13 @@ owner's. The owner ran first, the consumer's OnAfterAfterGetRecord ran against
 its row, and the serialized XML contained the consumer's column and the linked
 siblings in their observed positions.
 
-The proposed pin is
-`reports/extensions/TestReportDependencyDataItems.al` in corpus PR #1342,
-with the base, owner and consumer defined by
-`al-language-xapp-a/ReportDependencyBase.Report.al`,
-`al-language-xapp-b/ReportDependencyB.ReportExt.al` and
-`al-language-xapp-c/ReportDependencyC.ReportExt.al`. The archived standalone
-native run and the integrated corpus CI are separate evidence.
+The proposed corpus pin in PR #1342 uses two separate reports in
+`reports/extensions/TestReportDependencyDataItems.al`. The reversed-ID fixture
+has owner 61144 in `ReportDependencyB.ReportExt.al` and consumer 61124 in
+`ReportDependencyC.ReportExt.al`. The rising-ID fixture has owner 61186 in
+`ReportDependencyRisingB.ReportExt.al` and consumer 61361 in
+`ReportDependencyRisingC.ReportExt.al`. Both use the same XApp A/B/C dependency
+topology and assert the same trigger trace and XML column value.
 
 ## Options
 
@@ -41,42 +41,47 @@ consumer manifest's dependency list. `app_sees` describes transitive visibility
 and does not establish a direct dependency. An owner in the same app, in an
 unrelated app, or reachable only indirectly keeps the existing lowering refusal.
 
-Support the measured XML dataset operations on a unique, directly dependent
-owner item: `modify` with OnAfterAfterGetRecord, `add` columns, and sibling
-`addbefore` / `addafter` placement. Use the existing placement and implicit
-link rules. For an explicit `DataItemLinkReference`, allow only a name that
-resolves to the foreign item that is the immediate parent. The corpus fixture's
-`AfterFooter` names `AddedRow` and reads `after=2`. The enclosing-item rule
-and its base and same-extension cases belong to runner PR #7912, which lands first.
-
-Keep the established order rules in the module comment of
-`al-sema/src/lower/ext_order.rs`. Permit the additional reversed-ID case only
-when all these conditions hold:
+Support the measured foreign dataset references only when all these conditions
+hold:
 
 1. Exactly two extensions change the report run, in distinct apps.
 2. The consumer app declares the owner app as a direct dependency.
-3. The consumer extension's object ID is lower than the owner's.
-4. A consumer `modify` resolves to a unique item declared by that owner.
-   A column or placement reference alone is outside the measured ordering rule.
+3. A consumer `modify` resolves to a unique item declared by that owner.
 
-The order module returns the owner followed by the consumer. Three or more
-extensions stay on the current rules. A reversed pair without the qualifying
-`modify` keeps the current cross-app order refusal.
+The measured `modify` (with OnAfterAfterGetRecord) and `add` (columns)
+target `AddedRow`, whose immediate parent belongs to the base report.
+Sibling `addbefore` and `addafter` target `FooterRow`, whose immediate
+parent is the owner's `AddedRow`. Apply the existing placement and implicit
+link rules. For an explicit `DataItemLinkReference`, allow a name that resolves
+to the foreign item that is the immediate parent. In both fixtures
+`AfterFooter` names `AddedRow` and reads `after=2`. Runner PR #7912 supplies
+the enclosing-item rule and its base and same-extension cases and lands first.
 
-A consumer's own declared variable retains its existing meaning. Leave the
-foreign name unbound in that case and refuse if the report dataset attempts
-the colliding foreign reference. Preserve the existing reason text for refused
-shapes. Reject ambiguous items, unmeasured triggers and child placement, and
-`RequestFilterFields` on a foreign modification during lowering.
+Keep the established order rules in `al-sema/src/lower/ext_order.rs`.
+When the owner's object ID is lower, those rules already put it first.
+When the consumer's object ID is lower, allow the additional owner-first
+ordering only for the qualifying pair above. A reversed pair without the
+qualifying `modify` keeps the current cross-app order refusal. Foreign
+references with three or more extensions are refused for either ID order.
+Reports without foreign references continue to use the established order rules.
 
-The VM refuses unsupported entry points before request-page or dataset triggers:
+A consumer variable with the owner item's name causes a lowering refusal.
+Preserve the existing reason text for refused shapes. Also refuse ambiguous
+items, unmeasured triggers and child placement, and `RequestFilterFields`
+on a foreign modification during lowering.
 
-| Entry point | Where the refusal belongs |
+The supported entry point is the static stream call
+`Report.SaveAs(id, '', ReportFormat::Xml, OutStream)`, with no `RecordRef`
+argument. Put the entry-point rule in one helper in a new module under
+`al-vm/src/reports/`. Call it at the following boundaries before request-page
+or dataset triggers:
+
+| Entry point | Boundary |
 |---|---|
-| Report.Run and RunModal, including ProcessingOnly | `al-vm/src/reports.rs`, `report_run` |
-| SaveAs to PDF, Word, Excel or HTML | `al-vm/src/reports.rs`, `report_save_core`, before entering the report |
-| Report.WordXmlPart | `al-vm/src/reports/word_xml_part.rs`, `report_word_xml_part` |
-| RunRequestPage and the request-page path from report execution | `al-vm/src/reports.rs`, `report_request_only` and the shared request-page entry |
+| Report.Run and RunModal, including ProcessingOnly | `report_run` |
+| Report export, including SaveAs | `report_save_core` |
+| Report.WordXmlPart | `report_word_xml_part` |
+| RunRequestPage and the request-page path from report execution | `report_request_only` and the shared request-page entry |
 
 The IR changes `ReportExt::aliases`, `ReportExtAdd::item`,
 `ReportExtModify::item` and adds `AddedItem::foreign_parent`. An item anchor
@@ -91,21 +96,27 @@ with the remapped object identity. If its identity or layout has changed,
 rebuild the consumer. Use the next free compile-cache format after #7912
 because the serialized item anchors and aliases change shape.
 
-The VM marks `dependency-report-data-items` when it enters a supported XML
-run that has a resolved foreign `modify`, column `add`, placement, or explicit
-immediate-parent link. A visible candidate or alias without any such reference
-leaves a clean run clean. Issue #7878 supplies the measured repro. Replace
-the temporary assumption with corpus file and line citations once the pin
-includes corpus PR #1342.
+Lowering records `dependency-report-data-items` via `ExtOrder::assumes` or
+the shared report assumption plumbing when an actual foreign `modify`,
+column `add`, placement, or explicit immediate-parent link resolves.
+Visible candidates and aliases alone add no assumption. Use the existing
+report assumption propagation. Issue #7878 supplies the reversed-ID
+observation. Replace the temporary assumption with corpus file and line
+citations once the pin includes both fixtures in corpus PR #1342.
 
 ## Not probed
 
-Keep the existing refusal for a temporary owner item, a different foreign
-`modify` trigger, child `addfirst` or `addlast` under a foreign item, an indirect
-or same-app owner, ambiguous item names, a colliding local name used as a
-foreign item, reversed ordering with three or more extensions, an unrelated
-explicit link name, foreign `RequestFilterFields`, and the other output and
-request-page paths above.
+Keep the refusal for a temporary owner item, another foreign `modify` trigger,
+`modify` or `add` on a nested owner item, `addbefore` or `addafter` beside
+the owner's top item, and child `addfirst` or `addlast` under a foreign item.
+Also refuse an indirect or same-app owner, ambiguous names, a colliding
+consumer variable, foreign references with three or more extensions, an
+unrelated explicit link name, and foreign `RequestFilterFields`.
+
+Other entry points remain refused, including `Report.SaveAsXml`, a report
+variable's `SaveAs`, a `RecordRef` argument, non-empty request parameters,
+the PDF, Word, Excel and HTML export formats, and the run and request-page
+paths listed above.
 
 ## Consequences
 
@@ -119,7 +130,7 @@ entry-point guards.
 
 ## Conformance
 
-Run the reversed-ID three-app regression with Report.SaveAs XML assertions
+Run both three-app regressions with static Report.SaveAs XML assertions
 for trigger order, the dependent column value and sibling links. Replace the
 ProcessingOnly RunModal positive regression with the XML regression and keep
 RunModal as a refusal control. Cover cold compilation and cache/link
