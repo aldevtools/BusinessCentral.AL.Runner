@@ -25,7 +25,7 @@ use al_data::{AccessContext, Scan, Store, StoreError, TableDef};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use super::{TENANT_PERMISSION, TENANT_PERMISSION_SET};
+const TENANT_PERMISSION_SET: u32 = 2_000_000_165;
 
 /// A permission set object of the program.
 pub(super) struct PSet {
@@ -676,7 +676,7 @@ impl Providers {
     /// Whether the stored Tenant Permission Set or Tenant Permission table holds a row.
     fn tenant_sets_present(&self, store: &MemStore, cx: &AccessContext) -> Result<bool, StoreError> {
         let engine = self.engine();
-        for id in [TENANT_PERMISSION_SET, TENANT_PERMISSION] {
+        for id in [TENANT_PERMISSION_SET, 2_000_000_166] {
             let Some(oi) = engine
                 .program
                 .objects

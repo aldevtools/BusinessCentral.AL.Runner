@@ -28,7 +28,6 @@ impl Session {
             || ext_trigger
             || rec.borrow().marked_only
             || self.is_user_row(t, temporary)
-            || self.is_tenant_set_row(t, temporary)
             || (run && !trigger)
             || (!temporary && self.engine.platform_unseeded.contains(&(t.object as usize)))
         {
