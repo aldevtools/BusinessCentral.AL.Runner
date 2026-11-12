@@ -1,5 +1,4 @@
-use super::split_variable_marked;
-use super::text::text_separator;
+use super::text::{split_variable_marked, text_separator};
 
 // xmlports/TestXmlPortTextFormatsContracts.al:VariableText_Import_QuotedUnquotedAndBlankValues
 #[test]
