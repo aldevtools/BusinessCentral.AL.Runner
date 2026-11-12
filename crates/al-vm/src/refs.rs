@@ -927,7 +927,7 @@ impl Session {
                     copy.unpinned_buffer = None;
                     copy.run_page_link = None;
                 }
-                crate::recordref_variant::install_get_table_buffer(lib, copy, !from_variant);
+                self.variant_refs.install_get_table_buffer(lib, copy, !from_variant);
                 return Ok(Value::Null);
             }
 
