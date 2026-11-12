@@ -6,13 +6,17 @@
 //! a `const(..)`, a `field(..)` and a `filter(..)` of one value put their value on Rec, a `filter(..)` of a range does not
 //! (:373 const + field `act=75160/A/0/`, :433 field only `act=0/A/0/`, :448 const only `act=75160//0/`, :463 filter of one
 //! value, :478 filter of a range `act=0/A/0/`); in a FactBox and in the content area (:403, :418), on a Card and on a Document
-//! host (:558, :573, :588), opened for view or for edit (:388), after GoToRecord to a row without lines (:509), on the new row
-//! of OpenNew (:528 `act=75160//0/`, the host's No. is blank), and again at a second action (:634). The fields outside the
-//! link stay blank. The part's OnAfterGetCurrRecord sees the same values (pages/parts/SelectionFilterLinkedPartNoRow.al:153).
+//! host (:558, :573, :588), opened for view or for edit (:388), after GoToRecord of a host opened for view to a row without
+//! lines (:509), on the new row of OpenNew (:528 `act=75160//0/`, the host's No. is blank), and again at a second action
+//! (:634). The fields outside the link stay blank. The part's OnAfterGetCurrRecord sees the same values
+//! (pages/parts/SelectionFilterLinkedPartNoRow.al:153).
 //!
-//! Only that shape is changed: a ListPart (a page with a repeater) of a top-level Card or Document host, its value from
-//! the link's filter group alone, on a key field (the fields `stamp_from_filters` stamps). Every other part keeps the blank
-//! record it had before.
+//! Only that shape is changed. Every link field is a key field and the link is the part's only filter; the part has no
+//! SourceTableView, no PopulateAllFields and no OnNewRecord (trigger or subscriber); the host is a top-level Card or Document
+//! page; the part lands as the host opens or after a GoToRecord of a host opened for view. The values are those
+//! `stamp_from_filters` puts on a new line, which in that shape are exactly the link's single values on key fields. Every
+//! other part keeps the blank record it had before (`suite/empty_part_rec_link.rs`
+//! `empty_list_part_rec_stays_blank_outside_the_measured_shape`).
 
 use super::parts::LINK_GROUP;
 use super::*;
@@ -25,46 +29,45 @@ impl Session {
         let table_no = rec.borrow().table as usize;
         let fresh = self.initial_fields(table_no);
         rec.borrow_mut().fields = fresh;
-        if !self.empty_part_rec_measured(st) {
-            return Ok(());
-        }
-        let table = self.table(&rec)?;
-        let stamped: Vec<(usize, Value)> = {
-            let r = rec.borrow();
-            table.keys[0]
-                .iter()
-                .filter_map(|&pos| {
-                    let mut on_field = r.filters.iter().filter(|f| f.field == pos);
-                    match (on_field.next(), on_field.next()) {
-                        (Some(f), None) if f.group == LINK_GROUP => {
-                            crate::platform::mat::single_value_of(&f.expr).map(|v| (pos, v))
-                        }
-                        _ => None,
-                    }
-                })
-                .collect()
-        };
-        let mut r = rec.borrow_mut();
-        for (pos, v) in stamped {
-            r.fields[pos] = v;
+        if self.empty_part_rec_measured(st)? {
+            self.stamp_from_filters(st, false)?;
         }
         Ok(())
     }
 
-    /// Whether `st` is a part of the measured shape: a page with a repeater and a source table, shown by a top-level Card or
-    /// Document page that stands on a stored row or on the new row OpenNew started (EmptyPartRecLink.al).
-    fn empty_part_rec_measured(&self, st: &St) -> bool {
+    /// Whether `st` is a part of the measured shape (see the module).
+    fn empty_part_rec_measured(&self, st: &St) -> Result<bool, Signal> {
         let Some(host) = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
-            return false;
+            return Ok(false);
         };
-        let host_row = {
+        let (host_row, host_view) = {
             let h = host.borrow();
-            (h.cursor == Cursor::Row && !h.draft) || (h.draft && !h.draft_stored && h.draft_from_open)
+            let row = (h.cursor == Cursor::Row && !h.draft) || (h.draft && !h.draft_stored && h.draft_from_open);
+            (row, h.mode == PageMode::View)
         };
-        host_row
+        let landing_measured = self.part_open_running || (self.host_goto_record_running && host_view);
+        if !(host_row
+            && landing_measured
             && self.top_card_or_document(&host)
             && self.has_source(st)
             && self.has_repeater(st)
-            && self.part_linked(st)
+            && self.part_linked(st))
+        {
+            return Ok(false);
+        }
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let own_view = engine.program.objects[object].properties.iter().any(|(k, v)| {
+            k.eq_ignore_ascii_case("SourceTableView") || (k.eq_ignore_ascii_case("PopulateAllFields") && is_true(v))
+        });
+        if own_view || self.declares(st, "onnewrecord") || engine.events.is_subscribed(object, "onnewrecordevent") {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let r = rec.borrow();
+        Ok(r.filters
+            .iter()
+            .all(|f| f.group == LINK_GROUP && table.keys[0].contains(&f.field)))
     }
 }

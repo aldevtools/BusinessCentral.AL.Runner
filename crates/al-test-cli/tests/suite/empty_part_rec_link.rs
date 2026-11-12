@@ -592,7 +592,7 @@ codeunit 75171 "PG EPR Tests"
         Card.OpenEdit();
         Got := Log.CurrLog();
         Card.Close();
-        Check('agcr=75160/A/0 | agcr=75160/A/0', Got);
+        Check('agcr=75160/A/0 | agcr=75160/A/0 | agcr=75160/A/0', Got);
     end;
 
     [Test]
@@ -622,13 +622,29 @@ codeunit 75171 "PG EPR Tests"
         Card.Close();
         Check('act=75160/A/0/ | act=75160/A/0/', Got);
     end;
+
+    [Test]
+    procedure EmptyPart_CardOpenEdit_FieldOnly_OnAfterGetCurrRecordReadsRec()
+    var
+        Got: Text;
+        Card: TestPage "PG EPR Card FieldOnly";
+    begin
+        Initialize();
+        Card.OpenEdit();
+        Got := Log.CurrLog();
+        Card.Close();
+        Check('agcr=0/A/0', Got);
+    end;
 }
 "#;
 
-/// The probe's OnAfterGetCurrRecord cell on the Card opened for edit: BC runs the trigger three times over the two empty parts
-/// (corpus pull request 1335 on BC 27.5 and 28.5); the runtime runs it on neither part yet. That is a gap of its own, not
-/// changed here.
-const EDIT_CURR_GAP: &str = "EmptyPart_CardOpenEdit_ConstField_OnAfterGetCurrRecordReadsRec";
+/// The probe's OnAfterGetCurrRecord cells on a Card opened for edit: BC runs the trigger three times over the two empty parts
+/// and once for the single part (corpus pull request 1335, EmptyPartRecLink.al:604, :652); the runtime runs it on no part of a
+/// host opened for edit yet. That is a gap of its own, not changed here.
+const EDIT_CURR_GAPS: [&str; 2] = [
+    "EmptyPart_CardOpenEdit_ConstField_OnAfterGetCurrRecordReadsRec",
+    "EmptyPart_CardOpenEdit_FieldOnly_OnAfterGetCurrRecordReadsRec",
+];
 
 /// Every other cell of the probe: Rec of the empty part holds the single values of its SubPageLink (const, field, a filter of
 /// one value; not a range), in a FactBox and in the content area, on a Card and on a Document host, opened for view, for edit
@@ -636,11 +652,132 @@ const EDIT_CURR_GAP: &str = "EmptyPart_CardOpenEdit_ConstField_OnAfterGetCurrRec
 #[test]
 fn empty_list_part_rec_holds_the_link_values() {
     let o = outcomes_in(SRC, "PG EPR Tests");
-    assert_eq!(o.len(), 18, "{o:?}");
+    assert_eq!(o.len(), 19, "{o:?}");
     for (name, outcome) in &o {
-        if name == EDIT_CURR_GAP {
+        if EDIT_CURR_GAPS.contains(&name.as_str()) {
             continue;
         }
         assert!(matches!(outcome, Outcome::Pass), "{name}: {outcome:?}");
     }
+}
+
+/// Shapes probe 1335 does not measure. Each keeps the blank Rec the runtime gave before the change (`act=0//0/`): a link to a field
+/// outside the key, PopulateAllFields, a SourceTableView, an OnNewRecord, a filter the part sets itself, an unlinked part, a List
+/// or ListPlus host, a host moved by Next() or New(). These are not BC's values; they guard against the rule reaching a shape
+/// nobody measured.
+const UNMEASURED_SRC: &str = r#"
+table 75180 "PG EPU Head" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+table 75181 "PG EPU Line"
+{
+    fields { field(1; "Table ID"; Integer) { } field(2; "No."; Code[20]) { } field(3; "Line No."; Integer) { } field(4; Kind; Code[20]) { } }
+    keys { key(PK; "Table ID", "No.", "Line No.") { Clustered = true; } }
+}
+codeunit 75182 "PG EPU Log"
+{
+    SingleInstance = true;
+    var L: Text;
+    procedure Reset() begin L := ''; end;
+    procedure Add(Rec: Record "PG EPU Line") begin L := 'act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.") + '/' + Rec.Kind; end;
+    procedure Get(): Text begin exit(L); end;
+}
+page 75183 "PG EPU Part"
+{
+    PageType = ListPart; SourceTable = "PG EPU Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPU Log"; begin Log.Add(Rec); end; } } }
+}
+page 75184 "PG EPU Part View"
+{
+    PageType = ListPart; SourceTable = "PG EPU Line"; InsertAllowed = false; SourceTableView = where("Line No." = const(5));
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPU Log"; begin Log.Add(Rec); end; } } }
+}
+page 75185 "PG EPU Part NewRec"
+{
+    PageType = ListPart; SourceTable = "PG EPU Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPU Log"; begin Log.Add(Rec); end; } } }
+    trigger OnNewRecord(BelowxRec: Boolean) begin Rec.Kind := 'N'; Rec."Line No." := 9; end;
+}
+page 75186 "PG EPU Part PopAll"
+{
+    PageType = ListPart; SourceTable = "PG EPU Line"; InsertAllowed = false; PopulateAllFields = true;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPU Log"; begin Log.Add(Rec); end; } } }
+}
+page 75187 "PG EPU Part OwnFilter"
+{
+    PageType = ListPart; SourceTable = "PG EPU Line"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions { area(Processing) { action(ReadRec) { trigger OnAction() var Log: Codeunit "PG EPU Log"; begin Log.Add(Rec); end; } } }
+    trigger OnOpenPage() begin Rec.SetRange("Table ID", 75180); end;
+}
+page 75188 "PG EPU Card"
+{
+    PageType = Card; SourceTable = "PG EPU Head";
+    layout
+    {
+        area(Content) { field(NoCtl; Rec."No.") { } }
+        area(FactBoxes)
+        {
+            part(Box; "PG EPU Part") { SubPageLink = "Table ID" = const(75180), "No." = field("No."); }
+            part(BoxView; "PG EPU Part View") { SubPageLink = "Table ID" = const(75180), "No." = field("No."); }
+            part(BoxNew; "PG EPU Part NewRec") { SubPageLink = "Table ID" = const(75180), "No." = field("No."); }
+            part(BoxNonKey; "PG EPU Part") { SubPageLink = "Table ID" = const(75180), Kind = field("No."); }
+            part(BoxPop; "PG EPU Part PopAll") { SubPageLink = "Table ID" = const(75180), Kind = field("No."); }
+            part(BoxOwn; "PG EPU Part OwnFilter") { SubPageLink = "Table ID" = const(75180), "No." = field("No."); }
+            part(BoxNoLink; "PG EPU Part") { }
+        }
+    }
+}
+page 75189 "PG EPU List"
+{
+    PageType = List; SourceTable = "PG EPU Head";
+    layout
+    {
+        area(Content) { repeater(R) { field(NoCtl; Rec."No.") { } } }
+        area(FactBoxes) { part(Box; "PG EPU Part") { SubPageLink = "Table ID" = const(75180), "No." = field("No."); } }
+    }
+}
+page 75190 "PG EPU ListPlus"
+{
+    PageType = ListPlus; SourceTable = "PG EPU Head";
+    layout { area(Content) { field(NoCtl; Rec."No.") { } part(Box; "PG EPU Part") { SubPageLink = "Table ID" = const(75180), "No." = field("No."); } } }
+}
+codeunit 75191 "PG EPU Tests"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPU Log";
+    local procedure Init() var H: Record "PG EPU Head"; L: Record "PG EPU Line"; begin H.DeleteAll(); L.DeleteAll(); H."No." := 'A'; H.Insert(); H."No." := 'B'; H.Insert(); Log.Reset(); end;
+    [Test] procedure CardView_NonKeyLink() var P: TestPage "PG EPU Card"; begin Init(); P.OpenView(); P.BoxNonKey.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardEdit_NonKeyLink() var P: TestPage "PG EPU Card"; begin Init(); P.OpenEdit(); P.BoxNonKey.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardView_PopulateAllFields() var P: TestPage "PG EPU Card"; begin Init(); P.OpenView(); P.BoxPop.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardEdit_PopulateAllFields() var P: TestPage "PG EPU Card"; begin Init(); P.OpenEdit(); P.BoxPop.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardView_SourceTableView() var P: TestPage "PG EPU Card"; begin Init(); P.OpenView(); P.BoxView.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardEdit_SourceTableView() var P: TestPage "PG EPU Card"; begin Init(); P.OpenEdit(); P.BoxView.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardView_OnNewRecord() var P: TestPage "PG EPU Card"; begin Init(); P.OpenView(); P.BoxNew.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardEdit_OnNewRecord() var P: TestPage "PG EPU Card"; begin Init(); P.OpenEdit(); P.BoxNew.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardView_OwnFilter() var P: TestPage "PG EPU Card"; begin Init(); P.OpenView(); P.BoxOwn.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardEdit_OwnFilter() var P: TestPage "PG EPU Card"; begin Init(); P.OpenEdit(); P.BoxOwn.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardView_NoLink() var P: TestPage "PG EPU Card"; begin Init(); P.OpenView(); P.BoxNoLink.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure ListView() var P: TestPage "PG EPU List"; begin Init(); P.OpenView(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure ListEdit() var P: TestPage "PG EPU List"; begin Init(); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure ListPlusView() var P: TestPage "PG EPU ListPlus"; begin Init(); P.OpenView(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure ListPlusEdit() var P: TestPage "PG EPU ListPlus"; begin Init(); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardEdit_Next() var P: TestPage "PG EPU Card"; begin Init(); P.OpenEdit(); P.Next(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardView_Next() var P: TestPage "PG EPU Card"; begin Init(); P.OpenView(); P.Next(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardEdit_New() var P: TestPage "PG EPU Card"; begin Init(); P.OpenEdit(); P.New(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+}
+"#;
+
+/// Every unmeasured shape reads the blank record, as before the change: each test raises what the part's action logged.
+#[test]
+fn empty_list_part_rec_stays_blank_outside_the_measured_shape() {
+    let o = outcomes_in(UNMEASURED_SRC, "PG EPU Tests");
+    assert_eq!(o.len(), 18, "{o:?}");
+    let wrong: Vec<_> = o
+        .iter()
+        .filter(|(_, outcome)| !matches!(outcome, Outcome::Fail(m) if m == "act=0//0/"))
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }

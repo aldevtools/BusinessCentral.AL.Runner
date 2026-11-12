@@ -639,7 +639,11 @@ impl Session {
                         false
                     }
                     _ => {
-                        self.sync_parts_after_other_move(st, name, before.is_some() && !stayed)?;
+                        let goto_record = name == PageMethod::GoToRecord;
+                        let before_goto = std::mem::replace(&mut self.host_goto_record_running, goto_record);
+                        let r = self.sync_parts_after_other_move(st, name, before.is_some() && !stayed);
+                        self.host_goto_record_running = before_goto;
+                        r?;
                         false
                     }
                 };
