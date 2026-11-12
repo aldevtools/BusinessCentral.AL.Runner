@@ -31,6 +31,8 @@ pub struct BackupProvider {
     sql_company: String,
     /// The company's name as AL sees it (`CRONUS International Ltd.`).
     company: String,
+    /// The company names explicitly selected for reads from this backup.
+    selected_companies: Vec<(String, String)>,
     source: String,
     /// The backup file as the install baseline's key holds it (path, length, modification time).
     identity: Option<String>,
@@ -175,6 +177,16 @@ impl BackupProvider {
         company: Option<&str>,
         index_dir: Option<&Path>,
     ) -> Result<BackupProvider, String> {
+        Self::open_with_index_dir_and_companies(path, company, &[], index_dir)
+    }
+
+    /// Opens a backup with a primary company and any explicitly selected additional companies.
+    pub fn open_with_index_dir_and_companies(
+        path: &Path,
+        company: Option<&str>,
+        additional_companies: &[String],
+        index_dir: Option<&Path>,
+    ) -> Result<BackupProvider, String> {
         let started = std::time::Instant::now();
         let file = FileSource::open(path)?;
         let (opened, index) = match index_dir {
@@ -194,8 +206,15 @@ impl BackupProvider {
         let file_name = path
             .file_name()
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-        let mut p = Self::from_source(src, company, file_name).map_err(|e| format!("{}: {e}", path.display()))?;
-        p.identity = file_identity(path).map(|f| format!("{f}|{}|{}", p.sql_company, p.company));
+        let mut p = Self::from_source_with_companies(src, company, additional_companies, file_name)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let selected = p
+            .selected_companies
+            .iter()
+            .map(|(sql, al)| format!("{sql}={al}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        p.identity = file_identity(path).map(|f| format!("{f}|{selected}"));
         p.cost.open = started.elapsed();
         p.cost.index = index;
         Ok(p)
@@ -207,11 +226,30 @@ impl BackupProvider {
         company: Option<&str>,
         source: String,
     ) -> Result<BackupProvider, String> {
+        Self::from_source_with_companies(src, company, &[], source)
+    }
+
+    /// [`from_source`](BackupProvider::from_source) with additional companies from the same source.
+    pub fn from_source_with_companies(
+        src: Box<dyn BcSource>,
+        company: Option<&str>,
+        additional_companies: &[String],
+        source: String,
+    ) -> Result<BackupProvider, String> {
         let tables = query::bc_tables(&*src).map_err(|e| e.to_string())?;
         let companies = companies_of(&tables);
         let file_name = source;
         let sql_company = pick_company(&companies, company, &file_name)?;
         let company = al_company_name(&*src, &tables, &sql_company);
+        let mut selected_companies = vec![(sql_company.clone(), company.clone())];
+        for additional in additional_companies {
+            let sql = pick_company(&companies, Some(additional), &file_name)?;
+            let name = al_company_name(&*src, &tables, &sql);
+            if selected_companies.iter().any(|(_, selected)| eq_ci(selected, &name)) {
+                return Err(format!("company '{additional}' is selected more than once"));
+            }
+            selected_companies.push((sql, name));
+        }
         let mut by_name: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
         for (i, t) in tables.iter().enumerate() {
             by_name.entry(ci_key(&t.table_name)).or_default().push(i);
@@ -222,6 +260,7 @@ impl BackupProvider {
             by_name,
             sql_company,
             company,
+            selected_companies,
             source: file_name,
             identity: None,
             cost: Cost::default(),
@@ -264,8 +303,16 @@ impl BackupProvider {
         names
     }
 
-    fn find(&self, req: &TableRequest) -> Result<&BcTable, TableError> {
-        self.find_in(req, &self.sql_company)
+    fn find_for_company(&self, req: &TableRequest, company: &str) -> Result<&BcTable, TableError> {
+        let sql_company = self
+            .selected_companies
+            .iter()
+            .find(|(_, name)| eq_ci(name, company))
+            .map(|(sql, _)| sql.as_str());
+        if req.per_company && sql_company.is_none() {
+            return Err(TableError::Absent);
+        }
+        self.find_in(req, sql_company.unwrap_or(&self.sql_company))
     }
 
     /// [`Self::find`] in the company whose name in table names is `sql_company`.
@@ -409,6 +456,10 @@ impl TableProvider for BackupProvider {
         &self.company
     }
 
+    fn known_companies(&self) -> Option<Vec<String>> {
+        (self.selected_companies.len() > 1).then(|| self.selected_companies.iter().map(|(_, al)| al.clone()).collect())
+    }
+
     fn source(&self) -> String {
         self.source.clone()
     }
@@ -469,8 +520,12 @@ impl TableProvider for BackupProvider {
     }
 
     fn read(&self, req: &TableRequest) -> Result<Arc<TableRows>, TableError> {
+        self.read_for_company(&self.company, req)
+    }
+
+    fn read_for_company(&self, company: &str, req: &TableRequest) -> Result<Arc<TableRows>, TableError> {
         let started = std::time::Instant::now();
-        let r = self.read_table(req);
+        let r = self.read_table(company, req);
         if let Ok(rows) = &r {
             self.cost.reads.fetch_add(1, Ordering::Relaxed);
             self.cost.rows.fetch_add(rows.rows.len() as u64, Ordering::Relaxed);
@@ -483,8 +538,8 @@ impl TableProvider for BackupProvider {
 }
 
 impl BackupProvider {
-    fn read_table(&self, req: &TableRequest) -> Result<Arc<TableRows>, TableError> {
-        let table = self.find(req)?;
+    fn read_table(&self, company: &str, req: &TableRequest) -> Result<Arc<TableRows>, TableError> {
+        let table = self.find_for_company(req, company)?;
         let reader = |e: al_bcdb::Error| TableError::Reader(e.to_string());
         let plan = plan_read_table_in(
             &*self.src,

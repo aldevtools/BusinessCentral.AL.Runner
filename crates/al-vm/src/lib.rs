@@ -1221,11 +1221,22 @@ impl Session {
         let clock_key = al_host::seed::clock_key(host.run_seed, 0, "");
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
+        let known_test_data_companies = engine.test_data.as_ref().and_then(|td| td.provider.known_companies());
         let restored = match declared {
-            al_host::Companies::All => engine.test_data.as_ref().map(|td| td.provider.companies()),
+            al_host::Companies::All => engine
+                .test_data
+                .as_ref()
+                .map(|td| td.provider.known_companies().unwrap_or_else(|| td.provider.companies())),
             _ => None,
         };
         ident.resolve_companies(declared, restored);
+        if let Some(selected) = known_test_data_companies {
+            for company in selected {
+                if !ident.companies.iter().any(|known| known == &company) {
+                    ident.companies.push(company);
+                }
+            }
+        }
         let companies = ident.companies.clone();
         let event_stats = Rc::new(platform::EventStats::default());
         let media = al_builtins::media::MediaStore::default();

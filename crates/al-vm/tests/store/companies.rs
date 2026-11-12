@@ -3,6 +3,8 @@
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
+use al_host::testdata::{Cell, TableError, TableProvider, TableRequest, TableRows, TestData};
+use std::sync::Arc;
 
 const TABLES: &str = r#"
 table 50910 "CC Row"
@@ -70,8 +72,73 @@ fn text(vars: &str, body: &str) -> String {
     }
 }
 
+struct SelectedBackup;
+
+impl TableProvider for SelectedBackup {
+    fn company(&self) -> &str {
+        "Main"
+    }
+
+    fn companies(&self) -> Vec<String> {
+        vec!["Main".into(), "Other".into()]
+    }
+
+    fn known_companies(&self) -> Option<Vec<String>> {
+        Some(self.companies())
+    }
+
+    fn source(&self) -> String {
+        "selected backup".into()
+    }
+
+    fn read(&self, table: &TableRequest) -> Result<Arc<TableRows>, TableError> {
+        self.read_for_company("Main", table)
+    }
+
+    fn read_for_company(&self, company: &str, table: &TableRequest) -> Result<Arc<TableRows>, TableError> {
+        if table.name != "CC Row" || !table.per_company {
+            return Err(TableError::Absent);
+        }
+        let value = if company == "Main" { 11 } else { 22 };
+        Ok(Arc::new(TableRows {
+            columns: vec!["Id".into(), "V".into()],
+            rows: vec![vec![Cell::Int(1), Cell::Int(value)]],
+        }))
+    }
+}
+
+fn run_with_selected_backup(body: &str) -> Result<Value, Signal> {
+    let src =
+        format!("{TABLES}\ncodeunit 50100 C {{ procedure F(): Integer var R: Record \"CC Row\"; begin {body} end; }}");
+    let lowered = al_testkit::compile(&src);
+    let mut engine = al_vm::Engine::new(lowered.program.clone(), al_testkit::blocked(&lowered));
+    Arc::get_mut(&mut engine).expect("engine is not shared").test_data = Some(TestData::new(Arc::new(SelectedBackup)));
+    let mut session = al_vm::Session::new(engine);
+    let oi = lowered
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "C")
+        .expect("codeunit exists");
+    let ri = lowered.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == "F")
+        .expect("procedure exists");
+    let instance = session.instance(oi);
+    session.call(oi, ri, instance, vec![]).map(|(value, _)| value)
+}
+
 const NEW_CO: &str = "Co: Record Company;";
 const MAKE_CO: &str = "Co.Name := 'OTHER'; Co.Insert(); Commit();";
+
+#[test]
+fn selected_backup_companies_expose_their_company_rows() {
+    let result = run_with_selected_backup(
+        "if not R.ChangeCompany('Other') then exit(-1); if R.Get(1) then exit(R.V); exit(-2);",
+    );
+    assert!(matches!(result, Ok(Value::Integer(22))), "{result:?}");
+}
 
 #[test]
 fn change_company_to_the_empty_name_is_the_current_company() {

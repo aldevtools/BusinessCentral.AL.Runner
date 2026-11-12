@@ -25,7 +25,7 @@ tables the reader failed on (with its text), and columns left out.
 |---|---|
 | `--no-test-data` | Run with an empty database. |
 | `--test-data [PATH]` | Use a specific `.bak` or `.bacpac`, or insist on test data. A missing backup then stops the run. |
-| `--test-data-company NAME` | Which company to restore. Exact name or prefix. |
+| `--test-data-company NAME` | Which company to restore. Exact name or prefix. Repeat on `test` to include additional companies from the same backup for cross-company reads. In that mode the virtual `Company` table contains exactly the selected companies; single-company runs keep the default guard even if the backup holds more. |
 | `al-runner warm [PATH.bak]` | Open the backup once and keep its page map and catalog in the cache. The first open verifies the whole file (2 to 3 seconds on a 900 MB backup); later opens take milliseconds. Run it before a demo on a new machine. |
 
 The reader behind this is `al-bcdb`, a Rust reader for `.bak` and `.bacpac` files

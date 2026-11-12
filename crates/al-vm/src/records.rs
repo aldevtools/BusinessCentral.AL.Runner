@@ -661,12 +661,11 @@ impl Session {
         }
     }
 
-    /// ADR-046 decision 4a: in the default mode (one company) a read of the Company table that could list a company the
-    /// runtime does not know is refused. The corpus database holds a second company the runtime does not have
-    /// (record/BfInstallTests.al:60-62). A read filtered to one known name (a single-value filter on
-    /// Name: the session company or a company row the run holds) is answered.
+    /// ADR-046 decision 4a: a default run refuses a Company-table read that could list a company it does not know
+    /// (record/BfInstallTests.al:60-62). Declared companies and an explicitly bounded backup selection make enumeration
+    /// safe; a read filtered to one known name is also answered.
     pub(crate) fn company_table_read(&self, rec: &Rec, what: &str) -> Result<(), Signal> {
-        // Under the `--companies` opt-in the declared list is the database's complete company list: answered.
+        // A declared company list or an explicit backup selection makes enumeration complete.
         if !self.companies.is_empty() {
             return Ok(());
         }

@@ -251,7 +251,7 @@ pub fn write_file(path: &Path, text: &str) -> Result<(), String> {
 }
 
 /// With `al-runner serve`: the backup opened last, kept with the tables read from it, for the next request.
-type KeptBackup = ((PathBuf, Option<String>), TestData);
+type KeptBackup = ((PathBuf, Option<String>, Vec<String>), TestData);
 static KEPT_BACKUP: std::sync::Mutex<Option<KeptBackup>> = std::sync::Mutex::new(None);
 static KEEP_BACKUPS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -263,7 +263,11 @@ pub fn keep_backups() {
 /// Opens a backup file.
 fn open_backup(a: &TestArgs, path: PathBuf) -> Result<(TestData, PathBuf), String> {
     if KEEP_BACKUPS.load(std::sync::atomic::Ordering::Relaxed) {
-        let key = (path.clone(), a.test_data_company.clone());
+        let key = (
+            path.clone(),
+            a.test_data_company.clone(),
+            a.additional_test_data_companies.clone(),
+        );
         if let Some((k, d)) = KEPT_BACKUP.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             if *k == key {
                 return Ok((d.clone(), path));
@@ -282,8 +286,13 @@ fn open_backup_fresh(a: &TestArgs, path: PathBuf) -> Result<(TestData, PathBuf),
     let index_dir = (!a.no_compile_cache
         && !std::env::var("ALRUNNER_NO_COMPILE_CACHE").is_ok_and(|v| !v.is_empty() && v != "0"))
     .then(|| al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("backup-index"));
-    let provider = BackupProvider::open_with_index_dir(&path, a.test_data_company.as_deref(), index_dir.as_deref())
-        .map_err(|e| format!("--test-data {}: {e}", path.display()))?;
+    let provider = BackupProvider::open_with_index_dir_and_companies(
+        &path,
+        a.test_data_company.as_deref(),
+        &a.additional_test_data_companies,
+        index_dir.as_deref(),
+    )
+    .map_err(|e| format!("--test-data {}: {e}", path.display()))?;
     Ok((TestData::new(Arc::new(provider)), path))
 }
 

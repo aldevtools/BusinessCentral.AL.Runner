@@ -39,6 +39,34 @@ fn the_company_is_picked_by_name_and_a_wrong_name_lists_the_companies() {
 }
 
 #[test]
+fn explicitly_selected_companies_can_read_their_own_rows() {
+    for f in FILES {
+        let p = BackupProvider::open_with_index_dir_and_companies(&fixture(f), Some("TP"), &["ProbeCo".into()], None)
+            .unwrap();
+        assert_eq!(p.known_companies(), Some(vec!["TP".into(), "ProbeCo".into()]));
+        let request = request("ambig", Some("11111111-1111-1111-1111-111111111111"), true);
+        assert_eq!(
+            p.read_for_company("TP", &request).err(),
+            Some(TableError::Absent),
+            "{f}"
+        );
+        let additional = p.read_for_company("ProbeCo", &request).unwrap();
+
+        assert_eq!(additional.rows.len(), 1, "{f}");
+        assert_eq!(
+            p.read_for_company("Unselected", &request).err(),
+            Some(TableError::Absent),
+            "{f}"
+        );
+        let duplicate =
+            BackupProvider::open_with_index_dir_and_companies(&fixture(f), Some("TP"), &["tp".into()], None)
+                .err()
+                .expect("duplicate company selection should fail");
+        assert!(duplicate.contains("selected more than once"), "{duplicate}");
+    }
+}
+
+#[test]
 fn a_table_extension_companion_is_merged_into_the_base_rows() {
     for f in FILES {
         let p = BackupProvider::open(&fixture(f), Some("TP")).unwrap();

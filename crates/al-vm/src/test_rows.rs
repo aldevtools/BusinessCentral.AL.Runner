@@ -1,9 +1,9 @@
 //! The rows of the test data built once per process (ADR-069 decision 4).
 //!
 //! Each thread's `TestBacking` used to convert the raw cells of every table it touched into rows of its own. The rows
-//! are a pure function of the test data and the program, so one engine keeps one cache for all its threads, and shares
-//! it with its siblings over the same program (`Engine::sibling`: the install engine and the tests engine of a run), so
-//! a table is built once per process: one `OnceLock` per (test data, table). The first thread that touches a table
+//! are a pure function of the test data, company and program, so one engine keeps one cache for all its threads, and
+//! shares it with its siblings over the same program (`Engine::sibling`: the install engine and the tests engine of a
+//! run), so a table is built once per process: one `OnceLock` per (test data, company, table). The first thread that touches a table
 //! builds it; a thread that arrives meanwhile waits for it, and tables nobody builds yet go on in parallel. An engine
 //! made for another program (`Engine::with_config`) has a cache of its own, so rows built for another program are never
 //! reused (risk 3).
@@ -26,20 +26,20 @@ type Slot = Arc<OnceLock<Built>>;
 /// One engine's cache of the test data's rows (see the module comment).
 #[derive(Default)]
 pub(crate) struct TestRows {
-    slots: Mutex<HashMap<(u64, u32), Slot>>,
+    slots: Mutex<HashMap<(u64, String, u32), Slot>>,
     /// About how many bytes the shared rows hold (`FrozenRows::bytes`), for the memory budget (decision 10).
     bytes: std::sync::atomic::AtomicU64,
 }
 
 impl TestRows {
-    /// The rows of table `object` of the test data with id `data`: built by `build` on the first ask in the process,
-    /// shared after. `build` runs again on a thread of its own only when the rows could not be shared.
-    pub(crate) fn get(&self, data: u64, object: u32, build: impl Fn() -> Option<Rows>) -> Option<Rows> {
+    /// The rows of table `object` in `company` of the test data with id `data`: built by `build` on the first ask in the
+    /// process, shared after. `build` runs again on a thread of its own only when the rows could not be shared.
+    pub(crate) fn get(&self, data: u64, company: &str, object: u32, build: impl Fn() -> Option<Rows>) -> Option<Rows> {
         let slot = self
             .slots
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .entry((data, object))
+            .entry((data, company.to_lowercase(), object))
             .or_default()
             .clone();
         let mut own = None;
@@ -103,7 +103,7 @@ mod tests {
                         std::thread::sleep(std::time::Duration::from_millis(20));
                         Some(Rows::from_rows(&table(), vec![row("A", 1, 1), row("B", 2, 1)]).unwrap())
                     };
-                    cache.get(1, 7, build).map(|r| r.len())
+                    cache.get(1, "Main", 7, build).map(|r| r.len())
                 })
             })
             .collect();
@@ -117,10 +117,10 @@ mod tests {
             once > 0,
             "the memory budget counts the shared rows once (ADR-069 decision 10)"
         );
-        cache.get(1, 7, || None);
+        cache.get(1, "Main", 7, || None);
         assert_eq!(cache.bytes(), once, "a table already built is not counted again");
         assert_eq!(
-            cache.get(2, 7, || None).map(|r| r.len()),
+            cache.get(2, "Main", 7, || None).map(|r| r.len()),
             None,
             "another test data builds its own"
         );
@@ -137,8 +137,8 @@ mod tests {
             builds.set(builds.get() + 1);
             Some(Rows::from_rows(&table(), vec![row("A", 1, 1)]).unwrap())
         };
-        engine.test_rows.get(1, 7, build);
-        sibling.test_rows.get(1, 7, build);
+        engine.test_rows.get(1, "Main", 7, build);
+        sibling.test_rows.get(1, "Main", 7, build);
         assert_eq!(builds.get(), 1);
         assert!(
             sibling.shares_test_rows_with(&engine),
@@ -161,10 +161,25 @@ mod tests {
             // A List is not allowed in a key: the table without its secondary key (al-runner issue 7644).
             Some(Rows::from_rows(&al_data::contract::table_without_secondary_key(), vec![r]).unwrap())
         };
-        assert_eq!(cache.get(1, 7, build).map(|r| r.len()), Some(1));
-        assert_eq!(cache.get(1, 7, build).map(|r| r.len()), Some(1));
+        assert_eq!(cache.get(1, "Main", 7, build).map(|r| r.len()), Some(1));
+        assert_eq!(cache.get(1, "Main", 7, build).map(|r| r.len()), Some(1));
         assert_eq!(builds.get(), 2, "the first build is used, a later ask builds again");
         assert_eq!(cache.shared(), 0);
         assert_eq!(cache.bytes(), 0, "rows per thread are a thread's own cost");
+    }
+
+    #[test]
+    fn the_same_table_is_cached_separately_for_each_company() {
+        let cache = TestRows::default();
+        let builds = std::cell::Cell::new(0);
+        let build = || {
+            builds.set(builds.get() + 1);
+            Some(Rows::from_rows(&table(), vec![row("A", 1, 1)]).unwrap())
+        };
+        cache.get(1, "Main", 7, build);
+        cache.get(1, "Other", 7, build);
+        cache.get(1, "Main", 7, || None);
+        assert_eq!(builds.get(), 2);
+        assert_eq!(cache.shared(), 2);
     }
 }

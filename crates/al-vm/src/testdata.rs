@@ -430,8 +430,8 @@ pub(crate) struct TestBacking {
     /// `Engine::uid` of the engine whose program and tables these are.
     engine_uid: u64,
     data: TestData,
-    /// By table object: this thread's handle on the table built from the restored rows.
-    cache: RefCell<HashMap<u32, Option<Rows>>>,
+    /// By company and table object: this thread's handle on the table built from the restored rows.
+    cache: RefCell<HashMap<(String, u32), Option<Rows>>>,
     /// The engine's rows, built once for all threads (ADR-069 decision 4); `None`: `Engine::private_test_rows`.
     shared: Option<Arc<crate::test_rows::TestRows>>,
 }
@@ -746,7 +746,7 @@ impl TestBacking {
             .collect()
     }
 
-    fn load(&self, object: u32, t: &TableDef) -> Option<Rows> {
+    fn load(&self, company: &str, object: u32, t: &TableDef) -> Option<Rows> {
         let program = &self.program;
         let obj = &program.objects[object as usize];
         let stats = &self.data.stats;
@@ -771,7 +771,7 @@ impl TestBacking {
             request.table_id = obj.id;
             request.fields = self.request_fields(obj);
         }
-        let rows = match self.data.read(&request) {
+        let rows = match self.data.read_for_company(company, &request) {
             Ok(r) => r,
             Err(TableError::Absent) => {
                 record(Outcome::Empty);
@@ -816,18 +816,29 @@ impl Backing for TestBacking {
 
     fn rows(&self, company: &str, object: u32) -> Option<Rows> {
         let t = self.tables.get(object as usize)?.as_ref()?;
-        let wanted = if t.per_company { self.company() } else { "" };
+        let wanted = if t.per_company { company } else { "" };
         if !eq_ci(company, wanted) {
             return None;
         }
-        if let Some(hit) = self.cache.borrow().get(&object) {
+        let source_company = if t.per_company {
+            if !self.data.provider.companies().iter().any(|known| eq_ci(known, company)) {
+                return None;
+            }
+            company
+        } else {
+            self.company()
+        };
+        let cache_key = (source_company.to_string(), object);
+        if let Some(hit) = self.cache.borrow().get(&cache_key) {
             return hit.clone();
         }
         let built = match &self.shared {
-            Some(shared) => shared.get(self.data.id, object, || self.load(object, t)),
-            None => self.load(object, t),
+            Some(shared) => shared.get(self.data.id, source_company, object, || {
+                self.load(source_company, object, t)
+            }),
+            None => self.load(source_company, object, t),
         };
-        self.cache.borrow_mut().insert(object, built.clone());
+        self.cache.borrow_mut().insert(cache_key, built.clone());
         built
     }
 
