@@ -49,7 +49,8 @@ const SET_TEXT: &str = r#"
 const COMMON: &str = r#"
 table 50720 "TEA Line"
 {
-    fields { field(1; "Entry No."; Integer) { } field(2; "Default Min. Value"; Decimal) { } field(3; "Min. Value Equals Valid"; Boolean) { } field(4; Note; Text[30]) { } field(5; Num; Integer) { } }
+    fields { field(1; "Entry No."; Integer) { } field(2; "Default Min. Value"; Decimal) { } field(3; "Min. Value Equals Valid"; Boolean) { } field(4; Note; Text[30]) { } field(5; Num; Integer) { }
+        field(6; "Has Line"; Boolean) { FieldClass = FlowField; CalcFormula = exist("TEA Line" where("Entry No." = field("Entry No."))); } }
     keys { key(PK; "Entry No.") { } }
 }
 table 50729 "TEA Buf" { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } keys { key(PK; Id) { } } }
@@ -238,7 +239,7 @@ fn unmeasured_neighbors_refuse() {
         (src("Export", &elem, &two, ""), sema),
         (src("Both", &elem, ATTR, ""), sema),
         (src("Export", &elem, ATTR, "").replace("UseTemporary = true;", ""), sema),
-        (src("Export", &elem, num, ""), "a field attribute of this type"),
+        (src("Export", &elem, num, ""), sema),
         (src("Export", &skip, ATTR, ""), "Skip, Break or Quit"),
     ] {
         let why = refused(&s);
@@ -254,6 +255,67 @@ fn an_unmeasured_attribute_type_without_a_trigger_keeps_mains_refusal() {
         "Export",
         "MinOccurs = Zero;",
         r#"fieldattribute(num; Line.Num) { }"#,
+        &row,
+    ));
+    assert!(
+        why.contains("with a field attribute and its own text below a table element"),
+        "{why}"
+    );
+}
+
+/// Each fact of the probe's ports that the shape requires, flipped one at a time with the element's trigger: main's static
+/// refusal stays (XpTextElemFieldAttrExport.al:44-370 declares FormatEvaluate = Xml, no Encoding and no namespace, a text
+/// element without XmlName, a Normal field, one such element per table element).
+#[test]
+fn unmeasured_port_and_element_facts_keep_mains_refusal() {
+    let elem = format!("MinOccurs = Zero;\n{}", trigger(""));
+    let base = src("Export", &elem, ATTR, "");
+    let flow = r#"fieldattribute(hasLine; Line."Has Line") { }"#;
+    let entry = r#"fieldelement(EntryNo; Line."Entry No.") { }"#;
+    let max_value = format!(
+        "{entry}\n                textelement(MaxValue) {{ MaxOccurs = Once; {ATTR} trigger OnBeforePassVariable() begin MaxValue := 'x'; end; }}"
+    );
+    let sema = "triggers of the container text element";
+    for (what, s) in [
+        (
+            "FormatEvaluate = Legacy",
+            base.replace("FormatEvaluate = Xml;", "FormatEvaluate = Legacy;"),
+        ),
+        ("no FormatEvaluate", base.replace("FormatEvaluate = Xml;", "")),
+        (
+            "Encoding = UTF8 with a default namespace",
+            base.replace(
+                "UseRequestPage = false;",
+                "UseRequestPage = false; Encoding = UTF8; DefaultNamespace = 'urn:x'; UseDefaultNamespace = true;",
+            ),
+        ),
+        ("a FlowField attribute", src("Export", &elem, flow, "")),
+        (
+            "XmlName",
+            src("Export", &format!("XmlName = 'MinV';\n{elem}"), ATTR, ""),
+        ),
+        ("two such elements", base.replace(entry, &max_value)),
+    ] {
+        al_builtins::assumptions::take_hits();
+        let why = refused(&s);
+        assert!(why.contains(sema), "{what}: {why}");
+        assert!(
+            !al_builtins::assumptions::take_hits()
+                .contains(&al_builtins::assumptions::Assumption::XmlportTextElemFieldAttrExport),
+            "{what}"
+        );
+    }
+}
+
+/// A Text attribute is measured with the element's trigger only (XpTextElemFieldAttrExport.al:300); without it main's refusal
+/// stays.
+#[test]
+fn a_text_attribute_without_a_trigger_keeps_mains_refusal() {
+    let row = format!("trigger OnAfterGetRecord()\n                begin{SET_TEXT}\n                end;");
+    let why = refused(&src(
+        "Export",
+        "MinOccurs = Zero;",
+        r#"fieldattribute(note; Line.Note) { }"#,
         &row,
     ));
     assert!(

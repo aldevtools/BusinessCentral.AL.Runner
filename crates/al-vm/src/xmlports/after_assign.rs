@@ -17,11 +17,10 @@ pub(super) enum AfterAssign {
 
 impl Session {
     /// The measured shape of `node`, or `None` for every other shape. Each fact is required by equality:
-    /// - Format = Xml, DefaultFieldsValidation not declared false (every port of XpAfterAssignTableRelation.al, :88);
-    /// - a field attribute or field element with an OnAfterAssignField trigger and no FieldValidate = Yes;
-    /// - its table element right below the root text element, without LinkTable (:96-98);
-    /// - a Code field with one TableRelation to a table without conditions, where() or a named field (:53-70), no table
-    ///   extension validate trigger and no subscriber to the validate events;
+    /// - the port, the table element and the node in the layout al-sema `xmlports/assumed_shapes.rs` `after_assign_layout`
+    ///   marks (`ir::XmlNode::after_assign_layout`);
+    /// - a Code field with one TableRelation to a table without conditions, where() or a named field
+    ///   (XpAfterAssignTableRelation.al:53-70), no table extension validate trigger and no subscriber to the validate events;
     /// - the combinations of temporary, node kind, FieldValidate, ValidateTableRelation and OnValidate in `measured`.
     pub(super) fn xp_after_assign_shape(
         &mut self,
@@ -31,21 +30,10 @@ impl Session {
         pos: usize,
     ) -> Result<Option<AfterAssign>, Signal> {
         let n = schema.node(node);
-        let xp = schema.xp();
         let Some(table_node) = n.table_node.map(|t| schema.node(t)) else {
             return Ok(None);
         };
-        let below_root = table_node.parent.is_some_and(|p| {
-            let p = schema.node(p);
-            p.parent.is_none() && p.kind == ir::XmlNodeKind::Text
-        });
-        if !(xp.format == ir::XmlFormat::Xml
-            && !xp.no_default_fields_validation
-            && matches!(n.kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
-            && n.trigger("onafterassignfield").is_some()
-            && below_root
-            && table_node.link_node.is_none())
-        {
+        if !n.after_assign_layout {
             return Ok(None);
         }
         let t = self.table(rec)?;
@@ -125,21 +113,32 @@ impl Session {
     }
 
     /// Two rows in one document are not measured (every case of XpAfterAssignTableRelation.al imports one row, :557-559): the
-    /// second row of a table element with a field node in a measured shape refuses before its fields are assigned.
+    /// second row of a table element with a field node in a measured shape refuses before its fields are assigned. Except a
+    /// field attribute with FieldValidate = No whose value in `elem` is not blank: for it the measured order (the trigger, then
+    /// no validation; :604, :655) gives main's answer (no validation, then the trigger), so the row imports.
     pub(super) fn xp_after_assign_second_row(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         table: usize,
+        elem: &Elem,
     ) -> Result<(), Signal> {
         let rec = self.xp_record(inst, schema.node(table))?;
         for child in schema.children(table) {
-            let Some(pos) = schema.node(child).field else {
+            let c = schema.node(child);
+            let Some(pos) = c.field else {
                 continue;
             };
-            if schema.node(child).table_node == Some(table)
-                && self.xp_after_assign_shape(schema, child, &rec, pos)?.is_some()
-            {
+            if c.table_node != Some(table) || self.xp_after_assign_shape(schema, child, &rec, pos)?.is_none() {
+                continue;
+            }
+            let unvalidated_value = c.kind == ir::XmlNodeKind::FieldAttr
+                && c.field_validate == Some(false)
+                && elem
+                    .attrs
+                    .iter()
+                    .any(|(name, value)| *name == c.xml_name && !value.trim().is_empty());
+            if !unvalidated_value {
                 return unsupported(format!(
                     "XmlPort import of a second row of {} with OnAfterAssignField on a validated field (not pinned)",
                     schema.node(table).name
@@ -165,8 +164,6 @@ fn measured(
         // No, :617 ValidateTableRelation = false).
         (false, Attr, None, true, true) | (false, Elem, None, true, true) => None_,
         (false, Attr, Some(false), true, true) | (false, Attr, None, false, true) => None_,
-        // The reporter's shape (al-runner issue 7863): the same field without OnValidate, assumed from :578.
-        (false, Attr, None, true, false) => None_,
         // A stored table element: the TableRelation check and OnValidate after the trigger (:630 attribute, :642 element);
         // OnValidate without the check (:668 ValidateTableRelation = false); nothing with FieldValidate = No (:655).
         (true, Attr, None, true, true) | (true, Elem, None, true, true) | (true, Attr, None, false, true) => Validate,

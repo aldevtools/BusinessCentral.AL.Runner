@@ -29,6 +29,7 @@ xmlport {ID} "{NAME}"
                         case AarLog.GetMode() of
                             1: Row."{FIELD}" := 'P2';
                             2: Row."{FIELD}" := 'MISS';
+                            3: currXMLport.Skip();
                         end;
                     end;
                 }
@@ -104,6 +105,20 @@ codeunit 50705 "AAR Run"
         ClearLastError();
         Ok := TryImport(XpId, Xml);
         R := Format(Ok) + ' | ' + GetLastErrorText() + ' | ' + GetLastErrorCode() + ' | ' + AarLog.Take() + ' | ' + DbRows();
+        ClearLastError();
+        exit(R);
+    end;
+    procedure Doc(XpId: Integer; Xml: Text): Text
+    var Row: Record "AAR Row"; Rel: Record "AAR Rel"; AarLog: Codeunit "AAR Log"; Ok: Boolean; R: Text;
+    begin
+        Row.DeleteAll();
+        Rel.DeleteAll();
+        Rel."Code" := 'P1';
+        Rel.Insert();
+        AarLog.Reset(0);
+        ClearLastError();
+        Ok := TryImport(XpId, Xml);
+        R := Format(Ok) + ' | ' + GetLastErrorText() + ' | ' + AarLog.Take() + ' | ' + DbRows();
         ClearLastError();
         exit(R);
     end;
@@ -232,11 +247,12 @@ fn a_temporary_table_element_runs_the_trigger_and_validates_nothing() {
     }
 }
 
-/// The reporter's shape (al-runner issue 7863): a temporary table element, a field with a TableRelation and no OnValidate.
+/// The reporter's shape (al-runner issue 7863): a temporary table element, a field with a TableRelation and no OnValidate. The
+/// probe does not measure it yet: main's refusal stays.
 #[test]
-fn the_reporters_shape_imports_the_missing_value_too() {
-    let got = ok_six(&temp(true, "Rel Code Plain", ""));
-    assert_eq!(got[1], "Yes |  |  | after:MISS;before insert:MISS; | ");
+fn the_reporters_shape_keeps_mains_refusal() {
+    let why = refused(&temp(true, "Rel Code Plain", ""));
+    assert!(why.contains("which runs first is not pinned"), "{why}");
 }
 
 /// XpAfterAssignTableRelation.al:630 (attribute) and :642 (element): the trigger, then the TableRelation check and OnValidate
@@ -433,16 +449,13 @@ codeunit 50150 "Repro After Assign Test"
 }
 "#;
 
+/// Its shape is not measured yet (see `the_reporters_shape_keeps_mains_refusal`): main's refusal stays.
 #[test]
-fn the_reporters_repro_sees_the_imported_value() {
-    assert_eq!(
-        text(al_testkit::run_in(
-            REPRO,
-            "Repro After Assign Test",
-            "AfterAssignFieldSeesImportedValue"
-        )),
-        "P1"
-    );
+fn the_reporters_repro_keeps_mains_refusal() {
+    match al_testkit::run_in(REPRO, "Repro After Assign Test", "AfterAssignFieldSeesImportedValue") {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("which runs first is not pinned"), "{why}"),
+        other => panic!("{other:?}"),
+    }
 }
 
 /// A subscriber to the field's validate event is not measured: main's refusal stays.
@@ -466,6 +479,130 @@ codeunit 50706 "AAR Sub"
     ];
     match b.call(oi, ri, args) {
         Err(Signal::Unsupported(why)) => assert!(why.to_string().contains("which runs first is not pinned"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn doc(src: &str, id: u32, xml: &str) -> Result<String, Signal> {
+    let mut b = Built::from_source(&format!("{COMMON}{src}"));
+    let (oi, ri) = b.routine_in("AAR Run", "Doc");
+    b.call(
+        oi,
+        ri,
+        vec![
+            al_builtins::value::Value::Integer(id as i32),
+            al_builtins::value::Value::Text(xml.into()),
+        ],
+    )
+    .map(|(v, _)| text(Ok(v)))
+}
+
+/// Each fact of the probe's ports that the shape requires, flipped one at a time on the stored attribute shape: main's
+/// refusal stays (XpAfterAssignTableRelation.al:86-465 declares Direction = Import, Encoding = UTF8, FormatEvaluate = Xml, a
+/// table element with nothing but UseTemporary, one node with OnAfterAssignField and no other property).
+#[test]
+fn unmeasured_port_and_node_facts_keep_mains_refusal() {
+    let base = port(&db(true, "Rel Code", ""));
+    let occurrence = port(&db(true, "Rel Code", "Occurrence = Optional;"));
+    let id_attr = "fieldattribute(Id; Row.Id) { }";
+    let second = format!(
+        "{id_attr} fieldattribute(RelCode2; Row.\"Rel Code NV\") {{ trigger OnAfterAssignField() begin AarLog.Add('after2'); end; }}"
+    );
+    let one = r#"<Root><Row Id="1" RelCode="P1" /></Root>"#;
+    for (what, src, xml) in [
+        (
+            "Direction = Both",
+            base.replace("Direction = Import;", "Direction = Both;"),
+            one,
+        ),
+        (
+            "FormatEvaluate = Legacy",
+            base.replace("FormatEvaluate = Xml;", "FormatEvaluate = Legacy;"),
+            one,
+        ),
+        ("no FormatEvaluate", base.replace("FormatEvaluate = Xml;", ""), one),
+        ("no Encoding", base.replace("Encoding = UTF8;", ""), one),
+        (
+            "AutoSave = false",
+            base.replace(id_attr, &format!("AutoSave = false; {id_attr}")),
+            one,
+        ),
+        (
+            "AutoUpdate = true",
+            base.replace(id_attr, &format!("AutoUpdate = true; {id_attr}")),
+            one,
+        ),
+        (
+            "MinOccurs = Zero",
+            base.replace(id_attr, &format!("MinOccurs = Zero; {id_attr}")),
+            one,
+        ),
+        ("Occurrence", occurrence, one),
+        (
+            "two nodes with the trigger",
+            base.replace(id_attr, &second),
+            r#"<Root><Row Id="1" RelCode="P1" RelCode2="P1" /></Root>"#,
+        ),
+    ] {
+        al_builtins::assumptions::take_hits();
+        match doc(&src, 50711, xml) {
+            Err(Signal::Unsupported(why)) => assert!(why.contains("which runs first is not pinned"), "{what}: {why}"),
+            other => panic!("{what}: {other:?}"),
+        }
+        assert!(
+            !al_builtins::assumptions::take_hits()
+                .contains(&al_builtins::assumptions::Assumption::XmlportAfterAssignBeforeValidate),
+            "{what}"
+        );
+    }
+}
+
+/// Two rows into a field attribute with FieldValidate = No (stored and temporary): main's answer, no validation and then the
+/// trigger, which the measured order (the trigger, then no validation; XpAfterAssignTableRelation.al:604, :655) does not change
+/// for a value that is not blank. A blank second row is not measured and refuses (the first row's blank runs no trigger).
+#[test]
+fn two_rows_with_field_validate_no_keep_mains_answer() {
+    for (p, rows) in [
+        (db(true, "Rel Code", "FieldValidate = No;"), "1:P1:,2:MISS:,"),
+        (temp(true, "Rel Code", "FieldValidate = No;"), ""),
+    ] {
+        let src = port(&p);
+        let got = doc(
+            &src,
+            p.id,
+            r#"<Root><Row Id="1" RelCode="P1" /><Row Id="2" RelCode="MISS" /></Root>"#,
+        );
+        assert_eq!(
+            got.unwrap(),
+            format!("Yes |  | after:P1;before insert:P1;after:MISS;before insert:MISS; | {rows}"),
+            "temp {}",
+            p.temp
+        );
+        match doc(
+            &src,
+            p.id,
+            r#"<Root><Row Id="1" RelCode="P1" /><Row Id="2" RelCode="" /></Root>"#,
+        ) {
+            Err(Signal::Unsupported(why)) => assert!(why.contains("second row"), "{why}"),
+            other => panic!("temp {}: {other:?}", p.temp),
+        }
+    }
+}
+
+/// Skip or Break in OnAfterAssignField before the field is validated is not measured: it refuses.
+#[test]
+fn skip_in_the_trigger_before_the_validation_refuses() {
+    let p = db(true, "Rel Code", "");
+    let mut b = build(&p);
+    let (oi, ri) = b.routine_in("AAR Run", "Case");
+    let args = vec![
+        al_builtins::value::Value::Integer(p.id as i32),
+        al_builtins::value::Value::Boolean(true),
+        al_builtins::value::Value::Text("P1".into()),
+        al_builtins::value::Value::Integer(3),
+    ];
+    match b.call(oi, ri, args) {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("Skip or Break in OnAfterAssignField"), "{why}"),
         other => panic!("{other:?}"),
     }
 }

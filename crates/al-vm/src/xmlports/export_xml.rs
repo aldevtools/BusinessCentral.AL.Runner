@@ -594,13 +594,8 @@ impl Session {
                 // element's OnBeforePassVariable, its attributes, then the inner element as the text-only shape above
                 // (`pass entry;pass status;pass admission;pass admcode;`, `<admission option_value="2" />` for an empty text).
                 // The same for an attributed leaf deeper below a table element (`attributed_leaf`, einvoice_shapes.rs).
-                // A text element with one field attribute below a temporary table element (`text_attr_export.rs`); without a
-                // trigger and with an attribute of a type the probe does not measure it keeps the arms below.
-                ir::XmlNodeKind::Text
-                    if matches!(text_attr_export::field_attr_text(schema, child, node), Some(attr)
-                        if c.trigger("onbeforepassvariable").is_some()
-                            || self.xp_text_attr_type_measured(inst, schema, attr)?) =>
-                {
+                // A text element with one field attribute below a temporary table element (`text_attr_export.rs`).
+                ir::XmlNodeKind::Text if c.text_attr_export => {
                     let e = got!(self.xp_export_text_attr(inst, schema, child));
                     out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {

@@ -43,7 +43,7 @@ impl Session {
             ));
         }
         if !first_of_node {
-            self.xp_after_assign_second_row(inst, schema, node)?;
+            self.xp_after_assign_second_row(inst, schema, node, elem)?;
         }
         let rec = self.xp_record(inst, n)?;
         let table = rec.borrow().table as usize;
