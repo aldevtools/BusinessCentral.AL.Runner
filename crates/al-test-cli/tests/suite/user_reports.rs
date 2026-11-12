@@ -2533,3 +2533,19 @@ fn measured_worksheet_draft_close_does_not_read_empty_part() {
         include_str!("../fixtures/worksheet-draft-close-empty-part.al"),
     ));
 }
+
+#[test]
+fn issue_7880_neighbor_keeps_the_previous_result() {
+    let source = include_str!("../fixtures/worksheet-draft-close-empty-part.al");
+    let changed = source.replace("area(FactBoxes)", "area(Content)");
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "CloseStoresWorksheetRowWithoutReadingEmptyPart")
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::NotRun(reason) if reason.contains("closing a new host row")),
+        "{outcome:?}"
+    );
+}
