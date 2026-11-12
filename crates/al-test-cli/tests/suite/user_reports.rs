@@ -2525,3 +2525,8 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_integer_record_field_in_set_and_boolean() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/record-in-and-boolean.al")));
+}

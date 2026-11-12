@@ -689,6 +689,42 @@ impl Lowerer<'_> {
         })
     }
 
+    fn guard_numeric_in_followed_by_boolean(&mut self, op: &str, lhs: &SyntaxNode, rhs: &SyntaxNode) -> L<()> {
+        let is_membership = |node: &SyntaxNode| {
+            node.kind() == SyntaxKind::BinExpr
+                && sig_tokens(node)
+                    .first()
+                    .is_some_and(|t| t.text().eq_ignore_ascii_case("in"))
+        };
+        if !matches!(op, "and" | "or" | "xor") || !is_membership(lhs) || is_membership(rhs) {
+            return Ok(());
+        }
+        let mut operands = lhs.children();
+        let Some(subject) = operands.next() else { return Ok(()) };
+        let subject_type = self.ty_ref(&subject);
+        if !matches!(subject_type, Ty::Integer | Ty::BigInteger | Ty::Decimal) {
+            return Ok(());
+        }
+        // IntegerMembership.al measures a qualified Integer record field, an Integer
+        // set and Boolean AND, including eager evaluation of the right operand.
+        let measured = op == "and"
+            && subject.kind() == SyntaxKind::MemberExpr
+            && matches!(subject_type, Ty::Integer)
+            && matches!(self.res(&subject), Some(Res::Field { .. }))
+            && operands.next().is_some_and(|set| {
+                set.kind() == SyntaxKind::SetExpr
+                    && set.children().all(|entry| matches!(self.ty_ref(&entry), Ty::Integer))
+            });
+        if !measured {
+            return Err(
+                "an Integer `in` set followed by and, or or xor with a Boolean: BC answers `1 in [1, 2] and false` with Yes (corpus P143Prec_InAnd_Int), which no reading of the precedence explains (docs/probes-needed.md)"
+                    .into(),
+            );
+        }
+        self.assume(al_builtins::assumptions::Assumption::IntegerRecordFieldInAndBoolean);
+        Ok(())
+    }
+
     pub(crate) fn expr(&mut self, n: &SyntaxNode) -> L<ir::Expr> {
         // Parentheses are the expression inside, with its records.
         if !self.tys_on || n.kind() == SyntaxKind::ParenExpr {
@@ -775,26 +811,7 @@ impl Lowerer<'_> {
                 // `<Integer> in [..] and|or|xor <Boolean>`: the corpus has BC answer `1 in [1, 2] and false` with Yes
                 // (P143Prec_InAnd_Int), which neither reading of the precedence explains, while the Boolean and enum forms follow
                 // `(a in [..]) and b`. The Integer form is refused until it is probed again (docs/probes-needed.md).
-                if matches!(op.as_str(), "and" | "or" | "xor") {
-                    let in_op = |n: &SyntaxNode| {
-                        n.kind() == BinExpr
-                            && sig_tokens(n)
-                                .first()
-                                .is_some_and(|t| t.text().eq_ignore_ascii_case("in"))
-                    };
-                    if let (Some(l), Some(r)) = (kids.first(), kids.get(1)) {
-                        if in_op(l) && !in_op(r) {
-                            if let Some(subject) = l.children().next() {
-                                if matches!(self.ty_ref(&subject), Ty::Integer | Ty::BigInteger | Ty::Decimal) {
-                                    return Err(
-                                        "an Integer `in` set followed by and, or or xor with a Boolean: BC answers `1 in [1, 2] and false` with Yes (corpus P143Prec_InAnd_Int), which no reading of the precedence explains (docs/probes-needed.md)"
-                                            .into(),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
+                self.guard_numeric_in_followed_by_boolean(&op, &kids[0], &kids[1])?;
                 // How a settled DotNet operand may be used depends on the operator (ADR-024).
                 let operand_use = match op.as_str() {
                     "+" | "=" | "<>" => ir::OperandUse::Enum,
