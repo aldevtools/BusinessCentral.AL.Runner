@@ -1806,43 +1806,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if a.no_test_data && a.test_data_asked_for() {
         return Err("--test-data and --no-test-data cannot be combined".into());
     }
-    let has_test_data_company = a.test_data_company.is_some() || !a.additional_test_data_companies.is_empty();
-    if a.no_test_data && has_test_data_company {
-        return Err("--test-data-company cannot be combined with --no-test-data".into());
-    }
-    if a.company_package && !a.additional_test_data_companies.is_empty() {
-        return Err("repeated --test-data-company needs a database backup, not --company-data package".into());
-    }
+    let has_test_data_company = validate_test_data_company_selection(&mut a)?;
     if a.parity && a.disabled_tests_dir.is_none() {
         return Err("--parity needs --disabled-tests DIR".into());
     }
-    if a.company_package && !al_deps::artifact::is_w1(a.country()) {
-        return Err("--company-data package supports only the w1 country (its RapidStart package comes from the platform artifact)".into());
-    }
-    if a.company_package && a.no_test_data {
-        return Err("--company-data package cannot be combined with --no-test-data".into());
-    }
-    if let Some(e) = company_build_off(&a) {
-        return Err(e);
-    }
-    if a.company_demotool {
-        if !al_deps::artifact::is_w1(a.country()) {
-            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
-        }
-        if a.no_test_data || a.test_data_asked_for() || has_test_data_company {
-            return Err("--company-data demotool builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
-        }
-    }
-    if a.company_contoso.is_some() {
-        if !al_deps::artifact::is_w1(a.country()) {
-            return Err(
-                "--company-data contoso-setup|contoso-all supports only the w1 country (the W1 Contoso app)".into(),
-            );
-        }
-        if a.no_test_data || a.test_data_asked_for() || has_test_data_company {
-            return Err("--company-data contoso-setup|contoso-all builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
-        }
-    }
+    validate_company_data(&a, has_test_data_company)?;
     if a.bcapps_dir.is_some() && !a.recipe && !a.affected_from.iter().any(|s| s == "microsoft") {
         return Err("--bcapps needs --recipe microsoft or the microsoft test source".into());
     }
@@ -2101,6 +2069,87 @@ pub fn company_build_off(a: &TestArgs) -> Option<String> {
             "{flag} builds Microsoft's demo company; company builds are experimental and off by default: add --experimental-company-builds to use them"
         )
     })
+}
+
+fn validate_test_data_company_selection(a: &mut TestArgs) -> Result<bool, String> {
+    let has_selection = a.test_data_company.is_some() || !a.additional_test_data_companies.is_empty();
+    if a.no_test_data && has_selection {
+        return Err("--test-data-company cannot be combined with --no-test-data".into());
+    }
+    if a.company_package && !a.additional_test_data_companies.is_empty() {
+        return Err("repeated --test-data-company needs a database backup, not --company-data package".into());
+    }
+    if a.additional_test_data_companies.is_empty() {
+        return Ok(has_selection);
+    }
+
+    let mut selected = Vec::with_capacity(1 + a.additional_test_data_companies.len());
+    if let Some(company) = &a.test_data_company {
+        selected.push(company.clone());
+    }
+    for company in &a.additional_test_data_companies {
+        if selected.iter().any(|name| name.eq_ignore_ascii_case(company)) {
+            return Err(format!("--test-data-company `{company}` is selected more than once"));
+        }
+        selected.push(company.clone());
+    }
+    match a.companies.clone() {
+        Some(al_host::Companies::All) => {
+            return Err(
+                "--companies all cannot be combined with a repeated --test-data-company: the company selection conflicts"
+                    .into(),
+            );
+        }
+        Some(al_host::Companies::List(companies)) => {
+            if companies.len() != selected.len()
+                || !companies
+                    .iter()
+                    .zip(&selected)
+                    .all(|(company, test_data)| same_company_argument(company, test_data))
+            {
+                return Err("--companies and --test-data-company company selections must match in order".into());
+            }
+        }
+        None | Some(al_host::Companies::One) => a.companies = Some(al_host::Companies::List(selected)),
+    }
+    Ok(has_selection)
+}
+
+fn validate_company_data(a: &TestArgs, has_test_data_company: bool) -> Result<(), String> {
+    if a.company_package && !al_deps::artifact::is_w1(a.country()) {
+        return Err("--company-data package supports only the w1 country (its RapidStart package comes from the platform artifact)".into());
+    }
+    if a.company_package && a.no_test_data {
+        return Err("--company-data package cannot be combined with --no-test-data".into());
+    }
+    if let Some(e) = company_build_off(a) {
+        return Err(e);
+    }
+    if a.company_demotool {
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
+        }
+        if a.no_test_data || a.test_data_asked_for() || has_test_data_company {
+            return Err("--company-data demotool builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
+        }
+    }
+    if a.company_contoso.is_some() {
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err(
+                "--company-data contoso-setup|contoso-all supports only the w1 country (the W1 Contoso app)".into(),
+            );
+        }
+        if a.no_test_data || a.test_data_asked_for() || has_test_data_company {
+            return Err("--company-data contoso-setup|contoso-all builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
+        }
+    }
+    Ok(())
+}
+
+fn same_company_argument(left: &str, right: &str) -> bool {
+    let left = left.to_uppercase();
+    let right = right.to_uppercase();
+    left == right || left.starts_with(&right) || right.starts_with(&left)
 }
 
 /// The checks of `al-runner test-microsoft` (ADR-052 section 2). The recipe is always on; the options it decides are

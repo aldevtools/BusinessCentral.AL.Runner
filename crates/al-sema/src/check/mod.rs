@@ -246,6 +246,8 @@ pub struct Roots {
     /// The install baseline: the install codeunits of the dependency apps and Base Application's
     /// `Company-Initialize` (codeunit 2).
     pub baseline: bool,
+    /// Company Triggers raised by dependency installs in selected backup companies (ADR-046 amendment 9).
+    pub company_install_events: bool,
     /// With `baseline`: dependency codeunits (by id) whose `OnRun` the install baseline runs after `Company-Initialize`
     /// to build the company's data (`--company-data demotool`: the DemoTool's `Create Demo Data from Config`). Empty: none.
     pub company_data: Vec<u32>,
@@ -509,7 +511,7 @@ fn check_inner(
             // `login.rs`, al-runner issue 7343).
             let login = (n_old..ws.objects.len())
                 .any(|oi| !ws.is_dependency(oi) && !skip(oi) && ws.declares_login_subscriber(oi));
-            c.reach_install_events(roots.baseline, install_code, login);
+            c.reach_install_events(roots.baseline, install_code || roots.company_install_events, login);
             c.reach_test_runner(&roots.test_runners);
             c.reach_dependencies_on_workspace();
             if !roots.no_login_root {

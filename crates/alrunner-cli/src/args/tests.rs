@@ -683,6 +683,23 @@ fn test_data_takes_an_optional_backup_path_that_cannot_be_mistaken_for_an_app() 
 }
 
 #[test]
+fn selected_backup_companies_must_match_the_companies_option() {
+    let args = "test A --test-data backup.bak --test-data-company TP --test-data-company ProbeCo";
+    assert!(p(&format!("{args} --companies TP,ProbeCo")).is_ok());
+    for options in ["--companies ProbeCo,TP", "--companies TP,Other", "--companies all"] {
+        let err = p(&format!("{args} {options}")).unwrap_err();
+        assert!(err.contains("company selection"), "{options}: {err}");
+    }
+
+    let err = p("test A --test-data backup.bak --test-data-company TP --test-data-company tp").unwrap_err();
+    assert!(err.contains("selected more than once"), "{err}");
+
+    let err = p("test A --test-data backup.bak --companies all --test-data-company TP --test-data-company ProbeCo")
+        .unwrap_err();
+    assert!(err.contains("--companies all"), "{err}");
+}
+
+#[test]
 fn the_country_is_w1_unless_the_flag_names_another() {
     let a = test_args("test A");
     assert_eq!(a.country(), "w1");

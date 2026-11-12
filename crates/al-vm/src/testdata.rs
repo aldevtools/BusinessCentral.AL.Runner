@@ -430,29 +430,28 @@ pub(crate) struct TestBacking {
     /// `Engine::uid` of the engine whose program and tables these are.
     engine_uid: u64,
     data: TestData,
+    selected_companies: Vec<String>,
     /// By company and table object: this thread's handle on the table built from the restored rows.
-    cache: RefCell<HashMap<(String, u32), Option<Rows>>>,
+    cache: RefCell<HashMap<(usize, u32), Option<Rows>>>,
     /// The engine's rows, built once for all threads (ADR-069 decision 4); `None`: `Engine::private_test_rows`.
     shared: Option<Arc<crate::test_rows::TestRows>>,
 }
 
 impl TestBacking {
     pub(crate) fn new(engine: &Engine, data: TestData) -> TestBacking {
+        let selected_companies = data
+            .provider
+            .known_companies()
+            .unwrap_or_else(|| vec![data.provider.company().to_string()]);
         TestBacking {
             program: engine.program.clone(),
             tables: engine.tables.clone(),
             engine_uid: engine.uid,
             data,
+            selected_companies,
             cache: RefCell::default(),
             shared: (!engine.private_test_rows).then(|| engine.test_rows.clone()),
         }
-    }
-
-    fn selected_companies(&self) -> Vec<String> {
-        self.data
-            .provider
-            .known_companies()
-            .unwrap_or_else(|| vec![self.data.provider.company().to_string()])
     }
 
     fn app_id(&self, app: u32) -> Option<&str> {
@@ -823,7 +822,7 @@ impl Backing for TestBacking {
     }
 
     fn companies(&self) -> Vec<String> {
-        self.selected_companies()
+        self.selected_companies.clone()
     }
 
     fn rows(&self, company: &str, object: u32) -> Option<Rows> {
@@ -832,15 +831,15 @@ impl Backing for TestBacking {
         if !eq_ci(company, wanted) {
             return None;
         }
-        let source_company = if t.per_company {
-            if !self.selected_companies().iter().any(|known| eq_ci(known, company)) {
-                return None;
-            }
-            company
+        let (source_company, company_key) = if !t.per_company {
+            (self.company(), usize::MAX)
+        } else if eq_ci(company, self.company()) {
+            (self.company(), 0)
         } else {
-            self.company()
+            let company_index = self.selected_companies.iter().position(|known| eq_ci(known, company))?;
+            (self.selected_companies[company_index].as_str(), company_index)
         };
-        let cache_key = (source_company.to_string(), object);
+        let cache_key = (company_key, object);
         if let Some(hit) = self.cache.borrow().get(&cache_key) {
             return hit.clone();
         }

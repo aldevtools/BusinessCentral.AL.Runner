@@ -415,18 +415,36 @@ pub fn run_traced_halting(
             k = early_installs;
             continue;
         }
-        let app = objs[roots[k].0].app;
-        if k < toolkit_from {
-            view.apply(&mut session, app, &app_group, &held_for_apps);
-        } else if k < early_installs {
-            view.apply(&mut session, app, &toolkit_group, &held_for_toolkit);
-        } else if late_from.is_some_and(|f| k >= f) {
-            view.apply(&mut session, app, &late_group, &under_test);
-        } else {
-            // Company-Initialize and the company build: every early dependency app is installed.
-            session.set_apps_not_installed(Some(held.clone()));
-            session.set_apps_install_order_unknown(None);
+        let is_late_root = late_from.is_some_and(|f| k >= f);
+        if k < early_installs || is_late_root {
+            let group_end = if k < toolkit_from {
+                toolkit_from
+            } else if k < partner_from {
+                partner_from
+            } else if k < early_installs {
+                early_installs
+            } else {
+                roots.len()
+            };
+            let app = objs[roots[k].0].app;
+            let mut end = k + 1;
+            while end < group_end && objs[roots[end].0].app == app {
+                end += 1;
+            }
+            if k < toolkit_from {
+                view.apply(&mut session, app, &app_group, &held_for_apps);
+            } else if k < early_installs {
+                view.apply(&mut session, app, &toolkit_group, &held_for_toolkit);
+            } else {
+                view.apply(&mut session, app, &late_group, &under_test);
+            }
+            st.run_app(&mut session, &(k..end).collect::<Vec<_>>());
+            k = end;
+            continue;
         }
+        // Company-Initialize and the company build: every early dependency app is installed.
+        session.set_apps_not_installed(Some(held.clone()));
+        session.set_apps_install_order_unknown(None);
         st.run_root(&mut session, k);
         k += 1;
     }

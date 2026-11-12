@@ -645,9 +645,9 @@ fn install_app_under_test(
             session.reset_single_instances();
             session.set_company(&in_company);
             // A4 item 4: Company Triggers in each company, before the routines. Under `--companies` the dependency
-            // apps stay in the session company (decision 5): in another company only the subscribers of the apps
-            // under test run (decided without owner review, 2026-10-29, ADR-046 amendment 2).
-            let with_dependencies = in_company == company;
+            // apps stay in the session company without backup data (decision 5). Selected backup companies also
+            // run their subscribers (ADR-046 amendment 9).
+            let with_dependencies = in_company == company || engine.test_data.is_some();
             let open = if part == Part::Company {
                 company_open(lowered, session, with_dependencies)
             } else {
@@ -949,7 +949,7 @@ pub(crate) fn apps_under_test(lowered: &Lowered) -> BTreeSet<u32> {
 /// The subscribers of `Company Triggers` OnCompanyOpen, then OnCompanyOpenCompleted, that are not manual and whose object
 /// `keep` selects, each event in the order BC raises an event to its subscribers (ascending codeunit id: `al-vm`
 /// `dispatch.rs` `event_targets`).
-fn company_open_subscribers(
+pub(crate) fn company_open_subscribers(
     lowered: &Lowered,
     events: &al_vm::events::Registry,
     keep: impl Fn(usize) -> bool,
@@ -979,8 +979,9 @@ fn company_open_subscribers(
 /// any app that cannot run here stops the app's per-company install routines, and what it and they touch is refused.
 ///
 /// `with_dependencies` false (a company other than the session company under `--companies`): the dependency apps' subscribers
-/// do not run there, since the dependency apps stay in the session company (ADR-046 decision 5, amendment 2).
-fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: bool) -> Result<(), String> {
+/// do not run there, since without backup data the dependency apps stay in the session company
+/// (ADR-046 decision 5, amendment 2; selected backup companies follow amendment 9).
+pub(crate) fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: bool) -> Result<(), String> {
     let engine = session.engine.clone();
     // What the session sees while the app installs (`InstallView::apply_ordered`, set by the caller).
     let unknown = session.apps_install_order_unknown().cloned().unwrap_or_default();
@@ -999,7 +1000,7 @@ fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: boo
         ));
     }
     let all = company_open_subscribers(lowered, &engine.events, |o| {
-        (lowered.dependency[o] || !not_installed.contains(&objs[o].app))
+        !not_installed.contains(&objs[o].app)
             && (with_dependencies || !lowered.dependency[o])
             && !unknown.contains(&objs[o].app)
     });

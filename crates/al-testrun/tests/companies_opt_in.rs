@@ -18,6 +18,33 @@ const BASE_APP: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 const COMPANY_TABLE: &str = "table 2000000006 Company { DataPerCompany = false;
   fields { field(1; Name; Text[30]) { } field(2; \"Evaluation Company\"; Boolean) { } field(3; \"Display Name\"; Text[250]) { } field(8000; Id; Guid) { } } }";
 
+struct SelectedBackup;
+
+impl al_host::testdata::TableProvider for SelectedBackup {
+    fn company(&self) -> &str {
+        SESSION
+    }
+
+    fn companies(&self) -> Vec<String> {
+        vec![SESSION.into(), OTHER.into(), "Unselected".into()]
+    }
+
+    fn known_companies(&self) -> Option<Vec<String>> {
+        Some(vec![SESSION.into(), OTHER.into()])
+    }
+
+    fn source(&self) -> String {
+        "selected.bak".into()
+    }
+
+    fn read(
+        &self,
+        _: &al_host::testdata::TableRequest,
+    ) -> Result<Arc<al_host::testdata::TableRows>, al_host::testdata::TableError> {
+        Err(al_host::testdata::TableError::Absent)
+    }
+}
+
 /// The outcomes of the test codeunit of `apps` (id, dependencies, source); the last app holds it.
 fn outcomes_of_apps(apps: &[(&str, &[&str], &str)]) -> Vec<(String, Outcome)> {
     outcomes_with_data(apps, None)
@@ -28,9 +55,25 @@ fn outcomes_with_data(
     apps: &[(&str, &[&str], &str)],
     data: Option<Arc<dyn al_host::testdata::TableProvider>>,
 ) -> Vec<(String, Outcome)> {
+    outcomes_with_baseline(apps, data, false)
+}
+
+fn outcomes_with_baseline(
+    apps: &[(&str, &[&str], &str)],
+    data: Option<Arc<dyn al_host::testdata::TableProvider>>,
+    run_dependency_baseline: bool,
+) -> Vec<(String, Outcome)> {
     al_testrun::host::set_companies(al_host::Companies::List(vec![SESSION.into(), OTHER.into()]));
     // The app with id `dep` is a dependency app (ADR-013), the others are under test.
-    let (ws, l) = al_sema::lower::compile_apps(
+    let roots = al_sema::check::Roots {
+        baseline: run_dependency_baseline,
+        company_install_events: data
+            .as_ref()
+            .and_then(|data| data.known_companies())
+            .is_some_and(|companies| companies.len() > 1),
+        ..Default::default()
+    };
+    let (ws, l) = al_sema::lower::compile_apps_with(
         apps.iter()
             .map(|(id, deps, src)| AppSource {
                 id: (*id).into(),
@@ -49,6 +92,8 @@ fn outcomes_with_data(
             })
             .collect(),
         &Default::default(),
+        None,
+        roots,
     );
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
     let blocked = l
@@ -58,6 +103,17 @@ fn outcomes_with_data(
         .collect();
     let mut engine = Engine::new(l.program.clone(), blocked);
     Arc::get_mut(&mut engine).expect("a new engine").test_data = data.map(al_host::testdata::TestData::new);
+    let baseline = run_dependency_baseline
+        .then(|| al_testrun::baseline::run(&engine, &l, None))
+        .flatten();
+    assert!(
+        !run_dependency_baseline || baseline.is_some(),
+        "expected dependency install roots"
+    );
+    if let Some(baseline) = &baseline {
+        Arc::get_mut(&mut engine).expect("baseline session dropped").unseeded =
+            baseline.unseeded.iter().map(|&table| table as usize).collect();
+    }
     let oi = l
         .program
         .objects
@@ -68,7 +124,7 @@ fn outcomes_with_data(
                 .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.eq_ignore_ascii_case("Test"))
         })
         .expect("a test codeunit");
-    al_testrun::runtime::run_codeunit(&engine, &l, oi)
+    al_testrun::runtime::run_codeunit_from(&engine, &l, oi, baseline.as_ref().map(|b| &b.baseline))
 }
 
 fn outcomes(src: &str) -> Vec<(String, Outcome)> {
@@ -131,6 +187,86 @@ fn per_company_install_code_runs_in_each_declared_company_then_per_database() {
             end; }}"
     ));
     all_pass(&o);
+}
+
+// Dependency installs on a selected backup use each selected company, but Company-Initialize remains in the session
+// company (record/BfInstallTests.al:74-95; ADR-046 decision 2).
+#[test]
+fn dependency_install_code_runs_per_selected_company_and_company_initialize_stays_in_session() {
+    let dep = r#"
+        table 60800 DepSetup { fields { field(1; K; Code[20]) { } field(2; Company; Text[30]) { } } keys { key(PK; K) { } } }
+        table 60801 SharedSetup { DataPerCompany = false; fields { field(1; K; Code[20]) { } field(2; Company; Text[30]) { } } keys { key(PK; K) { } } }
+        table 60802 Opened { fields { field(1; K; Code[30]) { } field(2; Company; Text[30]) { } } keys { key(PK; K) { } } }
+        codeunit 60905 Installer { Subtype = Install;
+            trigger OnInstallAppPerCompany() var S: Record DepSetup; begin
+                S.K := 'COMPANY'; S.Company := CompanyName(); S.Insert();
+            end;
+            trigger OnInstallAppPerDatabase() var S: Record SharedSetup; begin
+                S.K := 'DATABASE'; S.Company := CompanyName(); S.Insert();
+            end; }
+        codeunit 60906 CompanyOpenSubscriber {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+            local procedure OpenCompany() var S: Record Opened; begin
+                if not S.Get('OPEN') then begin S.K := 'OPEN'; S.Company := CompanyName(); S.Insert(); end;
+            end; }
+        codeunit 2 "Company-Initialize" { trigger OnRun() var S: Record DepSetup; begin
+            S.K := 'INITIALIZED'; S.Company := CompanyName(); S.Insert();
+        end; }"#;
+    let main = format!(
+        "{COMPANY_TABLE}
+        codeunit 60102 T {{ Subtype = Test;
+            [Test] procedure EachSelectedCompany() var S: Record DepSetup; begin
+                if not S.Get('COMPANY') then Error('session install missing');
+                if S.Company <> 'CRONUS International Ltd.' then Error('session %1', S.Company);
+                S.ChangeCompany('My Company');
+                if not S.Get('COMPANY') then Error('other install missing');
+                if S.Company <> 'My Company' then Error('other %1', S.Company);
+                if S.Get('INITIALIZED') then Error('Company-Initialize ran outside the session company');
+            end;
+            [Test] procedure PerDatabaseRunsOnceWithFreshSingleInstance() var S: Record SharedSetup; begin
+                if not S.Get('DATABASE') then Error('database install missing');
+                if S.Company <> '' then Error('database %1', S.Company);
+            end;
+            [Test] procedure CompanyTriggersRunInEachSelectedCompany() var S: Record Opened; begin
+                if not S.Get('OPEN') then Error('session company trigger missing');
+                if S.Company <> 'CRONUS International Ltd.' then Error('session company %1', S.Company);
+                S.ChangeCompany('My Company');
+                if not S.Get('OPEN') then Error('other company trigger missing');
+                if S.Company <> 'My Company' then Error('other company %1', S.Company);
+            end; }}"
+    );
+    let o = outcomes_with_baseline(
+        &[(BASE_APP, &[], dep), ("main", &[BASE_APP], &main)],
+        Some(Arc::new(SelectedBackup)),
+        true,
+    );
+    all_pass(&o);
+}
+
+#[test]
+fn a_selected_backup_company_does_not_bypass_the_unseeded_refusal() {
+    let dep = r#"
+        table 60800 DepSetup { fields { field(1; K; Code[20]) { } } keys { key(PK; K) { } } }
+        codeunit 60905 Installer { Subtype = Install;
+            trigger OnInstallAppPerCompany() var S: Record DepSetup; begin
+                S.K := 'SEEDED'; S.Insert(); Error('installation stopped');
+            end; }"#;
+    let main = format!(
+        "{COMPANY_TABLE}
+        codeunit 60102 T {{ Subtype = Test;
+            [Test] procedure ReadOtherCompany() var S: Record DepSetup; begin
+                S.ChangeCompany('My Company'); if S.IsEmpty() then;
+            end; }}"
+    );
+    let o = outcomes_with_baseline(
+        &[(BASE_APP, &[], dep), ("main", &[BASE_APP], &main)],
+        Some(Arc::new(SelectedBackup)),
+        true,
+    );
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("install baseline could not create them")),
+        "{o:?}"
+    );
 }
 
 // Decision 5: under the opt-in, dependency apps stay in the session company. A per-company table of a dependency app read

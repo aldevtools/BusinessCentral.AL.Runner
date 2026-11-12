@@ -31,6 +31,15 @@ tables the reader failed on (with its text), and columns left out.
 The reader behind this is `al-bcdb`, a Rust reader for `.bak` and `.bacpac` files
 that needs no SQL Server.
 
+Repeated `--test-data-company` values fill the `--companies` list in the given
+order, session company first. With a backup, `--companies A,B` also selects both
+companies' rows; `--companies all` selects every company. An explicit list and
+repeated options must resolve to the same companies in the same order. Unknown
+names, duplicates and `all` together with repeated options are usage errors.
+Only selected companies' tables are loaded, on first touch. Dependency apps'
+per-company install code runs in each selected company; `Company-Initialize`
+still runs only in the session company.
+
 ## Other countries
 
 `--country CODE` selects the country version (`us`, `gb`, `de`, and the other names

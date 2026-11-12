@@ -91,11 +91,11 @@ impl TableProvider for SelectedBackup {
     }
 
     fn companies(&self) -> Vec<String> {
-        vec!["Main".into(), "Other".into()]
+        vec!["Main".into(), "Other".into(), "Unselected".into()]
     }
 
     fn known_companies(&self) -> Option<Vec<String>> {
-        Some(self.companies())
+        Some(vec!["Main".into(), "Other".into()])
     }
 
     fn source(&self) -> String {
@@ -108,7 +108,15 @@ impl TableProvider for SelectedBackup {
 
     fn read_for_company(&self, company: &str, table: &TableRequest) -> Result<Arc<TableRows>, TableError> {
         match table.name.as_str() {
+            "Company" if !table.per_company => Ok(Arc::new(TableRows {
+                columns: vec!["Name".into()],
+                rows: ["Main", "Other", "Unselected"]
+                    .into_iter()
+                    .map(|name| vec![Cell::Text(name.into())])
+                    .collect(),
+            })),
             "CC Row" if table.per_company => {
+                assert_ne!(company, "Unselected", "an unselected company's rows were requested");
                 let value = if company == "Main" { 11 } else { 22 };
                 Ok(Arc::new(TableRows {
                     columns: vec!["Id".into(), "V".into()],
@@ -168,6 +176,23 @@ fn selected_backup_companies_expose_their_company_rows() {
         "if not R.ChangeCompany('Other') then exit(-1); if R.Get(1) then exit(R.V); exit(-2);",
     );
     assert!(matches!(result, Ok(Value::Integer(22))), "{result:?}");
+}
+
+#[test]
+fn selected_backup_company_rows_exclude_unselected_companies() {
+    let (result, data) = run_with_selected_backup_data(
+        "N := Co.Count(); if Co.Get('Unselected') then exit(-1); R.Get(1); R.ChangeCompany('Other'); R.Get(1); if R.ChangeCompany('Unselected') then exit(-2); exit(N);",
+    );
+    assert!(matches!(result, Ok(Value::Integer(2))), "{result:?}");
+    assert_eq!(data.stats.summary().rows, 2);
+}
+
+#[test]
+fn selected_backup_writes_are_isolated_by_company_and_rollback_restores_rows() {
+    let result = run_with_selected_backup(
+        "R.ChangeCompany('Other'); R.Get(1); R.V := 99; R.Modify(); R.Id := 2; R.Insert(); R.Get(1); R.Delete(); R.ChangeCompany('Main'); R.Get(1); if R.V <> 11 then exit(-1); R.ChangeCompany('Other'); if R.Get(1) then exit(-2); if not R.Get(2) then exit(-3); ClearLastError(); asserterror Error('rollback'); R.Get(1); if R.V <> 22 then exit(-4); if R.Get(2) then exit(-5); exit(1);",
+    );
+    assert!(matches!(result, Ok(Value::Integer(1))), "{result:?}");
 }
 
 #[test]

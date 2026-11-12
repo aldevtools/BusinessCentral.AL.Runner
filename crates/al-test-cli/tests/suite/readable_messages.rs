@@ -200,11 +200,6 @@ const KEPT: &[(&str, &str, &str)] = &[
         "the conformance suite asserts on a store outcome; a failing test prints it",
     ),
     (
-        "al-host/src/testdata.rs",
-        r#"let key = format!("{}|{:?}|{}", table.name.to_lowercase(), table.app_id, table.per_company);"#,
-        "a cache key, never shown",
-    ),
-    (
         "al-sema/src/queries.rs",
         r#""column {name}: a {class:?} field in this position (or with Method) is not supported yet""#,
         "`class` is a unit enum: the debug text is the variant name (Normal, FlowField)",
