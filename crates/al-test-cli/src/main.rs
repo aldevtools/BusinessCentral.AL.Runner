@@ -1143,6 +1143,7 @@ fn run_version_inner(
         name: String::new(),
         app: None,
         runner: None,
+        driver: None,
     }];
     // The main run takes the corpus app's test codeunits only, as before; another pass does not run them.
     runs[0].app = Some(main_app);
@@ -1155,6 +1156,8 @@ fn run_version_inner(
             name: suite.name.clone(),
             app,
             runner: suite.runner,
+            // ADR-074: the driver the suite's oracle was recorded with (its format says which).
+            driver: Some(suite.format.driver()),
         });
     }
     // A selection roots the compile at the selected test codeunits (app index, object id); so does a pass without the

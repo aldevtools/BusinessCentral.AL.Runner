@@ -162,6 +162,8 @@ pub(super) struct StrictRun<'a> {
     pub place: &'a dyn Fn(usize, u32) -> u32,
     pub suites: Option<&'a crate::test_suites::TestSuites>,
     pub refused: &'a [(usize, u32, usize, String)],
+    /// BcContainerHelper's discovery pass of each BC session that has one (ADR-074): the first member of its walk.
+    pub discovery: &'a [Item],
     /// The run's test threads (1: all walks on this thread).
     pub workers: usize,
     /// Threads other than this one can start from their own copy of the install baseline.
@@ -180,7 +182,12 @@ impl StrictRun<'_> {
         details: &mut std::collections::HashMap<(usize, u32, String), explain::TestDetail>,
         report: &mut ChainReport,
     ) {
-        let groups = groups(self.walk.units, self.place, self.suites, self.refused);
+        let mut groups = groups(self.walk.units, self.place, self.suites, self.refused);
+        for g in &mut groups {
+            if let Some(d) = g.first().and_then(|f| self.discovery.iter().find(|d| d.0 == f.0)) {
+                g.insert(0, (d.0, d.1, d.2, d.3.clone()));
+            }
+        }
         // The longest walks first: the wall time is then close to the longest session's.
         let mut order: Vec<usize> = (0..groups.len()).collect();
         order.sort_by_key(|&g| std::cmp::Reverse(groups[g].len()));

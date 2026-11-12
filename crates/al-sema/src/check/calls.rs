@@ -858,6 +858,19 @@ impl<'a> Checker<'a> {
                 return Some(E::Callable(c));
             }
         }
+        // The bare `UseRequestPage` without parentheses in a report's code reads the getter, as `UseRequestPage()` does:
+        // in a condition and as an argument, in every trigger (reports/bare-report-member/UseRequestPageReadInTriggers.al:
+        // 104-108, :57; al-runner issue 7414). The other bare report members without parentheses, and this one in a report
+        // extension, are not pinned: they stay unresolved and the lowering refuses them (`bare_report_method_without_call`).
+        if key == "userequestpage"
+            && self.ws.objects[sc.oi].kind == ObjKind::Report
+            && let Some(report @ Ty::Object(ObjKind::Report, _)) = sc.globals.get("currreport").cloned()
+        {
+            let c = self.catalog_cands("Report", &n, true, &report);
+            if !c.is_empty() {
+                return Some(E::Callable(c));
+            }
+        }
         let keyword = match key.as_str() {
             "database" | "table" => Some(E::ObjKeyword(ObjKind::Table)),
             "codeunit" => Some(E::ObjKeyword(ObjKind::Codeunit)),

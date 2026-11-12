@@ -76,6 +76,10 @@ enum Entry {
     /// `Execute` never shows the request page
     /// (record/TestTxModelReportExec.al:195-210, Test09).
     Execute,
+    /// `Report.Print(Id, '')` of a processing-only report with UseSystemPrinter, run as an Execute (reports/
+    /// Y13ReportSystemPrinter.al:357-358). Its triggers' `UseRequestPage()` is not pinned and keeps the instance's answer
+    /// (`use_request_page_getter`).
+    Print,
 }
 
 /// The report instance's object, kept alive independently of the session.
@@ -460,6 +464,8 @@ impl Session {
                 // `CurrReport.UseRequestPage()` has no receiver value: it is the running report, as for ObjectId (Copy Sales
                 // Document OnPreReport, 186 Tests-ERM tests; the getter of a report run by Run is pinned by
                 // reports/TestReportRuntimeContracts.al:416-440 for a variable).
+                // The report's own code, not a reportextension's, read without a receiver (`use_request_page_getter`).
+                let own_code = receiver.is_none() && running.borrow().base.is_none();
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
                 let inst = self.report_instance(receiver, false)?.0;
                 let schema = self.report_schema(&inst)?;
@@ -467,7 +473,7 @@ impl Session {
                 // The getter answers what the next Run does; the setter overrides the report's own
                 // property in both directions (reports/TestReportRuntimeContracts.al:416-440).
                 let Some(Value::Boolean(b)) = args.first() else {
-                    return self.use_request_page_getter(&inst, &schema);
+                    return self.use_request_page_getter(&inst, &schema, own_code);
                 };
                 inst.borrow_mut().globals[slot] = Value::Integer(if *b { REQUEST_PAGE_ON } else { REQUEST_PAGE_OFF });
                 Ok(Value::Null)
@@ -511,7 +517,7 @@ impl Session {
                     match self.report_enter_world(&schema, window) {
                         Ok(enters) => {
                             let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_1);
-                            let ran = self.report_run_entered(&inst, &schema, Entry::Run, window, enters);
+                            let ran = self.report_run_entered(&inst, &schema, Entry::Run, window, enters, None);
                             self.report.run_modal = outer;
                             ran
                         }
@@ -605,7 +611,7 @@ impl Session {
                     return Ok(Value::Null);
                 }
                 let outer = std::mem::replace(&mut self.report.run_modal, id == ids::REPORT_RUNMODAL_3);
-                let ran = self.report_run(&inst, &schema, Entry::Run, window);
+                let ran = self.report_run(&inst, &schema, Entry::Run, window, None);
                 self.report.run_modal = outer;
                 ran.map(|()| Value::Null)
             }
@@ -624,13 +630,9 @@ impl Session {
                 }
                 self.report.report_executed.retain(|w| w.strong_count() > 0);
                 self.report.report_executed.push(Rc::downgrade(&inst));
-                let result = if quit {
-                    Ok(())
-                } else {
-                    self.report.execute_parameters = parameters;
-                    let ran = self.report_run(&inst, &schema, Entry::Execute, false);
-                    self.report.execute_parameters = None;
-                    ran
+                let result = match quit {
+                    true => Ok(()),
+                    false => self.report_execute_run(&inst, &schema, parameters, args.get(1), RefCall::VariableExecute),
                 };
                 // After an Execute the getter of a variable whose UseRequestPage was never set answers false
                 // (reports/PnH2UseRp.al:389, WithRP_UseFalse_Run_RunModal_Execute `getter`). What the triggers
@@ -658,10 +660,7 @@ impl Session {
                 if self.report_init(&inst)? {
                     return Ok(Value::Null);
                 }
-                self.execute_record_ref_view(&inst, &schema, args.get(2))?;
-                self.report.execute_parameters = parameters;
-                let ran = self.report_run(&inst, &schema, Entry::Execute, false);
-                self.report.execute_parameters = None;
+                let ran = self.report_execute_run(&inst, &schema, parameters, args.get(2), RefCall::StaticExecute);
                 ran.map(|()| Value::Null)
             }
             // `Report.Print(Id, '')` of a processing-only report that declares UseSystemPrinter runs it as `Report.Execute(Id, '')`:
@@ -676,7 +675,7 @@ impl Session {
                 if self.report_init(&inst)? {
                     return Ok(Value::Null);
                 }
-                self.report_run(&inst, &schema, Entry::Execute, false)
+                self.report_run(&inst, &schema, Entry::Print, false, None)
                     .map(|()| Value::Null)
             }
             ids::REPORT_PRINT_1 | ids::REPORT_PRINT_2 => {
@@ -1531,7 +1530,15 @@ impl Session {
 
     // ------------------------------------------------------------------ the run
 
-    fn report_run(&mut self, inst: &Inst, schema: &Schema, entry: Entry, window: bool) -> Result<(), Signal> {
+    /// `record_ref`: the RecordRef of an Execute with parameters, whose view the run applies after them (`report_body`).
+    fn report_run(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        entry: Entry,
+        window: bool,
+        record_ref: Option<Value>,
+    ) -> Result<(), Signal> {
         // ADR-062 stage 3: Execute on a report made under restricted permissions (Y24PermExecute.al tdonly_report_run).
         if self.permissions.is_some() && inst.borrow().born.0 {
             self.permission_gate_execute(schema.object)?;
@@ -1543,7 +1550,7 @@ impl Session {
         // requestpage section opens its page as well (reports/TestReportRuntimeContracts.al:416-440).
         let shows_page = entry == Entry::Run && window;
         let enters = self.report_enter_world(schema, shows_page)?;
-        self.report_run_entered(inst, schema, entry, window, enters)
+        self.report_run_entered(inst, schema, entry, window, enters, record_ref)
     }
 
     /// `report_run` once the transaction world is decided (`enters`).
@@ -1554,6 +1561,7 @@ impl Session {
         entry: Entry,
         window: bool,
         enters: bool,
+        record_ref: Option<Value>,
     ) -> Result<(), Signal> {
         self.report.print_only_if_detail = false;
         // Only a SaveAs of a variable with a language or region is pinned (reports/W3ReportObjectIdPreviewLanguage.al:893, :912).
@@ -1567,7 +1575,7 @@ impl Session {
         let shows_page = entry == Entry::Run && window;
         self.report.report_preview_pinned.push(match entry {
             Entry::Run => crate::state::ReportStart::Run,
-            Entry::Execute => crate::state::ReportStart::Execute,
+            Entry::Execute | Entry::Print => crate::state::ReportStart::Execute,
         });
         // The language and region a trigger sets belong to this run (PnC06ReportLanguage.al:Language_Invalid starts three
         // runs with no language set after Language_SetAndRead set one).
@@ -1587,14 +1595,16 @@ impl Session {
             self.report.region_property = true;
         }
         // Only a Run or RunModal is pinned as running for a nested RunModal (Y40BareReportRun.al:362).
-        let tracked = entry == Entry::Run;
-        if tracked {
-            self.report.report_running.push(Rc::downgrade(inst));
-        }
-        let ran = self.report_in_world(enters, |s| s.report_body(inst, schema, shows_page, None));
-        if tracked {
-            self.report.report_running.pop();
-        }
+        self.report.report_running.push(crate::state::RunningReport {
+            inst: Rc::downgrade(inst),
+            by_run: entry == Entry::Run,
+            shows_page,
+            answers_getter: entry != Entry::Print,
+            depth: self.depth,
+            page_triggers: self.pages.trigger_kinds.len(),
+        });
+        let ran = self.report_in_world(enters, |s| s.report_body(inst, schema, shows_page, None, record_ref));
+        self.report.report_running.pop();
         self.report.format_region = outer_region;
         self.report.region_property = outer_property;
         self.report.curr_report_language = outer_language;
@@ -1877,6 +1887,7 @@ impl Session {
         schema: &Schema,
         shows_page: bool,
         save_as: Option<&str>,
+        record_ref: Option<Value>,
     ) -> Result<bool, Signal> {
         if self.report_handler_takes_run(inst, schema, shows_page, save_as.is_some())? {
             return Ok(true);
@@ -1894,17 +1905,23 @@ impl Session {
             }
         }
         if let Some(xml) = save_as.filter(|x| !x.is_empty()) {
-            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::SaveAs)?;
+            // A SaveAs with parameters and a RecordRef runs the request page's OnOpenPage (`request_page_open_close_unshown`);
+            // without a RecordRef it is not pinned and runs neither, as before.
+            let opens = record_ref.is_some();
+            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::SaveAs, record_ref)?;
+            if opens {
+                self.request_page_open_close_unshown(inst, schema, ParamsCall::SaveAs)?;
+            }
         } else if let Some(xml) = &execute_parameters {
             // An Execute skips a field name no control has (WdReportExecuteParams.al:69-77 WD_ReportExecute_UnknownField).
-            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::Execute)?;
+            self.apply_run_parameters(inst, schema, &run, xml, ParamsCall::Execute, record_ref)?;
             // The values land after the request page's OnInit; its OnOpenPage and OnClosePage follow (no OnQueryClosePage), and a
             // control the parameters do not name keeps OnInit's value (reports/request-page/Y12ExecuteOnInit.al:117-143,
             // corpus branch al-runtime-rs-staging-y12, al-runner issue 6446; RptRequestPage.al:878-893). An empty string runs
             // neither (Y12ExecuteOnInit.al:145-156): `execute_parameters` holds no empty string. A page without OnInit runs its
             // OnOpenPage too, also for the parameters of another report (reports/Y14ReportSubstitute.al:389
             // `B-rp-open`, `A-rp-open`, corpus master).
-            self.request_page_open_close_unshown(inst, schema)?;
+            self.request_page_open_close_unshown(inst, schema, ParamsCall::Execute)?;
             crate::report_no_layout_file::execute_check(self, schema)?;
         }
         // The request page opens once the items' views are in force; what the handler filters is
@@ -1971,67 +1988,6 @@ impl Session {
             ));
         }
         self.hand_run_to_report_handler(inst, schema)
-    }
-
-    /// The request page's `OnInit` runs although the page is not shown, after OnInitReport and before OnPreReport, and
-    /// OnOpenPage does not: a SaveAs (text/PnBReportSaveAs.al:348 TriggerOrder, :262 Rows_SkipAndBreak),
-    /// an Execute and a Run with UseRequestPage(false) (reports/reporthandler/AeReportHandler.al:85, :121). The values of
-    /// an Execute's or a SaveAs's parameters land after it (`report_body`). Not pinned, and refused: an OnInit a reportextension
-    /// adds to the page. The values of a SaveAs's parameters landing after it: reports/runtime/
-    /// Y68SelfClosingParams.al:420-444 (Q1_SaveAs_SelfClosing_DataReport, a control they do not name keeps OnInit's value).
-    /// Returns whether the trigger ran here.
-    pub(crate) fn request_page_init_unshown(&mut self, inst: &Inst, schema: &Schema) -> Result<bool, Signal> {
-        let engine = self.engine.clone();
-        let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
-            return Ok(false);
-        };
-        if page.ext_triggers.iter().any(|(n, _, _)| n == "oninit") {
-            return unsupported(format!(
-                "the OnInit a reportextension adds to the request page of report \"{}\", which runs without its page (not pinned)",
-                schema.name()
-            ));
-        }
-        let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
-            return Ok(false);
-        };
-        // It ran before the [ReportHandler] that runs the report now.
-        if self
-            .report
-            .rp_init_by_handler
-            .iter()
-            .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
-        {
-            return Ok(false);
-        }
-        // It ran at the procedure that used the variable first and does not run again
-        // (reports/request-page/RequestPageOnInitFirstUse.al:104-185).
-        if self.request_page_init_done(inst) {
-            return Ok(false);
-        }
-        self.call(schema.object, r, inst.clone(), Vec::new()).map(|_| true)
-    }
-
-    /// The request page's OnOpenPage, then its OnClosePage, for the parameters of an Execute whose page's OnInit ran without
-    /// the page (`report_body`). Refused: the triggers a reportextension adds to the page (not pinned).
-    fn request_page_open_close_unshown(&mut self, inst: &Inst, schema: &Schema) -> Result<(), Signal> {
-        let engine = self.engine.clone();
-        let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
-            return Ok(());
-        };
-        for name in ["onopenpage", "onclosepage"] {
-            if page.ext_triggers.iter().any(|(n, _, _)| n == name) {
-                return unsupported(format!(
-                    "the {name} trigger a reportextension adds to the request page of report \"{}\", for an Execute with parameters (not pinned)",
-                    schema.name()
-                ));
-            }
-        }
-        for name in ["onopenpage", "onclosepage"] {
-            if let Some(r) = page.triggers.iter().find(|(n, _)| n == name).map(|(_, r)| *r) {
-                self.call(schema.object, r, inst.clone(), Vec::new())?;
-            }
-        }
-        Ok(())
     }
 
     /// Everything of a run after its request page: the triggers and the data items.
@@ -2987,9 +2943,12 @@ impl Session {
         if at == 0 {
             self.report_mark_executed(&inst);
         }
-        if let Some(rr) = record_ref {
-            self.report_set_view(&inst, &schema, Some(rr))?;
-        }
+        let call = if at == 0 {
+            RefCall::VariableSaveAs
+        } else {
+            RefCall::StaticSaveAs
+        };
+        let deferred = self.report_record_ref(&inst, &schema, record_ref, !parameters.is_empty(), call)?;
         let enters = self.report_enter_world(&schema, false)?;
         let mut fresh = Dataset::default();
         fresh.region = region.clone();
@@ -3013,7 +2972,9 @@ impl Session {
         let outer_language = self.report.curr_report_language.take();
         let outer_run_language = std::mem::replace(&mut self.report.run_language, variable_language);
         let outer_variable_region = std::mem::replace(&mut self.report.variable_region, variable_region.is_some());
-        let ran = self.report_in_world(enters, |s| s.report_body(&inst, &schema, false, Some(&parameters)));
+        let ran = self.report_in_world(enters, |s| {
+            s.report_body(&inst, &schema, false, Some(&parameters), deferred)
+        });
         self.report.format_region = outer_region;
         self.report.region_property = outer_property;
         self.report.curr_report_language = outer_language;
@@ -3716,39 +3677,6 @@ impl Session {
                 other.map_or("missing".to_string(), |v| v.describe())
             )),
         }
-    }
-
-    /// Loads the parameters string of a `SaveAs` into the data items' records, the way a request
-    /// page does before the run (reports/TestReportRunRequestPage.al:TestReport_CapturedParameters_
-    /// ReplayThroughSaveAs_FilterTheDataset), or of an `Execute`. Which forms of the text are understood,
-    /// per call: `apply_request_parameters` and `ParamsCall`.
-    fn apply_run_parameters(
-        &mut self,
-        inst: &Inst,
-        schema: &Schema,
-        run: &Run,
-        xml: &str,
-        call: ParamsCall,
-    ) -> Result<(), Signal> {
-        let engine = self.engine.clone();
-        let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
-            return unsupported(format!(
-                "parameters for report \"{}\", which has no request page",
-                schema.name()
-            ));
-        };
-        if let Some(why) = page.unsupported.first() {
-            return unsupported(format!("the request page of report \"{}\": {why}", schema.name()));
-        }
-        let mut exts = Vec::new();
-        for &e in &page.extensions {
-            let ext = match run.exts.iter().find(|(_, re)| *re == e) {
-                Some((i, _)) => i.clone(),
-                None => self.extension_instance(e, inst),
-            };
-            exts.push((e, ext));
-        }
-        self.apply_request_parameters(inst, &exts, schema.object, xml, call)
     }
 
     /// A column bound to a FlowField of the data item's table is calculated for every row before
@@ -4662,10 +4590,12 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
 }
 
 mod execute_args;
+use execute_args::RefCall;
 pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod html_record;
 mod request_caption;
+mod request_unshown;
 mod running;
 mod word_xml_part;

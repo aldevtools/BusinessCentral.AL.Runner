@@ -17,11 +17,13 @@
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
 
-/// The kind of page trigger that runs now (only the two the corpus pins are told apart).
+/// The kind of page trigger that runs now (only the ones the corpus pins are told apart).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum TriggerKind {
     AfterGetCurrRecord,
     Action,
+    /// OnOpenPage: a report's `UseRequestPage()` read there is pinned (`reports/running.rs`, `use_request_page_getter`).
+    OpenPage,
     Other,
 }
 
@@ -44,6 +46,7 @@ impl Session {
         let kind = match name {
             "onaftergetcurrrecord" => TriggerKind::AfterGetCurrRecord,
             "onaction" => TriggerKind::Action,
+            "onopenpage" => TriggerKind::OpenPage,
             _ => TriggerKind::Other,
         };
         self.pages.trigger_kinds.push((Rc::as_ptr(st), kind));
@@ -133,7 +136,7 @@ impl Session {
             && match veto.kind {
                 TriggerKind::Action => method.method() == PageMethod::Invoke,
                 TriggerKind::AfterGetCurrRecord => method.method() == PageMethod::OpenView && !page.borrow().modal,
-                TriggerKind::Other => false,
+                TriggerKind::OpenPage | TriggerKind::Other => false,
             };
         if !pinned {
             return unsupported(format!(
@@ -186,7 +189,9 @@ impl Session {
             Some((p, k)) if *p == Rc::as_ptr(st) => *k,
             _ => TriggerKind::Other,
         };
-        if kind == TriggerKind::Other || (kind == TriggerKind::AfterGetCurrRecord && st.borrow().modal) {
+        if matches!(kind, TriggerKind::Other | TriggerKind::OpenPage)
+            || (kind == TriggerKind::AfterGetCurrRecord && st.borrow().modal)
+        {
             return unsupported(
                 "a CurrPage.Close() that OnQueryClosePage refused, from a trigger other than an action or OnAfterGetCurrRecord at OpenView (not pinned)",
             );

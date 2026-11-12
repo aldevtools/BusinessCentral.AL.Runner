@@ -23,6 +23,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "excludeTests",
     "testIsolation",
     "testRunner",
+    "testDriver",
     "captureValues",
     "iterationTracking",
     "announceStart",
@@ -302,6 +303,15 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
                 Some(crate::args::parse_test_runner(r).map_err(|e| e.replace("--test-runner", "`testRunner`"))?);
         }
         Some(_) => return Err("`testRunner` is a codeunit id as text or `builtin`".into()),
+    }
+    // ADR-074: `testDriver` is `--test-driver` for one request.
+    match fields.get("testDriver") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(d)) => {
+            a.test_driver =
+                Some(crate::args::parse_test_driver(d).map_err(|e| e.replace("--test-driver", "`testDriver`"))?);
+        }
+        Some(_) => return Err("`testDriver` is `bc-linux` or `bccontainerhelper`".into()),
     }
     a.coverage = flag(fields, "coverage")? || flag(fields, "perTestCoverage")?;
     a.profile = crate::profile::from_json(fields.get("profile").unwrap_or(&Value::Null))?;
@@ -1100,6 +1110,18 @@ mod tests {
                 .strict_order
         );
         assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.strict_order);
+        // ADR-074: `testDriver` is `--test-driver` for one request; absent, bc-linux.
+        assert_eq!(
+            run(json!({"sourcePaths": ["/a"], "testDriver": "bccontainerhelper"}))
+                .unwrap()
+                .0
+                .test_driver,
+            Some(al_testrun::runtime::TestDriver::BcContainerHelper)
+        );
+        assert_eq!(run(json!({"sourcePaths": ["/a"]})).unwrap().0.test_driver, None);
+        let e = run(json!({"sourcePaths": ["/a"], "testDriver": "al-go"})).unwrap_err();
+        assert!(e.contains("`testDriver` needs bc-linux or bccontainerhelper"), "{e}");
+        assert!(run(json!({"sourcePaths": ["/a"], "testDriver": 1})).is_err());
         // Owner decision 2026-11-08: `maxMemory` is `--max-memory` for one request.
         assert_eq!(
             run(json!({"sourcePaths": ["/a"], "maxMemory": "6G"}))

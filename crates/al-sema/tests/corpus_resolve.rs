@@ -157,10 +157,6 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
          assignment as a call is its own package (corpus bump to 86dadd47)",
     ),
     (
-        "reports/bare-report-member/UseRequestPageReadInTriggers.al",
-        "the checker does not resolve a bare report method named without parentheses (`UseRequestPage`); the lowering refuses it (corpus bump to 662b1028)",
-    ),
-    (
         "format-evaluate/format-matrix/FMEnum.al",
         "the enum `Warehouse Activity Type` is a Base Application enum, outside the workspace this test resolves against (corpus bump e01709f4)",
     ),

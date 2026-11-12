@@ -66,7 +66,8 @@ impl Session {
             // BC28PLUS); another error's text and code cannot be read.
             Err(Signal::Error(e)) if origin.as_deref() == Some("onclosepage") => {
                 self.mark_closed(st);
-                if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED {
+                let relation_confirm = e.code == "MissingUIHandler" && self.relation_closed_in_handler(st);
+                if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED && !relation_confirm {
                     return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
                 }
                 // Pinned by testpage/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
@@ -206,6 +207,7 @@ impl Session {
         let test_close = std::mem::take(&mut self.pages.test_close);
         self.require_open(st)?;
         st.borrow_mut().close_vetoed = false;
+        self.note_relation_close(st, action, test_close, via_action);
         let mapped = self.close_action(st, action);
         let action = mapped.as_str();
         // Cancel on a request page whose ModifyAllowed is false drops a changed row: no error, the stored row unchanged
@@ -281,7 +283,11 @@ impl Session {
         }
         // BC's client saves the child forms before the form's own record on a saving close
         // (corpus testpage/parts/TestOkPartRow.al:OkInvoke_HeaderOnModifySeesThePartRowSavedFirst).
-        self.save_parts(st)?;
+        let saved = self.save_parts(st);
+        if let Some(e) = self.document_part_save_error(st, &saved, via_action)? {
+            return Err(e);
+        }
+        saved?;
         let pending = st.borrow_mut().pending.take();
         if let Some(fields) = pending {
             let rec = self.page_rec(st);
@@ -420,6 +426,7 @@ impl Session {
         // :509 RP_CardWithListPart_HostVetoes; al-runner issue 5762).
         st.borrow_mut().close_vetoed = veto == Some(false);
         if veto == Some(false) {
+            self.refuse_relation_close_veto(st)?;
             return Ok(Value::Null);
         }
         if !self.page_event(st, "onqueryclosepageevent", Some(true), None)? {
@@ -443,6 +450,10 @@ impl Session {
         let r = self.page_trigger(st, "onclosepage", vec![]);
         if test_close {
             r?;
+        } else if let Some(e) = self.relation_close_page_error(st, &r) {
+            return Err(e);
+        } else if let Some(e) = self.document_close_page_error(st, &r)? {
+            return Err(e);
         } else {
             refuse_error(r, "OnClosePage at a close by an action or a handler")?;
         }

@@ -99,6 +99,7 @@ mod single_instance_test_codeunit;
 mod skip_after_timeout;
 mod start_session_record;
 mod strict_sequential;
+mod test_driver;
 mod testfilter_qualified_field;
 mod testpage_close_at_test_end;
 mod testpage_close_query_close_unhandled;

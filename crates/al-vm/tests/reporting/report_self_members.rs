@@ -264,22 +264,24 @@ fn a_bare_use_request_page_read_in_on_pre_report_reads_the_instance_setting() {
     );
 }
 
-/// The bare setter in OnPreReport, and the bare read in a data item trigger, are not pinned (corpus probe
-/// reports/bare-report-member/UseRequestPageReadInTriggers.al): refused.
+/// The bare read in a data item trigger of a run without its request page answers false (reports/bare-report-member/
+/// UseRequestPageReadInTriggers.al:244-305, `predataitem cond=first`).
+#[test]
+fn a_bare_use_request_page_read_in_a_data_item_trigger_answers_the_run() {
+    let item = "trigger OnPreDataItem() begin if not UseRequestPage() then L.Add('x'); end;";
+    assert_eq!(
+        al_testkit::text(run_in(&pre_read("", item), "RSM Caller4", "Go")),
+        "x;x;x;"
+    );
+}
+
+/// The bare setter in OnPreReport is not pinned: refused.
 #[test]
 fn a_bare_use_request_page_elsewhere_in_a_trigger_is_still_refused() {
-    for (pre, item) in [
-        ("UseRequestPage(false);", ""),
-        (
-            "",
-            "trigger OnPreDataItem() begin if not UseRequestPage() then L.Add('x'); end;",
-        ),
-    ] {
-        match run_in(&pre_read(pre, item), "RSM Caller4", "Go") {
-            Err(al_builtins::native::Signal::Unsupported(why)) => {
-                assert!(why.contains("a bare `UseRequestPage`"), "{why}")
-            }
-            other => panic!("{other:?}"),
+    match run_in(&pre_read("UseRequestPage(false);", ""), "RSM Caller4", "Go") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => {
+            assert!(why.contains("a bare `UseRequestPage`"), "{why}")
         }
+        other => panic!("{other:?}"),
     }
 }

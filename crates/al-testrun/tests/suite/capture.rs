@@ -22,6 +22,7 @@ fn run(code: &str, capture: CaptureConfig) -> al_testrun::runtime::TestResult {
             name: String::new(),
             app: Some(0),
             runner: None,
+            driver: None,
         }],
         &RunOptions {
             execute: true,
