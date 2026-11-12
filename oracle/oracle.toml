@@ -10,7 +10,7 @@
 # The artifact cache key of CI follows the pin (`--print-builds`).
 corpus_repo = "corpus"
 corpus_app = "corpus/tests/al-language"
-corpus_commit = "82b591e45ae22a56662c6d135343e5dbbaf6a572"
+corpus_commit = "5f0b4206aa9ff4ec1777c6eb74e527b268a157be"
 # ADR-046 amendment 4: the corpus CI database has two companies, the session company first
 # (install/lt-bf-install-probes/BfInstallTests.al:60-62).
 companies = ["CRONUS International Ltd.", "My Company"]
@@ -20,24 +20,24 @@ major = 27
 app_runtime = "16.1"
 bc_version = "27.5"
 bc_build = "27.5.46862.56249"
-workflow_run = 43129977282
-artifact_id = 13907879722
+workflow_run = 43157317958
+artifact_id = 13918785056
 junit = "27/junit.xml"
 baseline = "metrics/27/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 43129977282
-artifact_id = 13906859245
+workflow_run = 43157317958
+artifact_id = 13917581042
 oracle = "27/junit-onprem.xml"
 baseline = "metrics/27/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 43129977282
-artifact_id = 13908030961
+workflow_run = 43157317958
+artifact_id = 13917875173
 oracle = "27/junit-dotnet.xml"
 baseline = "metrics/27/not-passing-dotnet.txt"
 
@@ -47,8 +47,8 @@ baseline = "metrics/27/not-passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 43129977282
-artifact_id = 13907699129
+workflow_run = 43157317958
+artifact_id = 13919530414
 oracle = "27/junit-testlibraries.xml"
 baseline = "metrics/27/not-passing-testlibraries.txt"
 extra_apps = [
@@ -66,8 +66,8 @@ extra_dirs = [
 [[version.suite]]
 name = "trywrite-allowed"
 app = "corpus/tests/al-language-trywrite-allowed"
-workflow_run = 43129977282
-artifact_id = 13908336823
+workflow_run = 43157317958
+artifact_id = 13917884885
 oracle = "27/junit-trywrite-allowed.xml"
 baseline = "metrics/27/not-passing-trywrite-allowed.txt"
 # The corpus job "BC TryWrites" (corpus .github/workflows/ci.yml, job test-trywrite-allowed, `server_settings`).
@@ -78,24 +78,24 @@ major = 28
 app_runtime = "17.1"
 bc_version = "28.5"
 bc_build = "28.5.54151.56267"
-workflow_run = 43129977282
-artifact_id = 13909032116
+workflow_run = 43157317958
+artifact_id = 13918766184
 junit = "28/junit.xml"
 baseline = "metrics/28/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 43129977282
-artifact_id = 13906739100
+workflow_run = 43157317958
+artifact_id = 13917736511
 oracle = "28/junit-onprem.xml"
 baseline = "metrics/28/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 43129977282
-artifact_id = 13907646987
+workflow_run = 43157317958
+artifact_id = 13916473586
 oracle = "28/junit-dotnet.xml"
 baseline = "metrics/28/not-passing-dotnet.txt"
 
@@ -105,8 +105,8 @@ baseline = "metrics/28/not-passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 43129977282
-artifact_id = 13908382168
+workflow_run = 43157317958
+artifact_id = 13918568849
 oracle = "28/junit-testlibraries.xml"
 baseline = "metrics/28/not-passing-testlibraries.txt"
 extra_apps = [
@@ -157,8 +157,8 @@ baseline = "metrics/28/not-passing-isolation-codeunit.txt"
 [[version.suite]]
 name = "trywrite-allowed"
 app = "corpus/tests/al-language-trywrite-allowed"
-workflow_run = 43129977282
-artifact_id = 13908301968
+workflow_run = 43157317958
+artifact_id = 13918094494
 oracle = "28/junit-trywrite-allowed.xml"
 baseline = "metrics/28/not-passing-trywrite-allowed.txt"
 # The corpus job "BC TryWrites" (corpus .github/workflows/ci.yml, job test-trywrite-allowed, `server_settings`).
@@ -169,24 +169,24 @@ major = 29
 app_runtime = "18.0"
 bc_version = "29.0"
 bc_build = "29.0.54011.56262"
-workflow_run = 43129977282
-artifact_id = 13909226113
+workflow_run = 43157317958
+artifact_id = 13919075249
 junit = "29/junit.xml"
 baseline = "metrics/29/not-passing.txt"
 
 [[version.suite]]
 name = "onprem"
 app = "corpus/tests/al-language-onprem"
-workflow_run = 43129977282
-artifact_id = 13906964406
+workflow_run = 43157317958
+artifact_id = 13917002868
 oracle = "29/junit-onprem.xml"
 baseline = "metrics/29/not-passing-onprem.txt"
 
 [[version.suite]]
 name = "onprem-dotnet"
 app = "corpus/tests/al-language-onprem-dotnet"
-workflow_run = 43129977282
-artifact_id = 13906943166
+workflow_run = 43157317958
+artifact_id = 13917437020
 oracle = "29/junit-dotnet.xml"
 baseline = "metrics/29/not-passing-dotnet.txt"
 
@@ -196,8 +196,8 @@ baseline = "metrics/29/not-passing-dotnet.txt"
 [[version.suite]]
 name = "testlibraries"
 app = "corpus/tests/al-language-testlibraries"
-workflow_run = 43129977282
-artifact_id = 13908895822
+workflow_run = 43157317958
+artifact_id = 13918293576
 oracle = "29/junit-testlibraries.xml"
 baseline = "metrics/29/not-passing-testlibraries.txt"
 extra_apps = [
@@ -215,8 +215,8 @@ extra_dirs = [
 [[version.suite]]
 name = "trywrite-allowed"
 app = "corpus/tests/al-language-trywrite-allowed"
-workflow_run = 43129977282
-artifact_id = 13908371625
+workflow_run = 43157317958
+artifact_id = 13918374199
 oracle = "29/junit-trywrite-allowed.xml"
 baseline = "metrics/29/not-passing-trywrite-allowed.txt"
 # The corpus job "BC TryWrites" (corpus .github/workflows/ci.yml, job test-trywrite-allowed, `server_settings`).
