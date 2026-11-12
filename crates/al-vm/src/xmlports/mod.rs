@@ -22,6 +22,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod after_assign;
 mod assigned;
 mod container_tree;
 mod einvoice_shapes;
@@ -39,6 +40,7 @@ mod shape;
 #[cfg(test)]
 mod tests;
 mod text;
+mod text_attr_export;
 mod text_columns;
 mod text_nested;
 mod value;

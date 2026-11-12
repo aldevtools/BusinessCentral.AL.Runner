@@ -1949,17 +1949,16 @@ const CELLS: &[(&str, &str, bool)] = &[
     ),
 ];
 
-/// The cells the runtime does not answer as BC does, with what it raises: a List opened for edit that shows no row (BC stamps
-/// the const of the link: `act=76840//0/`; the rule needs a host on a stored row), and OnAfterGetCurrRecord of the parts of a
+/// The cell whose read of the part's Rec is refused: a List opened for edit that shows no row (BC stamps the const of the link,
+/// `act=76840//0/`; the rule needs a host on a stored row, and the runtime gave the blank Rec before, `act=0//0/`).
+const REFUSED: &[&str] = &["EmptyPart_ListOpenEdit_NoHeads_FactBoxConstField_ActionReadsRec"];
+
+/// The cells the runtime does not answer as BC does, with what it raises: OnAfterGetCurrRecord of the parts of a
 /// List opened for edit (BC runs it three times on page 76842 and once on page 76851; the runtime runs it on no part of a host
 /// opened for edit, the gap `suite/empty_part_rec_link.rs` names for a Card), and OnAfterGetCurrRecord after a GoToRecord that
 /// stays on the row of a host opened for view (BC runs it on no part; the runtime runs it twice, as it did before this change,
 /// and the part's Rec holds the link values there).
 const GAPS: &[(&str, &str)] = &[
-    (
-        "EmptyPart_ListOpenEdit_NoHeads_FactBoxConstField_ActionReadsRec",
-        "action=act=0//0/;",
-    ),
     (
         "EmptyPart_ListOpenEdit_ConstField_OnAfterGetCurrRecordReadsRec",
         "curr=;",
@@ -1975,8 +1974,8 @@ const GAPS: &[(&str, &str)] = &[
     ),
 ];
 
-/// The cells of a host whose part control sets UpdatePropagation = Both (page 76854 "PG EPL List DocBoth"), not observed yet: the
-/// rule leaves them out, and each keeps main's blank Rec through no assumption.
+/// The cells of a host whose part control sets UpdatePropagation = Both (page 76854 "PG EPL List DocBoth"): the rule leaves them
+/// out, and the read of the part's Rec is refused, through no assumption.
 const NOT_OBSERVED: &[&str] = &[
     "EmptyPart_ListOpenEdit_PartDocBoth_FactBox_ActionReadsRec",
     "EmptyPart_ListOpenEdit_GoToRecord_PartDocBoth_FactBox_ActionReadsRec",
@@ -1984,18 +1983,20 @@ const NOT_OBSERVED: &[&str] = &[
     "EmptyPart_ListOpenView_OneHead_GoToSameRow_PartDocBoth_FactBox_ActionReadsRec",
 ];
 
-/// Every cell raises BC's value, except the gaps, which keep the runtime's outcome from before this change.
+/// Every cell raises BC's value (`raised`), except the gaps, which keep the runtime's outcome from before this change, and the
+/// refused cells, whose read of the part's Rec is refused.
 #[test]
 fn empty_list_part_rec_list_host_cells() {
     let o = run(SRC);
     assert_eq!(o.len(), CELLS.len() + NOT_OBSERVED.len(), "{o:?}");
+    let mut wrong = Vec::new();
     for (name, outcome, flagged) in &o {
-        if NOT_OBSERVED.contains(&name.as_str()) {
-            assert!(
-                matches!(outcome, Outcome::Fail(m) if m == "action=act=0//0/;"),
-                "{name}: {outcome:?}"
-            );
-            assert!(!flagged, "{name}: flagged");
+        if NOT_OBSERVED.contains(&name.as_str()) || REFUSED.contains(&name.as_str()) {
+            if !matches!(outcome, Outcome::NotRun(m) if m.contains("a read of Rec of a ListPart that shows no row"))
+                || *flagged
+            {
+                wrong.push((name, outcome, flagged));
+            }
             continue;
         }
         let (_, bc, flag) = CELLS
@@ -2003,20 +2004,28 @@ fn empty_list_part_rec_list_host_cells() {
             .find(|(n, _, _)| n == name)
             .unwrap_or_else(|| panic!("no cell {name}"));
         let want = GAPS.iter().find(|(n, _)| n == name).map_or(*bc, |(_, v)| *v);
-        assert!(
-            matches!(outcome, Outcome::Fail(m) if m == want),
-            "{name}: {outcome:?}, want {want}"
-        );
-        assert_eq!(flagged, flag, "{name}: flagged {flagged}");
+        if !raised(outcome, want) || flagged != flag {
+            wrong.push((name, outcome, flagged));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The test raised `want`: as its failure, or as the failure the runner does not trust because an earlier test of the codeunit
+/// was refused (the log is a SingleInstance codeunit's; the refused cell comes early in the probe's order).
+fn raised(outcome: &Outcome, want: &str) -> bool {
+    match outcome {
+        Outcome::Fail(m) => m == want,
+        Outcome::NotRun(m) => m.ends_with(&format!("this failure is not trusted: {want}")),
+        Outcome::Pass => false,
     }
 }
 
 /// List-host shapes probe 1339 does not measure: a `field(filter(..))` link, a SubPageView, a part with an OnNewRecord, a part a
 /// page extension adds, a host
-/// moved by Previous, Last or GoToKey, and the new row of OpenNew. Each keeps the blank Rec the runtime gave before this change
-/// (`act=0//0/`). The static shapes sit on Lists of their own and go through no assumption; the moves use a List whose part
-/// takes the assumed path as the host opens. These are not BC's values; they guard against the rule reaching a shape nobody
-/// measured.
+/// moved by Previous, Last or GoToKey, and the new row of OpenNew. The runtime gave the blank Rec there before (`act=0//0`), a
+/// guess (al-runner issue 6924); now the read of the part's Rec is refused. The static shapes sit on Lists of their own; the
+/// moves use a List whose part takes the assumed path as the host opens, and the read after the move is refused.
 const UNMEASURED_SRC: &str = r#"
 table 76860 "PG EPLU Head" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
 table 76861 "PG EPLU Line"
@@ -2109,16 +2118,16 @@ codeunit 76869 "PG EPL Tests"
 "#;
 
 #[test]
-fn empty_list_part_rec_list_host_unmeasured_shapes_stay_blank() {
+fn empty_list_part_rec_list_host_unmeasured_shapes_refuse() {
     let o = run(UNMEASURED_SRC);
     assert_eq!(o.len(), 8, "{o:?}");
-    for (name, outcome, flagged) in &o {
-        assert!(
-            matches!(outcome, Outcome::Fail(m) if m == "act=0//0"),
-            "{name}: {outcome:?}"
-        );
-        assert_eq!(*flagged, name.starts_with("Move_"), "{name}: flagged {flagged}");
-    }
+    let wrong: Vec<_> = o.iter().filter(|(_, outcome, _)| !refused(outcome)).collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The test was refused at a read of the empty part's Rec, with the fact that left the measured cells.
+fn refused(outcome: &Outcome) -> bool {
+    matches!(outcome, Outcome::NotRun(m) if m.starts_with("a read of Rec of a ListPart that shows no row"))
 }
 
 /// Neighbors of the List-host cells that differ from a probe cell in one fact the probe held fixed (review of corpus pull
@@ -2128,7 +2137,8 @@ fn empty_list_part_rec_list_host_unmeasured_shapes_stay_blank() {
 /// OnAfterGetCurrRecord of its own, a host run by Page.Run or Page.RunModal, a const on the last key field and a Code const; and
 /// a Card host opened for view moved by a GoToRecord that stays on its row (no List rule; the part keeps the values the open
 /// stamped, `act=76880/A/0` on main 57481ae65 too).
-/// Each keeps main's result (the blank Rec, `act=0//0`, except the Card) and goes through no assumption.
+/// Main gave each the blank Rec (`act=0//0`, a guess); each now refuses the read of the part's Rec and goes through no
+/// assumption. The Card keeps main's result.
 const NEIGHBOR_SRC: &str = r#"
 table 76880 "PG EPLN Head" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
 table 76881 "PG EPLN Line"
@@ -2331,18 +2341,125 @@ codeunit 76899 "PG EPL Tests"
 }
 "#;
 
-/// Every neighbor keeps main's blank Rec, with no assumption on its run.
+/// Every neighbor refuses the read of the part's Rec, with no assumption on its run; the Card keeps main's result.
 #[test]
-fn empty_list_part_rec_list_host_neighbors_keep_main() {
+fn empty_list_part_rec_list_host_neighbors_refuse() {
     let o = run(NEIGHBOR_SRC);
     assert_eq!(o.len(), 18, "{o:?}");
-    for (name, outcome, flagged) in &o {
-        let main = if name == "CardViewGoToSameRow" {
-            "act=76880/A/0"
-        } else {
-            "act=0//0"
-        };
-        assert!(matches!(outcome, Outcome::Fail(m) if m == main), "{name}: {outcome:?}");
-        assert!(!flagged, "{name}: flagged");
+    let wrong: Vec<_> = o
+        .iter()
+        .filter(|(name, outcome, flagged)| {
+            *flagged
+                || if name == "CardViewGoToSameRow" {
+                    !raised(outcome, "act=76880/A/0")
+                } else {
+                    !refused(outcome)
+                }
+        })
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The reporter's shape (al-runner issue 6924, the List host of DOCMAIL): a List host over a table keyed by ID, opened for edit
+/// and moved by GoToRecord to its last row, whose FactBox ListPart is linked by a const and by a field outside the host's key and
+/// shows no row; the part's action exits on `Rec."Table ID" = 0`, else runs a modal page filtered on it, whose handler reads the
+/// filter. Here the host has a page extension, a fact no probe cell holds: BC's Rec is not measured there, so the read of the
+/// part's Rec is refused (main gave the blank Rec and the test failed with an empty filter, a wrong result).
+const REPORTER_SRC: &str = r#"
+table 76900 "PG EPLR Body"
+{
+    fields { field(1; ID; Integer) { } field(2; "ID Code"; Code[20]) { } }
+    keys { key(PK; ID) { Clustered = true; } }
+}
+table 76901 "PG EPLR Att"
+{
+    fields { field(1; "Table ID"; Integer) { } field(2; "No."; Code[20]) { } field(3; "Line No."; Integer) { } }
+    keys { key(PK; "Table ID", "No.", "Line No.") { Clustered = true; } }
+}
+page 76902 "PG EPLR Details"
+{
+    PageType = List; SourceTable = "PG EPLR Att";
+    layout { area(Content) { repeater(R) { field(LineNoCtl; Rec."Line No.") { } } } }
+}
+page 76903 "PG EPLR Part"
+{
+    PageType = ListPart; SourceTable = "PG EPLR Att"; InsertAllowed = false;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { } } } }
+    actions
+    {
+        area(Processing)
+        {
+            action(OpenInDetail)
+            {
+                trigger OnAction()
+                var
+                    Att: Record "PG EPLR Att";
+                    Details: Page "PG EPLR Details";
+                begin
+                    if Rec."Table ID" = 0 then
+                        exit;
+                    Att.SetRange("Table ID", Rec."Table ID");
+                    Details.SetTableView(Att);
+                    Details.RunModal();
+                end;
+            }
+        }
     }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76904 "PG EPLR Bodies"
+{
+    PageType = List; SourceTable = "PG EPLR Body";
+    layout
+    {
+        area(Content) { repeater(R) { field(IDCtl; Rec.ID) { } field(CodeCtl; Rec."ID Code") { } } }
+        area(FactBoxes) { part(Attachments; "PG EPLR Part") { SubPageLink = "Table ID" = const(76900), "No." = field("ID Code"); } }
+    }
+}
+pageextension 76905 "PG EPLR Bodies Ext" extends "PG EPLR Bodies"
+{
+    actions { addfirst(Processing) { action(Extra) { trigger OnAction() begin end; } } }
+}
+codeunit 76906 "PG EPL Tests"
+{
+    Subtype = Test;
+    var TableFilterText: Text;
+    [Test]
+    [HandlerFunctions('DetailsHandler')]
+    procedure AttachedDocumentsDrillDown()
+    var
+        Body: Record "PG EPLR Body";
+        Att: Record "PG EPLR Att";
+        P: TestPage "PG EPLR Bodies";
+    begin
+        Att.DeleteAll();
+        Body.DeleteAll();
+        Body.ID := 1; Body."ID Code" := 'C1'; Body.Insert();
+        Body.ID := 2; Body."ID Code" := 'C2'; Body.Insert();
+        TableFilterText := '';
+        Body.FindLast();
+        P.OpenEdit();
+        P.GoToRecord(Body);
+        P.Attachments.OpenInDetail.Invoke();
+        Error('filter=' + TableFilterText);
+    end;
+    [ModalPageHandler]
+    procedure DetailsHandler(var D: TestPage "PG EPLR Details")
+    begin
+        TableFilterText := D.Filter.GetFilter("Table ID");
+    end;
+}
+"#;
+
+/// The reporter's shape outside the measured cells is refused at the read of the part's Rec, through no assumption.
+#[test]
+fn empty_list_part_rec_reporter_shape_unmeasured_refuses() {
+    let o = run(REPORTER_SRC);
+    assert_eq!(o.len(), 1, "{o:?}");
+    let (name, outcome, flagged) = &o[0];
+    assert!(
+        matches!(outcome, Outcome::NotRun(m) if m.contains("ListPart that shows no row") && m.contains("page extension")),
+        "{name}: {outcome:?}"
+    );
+    assert!(!flagged, "{name}: flagged");
 }
