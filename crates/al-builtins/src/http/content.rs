@@ -32,21 +32,48 @@ pub(super) fn is_secret_content(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut 
 }
 
 /// `ReadAs(var SecretText)` with its result used answers true and gives the body as a secret, of a secret or a plain content, a
-/// new one included (P97ContentSecret.al:21-28 with :83-150, :215-234). The statement form and the content of a request that has
-/// none are not pinned.
+/// new one included (P97ContentSecret.al:21-28 with :83-150, :215-234).
+///
+/// Assumed, not pinned (assumption `http-readas-secret-statement`, measured on a local BC by the probe
+/// al-language-onprem/http/N4ReadAsSecretStatement.al): the statement form gives the body the same way, of a content written
+/// from a SecretText or a Text, a new or an empty one, and the content of a request read in place or through a copy; on the
+/// content of a request that has none, the statement raises NotInitialized and the result-used form answers false, and both
+/// leave the secret. A statement on a content written from a stream, or whose body was handed out as a stream, is refused.
 pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    if !c.ret_used() {
-        return unsupported("HttpContent.ReadAs(SecretText) as a statement (not pinned)");
-    }
-    let (data, uninit) = with_content(r, |s| (s.data.clone(), s.uninitialized))?;
+    let (data, uninit, streamed) = with_content(r, |s| {
+        (s.data.clone(), s.uninitialized, s.from_stream || s.stream_taken)
+    })?;
+    let used = c.ret_used();
     if uninit {
-        return unsupported("HttpContent.ReadAs(SecretText) on the content of a request that has none (not pinned)");
+        crate::assumptions::assume(crate::assumptions::Assumption::HttpReadasSecretStatement);
+        return if used {
+            Ok(Value::Boolean(false))
+        } else {
+            content_not_initialized()
+        };
+    }
+    if !used {
+        if streamed {
+            return unsupported(
+                "HttpContent.ReadAs(SecretText) as a statement on a content written from or read as a stream (not pinned)",
+            );
+        }
+        crate::assumptions::assume(crate::assumptions::Assumption::HttpReadasSecretStatement);
     }
     let Ok(t) = String::from_utf8(data) else {
         return unsupported("HttpContent.ReadAs(SecretText) of a body that is not UTF-8 (not pinned)");
     };
     a[0] = lib("SecretText", LibraryValue::Text(t));
-    Ok(Value::Boolean(true))
+    Ok(if used { Value::Boolean(true) } else { Value::Null })
+}
+
+/// The error of a read of the content a request has when none was set (http/PnE12HttpContent.al:192, http/HttpRequest.al
+/// FreshRequestContent).
+fn content_not_initialized() -> Out {
+    raise(
+        "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
+        "NotInitialized",
+    )
 }
 
 /// `WriteFrom(InStream)` takes the bytes the stream has left. The source then is not at its end
@@ -118,10 +145,7 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
         return if c.ret_used() {
             Ok(Value::Boolean(false))
         } else {
-            raise(
-                "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
-                "NotInitialized",
-            )
+            content_not_initialized()
         };
     }
     // Once the body was handed out as a stream, whether that stream was read to its end, in part or not at all: a copy of a
@@ -194,10 +218,7 @@ pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
                 "HttpContent.ReadAs(InStream) on the content of a request that has none, into a stream variable that already holds a stream (not pinned)",
             ),
             (true, _) => Ok(Value::Boolean(false)),
-            (false, false) => raise(
-                "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
-                "NotInitialized",
-            ),
+            (false, false) => content_not_initialized(),
             (false, true) => unsupported(
                 "HttpContent.ReadAs(InStream) as a statement, on a copy of the content of a request that has none (not pinned)",
             ),
@@ -224,10 +245,7 @@ pub(super) fn get_headers(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
         return Ok(Value::Boolean(false));
     }
     if uninit {
-        return raise(
-            "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
-            "NotInitialized",
-        );
+        return content_not_initialized();
     }
     hand_out_headers(a.first(), &list)?;
     Ok(Value::Boolean(true))

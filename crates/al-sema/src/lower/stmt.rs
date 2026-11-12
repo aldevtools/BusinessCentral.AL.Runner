@@ -1902,7 +1902,8 @@ impl Lowerer<'_> {
     /// Why a use of the variable `name` is refused for an attribute of its declaration: `[RunOnClient]` (BC raises
     /// DotNetFromAlNotSupported, al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:145-146) and `[WithEvents]` (the
     /// `trigger Variable::Event` handlers run when the object raises the event, AcDnAttributes.al:50, :86) are not
-    /// implemented, and running the variable without them would be silently wrong.
+    /// implemented, and running the variable without them would be silently wrong. A codeunit's WithEvents variable that no
+    /// trigger handles is not refused here (`shared::with_events_without_trigger`).
     pub(crate) fn var_attr_refusal(&self, name: &str, local: bool) -> Option<String> {
         let attrs = if local {
             self.local_var_attrs.get(name)
@@ -1952,6 +1953,22 @@ impl Lowerer<'_> {
                     let why = self.var_attr_refusal(name, false).unwrap_or_default();
                     self.run_refusals.insert(why.clone());
                     Err(why)
+                }
+                // A WithEvents variable no trigger handles (`shared::with_events_without_trigger`) runs as a plain one, assumed.
+                Some(Res::Global(name))
+                    if !self.in_request_page
+                        && self
+                            .global_var_attrs
+                            .get(name)
+                            .is_some_and(|a| a.iter().any(|a| a == super::shared::WITH_EVENTS_NO_TRIGGER)) =>
+                {
+                    let place = self
+                        .globals
+                        .get(name)
+                        .map(|i| ir::Place::Global(*i))
+                        .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"));
+                    self.assume(al_builtins::assumptions::Assumption::WithEventsNoTrigger);
+                    place
                 }
                 // The request page's Rec in OnInitReport: reading it raises (reports/request-page/YRequestPageTests.al:551,
                 // RS_RequestPageRec_ReadInOnInitReport_Raises; report 88566 in RsRequestPageRec.al:224). xRec is not pinned.
