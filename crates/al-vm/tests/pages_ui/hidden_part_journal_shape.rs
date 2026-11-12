@@ -708,7 +708,12 @@ fn run_src(src: &str, bc: &str, routine: &str) -> (Result<String, String>, Vec<A
         .iter()
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
-    let oi = l.program.objects.iter().position(|o| o.name == "PG6 HJ Driver").unwrap();
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "PG6 HJ Driver")
+        .unwrap();
     let ri = l.program.objects[oi]
         .routines
         .iter()
@@ -724,15 +729,19 @@ fn run_src(src: &str, bc: &str, routine: &str) -> (Result<String, String>, Vec<A
     (out, take_hits())
 }
 
-const OPEN: &str = "open=0 No [host-open st-fill(,0) st-open host-agcr(H1) st-fill(H1,0) st-agcr(0)]|gotorecord=0 No []|";
-const SEND: &str =
-    "send=1 Yes [act-send cu-send(H1) st-fill(H1,1) st-agr(1) st-agr(1) st-agcr(1) host-agcr(H1) st-fill(H1,1) st-agr(1) st-agr(1) st-agcr(1)";
+const OPEN: &str =
+    "open=0 No [host-open st-fill(,0) st-open host-agcr(H1) st-fill(H1,0) st-agcr(0)]|gotorecord=0 No []|";
+const SEND: &str = "send=1 Yes [act-send cu-send(H1) st-fill(H1,1) st-agr(1) st-agr(1) st-agcr(1) host-agcr(H1) st-fill(H1,1) st-agr(1) st-agr(1) st-agcr(1)";
 const THIRD_READ: &str = " st-agr(1) st-agr(1) st-agcr(1)";
 const CLOSED: &str = "closed=1 [st-close host-close]";
 
 /// The log of HiddenPartJournalShape.al :537, :563, :589, :615 (temporary part), BC 27 and 28 or BC 29.
 fn temporary_part_log(third_read: bool) -> String {
-    let (extra, next_agcr) = if third_read { (THIRD_READ, " st-agcr(0)") } else { ("", "") };
+    let (extra, next_agcr) = if third_read {
+        (THIRD_READ, " st-agcr(0)")
+    } else {
+        ("", "")
+    };
     format!("{OPEN}{SEND}{extra}]|next=1 No [host-agcr(H2) st-fill(H2,0){next_agcr}]|{CLOSED}")
 }
 
@@ -780,14 +789,20 @@ fn refused(out: &Result<String, String>, reason: &str) -> bool {
 #[test]
 fn host_opened_for_edit_is_refused_by_name() {
     let (out, hits) = run_on("28.5", "WorksheetOpenEditSendVal");
-    assert!(refused(&out, "the host page was not opened with OpenView (not pinned)"), "{out:?}");
+    assert!(
+        refused(&out, "the host page was not opened with OpenView (not pinned)"),
+        "{out:?}"
+    );
     assert!(!hits.contains(&Assumption::HiddenPartJournalShape));
 }
 
 /// A ListPlus host keeps main's refusal; a Worksheet host with another trigger is refused with that fact.
 #[test]
 fn other_host_pages_stay_refused() {
-    let list_plus = SRC.replace("PageType = Worksheet;\n    SourceTable = \"PG6 HJ Doc\";", "PageType = ListPlus;\n    SourceTable = \"PG6 HJ Doc\";");
+    let list_plus = SRC.replace(
+        "PageType = Worksheet;\n    SourceTable = \"PG6 HJ Doc\";",
+        "PageType = ListPlus;\n    SourceTable = \"PG6 HJ Doc\";",
+    );
     assert_ne!(list_plus, SRC);
     let (out, _) = run_src(&list_plus, "28.5", "WorksheetSendVal");
     assert!(refused(&out, "the host page is not a Document (not pinned)"), "{out:?}");
@@ -798,17 +813,30 @@ fn other_host_pages_stay_refused() {
     );
     assert_ne!(more_triggers, SRC);
     let (out, _) = run_src(&more_triggers, "28.5", "WorksheetSendVal");
-    assert!(refused(&out, "the host page declares other triggers, properties, an extension or a subscriber"), "{out:?}");
+    assert!(
+        refused(
+            &out,
+            "the host page declares other triggers, properties, an extension or a subscriber"
+        ),
+        "{out:?}"
+    );
 }
 
 /// The part page of Base Application's Workflow Status FactBox declares more properties (InsertAllowed and the others) than
 /// the measured part: the turn is refused and names that fact (al-runner issue 7922, ask 2).
 #[test]
 fn part_with_other_properties_is_refused_by_name() {
-    let src = SRC.replacen("    SourceTableTemporary = true;\n    Editable = false;", "    SourceTableTemporary = true;\n    Editable = false;\n    InsertAllowed = false;", 1);
+    let src = SRC.replacen(
+        "    SourceTableTemporary = true;\n    Editable = false;",
+        "    SourceTableTemporary = true;\n    Editable = false;\n    InsertAllowed = false;",
+        1,
+    );
     assert_ne!(src, SRC);
     let (out, _) = run_src(&src, "28.5", "WorksheetSendVal");
-    assert!(refused(&out, "the part page declares other properties than Editable = false"), "{out:?}");
+    assert!(
+        refused(&out, "the part page declares other properties than Editable = false"),
+        "{out:?}"
+    );
 }
 
 /// A Next that leaves the part shown with its row is a state the probe did not measure: refused (main read nothing there).

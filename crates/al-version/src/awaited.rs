@@ -28,8 +28,14 @@ mod tests {
 
     #[test]
     fn the_journal_temp_part_read_follows_the_measured_majors() {
-        assert_eq!(journal_temp_part_reads_after_refresh(Some(&target("27.5"))), Some(false));
-        assert_eq!(journal_temp_part_reads_after_refresh(Some(&target("28.5"))), Some(false));
+        assert_eq!(
+            journal_temp_part_reads_after_refresh(Some(&target("27.5"))),
+            Some(false)
+        );
+        assert_eq!(
+            journal_temp_part_reads_after_refresh(Some(&target("28.5"))),
+            Some(false)
+        );
         assert_eq!(journal_temp_part_reads_after_refresh(Some(&target("29.0"))), Some(true));
         assert_eq!(journal_temp_part_reads_after_refresh(None), Some(true));
         assert_eq!(journal_temp_part_reads_after_refresh(Some(&target("30.0"))), None);

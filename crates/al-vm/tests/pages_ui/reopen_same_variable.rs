@@ -472,8 +472,17 @@ fn run(routine: &str) -> (Vec<(String, String)>, Vec<Assumption>) {
         .iter()
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
-    let oi = l.program.objects.iter().position(|o| o.name == "PG6 FL Reopen Driver").unwrap();
-    let ri = l.program.objects[oi].routines.iter().position(|r| r.name == routine).unwrap();
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "PG6 FL Reopen Driver")
+        .unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == routine)
+        .unwrap();
     let engine = al_vm::Engine::with_target(l.program, blocked, Some(target));
     let mut s = al_vm::Session::new(engine);
     let inst = s.instance(oi);
@@ -493,7 +502,9 @@ fn run(routine: &str) -> (Vec<(String, String)>, Vec<Assumption>) {
 }
 
 const EXPECTED: &[(&str, &[(&str, &str)])] = &[
-        ("ActionRan_CloseReopen_InvokeAgain", &[
+    (
+        "ActionRan_CloseReopen_InvokeAgain",
+        &[
             ("open-1", "[open agcr(R1) agcr(R1)]"),
             ("act-1", "[act(R1) agcr(R1)]"),
             ("close-1", "[close]"),
@@ -501,8 +512,11 @@ const EXPECTED: &[(&str, &[(&str, &str)])] = &[
             ("act-2", "[act(R2) agcr(R2)]"),
             ("next-2", "[agcr(R3)]"),
             ("close-2", "[close]"),
-        ]),
-        ("SaveFailed_CloseReopen_SaveAgain", &[
+        ],
+    ),
+    (
+        "SaveFailed_CloseReopen_SaveAgain",
+        &[
             ("open-1", "[open agcr(R1) agcr(R1)]"),
             ("setvalue-1", "[]"),
             ("next-1", "ok [M(R1 FAILMOD) T-mod(R1 FAILMOD)]"),
@@ -513,8 +527,11 @@ const EXPECTED: &[(&str, &[(&str, &str)])] = &[
             ("rows-in-2", "R1=one R2=edited R3=three "),
             ("next-2", "ok [M(R2 edited) T-mod(R2 edited) agcr(R3)]"),
             ("close-2", "ok [close]"),
-        ]),
-        ("SaveAborted_CloseReopen_SaveAgain", &[
+        ],
+    ),
+    (
+        "SaveAborted_CloseReopen_SaveAgain",
+        &[
             ("open-1", "[open agcr(R1) agcr(R1)]"),
             ("setvalue-1", "[]"),
             ("rows-in-1", "R1=one R2=two R3=three "),
@@ -525,8 +542,11 @@ const EXPECTED: &[(&str, &[(&str, &str)])] = &[
             ("rows-in-2", "R1=one R2=edited R3=three "),
             ("next-2", "ok [M(R2 edited) T-mod(R2 edited) agcr(R3)]"),
             ("close-2", "ok [close]"),
-        ]),
-        ("NoSourceVariableSet_CloseReopen_ReadAgain", &[
+        ],
+    ),
+    (
+        "NoSourceVariableSet_CloseReopen_ReadAgain",
+        &[
             ("open-1", "[open]"),
             ("read-1", "[read=first]"),
             ("close-1", "[close]"),
@@ -534,8 +554,11 @@ const EXPECTED: &[(&str, &[(&str, &str)])] = &[
             ("read-2", "[open read=]"),
             ("read-2b", "[read=second]"),
             ("close-2", "[close]"),
-        ]),
-        ("TempListRowGone_CloseReopen_DeleteAgain", &[
+        ],
+    ),
+    (
+        "TempListRowGone_CloseReopen_DeleteAgain",
+        &[
             ("open-1", "[open agcr(R3) agcr(R1) agcr(R2)]"),
             ("cursor-1", "R1"),
             ("del-1", "[del(R2) agcr(R1) agcr(R1)]"),
@@ -550,7 +573,9 @@ const EXPECTED: &[(&str, &[(&str, &str)])] = &[
             ("next-2", "ok [agcr(R3)]"),
             ("close-2", "[close]"),
             ("rows", "R1=one R2=two R3=three "),
-        ]),];
+        ],
+    ),
+];
 
 /// Where the gone row of the temporary list leaves the cursor (`cursor-N`, `del-N`, `next-N`) is not this probe's subject: main
 /// answers it differently on both opens (a follow-up). Here only the reopen facts are compared for that routine: each step of the
@@ -562,8 +587,11 @@ fn second_open_of_the_same_variable_starts_without_the_first_opens_state() {
     for (routine, want) in EXPECTED {
         let temp_list = *routine == "TempListRowGone_CloseReopen_DeleteAgain";
         let keep = |n: &str| !(temp_list && GONE_ROW_STEPS.contains(&n));
-        let mut want: Vec<(String, String)> =
-            want.iter().filter(|(n, _)| keep(n)).map(|(n, v)| (n.to_string(), v.to_string())).collect();
+        let mut want: Vec<(String, String)> = want
+            .iter()
+            .filter(|(n, _)| keep(n))
+            .map(|(n, v)| (n.to_string(), v.to_string()))
+            .collect();
         want.sort();
         let (all, hits) = run(routine);
         if temp_list {
@@ -576,7 +604,14 @@ fn second_open_of_the_same_variable_starts_without_the_first_opens_state() {
         assert_eq!(seen, want, "{routine}");
         // The first open reached a flag in three routines. The save OnModifyRecord aborted sets none, and main does not take
         // the temporary list's gone-row path (`gone_temp_list`) for the row its action deleted.
-        let flagged = !matches!(*routine, "SaveAborted_CloseReopen_SaveAgain" | "TempListRowGone_CloseReopen_DeleteAgain");
-        assert_eq!(hits.contains(&Assumption::ReopenForgetsEarlierOpenFlags), flagged, "{routine}: {hits:?}");
+        let flagged = !matches!(
+            *routine,
+            "SaveAborted_CloseReopen_SaveAgain" | "TempListRowGone_CloseReopen_DeleteAgain"
+        );
+        assert_eq!(
+            hits.contains(&Assumption::ReopenForgetsEarlierOpenFlags),
+            flagged,
+            "{routine}: {hits:?}"
+        );
     }
 }
