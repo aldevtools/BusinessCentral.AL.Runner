@@ -167,6 +167,7 @@ impl Session {
             self.mark_closed(&target_state);
         }
         target_state.borrow_mut().modal = modal;
+        target_state.borrow_mut().page_run_by_code = false;
         let record = self.run_object_record(st, &target_state, ro, mode)?;
         // What Rec holds in the target's OnOpenPage when only `RunPageLink` hands it the host's values: real BC fills the linked
         // fields and GetFilters() reads '' (corpus issue 712), the runtime holds the link as a filter. The corpus pins GetFilter

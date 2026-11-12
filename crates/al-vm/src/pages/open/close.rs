@@ -66,7 +66,10 @@ impl Session {
             // BC28PLUS); another error's text and code cannot be read.
             Err(Signal::Error(e)) if origin.as_deref() == Some("onclosepage") => {
                 self.mark_closed(st);
-                let relation_confirm = e.code == "MissingUIHandler" && self.relation_closed_in_handler(st);
+                // A Confirm no handler took, in a relation lookup or a Page.Run page closed in its handler (CemLookupTests.al,
+                // CemPageHandlerTests.al CardStaticRun_HandlerClose_ClosePageConfirmUnhandled).
+                let relation_confirm = e.code == "MissingUIHandler"
+                    && (self.relation_closed_in_handler(st) || self.page_run_close_pinned(st));
                 if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED && !relation_confirm {
                     return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
                 }
@@ -307,6 +310,7 @@ impl Session {
         }
         match save {
             Err(Signal::Error(e)) if swallow_save_errors => {
+                self.refuse_page_run_save_error_at_action(st, via_action)?;
                 al_builtins::native::refuse_unpinned_text(&e, "The error list of a page row")?;
                 let key_ctl = self.key_control(st);
                 st.borrow_mut().errors.push((key_ctl, e.message));
@@ -405,6 +409,10 @@ impl Session {
                     st.borrow_mut().close_error = true;
                     return Err(raised);
                 }
+                if let Some(r) = self.page_run_query_close_error(st, &e, swallow_save_errors && !via_action, via_action)
+                {
+                    return r;
+                }
                 al_builtins::native::refuse_unpinned_text(&e, "The message shown for an error of OnQueryClosePage")?;
                 st.borrow_mut().close_error = true;
                 // The error stays the last error once a MessageHandler consumed it: GetLastErrorText after Close() is its text, with
@@ -447,6 +455,7 @@ impl Session {
             let r = self.page_event(part, "onclosepageevent", None, None).map(|_| None);
             refuse_error(r, "an OnClosePageEvent subscriber of a part")?;
         }
+        let changes = self.store_mut().change_counter();
         let r = self.page_trigger(st, "onclosepage", vec![]);
         if test_close {
             r?;
@@ -454,6 +463,9 @@ impl Session {
             return Err(e);
         } else if let Some(e) = self.document_close_page_error(st, &r)? {
             return Err(e);
+        } else if let Some(closed) = self.page_run_close_page_error(st, &r, swallow_save_errors && !via_action, changes)
+        {
+            closed?;
         } else {
             refuse_error(r, "OnClosePage at a close by an action or a handler")?;
         }

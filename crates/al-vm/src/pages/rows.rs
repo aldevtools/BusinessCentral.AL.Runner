@@ -2846,7 +2846,7 @@ impl Session {
             }
         }
         let kind = if modal { UiKind::ModalPage } else { UiKind::Page };
-        st.borrow_mut().modal = modal && !trapped;
+        self.begin_handled_run(&st, modal, trapped);
         let handler = self.open_page(
             &st,
             PageMode::Edit,
@@ -3050,8 +3050,8 @@ impl Session {
         let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {
-            if modal && matches!(e, Signal::Error(_)) && st.borrow().open {
-                self.close_modal_after_handler_error(&st, &e)?;
+            if matches!(e, Signal::Error(_)) && st.borrow().open {
+                self.close_page_after_handler_error(&st, &e, modal)?;
             }
             self.mark_closed(&st);
             return Err(e);
@@ -3111,9 +3111,7 @@ impl Session {
             // The save of the edited row raised (OnModifyRecord, OnInsertRecord or the table's trigger), so the page stayed
             // open: not pinned, and not an OnQueryClosePage refusal (al-runner issue 7400).
             if st.borrow().open && st.borrow().errors.len() > errors_before {
-                return unsupported(
-                    "an error raised while the page saved its edited row as the platform closed it after the handler returned (not pinned)",
-                );
+                return self.platform_close_failed_or_refuse(&st, super::page_run_close::SAVE_FAILED_AT_PLATFORM_CLOSE);
             }
             if st.borrow().open {
                 // The platform closes the page the handler left open, and OnQueryClosePage
@@ -3127,7 +3125,7 @@ impl Session {
                 // handler the platform asks once more with its own action, :129, :148, :255; the next run is a clean one, :309).
                 let vetoed = st.borrow().close_vetoed;
                 if !(modal && (st.borrow().close_error || vetoed)) {
-                    return unsupported("a page whose OnQueryClosePage refused the platform's close");
+                    return self.platform_close_failed_or_refuse(&st, super::page_run_close::QUERY_CLOSE_REFUSED);
                 }
                 if vetoed {
                     self.refuse_unpinned_modal_veto(&st)?;

@@ -34,6 +34,7 @@ impl Session {
         st.borrow_mut().instance = None;
         st.borrow_mut().inited = false;
         st.borrow_mut().modal = false;
+        st.borrow_mut().page_run_by_code = false;
         self.pages.test_open = true;
         self.open_page(st, mode, None, None).map(|_| Value::Null)
     }

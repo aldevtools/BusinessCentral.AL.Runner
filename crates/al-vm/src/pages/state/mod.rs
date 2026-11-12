@@ -389,6 +389,8 @@ pub struct PageState {
     pub pending: Option<Vec<Value>>,
     /// Opened by AL code (`Page.RunModal`, `Page.Run`) and answered by a handler, not by the test.
     pub modal: bool,
+    /// The current run is AL code's non-modal `Page.Run` answered by a PageHandler (`begin_handled_run`, `page_run_close.rs`).
+    pub page_run_by_code: bool,
     /// Whether the last run of this variable was modal (`None` before the first run): a second non-modal Run runs OnInit again.
     pub last_run_modal: Option<bool>,
     /// The rows of a tree (a repeater with ShowAsTree) expanded with `Expand(true)`, by primary key.
