@@ -103,21 +103,28 @@ impl Session {
     /// (:514-554, :577-596). Refused: other shapes of those calls, a RecordRef not open outside the static Execute, a table
     /// two data items read and a table only a reportextension's item reads (not pinned).
     fn record_ref_with_parameters(&mut self, schema: &Schema, rr: &Value, call: RefCall) -> Result<(), Signal> {
-        let not_pinned = |what: &str| unsupported(format!("a RecordRef {what} next to a parameters string (not pinned)"));
+        let not_pinned =
+            |what: &str| unsupported(format!("a RecordRef {what} next to a parameters string (not pinned)"));
         let Value::Library(_, h) = rr else {
             return not_pinned("that is no RecordRef");
         };
         let table = match &*h.borrow() {
             al_builtins::value::LibraryValue::RecordRef(rec) => rec.borrow().table,
             al_builtins::value::LibraryValue::Empty if call == RefCall::StaticExecute => return Ok(()),
-            al_builtins::value::LibraryValue::Empty => return not_pinned("that is not open, outside a static Execute,"),
+            al_builtins::value::LibraryValue::Empty => {
+                return not_pinned("that is not open, outside a static Execute,");
+            }
             _ => return not_pinned("that is no RecordRef"),
         };
         let items = &schema.report().items;
-        let over: Vec<usize> = (0..items.len()).filter(|&i| items[i].table == Some(table as usize)).collect();
+        let over: Vec<usize> = (0..items.len())
+            .filter(|&i| items[i].table == Some(table as usize))
+            .collect();
         match over.as_slice() {
             [] if schema.report().extensions.is_empty() => return Err(self.report_no_data_item(schema, table)),
-            [] => return not_pinned("over a table no data item of the report reads, on a report with reportextensions,"),
+            [] => {
+                return not_pinned("over a table no data item of the report reads, on a report with reportextensions,");
+            }
             [0] => {}
             [_] if matches!(call, RefCall::StaticExecute | RefCall::StaticSaveAs) => {}
             [_] => return not_pinned("over the table of a data item other than the first, on a report variable,"),

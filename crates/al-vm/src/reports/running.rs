@@ -32,6 +32,7 @@ impl Session {
     ///   run by a variable never set (:432-445);
     /// - a run that showed its page answers true, also the variable's `UseRequestPage(true)` on such a report (:307-394, :464-475);
     /// - `Execute` with the parameters RunRequestPage returned answers false in OnOpenPage, which it runs (:412-430).
+    ///
     /// Anywhere else (OnInitReport, a report variable that is not running, other triggers) it answers what the next Run does
     /// (`report_shows_page`; OnInitReport reads the property: reports/request-page/P147UseRequestPageInitGet.al:79, the probe
     /// above `init Yes/Yes/Yes`). A static `RunModal(id, false)` keeps its OnPreReport answer false there
@@ -61,7 +62,10 @@ impl Session {
         }
         let report_trigger = matches!(
             self.report.report_trigger,
-            Some((_, TrigKind::Pre | TrigKind::PreItem | TrigKind::Row | TrigKind::PostItem | TrigKind::PostReport))
+            Some((
+                _,
+                TrigKind::Pre | TrigKind::PreItem | TrigKind::Row | TrigKind::PostItem | TrigKind::PostReport
+            ))
         );
         let open_page = matches!(
             self.pages.trigger_kinds.last(),

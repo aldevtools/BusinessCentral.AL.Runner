@@ -2919,7 +2919,11 @@ impl Session {
         if at == 0 {
             self.report_mark_executed(&inst);
         }
-        let call = if at == 0 { RefCall::VariableSaveAs } else { RefCall::StaticSaveAs };
+        let call = if at == 0 {
+            RefCall::VariableSaveAs
+        } else {
+            RefCall::StaticSaveAs
+        };
         self.report_record_ref(&inst, &schema, record_ref, !parameters.is_empty(), call)?;
         let enters = self.report_enter_world(&schema, false)?;
         let mut fresh = Dataset::default();

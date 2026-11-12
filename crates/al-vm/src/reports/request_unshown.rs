@@ -56,7 +56,11 @@ impl Session {
         let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
             return Ok(());
         };
-        let what = if call == ParamsCall::SaveAs { "a SaveAs" } else { "an Execute" };
+        let what = if call == ParamsCall::SaveAs {
+            "a SaveAs"
+        } else {
+            "an Execute"
+        };
         for name in ["onopenpage", "onclosepage"] {
             if page.ext_triggers.iter().any(|(n, _, _)| n == name) {
                 return unsupported(format!(
