@@ -73,7 +73,8 @@ impl Session {
         // Delete_And_DeleteAll_WithAndWithoutRunTrigger).
         // The User table has no bulk delete: the platform deletes it row by row.
         // So does a Tenant Permission Set, whose permissions go with each row (`tenant_set_cascade`).
-        let user_rows = self.is_user_row(t, rec.borrow().temporary) || self.is_tenant_set_row(t, rec.borrow().temporary);
+        let user_rows =
+            self.is_user_row(t, rec.borrow().temporary) || self.is_tenant_set_row(t, rec.borrow().temporary);
         // MarkedOnly limits the rows to the marked ones, which the store's bulk delete does not know: delete row
         // by row what the scan finds (Post Inventory Cost to G/L ends its data item with
         // `MarkedOnly(true); DeleteAll()` and keeps the capacity entries it has not posted yet). Only the marked

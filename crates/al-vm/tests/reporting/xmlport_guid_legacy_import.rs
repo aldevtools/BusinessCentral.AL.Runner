@@ -38,7 +38,10 @@ codeunit 50324 C
 
 #[test]
 fn the_export_form_of_a_guid_imports() {
-    assert_eq!(text(al_testkit::run_in(SRC, "C", "ExportForm")), "{6F9619FF-8B86-D011-B42D-00C04FC964FF}");
+    assert_eq!(
+        text(al_testkit::run_in(SRC, "C", "ExportForm")),
+        "{6F9619FF-8B86-D011-B42D-00C04FC964FF}"
+    );
 }
 
 #[test]

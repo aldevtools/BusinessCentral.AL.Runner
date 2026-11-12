@@ -50,7 +50,9 @@ impl Session {
         for row in mine {
             let pk = tp.primary_key(&row);
             if let Err(e) = self.store.delete(&cx, &tp, &pk) {
-                return unsupported(format!("deleting a Tenant Permission row of a deleted Tenant Permission Set: {e}"));
+                return unsupported(format!(
+                    "deleting a Tenant Permission row of a deleted Tenant Permission Set: {e}"
+                ));
             }
         }
         Ok(())
