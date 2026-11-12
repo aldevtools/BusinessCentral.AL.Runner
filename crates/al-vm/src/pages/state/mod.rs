@@ -865,6 +865,9 @@ pub struct PageState {
     pub shown_doubt_call: Option<&'static str>,
     /// The page was run by code and caught by `TestPage.Trap()`, not opened by the test (OpenView, OpenEdit, OpenNew).
     pub caught_by_trap: bool,
+    /// The trap caught the static `Page.Run(Page::X, Rec)` (`PageRunCall::StaticWithRecord`), not a Page variable's `Run()` or
+    /// another run. Set and cleared where `caught_by_trap` is (`PageRun::catch_by_trap`, RunObject, the test's own opens).
+    pub trapped_static_run: bool,
 }
 
 // The page instance holds `CurrPage`, which points back here: print only the facts.
