@@ -522,6 +522,16 @@ impl Providers {
             .collect()
     }
 
+    fn tenant_media_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        let stored = store.stored_rows(cx, t);
+        if stored.is_empty() {
+            return self.listed(t, Virtual::TenantMedia);
+        }
+        let mut entries = self.tenant_media_rows(t);
+        entries.extend(stored.into_iter().map(mat::Entry::ok));
+        Ok(Listed::Own(Rc::new(mat::Mat::new(t, entries))))
+    }
+
     /// The Feature Key rows: the served ones, with the rows a Modify stored (`Enabled`) over them.
     /// The session's own Active Session row and the rows an Insert added: a Get, Count and Count with a filter find them
     /// (RvActiveSessionWrites.al:42-70, :90-130, :173-204).
@@ -885,7 +895,7 @@ impl VirtualTables for Providers {
 
     /// Active Session keeps the rows an Insert adds (metadata/platform-tables/RvActiveSessionWrites.al, AL Runner issue 5807).
     fn takes_inserts(&self, t: &TableDef) -> bool {
-        self.served.get(t.object as usize) == Some(&Some(Virtual::ActiveSession))
+        matches!(self.kind(t), Virtual::ActiveSession | Virtual::TenantMedia)
     }
 
     fn write_refusal(&self, t: &TableDef) -> Option<String> {
@@ -934,6 +944,7 @@ impl VirtualTables for Providers {
                 feature_key::get_ignoring_case(&listing, t, pk)
             }
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
+            Virtual::TenantMedia => self.tenant_media_listing(store, cx, t)?.get(t, pk),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.get(t, pk),
             Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),
             Virtual::Media => self.media_of_id(t, pk.first())?.get(t, pk),
@@ -972,6 +983,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.next(t, scan),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.next(t, scan),
+            Virtual::TenantMedia => self.tenant_media_listing(store, cx, t)?.next(t, scan),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.next(t, scan),
             // A read in key order that chooses between two controls of a page: what the chosen row serves is decided by
             // `pages::page_control_field_chosen_in_key_order`. One read by Sequence is pinned
@@ -1043,6 +1055,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.count(t, filters),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.count(t, filters),
+            Virtual::TenantMedia => self.tenant_media_listing(store, cx, t)?.count(t, filters),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.count(t, filters),
             Virtual::Media => self
                 .media_of_id(t, media_id_filter(t, filters).as_ref())?
