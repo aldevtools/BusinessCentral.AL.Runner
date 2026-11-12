@@ -37,6 +37,19 @@ fn error_code<T>(message: String, code: &str) -> Result<T, Signal> {
     })))
 }
 
+/// `name` with unreserved URL characters kept and every other byte percent-encoded.
+fn url_name(name: &str) -> String {
+    let mut out = String::new();
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 fn big(args: &[Value], i: usize) -> Option<i64> {
     match args.get(i)? {
         Value::BigInteger(n) => Some(*n),
@@ -265,15 +278,7 @@ impl Session {
         if id == ids::COMPANYPROPERTY_URLNAME_1 {
             // The company name as it stands in a URL: unreserved characters kept, the rest percent-encoded
             // (session-system/TestProbeSessionMiscContracts.al:Company_Names scrubs both the name and its `%20` form).
-            let mut out = String::new();
-            for b in self.cx.company.bytes() {
-                if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
-                    out.push(char::from(b));
-                } else {
-                    out.push_str(&format!("%{b:02X}"));
-                }
-            }
-            return Ok(Value::Text(out.into()));
+            return Ok(Value::Text(url_name(&self.cx.company).into()));
         }
         if id == ids::DATABASE_COPYCOMPANY_1 {
             return self.copy_company(args);
@@ -284,6 +289,7 @@ impl Session {
             return Ok(Value::Text(self.cx.company.clone().into()));
         }
         match id {
+            ids::DATABASE_SETUSERPASSWORD_1 => return self.set_user_password(args), // `user_password.rs`
             // The counter has handed out `next_row_version` so far; the database never reports
             // zero (session-system/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al:100-117).
             // What the database holds committed, raised by the rows the open transaction sent: a row inserted in the open

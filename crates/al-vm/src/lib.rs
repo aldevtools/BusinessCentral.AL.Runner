@@ -144,6 +144,7 @@ mod transactions;
 mod translations;
 mod ui;
 mod user_email;
+mod user_password;
 mod usertable;
 mod view_empty;
 mod view_unknown;
