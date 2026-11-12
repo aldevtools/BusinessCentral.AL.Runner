@@ -1074,11 +1074,14 @@ impl Session {
     /// a control of that row to a non-key control inserts it (corpus
     /// testpage/TestPageBlankKeyInsert.al:1-25 and its List_NewRow_Focus... arm: after New() the
     /// focus still sits on the old row's control).
-    pub(super) fn activate(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
+    pub(super) fn activate(&mut self, st: &St, idx: usize, setting_value: bool) -> Result<(), Signal> {
         let (prev, in_row) = {
             let s = st.borrow();
             (s.focus, s.focus_in_row)
         };
+        if setting_value {
+            self.insert_document_before_variable_validation(st, idx, in_row && prev.is_some() && prev != Some(idx))?;
+        }
         if prev == Some(idx) {
             return Ok(());
         }
@@ -1109,5 +1112,67 @@ impl Session {
             self.inserted_outside_view(st, idx)?;
         }
         Ok(())
+    }
+    /// Pending corpus probe testpage/TestPageBlankKeyInsert.al:256: leaving the first
+    /// control of an OpenNew Document inserts its header before the variable validates.
+    fn insert_document_before_variable_validation(
+        &mut self,
+        st: &St,
+        idx: usize,
+        leaving_control: bool,
+    ) -> Result<(), Signal> {
+        let object = {
+            let page = st.borrow();
+            if !page.open
+                || !page.draft
+                || page.draft_stored
+                || page.dirty
+                || page.cursor == Cursor::None
+                || page.host.is_some()
+            {
+                return Ok(());
+            }
+            page.object as usize
+        };
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        if engine.object_facts[object].page_type != Some(ir::PageType::Document)
+            || !matches!(
+                page.controls[idx].binding,
+                ir::Binding::Var(_) | ir::Binding::BaseVar(_)
+            )
+            || !self.has_source(st)
+        {
+            return Ok(());
+        }
+        if flag_denied(&engine, object, "InsertAllowed")?
+            || engine.program.objects[object].properties.iter().any(|(key, value)| {
+                key.eq_ignore_ascii_case("DelayedInsert") && value.trim().eq_ignore_ascii_case("true")
+            })
+        {
+            return Ok(());
+        }
+        if !st.borrow().draft_from_open
+            || !leaving_control
+            || page
+                .controls
+                .iter()
+                .any(|control| control.kind == ir::ControlKind::Part)
+            || !self.page_rec(st).borrow().filters.is_empty()
+        {
+            return unsupported(
+                "SetValue on a variable control of a new Document outside the measured OpenNew focus move (not pinned)",
+            );
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewDocumentBeforeVariableValidation);
+        match self.insert_draft(st) {
+            Err(Signal::Error(_)) => {
+                return unsupported(
+                    "an insert error before validating a variable control of an OpenNew Document (not pinned)",
+                );
+            }
+            result => result?,
+        }
+        self.inserted_outside_view(st, idx)
     }
 }
