@@ -691,8 +691,6 @@ impl Session {
                         // A Date text reads as SetFilter reads it in the session's language: `010120..` is 01/01/20..
                         // (events/platform-triggers/PtObserve.al:Filter_View).
                         let date_ctx = self.date_filter_context_for(value);
-                        let database = self.view_database_const(value, &ty, runtime)?;
-                        let value = database.as_deref().unwrap_or(value);
                         let expr = match empty {
                             Some(e) => e,
                             None => {
@@ -889,9 +887,10 @@ pub(crate) struct PageSourceView {
     pub number_fields: Vec<usize>,
 }
 
-/// A member name alone: no filter operator, quote or qualifier.
+/// A member name alone, as ViewConstBlankCode.al:490 writes it (`Order`, `Item`): no filter operator, quote or qualifier, and not
+/// a number (`const(1)` is not pinned).
 fn is_plain_member(value: &str) -> bool {
-    !value.is_empty() && value.chars().all(|c| c.is_alphanumeric() || c == '_')
+    value.starts_with(|c: char| c.is_alphabetic()) && value.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
 /// A page's `SourceTableView` (already through [`property_view`]) as the page applies it, and the fields it names with a

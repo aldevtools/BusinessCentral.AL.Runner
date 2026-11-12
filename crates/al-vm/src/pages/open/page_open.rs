@@ -461,7 +461,11 @@ impl Session {
                 }
                 st.borrow_mut().unpinned_filter_fields = blank_dates;
             }
-            st.borrow_mut().view_number_fields = number_fields;
+            // Pinned for a page the test opened itself (OpenView, ViewConstBlankCode.al:429-490); a page run with a record keeps the
+            // earlier reading.
+            if test_open && record.is_none() {
+                st.borrow_mut().view_number_fields = number_fields;
+            }
             self.set_view_in(&rec, &table, &view, Some(2), sub_view.is_some(), false, false)?;
             merge_view_filters(&mut rec.borrow_mut(), &enum_consts, kept);
         }

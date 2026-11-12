@@ -146,7 +146,6 @@ mod translations;
 mod ui;
 mod user_email;
 mod usertable;
-mod view_database_const;
 mod view_empty;
 mod view_unknown;
 mod views;
