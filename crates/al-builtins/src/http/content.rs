@@ -6,7 +6,7 @@ use super::*;
 
 pub(super) fn write_from(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let t = text(a, 0)?;
-    with_content(r, |s| s.write_body(t.into_bytes())).map(|()| Value::Null)
+    with_content(r, |s| s.write_body(t.into_bytes(), false)).map(|()| Value::Null)
 }
 
 /// `WriteFrom(SecretText)`: the body is the secret's text and the content is secret: `IsSecretContent` is true, `ReadAs(SecretText)`
@@ -16,7 +16,7 @@ pub(super) fn write_from(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
 pub(super) fn write_from_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (t, _) = text_or_secret(a, 0)?;
     with_content(r, |s| {
-        s.write_body(t.into_bytes());
+        s.write_body(t.into_bytes(), false);
         s.secret = true;
         let mut bag = s.headers.borrow_mut();
         bag.items.retain(|(n, _)| !n.eq_ignore_ascii_case("Content-Type"));
@@ -54,7 +54,7 @@ pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 pub(super) fn write_from_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let bytes = crate::stream::hand_to_content(&mut a[0])?;
     with_content(r, |s| {
-        s.write_body(bytes);
+        s.write_body(bytes, true);
         s.from_stream = true;
     })
     .map(|()| Value::Null)
@@ -281,7 +281,8 @@ impl HttpContentState {
     }
 
     /// `WriteFrom` of text or a stream: the body is replaced, the header collection stays the one every `HttpHeaders` handed out
-    /// shows, with its Content-Type set to `text/plain; charset=utf-8` (put first when it was removed) and the other headers kept
+    /// shows, with its Content-Type set to `text/plain; charset=utf-8` for text writes; a stream write keeps a Content-Type
+    /// absent after it was removed under assumption `http-stream-write-keeps-removed-content-type`.
     /// (lt-http-header-rules/P87Content.al:AddThenWrite_Text, WriteThenAdd_Text, RewriteKeepsHeader, P87ContentType.al:HeaderBeforeWrite,
     /// P87ContentStream.al, HttpWriteFromStream.al:P100_*). A Content-Length the headers already hold (see `read_as`) is not
     /// rewritten: it stays for an empty body (http/AyContentLength.al:ContentLength_SecondWriteFrom `empty`
@@ -289,15 +290,19 @@ impl HttpContentState {
     /// stream body (AyContentLength.al:PY_ContentLength_LongerBodyAfterRead, _ShorterBodyAfterRead, _InStreamAfterRead `Yes[5]`).
     /// Pinned for a value a read put there (AyContentLength.al PY_ContentLength_*) and for one added by hand, before or after a
     /// read, with or without a body before it (AyContentLength.al:366-460, Y2_ContentLength_AddedByHand*).
-    fn write_body(&mut self, data: Vec<u8>) {
+    fn write_body(&mut self, data: Vec<u8>, stream: bool) {
         {
             let mut bag = self.headers.borrow_mut();
+            let content_type_removed = bag.content_type_removed;
             match bag
                 .items
                 .iter_mut()
                 .find(|(n, _)| n.eq_ignore_ascii_case("Content-Type"))
             {
                 Some((_, v)) => *v = vec!["text/plain; charset=utf-8".into()],
+                None if stream && content_type_removed => {
+                    assume(crate::assumptions::Assumption::HttpStreamWriteKeepsRemovedContentType)
+                }
                 None => bag
                     .items
                     .insert(0, ("Content-Type".into(), vec!["text/plain; charset=utf-8".into()])),

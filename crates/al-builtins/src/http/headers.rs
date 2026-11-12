@@ -225,6 +225,9 @@ pub(super) fn headers_remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
             return Ok(false);
         }
         cookie_header_guard(b, Some(&name))?;
+        if b.kind == HeaderKind::Content && name.eq_ignore_ascii_case("Content-Type") {
+            b.content_type_removed = true;
+        }
         b.items.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
         b.secret.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
         Ok(true)
@@ -244,8 +247,15 @@ pub(super) fn restricted_lookup(b: &HeaderBag, name: &str) -> Result<(), Signal>
     Ok(())
 }
 
-pub(super) fn headers_contains(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+pub(super) fn headers_contains(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let name = text(a, 0)?;
+    if name.is_empty() {
+        if !c.gate(al_version::Gate::HttpHeaderNameRulesProbedFrom28) {
+            return unsupported("HttpHeaders.Contains with an empty name on a major older than the probed ones");
+        }
+        assume(crate::assumptions::Assumption::HttpContainsEmptyName);
+        return header_error("Argument");
+    }
     with_bag(r.as_deref(), |b| {
         restricted_lookup(b, &name)?;
         unnamed_secret_header(b, Some(&name))?;
