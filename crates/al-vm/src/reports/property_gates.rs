@@ -32,7 +32,7 @@ impl Op<'_> {
 ///   (XMS_SaveAsXml_SameDatasetAsWithoutProperty);
 /// - `Run` and `RunModal` without the request page, no layout or an Excel layout: ReportNoLayout and
 ///   ReportUnsupportedOperation (XMS_Run_NoRequestPage);
-/// - `SaveAs` as Excel, no layout or an Excel layout: nothing written, and a file that is not empty (XMS_SaveAsExcel).
+/// - `SaveAs` as Excel: a file that is not empty with an Excel layout, nothing written with no layout (XMS_SaveAsExcel).
 pub(crate) fn gate(schema: &super::Schema, op: Op) -> Result<(), Signal> {
     let report = schema.report();
     if !report.excel_multiple_data_sheets {
