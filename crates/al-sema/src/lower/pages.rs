@@ -394,30 +394,8 @@ impl Lowerer<'_> {
                                                 .then_some((slot, index - 1))
                                         },
                                     );
-                                    // A call as written, Editable False (record/X3PageControlCalls.al:142-147,
-                                    // `pages::call_source_pinned`). Otherwise only text with no quote and single spaces: how
-                                    // BC writes other text is not pinned.
-                                    let call_source = args
-                                        .get(1)
-                                        .filter(|a| crate::pages::call_source_pinned(a))
-                                        .map(|a| (a.trim().to_string(), false));
-                                    expr_source = call_source.or_else(|| {
-                                        args.get(1)
-                                            .filter(|a| crate::pages::source_text_pinned(a, found.is_some()))
-                                            .and_then(|a| {
-                                                let element = crate::pages::array_element(a).is_some_and(|(v, _)| {
-                                                    globals.iter().any(|g| {
-                                                        g.name.eq_ignore_ascii_case(&v)
-                                                            && matches!(g.ty, RtType::Array(..))
-                                                    })
-                                                });
-                                                if element || found.is_some() {
-                                                    Some((a.trim().to_string(), true))
-                                                } else {
-                                                    crate::pages::arithmetic(a).then(|| (a.trim().to_string(), false))
-                                                }
-                                            })
-                                    });
+                                    expr_source =
+                                        args.get(1).and_then(|a| own_expr_source(a, globals, found.is_some()));
                                 }
                                 // An expression of a pinned shape, on a page or added by a page extension: the row names the
                                 // source as written and an undeclared Editable is `False` (`pages::expression_source_pinned`,
@@ -841,6 +819,30 @@ impl Lowerer<'_> {
 /// The control of a data item of a request page: the test client reads and writes the filters of its record (`binding`).
 /// The source of a page's or report's own control, or of a control of a reportextension that changes the run (`listed`), bound to an
 /// expression, as written and trimmed (`ir::Control::source_text`).
+/// The Page Control Field source of a page's own control bound to `text`, and whether its undeclared Editable is `True`. A call as
+/// written, Editable False (record/X3PageControlCalls.al:142-147, `pages::call_source_pinned`). Otherwise only text with no quote and
+/// single spaces (how BC writes other text is not pinned): an element of a page array or a field of a page record variable
+/// (`var_field`), Editable True, or an arithmetic expression, Editable False (record/TestPageControlFieldArraySource.al).
+fn own_expr_source(text: &str, globals: &[ir::Slot], var_field: bool) -> Option<(String, bool)> {
+    let written = text.trim().to_string();
+    if crate::pages::call_source_pinned(text) {
+        return Some((written, false));
+    }
+    if !crate::pages::source_text_pinned(text, var_field) {
+        return None;
+    }
+    let element = crate::pages::array_element(text).is_some_and(|(v, _)| {
+        globals
+            .iter()
+            .any(|g| g.name.eq_ignore_ascii_case(&v) && matches!(g.ty, RtType::Array(..)))
+    });
+    if element || var_field {
+        Some((written, true))
+    } else {
+        crate::pages::arithmetic(text).then_some((written, false))
+    }
+}
+
 fn expr_source_text(binding: &ir::Binding, listed: bool, sec: &ast::Section) -> Option<String> {
     let own_expr = listed && matches!(binding, ir::Binding::Expr(_));
     own_expr

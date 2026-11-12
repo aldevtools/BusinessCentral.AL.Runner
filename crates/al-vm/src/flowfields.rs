@@ -1376,6 +1376,19 @@ fn non_number(v: &Value) -> Signal {
     )
 }
 
+/// A filter on a Date FlowFilter whose reading through `field(filter())` is pinned (record/flowfields/
+/// FlowFilterDateFilterForms.al): one date, a range, `>`, `<`, `<>`, and a list of dates and ranges.
+fn date_flow_filter_pinned(e: &FilterExpr) -> bool {
+    match e {
+        FilterExpr::Eq(_) | FilterExpr::RangeSame(_) | FilterExpr::Range(..) => true,
+        FilterExpr::Ne(_) | FilterExpr::Lt(_) | FilterExpr::Gt(_) => true,
+        FilterExpr::Or(parts) => parts
+            .iter()
+            .all(|p| matches!(p, FilterExpr::Eq(_) | FilterExpr::RangeSame(_) | FilterExpr::Range(..))),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1446,18 +1459,5 @@ mod tests {
         // A field outside the primary key says nothing about the order.
         let t = table(vec![0], &[RtType::Integer, RtType::Integer]);
         assert!(!key_ordered_by(&t, &[], 1));
-    }
-}
-
-/// A filter on a Date FlowFilter whose reading through `field(filter())` is pinned (record/flowfields/
-/// FlowFilterDateFilterForms.al): one date, a range, `>`, `<`, `<>`, and a list of dates and ranges.
-fn date_flow_filter_pinned(e: &FilterExpr) -> bool {
-    match e {
-        FilterExpr::Eq(_) | FilterExpr::RangeSame(_) | FilterExpr::Range(..) => true,
-        FilterExpr::Ne(_) | FilterExpr::Lt(_) | FilterExpr::Gt(_) => true,
-        FilterExpr::Or(parts) => parts
-            .iter()
-            .all(|p| matches!(p, FilterExpr::Eq(_) | FilterExpr::RangeSame(_) | FilterExpr::Range(..))),
-        _ => false,
     }
 }
