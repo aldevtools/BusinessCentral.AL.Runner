@@ -15,6 +15,9 @@ impl Session {
         };
         // A confirmation dialog stays Cancel even where the lookup form reads Cancel as LookupCancel (misc/lt-probes-needed-7/
         // PnGActionOrdinals.al:ModalResultsOfAConfirmationDialog `nothing-invoked`).
+        if let Some(a) = self.relation_close_action(st) {
+            return a.into();
+        }
         if requested == "Cancel" && self.engine.object_facts[object].page_type_lower() == "confirmationdialog" {
             return "Cancel".into();
         }
