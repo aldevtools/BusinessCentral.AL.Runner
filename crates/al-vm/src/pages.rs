@@ -245,6 +245,7 @@ mod open;
 pub(crate) mod pinned_shape;
 mod ui_caption_translate;
 mod update_refresh_card;
+mod trapped_card_blank_part;
 pub(crate) mod validate_xrec;
 mod validation_text;
 pub(crate) use open::written_by_routine;

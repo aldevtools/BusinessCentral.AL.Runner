@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_trapped_card_sets_non_key_field_with_blank_part_rows() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/trapped-card-draft-blank-part-rows.al"),
+    ));
+}
