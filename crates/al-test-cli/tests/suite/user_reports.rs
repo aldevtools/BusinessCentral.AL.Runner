@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_report_extension_items_link_to_named_immediate_parents() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/report-added-item-parent-link.al"),
+    ));
+}

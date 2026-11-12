@@ -1129,7 +1129,7 @@ fn split_outside_quotes(s: &str) -> Vec<&str> {
 }
 
 /// An enclosing data item a `DataItemLinkReference` names: its index and its table.
-type EnclosingItem = (usize, Option<usize>);
+type EnclosingItem = (Option<usize>, Option<usize>);
 
 /// The IR of one data item. `parent_table` is the table of the item it is nested under.
 fn item_ir(
@@ -1165,12 +1165,14 @@ fn item_ir(
     // `DataItemLinkReference = Name` links the fields to the named enclosing data item's row, not the
     // parent's (corpus streams/TestReportDataItemLinkReferenceContracts.al).
     let mut link_item = None;
+    let mut reference_resolved = false;
     let mut parent_table = parent_table;
     if let Some(name) = prop("DataItemLinkReference") {
         let name = crate::scan::unquote_double(name.trim());
         match enclosing(&name) {
             Some((idx, table)) => {
-                link_item = Some(idx);
+                link_item = idx;
+                reference_resolved = true;
                 parent_table = table;
             }
             None => reasons.push(format!(
@@ -1179,7 +1181,7 @@ fn item_ir(
             )),
         }
     }
-    let referenced_unknown = prop("DataItemLinkReference").is_some() && link_item.is_none();
+    let referenced_unknown = prop("DataItemLinkReference").is_some() && !reference_resolved;
     if let Some(text) = prop("DataItemLink").filter(|_| !referenced_unknown) {
         match parent_table.zip(table) {
             None => reasons.push(format!(
@@ -1360,7 +1362,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
             let mut at = raw.parent;
             while let Some(i) = at {
                 if layout.items[i].name.eq_ignore_ascii_case(name) {
-                    return Some((i, items.get(i).and_then(|x| x.table)));
+                    return Some((Some(i), items.get(i).and_then(|x| x.table)));
                 }
                 at = layout.items[i].parent;
             }
@@ -1563,10 +1565,20 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
         } else {
             raw.parent.and_then(|p| added.get(p).and_then(|a| a.item.table))
         };
-        let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &|_| None, &mut reasons);
+        let enclosing = |name: &str| {
+            let anchor = base_parent
+                .map(|p| (Some(p), cx.base_items[p].name.as_str()))
+                .or_else(|| parent.map(|p| (None, cx.layout.items[p].name.as_str())));
+            anchor.filter(|(_, parent)| parent.eq_ignore_ascii_case(name))
+                .map(|(index, _)| (index, parent_table))
+        };
+        let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &enclosing, &mut reasons);
+        let explicit_parent_link = !item.link.is_empty()
+            && raw.section.properties().any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"));
         added.push(ir::AddedItem {
             item,
             base_parent,
+            explicit_parent_link,
             place,
         });
     }

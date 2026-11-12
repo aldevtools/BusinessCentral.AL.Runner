@@ -773,6 +773,8 @@ pub struct AddedItem {
     pub item: ReportItem,
     /// The base item it is added under (top-level added items).
     pub base_parent: Option<usize>,
+    /// This link names its immediate parent explicitly.
+    pub explicit_parent_link: bool,
     /// Where it sits among its siblings (`addlast` unless the extension says otherwise).
     #[serde(default)]
     pub place: AddedPlace,
