@@ -257,10 +257,7 @@ impl Session {
             self.torn_down_on_error(st, r)?;
             self.sync_parts(st)?;
         }
-        if method == PageMethod::DrillDown {
-            self.defer_host_refresh_after_part_drilldown(st)?;
-        }
-        self.run_refresh(st)?;
+        self.refresh_after_field_action(st, method)?;
         // After the refresh a marking drilldown in the primary key leaves the row the page showed in Rec, and keeps Rec's for the
         // next call (`drilldown_marked_only_refresh`).
         if let Some(shown) = pk_shown {

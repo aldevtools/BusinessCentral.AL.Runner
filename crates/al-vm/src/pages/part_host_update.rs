@@ -14,6 +14,13 @@ use super::*;
 type LaterRow = (Vec<Vec<Value>>, usize);
 
 impl Session {
+    pub(super) fn refresh_after_field_action(&mut self, st: &St, method: PageMethod) -> Result<(), Signal> {
+        if method == PageMethod::DrillDown {
+            self.defer_host_refresh_after_part_drilldown(st)?;
+        }
+        self.run_refresh(st)
+    }
+
     /// CardPartRefresh.al on real BC. The header control initially still shows
     /// its prior value. The next SetValue validates against the stored header.
     pub(super) fn defer_host_refresh_after_part_drilldown(&mut self, part: &St) -> Result<(), Signal> {
