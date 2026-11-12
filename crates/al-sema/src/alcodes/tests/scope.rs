@@ -132,9 +132,16 @@ fn al0185_enum_not_judged_outside_the_measured_shapes() {
     let no_ns = user("", "Enum \"Widget Kind\"");
     let child = user("namespace Acme.Kinds.Sub;", "Enum \"Widget Kind\"");
     let parent = user("namespace Acme;", "Enum \"Widget Kind\"");
-    for src in [global, param, trigger, &no_ns, &child, &parent] {
+    // A namespace that shares no parent with the enum's (the reporter's two namespaces share `Acme`).
+    let apart = user("namespace Other.Logic;", "Enum \"Widget Kind\"");
+    let top = user("namespace Logic;", "Enum \"Widget Kind\"");
+    for src in [global, param, trigger, &no_ns, &child, &parent, &apart, &top] {
         assert!(codes_with_platform(&[KIND, src], "").is_empty(), "{src}");
     }
+    // Two enums of that name in two other namespaces of the app.
+    let second = KIND.replace("Acme.Kinds", "Acme.Sorts").replace("50100", "50102");
+    let src = user("namespace Acme.Logic;", "Enum \"Widget Kind\"");
+    assert!(codes_with_platform(&[KIND, &second, &src], "").is_empty());
     // An enum of a dependency app in another namespace is not judged.
     assert!(codes_with_dependency(&[&user("namespace Acme.Logic;", "Enum \"Widget Kind\"")], Some(KIND)).is_empty());
 }
@@ -149,4 +156,43 @@ fn al0185_variable_of_an_unknown_enum_type() {
     );
     // Without the platform app loaded the name may exist there: not judged.
     assert!(codes(&[src]).is_empty());
+}
+
+// Issue 7914 neighbor: the `MovedTo` app is a second workspace app (compiled from source in the same run), not a loaded
+// dependency package. Not the measured pair: main's AL0264 stays, in either order of the apps.
+#[test]
+fn al0264_kept_when_the_moved_to_app_is_a_workspace_app() {
+    for stub_first in [true, false] {
+        let stub_app = AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec!["dep".into()],
+            files: vec![("f.al".into(), stub(MOVED, "Probe Row"))],
+        };
+        let live_app = AppSource {
+            id: "dep".into(),
+            name: "dep".into(),
+            dependencies: vec![],
+            files: vec![("d.al".into(), LIVE.to_string())],
+        };
+        let apps = if stub_first {
+            vec![stub_app, live_app]
+        } else {
+            vec![live_app, stub_app]
+        };
+        let kinds = vec![crate::workspace::AppKind::Workspace; 2];
+        let ws = Workspace::load_apps(apps, kinds, &Default::default());
+        let stub_i = ws.objects.iter().position(|o| ws.apps[o.app].id == "a").expect("stub");
+        assert_eq!(ws.moved_table_of_dependency(stub_i), None, "stub first: {stub_first}");
+        assert!(!ws.has_moved_table_stub(), "stub first: {stub_first}");
+        let m = crate::members::build(&ws);
+        let r = crate::check::check(&ws, &m, &Catalog::load());
+        let codes: Vec<&str> = r
+            .diagnostics
+            .iter()
+            .map(|d| d.code)
+            .filter(|c| c.starts_with("AL"))
+            .collect();
+        assert_eq!(codes, vec!["AL0264"], "stub first: {stub_first}");
+    }
 }

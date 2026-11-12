@@ -208,7 +208,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0185",
-        "reported only for the platform table Integer named bare by a Record variable or a report data item of a file in a namespace without `using System.Utilities;` (`platform_integer_without_using`: cases 2081, 2082), for a variable of a codeunit type nobody declares (`unknown_codeunit_variables`: case 0213), for a TestRequestPage parameter typed on a name no report has (`test_request_pages_of_no_report`: case 2513), and for a procedure variable of an enum type named by a name no app declares or declared only in an unrelated namespace of the file's own app (`enum_variables`: case 0214, al-runner issue 7921); any other missing object is not decided.",
+        "reported only for the platform table Integer named bare by a Record variable or a report data item of a file in a namespace without `using System.Utilities;` (`platform_integer_without_using`: cases 2081, 2082), for a variable of a codeunit type nobody declares (`unknown_codeunit_variables`: case 0213), for a TestRequestPage parameter typed on a name no report has (`test_request_pages_of_no_report`: case 2513), and for a procedure variable of an enum type named by a name no app declares or declared once, in a sibling namespace of the file's own app (`enum_variables`: case 0214; al-runner issue 7921, assumption `enum-plain-name-outside-namespace`); any other missing object is not decided.",
     ),
     (
         "AL0240",

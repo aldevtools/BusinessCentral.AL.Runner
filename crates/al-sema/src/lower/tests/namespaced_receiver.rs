@@ -60,3 +60,30 @@ fn other_receivers_keep_mains_result() {
     let (_, l) = lower_files(&[("k.al", KIND), ("u.al", &shadow)], false);
     assert!(!assumes(&l));
 }
+
+// An object of any kind named like the first name: the receiver is not taken, main's result (AL0118) stays (no measurement covers
+// these shapes).
+#[test]
+fn an_object_named_like_the_first_name_keeps_mains_result() {
+    let body = "begin exit(Contoso.Foundation.Enums.\"Probe Kind\".FromInteger(Kind).AsInteger()); end;";
+    for other in [
+        "codeunit 50110 Contoso { }",
+        "table 50111 Contoso { fields { field(1; Id; Integer) { } } }",
+        "page 50112 Contoso { }",
+        "report 50113 Contoso { }",
+        "query 50114 Contoso { elements { } }",
+        "xmlport 50115 Contoso { schema { } }",
+        "interface Contoso { }",
+        "namespace Elsewhere; codeunit 50117 Contoso { }",
+    ] {
+        let src = user("namespace Contoso.Utilities;", body);
+        let (_, l) = lower_files(&[("k.al", KIND), ("o.al", other), ("u.al", &src)], false);
+        assert!(!assumes(&l), "{other}");
+        assert!(al_codes(&l).contains(&"AL0118"), "{other}: {:?}", al_codes(&l));
+    }
+    // An enum named like the first name: the receiver is that enum's, as on main; the assumption is not taken.
+    let src = user("namespace Contoso.Utilities;", body);
+    let other = "enum 50116 Contoso { value(0; A) { } }";
+    let (_, l) = lower_files(&[("k.al", KIND), ("o.al", other), ("u.al", &src)], false);
+    assert!(!assumes(&l));
+}

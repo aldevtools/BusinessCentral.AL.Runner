@@ -1765,7 +1765,8 @@ impl<'a> Checker<'a> {
     }
 
     /// The receiver `recv` of member access `node`. `Ns.Sub."Enum".FromInteger(n)` names the enum through its namespace when
-    /// the first name `Ns` names nothing else in scope (al-runner issue 7920, the reporter's alc 18.1 repro: alc compiles it;
+    /// the first name `Ns` is no variable, parameter, field or procedure in scope and no object of any kind in any app the
+    /// file sees has that name (al-runner issue 7920, the reporter's alc 18.1 repro: alc compiles it;
     /// assumption `namespaced-enum-receiver` with probe corpus PR 1363, which lowering marks). Only `FromInteger` called on a chain of two or more names
     /// is taken; every other receiver is inferred as before.
     fn member_receiver(&mut self, sc: &mut Scope, node: &SyntaxNode, recv: &SyntaxNode) -> E {
@@ -1784,6 +1785,7 @@ impl<'a> Checker<'a> {
             }
             if first.kind() == SyntaxKind::NameRef
                 && self.lookup_name(sc, &first).is_none()
+                && !self.ws.names_any_visible_object(sc.file, &name_of(&first))
                 && let Some(ei) = self.namespaced_enum_index(sc, recv)
             {
                 self.touch(ei);

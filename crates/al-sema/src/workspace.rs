@@ -1258,6 +1258,13 @@ impl Workspace {
             .collect()
     }
 
+    /// Whether an object of any kind, in any namespace, among the apps `file`'s app sees is named `name` (bare).
+    pub fn names_any_visible_object(&self, file: usize, name: &str) -> bool {
+        ObjKind::ALL
+            .iter()
+            .any(|&kind| !self.named_objects_visible(file, kind, name).is_empty())
+    }
+
     /// Whether `app` or an app it sees declares a dependency that is not among the loaded apps.
     /// The `Application` aggregate is never loaded (it has no source) and declares no objects: it hides nothing once Base
     /// Application, which depends on the rest of the aggregate, is among the apps `app` sees.

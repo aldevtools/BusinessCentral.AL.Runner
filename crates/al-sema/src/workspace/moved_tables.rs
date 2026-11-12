@@ -24,15 +24,16 @@ impl Workspace {
     /// measured pair holds (al-runner issue 7914, the reporter's alc 18.1 repro: alc compiles the pair; assumption
     /// `moved-table-stub-of-dependency`, probe corpus PR 1363):
     /// - `i` is a table of a workspace app with `ObsoleteState = Moved`;
-    /// - its `MovedTo` is the id of an app that `i`'s app names as a dependency;
+    /// - its `MovedTo` is the id of an app that `i`'s app names as a dependency, and that app is loaded as a dependency
+    ///   package (`AppKind::Dependency`); a `MovedTo` app that is itself a workspace app is not the measured pair;
     /// - that app declares a table with the same id and the same name, without an `ObsoleteState` property.
     ///
     /// Microsoft's Base Application 28.4 and Business Foundation are such pairs (tables 231, 308, 309, 310, 1263).
-    /// Every other shape (another obsolete state, no `MovedTo`, a transitive dependency, a different name, a dependency
-    /// table that is itself obsolete) is `None`.
+    /// Every other shape (another obsolete state, no `MovedTo`, a transitive dependency, a `MovedTo` app compiled from
+    /// source in the same run, a different name, a dependency table that is itself obsolete) is `None`.
     pub fn moved_table_of_dependency(&self, i: usize) -> Option<usize> {
         let o = &self.objects[i];
-        if o.kind != ObjKind::Table || self.kinds[o.app] == AppKind::Dependency {
+        if !(o.kind == ObjKind::Table && self.kinds[o.app] == AppKind::Workspace) {
             return None;
         }
         let id = o.id?;
@@ -51,6 +52,9 @@ impl Workspace {
             .iter()
             .find(|d| d.eq_ignore_ascii_case(moved_to))?;
         let app = self.apps.iter().position(|a| a.id.eq_ignore_ascii_case(target))?;
+        if self.kinds[app] != AppKind::Dependency {
+            return None;
+        }
         same_id.iter().copied().find(|&j| {
             let t = &self.objects[j];
             t.app == app && t.name.eq_ignore_ascii_case(&o.name) && self.object_property(j, "ObsoleteState").is_none()
