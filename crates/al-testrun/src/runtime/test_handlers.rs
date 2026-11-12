@@ -211,7 +211,9 @@ impl Handlers {
                         codeunit_name: self.codeunit_name.clone(),
                         procedure: procedure.to_string(),
                         case: case.to_string(),
-                        success,
+                        // BiTestHandlerSuccess.al:116: Success() is false in every Before callback.
+                        success: success.unwrap_or(false),
+                        success_assumed: success.is_none() && h.default,
                         skip: None,
                     }));
                     Value::Library(kind, cell)
