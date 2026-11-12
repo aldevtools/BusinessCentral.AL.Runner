@@ -67,7 +67,8 @@ impl Session {
             && parts.iter().any(|p| !p.borrow().trigger_errors.is_empty())
             && parts.iter().all(|p| {
                 let state = p.borrow();
-                state.draft && !state.dirty
+                state.draft
+                    && !state.dirty
                     && self.engine.object_facts[state.object as usize].page_type == Some(ir::PageType::ListPart)
             });
         let a = self.unattended_action(st);
