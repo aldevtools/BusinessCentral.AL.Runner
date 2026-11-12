@@ -66,7 +66,8 @@ impl Session {
             // BC28PLUS); another error's text and code cannot be read.
             Err(Signal::Error(e)) if origin.as_deref() == Some("onclosepage") => {
                 self.mark_closed(st);
-                if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED {
+                let relation_confirm = e.code == "MissingUIHandler" && self.relation_closed_in_handler(st);
+                if e.code != "Dialog" && e.code != crate::control_add_in::NOT_CREATED && !relation_confirm {
                     return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
                 }
                 // Pinned by testpage/ACControlAddIn.al TZ_CallInOnAfterGetRecord_TestPageOpen, TZ_CallInOnAfterGetCurrRecord_TestPageOpen, TZ_CallInOnClosePage_TestPageClose, TZ_TwoProceduresFromActions_PageStaysUsable (was assumption `control-add-in-call-trigger-contexts`).
@@ -206,6 +207,7 @@ impl Session {
         let test_close = std::mem::take(&mut self.pages.test_close);
         self.require_open(st)?;
         st.borrow_mut().close_vetoed = false;
+        self.note_relation_close(st, action, test_close, via_action);
         let mapped = self.close_action(st, action);
         let action = mapped.as_str();
         // Cancel on a request page whose ModifyAllowed is false drops a changed row: no error, the stored row unchanged
@@ -443,6 +445,8 @@ impl Session {
         let r = self.page_trigger(st, "onclosepage", vec![]);
         if test_close {
             r?;
+        } else if let Some(e) = self.relation_close_page_error(st, &r) {
+            return Err(e);
         } else {
             refuse_error(r, "OnClosePage at a close by an action or a handler")?;
         }

@@ -203,9 +203,15 @@ impl Session {
         };
         let blank = Rc::new(RefCell::new(self.page_rec(&related).borrow().clone()));
         self.lookup_pre_open(&related, &blank, start)?;
-        let outcome = self.run_page_ui(&related, Some(blank), true)?;
-        let confirmed = matches!(&outcome, Value::Option(n, members)
-            if members.get(*n as usize).is_some_and(|m| m == "LookupOK"));
+        related.borrow_mut().relation_origin = self.relation_origin(st);
+        let outcome = match self.run_page_ui(&related, Some(blank), true) {
+            Ok(v) => v,
+            Err(e) => return self.relation_lookup_error(&related, e),
+        };
+        let confirmed = self.relation_pick_written(&related, &outcome).unwrap_or_else(|| {
+            matches!(&outcome, Value::Option(n, members)
+                if members.get(*n as usize).is_some_and(|m| m == "LookupOK"))
+        });
         if !confirmed {
             return Ok(Value::Null);
         }
