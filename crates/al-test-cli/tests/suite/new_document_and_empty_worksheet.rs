@@ -177,7 +177,8 @@ fn new_document_part_shapes_outside_the_pin_refuse() {
 }
 
 /// The pinned Worksheet of SelectionFilterNoRow.al:372 (page 67996) with `page_code` added to the page and `extra` objects next
-/// to it. `properties` replaces the page's properties after SourceTable.
+/// to it. `properties` replaces the page's properties after SourceTable. The table has the extension and the manual
+/// subscriber "ALT Universal" has in the corpus run (`REFRESH_TABLE_EXTENSION`, `REFRESH_TABLE_SUBSCRIBER`).
 fn refresh_sheet(properties: &str, page_code: &str, extra: &str) -> String {
     format!(
         r#"
@@ -185,6 +186,8 @@ table 69510 Row {{
     fields {{ field(1; "Entry No."; Integer) {{ }} field(2; "Code Field"; Code[20]) {{ }} field(3; "Boolean Field"; Boolean) {{ }} }}
     keys {{ key(PK; "Entry No.") {{ Clustered = true; }} }}
 }}
+{REFRESH_TABLE_EXTENSION}
+{REFRESH_TABLE_SUBSCRIBER}
 page 69511 Sheet {{
     PageType = Worksheet; SourceTable = Row; {properties} ApplicationArea = All;
     layout {{ area(Content) {{ repeater(Rows) {{ field(Id; Rec."Entry No.") {{ ApplicationArea = All; }} }} }} }}
@@ -217,6 +220,17 @@ codeunit 69512 T {{ Subtype = Test;
 "#
     )
 }
+
+/// The table extension of "ALT Universal" in the corpus (_fixtures/tables/ALTUniversalValidated.TableExt.al:5): one field
+/// with an OnValidate.
+const REFRESH_TABLE_EXTENSION: &str = r#"tableextension 69516 RowValidated extends Row { fields { field(69516; "Ext Validated"; Text[50]) { trigger OnValidate() begin end; } } }"#;
+
+/// The subscriber of "ALT Universal" in the corpus (_fixtures/events/ALTManualTableEventSubscriber.al:28): OnAfterInsertEvent
+/// in a codeunit with manual binding, which no test binds.
+const REFRESH_TABLE_SUBSCRIBER: &str = r#"codeunit 69517 ManualSub { EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Table, Database::Row, 'OnAfterInsertEvent', '', false, false)]
+    local procedure OnIns(var Rec: Record Row; RunTrigger: Boolean) begin end;
+}"#;
 
 const PINNED_SHEET_PROPERTIES: &str =
     r#"SourceTableView = where("Boolean Field" = const(true)); DelayedInsert = true; InsertAllowed = false;"#;
@@ -485,4 +499,91 @@ fn empty_worksheet_refresh_facts_outside_the_pin_keep_mains_refusal() {
         let outcomes = run_with_deps(&[], &shape);
         not_run_with(&outcomes, "on no row", &shape);
     }
+}
+
+/// The pinned Document with an OnValidate that does not modify Rec (main stores no row and answers `n=0`) keeps main's
+/// outcome: the pin's OnValidate is `Rec.Description := InputText; Rec.Modify();`.
+#[test]
+fn new_document_onvalidate_outside_the_pin_keeps_mains_outcome() {
+    let harmless_scan =
+        "field(Scan; InputText) { ApplicationArea = All; trigger OnValidate() begin Seen := InputText; end; }";
+    let shape = scan_document(&format!("{NO_CONTROL}{harmless_scan}"), "", "", "");
+    let outcomes = run_with_deps(&[], &shape);
+    assert!(
+        matches!(&outcomes[0].1, Outcome::Fail(why) if why.contains("n=0")),
+        "{shape}: {outcomes:?}"
+    );
+}
+
+/// Calls and controls the pin does not have: a read of No before the SetValue, a second SetValue after the insert, and a
+/// second field control in the General group. Main fails each (the control's Modify finds no row); the new path refuses.
+#[test]
+fn new_document_calls_and_controls_outside_the_pin_refuse() {
+    let pinned = new_document("", "", "", "", "");
+    let typed = "Doc.OpenNew(); Doc.Scan.Value('SCANNED');";
+    for (shape, reason) in [
+        (
+            pinned.replace(typed, "Doc.OpenNew(); if Doc.No.Value() = '' then; Doc.Scan.Value('SCANNED');"),
+            NEW_DOCUMENT_REFUSAL,
+        ),
+        (
+            pinned.replace(typed, "Doc.OpenNew(); Doc.Scan.Value('SCANNED'); Doc.Scan.Value('AGAIN');"),
+            "after the header of an OpenNew Document was stored",
+        ),
+        (
+            pinned.replace(
+                "field(No; Rec.\"No.\") { ApplicationArea = All; }",
+                "field(No; Rec.\"No.\") { ApplicationArea = All; } field(Descr; Rec.Description) { ApplicationArea = All; }",
+            ),
+            NEW_DOCUMENT_REFUSAL,
+        ),
+    ] {
+        assert_ne!(shape, pinned);
+        let outcomes = run_with_deps(&[], &shape);
+        not_run_with(&outcomes, reason, &shape);
+    }
+}
+
+/// The pinned Worksheet refresh with First before the selection (SelectionFilterNoRow.al:385) passes. A SetValue or a second
+/// action after the refresh refuses (main fails or refuses there: the page shows no row). A range value with a wildcard
+/// character, a table extension field without its OnValidate, a subscriber with automatic binding and a bound manual one
+/// keep main's refusal of SetSelectionFilter on no row.
+#[test]
+fn empty_worksheet_refresh_calls_and_tables_outside_the_pin() {
+    let pinned = refresh_sheet(PINNED_SHEET_PROPERTIES, "", "");
+    let select = "Sheet.CheckSelection.Invoke();";
+    let first = pinned.replace(select, &format!("if not Sheet.First() then Error('none'); {select}"));
+    assert_eq!(run_with_deps(&[], &first)[0].1, Outcome::Pass, "{first}");
+    for shape in [
+        pinned.replace(select, "Sheet.Id.SetValue(7);"),
+        pinned.replace(select, &format!("{select} {select}")),
+    ] {
+        let outcomes = run_with_deps(&[], &shape);
+        not_run_with(&outcomes, "after the refresh of an empty Worksheet", &shape);
+    }
+    for shape in [
+        pinned.replace("'SELECTED'", "'SEL*'"),
+        pinned.replace(" trigger OnValidate() begin end; ", " "),
+        pinned.replace("EventSubscriberInstance = Manual;", ""),
+        pinned
+            .replace("Sheet.OpenEdit();", "BindSubscription(Sub); Sheet.OpenEdit();")
+            .replace(
+                "Sheet: TestPage Sheet;",
+                "Sheet: TestPage Sheet; Sub: Codeunit ManualSub;",
+            ),
+    ] {
+        assert_ne!(shape, pinned);
+        let outcomes = run_with_deps(&[], &shape);
+        not_run_with(&outcomes, "on no row", &shape);
+    }
+}
+
+/// Two selections in the one action of the pinned modal Worksheet: the pin makes one, so the second keeps main's refusal.
+#[test]
+fn empty_modal_worksheet_second_selection_keeps_mains_refusal() {
+    let pinned = modal_worksheet("");
+    let select = "CurrPage.SetSelectionFilter(Selected);";
+    let shape = pinned.replace(select, &format!("CurrPage.SetSelectionFilter(Other); {select}"));
+    let outcomes = run_with_deps(&[], &shape);
+    not_run_with(&outcomes, "on no row", &shape);
 }

@@ -1,7 +1,7 @@
 //! `SetTableView` and `SetRecord` on a Page variable: what the page takes of the record it is handed, and what
 //! `SetSelectionFilter` hands back after the page closed.
 
-use super::pinned_shape::{TestCall, open_page_filters_then_find};
+use super::pinned_shape::{TestCall, capital_word, open_page_filters_then_find, table_code};
 use super::*;
 use al_builtins::page_op::PageMethod;
 
@@ -191,10 +191,12 @@ impl Session {
     /// (Page_SetSelectionFilter_EmptyModalWorksheet_FiltersDefaultKey, page 67999) selects the default key: the selection
     /// filters the primary key on its blank value and finds nothing. Every fact required: the page ran by a statement
     /// `Page.RunModal(Page::X)` without a record and without its return value used, under a typed modal handler that invokes
-    /// an action, the only call the handler made on the page so far; a Worksheet on no row that declares OnOpenPage and no
+    /// an action, the only call the handler made on the page so far, and no selection answered on the page before (the action
+    /// makes one); a Worksheet on no row that declares OnOpenPage and no
     /// other trigger, no property but the plain ones, DelayedInsert = true and InsertAllowed = false, with no page extension
-    /// and no event subscriber; OnOpenPage is `open_page_filters_then_find`; Rec is stored and holds only OnOpenPage's
-    /// `SetRange` of one non-blank Text value on a field outside its one-field Integer primary key, in filter group 2; the
+    /// and no event subscriber; its table "ALT Shape 06" (_fixtures/tables/ALTShapeTables.al:108) declares no code and has
+    /// no table extension and no event subscriber; OnOpenPage is `open_page_filters_then_find`; Rec is stored and holds only
+    /// OnOpenPage's `SetRange` of one `capital_word` Text value on a field outside its one-field Integer primary key, in filter group 2; the
     /// view is empty and no stored row has the blank key (the test stores Id 1, HIDDEN); the destination record is fresh:
     /// its initial fields, no filter, filter group 0, the primary key, ascending.
     pub(super) fn empty_modal_worksheet_selection(
@@ -215,6 +217,7 @@ impl Session {
                 || !page.in_action
                 || page.host.is_some()
                 || page.cursor != Cursor::None
+                || page.empty_selection_given
             {
                 return Ok(false);
             }
@@ -236,6 +239,7 @@ impl Session {
             || !delayed
             || self.ui_state.page_handler_depth == 0
             || !flag_denied(&self.engine, object, "InsertAllowed")?
+            || table_code(&self.engine, src.borrow().table as usize) != Some((Vec::new(), false))
         {
             return Ok(false);
         }
@@ -269,7 +273,7 @@ impl Session {
         let key = &table.keys[0];
         let exact_text = match &filter.expr {
             al_builtins::filter::FilterExpr::Range(Some(Value::Text(lower)), Some(Value::Text(upper))) => {
-                !lower.is_empty() && lower == upper
+                capital_word(lower) && lower == upper
             }
             _ => false,
         };

@@ -600,9 +600,12 @@ pub struct PageState {
     /// The action's refresh just ran the new-row line of a list that lost its only row three times (`settle_after_action`); read
     /// by `post_left_other_key_settled` and cleared when the action ends (al-runner issue 7821).
     pub gone_new_line_settled: bool,
-    /// A rule pinned for one outside reporter's repro ran on this page or one of its parts, and the repro does nothing after it
-    /// but the calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
+    /// A rule pinned for one scenario ran on this page or one of its parts, and the scenario does nothing after it but the
+    /// calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
     pub pinned_end: Option<crate::pages::pinned_shape::PinnedEnd>,
+    /// `SetSelectionFilter` on the empty modal Worksheet answered once since the page opened
+    /// (`empty_modal_worksheet_selection`); its pin makes one call.
+    pub empty_selection_given: bool,
     /// The fields of a part's Rec when the test's last SetValue on it began (`control_set_value`).
     pub row_before_write: Option<Vec<Value>>,
     /// The next first read of this part asks OnFindRecord `=>` instead of `=><` (`part_refresh_find_forward.rs`, al-runner
@@ -919,6 +922,7 @@ impl PageState {
         self.tree_calls_mark = None;
         self.typed_key_dropped = false;
         self.pinned_end = None;
+        self.empty_selection_given = false;
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
     }

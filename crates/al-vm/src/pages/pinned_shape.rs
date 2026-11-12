@@ -5,8 +5,8 @@
 //! `open/temp_ws_preloaded.rs`, `currpage_run_typed_key.rs`, and for a part on a host `split_key_view.rs`, `part_unsettled.rs`,
 //! `part_filter_find.rs` and `end_move_no_read.rs` (al-runner PR 7805 review, round 3), which compare the calls on the host and
 //! on the part in the order the test made them (`part_steps`) and the pages of the pin (`PinnedPart`). A rule pinned for an
-//! outside reporter's repro compares the objects line for line (`pinned_body.rs`) and lets through only the calls the repro
-//! makes after it (`PinnedEnd`).
+//! outside reporter's repro compares the objects line for line (`pinned_body.rs`). A rule pinned for one repro or one corpus
+//! scenario lets through only the calls the scenario makes after it (`PinnedEnd`).
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
@@ -53,13 +53,18 @@ pub enum PartStep {
     Sibling,
 }
 
-/// What a page lets through after a rule pinned for one outside reporter's repro ran (`PageState::pinned_end`): Close of the
-/// page, and with `reads` a read of a control's value or an `AssertEquals`, as the repro makes them.
+/// What a page lets through after a rule pinned for one scenario ran (`PageState::pinned_end`): Close of the page, with
+/// `reads` a read of a control's value or an `AssertEquals`, with `one_action` one action's Invoke, and with `first_ends` a
+/// `First`, which ends the limit, as the scenario makes them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PinnedEnd {
     /// The refusal of any other call.
     pub reason: &'static str,
     pub reads: bool,
+    /// One `Invoke` of an action is let through; a second one is refused.
+    pub one_action: bool,
+    /// `First` is let through and ends the limit: the page then reads its view again, as on main's path.
+    pub first_ends: bool,
 }
 
 /// More calls on a page and its parts than this are not kept; no pinned scenario of a part has that many.
@@ -121,7 +126,18 @@ impl Session {
             // Not a call of the test client (`note_test_call`).
             None => true,
             Some(TestCall::Page(PageMethod::Close)) => part.is_none(),
+            Some(TestCall::Page(PageMethod::First)) if end.first_ends && part.is_none() => {
+                root.borrow_mut().pinned_end = None;
+                true
+            }
             Some(TestCall::Read) => end.reads,
+            Some(TestCall::Other(PageMethod::Invoke)) if end.one_action && part.is_none() => {
+                root.borrow_mut().pinned_end = Some(PinnedEnd {
+                    one_action: false,
+                    ..end
+                });
+                true
+            }
             Some(TestCall::Other(m)) => end.reads && (m == PageMethod::AssertEquals || Self::field_read(m)),
             _ => false,
         };
@@ -563,6 +579,12 @@ pub(super) fn table_code(engine: &Engine, object: usize) -> Option<(Vec<String>,
     if !t.table.as_ref().is_some_and(|x| x.extensions.is_empty()) || engine.events.any_subscriber_of(object) {
         return None;
     }
+    Some(own_table_code(t))
+}
+
+/// The triggers table `t` declares itself (lower case, sorted) and whether it has a field trigger or a procedure; its table
+/// extensions and subscribers are the caller's to check.
+pub(super) fn own_table_code(t: &ir::Object) -> (Vec<String>, bool) {
     let mut triggers: Vec<String> = t
         .routines
         .iter()
@@ -571,7 +593,13 @@ pub(super) fn table_code(engine: &Engine, object: usize) -> Option<(Vec<String>,
         .collect();
     triggers.sort_unstable();
     let more = t.routines.iter().any(|r| r.field.is_some() || !r.is_trigger);
-    Some((triggers, more))
+    (triggers, more)
+}
+
+/// A filter value of the kind the pins of SelectionFilterNoRow.al set (`'SELECTED'` on page 67996, `'VISIBLE'` on page
+/// 67999): one or more ASCII capital letters.
+pub(super) fn capital_word(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|b| b.is_ascii_uppercase())
 }
 
 /// The OnOpenPage of `page` (object `object`) is, statement by statement, the one of pages 67996 and 67999

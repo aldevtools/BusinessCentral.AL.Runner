@@ -3,14 +3,16 @@
 //! testpage/TestPageBlankKeyInsert.al:256 TestPage_OpenNew_VariableControlCanModifyDocument, page 67997; :272
 //! TestPage_OpenNew_VariableControlCanModifyDocumentWithPart, pages 67994 and 67995). `activate` (draft.rs) calls it.
 
-use super::pinned_shape::table_code;
+use super::pinned_shape::{PinnedEnd, TestCall, code_stmts, table_code};
 use super::*;
 
 impl Session {
     /// Before control `idx` takes a value. A Document without DelayedInsert that inserts, on its untouched OpenNew draft,
     /// when focus moves to the variable control `idx` from another control of the row (`leaving_control`) and its one
-    /// trigger is OnValidate: the header is inserted first when the page is the pinned one (`measured_new_document`), and
-    /// the move refuses otherwise (main ran that OnValidate on the unstored header). Every other shape keeps main's path.
+    /// trigger is the pinned OnValidate (`pinned_scan_validate`): the header is inserted first when the page and the
+    /// test's calls are the pinned ones (`measured_new_document`), and the move refuses otherwise (main ran that OnValidate
+    /// on the unstored header, whose Modify failed). After the insert the test may only close the page (`PinnedEnd`).
+    /// Every other shape keeps main's path.
     pub(super) fn insert_document_before_variable_validation(
         &mut self,
         st: &St,
@@ -31,14 +33,14 @@ impl Session {
             page.object as usize
         };
         let engine = self.engine();
-        let page = page_of(&engine, st);
-        let validating_variable =
-            matches!(page.controls[idx].binding, ir::Binding::Var(_)) && Self::only_on_validate(&page.controls[idx]);
         if !leaving_control
-            || !validating_variable
             || engine.object_facts[object].page_type != Some(ir::PageType::Document)
             || !self.has_source(st)
         {
+            return Ok(());
+        }
+        let key = self.table(&self.page_rec(st))?.keys[0].clone();
+        if !Self::pinned_scan_validate(&engine.program, object, &page_of(&engine, st).controls[idx], &key) {
             return Ok(());
         }
         if flag_denied(&engine, object, "InsertAllowed")?
@@ -48,7 +50,7 @@ impl Session {
         {
             return Ok(());
         }
-        if !self.measured_new_document(st)? {
+        if !self.measured_new_document(st, idx)? {
             return unsupported(
                 "SetValue on a variable control of a new Document outside the measured OpenNew focus move (not pinned)",
             );
@@ -61,26 +63,62 @@ impl Session {
             }
             result => result?,
         }
+        st.borrow_mut().pinned_end = Some(PinnedEnd {
+            reason: "a call of the test after the header of an OpenNew Document was stored before its variable control \
+                     validated, other than Close (not pinned)",
+            reads: false,
+            one_action: false,
+            first_ends: false,
+        });
         self.inserted_outside_view(st, idx)
     }
 
-    /// The control's triggers are exactly OnValidate (control Scan of pages 67997 and 67994). What that OnValidate does
-    /// is not part of the gate: it runs after the pinned insert as ordinary code.
-    fn only_on_validate(c: &ir::Control) -> bool {
-        matches!(c.triggers.as_slice(), [(name, _)] if name == "onvalidate")
+    /// Control `c` of page `object` is control Scan of pages 67997 and 67994 (TestPageBlankKeyInsert.al): bound to a page
+    /// variable, its one trigger is OnValidate, and that OnValidate is, statement by statement, `Rec.<field> := <the
+    /// variable>; Rec.Modify();` on a field outside the primary key `key` (`Rec.Description := InputText; Rec.Modify();`).
+    fn pinned_scan_validate(program: &ir::Program, object: usize, c: &ir::Control, key: &[usize]) -> bool {
+        use al_builtins::builtin_id::ids;
+        let (ir::Binding::Var(var), [(name, routine)]) = (&c.binding, c.triggers.as_slice()) else {
+            return false;
+        };
+        let Some(rec) = program.objects[object].rec_slot else {
+            return false;
+        };
+        let is_rec = |p: &ir::Place| matches!(p, ir::Place::Global(g) if *g == rec);
+        let loads_var = |e: &ir::Expr| match e {
+            ir::Expr::Convert(_, inner) => matches!(&**inner, ir::Expr::Load(ir::Place::Global(g)) if g == var),
+            e => matches!(e, ir::Expr::Load(ir::Place::Global(g)) if g == var),
+        };
+        let modify = |s: &ir::Stmt| {
+            matches!(s, ir::Stmt::Expr(ir::Expr::Builtin { id, receiver: Some(receiver), args, .. })
+                if *id == ids::RECORD_MODIFY_1 && args.is_empty()
+                    && matches!(&**receiver, ir::Arg::Value(ir::Expr::Load(p)) | ir::Arg::Ref(p) if is_rec(p)))
+        };
+        name == "onvalidate"
+            && match code_stmts(program, object, *routine).as_slice() {
+                [ir::Stmt::Assign(ir::Place::Field(target, field), value), save] => {
+                    is_rec(target) && loads_var(value) && modify(save) && !key.contains(field)
+                }
+                _ => false,
+            }
     }
 
     /// The pinned page, every fact required (TestPageBlankKeyInsert.al:256 and :272, pages 67997 and 67994, table 60572
     /// "TPBK Row" at testpage/TpbkRow.Table.al:3):
     /// - the draft is the one OpenNew started, and Rec has no filter;
+    /// - the test's only call on the page since OpenNew is this SetValue on control `idx` (TestPageBlankKeyInsert.al:263
+    ///   `Document.OpenNew(); Document.Scan.Value('SCANNED');`);
     /// - the page declares no trigger and no property but the plain ones, has no page extension and no event subscriber
     ///   (so no OnNewRecord, OnInsertRecord or their events run);
-    /// - its controls are groups, fields of Rec without a trigger, page variables whose only trigger is OnValidate, and at
-    ///   most the one part `measured_new_document_part` allows;
+    /// - its controls are, in this order, one group, one field of Rec on the primary key field without a trigger, the
+    ///   control `idx`, and at most the one part `measured_new_document_part` allows (group General, No, Scan, Lines);
     /// - the source table has no table extension and no event subscriber, its only code is OnInsert, its primary key is one
     ///   field (TpbkRow.Table.al:16 `key(PK; "No.")`), and it holds no row (TestPageBlankKeyInsert.al:40 `Row.DeleteAll()`).
-    fn measured_new_document(&mut self, st: &St) -> Result<bool, Signal> {
-        if !st.borrow().draft_from_open || !self.page_rec(st).borrow().filters.is_empty() {
+    fn measured_new_document(&mut self, st: &St, idx: usize) -> Result<bool, Signal> {
+        if !st.borrow().draft_from_open
+            || !self.page_rec(st).borrow().filters.is_empty()
+            || Self::test_calls(st).as_deref() != Some(&[TestCall::Write(idx)])
+        {
             return Ok(false);
         }
         if !self.page_declares_within(st, &[], &[]) {
@@ -88,23 +126,30 @@ impl Session {
         }
         let engine = self.engine();
         let page = page_of(&engine, st);
-        let controls_ok = page.controls.iter().all(|c| match c.kind {
-            ir::ControlKind::Group => true,
-            ir::ControlKind::Field => match c.binding {
-                ir::Binding::Field(_) => c.triggers.is_empty(),
-                ir::Binding::Var(_) => Self::only_on_validate(c),
-                _ => false,
-            },
-            ir::ControlKind::Part => true,
+        let rec = self.page_rec(st);
+        let key = self.table(&rec)?.keys[0].clone();
+        let row_controls: Vec<(usize, &ir::Control)> = page
+            .controls
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.kind != ir::ControlKind::Part)
+            .collect();
+        let controls_ok = match row_controls.as_slice() {
+            [(_, group), (_, no), (scan, _)] => {
+                group.kind == ir::ControlKind::Group
+                    && no.kind == ir::ControlKind::Field
+                    && matches!(no.binding, ir::Binding::Field(f) if key == [f])
+                    && no.triggers.is_empty()
+                    && *scan == idx
+            }
             _ => false,
-        });
+        };
         if !controls_ok {
             return Ok(false);
         }
-        let rec = self.page_rec(st);
         let table = rec.borrow().table as usize;
         if table_code(&engine, table) != Some((vec!["oninsert".to_string()], false))
-            || self.table(&rec)?.keys[0].len() != 1
+            || key.len() != 1
             || self.stored_rows_passing(&rec, Vec::new())? != 0
         {
             return Ok(false);
