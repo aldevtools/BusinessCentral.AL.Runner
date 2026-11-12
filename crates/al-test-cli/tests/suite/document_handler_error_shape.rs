@@ -107,6 +107,7 @@ begin
         21: P.Name.SetValue('BAD');
         22: begin P.Name.SetValue('X'); Error('handler error'); end;
         30: begin asserterror P.Name.SetValue('FAILMOD'); Error('handler error'); end;
+        33: begin asserterror Error('unrelated'); Error('handler error'); end;
     end;
 end;
 "#
@@ -205,6 +206,13 @@ fn a_handler_outside_the_pinned_modes_keeps_mains_refusal() {
     for mode in [13, 20, 22, 30] {
         assert_refused("Doc", "none", mode, "with an unsaved row or a hidden part");
     }
+}
+
+/// A handler that caught an unrelated error (asserterror) before it raised its own, with no page call, is not the pinned
+/// mode 7 and keeps main's refusal (al-runner issue 7826, item 1).
+#[test]
+fn a_handler_that_caught_an_error_before_its_own_keeps_mains_refusal() {
+    assert_refused("Doc", "none", 33, "caught an error");
 }
 
 /// The two refusals of the pinned shape: OnQueryClosePage vetoes the close the platform asks after the handler's error
