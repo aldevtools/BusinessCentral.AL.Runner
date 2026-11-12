@@ -261,17 +261,23 @@ impl Session {
     ///   HandlerError_QueryCloseError `MissingUIHandler`), an OnClosePage error wrapped (HandlerError_ClosePageError
     ///   `One or more errors occurred while closing the page.\\CEM close page error` `TestWrapped`).
     ///
-    /// A handler that caught an error before it raised its own is not the pinned mode 7 (it raises with nothing caught) and
-    /// is refused (al-runner issue 7826, item 1).
+    /// Every case above runs a handler of `CemDocModal` (:925-975), which catches no error. A handler that caught one
+    /// (the session's count of caught errors moved from `caught_before`, caught_errors.rs) is refused (al-runner issue 7826).
     pub(super) fn close_document_after_handler_error(
         &mut self,
         st: &St,
         e: &Signal,
-        caught: bool,
+        caught_before: u64,
     ) -> Result<(), Signal> {
         let Signal::Error(err) = e else {
             return Ok(());
         };
+        let nothing_caught = self.caught_errors() == caught_before;
+        if !nothing_caught {
+            return unsupported(
+                "a page left open by a ModalPageHandler that caught an error before it raised its own (not pinned)",
+            );
+        }
         if st.borrow().close_error {
             self.mark_closed(st);
             if err.code != "MissingUIHandler" {
@@ -295,13 +301,8 @@ impl Session {
             self.mark_closed(st);
             return Ok(());
         }
-        // The handler's own error is pinned only for a handler that made no call (mode 7); a value typed before it, also one
-        // whose save failed and that the handler caught, keeps main's refusal (al-runner PR 7816 review, round 3).
-        if caught && calls.is_empty() {
-            return unsupported(
-                "a page left open by a ModalPageHandler that caught an error before it raised its own (not pinned)",
-            );
-        }
+        // The handler's own error is pinned only for a handler that made no call (mode 7); a value typed before it keeps
+        // main's refusal (al-runner PR 7816 review, round 3).
         if !calls.is_empty() || st.borrow().dirty || st.borrow().draft {
             return unsupported(
                 "a page left open by a ModalPageHandler that raised an error, with an unsaved row or a hidden part (not pinned)",

@@ -21,6 +21,7 @@ table 50502 "D Line"
     keys { key(PK; DocCode, LineNo) { } }
     trigger OnModify() var L: Codeunit "D Log"; begin L.Add('L-mod'); if Rec.Qty = -1 then Error('line modify refused'); end;
 }
+codeunit 50506 "D Fail" { trigger OnRun() begin Error('unrelated'); end; }
 codeunit 50503 "D Log"
 {
     SingleInstance = true;
@@ -97,6 +98,7 @@ page {id} "D {name}"
     {more}
 }}
 [ModalPageHandler] procedure H{name}(var P: TestPage "D {name}")
+var J: JsonObject;
 begin
     case Mode of
         7: Error('handler error');
@@ -108,6 +110,15 @@ begin
         22: begin P.Name.SetValue('X'); Error('handler error'); end;
         30: begin asserterror P.Name.SetValue('FAILMOD'); Error('handler error'); end;
         33: begin asserterror Error('unrelated'); Error('handler error'); end;
+        35: begin asserterror Error('unrelated'); ClearLastError(); Error('handler error'); end;
+        37: begin if TryFail() then; ClearLastError(); Error('handler error'); end;
+        38: begin if Codeunit.Run(Codeunit::"D Fail") then; ClearLastError(); Error('handler error'); end;
+        39: begin ClearLastError(); Error('handler error'); end;
+        41: begin if J.ReadFrom('x') then; ClearLastError(); Error('handler error'); end;
+        45: begin asserterror Error('unrelated'); P.Name.SetValue('FAILMOD'); end;
+        46: P.OK().Invoke();
+        47: begin asserterror Error('unrelated'); P.OK().Invoke(); end;
+        48: begin Swallow(); Error('handler error'); end;
     end;
 end;
 "#
@@ -140,9 +151,12 @@ codeunit 50590 "D Tests"
         Row."Code" := 'R1'; Row.Name := 'start'; Row.Insert(); C."Code" := 'C1'; C.Insert();
         Line.DocCode := 'R1'; Line.LineNo := 1; Line.Qty := 1; Line.Insert(); Commit();
         Log.Set('{fail}'); Mode := {mode}; ClearLastError();
+        if Mode = 39 then asserterror Error('earlier');
         asserterror Res := Page.RunModal(Page::"D {name}", Row);
         Error('OBS %1 | %2 | %3', GetLastErrorText(), GetLastErrorCode(), Log.Take());
     end;
+    [TryFunction] local procedure TryFail() begin Error('unrelated'); end;
+    local procedure Swallow() begin asserterror Error('unrelated'); ClearLastError(); end;
     {handlers}
 }}
 "#
@@ -200,19 +214,38 @@ fn a_page_outside_the_pinned_shape_keeps_mains_behavior() {
 }
 
 /// A handler outside the pinned modes of `CemDocModal` keeps main's refusal: a value typed before the handler's own error,
-/// a value of another field that its relation refused, a refused save the handler caught before its own error, and a move.
+/// a value of another field that its relation refused, and a move.
 #[test]
 fn a_handler_outside_the_pinned_modes_keeps_mains_refusal() {
-    for mode in [13, 20, 22, 30] {
+    for mode in [13, 20, 22] {
         assert_refused("Doc", "none", mode, "with an unsaved row or a hidden part");
     }
 }
 
-/// A handler that caught an unrelated error (asserterror) before it raised its own, with no page call, is not the pinned
-/// mode 7 and keeps main's refusal (al-runner issue 7826, item 1).
+/// A handler that caught an error before it raised its own is not one of the pinned handlers of `CemDocModal`, which catch
+/// nothing (al-runner issue 7826, item 1): asserterror, a TryFunction, `Codeunit.Run` and `JsonObject.ReadFrom` with their result used,
+/// a helper procedure that catches, also when ClearLastError then cleared the last error; and the same before the two other
+/// pinned errors, a failed SetValue (mode 8) and OK whose OnQueryClosePage message nobody handled.
 #[test]
-fn a_handler_that_caught_an_error_before_its_own_keeps_mains_refusal() {
-    assert_refused("Doc", "none", 33, "caught an error");
+fn a_handler_that_caught_an_error_before_its_own_is_refused() {
+    for mode in [30, 33, 35, 37, 38, 41, 45, 48] {
+        assert_refused("Doc", "none", mode, "caught an error");
+    }
+    assert_refused("Doc", "query", 47, "caught an error");
+}
+
+/// A handler that caught nothing keeps the pinned result: a last error from before RunModal that the handler clears, and
+/// OK whose OnQueryClosePage message nobody handled (CemDocumentTests.al:349 HandlerOk_QueryCloseError).
+#[test]
+fn a_handler_that_caught_nothing_keeps_the_pinned_result() {
+    assert_eq!(
+        run("Doc", "none", 39),
+        Outcome::Fail("OBS handler error | Dialog | Q LookupCancel; C; ".into())
+    );
+    assert_eq!(
+        run("Doc", "query", 46),
+        Outcome::Fail("OBS Unhandled UI: Message query error | TestWrapped:MissingUIHandler | Q LookupOK; ".into())
+    );
 }
 
 /// The two refusals of the pinned shape: OnQueryClosePage vetoes the close the platform asks after the handler's error

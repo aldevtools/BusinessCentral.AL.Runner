@@ -3044,13 +3044,13 @@ impl Session {
         let st = st.clone();
         st.borrow_mut().test_close_vetoed = false;
         st.borrow_mut().test_closed_in_handler = false;
-        let last_error_before = self.last_error.clone();
+        let caught_before = self.caught_errors();
         self.ui_state.page_handler_depth += 1;
         let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {
             if modal && matches!(e, Signal::Error(_)) && st.borrow().open {
-                self.close_modal_after_handler_error(&st, &e, self.last_error != last_error_before)?;
+                self.close_modal_after_handler_error(&st, &e, caught_before)?;
             }
             self.mark_closed(&st);
             return Err(e);
