@@ -144,7 +144,37 @@ pub fn pdf_read(v: &Value, read: PdfRead) -> Option<Result<PdfAnswer, Signal>> {
 /// variable or a Variant, passed and returned (System Application's Temp Blob.Length() returns Blob.Length), and every other use
 /// is refused with [`size_refusal`].
 pub fn size(mark: &Arc<str>) -> Value {
+    SIZE_MADE.store(true, std::sync::atomic::Ordering::Relaxed);
     Value::PlaceholderSize(mark.clone())
+}
+
+/// Set by [`size`] and never cleared: whether a placeholder's size may exist in this process. A size can be held in a
+/// SingleInstance global or a Variant beyond the session that made it, so the flag is not per session. It only spares the VM
+/// the scan of [`size_guard`] on every builtin call until the first size is made; it decides no answer.
+static SIZE_MADE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether [`size_guard`] can find a size (see [`SIZE_MADE`]).
+pub fn sizes_made() -> bool {
+    SIZE_MADE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Refuses a builtin or a .NET member (`name`, a builtin id name or `DotNet Type.Member`) given a placeholder's size as its
+/// receiver or an argument. The callee would compare the size with its own code and not through [`size_order`] (a record
+/// filter counts a value it cannot compare as not passing, a List or Dictionary as not equal) or read its number, so the
+/// answer would be made up. The one allowed use: `Variant.Is*` on a Variant that holds it, which asks only the type, an Integer
+/// as `Blob.Length` and `File.Len` return (`Value::is_kind`); Library Assert's `AreEqual`/`AreNotEqual` ask it.
+pub fn size_guard(name: &str, recv: Option<&Value>, args: &[Value]) -> Result<(), Signal> {
+    let held = |v: Option<&Value>| match v {
+        Some(Value::PlaceholderSize(m)) => Some(m.clone()),
+        _ => None,
+    };
+    if let Some(m) = args.iter().find_map(|v| held(Some(v))) {
+        return Err(size_refusal(&m, &format!("{name} given the value")));
+    }
+    match held(recv) {
+        Some(m) if !name.starts_with("Variant.Is") => Err(size_refusal(&m, &format!("{name} on the value"))),
+        _ => Ok(()),
+    }
 }
 
 /// The refusal of a use of a placeholder's size other than a comparison with 0.

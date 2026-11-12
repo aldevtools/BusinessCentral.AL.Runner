@@ -338,7 +338,8 @@ none of them yet (a later change raises them in the pinned order).
   Static_SaveAsHtml_IsRefused.
 - The size of a marked placeholder (`Blob.Length`, `File.Len`, and through them System Application's `Temp Blob.Length()`) is the
   value `Value::PlaceholderSize`: it answers a comparison with 0 (greater) and refuses everything else (a number, `Format`,
-  arithmetic, another comparison, a record field). This is the correction the 2026-11-12 amendment (A4) names. It is a value and
+  arithmetic, another comparison, a record field, and any builtin or .NET member given it: a record filter, `Get`, `Validate`,
+  a List or Dictionary element, key or index, `placeholder_output::size_guard`; only `Variant.Is*` asks its type). This is the correction the 2026-11-12 amendment (A4) names. It is a value and
   not only the syntactic form `Blob.Length() > 0`, so that `Temp Blob.Length() > 0`, which returns the Blob's length through
   two procedures, answers too (AMReportOutputTests.al:146, CiReportRunLeads.al:72).
 - A run that would print (SystemPrinter `true`, or a report that declares `UseSystemPrinter = true`) is refused, as "What stays
