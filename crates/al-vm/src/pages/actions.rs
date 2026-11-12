@@ -257,6 +257,9 @@ impl Session {
             self.torn_down_on_error(st, r)?;
             self.sync_parts(st)?;
         }
+        if let Some((before, true)) = rec_before.as_ref() {
+            self.settle_next_only_card_assist_edit(st, before)?;
+        }
         self.run_refresh(st)?;
         // After the refresh a marking drilldown in the primary key leaves the row the page showed in Rec, and keeps Rec's for the
         // next call (`drilldown_marked_only_refresh`).

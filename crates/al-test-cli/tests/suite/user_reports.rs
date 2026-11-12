@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_next_only_card_refreshes_after_assist_edit_stored_the_row() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/next-only-card-assist-edit-refresh.al"),
+    ));
+}
