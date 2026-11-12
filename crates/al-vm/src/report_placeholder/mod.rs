@@ -77,13 +77,15 @@ const DESIGN_TIME_REPORT_SELECTION: u32 = 9654;
 const TENANT_REPORT_LAYOUT_SELECTION: u32 = 2_000_000_233;
 
 impl Session {
-    /// Puts the output of a rendering save that ran to its end where the caller asked for it.
+    /// Puts the output of a rendering save that ran to its end where the caller asked for it. `rows` is the number of data item
+    /// records the run wrote to its dataset.
     pub(crate) fn write_save_output(
         &mut self,
         target: SaveTarget,
         output: SaveOutput,
         schema: &Schema,
         dataset: &[u8],
+        rows: usize,
     ) -> Result<(), Signal> {
         use al_builtins::assumptions::{Assumption, assume};
         match (output, target) {
@@ -93,7 +95,10 @@ impl Session {
                 // Every placeholder carries the mark, so a read of its content is refused (amendment 2026-11-11; the PDF too,
                 // owner decision 2026-11-12: only a read inside the bytes the corpus pins at its start answers,
                 // `al_builtins::placeholder_output::pdf_read`).
-                let mark = al_builtins::placeholder_output::mark(format.name(), schema.name());
+                let mark = match format {
+                    Format::Html => self.html_render_mark(schema, rows),
+                    _ => al_builtins::placeholder_output::mark(format.name(), schema.name()),
+                };
                 match target {
                     SaveTarget::Stream(blob) => {
                         al_builtins::stream::write_bytes(&blob, &format.bytes());
@@ -123,6 +128,21 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// The mark of the Html placeholder a save of `schema` writes, with the number of its render: a whole text read of it gives
+    /// the rendered content's mark (`al_builtins::rendered_text`, ADR-040 amendment 2026-11-12, A1 and A2). A run that wrote no
+    /// dataset row gives no render, and such a read refuses: what BC renders then is not pinned.
+    fn html_render_mark(&self, schema: &Schema, rows: usize) -> std::sync::Arc<str> {
+        let report = schema.report();
+        let layout = report
+            .default_rendering_layout
+            .clone()
+            .unwrap_or_else(|| report.default_layout_kind.clone());
+        let render = (rows > 0)
+            .then(|| al_builtins::rendered_text::register(schema.name(), "Html", &layout))
+            .flatten();
+        al_builtins::rendered_text::html_mark(schema.name(), render)
     }
 
     /// Writes a file a save produced; a write over a path that was pending ends the mark, as a write by AL does.

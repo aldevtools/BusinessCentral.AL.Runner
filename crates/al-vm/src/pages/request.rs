@@ -619,6 +619,7 @@ impl Session {
         }
         let (written, _) = self.request_page_report_run(st, object, &inst, &schema)?;
         // The dataset is built to run the triggers and dropped.
+        let rows = written.rows;
         drop(written);
         let (target, output) = (
             crate::reports::SaveTarget::File(name),
@@ -627,7 +628,7 @@ impl Session {
                 None => crate::report_placeholder::SaveOutput::Discard,
             },
         );
-        self.write_save_output(target, output, &schema, &[])?;
+        self.write_save_output(target, output, &schema, &[], rows)?;
         st.borrow_mut().result = Some(format!("SaveAs{format}"));
         self.mark_closed(st);
         Ok(Value::Null)

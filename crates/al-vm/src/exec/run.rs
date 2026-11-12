@@ -904,8 +904,17 @@ impl Session {
         if al_builtins::placeholder_output::sizes_made() {
             al_builtins::placeholder_output::size_guard("a DotNet member", None, &values)?;
         }
+        let rendered = if al_builtins::rendered_text::active() {
+            self.rendered_dotnet_guard(site.ty, &recv, &site.op, &values)?
+        } else {
+            None
+        };
         self.dotnet.result_ty = site.result_ty;
         let r = self.dotnet_apply_closing_entry_streams(site.ty, recv, values, places, &site.op, f);
+        let r = match rendered {
+            Some(input) => Self::rendered_dotnet_answer(&input, r),
+            None => r,
+        };
         if let (Err(Signal::Error(_)), Some(p)) = (&r, site.header_pos) {
             self.at_line_of(p);
         }
@@ -937,6 +946,9 @@ impl Session {
         }
         if al_builtins::placeholder_output::sizes_made() {
             al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?
@@ -1082,6 +1094,9 @@ impl Session {
         }
         if al_builtins::placeholder_output::sizes_made() {
             al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?

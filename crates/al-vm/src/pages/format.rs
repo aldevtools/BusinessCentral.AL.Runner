@@ -764,6 +764,9 @@ impl Session {
     }
 
     pub(super) fn control_text(&mut self, st: &St, idx: usize, v: &Value) -> Result<String, Signal> {
+        if let Some(shown) = self.rendered_field_text(st, idx, v) {
+            return shown;
+        }
         // A Media control shows the id of its media, a MediaSet control the id of the first media
         // of its set; lowercase, no braces, empty when there is none
         // (testpage/TestPageFieldFormats_Tests.al:28, :628-640, TestPageFieldFormatsMediaFilled_Tests.al).

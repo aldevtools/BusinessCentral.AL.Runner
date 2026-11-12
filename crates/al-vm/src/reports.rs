@@ -2925,7 +2925,9 @@ impl Session {
         match ran {
             Ok(true) => {
                 let header = self.dataset_header(&schema)?;
-                let bytes = written.expect("a SaveAs run has a dataset").finish(&header)?;
+                let written = written.expect("a SaveAs run has a dataset");
+                let rows = written.rows;
+                let bytes = written.finish(&header)?;
                 if let Some(layout) = custom {
                     let SaveTarget::Stream(blob) = target else {
                         return unsupported(format!(
@@ -2943,7 +2945,7 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                self.write_save_output(target, output, &schema, &bytes)?;
+                self.write_save_output(target, output, &schema, &bytes, rows)?;
                 Ok(Value::Boolean(true))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),

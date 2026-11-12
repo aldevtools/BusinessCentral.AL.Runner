@@ -1722,6 +1722,14 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     {
         a[1] = Value::Integer(n);
     }
+    // A whole text read of rendered report content gives its mark (ADR-040 amendment 2026-11-12, A2; `rendered_text`).
+    if a.len() == 1
+        && matches!(a[0], Value::Text(_))
+        && let Some(read) = crate::rendered_text::read_in(r.as_deref(), c.ret_used(), "InStream.Read")
+    {
+        a[0] = Value::Text(read?.into());
+        return Ok(Value::Null);
+    }
     // Read(Text) of a stream that holds none raises (StreamUncreatedUse.al:UncreatedInStream_EveryMethod `in_read`).
     if a.len() == 1 && matches!(a[0], Value::Text(_) | Value::Code(_)) {
         crate::stream_cleared::refuse_uncreated(r.as_deref(), "Read")?;
@@ -2030,6 +2038,14 @@ pub(crate) fn write_serialised_text(stream: &mut Value, text: &str) -> Result<()
 /// `84 B1 3F` for a-umlaut, euro sign and the Cyrillic zhe, for Windows `E4 80 3F`, for UTF-8 and UTF-16 the plain encoding of
 /// the same three (BigTextWriteEdges.al:Write_NonAscii_*). A character beyond those and the characters the other stream writes
 /// pin (`Encoding::encode_pinned`) is refused.
+/// After a text was written to `b`: a text that holds rendered content marks the buffer (ADR-040 amendment 2026-11-12, P7 and
+/// A4; `rendered_text`).
+fn mark_rendered_write(b: &BlobRef, text: &str) {
+    if crate::rendered_text::holds(text) {
+        crate::rendered_text::mark_written(&mut b.borrow_mut(), text);
+    }
+}
+
 pub(crate) fn write_bigtext(stream: &mut Value, text: &str) -> Result<(), Signal> {
     let (b, enc) = out_buf(Some(stream))?;
     // The characters `OutStream.Write(Text)` pins are written the same way, best fit included: é, ß, “, Ω, 中, a surrogate pair
@@ -2040,6 +2056,7 @@ pub(crate) fn write_bigtext(stream: &mut Value, text: &str) -> Result<(), Signal
         return unsupported("BigText.Write of a character whose bytes in this encoding are not pinned");
     }
     write_bytes(&b, &enc.encode(&text));
+    mark_rendered_write(&b, &text);
     Ok(())
 }
 
@@ -2171,6 +2188,7 @@ fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     };
     let bytes = enc.encode(&text);
     write_bytes(&b, &bytes);
+    mark_rendered_write(&b, &text);
     Ok(Value::Integer(bytes.len() as i32))
 }
 
@@ -2404,6 +2422,9 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
         b.borrow_mut().utf16_binary = true;
     }
     write_bytes(&b, &bytes);
+    if let Value::Text(t) | Value::Code(t) = &a[0] {
+        mark_rendered_write(&b, t.as_str());
+    }
     Ok(Value::Integer(bytes.len() as i32))
 }
 

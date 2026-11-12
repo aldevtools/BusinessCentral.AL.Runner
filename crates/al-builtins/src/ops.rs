@@ -67,6 +67,19 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     // A Text or Code into a Text or Code, the most common conversion (an assignment or a parameter of text), straight to
     // the arm the general match below would reach: no earlier arm takes a text source into a text target, and a text
     // that carries the call stack marker moves unread into a Text (`native::text_of`).
+    // Rendered content converts only to an unbounded Text and a Variant: its length is not known, so neither "raises" nor
+    // "fits" is known for a `Text[N]`, a `Code` changes case, and any other type parses the characters (ADR-040 amendment
+    // 2026-11-12, A5, loss mode L3).
+    if let Value::Text(s) | Value::Code(s) = &v
+        && s.has_marker()
+        && crate::rendered_text::holds(s.as_str())
+        && !matches!(t, T::Text(None) | T::Variant)
+    {
+        return Err(crate::rendered_text::refusal(
+            s.as_str(),
+            "a conversion to a Text of a declared length or another type",
+        ));
+    }
     match (&v, t) {
         (Value::Text(s), T::Text(_)) if s.has_marker() => return Ok(v),
         (Value::Text(s) | Value::Code(s), T::Text(max)) if !s.has_marker() => return into_text(s.clone(), *max),
@@ -1429,7 +1442,10 @@ pub fn compare_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
 }
 
 /// The refusal of `<`, `>`, `<=`, `>=` or a range end on the marked text `_t`.
-fn ordered_refusal(_t: &str) -> Signal {
+fn ordered_refusal(t: &str) -> Signal {
+    if crate::rendered_text::holds(t) {
+        return crate::rendered_text::refusal(t, "an ordered comparison (<, >, <=, >= or a range)");
+    }
     Signal::unsupported(
         "an ordered comparison (<, >, <=, >= or a range) of a text that holds characters this runtime does not know \
          (BC orders text by culture, so the known characters do not decide it)"
@@ -1642,6 +1658,14 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) => {
             if let Some(o) = known_prefix_order(a.as_str(), b.as_str()) {
                 return Ok(o);
+            }
+            // Equality of rendered content with anything but '' or a text whose known characters differ depends on the
+            // characters (ADR-040 amendment 2026-11-12, A3b).
+            if let Some(m) = [a, b].into_iter().find(|t| crate::rendered_text::holds(t.as_str())) {
+                return Err(crate::rendered_text::refusal(
+                    m.as_str(),
+                    "a comparison with a text that is not ''",
+                ));
             }
         }
         _ => {}

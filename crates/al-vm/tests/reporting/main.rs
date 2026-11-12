@@ -5,6 +5,8 @@ mod multi_reportext;
 mod queries;
 mod query_get_filters_elements;
 mod query_outer_link;
+mod rendered_text;
+mod rendered_text_chain;
 mod report_bare_run;
 mod report_calcfields;
 mod report_column_source_error;

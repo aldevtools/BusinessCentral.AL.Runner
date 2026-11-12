@@ -504,6 +504,11 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Library(crate::library_kind::LibraryKind::BigText, l) if standard == 0 && length == 0 => {
             match &*l.borrow() {
                 crate::value::LibraryValue::Empty => String::new(),
+                // Rendered content comes out with its marks in the changed form (owner decision 2026-11-12, ADR-040 amendment
+                // 2026-11-12, P3): whether BC returns a long rendered text whole is not probed.
+                crate::value::LibraryValue::Text(s) if crate::rendered_text::holds(s) => {
+                    crate::rendered_text::to_changed(s)
+                }
                 crate::value::LibraryValue::Text(s) => s.clone(),
                 _ => return Err("Format of a BigText of this kind is not pinned".to_string().into()),
             }

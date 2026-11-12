@@ -1,0 +1,11 @@
+EmailBodyRgbaReplaceKeepsContent => {
+    id: "email-body-rgba-replace-keeps-content",
+    assumed: "The static DotNet Regex.Replace(Body, Pattern, Replacement) with exactly the pattern and replacement of Email Message Impl. ReplaceRgbaColorsWithRgb (System Application) maps a text that holds rendered content to a text that is not empty; every mark in the result gets the changed form (ADR-040 amendment 2026-11-12, P12).",
+    tests: "al-runner issue 6924: Email Message.Create calls it on every body the reporter's tests pass (they pass on BC).",
+    probe: "Windows tier: Email Message.Create(.., T, true) with T the Html of a Word layout report, then GetBody() <> ''.",
+    awaiting: Awaiting {
+        issues: &[6924],
+        files: &["tests/al-language/reports/layouts-saveas/RenderedHtmlEmailBody.al"],
+        since: "2026-11-12",
+    },
+}

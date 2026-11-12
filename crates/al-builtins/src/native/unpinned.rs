@@ -16,7 +16,12 @@ pub const SQL_COUNT_TEXT_MARK: char = '\u{FDD3}';
 
 /// Every mark a text can hold for characters this runtime does not know (`Txt::has_marker`). The one list: the marker cache of
 /// `Txt` and the comparison of marked texts read it.
-pub const TEXT_MARKS: [char; 3] = [CALL_STACK_MARK, CARRIED_TEXT_MARK, SQL_COUNT_TEXT_MARK];
+pub const TEXT_MARKS: [char; 4] = [
+    CALL_STACK_MARK,
+    CARRIED_TEXT_MARK,
+    SQL_COUNT_TEXT_MARK,
+    crate::rendered_text::RENDERED_TEXT_MARK,
+];
 
 /// Stands for a call stack that exists in BC but is not tracked here.
 pub const UNTRACKED_CALL_STACK: &str = "\u{FDD0}";
