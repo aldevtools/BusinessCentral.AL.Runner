@@ -595,10 +595,12 @@ impl Providers {
                 reports::layout_list_rows(self, t),
             ))));
         }
-        // The Name of a language is pinned for a session in 1033 only (PlatformRowsLanguageSelection.al runs in it).
-        if kind == Virtual::LanguageSelection && self.language() != 1033 {
+        // The rows are pinned in session language 1033 (PlatformRowsLanguageSelection.al runs in it), and are the same rows,
+        // Names included, in 1031, 1036 and 1030 (metadata/platform-tables/LanguageSelectionOtherLanguage.al:158-221). Another
+        // session language is not pinned.
+        if kind == Virtual::LanguageSelection && ![1033, 1031, 1036, 1030].contains(&self.language()) {
             return Err(refused(format!(
-                "Language Selection: the rows in session language {} are not pinned (only those in 1033 are)",
+                "Language Selection: the rows in session language {} are not pinned (only those in 1033, 1031, 1036 and 1030 are)",
                 self.language()
             )));
         }
