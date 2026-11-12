@@ -358,136 +358,24 @@ fn client_type_named(name: &str) -> Value {
 
 // ---------------------------------------------------------------- system field stamps
 
-const SYSTEM_CREATED_AT: u32 = 2_000_000_001;
-const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
-const SYSTEM_MODIFIED_AT: u32 = 2_000_000_003;
-const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
-const SYSTEM_ROW_VERSION: u32 = 2_000_000_005;
+pub(crate) const SYSTEM_ID: u32 = 2_000_000_000;
+pub(crate) const SYSTEM_CREATED_AT: u32 = 2_000_000_001;
+pub(crate) const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
+pub(crate) const SYSTEM_MODIFIED_AT: u32 = 2_000_000_003;
+pub(crate) const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
+pub(crate) const SYSTEM_ROW_VERSION: u32 = 2_000_000_005;
 /// The ids of the platform's system fields, SystemId (2000000000) to SystemRowVersion.
 const SYSTEM_FIELDS: std::ops::RangeInclusive<u32> = 2_000_000_000..=2_000_000_005;
 
 /// The values a stamp replaced, to give back when the write is refused.
 pub(crate) type Replaced = Vec<(usize, Value)>;
 
-fn position_of(t: &al_data::TableDef, id: u32) -> Option<usize> {
+pub(crate) fn position_of(t: &al_data::TableDef, id: u32) -> Option<usize> {
     t.fields.iter().position(|f| f.id == id)
 }
 
-/// A `Modify(false)` without modify-event subscribers that changes no field, of a buffer that holds the stored row's version and differs from it in exactly one
-/// field of the modified pair (the test assigned SystemModifiedAt or SystemModifiedBy): the stored row keeps its pair and the
-/// buffer keeps the assigned value (record/system-fields/AssignedAuditFields.al:271-295, `buffer after Modify` = assigned,
-/// `stored row` = same as before). Every other buffer gets the stored pair, as before.
-fn no_change_keeps_buffer_pair(
-    t: &al_data::TableDef,
-    stored: &[Value],
-    buffer: &[Value],
-    buffer_version: Option<i64>,
-) -> bool {
-    let same = |i: usize| al_builtins::ops::compare(&stored[i], &buffer[i]).ok() == Some(std::cmp::Ordering::Equal);
-    let Some(v) = position_of(t, SYSTEM_ROW_VERSION) else {
-        return false;
-    };
-    if buffer_version.is_none() || !matches!(&stored[v], Value::BigInteger(n) if Some(*n) == buffer_version) {
-        return false;
-    }
-    let differing = [SYSTEM_MODIFIED_AT, SYSTEM_MODIFIED_BY]
-        .into_iter()
-        .filter_map(|id| position_of(t, id))
-        .filter(|&i| !same(i))
-        .count();
-    differing == 1
-}
-
-/// The system fields a `Modify` writes from the stored row, whatever the buffer holds: SystemId, and for a database record the
-/// created pair (an assigned SystemCreatedAt or SystemCreatedBy stays in the buffer only,
-/// record/system-fields/AssignedAuditFields.al:243-267, :301-325). A temporary record writes the created pair the buffer holds
-/// (AssignedAuditFields.al:638-666 `blank / assigned / assigned / assigned` after SystemCreatedAt set blank and Modify).
-pub(crate) fn modify_kept(t: &al_data::TableDef, stored: Option<&[Value]>, temporary: bool) -> Replaced {
-    let Some(old) = stored else {
-        return Vec::new();
-    };
-    let ids: &[u32] = if temporary {
-        &[2_000_000_000]
-    } else {
-        &[2_000_000_000, SYSTEM_CREATED_AT, SYSTEM_CREATED_BY]
-    };
-    ids.iter()
-        .filter_map(|id| position_of(t, *id))
-        .map(|i| (i, old[i].clone()))
-        .collect()
-}
-
-/// The row a `Rename` of a database record writes: the buffer under its new key. When both fields of the created pair differ
-/// from the stored row (the test assigned them), the row takes the stored pair and the buffer keeps the assigned values
-/// (record/system-fields/AssignedAuditFields.al:568-590). Only one of the two differing is not measured and is refused. A
-/// temporary record writes the buffer as it is.
-pub(crate) fn rename_row(
-    t: &al_data::TableDef,
-    buffer: &[Value],
-    stored: Option<&[Value]>,
-    temporary: bool,
-) -> Result<Vec<Value>, Signal> {
-    let mut row = buffer.to_vec();
-    let (Some(old), false) = (stored, temporary) else {
-        return Ok(row);
-    };
-    let pair: Vec<usize> = [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY]
-        .into_iter()
-        .filter_map(|id| position_of(t, id))
-        .collect();
-    let differing = pair
-        .iter()
-        .filter(|&&i| al_builtins::ops::compare(&old[i], &buffer[i]).ok() != Some(std::cmp::Ordering::Equal))
-        .count();
-    if differing == pair.len() {
-        for i in pair {
-            row[i] = old[i].clone();
-        }
-    } else if differing > 0 {
-        return unsupported("a Rename after only one of SystemCreatedAt and SystemCreatedBy was assigned (not pinned)");
-    }
-    Ok(row)
-}
-
-/// The error text of `ModifyAll` on an audit field of a database table: SystemCreatedAt, SystemCreatedBy and SystemModifiedAt cannot
-/// be changed (record/system-fields/AssignedAuditFields.al:594-632, one row, without RunTrigger, code `DB:Ok`, which the caller
-/// sets). The text names the field by its name, not its caption (Created At), and the table by its name, which is its caption
-/// there. `None` for any other field. SystemModifiedBy, another row count, RunTrigger, a temporary record and a table whose caption
-/// differs from its name are not pinned and are refused.
-pub(crate) fn modify_all_audit_error(
-    t: &al_data::TableDef,
-    pos: usize,
-    rows: usize,
-    run_trigger: bool,
-    temporary: bool,
-    table_caption_is_name: bool,
-) -> Option<Result<String, Signal>> {
-    let id = t.fields[pos].id;
-    if !(SYSTEM_CREATED_AT..=SYSTEM_MODIFIED_BY).contains(&id) {
-        return None;
-    }
-    // The pinned cell, every fact by equality: one of the three measured fields, one row, RunTrigger false, a database record,
-    // a table named as its caption.
-    let pinned = matches!(id, SYSTEM_CREATED_AT | SYSTEM_CREATED_BY | SYSTEM_MODIFIED_AT)
-        && rows == 1
-        && !run_trigger
-        && !temporary
-        && table_caption_is_name;
-    if !pinned {
-        return Some(Err(Signal::unsupported(format!(
-            "ModifyAll on {} over other than one row, with RunTrigger, on a temporary record, of a table with a caption, or on SystemModifiedBy (not pinned)",
-            t.fields[pos].name
-        ))));
-    }
-    let br = crate::records::BR;
-    Some(Ok(format!(
-        "You cannot change the value of the {} field.{br}{br}Table: {}",
-        t.fields[pos].name, t.name
-    )))
-}
-
 /// Whether a write changed anything: any field but the system fields differs.
-fn changed(t: &al_data::TableDef, stored: &[Value], buffer: &[Value]) -> bool {
+pub(crate) fn changed(t: &al_data::TableDef, stored: &[Value], buffer: &[Value]) -> bool {
     t.fields.iter().enumerate().any(|(i, f)| {
         if SYSTEM_FIELDS.contains(&f.id) || !f.stored {
             return false;
@@ -535,15 +423,15 @@ impl Session {
 
     /// `SystemModifiedAt/By` of a row a `Modify` writes, when the write changes a field
     /// (record/TestRecordSystemId.al:677-750). A write that changes none keeps the pair the stored
-    /// row has, whatever the buffer held. `stored` is the row before the write. Returns what the stamp
-    /// replaced in the buffer and the values only the written row takes (see `no_change_keeps_buffer_pair`).
-    /// `buffer_version` is the buffer's SystemRowVersion before a `Modify(false)`, `None` for any other write.
+    /// row has: in the buffer too, except on the cell of `assigned_audit::modify_keeps_assigned_modified`
+    /// (`keeps_assigned`), where only the written row takes it. `stored` is the row before the write. Returns what
+    /// the stamp replaced in the buffer and the values only the written row takes.
     pub(crate) fn stamp_modify(
         &mut self,
         t: &al_data::TableDef,
         rec: &crate::records::Rec,
         stored: Option<&[Value]>,
-        buffer_version: Option<i64>,
+        keeps_assigned: bool,
     ) -> (Replaced, Replaced) {
         let Some(stored) = stored else {
             return (Vec::new(), Vec::new());
@@ -558,10 +446,7 @@ impl Session {
             .into_iter()
             .filter_map(|id| position_of(t, id).map(|i| (id, stored[i].clone())))
             .collect();
-        // The measured table has no modify-event subscriber and no trigger (AssignedAuditFields.al:17-27).
-        let subscribed = |ev: &str| self.engine.events.is_subscribed(t.object as usize, ev);
-        let no_subscriber = !subscribed("onbeforemodifyevent") && !subscribed("onaftermodifyevent");
-        if no_subscriber && no_change_keeps_buffer_pair(t, stored, &rec.borrow().fields, buffer_version) {
+        if keeps_assigned {
             let row_only = keep
                 .into_iter()
                 .filter_map(|(id, v)| position_of(t, id).map(|i| (i, v)))
@@ -608,23 +493,6 @@ impl Session {
             }
         }
         replaced
-    }
-
-    /// The row a `Rename` writes (`rename_row`), with the stored row under the old key `old_pk`.
-    pub(crate) fn rename_row(
-        &mut self,
-        cx: &al_data::AccessContext,
-        t: &al_data::TableDef,
-        rec: &crate::records::Rec,
-        old_pk: &[Value],
-    ) -> Result<Vec<Value>, Signal> {
-        let temporary = rec.borrow().temporary;
-        let stored = if temporary {
-            None
-        } else {
-            al_data::Store::get(self.store_for(rec), cx, t, old_pk).map_err(|e| Signal::unsupported(format!("{e}")))?
-        };
-        rename_row(t, &rec.borrow().fields, stored.as_deref(), temporary)
     }
 
     /// Gives back what `stamp_*` replaced, for a write the store refused.

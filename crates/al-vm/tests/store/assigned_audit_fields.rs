@@ -15,8 +15,313 @@ table 50330 R
     keys { key(PK; "No.") { } }
 }
 
+table 50332 RT
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Name; Text[30]) { }
+    }
+    keys { key(PK; "No.") { } }
+
+    trigger OnModify() begin end;
+    trigger OnRename() begin end;
+}
+
+table 50333 RS
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Name; Text[30]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+
+codeunit 50334 Sub
+{
+    [EventSubscriber(ObjectType::Table, Database::RS, 'OnAfterModifyEvent', '', false, false)]
+    local procedure AfterModify(var Rec: Record RS) begin end;
+}
+
 codeunit 50331 T
 {
+    local procedure At(): DateTime
+    begin
+        exit(CreateDateTime(20200102D, 120000T));
+    end;
+
+    local procedure By(): Guid
+    var
+        Id: Guid;
+    begin
+        Evaluate(Id, '{11111111-2222-3333-4444-555555555555}');
+        exit(Id);
+    end;
+
+    // ---- Rename neighbors: each writes the buffer's created pair, as on main.
+
+    procedure RenameBufferCopiedFromOtherRow(): Text
+    var
+        Source: Record R;
+        Target: Record R;
+        Stored: Record R;
+    begin
+        Source.DeleteAll();
+        Source."No." := 'A';
+        Source.Insert();
+        Source.Get('A');
+        Sleep(20);
+        Target."No." := 'B';
+        Target.Insert();
+        Target := Source;
+        Target."No." := 'B';
+        Target.Rename('C');
+        Stored.Get('C');
+        exit(Format(Stored.SystemCreatedAt = Source.SystemCreatedAt));
+    end;
+
+    procedure RenameRowReinsertedByOtherVariable(): Text
+    var
+        Row: Record R;
+        Other: Record R;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        Other.Get('A');
+        Other.Delete();
+        Sleep(20);
+        Other.Insert();
+        exit(Format(Row.Rename('B')));
+    end;
+
+    procedure RenameBothCreatedBlank(): Text
+    var
+        Row: Record R;
+        Stored: Record R;
+        NoUser: Guid;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        Row.SystemCreatedAt := 0DT;
+        Row.SystemCreatedBy := NoUser;
+        Row.Rename('B');
+        Stored.Get('B');
+        exit(Format(Stored.SystemCreatedAt = 0DT));
+    end;
+
+    procedure RenameBothCreatedWithOnRename(): Text
+    var
+        Row: Record RT;
+        Stored: Record RT;
+    begin
+        Row.DeleteAll();
+        Row."No." := 'A';
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemCreatedAt := At();
+        Row.SystemCreatedBy := By();
+        Row.Rename('B');
+        Stored.Get('B');
+        exit(Format(Stored.SystemCreatedAt = At()));
+    end;
+
+    procedure RenameBothCreatedThroughRecordRef(): Text
+    var
+        Row: Record R;
+        Stored: Record R;
+        RecRef: RecordRef;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        RecRef.GetTable(Row);
+        RecRef.Field(RecRef.SystemCreatedAtNo()).Value := At();
+        RecRef.Field(RecRef.SystemCreatedByNo()).Value := By();
+        RecRef.Rename('B');
+        Stored.Get('B');
+        exit(Format(Stored.SystemCreatedAt = At()));
+    end;
+
+    // ---- Temporary Modify neighbors: the row keeps the stored created pair, as on main.
+
+    local procedure TempSeed(var TempRow: Record R temporary)
+    begin
+        TempRow."No." := 'A';
+        TempRow.SystemCreatedAt := At();
+        TempRow.SystemCreatedBy := By();
+        TempRow.Insert();
+        Clear(TempRow);
+        TempRow.Get('A');
+    end;
+
+    procedure TempCreatedByBlank(): Text
+    var
+        TempRow: Record R temporary;
+        NoUser: Guid;
+    begin
+        TempSeed(TempRow);
+        TempRow.SystemCreatedBy := NoUser;
+        TempRow.Name := 'second';
+        TempRow.Modify();
+        Clear(TempRow);
+        TempRow.Get('A');
+        exit(Format(TempRow.SystemCreatedBy = By()));
+    end;
+
+    procedure TempCreatedAtBlankNothingElse(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempSeed(TempRow);
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Modify();
+        Clear(TempRow);
+        TempRow.Get('A');
+        exit(Format(TempRow.SystemCreatedAt = At()));
+    end;
+
+    procedure TempCreatedAtBlankRunTrigger(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempSeed(TempRow);
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Name := 'second';
+        TempRow.Modify(true);
+        Clear(TempRow);
+        TempRow.Get('A');
+        exit(Format(TempRow.SystemCreatedAt = At()));
+    end;
+
+    procedure TempCreatedAtBlankPinned(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempSeed(TempRow);
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Name := 'second';
+        TempRow.Modify();
+        Clear(TempRow);
+        TempRow.Get('A');
+        exit(Format(TempRow.SystemCreatedAt = 0DT));
+    end;
+
+    // ---- No-change Modify neighbors: the buffer takes the stored modified pair, as on main.
+
+    procedure NoChangeCreatedAndModifiedAtAssigned(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        Row.SystemCreatedAt := At();
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(Format(Row.SystemModifiedAt = At()));
+    end;
+
+    procedure NoChangeModifiedAtBlank(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        Row.SystemModifiedAt := 0DT;
+        Row.Modify();
+        exit(Format(Row.SystemModifiedAt = 0DT));
+    end;
+
+    procedure NoChangeThroughRecordRef(): Text
+    var
+        Row: Record R;
+        RecRef: RecordRef;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        RecRef.GetTable(Row);
+        RecRef.Field(RecRef.SystemModifiedAtNo()).Value := At();
+        RecRef.Modify();
+        exit(Format(RecRef.Field(RecRef.SystemModifiedAtNo()).Value = At()));
+    end;
+
+    procedure NoChangeAfterOwnInsert(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(Format(Row.SystemModifiedAt = At()));
+    end;
+
+    procedure NoChangeTableWithOnModify(): Text
+    var
+        Row: Record RT;
+    begin
+        Row.DeleteAll();
+        Row."No." := 'A';
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(Format(Row.SystemModifiedAt = At()));
+    end;
+
+    procedure NoChangeWithSubscriber(): Text
+    var
+        Row: Record RS;
+    begin
+        Row.DeleteAll();
+        Row."No." := 'A';
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(Format(Row.SystemModifiedAt = At()));
+    end;
+
+    procedure NoChangeRunTrigger(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify(true);
+        exit(Format(Row.SystemModifiedAt = At()));
+    end;
+
+    // ---- ModifyAll shapes the pin does not cover.
+
+    procedure ModifyAllFiltered()
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.SetRange("No.", 'A');
+        Row.ModifyAll(SystemCreatedAt, At());
+    end;
+
+    procedure ModifyAllTableWithOnModify()
+    var
+        Row: Record RT;
+    begin
+        Row.DeleteAll();
+        Row."No." := 'A';
+        Row.Insert();
+        Row.ModifyAll(SystemCreatedAt, At());
+    end;
+
+    procedure ModifyAllWithSubscriber()
+    var
+        Row: Record RS;
+    begin
+        Row.DeleteAll();
+        Row."No." := 'A';
+        Row.Insert();
+        Row.ModifyAll(SystemCreatedAt, At());
+    end;
+
     local procedure Seed(var Row: Record R)
     begin
         Row.DeleteAll();
@@ -144,6 +449,9 @@ fn audit_field_writes_outside_the_pinned_shapes_are_refused() {
         "ModifyAllCreatedAtRunTrigger",
         "ModifyAllCreatedAtTemporary",
         "RenameOneCreatedAssigned",
+        "ModifyAllFiltered",
+        "ModifyAllTableWithOnModify",
+        "ModifyAllWithSubscriber",
     ] {
         assert!(refused(run_in(SRC, "T", routine)), "{routine} must be refused");
     }
@@ -162,4 +470,47 @@ fn a_stale_buffer_without_change_keeps_the_earlier_result() {
 #[test]
 fn a_plain_rename_keeps_working() {
     assert_eq!(text(run_in(SRC, "T", "RenamePlain")), "Yes");
+}
+
+/// A Rename whose buffer is not the stored row's own image, or that the pin does not cover, writes the buffer's created pair.
+#[test]
+fn rename_neighbors_write_the_buffer_created_pair() {
+    for routine in [
+        "RenameBufferCopiedFromOtherRow",
+        "RenameRowReinsertedByOtherVariable",
+        "RenameBothCreatedBlank",
+        "RenameBothCreatedWithOnRename",
+        "RenameBothCreatedThroughRecordRef",
+    ] {
+        assert_eq!(text(run_in(SRC, "T", routine)), "Yes", "{routine}");
+    }
+}
+
+/// Only the pinned temporary cell writes the buffer's SystemCreatedAt; the neighbors keep the stored created pair.
+#[test]
+fn temporary_modify_neighbors_keep_the_stored_created_pair() {
+    assert_eq!(text(run_in(SRC, "T", "TempCreatedAtBlankPinned")), "Yes");
+    for routine in [
+        "TempCreatedByBlank",
+        "TempCreatedAtBlankNothingElse",
+        "TempCreatedAtBlankRunTrigger",
+    ] {
+        assert_eq!(text(run_in(SRC, "T", routine)), "Yes", "{routine}");
+    }
+}
+
+/// A no-change Modify outside the pinned cell gives the buffer the stored modified pair.
+#[test]
+fn no_change_modify_neighbors_take_the_stored_modified_pair() {
+    for routine in [
+        "NoChangeCreatedAndModifiedAtAssigned",
+        "NoChangeModifiedAtBlank",
+        "NoChangeThroughRecordRef",
+        "NoChangeAfterOwnInsert",
+        "NoChangeTableWithOnModify",
+        "NoChangeWithSubscriber",
+        "NoChangeRunTrigger",
+    ] {
+        assert_eq!(text(run_in(SRC, "T", routine)), "No", "{routine}");
+    }
 }

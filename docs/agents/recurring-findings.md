@@ -23,7 +23,10 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - the exact test call sequence (what comes before and after the pinned call);
   - data type, length, sign, position in a filter or expression;
   - record state: temporary, stored, dirty, saved by which call;
-  - BC version: a gate that one major measured is not a gate for the others.
+  - BC version: a gate that one major measured is not a gate for the others;
+  - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
+    differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it
+    was read).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
