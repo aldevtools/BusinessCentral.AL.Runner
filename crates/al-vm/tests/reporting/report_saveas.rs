@@ -972,16 +972,18 @@ fn html_of_a_report_with_an_rdlc_layout_answers_false_with_the_layout_error_and_
 
 // Pdf writes a placeholder since the owner decision of 2026-11-08 (ADR-040 amendment, tests/reporting/report_pdf_placeholder.rs).
 #[test]
-fn a_rendered_format_is_refused_not_guessed() {
+// An RDLC layout saved as Word or Excel writes a placeholder (CiReportRunLeads.al:674-692 SaveAs_RdlcOnly_WordExcel; ADR-040
+// amendment 2026-11-11, `report_placeholder::grid`); its content is refused (report_placeholder_outputs.rs).
+fn an_rdlc_layout_saved_as_word_or_excel_writes_a_placeholder() {
     for format in ["Word", "Excel"] {
-        let why = refusal(&format!(
+        let r = run(&format!(
             "var H: Codeunit Helpers; Buf: Record \"Probe Rep Parent\"; Out: OutStream; begin
                 H.Seed();
                 Buf.Data.CreateOutStream(Out);
                 Report.SaveAs(Report::\"Probe SaveAs Report\", '', ReportFormat::{format}, Out);
             end;"
         ));
-        assert!(why.contains(&format!("as {format}")), "{why}");
+        assert!(r.is_ok(), "{format}: {r:?}");
     }
 }
 

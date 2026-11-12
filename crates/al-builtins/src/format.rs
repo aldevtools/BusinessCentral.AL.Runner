@@ -295,6 +295,10 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
         Value::SqlCount(_) if length == 0 && (standard == 0 || standard == 9) => {
             Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string()))
         }
+        // A placeholder's size: its digits would be the placeholder's (`placeholder_output::size`).
+        Value::PlaceholderSize(m) => Some(Err(FormatFail::Unsupported(
+            crate::placeholder_output::size_refusal_text(m, "Format"),
+        ))),
         Value::SqlCount(_) => Some(Err(FormatFail::Unsupported(crate::sqlcount::refusal_text(
             "Format with a length or a standard format",
         )))),
@@ -786,6 +790,8 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
             crate::assumptions::assume(crate::assumptions::Assumption::CompanyBuildCarriedContentNotEmpty);
             "*".to_string()
         }
+        // A placeholder report output is not empty, as BC's rendering (ADR-040 amendment 2026-11-11, `placeholder_output`).
+        Some(mark) if crate::placeholder_output::is_placeholder(mark) => "*".to_string(),
         pending => {
             if let Some(report) = pending {
                 crate::stream::note_pending_observation(report);

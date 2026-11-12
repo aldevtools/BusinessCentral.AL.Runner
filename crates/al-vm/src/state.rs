@@ -468,6 +468,9 @@ pub(crate) struct ReportState {
     pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
     pub(crate) run_modal: bool,
+    /// The report running now was started with SystemPrinter `true` (`Report.Run(Id, .., true)`): a run that renders would
+    /// print (`report_placeholder::run`).
+    pub(crate) system_printer: bool,
     /// The filters each data item record got from a `SetTableView`: the request page shows those and not the filters a procedure
     /// of the report set on the item. Held by a `Weak` of the record and not by its address: a `Weak` keeps the allocation, so no
     /// later record can get the address of one that is gone and read its view (al-runner CI flake of reports/request-page/
