@@ -428,7 +428,7 @@ impl Session {
                 let rec = self.page_rec(st);
                 let table = rec.borrow().table as usize;
                 let fresh = self.initial_fields(table);
-                rec.borrow_mut().fields = fresh.clone();
+                rec.borrow_mut().fields = fresh;
                 self.stamp_from_filters(st, false)?;
                 self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
                 self.page_event(st, "onnewrecordevent", None, Some(true))?;
@@ -439,17 +439,16 @@ impl Session {
                 self.populate_expressions(st)?;
                 self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
                 self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
-                rec.borrow_mut().fields = fresh;
+                // Rec then holds the link values for the part's later code (`empty_part_rec`).
+                self.empty_part_rec(st)?;
             } else if self.card_part_of_new_host(st) {
                 self.card_part_blank_on_new_host(st)?;
             } else if self.has_source(st) && st.borrow().host.is_some() && st.borrow().mode == PageMode::Edit {
                 // A part of a host that moved to a row without lines holds no row of the old link: Rec is blank, so the part's
                 // action sees no Line No. (pages/parts/R6889RealShape.al:1213 RunStep4, :1406 PG6889RS_Step4_ `ACT;CU;T.INS(10);...`,
-                // a host filtered to D2|D3 and moved there by GoToRecord from D1, whose part held D1's lines).
-                let rec = self.page_rec(st);
-                let table = rec.borrow().table as usize;
-                let fresh = self.initial_fields(table);
-                rec.borrow_mut().fields = fresh;
+                // a host filtered to D2|D3 and moved there by GoToRecord from D1, whose part held D1's lines). A ListPart of a
+                // Card or Document host keeps the values its link pins (`empty_part_rec`).
+                self.empty_part_rec(st)?;
             }
             self.populate_expressions(st)
         }
