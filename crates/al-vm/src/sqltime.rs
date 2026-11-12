@@ -146,6 +146,15 @@ pub(crate) fn store(
                 row[i] = rounded(&row[i]);
                 None
             }
+            // Value 1 is midnight UTC on 0001-01-01. The local P130DateFilters.al probe
+            // reads it back as blank after transfer from a temporary record and insert.
+            (RtType::DateTime, Value::DateTime(1)) if !t.keys[0].contains(&i) => {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::SqlMinimumUtcDateTimeStoredAsBlank,
+                );
+                row[i] = Value::DateTime(0);
+                None
+            }
             (RtType::DateTime, Value::DateTime(v)) if *v != 0 => {
                 let total = v - 1;
                 let (day, in_day) = (total.div_euclid(MS_PER_DAY) + 1, total.rem_euclid(MS_PER_DAY));

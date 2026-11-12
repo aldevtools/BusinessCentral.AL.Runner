@@ -2525,3 +2525,23 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn json_minimum_utc_datetime_reads_back_blank_after_insert() {
+    let main = r#"
+table 50100 "Runtime Repro Row"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Stamp; DateTime) { }
+        field(3; Status; Code[10]) { }
+    }
+
+    keys
+    {
+        key(PK; Id) { Clustered = true; }
+    }
+}
