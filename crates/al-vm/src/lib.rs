@@ -140,6 +140,7 @@ mod state_stamp;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
+mod tenant_set_delete;
 mod test_rows;
 mod test_runner_host;
 mod testdata;
