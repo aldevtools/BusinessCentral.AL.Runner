@@ -34,9 +34,13 @@ impl Session {
             let current = rec.borrow();
             if current.fields.len() == before.len()
                 && table.fields.len() == before.len()
-                && table.fields.iter().zip(current.fields.iter().zip(before)).all(|(field, (after, before))| {
-                    !field.stored || Self::same_values(std::slice::from_ref(after), std::slice::from_ref(before))
-                })
+                && table
+                    .fields
+                    .iter()
+                    .zip(current.fields.iter().zip(before))
+                    .all(|(field, (after, before))| {
+                        !field.stored || Self::same_values(std::slice::from_ref(after), std::slice::from_ref(before))
+                    })
             {
                 al_builtins::assumptions::assume(
                     al_builtins::assumptions::Assumption::DocumentActionCalculatedFieldNotDirty,
