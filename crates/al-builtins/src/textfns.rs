@@ -1002,7 +1002,9 @@ fn text_len_over(s: &str, cap: i64) -> i64 {
 fn tb_text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     match a.get(i) {
         Some(Value::Text(t) | Value::Code(t)) if t.as_str().contains(crate::native::CALL_STACK_MARK) => Ok(t.clone()),
-        Some(Value::Text(t) | Value::Code(t)) if crate::rendered_text::carried(t.as_str()) => Ok(t.clone()),
+        Some(Value::Text(t) | Value::Code(t)) if t.has_marker() && crate::rendered_text::carried(t.audited_str()) => {
+            Ok(t.clone())
+        }
         Some(Value::Guid(g)) => Ok(crate::format::format_guid(g).into()),
         _ => text(a, i),
     }
@@ -1327,7 +1329,7 @@ fn bt_add_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             _ => return unsupported("BigText.AddText of something that is no BigText"),
         },
         // Rendered content is carried at the end (ADR-040 amendment 2026-11-12, P2; `rendered_text::guard` refuses a position).
-        Some(Value::Text(t)) if crate::rendered_text::carried(t.as_str()) => t.to_string(),
+        Some(Value::Text(t)) if t.has_marker() && crate::rendered_text::carried(t.audited_str()) => t.to_string(),
         _ => text(a, 0)?.to_string(),
     };
     if a.len() > 1 {

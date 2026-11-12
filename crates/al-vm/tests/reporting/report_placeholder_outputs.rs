@@ -581,17 +581,17 @@ fn report_placeholder_the_files_are_of_the_right_kind() {
 
 #[test]
 fn report_placeholder_every_read_of_the_content_is_refused() {
+    // A whole text read of the Html (`ReadIntoText`, `BigTextRead`) gives the rendered content's mark since the ADR-040
+    // amendment 2026-11-12 (A2), and what may be done with it is tested in `rendered_text.rs`.
     for p in [
         "ReadText",
         "ReadChar",
-        "ReadIntoText",
         "Eos",
         "StreamLength",
         "CopyCount",
         "XmlReadFrom",
         "JsonReadFrom",
         "Base64",
-        "BigTextRead",
         "GZipDecompress",
         "ReadOfTheCopy",
         "ReadOfTheStoredBlob",

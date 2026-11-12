@@ -178,7 +178,10 @@ fn held<'a>(vals: impl IntoIterator<Item = &'a Value>) -> Option<String> {
 /// BigText, a List or Dictionary that holds one as a value.
 fn value_text(v: &Value) -> Option<String> {
     match v {
-        Value::Text(t) | Value::Code(t) | Value::TextConst(t) if holds(t.as_str()) => Some(t.as_str().to_string()),
+        // `audited_str` only looks for the mark here; a text with half of a surrogate pair goes on to its own reader.
+        Value::Text(t) | Value::Code(t) | Value::TextConst(t) if t.has_marker() && holds(t.audited_str()) => {
+            Some(t.audited_str().to_string())
+        }
         Value::Library(_, h) => match &*h.borrow() {
             LibraryValue::Text(s) | LibraryValue::TextCap(s, _) if holds(s) => Some(s.clone()),
             _ => None,

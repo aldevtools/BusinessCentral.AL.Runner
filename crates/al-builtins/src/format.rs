@@ -283,6 +283,21 @@ pub fn try_format(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) ->
     })
 }
 
+/// `Format(BigText)`: the text it holds, all of it (streams/StTBigText.al:248 ConvertTextAndBack `direct`;
+/// streams/DdStreamLeads.al:595, two AddText calls; xmlports/shapes-properties/XmlPortBigText.al: 218, 0 to 50000 characters).
+/// Only the plain Format(BigText) is pinned. Rendered content comes out with its marks in the changed form (owner decision
+/// 2026-11-12, ADR-040 amendment 2026-11-12, P3): whether BC returns a long rendered text whole is not probed.
+fn bigtext_text(l: &crate::value::LibraryValue) -> Result<String, String> {
+    match l {
+        crate::value::LibraryValue::Empty => Ok(String::new()),
+        crate::value::LibraryValue::Text(s) if crate::rendered_text::holds(s) => {
+            Ok(crate::rendered_text::to_changed(s))
+        }
+        crate::value::LibraryValue::Text(s) => Ok(s.clone()),
+        _ => Err("Format of a BigText of this kind is not pinned".to_string()),
+    }
+}
+
 /// The values `Format` does not read: a column a platform row leaves unknown (refused), and a SQL counter value.
 fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String, FormatFail>> {
     match v {
@@ -498,20 +513,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             // session-system/TestProbeSessionMiscContracts.al:Version_Forms.
             return Err(no_such_format(9, "Version"));
         }
-        // A BigText formats as the text it holds, all of it (streams/StTBigText.al:248 ConvertTextAndBack `direct`;
-        // streams/DdStreamLeads.al:595, two AddText calls; xmlports/shapes-properties/XmlPortBigText.al:
-        // 218, 0 to 50000 characters). Only the plain Format(BigText) is pinned.
+        // A BigText formats as the text it holds (`bigtext_text`).
         Value::Library(crate::library_kind::LibraryKind::BigText, l) if standard == 0 && length == 0 => {
-            match &*l.borrow() {
-                crate::value::LibraryValue::Empty => String::new(),
-                // Rendered content comes out with its marks in the changed form (owner decision 2026-11-12, ADR-040 amendment
-                // 2026-11-12, P3): whether BC returns a long rendered text whole is not probed.
-                crate::value::LibraryValue::Text(s) if crate::rendered_text::holds(s) => {
-                    crate::rendered_text::to_changed(s)
-                }
-                crate::value::LibraryValue::Text(s) => s.clone(),
-                _ => return Err("Format of a BigText of this kind is not pinned".to_string().into()),
-            }
+            bigtext_text(&l.borrow())?
         }
         Value::Library(crate::library_kind::LibraryKind::TextBuilder, l) => {
             crate::format_textbuilder::text(&l.borrow(), standard)?

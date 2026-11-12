@@ -353,7 +353,7 @@ none of them yet (a later change raises them in the pinned order).
 Status: Accepted by the owner on 2026-11-12, with these answers to the open questions: Part A as written; A7 (run Microsoft's layout
 selection code, a temporary selection of a Word layout no longer refused) yes; the one exact `Regex.Replace` entry yes; Part B is
 built only after the Windows probe is merged; `Contains` only (no `StrPos`/`IndexOf`); `Message` with a marked text stays refused.
-Nothing here is built yet.
+Part A is built (al-builtins `rendered_text.rs`) except A7 (the layout selection), which is still refused; Part B waits for the probe.
 Part A is the opaque value. Part B ("known static text of the chosen layout") is part of the amendment by owner decision
 of 2026-11-12; Part A is written so that it works without Part B.
 

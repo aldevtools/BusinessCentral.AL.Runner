@@ -825,6 +825,12 @@ impl Dataset {
         Ok(())
     }
 
+    /// [`Dataset::finish`] and the number of data item records written.
+    pub(crate) fn finish_counted(self, header: &Header) -> Result<(Vec<u8>, usize), Signal> {
+        let rows = self.rows;
+        Ok((self.finish(header)?, rows))
+    }
+
     /// The bytes of the whole dataset: the byte order mark, the header, the data items.
     pub(crate) fn finish(self, header: &Header) -> Result<Vec<u8>, Signal> {
         debug_assert!(self.open.is_empty());

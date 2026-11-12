@@ -2925,9 +2925,7 @@ impl Session {
         match ran {
             Ok(true) => {
                 let header = self.dataset_header(&schema)?;
-                let written = written.expect("a SaveAs run has a dataset");
-                let rows = written.rows;
-                let bytes = written.finish(&header)?;
+                let (bytes, rows) = written.expect("a SaveAs run has a dataset").finish_counted(&header)?;
                 if let Some(layout) = custom {
                     let SaveTarget::Stream(blob) = target else {
                         return unsupported(format!(
