@@ -32,6 +32,7 @@ impl Session {
                 || !s.refresh_by_update
                 || !s.refresh_update_false
                 || s.draft
+                || s.mode != PageMode::Edit
                 || s.modal
                 || s.host.is_some()
                 || s.cursor != Cursor::Row
@@ -40,7 +41,9 @@ impl Session {
                 return Ok(());
             }
         }
-        if self.declares(st, "onfindrecord")
+        if !self.unextended_unsubscribed(st)
+            || !self.assist_edit_has_linked_list_part(st)
+            || self.declares(st, "onfindrecord")
             || !self.declares(st, "onnextrecord")
             || !self.declares(st, "onaftergetcurrrecord")
         {
@@ -77,6 +80,27 @@ impl Session {
             self.sync_parts(st)?;
         }
         Ok(())
+    }
+
+    fn assist_edit_has_linked_list_part(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let page = st.borrow();
+        let [(control, part)] = page.parts.as_slice() else {
+            return false;
+        };
+        let control = *control;
+        let part = part.clone();
+        drop(page);
+        engine.object_facts[part.borrow().object as usize].page_type_lower() == "listpart"
+            && self.unextended_unsubscribed(&part)
+            && page_of(&engine, st).controls[control]
+                .part_link
+                .as_ref()
+                .is_some_and(|link| {
+                    link.provider.is_none()
+                        && link.view.is_none()
+                        && matches!(link.entries.as_slice(), [ir::LinkEntry::Field(_, _)])
+                })
     }
 
     /// Marks the assumption of the refresh: update-refresh-onfindrecord (the trigger order of the refresh) unless a pin covers

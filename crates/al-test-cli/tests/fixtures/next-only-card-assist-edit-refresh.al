@@ -105,7 +105,13 @@ page 50964 "Next Refresh Card"
                         CurrPage.Update(false);
                     end;
                 }
-                field(Refresh; Rec.Result) { }
+                field(Refresh; Rec.Result)
+                {
+                    trigger OnAssistEdit()
+                    begin
+                        CurrPage.Update(false);
+                    end;
+                }
                 field(ObservedResult; ObservedResult) { }
             }
             part(Lines; "Next Refresh Lines")
@@ -159,6 +165,25 @@ codeunit 50965 T
         Header.Get(1);
         Header.TestField(Reference, 'New reference');
         Header.TestField(Result, 'Mapped');
+        Card.Close();
+    end;
+
+    [Test]
+    procedure AssistEditUpdateFalseKeepsTheUnsavedEdit()
+    var
+        Header: Record "Next Refresh Header";
+        Card: TestPage "Next Refresh Card";
+    begin
+        Header.DeleteAll();
+        Seed(2);
+        Card.OpenEdit();
+        Card.GoToKey(2);
+        Card.Reference.SetValue('Unsaved edit');
+        Card.Refresh.AssistEdit();
+        Card.Id.AssertEquals(2);
+        Card.Reference.AssertEquals('Unsaved edit');
+        Header.Get(2);
+        Header.TestField(Reference, 'Original');
         Card.Close();
     end;
 

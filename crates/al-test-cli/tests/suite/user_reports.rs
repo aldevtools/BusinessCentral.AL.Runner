@@ -2528,8 +2528,16 @@ codeunit 69502 T {{ Subtype = Test;
 
 #[test]
 fn measured_next_only_card_refreshes_after_assist_edit_stored_the_row() {
-    all_pass(run_with_deps(
-        &[],
-        include_str!("../fixtures/next-only-card-assist-edit-refresh.al"),
-    ));
+    let results = run_with_deps(&[], include_str!("../fixtures/next-only-card-assist-edit-refresh.al"));
+    assert_eq!(results.len(), 2, "{results:?}");
+    for (name, result) in results {
+        match name.as_str() {
+            "AssistEditRefreshesAfterSyncStoredTheEditedRow" => assert_eq!(result, Outcome::Pass),
+            "AssistEditUpdateFalseKeepsTheUnsavedEdit" => assert!(
+                matches!(result, Outcome::NotRun(ref why) if why.contains("re-anchoring not pinned")),
+                "{result:?}"
+            ),
+            _ => panic!("unexpected test: {name}"),
+        }
+    }
 }
