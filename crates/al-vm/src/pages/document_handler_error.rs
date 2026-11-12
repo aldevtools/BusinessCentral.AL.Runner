@@ -260,6 +260,7 @@ impl Session {
     ///   `Dialog`); an error of that close comes out instead, an OnQueryClosePage message as it is (:457
     ///   HandlerError_QueryCloseError `MissingUIHandler`), an OnClosePage error wrapped (HandlerError_ClosePageError
     ///   `One or more errors occurred while closing the page.\\CEM close page error` `TestWrapped`).
+    ///
     /// A handler that caught an error before it raised its own is not the pinned mode 7 (it raises with nothing caught) and
     /// is refused (al-runner issue 7826, item 1).
     pub(super) fn close_document_after_handler_error(
