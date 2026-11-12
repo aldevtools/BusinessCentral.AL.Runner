@@ -2545,3 +2545,49 @@ table 50100 "Runtime Repro Row"
         key(PK; Id) { Clustered = true; }
     }
 }
+// BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/jsonvalue/jsonvalue-asdatetime-method
+// Scope: in-scope (Cloud-compatible)
+// Fixtures used: Runtime Repro Row
+// BC versions: 27.5+
+codeunit 50101 T
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure Record_Insert_JsonMinimumUtcDateTime_ReadsBackBlank()
+    var
+        Buffer: Record "Runtime Repro Row" temporary;
+        Row: Record "Runtime Repro Row";
+        Payload: JsonObject;
+        Token: JsonToken;
+    begin
+        Initialize();
+
+        Payload.ReadFrom('{"stamp":"0001-01-01T00:00:00Z"}');
+        Payload.Get('stamp', Token);
+        Buffer.Id := 7;
+        Buffer.Stamp := Token.AsValue().AsDateTime();
+        Buffer.Insert();
+
+        Row.TransferFields(Buffer);
+        Row.Insert();
+        Clear(Row);
+        Row.Get(7);
+        if (Buffer.Stamp <> 0DT) or (Row.Stamp <> 0DT) then
+            Error('Expected both minimum UTC DateTime values to equal 0DT.');
+        if StrSubstNo('%1|%2', Row.Id, Format(Row.Stamp, 0, 9)) <> '7|' then
+            Error('Expected row 7 with a blank DateTime. Got row %1 with DateTime %2.',
+                Row.Id, Format(Row.Stamp, 0, 9));
+    end;
+
+    local procedure Initialize()
+    var
+        Row: Record "Runtime Repro Row";
+    begin
+        Row.DeleteAll();
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], main));
+}
