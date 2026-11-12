@@ -373,6 +373,7 @@ impl Session {
                 RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "="),
                 _ => false,
             };
+            self.tx.db_reads += 1;
             match rec.borrow().read_isolation {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
                     if self.tx.lock_tx && matches!(method, RecordOp::FindFirst | RecordOp::FindSet) =>
@@ -1948,6 +1949,7 @@ impl Session {
                 }
             }
             RecordOp::Validate => {
+                let entry = self.take_validate_site(rec);
                 let pos = arg_pos(args, 0)?;
                 let engine = self.engine.clone();
                 let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
@@ -1974,7 +1976,7 @@ impl Session {
                 // `handle` is the address of `rec`, which this call borrows for as long as the entry exists, and the
                 // entry is popped below on every way out (the result is held, not `?`-ed, until then), so no other
                 // record can get the address while it is on the stack (tests/store/xrec.rs).
-                let handle = Rc::as_ptr(rec) as usize;
+                let handle = entry.0;
                 let outer = self.outer_validate_before(handle, t.object as usize);
                 let before = self.validate_before_image(handle, outer.clone(), rec, args.get(1).is_some())?;
                 let old_value = rec.borrow().fields[pos].clone();
@@ -2005,14 +2007,8 @@ impl Session {
                     rec.borrow_mut().fields[pos] = v;
                 }
                 let xrec = Self::xrec_handle(rec, before.clone());
-                if outer.is_none() {
-                    self.validating.push((handle, before));
-                }
-                let r = self.validate_hooks(&t, rec, &xrec, field, snapshot);
-                if outer.is_none() {
-                    self.validating.pop();
-                }
-                r?;
+                let outermost = outer.is_none().then_some(before);
+                self.while_validating(entry, outermost, |s| s.validate_hooks(&t, rec, &xrec, field, snapshot))?;
                 if sum_flowfield {
                     self.finish_flowfield_validate(rec, &t, pos, flowfield_error, args.get(1).cloned(), old_value)?;
                 }

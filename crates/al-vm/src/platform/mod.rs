@@ -701,6 +701,11 @@ impl Providers {
             }
             // No rows (metadata/platform-tables/Y21EnvColumns.al:30-40 Y21_Printer_NoRows).
             Virtual::Printer => Vec::new(),
+            // No rows for any table, at install and at test time (al-language-onprem metadata/TableSynchSetupRows.al:275-304,
+            // :243-273). The rows are a fact of the server, not of the reading app: the corpus publishes its Cloud and OnPrem apps
+            // to the same container, so Cloud code (Base Application's "Data Upgrade Mgt." called from a Cloud app, AL Runner
+            // issue 7582) reads the same empty table.
+            Virtual::TableSynchSetup => Vec::new(),
             Virtual::XmlPortMetadata => metadata::xmlport_metadata_rows(self, t),
             Virtual::EventSubscription => metadata::event_subscription_rows(self, t),
             Virtual::PageAction => metadata::page_action_rows(self, t),

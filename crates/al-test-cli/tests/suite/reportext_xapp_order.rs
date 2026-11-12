@@ -1,23 +1,39 @@
 //! Report extensions of different apps that change the run, when a dependency path orders the apps (al-runner issue 6653): the
 //! base report's triggers, then the extensions' in dependency order (corpus writer Y64, branch al-runtime-rs-staging-y64 85d86e7b,
 //! reports/extensions/Y64XappRunOrder.al with the fixtures in al-language-xapp-a, -b and -c: apps A <- B <- C <- the
-//! test app, extension ids rising along the chain). Pinned only where the dependency order and the object id order agree; apps
-//! with no dependency path between them, or ids against the dependency order, stay refused.
+//! test app, extension ids rising along the chain). Pinned only where the dependency order and the object id order agree. Two
+//! apps with no dependency path between them: by app id where the app name sorts the same way (al-runner issue 7358,
+//! reports/extensions/IndependentAppsReportExtensions.al), a flagged pass (assumption `report-ext-independent-app-order`); otherwise, and with ids against the dependency order, refused.
 
+use al_builtins::assumptions::Assumption;
 use al_sema::workspace::{AppKind, AppSource};
 use al_test_cli::report::Outcome;
-use al_test_cli::runtime::run_codeunit;
+use al_test_cli::runtime::run_codeunit_full;
 use al_vm::Engine;
 
 /// Runs codeunit `T` of the last app; each app depends on the ones listed by index in `deps`.
 fn run(apps: &[(&str, &[usize])]) -> Vec<(String, Outcome)> {
+    let names: Vec<String> = (0..apps.len()).map(|i| format!("app{i}")).collect();
+    run_named(apps, &names)
+}
+
+/// [`run`] with the app names `names` (the app ids stay `app0`, `app1`, ...).
+fn run_named(apps: &[(&str, &[usize])], names: &[String]) -> Vec<(String, Outcome)> {
+    run_marked(apps, names).0
+}
+
+/// The unprobed assumptions each test passed through, by test name.
+type Hits = Vec<(String, Vec<Assumption>)>;
+
+/// [`run_named`] that also returns the unprobed assumptions each test passed through.
+fn run_marked(apps: &[(&str, &[usize])], names: &[String]) -> (Vec<(String, Outcome)>, Hits) {
     let ids: Vec<String> = (0..apps.len()).map(|i| format!("app{i}")).collect();
     let sources = apps
         .iter()
         .enumerate()
         .map(|(i, (src, deps))| AppSource {
             id: ids[i].clone(),
-            name: ids[i].clone(),
+            name: names[i].clone(),
             dependencies: deps.iter().map(|&d| ids[d].clone()).collect(),
             files: vec![(format!("{}.al", ids[i]), src.to_string())],
         })
@@ -32,7 +48,20 @@ fn run(apps: &[(&str, &[usize])]) -> Vec<(String, Outcome)> {
         .iter()
         .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
         .collect();
-    run_codeunit(&Engine::new(l.program.clone(), blocked), &l, oi)
+    let mut hits = Vec::new();
+    let outcomes = run_codeunit_full(
+        &Engine::new(l.program.clone(), blocked),
+        &l,
+        oi,
+        None,
+        al_test_cli::isolation::TestIsolation::Codeunit,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    (outcomes, hits)
 }
 
 const BASE: &str = r#"
@@ -95,13 +124,47 @@ fn extensions_along_a_dependency_chain_run_in_dependency_order() {
     assert_eq!(o, vec![("Run".to_string(), Outcome::Pass)]);
 }
 
+const TEST_TWO: &str = r#"
+codeunit 62990 T
+{
+    Subtype = Test;
+    [Test] procedure Run()
+    var R: Record "XO Row"; Log: Codeunit "XO Log"; Rep: Report "XO Report"; Got: Text;
+    begin
+        R.Id := 1; R.Insert();
+        Log.Take();
+        Rep.UseRequestPage(false);
+        Rep.RunModal();
+        Got := Log.Take();
+        if Got <> 'B:beforepredataitem;M:beforepredataitem;base:predataitem;base:aftergetrecord;B:afteraftergetrecord;M:afteraftergetrecord;' then
+            Error('order: %1', Got);
+    end;
+}"#;
+
+#[test]
+fn two_apps_without_a_path_run_in_app_id_order_when_the_names_agree() {
+    let a = BASE.to_string();
+    // B (app1) and M (app2) have no dependency path between them; B's extension has the higher object id.
+    let b = ext(62940, "B");
+    let m = format!("{}{TEST_TWO}", ext(62930, "M"));
+    let names: Vec<String> = (0..3).map(|i| format!("app{i}")).collect();
+    let (o, hits) = run_marked(&[(&a, &[]), (&b, &[0]), (&m, &[0])], &names);
+    assert_eq!(o, vec![("Run".to_string(), Outcome::Pass)]);
+    // One measured pair does not tell the rule: the pass is flagged until the corpus probe lands.
+    assert_eq!(
+        hits,
+        vec![("Run".to_string(), vec![Assumption::ReportExtIndependentAppOrder])]
+    );
+}
+
 #[test]
 fn apps_without_a_path_or_ids_against_it_stay_refused() {
     let a = BASE.to_string();
-    // B and M have no dependency path between them.
+    // B and M have no dependency path between them, and their app names sort against their app ids.
     let b = ext(62920, "B");
     let m = format!("{}{TEST}", ext(62930, "M"));
-    let o = run(&[(&a, &[]), (&b, &[0]), (&m, &[0])]);
+    let names = ["base".to_string(), "zulu".to_string(), "alpha".to_string()];
+    let o = run_named(&[(&a, &[]), (&b, &[0]), (&m, &[0])], &names);
     assert!(
         matches!(&o[..], [(_, Outcome::NotRun(why))] if why.contains("not pinned")),
         "{o:?}"

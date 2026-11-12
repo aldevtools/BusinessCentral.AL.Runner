@@ -142,6 +142,13 @@ fn is_production(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> R
     Ok(Value::Boolean(!tenant_is_sandbox(s)))
 }
 
+/// `IsWSKeyAllowed()`, which Base Application's User Card reads when it opens in SaaS (AL Runner issue 7447). Measured Yes,
+/// also as a condition, on BC 27.5, 28.5 and 29.0 (corpus PR 1330, al-language-onprem-dotnet/dotnet/dotnet/IsWSKeyAllowed.al:34).
+fn is_ws_key_allowed(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    no_args(args, "NavTenantSettingsHelper.IsWSKeyAllowed")?;
+    Ok(Value::Boolean(true))
+}
+
 fn text(what: &str, args: Args, want: usize, v: &str) -> Result<Value, Signal> {
     if args.len() != want {
         return Err(Signal::unsupported(format!(
@@ -331,6 +338,40 @@ fn is_user_delegated_helpdesk(_: &mut Session, _: Option<&Rc<DotNetObject>>, arg
 fn credential_type_is(_: &mut Session, args: Args, member: &str, user_password: bool) -> Result<Value, Signal> {
     no_args(args, member)?;
     Ok(Value::Boolean(user_password))
+}
+
+/// `IsPasswordSet(UserSecurityId)`: Base Application's "Identity Management".IsUserPasswordSet, which the User Card reaches
+/// (AL Runner issue 7447). The rule and its citation live in `user_password.rs` (`user_password_is_set`).
+fn is_password_set(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    match args {
+        [Value::Guid(sid)] => s.user_password_is_set(*sid).map(Value::Boolean),
+        _ => al_builtins::native::unsupported("NavUserAccountHelper.IsPasswordSet with an argument that is not a Guid"),
+    }
+}
+
+/// The account keys the User Card reads; the rule and its citation live in `user_account_keys.rs`.
+fn try_get_authentication_key(
+    s: &mut Session,
+    _: Option<&Rc<DotNetObject>>,
+    args: &mut [Value],
+) -> Result<Value, Signal> {
+    s.try_get_authentication_key(args)
+}
+
+fn try_get_name_identifier(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: &mut [Value]) -> Result<Value, Signal> {
+    s.try_get_name_identifier(args)
+}
+
+fn try_get_web_services_key(
+    s: &mut Session,
+    _: Option<&Rc<DotNetObject>>,
+    args: &mut [Value],
+) -> Result<Value, Signal> {
+    s.try_get_web_services_key(args)
+}
+
+fn get_authentication_status(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    s.get_authentication_status(args)
 }
 
 fn is_windows_authentication(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
@@ -768,6 +809,10 @@ fn environment_variable(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Arg
     Ok(Value::Null)
 }
 
+/// The OnPrem probe of SetUserPassword and the User Card's identity helpers.
+const SUP_STATEMENT: &str =
+    "al-language-onprem/session-system/database-and-blob-operations/SetUserPasswordStatement.al";
+
 /// The credential-type members, measured on the corpus CI containers (`credential_type_is`).
 const CREDENTIAL_PIN: &str = "probe tests/al-language/permissions/Y5AuthenticationType.al (corpus branch al-runtime-rs-staging-y5, codeunit 90987)";
 
@@ -869,6 +914,11 @@ fn own_types() -> Vec<RegistryType> {
                 ),
                 member("GetApplicationFamily", probe("181 ('W1')"), application_family),
                 member(
+                    "IsWSKeyAllowed",
+                    Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/IsWSKeyAllowed.al:34 (corpus PR 1330)".into()),
+                    is_ws_key_allowed,
+                ),
+                member(
                     "GetRingName",
                     Pin::Corpus(
                         "tests/al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al:111-120 (corpus master, PR 1211)".into(),
@@ -902,56 +952,7 @@ fn own_types() -> Vec<RegistryType> {
                 ),
             ],
         },
-        RegistryType {
-            clr_name: USER_ACCOUNT_HELPER.into(),
-            members: vec![
-                member(
-                    "IsAzure",
-                    probe("164-174 (IsSaaSInfrastructure true on 27 and 28, false from 29)"),
-                    is_azure,
-                ),
-                member(
-                    "IsUserDelegatedAdmin",
-                    Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:62".into()),
-                    is_user_delegated_admin,
-                ),
-                member(
-                    "IsDelegatedUser",
-                    Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:61".into()),
-                    is_delegated_user,
-                ),
-                member(
-                    "IsUserDelegatedHelpdesk",
-                    Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:63".into()),
-                    is_user_delegated_helpdesk,
-                ),
-                member(
-                    "IsWindowsAuthentication",
-                    Pin::Probe(CREDENTIAL_PIN.into()),
-                    is_windows_authentication,
-                ),
-                member(
-                    "IsUserNamePasswordAuthentication",
-                    Pin::Probe(CREDENTIAL_PIN.into()),
-                    is_user_name_password_authentication,
-                ),
-                member(
-                    "IsAccessControlServiceAuthentication",
-                    Pin::Probe(CREDENTIAL_PIN.into()),
-                    is_access_control_service_authentication,
-                ),
-                member(
-                    "IsPermissionSetAssigned",
-                    Pin::Corpus("session-system/RvPermissionSetAssigned.al:74-200".into()),
-                    is_permission_set_assigned,
-                ),
-                member(
-                    "GetEffectivePermissionForObject",
-                    Pin::Corpus("session-system/TestSessionCompanyInfoExperienceClose.al:62-90".into()),
-                    effective_permission,
-                ),
-            ],
-        },
+        user_account_helper(),
         RegistryType {
             clr_name: GRAPH_QUERY.into(),
             members: {
@@ -1046,4 +1047,83 @@ fn own_types() -> Vec<RegistryType> {
             )],
         },
     ]
+}
+
+/// `NavUserAccountHelper`: the identity and permission answers of the service tier.
+fn user_account_helper() -> RegistryType {
+    RegistryType {
+        clr_name: USER_ACCOUNT_HELPER.into(),
+        members: vec![
+            member(
+                "IsAzure",
+                probe("164-174 (IsSaaSInfrastructure true on 27 and 28, false from 29)"),
+                is_azure,
+            ),
+            member(
+                "IsUserDelegatedAdmin",
+                Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:62".into()),
+                is_user_delegated_admin,
+            ),
+            member(
+                "IsDelegatedUser",
+                Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:61".into()),
+                is_delegated_user,
+            ),
+            member(
+                "IsUserDelegatedHelpdesk",
+                Pin::Corpus("al-language-onprem-dotnet/dotnet/dotnet/AlUserAccountHelper.al:63".into()),
+                is_user_delegated_helpdesk,
+            ),
+            member(
+                "IsPasswordSet",
+                Pin::Corpus(format!("{SUP_STATEMENT}:284 (corpus PR 1330)")),
+                is_password_set,
+            ),
+            member_ref(
+                "TryGetAuthenticationKey",
+                Pin::Corpus(format!("{SUP_STATEMENT}:323 (corpus PR 1330)")),
+                try_get_authentication_key,
+            ),
+            member_ref(
+                "TryGetNameIdentifier",
+                Pin::Corpus(format!("{SUP_STATEMENT}:323 (corpus PR 1330)")),
+                try_get_name_identifier,
+            ),
+            member_ref(
+                "TryGetWebServicesKey",
+                Pin::Corpus(format!("{SUP_STATEMENT}:323 (corpus PR 1330)")),
+                try_get_web_services_key,
+            ),
+            member(
+                "GetAuthenticationStatus",
+                Pin::Corpus(format!("{SUP_STATEMENT}:323 (corpus PR 1330)")),
+                get_authentication_status,
+            ),
+            member(
+                "IsWindowsAuthentication",
+                Pin::Probe(CREDENTIAL_PIN.into()),
+                is_windows_authentication,
+            ),
+            member(
+                "IsUserNamePasswordAuthentication",
+                Pin::Probe(CREDENTIAL_PIN.into()),
+                is_user_name_password_authentication,
+            ),
+            member(
+                "IsAccessControlServiceAuthentication",
+                Pin::Probe(CREDENTIAL_PIN.into()),
+                is_access_control_service_authentication,
+            ),
+            member(
+                "IsPermissionSetAssigned",
+                Pin::Corpus("session-system/RvPermissionSetAssigned.al:74-200".into()),
+                is_permission_set_assigned,
+            ),
+            member(
+                "GetEffectivePermissionForObject",
+                Pin::Corpus("session-system/TestSessionCompanyInfoExperienceClose.al:62-90".into()),
+                effective_permission,
+            ),
+        ],
+    }
 }

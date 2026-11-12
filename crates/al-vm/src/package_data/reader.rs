@@ -102,14 +102,20 @@ pub(crate) fn read(bytes: &[u8], table: u32, columns: &[Column]) -> R<Vec<Row>> 
         return Err("a package data file of another table".into());
     }
     let listed = c.u32()? as usize;
-    if listed != columns.len() {
+    let mut names = Vec::with_capacity(listed.min(1024));
+    for _ in 0..listed {
+        names.push(c.string()?);
+    }
+    // The names are ignored (tests/al-language-xapp-a/Y85XaPackageData.al:2-3). A header may also list the column `$systemId`
+    // last, one more name than the table has stored fields; the rows are the same (the SystemId follows the values either way)
+    // (tests/al-language-xapp-a/Y88XaPackageData.al 94692, 94693; al-language install-upgrade/install-triggers/Y88PackageData.al
+    // Y88_SystemIdColumn_*; AL Runner issue 7366).
+    let system_id_listed = listed == columns.len() + 1 && names.last().is_some_and(|n| n == "$systemId");
+    if listed != columns.len() && !system_id_listed {
         return Err(format!(
             "a package data file that lists {listed} fields for a table with {} stored fields (not pinned)",
             columns.len()
         ));
-    }
-    for _ in 0..listed {
-        c.string()?;
     }
     let mut rows = Vec::new();
     loop {
@@ -338,6 +344,27 @@ mod tests {
                 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00
             ]
         );
+    }
+
+    #[test]
+    fn a_header_that_lists_system_id_last_reads_the_same_rows() {
+        // Y88XaPackageData.al 94692: the stored fields, then `$systemId` (AL Runner issue 7366).
+        let row = |names: &[&str]| {
+            let mut f = header(7, names);
+            f.push(1);
+            f.extend_from_slice(&5i32.to_le_bytes());
+            f.extend_from_slice(&[9; 16]);
+            f.push(0);
+            f
+        };
+        let plain = read(&row(&["No."]), 7, &[col(RtType::Integer)]).unwrap();
+        let listed = read(&row(&["No.", "$systemId"]), 7, &[col(RtType::Integer)]).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].system_id, plain[0].system_id);
+        assert!(matches!(listed[0].values[0], Value::Integer(5)));
+        // Any other extra name, or `$systemId` not last, stays refused.
+        assert!(read(&row(&["No.", "Extra"]), 7, &[col(RtType::Integer)]).is_err());
+        assert!(read(&row(&["$systemId", "No."]), 7, &[col(RtType::Integer)]).is_err());
     }
 
     #[test]

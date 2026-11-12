@@ -45,6 +45,7 @@ impl Session {
             part_properties: &["autosplitkey", "delayedinsert", "sourcetableview"],
             part_variable_controls: false,
             part_variable_validate: false,
+            part_field_validate_update: false,
             part_expression_controls: false,
             unlinked: false,
             sibling_parts: false,

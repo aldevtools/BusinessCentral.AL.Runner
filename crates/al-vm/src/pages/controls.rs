@@ -1,6 +1,6 @@
 use super::*;
+use crate::records::ValidateSite;
 use al_builtins::page_op::{PageMethod, PageOp};
-use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// `TestField.SetValue`: activates the control, turns the value into what the control would
@@ -28,6 +28,10 @@ impl Session {
         let expanded = st.borrow().expanded.clone();
         // A control write ends the shape `next_held_row_read` reads in (`set_value_reading_held_row` read before this).
         st.borrow_mut().next_held_row = None;
+        // The row a part held before this write (`part_refresh_find_forward.rs` compares it with the row after).
+        let held_row =
+            (st.borrow().host.is_some() && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
+        st.borrow_mut().row_before_write = held_row;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
             if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
@@ -950,11 +954,7 @@ impl Session {
                     // globals, and leaves the page's record with fresh globals (ADR-021 decision 8;
                     // corpus probes TableGlobals_PageFieldValidate_*, TableGlobals_PageRec_ActionGlobalsAreLostAfterPageFieldValidation).
                     self.reset_table_globals(&rec);
-                    let validated = self.record_op(
-                        RecordOp::Validate,
-                        &rec,
-                        &mut [Value::Integer(pos as i32), parsed.clone()],
-                    );
+                    let validated = self.platform_validate(ValidateSite::TestPageControl, &rec, pos, parsed.clone());
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
@@ -1915,14 +1915,23 @@ impl Session {
     /// TestPage: the extensions' OnBeforeValidate in extension order, the control's own OnValidate when it has one, then the
     /// extensions' OnAfterValidate (corpus pages/extensions/W2ExtModify.al:367-386 Validate_VariableControl `low.before.VarName(first);
     /// high.before.VarName(first);page.VarName(first);low.after.VarName(first);high.after.VarName(first);`, :388-401
-    /// Validate_VariableControlWithoutOwnTrigger; BC 27.5, 28.5 and 29.0; al-runner issue 7372). A page run modally (the
-    /// StandardDialog of the issue, set from a ModalPageHandler), a part and every other page type are not pinned yet (corpus
-    /// probe pages/extensions/ModifyVariableControlOnDialog.al).
+    /// Validate_VariableControlWithoutOwnTrigger; BC 27.5, 28.5 and 29.0; al-runner issue 7372). The same order on a
+    /// StandardDialog page with no source table, run modally and set from a ModalPageHandler or opened with OpenEdit
+    /// (pages/extensions/ModifyVariableControlOnDialog.al:188-190, :207, :232, :258, :282-284). A part and every other page
+    /// type are not pinned yet.
     fn ext_validate_on_variable_pinned(&self, st: &St) -> bool {
-        let s = st.borrow();
-        !s.modal
-            && s.host.is_none()
-            && self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Card)
+        let page_type = {
+            let s = st.borrow();
+            if s.host.is_some() {
+                return false;
+            }
+            (self.engine.object_facts[s.object as usize].page_type.clone(), s.modal)
+        };
+        match page_type {
+            (Some(al_ir::PageType::Card), false) => true,
+            (Some(al_ir::PageType::StandardDialog), _) => !self.has_source(st),
+            _ => false,
+        }
     }
 
     /// Cancel of a list with OnFindRecord that the static Page.RunModal opened in lookup mode finds the current row again (`=`) and

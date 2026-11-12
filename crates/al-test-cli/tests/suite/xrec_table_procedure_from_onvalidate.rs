@@ -1,8 +1,6 @@
 //! xRec inside a table procedure that a field's OnValidate calls on Rec (`Rec.MyProc()`): the procedure sees the same
-//! before-image the trigger sees (al-runner issue 7785, the reporter's repro). No corpus test pins the `Rec.` call; Microsoft's
-//! Subscription Billing test `Service Object Test.CheckChangeServiceObjectSN` needs it (assumption
-//! `xrec-table-proc-from-field-validate`, a flagged pass). The unqualified call from OnValidate is pinned
-//! (record/TestXRecContracts.al:52, :255 `internal xRec=A/stored`).
+//! before-image the trigger sees (al-runner issue 7785, the reporter's repro). Pinned for `Rec.`, `this.` and the unqualified
+//! call by record/validate/XRecTableProcCalls.al:186-251 (and record/TestXRecContracts.al:52, :255 for the unqualified call).
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
@@ -190,8 +188,8 @@ codeunit 50196 "R918 Run"
 }
 "#;
 
-fn hits_of(mode: i32) -> (String, Vec<al_builtins::assumptions::Assumption>) {
-    al_builtins::assumptions::clear_hits();
+fn seen_in(mode: i32) -> (String, Vec<al_builtins::assumptions::Assumption>) {
+    al_builtins::assumptions::take_hits();
     let r = al_testkit::run_with(
         NEIGHBORS,
         "R918 Run",
@@ -206,23 +204,11 @@ fn hits_of(mode: i32) -> (String, Vec<al_builtins::assumptions::Assumption>) {
 }
 
 #[test]
-fn only_a_call_on_rec_from_the_tables_field_onvalidate_takes_the_assumption() {
-    use al_builtins::assumptions::Assumption::XrecTableProcFromFieldValidate as A;
-    // Mode 4: `Rec.ReadXRec()` in the field's OnValidate reads the trigger's xRec (9), on the assumption.
-    let (seen, hits) = hits_of(4);
-    assert!(seen.contains("\"9\""), "{seen}");
-    assert!(hits.contains(&A), "{hits:?}");
-    // Mode 6: `this.ReadXRec()` runs as the unqualified call does (main's behavior, untouched): the trigger's xRec, no mark.
-    let (seen, hits) = hits_of(6);
-    assert!(seen.contains("\"9\""), "{seen}");
-    assert!(!hits.contains(&A), "{hits:?}");
-    // Mode 1: the unqualified call, pinned (record/TestXRecContracts.al:52, :255): the trigger's xRec, no mark.
-    let (seen, hits) = hits_of(1);
-    assert!(seen.contains("\"9\""), "{seen}");
-    assert!(!hits.contains(&A), "{hits:?}");
-    // Modes 2, 3 and 5: another variable, a codeunit given Rec by var, OnModify. Not the assumed shape: no mark.
-    for mode in [2, 3, 5] {
-        let (seen, hits) = hits_of(mode);
-        assert!(!hits.contains(&A), "mode {mode}: {seen} {hits:?}");
+fn a_call_on_rec_this_or_unqualified_from_the_field_onvalidate_shares_the_triggers_xrec_without_a_mark() {
+    // Modes 4, 6 and 1: `Rec.ReadXRec()`, `this.ReadXRec()` and the unqualified call read the trigger's xRec (9), pinned.
+    for mode in [4, 6, 1] {
+        let (seen, hits) = seen_in(mode);
+        assert!(seen.contains("\"9\""), "mode {mode}: {seen}");
+        assert!(hits.is_empty(), "mode {mode}: {hits:?}");
     }
 }
