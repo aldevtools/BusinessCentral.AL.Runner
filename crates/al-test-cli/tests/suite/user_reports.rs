@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_modal_document_closes_three_draft_parts_after_validation_error() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/modal-three-draft-parts.al"),
+    ));
+}

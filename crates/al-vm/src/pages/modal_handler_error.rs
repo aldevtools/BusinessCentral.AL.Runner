@@ -57,6 +57,19 @@ impl Session {
                 "a page left open by a ModalPageHandler that raised an error, with an unsaved row or a hidden part (not pinned)",
             );
         }
+        // ModalThreeParts.al: after a ListPart validation error, the three clean drafts
+        // receive None and the instance-run Document receives OK before the handler error returns.
+        let close_three_drafts = matches!(e, Signal::Error(error) if error.code == "TestValidation")
+            && !st.borrow().lookup
+            && st.borrow().run_static == Some(false)
+            && self.engine.object_facts[st.borrow().object as usize].page_type == Some(ir::PageType::Document)
+            && parts.len() == 3
+            && parts.iter().any(|p| !p.borrow().trigger_errors.is_empty())
+            && parts.iter().all(|p| {
+                let state = p.borrow();
+                state.draft && !state.dirty
+                    && self.engine.object_facts[state.object as usize].page_type == Some(ir::PageType::ListPart)
+            });
         let a = self.unattended_action(st);
         let lookup = st.borrow().lookup;
         match self.close_with(st, a, false, false) {
@@ -65,6 +78,12 @@ impl Session {
             // handler's error, also an error of a page action the handler invoked (ui-handlers/WbModalHandlerCloseTests.al:9-39
             // `Part:None|Page:LookupCancel`, al-runner issue 6291). Outside lookup mode it is not pinned.
             Ok(_) if lookup && !st.borrow().open => Ok(()),
+            Ok(_) if close_three_drafts && !st.borrow().open => {
+                al_builtins::assumptions::assume(
+                    al_builtins::assumptions::Assumption::ModalValidationThreeDraftPartsClose,
+                );
+                Ok(())
+            }
             Err(Signal::Error(_)) | Ok(_) => unsupported(
                 "a page left open by a ModalPageHandler that raised an error, whose close is allowed (not pinned)",
             ),
