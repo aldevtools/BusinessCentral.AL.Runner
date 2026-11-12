@@ -13,7 +13,12 @@ impl Session {
     /// The filter text of `value` when every `|` term of it is `Database::<table>` and `ty` is Integer, in a view written as
     /// an AL property (`runtime` false). `None` for any other text. A table name that names no table, or more than one, is
     /// refused.
-    pub(crate) fn view_database_const(&self, value: &str, ty: &RtType, runtime: bool) -> Result<Option<String>, Signal> {
+    pub(crate) fn view_database_const(
+        &self,
+        value: &str,
+        ty: &RtType,
+        runtime: bool,
+    ) -> Result<Option<String>, Signal> {
         if runtime || !matches!(ty, RtType::Integer) {
             return Ok(None);
         }

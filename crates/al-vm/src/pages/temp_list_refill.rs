@@ -51,8 +51,10 @@ impl Session {
             let kind = match c.kind {
                 ir::ControlKind::Repeater | ir::ControlKind::Group => c.binding == ir::Binding::None,
                 ir::ControlKind::Field => {
-                    matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_) | ir::Binding::Expr(_))
-                        && c.triggers.iter().all(|(n, _)| n == "__sourceset")
+                    matches!(
+                        c.binding,
+                        ir::Binding::Field(_) | ir::Binding::Var(_) | ir::Binding::Expr(_)
+                    ) && c.triggers.iter().all(|(n, _)| n == "__sourceset")
                 }
                 ir::ControlKind::Action => c.triggers.iter().all(|(n, _)| n == "onaction"),
                 _ => false,

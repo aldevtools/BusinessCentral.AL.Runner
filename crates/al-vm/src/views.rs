@@ -902,7 +902,12 @@ pub(crate) fn page_source_view(t: &TableDef, view: &str) -> Result<PageSourceVie
     while !rest.is_empty() {
         let (Some(open), Some((inner, after))) = (rest.find('('), rest.find('(').and_then(|o| balanced(&rest[o..])))
         else {
-            return Ok(PageSourceView { view: view.to_string(), enum_consts, blank_dates, number_fields });
+            return Ok(PageSourceView {
+                view: view.to_string(),
+                enum_consts,
+                blank_dates,
+                number_fields,
+            });
         };
         let word = &rest[..open];
         if word.trim().eq_ignore_ascii_case("where") {
@@ -966,7 +971,12 @@ pub(crate) fn page_source_view(t: &TableDef, view: &str) -> Result<PageSourceVie
         }
         rest = after.trim();
     }
-    Ok(PageSourceView { view: parts.join(" "), enum_consts, blank_dates, number_fields })
+    Ok(PageSourceView {
+        view: parts.join(" "),
+        enum_consts,
+        blank_dates,
+        number_fields,
+    })
 }
 
 /// The conditions of a view (already through [`property_view`]) that filter a Date field with `const(0D)` or

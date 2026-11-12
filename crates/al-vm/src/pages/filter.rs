@@ -48,7 +48,10 @@ impl Session {
                 use al_builtins::value::RtType;
                 // A SourceTableView `filter(Member)` on an Enum and `const(Member)` on an Option read as the member's number
                 // (pages/view-filters/ViewConstBlankCode.al:490, `views::page_source_view`).
-                if let Some(f) = first.as_ref().filter(|f| f.group == 2 && st.borrow().view_number_fields.contains(&pos)) {
+                if let Some(f) = first
+                    .as_ref()
+                    .filter(|f| f.group == 2 && st.borrow().view_number_fields.contains(&pos))
+                {
                     if let Some(t) = super::filter_link_numbers::link_filter_numbers(&f.expr) {
                         return Ok(Value::Text(t.into()));
                     }

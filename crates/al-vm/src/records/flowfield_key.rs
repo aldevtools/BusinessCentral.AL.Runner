@@ -118,7 +118,12 @@ impl Session {
     /// rows in primary key order); as a statement it raises "Sorting cannot be done" for the FlowField (SetCurrentKeyFlowFieldOrder.al:
     /// 319, a lookup and the primary key field). `None` on any other record or key (a second FlowField in the key, another
     /// FlowField kind first): the scan decides those.
-    pub(super) fn temporary_lookup_key(&self, rec: &Rec, t: &TableDef, wanted: &[usize]) -> Result<Option<Value>, Signal> {
+    pub(super) fn temporary_lookup_key(
+        &self,
+        rec: &Rec,
+        t: &TableDef,
+        wanted: &[usize],
+    ) -> Result<Option<Value>, Signal> {
         if !rec.borrow().temporary {
             return Ok(None);
         }

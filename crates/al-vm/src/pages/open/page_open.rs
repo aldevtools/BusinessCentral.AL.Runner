@@ -439,7 +439,12 @@ impl Session {
             } else {
                 Vec::new()
             };
-            let crate::views::PageSourceView { view, enum_consts, blank_dates, number_fields } = match crate::views::page_source_view(&table, &view) {
+            let crate::views::PageSourceView {
+                view,
+                enum_consts,
+                blank_dates,
+                number_fields,
+            } = match crate::views::page_source_view(&table, &view) {
                 Ok(v) => v,
                 Err(e) => {
                     self.mark_closed(st);
