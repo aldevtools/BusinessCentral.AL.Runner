@@ -24,29 +24,13 @@ impl Session {
         if Self::same_values(&rec.borrow().fields, before) {
             return Ok(false);
         }
-        // ReworkSave.al on real BC extends the Card and List evidence in pages/actions/WfFlowFieldActionRec.al
-        // to a Document: a changed CalcFields result alone does not make the action leave a page edit.
-        if !was_dirty
-            && self.top_card_or_document(st)
-            && self.engine.object_facts[st.borrow().object as usize].page_type == Some(ir::PageType::Document)
-        {
-            let table = self.table(&rec)?;
-            let current = rec.borrow();
-            if current.fields.len() == before.len()
-                && table.fields.len() == before.len()
-                && table
-                    .fields
-                    .iter()
-                    .zip(current.fields.iter().zip(before))
-                    .all(|(field, (after, before))| {
-                        !field.stored || Self::same_values(std::slice::from_ref(after), std::slice::from_ref(before))
-                    })
-            {
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::DocumentActionCalculatedFieldNotDirty,
-                );
-                return Ok(false);
-            }
+        // Corpus PR 1346 (issue 7882): a view-mode Document action calculates a FlowField
+        // and commits a change through a separate buffer. The page has no modify observers.
+        if !was_dirty && !deleted && self.document_view_action_only_changed_flowfields(st, &rec, before)? {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::DocumentActionCalculatedFieldNotDirty,
+            );
+            return Ok(false);
         }
         // A row the action changed and then deleted (a codeunit that modifies and deletes Rec: Make Order, Post) is not
         // written again on a card: the card closes (`settle_after_action`) and nothing is re-inserted (corpus master 97c29f86,
@@ -70,5 +54,61 @@ impl Session {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    fn document_view_action_only_changed_flowfields(
+        &mut self,
+        st: &St,
+        rec: &Rec,
+        before: &[Value],
+    ) -> Result<bool, Signal> {
+        let state = st.borrow();
+        if state.mode != PageMode::View
+            || state.host.is_some()
+            || self.engine.object_facts[state.object as usize].page_type != Some(ir::PageType::Document)
+            || !self.tx.writes.is_empty()
+        {
+            return Ok(false);
+        }
+        let object = state.object as usize;
+        drop(state);
+        if self.declares_or_ext_declares(st, "onmodifyrecord")
+            || self.engine.events.is_subscribed(object, "onmodifyrecordevent")
+        {
+            return Ok(false);
+        }
+        let table = self.table(rec)?;
+        let Some(stored) = self.stored_row(rec)? else {
+            return Ok(false);
+        };
+        let current = rec.borrow();
+        if current.temporary
+            || current.assigned
+            || current.fields.len() != before.len()
+            || table.fields.len() != before.len()
+        {
+            return Ok(false);
+        }
+        let same = |a, b| Self::same_values(std::slice::from_ref(a), std::slice::from_ref(b));
+        let schema = self.engine.program.objects[table.object as usize]
+            .table
+            .as_ref()
+            .expect("table");
+        let mut changed_flowfield = false;
+        let mut stored_changed = false;
+        for (i, field) in table.fields.iter().enumerate() {
+            if field.stored {
+                if !same(&current.fields[i], &before[i]) {
+                    return Ok(false);
+                }
+                stored_changed |= !same(&stored[i], &before[i]);
+            } else if !same(&current.fields[i], &before[i]) {
+                if schema.fields.get(i).is_none_or(|field| field.calc.is_none()) {
+                    return Ok(false);
+                }
+                changed_flowfield = true;
+            }
+        }
+        Ok(changed_flowfield && stored_changed)
     }
 }
