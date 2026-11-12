@@ -72,6 +72,9 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
   sync point that a test can skip (close, test end, an undo).
 - A mark or flag on a value must survive every copy path: a second stream on the same buffer, `push_str`,
   a copy into another variable. Clear it only when the content is gone.
+- A mark on a record variable that its own methods follow must also end where another object writes the
+  variable's buffer (RecordRef.SetTable, Page.GetRecord). The call that starts the mark is checked as strictly
+  as the call that reads it: its arguments, its triggers and subscribers, and the variable's state.
 
 ## 7. State that outlives its shape (6 of 34)
 

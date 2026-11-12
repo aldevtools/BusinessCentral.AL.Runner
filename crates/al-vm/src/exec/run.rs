@@ -929,6 +929,7 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
+        crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
@@ -1071,6 +1072,7 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
+        crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }

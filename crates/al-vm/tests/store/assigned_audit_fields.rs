@@ -44,6 +44,39 @@ codeunit 50334 Sub
     local procedure AfterModify(var Rec: Record RS) begin end;
 }
 
+table 50335 RI
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Name; Text[30]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+
+table 50337 RB
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Name; Text[30]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+
+codeunit 50336 SubI
+{
+    [EventSubscriber(ObjectType::Table, Database::RI, 'OnAfterInsertEvent', '', false, false)]
+    local procedure AfterInsert(var Rec: Record RI; RunTrigger: Boolean)
+    begin
+        if Rec.IsTemporary then exit;
+        Rec.Modify();
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::RB, 'OnBeforeInsertEvent', '', false, false)]
+    local procedure BeforeInsert(var Rec: Record RB; RunTrigger: Boolean) begin end;
+}
+
 codeunit 50331 T
 {
     local procedure At(): DateTime
@@ -764,13 +797,251 @@ codeunit 50331 T
         TempRow.Get('A');
         exit(Format(TempRow.SystemCreatedAt = At()));
     end;
+
+    // ---- Shapes of the round-3 review probe (record-probe3), each one fact away from a cell.
+
+    // A03: RecordRef.SetTable writes the whole buffer of the variable.
+    procedure ModifyFieldRefSetTable(): Text
+    var
+        Row: Record R;
+        RecRef: RecordRef;
+        FRef: FieldRef;
+    begin
+        Seed(Row);
+        RecRef.GetTable(Row);
+        FRef := RecRef.Field(RecRef.SystemModifiedAtNo());
+        FRef.Value := At();
+        RecRef.SetTable(Row);
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    // A05.
+    procedure ModifySetTableNoChange(): Text
+    var
+        Row: Record R;
+        RecRef: RecordRef;
+    begin
+        Seed(Row);
+        RecRef.GetTable(Row);
+        RecRef.SetTable(Row);
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    // C01.
+    procedure ModifyInsertWithSystemId(): Text
+    var
+        Row: Record R;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.SystemId := CreateGuid();
+        Row.Insert(false, true);
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    procedure ModifyInsertFalse(): Text
+    var
+        Row: Record R;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Insert(false);
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    // C04.
+    procedure ModifyLoadFieldsBeforeInsert(): Text
+    var
+        Row: Record R;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.SetLoadFields(Name);
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    // C05.
+    procedure ModifyReadIsolationBeforeInsert(): Text
+    var
+        Row: Record R;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.ReadIsolation := IsolationLevel::ReadUncommitted;
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    // C11.
+    procedure ModifyMarkBeforeInsert(): Text
+    var
+        Row: Record R;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Mark(true);
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    // C12.
+    procedure ModifyFilterGroupBeforeInsert(): Text
+    var
+        Row: Record R;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.FilterGroup(2);
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        exit(AfterModify(Row));
+    end;
+
+    // S01: an OnAfterInsertEvent subscriber modifies the row.
+    procedure ModifyInsertSubscriberModifies(): Text
+    var
+        Row: Record RI;
+        Stored: Record RI;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        Stored.Get('A');
+        exit(Format(Row.SystemModifiedAt = At()) + '|' + Format(Stored.SystemModifiedAt = At()));
+    end;
+
+    // An OnBeforeInsertEvent subscriber that does nothing.
+    procedure ModifyInsertBeforeSubscriber(): Text
+    var
+        Row: Record RB;
+        Stored: Record RB;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.Insert();
+        Row.Get('A');
+        Row.SystemModifiedAt := At();
+        Row.Modify();
+        Stored.Get('A');
+        exit(Format(Row.SystemModifiedAt = At()) + '|' + Format(Stored.SystemModifiedAt = At()));
+    end;
+
+    // E03.
+    procedure RenameFieldRefSetTable(): Text
+    var
+        Row: Record R;
+        RecRef: RecordRef;
+        FRef: FieldRef;
+    begin
+        Seed(Row);
+        RecRef.GetTable(Row);
+        FRef := RecRef.Field(RecRef.SystemCreatedAtNo());
+        FRef.Value := At();
+        FRef := RecRef.Field(RecRef.SystemCreatedByNo());
+        FRef.Value := By();
+        RecRef.SetTable(Row);
+        Row.Rename('B');
+        exit(AfterRename());
+    end;
+
+    // E06.
+    procedure RenameInsertWithSystemId(): Text
+    var
+        Row: Record R;
+    begin
+        Row.DeleteAll();
+        Clear(Row);
+        Row."No." := 'A';
+        Row.SystemId := CreateGuid();
+        Row.Insert(false, true);
+        Row.Get('A');
+        Row.SystemCreatedAt := At();
+        Row.SystemCreatedBy := By();
+        Row.Rename('B');
+        exit(AfterRename());
+    end;
+
+    // F02.
+    procedure TempFieldRefSetTable(): Text
+    var
+        TempRow: Record R temporary;
+        RecRef: RecordRef;
+        FRef: FieldRef;
+    begin
+        TempSeed(TempRow);
+        RecRef.GetTable(TempRow);
+        FRef := RecRef.Field(RecRef.SystemCreatedAtNo());
+        FRef.Value := 0DT;
+        FRef := RecRef.Field(2);
+        FRef.Value := 'second';
+        RecRef.SetTable(TempRow);
+        TempRow.Modify();
+        exit(TempAfterModify(TempRow));
+    end;
+
+    // F04.
+    procedure TempInsertWithSystemId(): Text
+    var
+        TempRow: Record R temporary;
+    begin
+        TempRow."No." := 'A';
+        TempRow.SystemId := CreateGuid();
+        TempRow.SystemCreatedAt := At();
+        TempRow.SystemCreatedBy := By();
+        TempRow.SystemModifiedAt := At();
+        TempRow.SystemModifiedBy := By();
+        TempRow.Insert(false, true);
+        Clear(TempRow);
+        TempRow.Get('A');
+        TempRow.SystemCreatedAt := 0DT;
+        TempRow.Name := 'second';
+        TempRow.Modify();
+        exit(TempAfterModify(TempRow));
+    end;
 }
 "#;
 
+/// Every routine of `routines` answers `expected`; a failure lists every routine that does not.
 fn answers(routines: &[&str], expected: &str) {
-    for routine in routines {
-        assert_eq!(text(run_in(SRC, "T", routine)), expected, "{routine}");
-    }
+    let wrong: Vec<String> = routines
+        .iter()
+        .map(|r| (r, text(run_in(SRC, "T", r))))
+        .filter(|(_, got)| got != expected)
+        .map(|(r, got)| format!("{r}: {got}"))
+        .collect();
+    assert!(wrong.is_empty(), "expected {expected}: {wrong:#?}");
 }
 
 /// AssignedAuditFields.al:271-283: the buffer keeps the assigned SystemModifiedAt, the stored row does not take it.
@@ -885,4 +1156,28 @@ fn temporary_modify_neighbors_keep_the_stored_created_pair() {
         "No",
     );
     answers(&["TempCreatedAtOtherValue"], "Yes");
+}
+
+/// Round-3 review shapes (record-probe3): another object writes the buffer (A03, A05, E03, F02), the Insert is not the
+/// plain `Insert()` (C01, E06, F04), runs AL code (S01), or the variable carries state the cell's variable did not have
+/// before it (C04, C05, C11, C12). Each keeps main's result.
+#[test]
+fn round_three_neighbors_keep_main_result() {
+    answers(
+        &[
+            "ModifyFieldRefSetTable",
+            "ModifySetTableNoChange",
+            "ModifyInsertWithSystemId",
+            "ModifyInsertFalse",
+            "ModifyLoadFieldsBeforeInsert",
+            "ModifyReadIsolationBeforeInsert",
+            "ModifyMarkBeforeInsert",
+            "ModifyFilterGroupBeforeInsert",
+            "ModifyInsertSubscriberModifies",
+            "ModifyInsertBeforeSubscriber",
+        ],
+        "No|No",
+    );
+    answers(&["RenameFieldRefSetTable", "RenameInsertWithSystemId"], "Yes");
+    answers(&["TempFieldRefSetTable", "TempInsertWithSystemId"], "No");
 }

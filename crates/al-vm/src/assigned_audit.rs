@@ -3,11 +3,14 @@
 //!
 //! Three rules, one per measured cell. Each enters only when every fact of its cell holds, by equality; any other write does
 //! what it did before these rules (`hostvalues.rs`, `recmeta.rs`). The facts all four share:
-//! - a Record variable, not a RecordRef (:140, :643), of a table whose write runs no trigger, event subscriber or global
-//!   trigger (table 61800, :17-27);
-//! - the buffer is the row the variable itself inserted with `Insert()` and then read with `Get` (`OwnRead`: `Seed` at
-//!   :140-148, the temporary record at :650-655), with no other record method through the variable in between but the ones
-//!   the cell names, no Commit and no write to the record's store since the Insert, and no filter on the variable.
+//! - a Record variable, not a RecordRef (:140, :643), of a table whose Insert and write run no trigger, event subscriber or
+//!   global trigger (table 61800, :17-27);
+//! - the buffer is the row the variable itself inserted with `Insert()`, no argument (:146, :651), and then read with `Get`
+//!   (`OwnRead`: `Seed` at :140-148, the temporary record at :650-655), with no other record method through the variable in
+//!   between but the ones the cell names, no builtin given the variable as an operand but the `Clear` of :653 (RecordRef
+//!   GetTable and SetTable, Page.GetRecord, ...), no Commit and no write to the record's store since the Insert;
+//! - the variable is in the state the cells' variables are in: no filter, no MarkedOnly and no other company, and no load
+//!   fields, the default ReadIsolation, filter group 0 and no marks (`default_variable`).
 //!
 //! `ModifyAll` on an audit field (:594-632) has no rule: two of its three observations run after the rollback of the
 //! `asserterror` before them, over a row the variable did not insert, and no case measures that state apart from the first.
@@ -29,7 +32,8 @@ pub(crate) struct AuditWrite {
     pub(crate) through_recordref: bool,
     /// The RunTrigger argument; a Rename passes true.
     pub(crate) run_trigger: bool,
-    /// The write runs no trigger, no event subscriber and no global trigger of its table (`Session::audit_write_plain`).
+    /// The write, and the Insert of its table, run no trigger, no event subscriber and no global trigger
+    /// (`Session::audit_write_plain`).
     pub(crate) plain: bool,
     /// The variable's `OwnRead` as the write starts.
     pub(crate) own_read: Option<OwnReadAt>,
@@ -41,8 +45,8 @@ pub(crate) struct AuditWrite {
     pub(crate) commits: u64,
     /// The change counter of the record's store.
     pub(crate) store_changes: u64,
-    /// The variable has no filter, no MarkedOnly and no other company.
-    pub(crate) unfiltered: bool,
+    /// The variable is in the state the cells' variables are in (`default_variable`).
+    pub(crate) default_variable: bool,
 }
 
 /// The record methods the variable ran between its Insert and the write, as a cell measured them.
@@ -104,8 +108,8 @@ fn version_of(t: &al_data::TableDef, row: &[Value]) -> Option<i64> {
     }
 }
 
-/// The shared buffer facts (module doc): the variable inserted the row `stored` and read it as `sequence` says, and nothing
-/// committed, wrote to the store or filtered the variable since.
+/// The shared buffer facts (module doc): the variable inserted the row `stored` and read it as `sequence` says, nothing
+/// committed or wrote to the store since, and the variable is in the cells' state.
 fn own_row(t: &al_data::TableDef, stored: &[Value], w: &AuditWrite, sequence: Sequence) -> bool {
     let (Some(m), Some([id])) = (&w.own_read, positions(t, [SYSTEM_ID])) else {
         return false;
@@ -121,7 +125,7 @@ fn own_row(t: &al_data::TableDef, stored: &[Value], w: &AuditWrite, sequence: Se
         && m.store_changes == w.store_changes
         && m.version == version_of(t, stored)
         && same(&m.system_id, &stored[id])
-        && w.unfiltered
+        && w.default_variable
 }
 
 /// `own_row`, and the buffer still holds that row's SystemId and SystemRowVersion.
@@ -273,9 +277,9 @@ pub(crate) fn rename_audit(
 }
 
 impl Session {
-    /// Whether a write `op` (Modify or Rename) of table `t` runs no AL code of its own: the table and its extensions declare no
-    /// trigger of it, no subscriber of its table events is declared, and (for a database record) the global trigger of it is
-    /// known to be off. The measured table 61800 declares none (AssignedAuditFields.al:17-27).
+    /// Whether a write `op` (Insert, Modify or Rename) of table `t` runs no AL code of its own: the table and its extensions
+    /// declare no trigger of it, no subscriber of its table events is declared, and (for a database record) the global trigger
+    /// of it is known to be off. The measured table 61800 declares none (AssignedAuditFields.al:17-27).
     pub(crate) fn audit_write_plain(&self, t: &al_data::TableDef, op: GlobalOp, temporary: bool) -> bool {
         let (trigger, ext, events): (&str, [&str; 3], [&str; 2]) = match op {
             GlobalOp::Modify => (
@@ -288,7 +292,12 @@ impl Session {
                 ["OnBeforeRename", "OnRename", "OnAfterRename"],
                 ["onbeforerenameevent", "onafterrenameevent"],
             ),
-            GlobalOp::Insert | GlobalOp::Delete => return false,
+            GlobalOp::Insert => (
+                "OnInsert",
+                ["OnBeforeInsert", "OnInsert", "OnAfterInsert"],
+                ["onbeforeinsertevent", "onafterinsertevent"],
+            ),
+            GlobalOp::Delete => return false,
         };
         self.table_trigger(t, trigger).is_none()
             && ext.iter().all(|n| self.ext_triggers(t, n).is_empty())
@@ -308,16 +317,26 @@ impl Session {
     ) -> AuditWrite {
         let store_changes = self.store_for(rec).change_counter();
         let r = rec.borrow();
+        // Every rule needs `OwnRead` from a Get with nothing committed or written since (`own_row`): only then is it worth
+        // asking for the triggers and subscribers. The Insert that started `OwnRead` must run none either; they are
+        // declared or not for the whole run, so the write asks for them, not every Insert.
+        let current = r
+            .own_read
+            .0
+            .as_ref()
+            .is_some_and(|m| m.got && m.commits == self.commits && m.store_changes == store_changes);
         AuditWrite {
             through_recordref: self.through_recordref,
             run_trigger: run,
-            plain: self.audit_write_plain(t, op, r.temporary),
+            plain: current
+                && self.audit_write_plain(t, op, r.temporary)
+                && self.audit_write_plain(t, GlobalOp::Insert, r.temporary),
             own_read: r.own_read.0.clone(),
             version: version_of(t, &r.fields),
             origin: r.row_origin,
             commits: self.commits,
             store_changes,
-            unfiltered: unfiltered(&r),
+            default_variable: default_variable(&r),
         }
     }
 
@@ -355,7 +374,8 @@ impl Session {
 
     /// Follows `OwnRead` of `rec` as record method `method` starts. Only the methods the measured cells name keep it: a Get
     /// after the Insert, a Clear between the two (:653), and the write that reads it (Modify, Rename). Returns the store's
-    /// change counter when `method` is an `Insert()` AL code called on a Record variable, for `own_read_after`.
+    /// change counter when `method` is an `Insert()` with no argument (AssignedAuditFields.al:146, :651) AL code called on a
+    /// Record variable, for `own_read_after`.
     pub(crate) fn own_read_before(
         &mut self,
         method: RecordOp,
@@ -364,9 +384,7 @@ impl Session {
     ) -> Option<u64> {
         if method == RecordOp::Insert {
             rec.borrow_mut().own_read = OwnRead(None);
-            let plain = self.tx.insert_from_al
-                && !self.through_recordref
-                && matches!(args.first(), None | Some(Value::Boolean(false)));
+            let plain = args.is_empty() && self.tx.insert_from_al && !self.through_recordref;
             return plain.then(|| self.store_for(rec).change_counter());
         }
         let mut r = rec.borrow_mut();
@@ -396,18 +414,34 @@ impl Session {
             RecordOp::Insert => {
                 let Some(before) = inserted else { return };
                 let store_changes = self.store_for(rec).change_counter();
-                let Ok(t) = self.table(rec) else { return };
-                let mut r = rec.borrow_mut();
-                if let (true, Some(id)) = (ok && store_changes != before, position_of(&t, SYSTEM_ID)) {
-                    r.own_read = OwnRead(Some(OwnReadAt {
-                        got: false,
-                        cleared: false,
-                        system_id: r.fields[id].clone(),
-                        version: version_of(&t, &r.fields),
-                        commits: self.commits,
-                        store_changes,
-                    }));
+                if !ok || store_changes == before {
+                    return;
                 }
+                let mut r = rec.borrow_mut();
+                let Some(t) = self.engine.tables[r.table as usize].as_deref() else {
+                    return;
+                };
+                let (mut id, mut version) = (None, None);
+                for (i, f) in t.fields.iter().enumerate() {
+                    match f.id {
+                        SYSTEM_ID => id = Some(i),
+                        SYSTEM_ROW_VERSION => version = Some(i),
+                        _ => {}
+                    }
+                }
+                let Some(id) = id else { return };
+                let version = version.and_then(|i| match r.fields[i] {
+                    Value::BigInteger(n) => Some(n),
+                    _ => None,
+                });
+                r.own_read = OwnRead(Some(OwnReadAt {
+                    got: false,
+                    cleared: false,
+                    system_id: r.fields[id].clone(),
+                    version,
+                    commits: self.commits,
+                    store_changes,
+                }));
             }
             RecordOp::Get => {
                 let mut r = rec.borrow_mut();
@@ -422,8 +456,9 @@ impl Session {
         }
     }
 
-    /// `OwnRead` of `rec` after a load of `row` into it: the variable's Get of the row it inserted, with no filter on the
-    /// variable and no Commit or store write since the Insert, is the read the cells measure; any other load ends it.
+    /// `OwnRead` of `rec` after a load of `row` into it: the variable's Get of the row it inserted, in the cells' state
+    /// (`default_variable`) and with no Commit or store write since the Insert, is the read the cells measure; any other load
+    /// ends it.
     pub(crate) fn own_read_after_load(
         &mut self,
         t: &al_data::TableDef,
@@ -442,12 +477,37 @@ impl Session {
             && m.store_changes == store_changes
             && m.version == version_of(t, row)
             && position_of(t, SYSTEM_ID).is_some_and(|id| same(&m.system_id, &row[id]))
-            && unfiltered(&rec.borrow());
+            && default_variable(&rec.borrow());
         m.got = true;
         OwnRead(read.then_some(m))
     }
 }
 
-fn unfiltered(r: &al_builtins::value::RecordState) -> bool {
-    r.filters.is_empty() && !r.marked_only && r.company.is_none()
+/// The variable is in the state the cells' variables are in after `Clear` (:142) or as declared (:643): no filter, no
+/// MarkedOnly, no other company, no load fields, the default ReadIsolation, filter group 0 and no marks.
+fn default_variable(r: &al_builtins::value::RecordState) -> bool {
+    r.filters.is_empty()
+        && !r.marked_only
+        && r.company.is_none()
+        && r.load.request.is_none()
+        && r.read_isolation == 0
+        && r.filter_group == 0
+        && r.marks.is_empty()
+}
+
+/// A builtin given record variables as operands (RecordRef.GetTable and SetTable, Page.GetRecord, Codeunit.Run, ...) reads
+/// or writes their buffers outside their own methods: it ends their `OwnRead`. `Clear`, which `Session::own_read_before`
+/// follows, is the one builtin the cells give the variable (AssignedAuditFields.al:653).
+#[inline]
+pub(crate) fn own_read_end_for_operands(id: al_builtins::builtin_id::BuiltinId, operands: &[Value]) {
+    if id == al_builtins::builtin_id::ids::SYSTEM_CLEAR_1 {
+        return;
+    }
+    for v in operands {
+        if let Value::Record(r) = v
+            && r.borrow().own_read.0.is_some()
+        {
+            r.borrow_mut().own_read = OwnRead(None);
+        }
+    }
 }
