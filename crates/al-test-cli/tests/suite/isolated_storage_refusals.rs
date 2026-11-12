@@ -1,6 +1,7 @@
 //! IsolatedStorage reads the corpus pins (a key of more than 200 characters) and the shapes next to them it does not pin,
-//! which refuse: a missing key as a statement outside an app with an id, the user scopes, Get of a long key, isSecret of a value stored from a SecretText, and
-//! a page part that enqueues a second background task (al-runner issue 7576).
+//! which refuse: a missing key as a statement outside an app with an id, the user scopes, Get of a long key, isSecret of a value stored from a SecretText.
+//! A page part that enqueues a second background task for the same record runs it (al-runner issue 7576; Microsoft's tests
+//! need it, see `bg_task_part_moves.rs`).
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
@@ -73,7 +74,7 @@ codeunit 69984 T
         IsolatedStorage.SetEncrypted('ISRsecret', S);
         IsolatedStorage.Contains('ISRsecret', DataScope::Module, IsSecret);
     end;
-    [Test] procedure PartSecondEnqueueRefused()
+    [Test] procedure PartSecondEnqueue()
     var Row: Record "ISR Row"; Host: TestPage "ISR Host";
     begin
         Row.Id := 1; Row.Insert(); Commit();
@@ -89,16 +90,13 @@ fn isolated_storage_pinned_errors_and_refusals() {
     let out = outcomes_in(SRC, "T");
     let get = |n: &str| out.iter().find(|(t, _)| t == n).map(|(_, o)| o.clone()).unwrap();
     assert_eq!(get("SetLongKey"), Outcome::Pass);
+    assert_eq!(get("PartSecondEnqueue"), Outcome::Pass);
     for (name, why) in [
         // The snippet's app has no id: the error text would name it.
         ("DeleteMissingModule", "outside an app with an id"),
         ("GetMissingUserScopeRefused", "in a user scope"),
         ("GetLongKeyRefused", "more than 200 characters"),
         ("ContainsSecretOfSecretTextRefused", "stored from a SecretText"),
-        (
-            "PartSecondEnqueueRefused",
-            "a second time on a page part for the same record",
-        ),
     ] {
         match get(name) {
             Outcome::NotRun(reason) => assert!(reason.contains(why), "{name}: {reason}"),
