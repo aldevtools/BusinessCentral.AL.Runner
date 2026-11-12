@@ -121,6 +121,7 @@ impl Session {
             let world = std::mem::take(&mut self.tx.tx_world);
             let tries = std::mem::take(&mut self.tx.used_tries);
             let guarded_runs = std::mem::take(&mut self.tx.guarded_runs);
+            let guarded_bodies = std::mem::take(&mut self.tx.guarded_bodies);
             let base = std::mem::replace(&mut self.runner_host.base, self.frames.len());
             // SAFETY: see `with_test_codeunit_host`; the pointer is live while the host is installed.
             let r = unsafe { (*ptr).run_test_codeunit(self, object, runner) };
@@ -137,6 +138,7 @@ impl Session {
             self.tx.tx_world = world;
             self.tx.used_tries = tries;
             self.tx.guarded_runs = guarded_runs;
+            self.tx.guarded_bodies = guarded_bodies;
             self.runner_host.base = base;
             r
         };

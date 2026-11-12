@@ -51,7 +51,14 @@ impl Session {
             // A committed-read buffer is refused whatever the open transaction did; the trigger order is measured where the
             // rule knows the shape (StaleRuleMatrix.al CommittedRead_*).
             Some(o) if !o.own_write && run && trigger.is_some() && !hooks => {
-                if let Err(why) = self.open_tx_contact(t, &company, pk, o, theirs) {
+                // With a locking ReadIsolation read in the open transaction the order is measured for own-write buffers only
+                // (record/crud/CodeunitRunTableNoWrites.al:629-741).
+                let write = crate::records::StaleWrite::Modify { run_trigger: run };
+                let contact = match self.open_tx_contact(t, &company, pk, o, theirs, write) {
+                    Ok(_) if self.locking_read_in_tx() => Err("after a ReadIsolation read that locks"),
+                    c => c,
+                };
+                if let Err(why) = contact {
                     return Err(Signal::unsupported(format!(
                         "Modify(true) through a stale {} buffer read from a committed row, {why}: whether OnModify runs first is not pinned",
                         t.name
@@ -85,6 +92,7 @@ impl Session {
 
     /// A buffer whose Insert failed on the existing key and whose row another writer changed since it was read cannot be saved,
     /// with no Commit in between (Y71FailedInsertModify.al:FailedInsert_ThenModify_*). A buffer never read (version 0) writes.
+    /// A buffer whose version came from its own Modify of another row writes.
     pub(crate) fn check_failed_insert_stale(
         &self,
         t: &TableDef,
@@ -99,6 +107,17 @@ impl Session {
         let mine = version(&rec.borrow().fields[i]);
         // Only while the buffer still holds the version it had at the failed Insert (a Get since gives it a new one).
         if failed.is_some_and(|v| v != 0 && v == mine && v < version(&row[i])) {
+            // A version the buffer's own Modify of another row gave it (the key changed before the Insert: `if not Insert then
+            // Modify` over two rows) is not the row's: the Modify writes, in every measured variant (record/crud/
+            // CodeunitRunTableNoWrites.al:828-904 BothRows_Twice_SameNote, _CommitBetween, _NewNote, InRow_Twice,
+            // BothRows_ThenOutOnly, InOnly_ThenBothRows; al-runner issue 7798).
+            let other_row = rec.borrow().last_modify.as_ref().is_some_and(|img| {
+                version(&img[i]) == mine
+                    && !crate::records::same_key(&t.primary_key(img), &t.primary_key(&rec.borrow().fields))
+            });
+            if other_row {
+                return Ok(());
+            }
             return Err(self.record_changed(t, rec)?);
         }
         Ok(())
@@ -123,7 +142,8 @@ impl Session {
             .borrow()
             .row_origin
             .is_some_and(|o| o.version == versions.0 && !o.own_write && o.from_find);
-        let refused = self.stale_verdict(t, rec, cx, pk, versions.1)? == crate::records::StaleVerdict::Refused;
+        let write = crate::records::StaleWrite::Modify { run_trigger: run };
+        let refused = self.stale_verdict(t, rec, cx, pk, versions.1, write)? == crate::records::StaleVerdict::Refused;
         if refused && run && find_buffer {
             return al_builtins::native::unsupported(format!(
                 "Modify(true) of a stale committed-read {} buffer from a Find (not pinned)",

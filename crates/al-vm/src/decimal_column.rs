@@ -1,5 +1,6 @@
-//! The text of a Decimal in the report dataset: which columns write it without trailing zeros, and the data item row read that
-//! drops them (al-runner issue 7440). The one owner of that normalization.
+//! The text of a Decimal in the report dataset: which columns write it without trailing zeros (al-runner issue 7440). A row
+//! read from the database carries no trailing zeros (al-data `MemStore::as_database`), and `Round` adds none beyond its
+//! input (al-builtins `mathfns.rs`); every other column writes the value with its scale.
 //!
 //! Pinned (reports/dataset/DatasetDecimalPlacesValueOrigins.al, every value origin of :9-10 gives the same text):
 //! - a stored field of a data item over a table, by name (:47 `D05`) or with the item's name (:52 `Row.D05`): `1`, not
@@ -8,13 +9,14 @@
 //! - a global Decimal variable (:79 `VarLiteral`): `1` (:397);
 //! - an expression over a stored field of the data item's row (:53 `D05 * 1`): `1`, because the row is read without trailing
 //!   zeros (:241-247); the arithmetic keeps its scale (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309
-//!   `Dec * 1.5` over the stored 12.345678 is `18.5185170`).
+//!   `Dec * 1.5` over the stored 12.345678 is `18.5185170`; DatasetDecimalPlacesValueOrigins.al:505-510 `G.D * 2` over the
+//!   stored 1.50 read by Get is `3.0`).
 //!
-//! Every other column writes the value with its scale, as before 7440, until a probe measures it (docs/probes-needed.md): an
-//! operator over a variable, an array element, parentheses, unary minus, a procedure call with or without parentheses, a
-//! method of a variable, a FlowField, a field of a temporary record, a column of a report extension, a record read by Get.
+//! Every other shape writes the value with its scale (:425-570: a variable times one, an array element, unary minus,
+//! parentheses, procedure and codeunit calls, a field set in a trigger, a FlowField and a temporary data item's field all
+//! write what the value holds).
 
-use al_builtins::value::{RtType, Value};
+use al_builtins::value::RtType;
 use al_ir::{Expr, Place, Program, ReportColumn, SourceSyntax, Stmt};
 use rust_decimal::Decimal;
 
@@ -24,19 +26,6 @@ pub(crate) fn text(program: &Program, object: usize, c: &ReportColumn, d: Decima
         d.normalize().to_string()
     } else {
         d.to_string()
-    }
-}
-
-/// The fields of a data item's row as it is read from the database: a Decimal carries no trailing zeros (the module comment,
-/// `D05 * 1`). A temporary data item reads from memory, which is not pinned, and keeps the values as they are.
-pub(crate) fn normalize_read_row(rec: &mut al_builtins::value::RecordState) {
-    if rec.temporary {
-        return;
-    }
-    for f in &mut rec.fields {
-        if let Value::Decimal(d) = f {
-            *d = d.normalize();
-        }
     }
 }
 

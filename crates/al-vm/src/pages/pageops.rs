@@ -220,14 +220,7 @@ impl Session {
                 // Without a record the same: a statement leaves a card without its Cancel action
                 // (ui-handlers/P132TwoModalHandlers.al:466 PW_ProbeB_Statement, :508 PW_ProbeB_InIf).
                 if method == PageOp::PageRunModalStatic {
-                    let mut s = st.borrow_mut();
-                    s.run_static = Some(true);
-                    if used {
-                        s.open_as_lookup(LookupKind::StaticRunModal);
-                    }
-                    s.lookup_page_from_table = n == 0;
-                    s.statement_run = !used && record.is_some();
-                    s.field_run = used && record.is_some() && field;
+                    st.borrow_mut().static_run_modal(used, record.is_some(), field, n == 0);
                 }
                 // A record of another table than the page's is refused before anything opens, and so is a field number the table
                 // lacks (a negative one or 0 goes on; pages/parts/P106RunErrors.al: Err_WrongTableRecord,
@@ -639,7 +632,11 @@ impl Session {
                         false
                     }
                     _ => {
-                        self.sync_parts_after_other_move(st, name, before.is_some() && !stayed)?;
+                        let goto_record = name == PageMethod::GoToRecord;
+                        let before_goto = std::mem::replace(&mut self.host_goto_record_running, goto_record);
+                        let r = self.sync_parts_after_other_move(st, name, before.is_some() && !stayed);
+                        self.host_goto_record_running = before_goto;
+                        r?;
                         false
                     }
                 };

@@ -201,6 +201,7 @@ mod caption_translation;
 mod clear_test_page;
 mod close_save_failed;
 mod code_close_veto;
+mod modal_close_save_error;
 mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
@@ -210,6 +211,7 @@ mod dev_endpoint;
 mod dirty_step;
 mod draft;
 mod empty_after_action;
+mod ext_column_visible;
 mod fn_controls;
 mod format;
 mod format_type11;
@@ -248,6 +250,7 @@ mod validation_text;
 pub(crate) use open::written_by_routine;
 mod action_body;
 mod card_part_new_host;
+mod empty_part_rec;
 mod list_card_action;
 mod other_record_no_row;
 mod page_get_record;
@@ -258,7 +261,10 @@ mod part_filter_find;
 mod part_filter_unsaved_host;
 mod part_host_update;
 mod part_insert_swallowed;
+mod part_refresh_find_forward;
 mod part_visible_gate;
+mod pinned_body;
+mod post_left_new_line;
 mod provider_hidden;
 mod refill;
 mod refresh_new_line;
@@ -381,6 +387,7 @@ impl Session {
         self.data_caption_before_trigger(st, name)?;
         let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args))?;
         self.data_caption_after_trigger(st, name);
+        self.show_ext_columns_after_first_open_row(st, name)?;
         Ok(r)
     }
 

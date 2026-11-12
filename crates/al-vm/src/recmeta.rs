@@ -65,6 +65,13 @@ pub(crate) fn mentions_table(relation: &str, table: &str) -> bool {
         .any(|w| !w.is_empty() && w == table)
 }
 
+/// The text of the error a write raises on a field it may not change (`ModifyAll` on SystemId or an AutoIncrement field):
+/// "You cannot change the value of the <field> field.", two `BR`, "Table: <table>".
+pub(crate) fn cannot_change_value_text(field: &str, table: &str) -> String {
+    let br = crate::records::BR;
+    format!("You cannot change the value of the {field} field.{br}{br}Table: {table}")
+}
+
 /// Whether a value is its type's blank value (what `TestField(Field)` rejects).
 pub(crate) fn is_blank(v: &Value) -> Result<bool, Signal> {
     Ok(match v {
@@ -1944,15 +1951,7 @@ impl Session {
         if t.fields[pos].id == 2_000_000_000 {
             // Wording after the pinned fragment: record/TestRecordSystemId.al:230-262, docs/probes-needed.md.
             // record/TestSystemFieldStampsContracts.al:153 (SystemId_Duplicate_And_ModifyAll_Texts).
-            return Err(error(
-                format!(
-                    "You cannot change the value of the SystemId field.{}{}Table: {}",
-                    crate::records::BR,
-                    crate::records::BR,
-                    self.caption(t)
-                ),
-                "Dialog",
-            ));
+            return Err(error(cannot_change_value_text("SystemId", &self.caption(t)), "Dialog"));
         }
         let value = ops::convert(args.get(1).cloned().unwrap_or(Value::Null), &t.fields[pos].ty)?;
         let run_trigger = match args.get(2) {
@@ -1990,14 +1989,7 @@ impl Session {
                     "ModifyAll on an AutoIncrement field with no rows or with a caption (error text not pinned)",
                 );
             }
-            return Err(error(
-                format!(
-                    "You cannot change the value of the {field} field.{}{}Table: {table}",
-                    crate::records::BR,
-                    crate::records::BR
-                ),
-                "DB:Ok",
-            ));
+            return Err(error(cannot_change_value_text(&field, &table), "DB:Ok"));
         }
         // One fresh set of table globals for all rows, not the caller's (ADR-021 decision 6; corpus
         // probe TableGlobals_ModifyAll_WhatTheTriggersAndSubscribersSee).
@@ -2044,6 +2036,7 @@ impl Session {
                     last_modify: None,
                     failed_insert: None,
                     row_origin: None,
+                    own_read: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
                     load: Default::default(),

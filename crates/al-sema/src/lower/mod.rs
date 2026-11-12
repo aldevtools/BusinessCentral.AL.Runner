@@ -576,6 +576,11 @@ pub(crate) fn is_assign_call(receiver: &str, name: &str) -> bool {
             | ("Dialog", "HideSubsequentDialogs")
             // `Sleep := 1` is `Sleep(1)` (record/ProbePropertyAssignmentForms.al:564 Y29_Collections_Text_Sleep_AssignForms).
             | ("System", "Sleep")
+            // `currXMLport.Filename := 'probe.txt'` in OnPreXmlPort and `Xp.Filename := 'var.txt'` on an XmlPort variable are
+            // `Filename(v)` (codeunits/procedures/AssignIsCallRule.al:902-934 AssignCall_XmlPortFilename_ExportToStream, :938
+            // AssignCall_XmlPortFilename_Variable; xmlports/shapes-properties/XpRootTableNestedVariants.al:1114 RTV_Filename_OnPre_*;
+            // al-runner issue 7714).
+            | ("Xmlport", "Filename")
     )
 }
 
@@ -605,6 +610,7 @@ mod coverage_ids;
 mod dotnet;
 mod dotnet_arg;
 mod expr;
+mod ext_order;
 mod extend;
 
 #[cfg(test)]
