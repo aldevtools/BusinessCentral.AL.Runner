@@ -1078,7 +1078,7 @@ pub struct Session {
     /// Set while a `TestField.SetValue` written with a Variant argument runs (`TestField.SetValueVariant#1`).
     pub(crate) set_value_from_variant: bool,
     /// Set while a host page's `TestPage.New()` runs: the parts it links afresh run no OnNewRecord.
-    pub(crate) host_new_running: bool,
+    pub(crate) host_new_running: Option<bool>,
     /// Set while a host page's open links its parts (`sync_parts_at_open`).
     pub(crate) part_open_running: bool,
     /// Set while a host's GoToRecord that left its row reads its parts again (`pages/empty_part_rec.rs`).
@@ -1411,7 +1411,7 @@ impl Session {
             bulk_modify: false,
             variant_refs: Default::default(),
             set_value_from_variant: false,
-            host_new_running: false,
+            host_new_running: None,
             part_open_running: false,
             host_goto_record_running: false,
             part_sync_keeps_same_link: None,

@@ -43,7 +43,7 @@ impl Session {
         let object = st.borrow().object as usize;
         let observes_curr = self.declares(st, "onaftergetcurrrecord")
             || self.engine().events.is_subscribed(object, "onaftergetcurrrecordevent");
-        if self.host_new_running {
+        if let Some(from_row) = self.host_new_running {
             // Whether and how often the part's OnAfterGetCurrRecord runs then is not pinned (the PYB pages declare none).
             if observes_curr {
                 // Local HostNew.al: a directly linked empty ListPart of an editable Card
@@ -53,9 +53,21 @@ impl Session {
                     .host
                     .clone()
                     .and_then(|(host, control)| host.upgrade().map(|host| (host, control)));
-                let measured = self.engine.object_facts[object].page_type_lower() == "listpart"
+                let measured = from_row
+                    && self.engine.object_facts[object].page_type_lower() == "listpart"
+                    && self.unextended_unsubscribed(st)
+                    && self.declares(st, "onaftergetcurrrecord")
+                    && !self.declares(st, "onnewrecord")
+                    && self.page_editable(st)
+                    && ["AutoSplitKey", "DelayedInsert"].iter().all(|name| {
+                        effective_prop(&self.engine(), object, name)
+                            .is_ok_and(|v| v.is_none_or(|v| v.trim().eq_ignore_ascii_case("false")))
+                    })
                     && host.is_some_and(|(host, control)| {
                         self.engine.object_facts[host.borrow().object as usize].page_type_lower() == "card"
+                            && host.borrow().mode == PageMode::Edit
+                            && self.page_editable(&host)
+                            && self.unextended_unsubscribed(&host)
                             && page_of(&self.engine, &host).controls[control]
                                 .part_link
                                 .as_ref()

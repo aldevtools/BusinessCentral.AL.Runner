@@ -361,6 +361,7 @@ impl Session {
             ));
         }
         // The row the host stands on before a First, Last, GoToKey or GoToRecord, to tell a move from a stay (see below).
+        let new_from_row = name == PageMethod::New && st.borrow().cursor == Cursor::Row;
         let before = if matches!(
             name,
             PageMethod::First | PageMethod::Last | PageMethod::GoToKey | PageMethod::GoToRecord
@@ -625,7 +626,7 @@ impl Session {
                     }
                     PageMethod::New => {
                         // The parts a host's New() links afresh run no OnNewRecord (see `land_on_part_open_line`).
-                        let before = std::mem::replace(&mut self.host_new_running, true);
+                        let before = self.host_new_running.replace(new_from_row);
                         let r = self.sync_parts(st);
                         self.host_new_running = before;
                         r?;
