@@ -1,9 +1,12 @@
 //! How the list page a TableRelation lookup opened (`LookupKind::Relation`) closes, and what the lookup writes back, by
 //! where the looked-up control is (al-runner issue 7479; corpus pages/close-errors/CemLookupTests.al, codeunit 99524).
-//! Pinned for a field of a top-level Card and for a field of a ListPart on a Document; every other place keeps the
-//! closes and the write-back it had (only `LookupOK` writes, `TestPage.Close()` in the handler is refused).
+//! Pinned for a field of a top-level Card and for a field of a ListPart on a Document, in the exact shape of the pins
+//! (`relation_origin`, `pinned_origin`); every other shape keeps the closes and the write-back it had (only `LookupOK`
+//! writes, `TestPage.Close()` in the handler is refused). A veto of the close in the pinned shape is refused.
 
+use super::pinned_shape::{PinnedCode, TestCall};
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 /// The start of the text of an error out of OnClosePage (`page_close`, CcPageLeads.al:624-633).
 const CLOSING_ERRORS: &str = "One or more errors occurred while closing the page.";
@@ -31,41 +34,138 @@ pub enum RelationClose {
 }
 
 impl Session {
-    /// The pinned place of control page `st`, or `None` for every other place.
-    pub(super) fn relation_origin(&self, st: &St) -> Option<RelationOrigin> {
+    /// The pinned place of control `idx` of page `st`, bound to the table field `field`, whose lookup opens the list page `related`, or `None` for every other
+    /// shape (the lookup then closes and writes as before). Every fact of the pins is required (CemFixtures.al: pages CEM Card,
+    /// CEM Doc with CEM Lines Part, lookup page CEM Codes; CemLookupTests.al opens the card and the document with OpenEdit only):
+    /// - the origin: a top-level Card, or a ListPart on a top-level Document, opened by the test with OpenEdit, neither modal
+    ///   nor in lookup mode, with no page extension and no subscriber;
+    /// - the control: a field of Rec declared by the page, with no trigger; its table field has no OnValidate or OnLookup
+    ///   trigger, and the table no extension and no subscriber;
+    /// - the lookup page: a List with `Editable = false` whose only code is its OnQueryClosePage and OnClosePage, whose controls
+    ///   are a repeater and fields of Rec without triggers (no action, no part), with no extension and no subscriber, over a
+    ///   table that runs no code (`page_code_is`).
+    pub(super) fn relation_origin(
+        &self,
+        st: &St,
+        idx: usize,
+        field: &ir::Field,
+        related: &St,
+    ) -> Result<Option<RelationOrigin>, Signal> {
         let engine = self.engine();
         let page_type = |s: &St| engine.object_facts[s.borrow().object as usize].page_type.clone();
+        let plain_page = |s: &St| {
+            let page = page_of(&engine, s);
+            page.extensions.is_empty()
+                && page.ext_triggers.is_empty()
+                && !engine.events.any_subscriber_of(s.borrow().object as usize)
+        };
+        let opened_edit = |s: &St| {
+            let s = s.borrow();
+            s.host.is_none() && s.opened_by_test && s.mode == PageMode::Edit && !s.modal && !s.lookup
+        };
         let (host, modal, lookup) = {
             let s = st.borrow();
             (s.host.clone(), s.modal, s.lookup)
         };
-        if modal || lookup {
-            return None;
+        if modal || lookup || !plain_page(st) {
+            return Ok(None);
         }
-        match host {
-            None if page_type(st) == Some(ir::PageType::Card) => Some(RelationOrigin::Card),
-            Some((h, _)) => {
-                let h = h.upgrade()?;
-                let top = {
-                    let s = h.borrow();
-                    s.host.is_none() && !s.modal && !s.lookup
-                };
-                (top && page_type(&h) == Some(ir::PageType::Document)
+        let origin = match host {
+            None => (page_type(st) == Some(ir::PageType::Card) && opened_edit(st)).then_some(RelationOrigin::Card),
+            Some((h, _)) => h.upgrade().and_then(|h| {
+                (opened_edit(&h)
+                    && plain_page(&h)
+                    && page_type(&h) == Some(ir::PageType::Document)
                     && matches!(page_type(st), Some(ir::PageType::Other(t)) if t == "listpart"))
                 .then_some(RelationOrigin::DocumentListPart)
-            }
-            None => None,
+            }),
+        };
+        let Some(origin) = origin else {
+            return Ok(None);
+        };
+        let ctl = &page_of(&engine, st).controls[idx];
+        if !matches!(ctl.binding, ir::Binding::Field(_))
+            || ctl.kind != ir::ControlKind::Field
+            || ctl.owner.is_some()
+            || !ctl.triggers.is_empty()
+            || !ctl.ext_triggers.is_empty()
+        {
+            return Ok(None);
         }
+        let table = self.table(&self.page_rec(st))?;
+        let table_object = table.object as usize;
+        let field_ok = field.on_validate.is_none()
+            && field.on_lookup.is_none()
+            && field.ext_before_validate.is_empty()
+            && field.ext_after_validate.is_empty()
+            && engine.program.objects[table_object]
+                .table
+                .as_ref()
+                .is_some_and(|x| x.extensions.is_empty())
+            && !engine.events.any_subscriber_of(table_object);
+        let editable_false = engine.program.objects[related.borrow().object as usize]
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("Editable"))
+            .is_some_and(|(_, v)| v.trim().eq_ignore_ascii_case("false"));
+        let lookup_page = page_type(related) == Some(ir::PageType::List)
+            && editable_false
+            && self.page_code_is(
+                related,
+                &PinnedCode {
+                    triggers: &["onqueryclosepage", "onclosepage"],
+                    control_triggers: &[],
+                    properties: &["editable"],
+                },
+            )?;
+        Ok((field_ok && lookup_page).then_some(origin))
+    }
+
+    /// The pinned place of the relation's list page `st` while the handler stays inside the pinned calls: none, or `GoToKey`
+    /// first, then nothing, `OK().Invoke()`, `Cancel().Invoke()` or `Close()` (CemLookupTests.al `CemCodesModal` modes 0, 1, 2,
+    /// 3, 11, 12, 13). After any other call the lookup closes and writes as before.
+    fn pinned_origin(st: &St) -> Option<RelationOrigin> {
+        use PageMethod::{Cancel, Close, GoToKey, Invoke, OK};
+        use TestCall::{Other, Page};
+        let origin = {
+            let s = st.borrow();
+            if s.lookup_kind != LookupKind::Relation {
+                return None;
+            }
+            s.relation_origin?
+        };
+        let calls = Self::test_calls(st)?;
+        let rest = match calls.as_slice() {
+            [Page(GoToKey), rest @ ..] => rest,
+            all => all,
+        };
+        matches!(
+            rest,
+            [] | [Page(Close)]
+                | [Page(OK)]
+                | [Page(OK), Other(Invoke)]
+                | [Page(Cancel)]
+                | [Page(Cancel), Other(Invoke)]
+        )
+        .then_some(origin)
+    }
+
+    /// OnQueryClosePage of the relation's list page `st` from a pinned place refused the close: no pin has a veto (every
+    /// OnQueryClosePage of CemFixtures.al exits true or raises), so the lookup is refused.
+    pub(super) fn refuse_relation_close_veto(&self, st: &St) -> Result<(), Signal> {
+        if Self::pinned_origin(st).is_some() {
+            return unsupported("OnQueryClosePage of a TableRelation lookup page refused the close (not pinned)");
+        }
+        Ok(())
     }
 
     /// `close_with` asks the relation's list page `st` to close: notes what asked (`via_action`: an action the handler
     /// invoked, `test_close`: `TestPage.Close()`, else the platform after the handler returned).
     pub(super) fn note_relation_close(&self, st: &St, requested: &str, test_close: bool, via_action: bool) {
-        let mut s = st.borrow_mut();
-        if s.relation_origin.is_none() {
+        if Self::pinned_origin(st).is_none() {
             return;
         }
-        s.relation_close = Some(match (via_action, test_close) {
+        st.borrow_mut().relation_close = Some(match (via_action, test_close) {
             (true, _) if matches!(requested, "OK" | "LookupOK") => RelationClose::Ok,
             (true, _) => RelationClose::Cancel,
             (false, true) => RelationClose::TestClose,
@@ -78,17 +178,14 @@ impl Session {
     /// _HandlerClose_NoError `Q-codes LookupOK;`). From a Card field the lookup mapping of `close_action` applies (:34
     /// CardField_Lookup_HandlerReturns_NoError, :124 _HandlerClose_NoError `Q-codes LookupCancel;`). `None`: not such a page.
     pub(super) fn relation_close_action(&self, st: &St) -> Option<&'static str> {
-        let s = st.borrow();
-        (s.lookup_kind == LookupKind::Relation && s.relation_origin == Some(RelationOrigin::DocumentListPart))
-            .then_some("LookupOK")
+        (Self::pinned_origin(st) == Some(RelationOrigin::DocumentListPart)).then_some("LookupOK")
     }
 
     /// A `TestPage.Close()` in the handler of the relation's list page from a pinned place: the lookup comes back without an
     /// error (CemLookupTests.al:124 CardField_Lookup_HandlerClose_NoError and ListPartField_Lookup_HandlerClose_NoError
     /// `end|text` CEM_NO_ERROR); what it writes is `relation_pick_written`. `false` for every other page (refused by the caller).
     pub(super) fn relation_closed_in_handler(&self, st: &St) -> bool {
-        let s = st.borrow();
-        s.lookup_kind == LookupKind::Relation && s.relation_origin.is_some()
+        Self::pinned_origin(st).is_some()
     }
 
     /// Whether the lookup writes the row the relation's list page stands on into the control, for a page from a pinned place;
@@ -99,8 +196,8 @@ impl Session {
     /// - From a ListPart field only OK writes (ListPartField_Lookup_HandlerOkFirstRow_NoError `value=C1`, _HandlerPicksC2Ok
     ///   `value=C2`; _HandlerReturns, _HandlerCancel, _HandlerClose `value=`).
     pub(super) fn relation_pick_written(&self, related: &St, outcome: &Value) -> Option<bool> {
+        let origin = Self::pinned_origin(related)?;
         let s = related.borrow();
-        let origin = s.relation_origin?;
         let closed = matches!(outcome, Value::Option(..)) && !s.open;
         let how = s.relation_close?;
         Some(
@@ -150,17 +247,15 @@ impl Session {
     ///   lookup comes back without an error and writes nothing (CemLookupTests.al:273 CardField_Lookup_HandlerReturns_QueryCloseError
     ///   `value= | Q-codes LookupCancel;` CEM_NO_ERROR, :448 _HandlerPicksC2Returns_QueryCloseError,
     ///   ListPartField_Lookup_HandlerReturns_QueryCloseError). Whether that message becomes the last error is not pinned: the
-    ///   lookup leaves the last error as it was.
+    ///   last error refuses to be read until the next error replaces it.
     /// - Every other error comes out wrapped: an AL error of the handler with the code `TestWrapped:Dialog` (:154
     ///   CardField_Lookup_HandlerError_NoError), the unhandled message of OnQueryClosePage after OK, Cancel or Close() with
     ///   `TestWrapped:MissingUIHandler` (:303 CardField_Lookup_HandlerOkFirstRow_QueryCloseError, :332, :361); a code already
     ///   wrapped stays (OnClosePage at Close(), CardField_Lookup_HandlerClose_ClosePageError `TestWrapped`). Another code has no
     ///   pinned wrapped form: it becomes the unpinned mark.
     pub(super) fn relation_lookup_error(&mut self, related: &St, e: Signal) -> Result<Value, Signal> {
-        let (origin, how) = {
-            let s = related.borrow();
-            (s.relation_origin, s.relation_close)
-        };
+        let origin = Self::pinned_origin(related);
+        let how = related.borrow().relation_close;
         let (Some(_), Signal::Error(mut e)) = (origin, e.clone()) else {
             return Err(e);
         };
@@ -168,6 +263,10 @@ impl Session {
         let query_message = e.code == "MissingUIHandler" && related.borrow().close_error;
         if how == Some(RelationClose::Platform) && (query_message || close_page_error) {
             self.mark_closed(related);
+            // What the last error is then is not pinned: every pin raises its own error right after the lookup. Measured on
+            // the runner before this rule (PR 7816 review round 2): the message of OnQueryClosePage, or the error before the
+            // lookup after an error of OnClosePage; neither is BC's, so the last error refuses to be read.
+            self.last_error = al_builtins::native::unpinned_error();
             return Ok(Value::Null);
         }
         e.code = match e.code.as_str() {

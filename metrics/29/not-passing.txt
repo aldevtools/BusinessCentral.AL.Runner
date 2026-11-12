@@ -823,6 +823,7 @@
 71204 Filter_SetFilter_Fields
 71204 Tree_Expand_IsExpanded
 71205 Lookup_TableRelation_Ok
+71205 Lookup_TableRelation_WithoutHandler
 71205 WrongKindOfCall_OnTriggerLessFields
 71254 P174_OpenNew_KeyWithGroup_ThenWritePartG
 71254 PYB_OnePart_KeyTyped

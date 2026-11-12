@@ -422,6 +422,7 @@ impl Session {
         // :509 RP_CardWithListPart_HostVetoes; al-runner issue 5762).
         st.borrow_mut().close_vetoed = veto == Some(false);
         if veto == Some(false) {
+            self.refuse_relation_close_veto(st)?;
             return Ok(Value::Null);
         }
         if !self.page_event(st, "onqueryclosepageevent", Some(true), None)? {

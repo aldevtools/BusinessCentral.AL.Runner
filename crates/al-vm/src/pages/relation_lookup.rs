@@ -203,7 +203,8 @@ impl Session {
         };
         let blank = Rc::new(RefCell::new(self.page_rec(&related).borrow().clone()));
         self.lookup_pre_open(&related, &blank, start)?;
-        related.borrow_mut().relation_origin = self.relation_origin(st);
+        let origin = self.relation_origin(st, idx, field, &related)?;
+        related.borrow_mut().relation_origin = origin;
         let outcome = match self.run_page_ui(&related, Some(blank), true) {
             Ok(v) => v,
             Err(e) => return self.relation_lookup_error(&related, e),
