@@ -8,7 +8,7 @@
 "crates/al-builtins/src/ops.rs::arith_general" = 294
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 432
 "crates/alrunner-cli/src/args.rs::parse" = 469
-"crates/alrunner-cli/src/run.rs::test_inner" = 1556
+"crates/alrunner-cli/src/run.rs::test_inner" = 1553
 "crates/al-sema/src/check/infer.rs::infer" = 473
 "crates/al-sema/src/check/mod.rs::check_inner" = 258
 "crates/al-sema/src/check/object.rs::object_ctx" = 271
@@ -24,7 +24,7 @@
 "crates/al-testrun/src/reach.rs::report" = 315
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 446
 "crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 894
-"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 827
+"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 825
 "crates/al-version/src/gates.rs::evidence" = 433
 "crates/al-vm/src/exec/compile.rs::expr_into" = 318
 "crates/al-vm/src/exec/run.rs::run_range" = 340

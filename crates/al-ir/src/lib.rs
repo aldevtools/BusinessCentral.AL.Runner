@@ -48,6 +48,10 @@ pub struct Program {
     /// Empty without `--tdd`.
     #[serde(default)]
     pub tdd_stubs: Vec<String>,
+    /// The unprobed assumptions that whether the program compiles at all rests on; the runner marks them for every test
+    /// it runs of this program.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
 /// An event subscriber that is declared but not compiled (see [`Program::uncompiled_subscribers`]).
@@ -2219,6 +2223,7 @@ mod tests {
             }],
             apps: vec![],
             tdd_stubs: vec!["C: procedure \"P\"()".into()],
+            assumes: vec![al_builtins::assumptions::Assumption::MovedTableStubOfDependency],
             sources: vec![],
             positions: Default::default(),
             uncompiled_subscribers: vec![UncompiledSubscriber {
