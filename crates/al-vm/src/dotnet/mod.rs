@@ -553,6 +553,7 @@ impl Session {
                 }
                 if let Some((path, blob)) = save_to {
                     let bytes = blob.borrow().bytes.clone();
+                    self.placeholder_files.written(&path);
                     // A document holding content carried unread (owner decision 2026-10-23 "Carry bytes unread": the
                     // DemoTool's RapidStart package with a re-encoded or re-zipped media) is saved as a marked file.
                     let wrote = if self.company_build && holds_carried_text(&bytes) {
@@ -831,9 +832,12 @@ impl Session {
                 Ok(Value::Boolean(found))
             }
             // File Management.DeleteServerFile deletes a file it found (QxDotNetDemoShapes.al:326-328). Deleting a file that
-            // is not there is not pinned.
+            // is not there is not pinned. A file that holds a placeholder report output: `dotnet_delete_placeholder_file`
+            // (Base Application's e-mail body round trip through a server file; assumption dotnet-file-delete-placeholder).
             ("system.io.file", "delete", []) => {
-                self.refuse_pending_file(path)?;
+                if !self.dotnet_delete_placeholder_file(path)? {
+                    self.refuse_pending_file(path)?;
+                }
                 if self.host.files.remove(path) {
                     Ok(Value::Null)
                 } else {
