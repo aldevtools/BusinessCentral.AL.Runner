@@ -1,12 +1,123 @@
 //! A Worksheet over a temporary source that empties and refills Rec from a filter field's OnValidate or from an action, the
 //! shape of page 5530 "Item Availability by Event" (corpus testpage/RmTempRefill.al, al-runner issues 5779
-//! and 5780): what the client reads afterwards and which row it shows.
+//! and 5780): what the client reads afterwards and which row it shows. Also handles refreshing an empty view after an action.
 
 use super::*;
 use crate::pages::WindowRow;
 use al_builtins::record_op::RecordOp;
 
 impl Session {
+    /// A view-mode list or a measured edit-mode Worksheet that shows no row before an action.
+    pub(super) fn empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
+        let shape = {
+            let s = st.borrow();
+            s.open
+                && s.host.is_none()
+                && s.parts.is_empty()
+                && s.window.is_empty()
+                && !s.dirty
+                && s.cursor == Cursor::None
+                && (s.mode == PageMode::View || s.mode == PageMode::Edit)
+        };
+        if !shape || !self.is_list(st) || !self.has_source(st) || self.is_request_page(st) {
+            return Ok(false);
+        }
+        if st.borrow().mode == PageMode::View {
+            return Ok(true);
+        }
+        self.empty_edit_worksheet_refresh(st)
+    }
+
+    /// After an action on a list opened for view that showed no row, which changed the filters so the view has rows and
+    /// called `CurrPage.Update(false)`, while Rec stands on no row of the view: the client fills the page as when it opens,
+    /// from the first row of the new view, which becomes current; a page with OnFindRecord asks `=><` and then `=`
+    /// (pages/list-order/AiListOrderTests.al QP_EmptyView_UpdateFalse_ShowAll_Nav, _ShowFromThree_Nav, _ShowAll_Plain,
+    /// _ShowFromThree_Plain; pages 87158, 87159 in QpUpdateEmptyList.al; the traces equal the open traces of :105 and :265).
+    /// Pinned for views of 4 and 6 rows that the window holds. A view of one row is `empty_page_after_action`'s; Update(true),
+    /// no Update, or Rec on a row of the view go on as before. On the blank row an earlier action left (`empty_after_action`)
+    /// Update(true) fills the page the same way, read as at open from the first row (pages/actions/ActionFilterEmptyView.al
+    /// Action_NoRowsLeft_ThenCleared_UpdateTrue `cleared` `[1|1]:a0;u0;R1;R2;R3;R4;R1;R1;C1`, as _UpdateFalse).
+    pub(super) fn update_on_empty_list_view(&mut self, st: &St) -> Result<bool, Signal> {
+        {
+            let s = st.borrow();
+            if !(s.open
+                && s.refresh
+                && s.refresh_by_update
+                && (s.refresh_update_false || s.empty_after_action)
+                && !s.dirty
+                && s.cursor == Cursor::None)
+            {
+                return Ok(false);
+            }
+        }
+        let n = self.view_row_count(st)?;
+        let edit_worksheet = st.borrow().mode == PageMode::Edit;
+        if edit_worksheet {
+            if n != 1 || !st.borrow().refresh_update_false {
+                return Ok(false);
+            }
+        } else if n < 2 {
+            return Ok(false);
+        }
+        let rec = self.page_rec(st);
+        let row = self.stored_row(&rec)?;
+        let on_row = al_builtins::filter::passing(&rec.borrow().filters, row)?.is_some();
+        if on_row {
+            return Ok(false);
+        }
+        if n > 6 {
+            return unsupported(
+                "CurrPage.Update(false) after an action on a list opened for view that showed no row, whose new view has more than 6 rows (the fill is pinned for 4 and 6)",
+            );
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.refresh = false;
+            s.refresh_by_update = false;
+            s.refresh_update_false = false;
+            s.empty_after_action = false;
+        }
+        if edit_worksheet {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::EmptyWorksheetUpdateSelectsRow);
+        }
+        self.page_first_row(st)?;
+        Ok(true)
+    }
+
+    /// The local pages/currpage/SelectionFilterNoRow.al:372 probe opens an empty edit view with inserts
+    /// disabled and refreshes it after an action stores one matching row.
+    fn empty_edit_worksheet_refresh(&mut self, st: &St) -> Result<bool, Signal> {
+        let object = st.borrow().object as usize;
+        let facts = &self.engine.object_facts[object];
+        if facts.page_type != Some(ir::PageType::Worksheet)
+            || !facts.has_source_table_view
+            || st.borrow().modal
+            || st.borrow().draft
+            || !st.borrow().hidden_parts.is_empty()
+            || !flag_denied(&self.engine, object, "InsertAllowed")?
+            || !effective_prop(&self.engine, object, "DelayedInsert")?
+                .is_some_and(|value| value.trim().eq_ignore_ascii_case("true"))
+        {
+            return Ok(false);
+        }
+        let page = self.page_rec(st);
+        if page.borrow().temporary
+            || page.borrow().filters.len() != 2
+            || [
+                "onaftergetrecord",
+                "onaftergetcurrrecord",
+                "onnewrecord",
+                "onfindrecord",
+                "onnextrecord",
+            ]
+            .iter()
+            .any(|name| self.declares(st, name))
+        {
+            return Ok(false);
+        }
+        Ok(self.view_row_count(st)? == 0)
+    }
+
     /// The pinned shape: a top-level Worksheet over a temporary source in its primary key without filters, with OnAfterGetRecord
     /// and OnAfterGetCurrRecord and without OnFindRecord or OnNextRecord, standing on a stored row.
     pub(super) fn temp_refill_shape(&mut self, st: &St) -> bool {
