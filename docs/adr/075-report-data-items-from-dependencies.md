@@ -36,43 +36,93 @@ native run and the integrated corpus CI are separate evidence.
 
 ## Decision
 
-Choose option 3. Resolve an unambiguous name from a direct dependency's
-extension of the same report. Support the measured XML dataset operations:
-`modify` with OnAfterAfterGetRecord, `add` columns, and sibling
-`addbefore` / `addafter` placement. The extension-order owner in
-`al-sema/src/lower/ext_order.rs` places the measured two-app consumer after
-the owner even when their object IDs are reversed. Same-app and independent-app
-ordering retain the ADR-025 rules.
+Resolve during semantic lowering. Use the app IDs explicitly declared in the
+consumer manifest's dependency list. `app_sees` describes transitive visibility
+and does not establish a direct dependency. An owner in the same app, in an
+unrelated app, or reachable only indirectly keeps the existing lowering refusal.
 
-A consumer's own declared name retains its existing meaning. Reject ambiguous
-item names, items introduced by unrelated or indirect dependencies, temporary
-items, unmeasured triggers and child placement, and `RequestFilterFields` in a
-foreign-item modification. Reject an explicit `DataItemLinkReference` naming a
-foreign item pending a dedicated pin. The existing implicit link used by the
-measured sibling placement is covered here. Output formats other than XML
-retain their current refusal when they reach a foreign item.
+Support the measured XML dataset operations on a unique, directly dependent
+owner item: `modify` with OnAfterAfterGetRecord, `add` columns, and sibling
+`addbefore` / `addafter` placement. Use the existing placement and implicit
+link rules. For an explicit `DataItemLinkReference`, allow only a name that
+resolves to the foreign item that is the immediate parent. The corpus fixture's
+`AfterFooter` names `AddedRow` and reads `after=2`. The enclosing-item rule
+and its base and same-extension cases belong to runner PR #7912, which lands first.
 
-The IR uses an item anchor for a base, local added or foreign data item.
-A foreign reference carries the owner extension object, that extension's local
-item index and the resolved table object. The compile cache and symbolic linker
-walk and remap the owner and table references. The local item index is relative
-to its owner. The ordinary ordered report-extension vector carries execution
-order. No new rank field or symbolic rank is serialized. Bump the dependency
-cache format from 20 to 21 because the serialized anchors and report-extension
-aliases change shape.
+Keep the established order rules in the module comment of
+`al-sema/src/lower/ext_order.rs`. Permit the additional reversed-ID case only
+when all these conditions hold:
 
-The VM binds a used alias to the owner's current row for dispatch and XML
-output. Mark actual foreign references with the
-`dependency-report-data-items` assumption until the new corpus pin reaches
-the runner. An unused visible item must leave a clean result clean.
+1. Exactly two extensions change the report run, in distinct apps.
+2. The consumer app declares the owner app as a direct dependency.
+3. The consumer extension's object ID is lower than the owner's.
+4. A consumer `modify` resolves to a unique item declared by that owner.
+   A column or placement reference alone is outside the measured ordering rule.
 
-## Validation before merging the implementation
+The order module returns the owner followed by the consumer. Three or more
+extensions stay on the current rules. A reversed pair without the qualifying
+`modify` keeps the current cross-app order refusal.
 
-Run the reversed-ID three-app regression with assertions for trigger order,
-XML column value and sibling links. Cover cold compilation and cache/link
-reconstruction with the same fixture. Add refusal controls for ambiguous and
-out-of-scope owners, foreign RequestFilterFields, explicit foreign parent links,
-temporary items, and alternate renderers. Verify that a local declaration
-keeps its name and that a report with an unused dependency item stays clean.
-Run the three-major baseline diff. The implementation draft must implement
-these boundaries before it is ready for code review.
+A consumer's own declared variable retains its existing meaning. Leave the
+foreign name unbound in that case and refuse if the report dataset attempts
+the colliding foreign reference. Preserve the existing reason text for refused
+shapes. Reject ambiguous items, unmeasured triggers and child placement, and
+`RequestFilterFields` on a foreign modification during lowering.
+
+The VM refuses unsupported entry points before request-page or dataset triggers:
+
+| Entry point | Where the refusal belongs |
+|---|---|
+| Report.Run and RunModal, including ProcessingOnly | `al-vm/src/reports.rs`, `report_run` |
+| SaveAs to PDF, Word, Excel or HTML | `al-vm/src/reports.rs`, `report_save_core`, before entering the report |
+| Report.WordXmlPart | `al-vm/src/reports/word_xml_part.rs`, `report_word_xml_part` |
+| RunRequestPage and the request-page path from report execution | `al-vm/src/reports.rs`, `report_request_only` and the shared request-page entry |
+
+The IR changes `ReportExt::aliases`, `ReportExtAdd::item`,
+`ReportExtModify::item` and adds `AddedItem::foreign_parent`. An item anchor
+distinguishes base, local added and foreign items. A foreign reference carries
+the owner extension object, its local item index and the resolved table
+object. The symbolic linker and cache walker remap the owner and table. The
+ordered report-extension vector carries execution order.
+
+A consumer cache entry names its owner extension and table in its symbolic
+dependencies. If an owner comes from cache, reuse its resolved item layout
+with the remapped object identity. If its identity or layout has changed,
+rebuild the consumer. Use the next free compile-cache format after #7912
+because the serialized item anchors and aliases change shape.
+
+The VM marks `dependency-report-data-items` when it enters a supported XML
+run that has a resolved foreign `modify`, column `add`, placement, or explicit
+immediate-parent link. A visible candidate or alias without any such reference
+leaves a clean run clean. Issue #7878 supplies the measured repro. Replace
+the temporary assumption with corpus file and line citations once the pin
+includes corpus PR #1342.
+
+## Not probed
+
+Keep the existing refusal for a temporary owner item, a different foreign
+`modify` trigger, child `addfirst` or `addlast` under a foreign item, an indirect
+or same-app owner, ambiguous item names, a colliding local name used as a
+foreign item, reversed ordering with three or more extensions, an unrelated
+explicit link name, foreign `RequestFilterFields`, and the other output and
+request-page paths above.
+
+## Consequences
+
+A report with no foreign dataset references keeps its current runtime path and
+assumption status. Build the name index once per report from the already
+reached extension layouts, and consult it only for a foreign reference. This
+keeps repeated consumer lookups inside the existing demand work budget. The
+cache format moves once and old entries rebuild. Future extensions to placement
+and renderer behavior need probes and updates in both the lowering and VM
+entry-point guards.
+
+## Conformance
+
+Run the reversed-ID three-app regression with Report.SaveAs XML assertions
+for trigger order, the dependent column value and sibling links. Replace the
+ProcessingOnly RunModal positive regression with the XML regression and keep
+RunModal as a refusal control. Cover cold compilation and cache/link
+reconstruction, every listed refusal and the unused-candidate case. Run
+`tools/demand_vs_eager.sh` and the baseline diff on all three versions.
+Bring the implementation draft to this text after ADR acceptance.
