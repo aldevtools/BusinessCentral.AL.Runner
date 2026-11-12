@@ -1154,10 +1154,7 @@ impl Session {
         }
         if !st.borrow().draft_from_open
             || !leaving_control
-            || page
-                .controls
-                .iter()
-                .any(|control| control.kind == ir::ControlKind::Part)
+            || !self.document_parts_before_variable_validation(st)?
             || !self.page_rec(st).borrow().filters.is_empty()
         {
             return unsupported(
@@ -1174,5 +1171,49 @@ impl Session {
             result => result?,
         }
         self.inserted_outside_view(st, idx)
+    }
+    /// The locally measured testpage/TestPageBlankKeyInsert.al:272 case adds one empty ListPart whose
+    /// link reads the new header's key. Part triggers and other links remain refused.
+    fn document_parts_before_variable_validation(&mut self, st: &St) -> Result<bool, Signal> {
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let mut controls = page
+            .controls
+            .iter()
+            .filter(|control| control.kind == ir::ControlKind::Part);
+        let Some(control) = controls.next() else {
+            return Ok(true);
+        };
+        let Some(link) = &control.part_link else {
+            return Ok(false);
+        };
+        let [ir::LinkEntry::Field(_, header_field)] = link.entries.as_slice() else {
+            return Ok(false);
+        };
+        let parts = Self::open_parts_with_hidden(st);
+        let [(_, part)] = parts.as_slice() else {
+            return Ok(false);
+        };
+        if controls.next().is_some()
+            || link.provider.is_some()
+            || link.view.is_some()
+            || !part.borrow().open
+            || part.borrow().cursor == Cursor::Row
+            || !matches!(&engine.object_facts[part.borrow().object as usize].page_type, Some(ir::PageType::Other(kind)) if kind == "listpart")
+            || !self.table(&self.page_rec(st))?.keys[0].contains(header_field)
+            || [
+                "onaftergetrecord",
+                "onaftergetcurrrecord",
+                "onnewrecord",
+                "onfindrecord",
+                "onnextrecord",
+            ]
+            .iter()
+            .any(|name| self.declares(part, name))
+        {
+            return Ok(false);
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewDocumentLinkedPartBeforeValidation);
+        Ok(true)
     }
 }

@@ -2591,3 +2591,9 @@ codeunit 69503 T {{ Subtype = Test;
         );
     }
 }
+
+// Local real-BC DocumentWithPart.al probe and its no-part control.
+#[test]
+fn measured_document_open_new_with_linked_part_inserts_before_validation() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/document-with-part.al")));
+}
