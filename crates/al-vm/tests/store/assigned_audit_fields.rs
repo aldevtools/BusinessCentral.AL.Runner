@@ -66,6 +66,27 @@ codeunit 50331 T
         Row.ModifyAll(SystemCreatedAt, CreateDateTime(20200102D, 120000T));
     end;
 
+    procedure RenameOneCreatedAssigned()
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        Row.SystemCreatedAt := CreateDateTime(20200102D, 120000T);
+        Row.Rename('B');
+    end;
+
+    // Neighbor: a plain Rename keeps main's result.
+    procedure RenamePlain(): Text
+    var
+        Row: Record R;
+    begin
+        Seed(Row);
+        Row.Get('A');
+        Row.Rename('B');
+        exit(Format(Row.Get('B')));
+    end;
+
     // Neighbor: a stale buffer (another variable changed the row) with nothing changed keeps the earlier result: the buffer
     // takes the stored modified pair.
     procedure StaleBufferNoChange(): Text
@@ -116,12 +137,13 @@ fn modifyall_of_a_pinned_audit_field_raises_the_pinned_text() {
 }
 
 #[test]
-fn modifyall_of_an_audit_field_outside_the_pinned_shape_is_refused() {
+fn audit_field_writes_outside_the_pinned_shapes_are_refused() {
     for routine in [
         "ModifyAllModifiedBy",
         "ModifyAllCreatedAtNoRows",
         "ModifyAllCreatedAtRunTrigger",
         "ModifyAllCreatedAtTemporary",
+        "RenameOneCreatedAssigned",
     ] {
         assert!(refused(run_in(SRC, "T", routine)), "{routine} must be refused");
     }
@@ -135,4 +157,9 @@ fn a_no_change_modify_keeps_the_assigned_modified_at_only_in_the_buffer() {
 #[test]
 fn a_stale_buffer_without_change_keeps_the_earlier_result() {
     assert_eq!(text(run_in(SRC, "T", "StaleBufferNoChange")), "Yes");
+}
+
+#[test]
+fn a_plain_rename_keeps_working() {
+    assert_eq!(text(run_in(SRC, "T", "RenamePlain")), "Yes");
 }

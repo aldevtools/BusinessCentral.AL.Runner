@@ -417,25 +417,36 @@ pub(crate) fn modify_kept(t: &al_data::TableDef, stored: Option<&[Value]>, tempo
         .collect()
 }
 
-/// The row a `Rename` of a database record writes: the buffer under its new key, with the created pair of the stored row
-/// (record/system-fields/AssignedAuditFields.al:568-590: after SystemCreatedAt and SystemCreatedBy were assigned, the buffer holds
-/// them and the renamed row the stored row's). A temporary record writes the buffer as it is.
+/// The row a `Rename` of a database record writes: the buffer under its new key. When both fields of the created pair differ
+/// from the stored row (the test assigned them), the row takes the stored pair and the buffer keeps the assigned values
+/// (record/system-fields/AssignedAuditFields.al:568-590). Only one of the two differing is not measured and is refused. A
+/// temporary record writes the buffer as it is.
 pub(crate) fn rename_row(
     t: &al_data::TableDef,
     buffer: &[Value],
     stored: Option<&[Value]>,
     temporary: bool,
-) -> Vec<Value> {
+) -> Result<Vec<Value>, Signal> {
     let mut row = buffer.to_vec();
-    if let (Some(old), false) = (stored, temporary) {
-        for i in [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY]
-            .into_iter()
-            .filter_map(|id| position_of(t, id))
-        {
+    let (Some(old), false) = (stored, temporary) else {
+        return Ok(row);
+    };
+    let pair: Vec<usize> = [SYSTEM_CREATED_AT, SYSTEM_CREATED_BY]
+        .into_iter()
+        .filter_map(|id| position_of(t, id))
+        .collect();
+    let differing = pair
+        .iter()
+        .filter(|&&i| al_builtins::ops::compare(&old[i], &buffer[i]).ok() != Some(std::cmp::Ordering::Equal))
+        .count();
+    if differing == pair.len() {
+        for i in pair {
             row[i] = old[i].clone();
         }
+    } else if differing > 0 {
+        return unsupported("a Rename after only one of SystemCreatedAt and SystemCreatedBy was assigned (not pinned)");
     }
-    row
+    Ok(row)
 }
 
 /// The error text of `ModifyAll` on an audit field of a database table: SystemCreatedAt, SystemCreatedBy and SystemModifiedAt cannot
@@ -613,7 +624,7 @@ impl Session {
         } else {
             al_data::Store::get(self.store_for(rec), cx, t, old_pk).map_err(|e| Signal::unsupported(format!("{e}")))?
         };
-        Ok(rename_row(t, &rec.borrow().fields, stored.as_deref(), temporary))
+        rename_row(t, &rec.borrow().fields, stored.as_deref(), temporary)
     }
 
     /// Gives back what `stamp_*` replaced, for a write the store refused.
