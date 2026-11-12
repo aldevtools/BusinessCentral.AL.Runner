@@ -21,6 +21,7 @@ mod clientless;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
+mod placeholder_files;
 mod run_restore;
 pub mod single_track;
 mod state;
@@ -1134,6 +1135,8 @@ pub struct Session {
     /// written (path in lower case with `/`, name of the report). Any look at one is refused; a write by AL over the
     /// path ends the mark.
     pub(crate) render_pending_files: std::collections::HashMap<String, Arc<str>>,
+    /// How a placeholder file came to be and whether an AL File holds it open (`placeholder_files.rs`).
+    pub(crate) placeholder_files: placeholder_files::PlaceholderFiles,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
     /// The key and count of the draws of how far past a stamp the clock lands (`Session::stamp_millis`): the run seed's
@@ -1291,6 +1294,7 @@ impl Session {
             encryption_key: EncryptionKey::Present,
             temp_files: 0,
             render_pending_files: std::collections::HashMap::new(),
+            placeholder_files: Default::default(),
             last_stamp: i64::MIN / 2,
             clock_key,
             clock_draws: 0,
