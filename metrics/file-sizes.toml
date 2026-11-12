@@ -4,5 +4,5 @@
 # the row. Never raise a cap or add a row: split the file (see docs/codemap.md). Owner decides otherwise.
 "crates/al-testrun/src/runtime/tests.rs" = 3760
 "crates/al-vm/src/pages/actions.rs" = 3539
-"crates/al-vm/src/pages/rows.rs" = 3167
+"crates/al-vm/src/pages/rows.rs" = 3164
 "crates/al-vm/src/reports.rs" = 4478

@@ -1286,11 +1286,9 @@ impl Session {
 
     pub(super) fn same_key(a: &[Value], b: &[Value]) -> bool {
         a.len() == b.len()
-            && a.iter().zip(b).all(|(a, b)| {
-                ops::compare(a, b)
-                    .map(|o| o == std::cmp::Ordering::Equal)
-                    .unwrap_or(false)
-            })
+            && a.iter()
+                .zip(b)
+                .all(|(a, b)| ops::compare(a, b).is_ok_and(|o| o.is_eq()))
     }
 
     /// The cursor has landed on a stored row: populate it as the page type does, then
@@ -2675,8 +2673,6 @@ impl Session {
         self.run_page_ui_with(st, record, modal, false)
     }
 
-    /// `Page.RunModal(Id, Rec)` leaves the row the lookup was closed on in `Rec` (Gen. Journal Management's template
-    /// selection reads it). Pinned by pages/run-modal/PageRunModalRecAfterClose.al:P174_NonTemp_StartA_HandlerGoToKeyCThenOk and siblings.
     /// Whether the view of the page's source has a row (a probe on a copy of Rec, which keeps its filters).
     pub(super) fn page_view_has_rows(&mut self, st: &St) -> bool {
         let rec = self.page_rec(st);
@@ -2688,6 +2684,8 @@ impl Session {
         )
     }
 
+    /// `Page.RunModal(Id, Rec)` leaves the row the lookup was closed on in `Rec` (Gen. Journal Management's template
+    /// selection reads it). Pinned by pages/run-modal/PageRunModalRecAfterClose.al:P174_NonTemp_StartA_HandlerGoToKeyCThenOk and siblings.
     fn hand_back_selection(&mut self, st: &St, handed: &Option<Rec>, answer: &Value) {
         let statement = st.borrow().statement_run;
         let closed_on_row = matches!(answer, Value::Option(n, m) if m.get(*n as usize).is_some_and(|a| a == "LookupOK" || a == "LookupCancel"
@@ -3046,12 +3044,13 @@ impl Session {
         let st = st.clone();
         st.borrow_mut().test_close_vetoed = false;
         st.borrow_mut().test_closed_in_handler = false;
+        let caught_before = self.caught_errors();
         self.ui_state.page_handler_depth += 1;
         let handled = self.call(hobject, hroutine, hinst, vec![page_value(&st)]);
         self.ui_state.page_handler_depth -= 1;
         if let Err(e) = handled {
             if matches!(e, Signal::Error(_)) && st.borrow().open {
-                self.close_page_after_handler_error(&st, &e, modal)?;
+                self.close_page_after_handler_error(&st, &e, modal, caught_before)?;
             }
             self.mark_closed(&st);
             return Err(e);

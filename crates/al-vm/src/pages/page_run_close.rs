@@ -386,9 +386,15 @@ impl Session {
     /// says. On a pinned page and run the platform closes it as after a return, and the caller raises the handler's error
     /// (CemPageHandlerTests.al:144 `CEM handler error` `log=Q-card OK; C-card;`); a close that then fails other than in the
     /// pinned cells, a page with an unsaved row and a close that writes are refused. Every other page is left as it was.
-    pub(super) fn close_page_after_handler_error(&mut self, st: &St, e: &Signal, modal: bool) -> Result<(), Signal> {
+    pub(super) fn close_page_after_handler_error(
+        &mut self,
+        st: &St,
+        e: &Signal,
+        modal: bool,
+        caught_before: u64,
+    ) -> Result<(), Signal> {
         if modal {
-            return self.close_modal_after_handler_error(st, e);
+            return self.close_modal_after_handler_error(st, e, caught_before);
         }
         let (Some(run), Some(pinned)) = (st.borrow().page_run, self.pinned_run(st)) else {
             return Ok(());
