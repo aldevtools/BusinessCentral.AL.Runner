@@ -28,6 +28,24 @@ type Out = Result<Value, Signal>;
 /// Where the names of temporary files live. `IsPathTemporary` is true under it.
 pub const TEMP_DIR: &str = "temp/";
 
+/// What an AL File on a file of the host file system (not a temporary file) was between its `Create` or `Open` and its
+/// `Close`: the facts `Ctx::fs_closed` hands on. The file state counts them and judges none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FileHandle {
+    /// Opened by `File.Create` (else by `File.Open`).
+    pub created: bool,
+    /// `File.Create` made a file that did not exist before.
+    pub new_file: bool,
+    /// `File.Create` or `File.Open` was given an encoding.
+    pub encoding_given: bool,
+    /// `WriteMode` and `TextMode` as they stood at the `Close`.
+    pub write_mode: bool,
+    pub text_mode: bool,
+    /// How many times `CreateOutStream` and `CreateInStream` gave a stream on it.
+    pub out_streams: u32,
+    pub in_streams: u32,
+}
+
 /// What a `File` variable holds.
 #[derive(Debug)]
 pub struct FileState {
@@ -41,6 +59,8 @@ pub struct FileState {
     /// Whether writes are allowed (`Create` and temporary files, or `Open` with `WriteMode`).
     pub writable: bool,
     pub temp: bool,
+    /// The facts of the handle since its `Create` or `Open` (the two modes are filled in at the `Close`).
+    pub handle: FileHandle,
 }
 
 impl Default for FileState {
@@ -54,6 +74,7 @@ impl Default for FileState {
             open: false,
             writable: false,
             temp: false,
+            handle: FileHandle::default(),
         }
     }
 }
@@ -142,18 +163,27 @@ fn create(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let enc = Encoding::from_arg(a)?;
     already_open_or_nameless(r.as_deref(), &name)?;
     missing_folder(c, &name)?;
+    let new_file = matches!(c.fs_exists(&name), Ok(false));
     if let Err(e) = c.fs_write(&name, &[]) {
         return fs_failure(c, &format!("File.Create({name}): {e}"));
     }
+    let handle = FileHandle {
+        created: true,
+        new_file,
+        encoding_given: a.len() > 1,
+        ..FileHandle::default()
+    };
     with_file(r, |s| {
-        s.name = name;
+        s.name.clone_from(&name);
         s.blob = file_blob();
         s.enc = enc;
         s.open = true;
         s.writable = true;
         s.temp = false;
+        s.handle = handle;
         Ok(())
     })?;
+    c.fs_opened(&name);
     Ok(Value::Boolean(true))
 }
 
@@ -177,6 +207,10 @@ fn open(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             None => return fs_failure(c, &format!("File.Open of the missing file {name}")),
         },
     };
+    let handle = FileHandle {
+        encoding_given: a.len() > 1,
+        ..FileHandle::default()
+    };
     with_file(r, |s| {
         let blob = file_blob();
         blob.borrow_mut().bytes = bytes;
@@ -186,14 +220,16 @@ fn open(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         } else if let Some((mark, _)) = placeholder {
             blob.borrow_mut().render_pending = Some(mark);
         }
-        s.name = name;
+        s.name.clone_from(&name);
         s.blob = blob;
         s.enc = enc;
         s.open = true;
         s.writable = s.write_mode;
         s.temp = false;
+        s.handle = handle;
         Ok(())
     })?;
+    c.fs_opened(&name);
     Ok(Value::Boolean(true))
 }
 
@@ -215,6 +251,7 @@ fn create_temp(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         s.open = true;
         s.writable = true;
         s.temp = true;
+        s.handle = FileHandle::default();
         Ok(())
     })?;
     Ok(Value::Boolean(true))
@@ -225,7 +262,14 @@ fn create_temp(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn close(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let (closed, pending) = with_file(r, |s| {
         let was = std::mem::take(&mut s.open);
-        let closed = (was && !s.temp).then(|| s.name.clone());
+        let closed = (was && !s.temp).then(|| {
+            let handle = FileHandle {
+                write_mode: s.write_mode,
+                text_mode: s.text_mode,
+                ..s.handle
+            };
+            (s.name.clone(), handle)
+        });
         Ok((
             closed,
             (was && s.writable && !s.temp).then(|| {
@@ -234,24 +278,24 @@ fn close(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
             }),
         ))
     })?;
-    if let Some(name) = closed {
-        c.fs_closed(&name);
-    }
-    if let Some((name, bytes, mark)) = pending {
+    let wrote = match pending {
         // Content carried unread in the company build stays unread in the file it is written to.
-        let wrote = match mark {
-            Some(mark) if c.company_build() && crate::stream::is_carried_mark(&mark) => {
-                c.fs_write_unproduced(&name, &mark)
-            }
-            // A placeholder report output copied into the file keeps its mark there.
-            Some(mark) if crate::placeholder_output::is_placeholder(&mark) => c
-                .fs_write_placeholder(&name, &bytes, mark)
-                .map(|()| c.fs_placeholder_streamed(&name)),
-            _ => c.fs_write(&name, &bytes),
-        };
-        if let Err(e) = wrote {
-            return unsupported(format!("File.Close({name}): {e}"));
+        Some((name, _, Some(mark))) if c.company_build() && crate::stream::is_carried_mark(&mark) => {
+            c.fs_write_unproduced(&name, &mark).map_err(|e| (name, e))
         }
+        // A placeholder report output copied into the file keeps its mark there.
+        Some((name, bytes, Some(mark))) if crate::placeholder_output::is_placeholder(&mark) => {
+            c.fs_write_placeholder(&name, &bytes, mark).map_err(|e| (name, e))
+        }
+        Some((name, bytes, _)) => c.fs_write(&name, &bytes).map_err(|e| (name, e)),
+        None => Ok(()),
+    };
+    // After the write, so the context sees the file as this handle left it.
+    if let Some((name, handle)) = closed {
+        c.fs_closed(&name, &handle);
+    }
+    if let Err((name, e)) = wrote {
+        return unsupported(format!("File.Close({name}): {e}"));
     }
     Ok(Value::Null)
 }
@@ -307,6 +351,7 @@ fn create_out_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
         if s.blob.borrow().write_pos != 0 {
             return unsupported("File.CreateOutStream after the file was written (where it writes is not pinned)");
         }
+        s.handle.out_streams += 1;
         Ok((s.blob.clone(), s.enc))
     })?;
     match &a[0] {
@@ -319,6 +364,7 @@ fn create_out_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
 fn create_in_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (blob, enc) = with_file(r, |s| {
         open_file_needed(s, "File.CreateInStream")?;
+        s.handle.in_streams += 1;
         Ok((s.blob.clone(), s.enc))
     })?;
     match &a[0] {

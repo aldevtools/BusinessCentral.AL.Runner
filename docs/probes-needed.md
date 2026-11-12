@@ -1591,13 +1591,18 @@ Pinned since corpus bump 1111b (al-language/reports/runtime/SFSecurityFilteringF
 
 ## DotNet File.Delete of a file holding a placeholder report output (review of al-runner issue 6924, 2026-11-12)
 
-The measured shape (Html or Pdf written to the file by `File.Close` from a stream copy, the file closed, then
-DeleteServerFile; HtmlServerFileRoundTrip.al, corpus probe pull request 1368) runs under assumption
-dotnet-file-delete-placeholder. The neighbors below refuse.
+The measured sequence runs under assumption dotnet-file-delete-placeholder (HtmlServerFileRoundTrip.al, corpus probe pull
+request 1368): the Html or Pdf of a Word layout report saved into a stream, one export to a path that had no file, one
+import, every File closed, then DeleteServerFile. The neighbors below refuse (`al-vm/src/placeholder_files.rs` lists every
+call that reaches the facts).
 
 | Shape | Status | Probe wanted | Code |
 |---|---|---|---|
 | A Word (or Excel) placeholder through the same chain | REFUSED at the delete | The round trip of HtmlServerFileRoundTrip.al with `ReportFormat::Word` | `al-vm/src/placeholder_files.rs` |
-| A file the rendering save wrote itself (`Report.SaveAsPdf` or `SaveAsHtml` to a path, `ServerTempFileName` then DeleteServerFile) | REFUSED at the delete | SaveAsPdf and SaveAsHtml to a server temp file name, then DeleteServerFile; Exists before and after | `al-vm/src/placeholder_files.rs` |
-| A delete while an AL File holds the placeholder file open with a stream on it | REFUSED at the delete | `File.Open`, `CreateInStream`, DotNet delete, then CopyStream from the stream: the error or the answers | `al-vm/src/placeholder_files.rs` |
+| The Pdf of an RDLC layout report through the same chain | REFUSED at the delete | The round trip with a report whose default layout is RDLC, `ReportFormat::Pdf` | `al-vm/src/placeholder_files.rs` |
+| A file the rendering save wrote itself (`Report.SaveAsPdf` or `SaveAsHtml` to a path, `ServerTempFileName` then DeleteServerFile), also after `WriteMode(true)`, `Open`, `Close` | REFUSED at the delete | SaveAsPdf and SaveAsHtml to a server temp file name, then DeleteServerFile; Exists before and after | `al-vm/src/placeholder_files.rs` |
+| A delete while an AL File holds the file open (opened before or after the export, never closed, or one of two) | REFUSED at the delete | `File.Open`, `CreateInStream`, DotNet delete, then CopyStream from the stream: the error or the answers | `al-vm/src/placeholder_files.rs` |
+| The export over an existing file (`Create` on a path that has a file), or by a second File while one holds the file | REFUSED at the delete | The export to a path a plain file holds, then import and DeleteServerFile | `al-vm/src/placeholder_files.rs` |
+| The export and the delete with no import between them, or with two imports | REFUSED at the delete | Export, DeleteServerFile; export, two BLOBImportFromServerFile, DeleteServerFile | `al-vm/src/placeholder_files.rs` |
+| An export handle that differs in one call: no `WriteMode(true)`, `TextMode(true)`, an encoding on `Create`, a second OutStream, `WriteText` before or after the stream copy; an import handle with `TextMode`, an encoding, no InStream, or `WriteMode(true)` | REFUSED at the delete | One case per call | `al-vm/src/placeholder_files.rs` |
 | A plain file (no placeholder) that an AL File holds open, deleted by DotNet | ANSWERS on main (exists No, the stream still reads): older than this row, not pinned | the same probe with a file AL wrote | `al-vm/src/dotnet/mod.rs` `system.io.file` `delete` |

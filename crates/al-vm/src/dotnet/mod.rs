@@ -553,6 +553,7 @@ impl Session {
                 }
                 if let Some((path, blob)) = save_to {
                     let bytes = blob.borrow().bytes.clone();
+                    self.placeholder_files.written(&path);
                     // A document holding content carried unread (owner decision 2026-10-23 "Carry bytes unread": the
                     // DemoTool's RapidStart package with a re-encoded or re-zipped media) is saved as a marked file.
                     let wrote = if self.company_build && holds_carried_text(&bytes) {

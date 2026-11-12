@@ -284,7 +284,7 @@ impl al_builtins::native::Ctx for Session {
         if !self.render_pending_files.is_empty() {
             self.render_pending_files.remove(&pending_key(path));
         }
-        self.placeholder_files.forget_streamed(path);
+        self.placeholder_files.written(path);
         self.host.files.write(path, bytes)
     }
     fn fs_remove(&mut self, path: &str) -> Result<bool, Signal> {
@@ -293,6 +293,7 @@ impl al_builtins::native::Ctx for Session {
         } else if !self.forget_placeholder_file(path) {
             self.refuse_pending_file(path)?;
         }
+        self.placeholder_files.written(path);
         Ok(self.host.files.remove(path))
     }
     fn company_build(&self) -> bool {
@@ -319,23 +320,23 @@ impl al_builtins::native::Ctx for Session {
     fn fs_write_placeholder(&mut self, path: &str, bytes: &[u8], mark: Arc<str>) -> Result<(), String> {
         self.host.files.write(path, bytes)?;
         self.render_pending_files.insert(pending_key(path), mark);
-        self.placeholder_files.forget_streamed(path);
+        self.placeholder_files.written(path);
         Ok(())
-    }
-    fn fs_placeholder_streamed(&mut self, path: &str) {
-        self.placeholder_files.note_streamed(path);
     }
     fn fs_placeholder(&mut self, path: &str) -> Option<(Arc<str>, Vec<u8>)> {
         let mark = self.placeholder_file_mark(path)?;
         let bytes = self.host.files.read(path)?;
-        // `File.Open` asks: the AL File holds the file open until its `Close`.
-        self.placeholder_files.note_open(path);
         Some((mark, bytes))
     }
-    fn fs_closed(&mut self, path: &str) {
-        self.placeholder_files.note_closed(path);
+    fn fs_opened(&mut self, path: &str) {
+        self.placeholder_files.opened(path);
+    }
+    fn fs_closed(&mut self, path: &str, handle: &al_builtins::file::FileHandle) {
+        let holds_placeholder = self.placeholder_file_mark(path).is_some();
+        self.placeholder_files.closed(path, handle, holds_placeholder);
     }
     fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
+        self.placeholder_files.written(path);
         self.host.files.write(path, &[])?;
         self.render_pending_files.insert(pending_key(path), mark.into());
         Ok(())

@@ -552,6 +552,8 @@ impl Session {
         let declared = self.data_file_items(&run)?;
         let data = written.finish_data_set(&declared)?;
         let parameters = self.save_as_xml_parameters();
+        self.placeholder_files.written(&parameters_file);
+        self.placeholder_files.written(&data_file);
         self.host
             .files
             .write(&parameters_file, &parameters)
