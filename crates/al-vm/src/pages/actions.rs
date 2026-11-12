@@ -3257,9 +3257,8 @@ impl Session {
             };
             rec.borrow_mut().fields = stamped.clone();
             // A stamped key field with a TableRelation: the value is checked against the related table. With the related row
-            // there the blank Rec takes it as without the relation; without it nothing runs
-            // (pages/RtFilteredGoneRow.al:533 SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, :550
-            // _BatchMissing).
+            // there the blank Rec takes it as without the relation; without it nothing runs (pages/RtFilteredGoneRow.al:533
+            // SH_RelWs_KeyFieldWithTableRelationGroup2_BatchExists, :550 _BatchMissing).
             for pos in related {
                 self.ret_used = false;
                 match self.platform_validate(

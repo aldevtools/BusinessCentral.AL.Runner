@@ -3,14 +3,6 @@
 
 use al_test_cli::report::Outcome;
 
-fn reason(src: &str, codeunit: &str) -> String {
-    let o = al_testkit::outcomes_in(src, codeunit);
-    match o.as_slice() {
-        [(_, Outcome::NotRun(r))] => r.clone(),
-        other => panic!("one refused test expected: {other:#?}"),
-    }
-}
-
 /// Issue 7400: the list saves the row the ModalPageHandler edited as the platform closes it, and OnModifyRecord raises. It was
 /// refused with a reason naming OnQueryClosePage; corpus PR 1323 pins it (pages/close-errors/ModalCloseSaveErrorShapes.al:250):
 /// RunModal fails with the TestField error, so the test passes with no assumption.
