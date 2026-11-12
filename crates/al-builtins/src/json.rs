@@ -16,6 +16,8 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 mod filter;
+mod read_string;
+use read_string::StringAt;
 mod text_number;
 mod used_return;
 mod walk;
@@ -283,6 +285,20 @@ struct Parser<'a> {
     depth: usize,
     /// Set when the text holds a `//` comment: whether the reader takes it is not pinned.
     line_comment: bool,
+    /// Set when a form feed stands where the reader has not been measured to take it as a blank.
+    form_feed: bool,
+    /// Who reads the text: the raw control characters and the form feed are measured for `ReadFrom(Text)` only.
+    reader: Reader,
+}
+
+/// Who reads a JSON text. Only `ReadFrom(Text)` of JsonObject, JsonToken, JsonArray and JsonValue was measured with raw control
+/// characters (json/JsonReadFrom.al:440-555; corpus pull request 1327); every other reader refuses them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reader {
+    /// `ReadFrom` with a Text argument.
+    ReadFromText,
+    /// `ReadFrom(InStream)`, `Evaluate`, the runtime's own reads.
+    Other,
 }
 
 type PResult<T> = Result<T, ParseError>;
@@ -302,6 +318,10 @@ impl Parser<'_> {
             while self.i < self.s.len() && matches!(self.s[self.i], b' ' | b'\t' | b'\n' | b'\r') {
                 self.i += 1;
             }
+            // A form feed is measured right after the colon of a member only (`colon_form_feed`); anywhere else it is not.
+            if self.s.get(self.i) == Some(&0x0c) {
+                self.form_feed = true;
+            }
             if self.s[self.i..].starts_with(b"/*") {
                 match self.s[self.i + 2..].windows(2).position(|w| w == b"*/") {
                     Some(end) => {
@@ -315,6 +335,13 @@ impl Parser<'_> {
                 self.line_comment = true;
             }
             return;
+        }
+    }
+    /// A form feed right after the colon of a member is a blank in `ReadFrom(Text)` (json/JsonReadFrom.al:553 `tok_12_between`:
+    /// `{"a":<12>"v"}` reads; character 1 there is not JSON: :552). Elsewhere, and for other readers, it is not measured.
+    fn colon_form_feed(&mut self) {
+        if self.reader == Reader::ReadFromText && self.s.get(self.i) == Some(&0x0c) {
+            self.i += 1;
         }
     }
     fn eat(&mut self, c: u8) -> bool {
@@ -344,7 +371,7 @@ impl Parser<'_> {
             Some(b'{') => self.object()?,
             Some(b'[') => self.array()?,
             Some(b'"' | b'\'') => {
-                let t = self.string()?;
+                let t = self.string(StringAt::Value)?;
                 new_handle(JsonNode::Scalar(Scalar::Val(Value::Text(t.into()))))
             }
             Some(b't') if self.lit("true") => new_handle(JsonNode::Scalar(Scalar::Val(Value::Boolean(true)))),
@@ -374,7 +401,7 @@ impl Parser<'_> {
                     break;
                 }
                 let k = match self.s.get(self.i) {
-                    Some(b'"' | b'\'') => self.string()?,
+                    Some(b'"' | b'\'') => self.string(StringAt::Key)?,
                     // An unquoted key (`{a:1}`: `unquoted_key`); only plain names are taken.
                     Some(c) if c.is_ascii_alphabetic() || *c == b'_' => {
                         let from = self.i;
@@ -393,6 +420,7 @@ impl Parser<'_> {
                 if !self.eat(b':') {
                     return Err(ParseError::Invalid);
                 }
+                self.colon_form_feed();
                 let v = self.value()?;
                 if kids.iter().any(|(e, _)| *e == k) {
                     return Err(ParseError::Unsupported("duplicate keys in a JSON object"));
@@ -441,73 +469,6 @@ impl Parser<'_> {
         let h = new_handle(JsonNode::Array(kids));
         adopt_children(&h);
         Ok(h)
-    }
-
-    fn hex4(&mut self) -> PResult<u16> {
-        let h = self.s.get(self.i..self.i + 4).ok_or(ParseError::Invalid)?;
-        let h = std::str::from_utf8(h).map_err(|_| ParseError::Invalid)?;
-        let v = u16::from_str_radix(h, 16).map_err(|_| ParseError::Invalid)?;
-        self.i += 4;
-        Ok(v)
-    }
-
-    fn string(&mut self) -> PResult<String> {
-        // Either quote opens a string and the same one closes it (`{'a':1}`, `single_quotes`).
-        let quote = self.s[self.i];
-        self.i += 1;
-        let mut units: Vec<u16> = Vec::new();
-        loop {
-            let b = *self.s.get(self.i).ok_or(ParseError::Invalid)?;
-            match b {
-                q if q == quote => {
-                    self.i += 1;
-                    break;
-                }
-                b'\\' => {
-                    self.i += 1;
-                    let e = *self.s.get(self.i).ok_or(ParseError::Invalid)?;
-                    self.i += 1;
-                    let c = match e {
-                        b'"' => '"' as u16,
-                        b'\'' => '\'' as u16,
-                        b'\\' => '\\' as u16,
-                        b'/' => '/' as u16,
-                        b'b' => 8,
-                        b'f' => 12,
-                        b'n' => 10,
-                        b'r' => 13,
-                        b't' => 9,
-                        b'u' => self.hex4()?,
-                        _ => return Err(ParseError::Invalid),
-                    };
-                    units.push(c);
-                }
-                0..=0x1f => return Err(ParseError::Invalid),
-                _ => {
-                    // A UTF-8 sequence copied through as UTF-16.
-                    let len = match b {
-                        0..=0x7f => 1,
-                        0xc0..=0xdf => 2,
-                        0xe0..=0xef => 3,
-                        _ => 4,
-                    };
-                    let seq = self.s.get(self.i..self.i + len).ok_or(ParseError::Invalid)?;
-                    let ch = std::str::from_utf8(seq)
-                        .map_err(|_| ParseError::Invalid)?
-                        .chars()
-                        .next()
-                        .ok_or(ParseError::Invalid)?;
-                    let mut buf = [0u16; 2];
-                    units.extend_from_slice(ch.encode_utf16(&mut buf));
-                    self.i += len;
-                }
-            }
-        }
-        // `"\uD800"` alone is half of a surrogate pair. Real BC keeps it; this runtime cannot hold it until ADR-068 is
-        // built, and U+FFFD would be a guessed value (hard rule 4).
-        String::from_utf16(&units).map_err(|_| {
-            ParseError::Unsupported("a JSON \\u escape that ends up with half of a surrogate pair (not pinned)")
-        })
     }
 
     fn number(&mut self) -> PResult<Handle> {
@@ -599,25 +560,44 @@ impl Parser<'_> {
     }
 }
 
-/// `Ok(None)`: not valid JSON.
+/// `text` as a reader other than `ReadFrom(Text)` reads it; `Ok(None)`: not valid JSON.
 fn parse(text: &str) -> Result<Option<Handle>, Signal> {
+    parse_by(text, Reader::Other)
+}
+
+/// `text` as `ReadFrom(Text)` reads it; `Ok(None)`: not valid JSON.
+fn parse_read_from(text: &str) -> Result<Option<Handle>, Signal> {
+    parse_by(text, Reader::ReadFromText)
+}
+
+fn parse_by(text: &str, reader: Reader) -> Result<Option<Handle>, Signal> {
     let mut p = Parser {
         s: text.as_bytes(),
         i: 0,
         depth: 0,
         line_comment: false,
+        form_feed: false,
+        reader,
     };
+    const FORM_FEED: &str =
+        "a form feed in JSON text other than right after the colon of a member in ReadFrom(Text) (not pinned)";
     match p.value() {
         Ok(h) => {
+            // A form feed after the value is text after it, which is ignored like any other (below).
+            let form_feed = p.form_feed;
             p.ws();
             if p.line_comment {
                 return unsupported("a // comment in JSON text (not pinned)");
+            }
+            if form_feed {
+                return unsupported(FORM_FEED);
             }
             // Text after the first value is ignored (json/TestProbeJsonContracts.al:ReadFrom_Invalid_Statement,
             // `trailing_garbage`: `{"a":1} trailing` raises nothing).
             Ok(Some(h))
         }
         Err(ParseError::Invalid) if p.line_comment => unsupported("a // comment in JSON text (not pinned)"),
+        Err(ParseError::Invalid) if p.form_feed => unsupported(FORM_FEED),
         Err(ParseError::Invalid) => Ok(None),
         Err(ParseError::Unsupported(what)) => unsupported(what),
     }
@@ -1791,12 +1771,17 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
         }
     };
     let used = c.ret_used();
-    let answer = read_text_into(used, r, &text, want)?;
+    let reader = if from_stream {
+        Reader::Other
+    } else {
+        Reader::ReadFromText
+    };
+    let answer = read_text_into(used, r, &text, want, reader)?;
     // A text that is no JSON at all, with the result used: false, and the statement's error "The data does not represent a
     // valid JSON token." (InvalidJsonData) is left as the last error without raising it (json/json/JsonObjectUsedReturn.al:594-595;
     // JsonArrayTokenUsedReturn.al:543-544, :606-607, :740-741 for a JsonArray, JsonToken
     // and JsonValue). Only the text argument is pinned: a stream keeps the answer it had.
-    if used && !from_stream && matches!(answer, Value::Boolean(false)) && parse(&text)?.is_none() {
+    if used && !from_stream && matches!(answer, Value::Boolean(false)) && parse_read_from(&text)?.is_none() {
         if let Signal::Error(e) = invalid_json() {
             c.set_last_error(*e);
         }
@@ -1845,7 +1830,7 @@ fn marks_only_in_string_values(text: &str) -> bool {
             }
         }
     }
-    matches!(parse(text), Ok(Some(_)))
+    matches!(parse_read_from(text), Ok(Some(_)))
 }
 
 /// `Evaluate(JsonArray, Text)`: the text is read as `ReadFrom` reads it, and a text that is no array leaves the array as it was
@@ -1855,7 +1840,7 @@ fn marks_only_in_string_values(text: &str) -> bool {
 /// :178-194 the array is usable afterwards; al-runner issue 6175).
 pub fn evaluate_array(c: &mut dyn Ctx, slot: &mut Value, text: &str) -> Result<Value, Signal> {
     // Pinned by format-evaluate/UfEvaluateJsonRfc.al JsonArray_Texts, JsonArray_UsedAfterEvaluate (was assumption `evaluate-json-array`).
-    match read_text_into(false, Some(slot), text, Some("array")) {
+    match read_text_into(false, Some(slot), text, Some("array"), Reader::Other) {
         Err(Signal::Error(e)) if c.ret_used() => {
             c.set_last_error(*e);
             Ok(Value::Boolean(false))
@@ -1866,7 +1851,13 @@ pub fn evaluate_array(c: &mut dyn Ctx, slot: &mut Value, text: &str) -> Result<V
 
 /// Replaces the content of the receiver's node with `text` parsed as the wanted kind; a text that is not one answers false
 /// when `ret_used`, else raises the statement form's error.
-fn read_text_into(ret_used: bool, r: Option<&mut Value>, text: &str, want: Option<&str>) -> Result<Value, Signal> {
+fn read_text_into(
+    ret_used: bool,
+    r: Option<&mut Value>,
+    text: &str,
+    want: Option<&str>,
+    reader: Reader,
+) -> Result<Value, Signal> {
     let mut r = r;
     let mut h = recv(r.as_deref_mut())?;
     // A variable whose node sits inside a container (it was added) reads into a new node of its own: the container keeps what it
@@ -1881,7 +1872,7 @@ fn read_text_into(ret_used: bool, r: Option<&mut Value>, text: &str, want: Optio
             h = fresh;
         }
     }
-    let syntax = parse(text)?;
+    let syntax = parse_by(text, reader)?;
     let parsed = syntax.clone().filter(|p| {
         with_node(p, |n| {
             matches!(
@@ -2124,11 +2115,17 @@ fn token_as_value(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Re
     if with_node(&h, |n| matches!(n, JsonNode::Scalar(_))) {
         Ok(tagged("JsonValue", h))
     } else {
-        // json/TestJsonRuntimeContracts.al:JsonObject_Errors_TextAndCode
-        Err(conversion(
+        // json/TestJsonRuntimeContracts.al:JsonObject_Errors_TextAndCode. GetLastErrorText(true) leaves the text for an object
+        // (errors/last-error/LastErrorFlagRuntimeCodes.al InvalidOperationSites_ExcludeFlag `asvalue_true`; corpus pull request
+        // 1327); an array is not measured.
+        let e = Err(conversion(
             "Microsoft.Dynamics.Nav.Runtime.NavJsonToken",
             NAV_JSON_VALUE,
-        ))
+        ));
+        if with_node(&h, |n| matches!(n, JsonNode::Object(_))) {
+            return crate::native::with_origin(e, crate::native::ErrorOrigin::SameText);
+        }
+        e
     }
 }
 
@@ -2452,8 +2449,14 @@ fn select_token(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Resu
     };
     let segs = match parse_path(&p) {
         Ok(s) => s,
-        Err(PathErr::Unclosed | PathErr::BadIndex) if used => return Ok(filter::invalid(c)),
-        Err(PathErr::InvalidFilter) if used => return Ok(filter::invalid(c)),
+        // GetLastErrorText(true) leaves the text for the path `[` on a JsonObject (errors/last-error/LastErrorFlagRuntimeCodes.al
+        // InvalidOperationSites_ExcludeFlag `selecttoken_true`; corpus pull request 1327); other paths and receivers are not measured.
+        Err(PathErr::Unclosed) if used && p == "[" && with_node(&h, |n| matches!(n, JsonNode::Object(_))) => {
+            return Ok(filter::invalid(c, crate::native::ErrorOrigin::SameText));
+        }
+        Err(PathErr::Unclosed | PathErr::BadIndex | PathErr::InvalidFilter) if used => {
+            return Ok(filter::invalid(c, crate::native::ErrorOrigin::Unknown));
+        }
         Err(PathErr::DoubleQuoted) if used => return Ok(Value::Boolean(false)),
         // A name in double quotes as a statement raises the same error (DbJPathLeads.al:785 `stmt_double_quoted`).
         Err(PathErr::DoubleQuoted | PathErr::Unclosed | PathErr::BadIndex) => return Err(invalid_op()),

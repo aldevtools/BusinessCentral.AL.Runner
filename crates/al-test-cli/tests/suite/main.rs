@@ -72,6 +72,7 @@ mod http_windows_auth;
 mod inconsistent_at_test_end;
 mod instream_scope;
 mod isolation_probe;
+mod json_raw_tab_readfrom;
 mod key_after_first_edit_new_document;
 mod language_catalog_current;
 mod legal_guard;

@@ -419,9 +419,14 @@ fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
             ));
         }
         if from > len {
-            return Err(out_of_range(
-                "startIndex cannot be larger than length of string. (Parameter 'startIndex')",
-            ));
+            // GetLastErrorText(true): the text for an error without a privacy classification
+            // (errors/last-error/LastErrorFlagRuntimeCodes.al TextSites_ExcludeFlag `textremove_true`; corpus pull request 1327).
+            return crate::native::with_origin(
+                Err(out_of_range(
+                    "startIndex cannot be larger than length of string. (Parameter 'startIndex')",
+                )),
+                crate::native::ErrorOrigin::Redacted(crate::native::NOT_CLASSIFIED.into()),
+            );
         }
         s.len()
     };
@@ -598,16 +603,13 @@ fn pad(r: &Option<&mut Value>, a: &[Value], left: bool) -> NResult {
         let e = Err(out_of_range(&format!(
             "totalWidth ('{width}') must be a non-negative value. (Parameter 'totalWidth')\\Actual value was {width}."
         )));
-        // GetLastErrorText(true) of PadLeft: the text for an error without a privacy classification
-        // (errors/last-error/LastErrorFlagRuntimeCodes.al:166, :174). PadRight is not measured.
-        return if left {
-            crate::native::with_origin(
-                e,
-                crate::native::ErrorOrigin::Redacted(crate::native::NOT_CLASSIFIED.into()),
-            )
-        } else {
-            e
-        };
+        // GetLastErrorText(true) of PadLeft and PadRight: the text for an error without a privacy classification
+        // (errors/last-error/LastErrorFlagRuntimeCodes.al:166, :174; PadRight: TextSites_ExcludeFlag `padright_true`, corpus
+        // pull request 1327).
+        return crate::native::with_origin(
+            e,
+            crate::native::ErrorOrigin::Redacted(crate::native::NOT_CLASSIFIED.into()),
+        );
     }
     let have = Value::text_len(&s);
     let missing = (width as usize).saturating_sub(have);

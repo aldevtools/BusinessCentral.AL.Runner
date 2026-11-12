@@ -177,11 +177,13 @@ pub(super) fn select(root: Handle, segs: &[Seg], p: &str, used: bool, out: &mut 
 }
 
 /// A filter path the platform cannot read with the result used: false, and the last error "The requested operation cannot
-/// be performed in this context." (InvalidOperation) without raising it (DbJPathLeads.al:67-69).
-pub(super) fn invalid(c: &mut dyn Ctx) -> Value {
+/// be performed in this context." (InvalidOperation) without raising it (DbJPathLeads.al:67-69), with what
+/// GetLastErrorText(true) answers for it (`origin`, from the caller's measured site).
+pub(super) fn invalid(c: &mut dyn Ctx, origin: crate::native::ErrorOrigin) -> Value {
     c.set_last_error(crate::native::AlError {
         message: "The requested operation cannot be performed in this context.".into(),
         code: "InvalidOperation".into(),
+        origin,
         ..Default::default()
     });
     Value::Boolean(false)
