@@ -615,7 +615,7 @@ impl Session {
                         if name == PageMethod::Next {
                             self.restore_held_xrec_of_empty_parts(st);
                         }
-                        self.sync_parts_after_move_fn(st, name)?;
+                        self.during_host_move(HostMove::moved(name), |s| s.sync_parts_after_move_fn(st, name))?;
                         true
                     }
                     PageMethod::First | PageMethod::Last if before.is_some() && !stayed => {
@@ -623,7 +623,7 @@ impl Session {
                         true
                     }
                     PageMethod::GoToKey | PageMethod::GoToRecord if stayed && !st.borrow().walk_synced_parts => {
-                        self.sync_parts_stayed(st)?;
+                        self.during_host_move(HostMove::stayed(name), |s| s.sync_parts_stayed(st))?;
                         false
                     }
                     PageMethod::New => {
@@ -635,11 +635,9 @@ impl Session {
                         false
                     }
                     _ => {
-                        let goto_record = name == PageMethod::GoToRecord;
-                        let before_goto = std::mem::replace(&mut self.host_goto_record_running, goto_record);
-                        let r = self.sync_parts_after_other_move(st, name, before.is_some() && !stayed);
-                        self.host_goto_record_running = before_goto;
-                        r?;
+                        self.during_host_move(HostMove::moved(name), |s| {
+                            s.sync_parts_after_other_move(st, name, before.is_some() && !stayed)
+                        })?;
                         false
                     }
                 };
@@ -1068,6 +1066,7 @@ impl Session {
                 // pages/parts/SelectionFilterLinkedPartNoRow.al SetSelectionFilter_LinkedPartOnNoRow_TableHasOtherRows, _TableEmpty
                 // `rec=95656/A/0 count=0 filters=Table ID: 95656, No.: A, Line No.: 0`; issue 6964). Marks are not pinned: none is set.
                 let linked_no_row = self.linked_part_on_no_row(st, &src, dst);
+                let mut empty_modal_worksheet = false;
                 if st.borrow().cursor != Cursor::Row && !linked_no_row && !self.closed_on_handler_set_record(st) {
                     // A page on no row because its table is empty selects nothing, and the record keeps no filter
                     // (pages/run-modal/P82CurrPage.al:SetSelectionFilter_EmptyPage: `sel=0 filter=''`). A page on no row
@@ -1085,30 +1084,7 @@ impl Session {
                     // _HiddenByVariable_, _VisiblePart_): that is the blank-row path below.
                     let initial = self.initial_fields(src.borrow().table as usize);
                     let blank_rec = self.is_blank_row(&src);
-                    // The record may hold the blank-key filter of an earlier call (HiddenPartSelectionFilter.al: `rec-before=Id: 0/0`).
-                    let t = self.table(dst)?;
-                    let plain_dst = {
-                        let d = dst.borrow();
-                        d.marks.is_empty()
-                            && !d.marked_only
-                            && d.filters.iter().all(|f| {
-                                f.field == t.keys[0][0]
-                                    && t.keys[0].len() == 1
-                                    && match &f.expr {
-                                        al_builtins::filter::FilterExpr::Eq(v) => {
-                                            al_builtins::ops::compare(v, &initial[f.field]).ok()
-                                                == Some(std::cmp::Ordering::Equal)
-                                        }
-                                        al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) => {
-                                            al_builtins::ops::compare(a, &initial[f.field]).ok()
-                                                == Some(std::cmp::Ordering::Equal)
-                                                && al_builtins::ops::compare(b, &initial[f.field]).ok()
-                                                    == Some(std::cmp::Ordering::Equal)
-                                        }
-                                        _ => false,
-                                    }
-                            })
-                    };
+                    let plain_dst = self.plain_no_row_selection_destination(dst, &initial)?;
                     // Pinned for the page of a part, and for a Page variable that never ran and was handed no record or view: a
                     // ListPart over a temporary Integer (`Number: 0`, count 1 of the Integer table), a List and a Card (`Id: 0`,
                     // count 0) (pages/currpage/UnopenedCurrPage.al:110, :159, :208 Never_Opened_*_TryFunction).
@@ -1117,7 +1093,12 @@ impl Session {
                         s.set_record.is_none() && !s.set_view
                     };
                     let held = blank_rec && (st.borrow().host.is_some() || unopened_var || self.on_open_new_row(st));
-                    if !(plain_dst && (held || self.on_list_new_line_blank_key(st, &src)?)) {
+                    empty_modal_worksheet =
+                        plain_dst && self.empty_modal_worksheet_selection(st, &src, dst, &initial)?;
+                    if empty_modal_worksheet {
+                        st.borrow_mut().empty_selection_given = true;
+                    }
+                    if !(plain_dst && (held || empty_modal_worksheet || self.on_list_new_line_blank_key(st, &src)?)) {
                         return unsupported(
                             "Page.SetSelectionFilter of a page on no row of a table that has rows (not pinned)",
                         );
@@ -1145,7 +1126,8 @@ impl Session {
                 // takes the filter on the blank key and keeps its marks and MarkedOnly as they were, with no mark added
                 // (pages/currpage/SelectionFilterNoRow.al:Marks_WithoutMarkedOnly, MarkedOnly_WithoutMarks,
                 // Mark_OnSelectedRow, MarkedOnly_MarkOnOtherRow: `Id: 0`, `Marked: Yes, Id: 0`, count 0).
-                let blank_row = self.is_blank_row(&src) || self.on_list_new_line_blank_key(st, &src)?;
+                let blank_row =
+                    empty_modal_worksheet || self.is_blank_row(&src) || self.on_list_new_line_blank_key(st, &src)?;
                 if !blank_row
                     && ((marked_only && !marked)
                         // A record whose only mark is the selected row (an earlier call on it left that mark) ends as it was

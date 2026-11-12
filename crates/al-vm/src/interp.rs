@@ -92,6 +92,7 @@ impl Session {
         }
         for (a, v) in args.iter().zip(values.drain(..)) {
             if let ir::Arg::Ref(p) = a {
+                let v = self.rendered_into_place(p, v, f)?;
                 let v = if class == al_builtins::builtin_id::Class::InStreamRead {
                     self.fit_stream_read(p, v, f)?
                 } else {
@@ -848,7 +849,7 @@ impl Session {
             if let Some(finals) = self.error_finals.take() {
                 for (a, v) in args.iter().zip(finals) {
                     if let ir::Arg::Ref(p) = a {
-                        self.write(p, v, f)?;
+                        self.write_back(p, v, f)?;
                     }
                 }
             }
@@ -1073,6 +1074,8 @@ impl Session {
                 }
             }
         }
+        // A `var Text` parameter can stand for a variable of a declared length.
+        let v = self.rendered_into_place(p, v, f)?;
         self.write(p, v, f)
     }
 
@@ -1808,6 +1811,9 @@ impl Session {
                 "assigning a character into a value that is no text".into(),
             ));
         };
+        if s.has_marker() {
+            Self::char_write_into_marked(s.audited_str(), i)?;
+        }
         let mut units: Vec<u16> = s.units();
         let Some(unit) = unit else {
             return Err(Signal::unsupported(format!(
@@ -1871,6 +1877,60 @@ impl Session {
             return self.write(base, Value::Code(ops::upper_code_checked(text)?.into()), f);
         }
         self.write(base, Value::Text(text), f)
+    }
+
+    /// `T[i] := c` on the text `t` that holds a marker (`al_builtins::native::TEXT_MARKS`), `i` counted from 1. Rendered content
+    /// refuses at every position (ADR-040 amendment 2026-11-12, A3b `T[i]` write). Another marker stands for characters that
+    /// are not known, so only a position inside the known characters before the first marker is a known position: that write
+    /// goes on as for a known text. From the marker on the position is not known, and below 1 the range error would name a
+    /// length that is not known: both refuse.
+    fn char_write_into_marked(t: &str, i: i64) -> Result<(), Signal> {
+        if al_builtins::rendered_text::holds(t) {
+            return Err(al_builtins::rendered_text::refusal(
+                t,
+                "assigning a character of the text (T[i] := c)",
+            ));
+        }
+        let known: usize = t
+            .chars()
+            .take_while(|c| !al_builtins::native::TEXT_MARKS.contains(c))
+            .map(char::len_utf16)
+            .sum();
+        if usize::try_from(i).is_ok_and(|i| (1..=known).contains(&i)) {
+            return Ok(());
+        }
+        Err(Signal::unsupported(
+            "assigning a character of a text at or after characters this runtime does not know, or outside the text \
+             (the position and the length are not known)"
+                .to_string(),
+        ))
+    }
+
+    /// A text that holds rendered content, on its way into the variable `p` outside an assignment (the write-back of a
+    /// `var` argument of a builtin or a procedure, the loop variable of a `foreach`): it takes the conversion an assignment takes, which lets
+    /// it into an unbounded Text and a Variant only (`ops::convert`; ADR-040 amendment 2026-11-12, A5, loss mode L3). An array
+    /// (the destination of `CopyArray`, a `var` array parameter) gives each element that holds rendered content the conversion
+    /// to its element type (loss mode L23). Any other value is given back as it is.
+    pub(crate) fn rendered_into_place(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<Value, Signal> {
+        let rendered = |v: &Value| matches!(v, Value::Text(t) | Value::Code(t) if t.has_marker() && al_builtins::rendered_text::holds(t.audited_str()));
+        match &v {
+            v2 if rendered(v2) => {
+                let ty = self.place_type(p, f);
+                ops::convert(v, &ty)
+            }
+            Value::Array(cells) if cells.borrow().iter().any(rendered) => {
+                let RtType::Array(_, el) = self.place_type(p, f) else {
+                    return Err(Signal::unsupported(
+                        "an array that holds rendered content written into a place that is no array".to_string(),
+                    ));
+                };
+                for cell in cells.borrow_mut().iter_mut().filter(|c| rendered(c)) {
+                    *cell = ops::convert(cell.clone(), &el)?;
+                }
+                Ok(v)
+            }
+            _ => Ok(v),
+        }
     }
 
     /// The cells of row `idx` of the two-dimensional array behind `base`, as (cells, first position, length): `None` for an

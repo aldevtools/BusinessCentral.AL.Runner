@@ -68,6 +68,27 @@ pub(crate) fn control_id(object_id: u32, name: &str) -> i64 {
     request::action_id(object_id, name)
 }
 
+/// A host move whose parts are reading again (`Session::host_move_running`, set in `pageops.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HostMove {
+    pub(crate) method: al_builtins::page_op::PageMethod,
+    /// The move stayed on the row and its parts read again through `sync_parts_stayed` (a GoToKey or GoToRecord to the row the
+    /// host stands on). False for every other move, a GoToRecord the `pageops.rs` last branch syncs included.
+    pub(crate) stayed: bool,
+}
+
+impl HostMove {
+    /// A move whose parts read again outside `sync_parts_stayed`.
+    pub(crate) fn moved(method: al_builtins::page_op::PageMethod) -> Self {
+        HostMove { method, stayed: false }
+    }
+
+    /// A GoToKey or GoToRecord that stayed on the row; its parts read again through `sync_parts_stayed`.
+    pub(crate) fn stayed(method: al_builtins::page_op::PageMethod) -> Self {
+        HostMove { method, stayed: true }
+    }
+}
+
 fn page_of<'a>(engine: &'a Engine, st: &St) -> &'a ir::Page {
     let object = st.borrow().object as usize;
     engine.program.objects[object]
@@ -212,6 +233,7 @@ mod dev_endpoint;
 mod dirty_step;
 mod draft;
 mod empty_after_action;
+mod empty_view_update;
 mod ext_column_visible;
 mod fn_controls;
 mod format;
@@ -228,6 +250,8 @@ mod list_refresh;
 mod list_view_switch;
 mod long_view;
 mod lookup_editable;
+mod new_document_insert;
+mod rendered_field;
 use lookup_editable::LookupLock;
 mod lookup_next;
 mod lookup_refresh;
@@ -252,6 +276,7 @@ pub(crate) use open::written_by_routine;
 mod action_body;
 mod card_part_new_host;
 mod empty_part_rec;
+mod empty_part_rec_list;
 mod list_card_action;
 mod other_record_no_row;
 mod page_get_record;

@@ -19,6 +19,7 @@ impl Session {
                             .prop_routine_value(st, idx, routine)?
                             .expect("a routine-valued property");
                         if name == "captionclass" {
+                            Self::refuse_rendered_caption_class(&v)?;
                             self.refuse_caption_class_translate()?;
                             // Area 3 raises no event, so '3,' with nothing after it (a matrix column whose caption nobody set)
                             // costs the open nothing; only reading that caption is refused.

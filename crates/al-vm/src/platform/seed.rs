@@ -12,6 +12,7 @@ use crate::Session;
 use al_builtins::native::Ctx;
 use al_builtins::value::{RtType, Value};
 use al_data::{Row, Store, TableDef};
+use al_ir::BASE_APPLICATION_APP_ID;
 
 pub(super) const COMPANY: u32 = 2_000_000_006;
 pub(super) const USER: u32 = 2_000_000_120;
@@ -27,8 +28,6 @@ pub(super) const ODATA_EDM_TYPE: u32 = 2_000_000_179;
 /// The Tenant Report Layout Selection rows of a fresh tenant (metadata/platform-tables/PtCloudTables.al:378-424,
 /// QX_TenantReportLayoutSelection_RowsAndDemoShape, 'rows'): (Report ID, Layout Name), blank Company Name and null User ID.
 /// The App ID is the Base Application's (`BASE_APPLICATION_APP_ID`).
-const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
-
 const TENANT_REPORT_LAYOUT_SELECTIONS: &[(i32, &str)] = &[
     (1302, "StandardSalesProFormaInv.docx"),
     (1303, "StandardDraftSalesInvoiceBlue.docx"),

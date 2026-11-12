@@ -17,9 +17,15 @@
 //! `stamp_from_filters` puts on a new line, which in that shape are exactly the link's single values on key fields. Every
 //! other part keeps the blank record it had before (`suite/empty_part_rec_link.rs`
 //! `empty_list_part_rec_stays_blank_outside_the_measured_shape`).
+//!
+//! The List host (al-runner issue 6924, comment 6822249976: the reporter's host is a List page) runs through the assumption
+//! `empty-part-rec-list-host` until corpus pull request 1339 (pages/parts/EmptyPartRecLinkList.al) is pinned; its allowlist
+//! is `empty_part_rec_list.rs`.
 
 use super::parts::LINK_GROUP;
 use super::*;
+use al_builtins::assumptions::{self, Assumption};
+use al_builtins::page_op::PageMethod;
 
 impl Session {
     /// Rec of part `st`, which shows no row, is the blank record with the single values of its SubPageLink on it (see the
@@ -35,7 +41,19 @@ impl Session {
         Ok(())
     }
 
-    /// Whether `st` is a part of the measured shape (see the module).
+    /// Runs `f` (a host's parts reading again) with `host_move_running` set to `m`, and restores it after, on an error too.
+    pub(super) fn during_host_move<T>(
+        &mut self,
+        m: HostMove,
+        f: impl FnOnce(&mut Self) -> Result<T, Signal>,
+    ) -> Result<T, Signal> {
+        let before = self.host_move_running.replace(m);
+        let r = f(self);
+        self.host_move_running = before;
+        r
+    }
+
+    /// Whether `st` is a part of the measured shape, or of a List-host cell (`list_host_cell`; see the module).
     fn empty_part_rec_measured(&self, st: &St) -> Result<bool, Signal> {
         let Some(host) = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(false);
@@ -45,10 +63,12 @@ impl Session {
             let row = (h.cursor == Cursor::Row && !h.draft) || (h.draft && !h.draft_stored && h.draft_from_open);
             (row, h.mode == PageMode::View)
         };
-        let landing_measured = self.part_open_running || (self.host_goto_record_running && host_view);
+        let goto_record = self.host_move_running == Some(HostMove::moved(PageMethod::GoToRecord));
+        let card_landing = self.part_open_running || (goto_record && host_view);
+        let card_shape = card_landing && self.top_card_or_document(&host);
+        let list_shape = self.list_host_cell(st, &host)?;
         if !(host_row
-            && landing_measured
-            && self.top_card_or_document(&host)
+            && (card_shape || list_shape)
             && self.has_source(st)
             && self.has_repeater(st)
             && self.part_linked(st))
@@ -66,8 +86,13 @@ impl Session {
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
         let r = rec.borrow();
-        Ok(r.filters
+        let measured = r
+            .filters
             .iter()
-            .all(|f| f.group == LINK_GROUP && table.keys[0].contains(&f.field)))
+            .all(|f| f.group == LINK_GROUP && table.keys[0].contains(&f.field));
+        if measured && list_shape {
+            assumptions::assume(Assumption::EmptyPartRecListHost);
+        }
+        Ok(measured)
     }
 }

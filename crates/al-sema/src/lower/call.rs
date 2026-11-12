@@ -613,18 +613,7 @@ impl Lowerer<'_> {
                     {
                         None
                     }
-                    // Enum metadata calls (`"Name".Names()`, `Var.Ordinals()`, `"Name".FromInteger(n)`)
-                    // receive the enum itself: its object index, as an enum constant.
-                    Some(r) if sig.receiver == "Enum" && sig.name != "AsInteger" => {
-                        let Ty::Enum(name) = self.ty_of(r) else {
-                            return Err(format!("{id}: the receiver is not an enum type"));
-                        };
-                        let object = self.resolve_obj(ObjKind::Enum, &name)?;
-                        Some(Box::new(ir::Arg::Value(ir::Expr::Const(ir::Const::Enum(
-                            object as u32,
-                            0,
-                        )))))
-                    }
+                    Some(r) if sig.receiver == "Enum" && sig.name != "AsInteger" => Some(self.enum_receiver(r, &id)?),
                     // A Label is its text: the variable holds none (reads lower to the constant).
                     Some(r) if sig.instance && sig.receiver == "Label" => Some(Box::new(ir::Arg::Value(self.expr(r)?))),
                     Some(r) if sig.instance => Some(Box::new(match self.place(r) {
@@ -1004,6 +993,25 @@ impl Lowerer<'_> {
     /// runtime's usual conversion). The same call on another codeunit was measured on the Linux tiers only (:140-158), so it
     /// is refused until the Windows check; other receivers, other number types and other Char expressions are not pinned and
     /// are refused. `None`: not such an argument.
+    /// Enum metadata calls (`"Name".Names()`, `Var.Ordinals()`, `"Name".FromInteger(n)`) receive the enum itself: its object
+    /// index, as an enum constant. `Ns.Sub."Name".FromInteger(n)` names it through its namespace (`Res::NamespacedEnumReceiver`).
+    fn enum_receiver(&mut self, r: &SyntaxNode, id: &str) -> L<Box<ir::Arg>> {
+        let object = if let Some(Res::NamespacedEnumReceiver(ei)) = self.res(r) {
+            let ei = *ei;
+            self.assume(al_builtins::assumptions::Assumption::NamespacedEnumReceiver);
+            ei
+        } else {
+            let Ty::Enum(name) = self.ty_of(r) else {
+                return Err(format!("{id}: the receiver is not an enum type"));
+            };
+            self.resolve_obj(ObjKind::Enum, &name)?
+        };
+        Ok(Box::new(ir::Arg::Value(ir::Expr::Const(ir::Const::Enum(
+            object as u32,
+            0,
+        )))))
+    }
+
     fn char_into_number_of_other_object(&self, receiver: ObjKind, param: &Ty, arg: &SyntaxNode) -> L<Option<ir::Expr>> {
         if !matches!(self.ty_ref(arg), Ty::Char)
             || !matches!(
