@@ -119,7 +119,7 @@ pub(crate) fn bare_root_options(xml: &str, call: ParamsCall) -> Option<Result<&s
 const WRITTEN_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"utf-16\" standalone=\"yes\"?>";
 
 /// A parameters string in a form an outside reporter measured on BC (al-runner issue 7908, assumption
-/// report-params-utf16-declaration), as the string in the pinned form ([`PARAMETERS_DECLARATION`], no whitespace between the
+/// report-params-written-declaration), as the string in the pinned form ([`PARAMETERS_DECLARATION`], no whitespace between the
 /// elements) that BC treats alike: under `Report.SaveAs` only, the declaration `XmlDocument.WriteTo(Text)` writes, then a root
 /// without name and id holding one `<Options>` element and no `<DataItems>`, either on one line or indented as `WriteTo` writes
 /// it (CR LF and spaces between two elements, never inside a `Field`). `None` for every other string: it keeps the path it had.
