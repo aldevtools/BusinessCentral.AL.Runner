@@ -294,15 +294,10 @@ impl Session {
         }
         self.page_instance_gated(st, as_part, page)?;
         let language = al_builtins::format::FormatCtx::language(&*self);
-        let page_type = self.engine.object_facts[st.borrow().object as usize].page_type.clone();
         {
             let mut s = st.borrow_mut();
             let first_run = !s.ran;
-            let reopen = (!first_run).then(|| Reopen {
-                earlier: (s.opened_by_test, s.mode),
-                now: (test_open, mode),
-                page_type,
-            });
+            forget_flags_at_reopen(&mut s, first_run, (test_open, mode), &self.engine);
             s.open = true;
             s.open_language = Some(language);
             s.ran = true;
@@ -348,9 +343,6 @@ impl Session {
             s.row_prop_vars = Vec::new();
             s.agcr_after_new = false;
             reset_host_row_flags(&mut s);
-            if reopen.is_some_and(|r| forget_earlier_open_flags(&mut s, &r)) {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReopenForgetsEarlierOpenFlags);
-            }
             s.expanded = Vec::new();
             s.tree_shown = Vec::new();
             // A caption assigned to the variable before its first run stays.
@@ -1590,6 +1582,23 @@ fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.request_new_blank = false;
 }
 
+/// Before page `s` takes the open `now` (opened by the test, mode): on a second open (`!first_run`), clears the flags of the
+/// first open that `forget_earlier_open_flags` names, and marks the assumption when it cleared one.
+fn forget_flags_at_reopen(s: &mut crate::pages::PageState, first_run: bool, now: (bool, PageMode), engine: &Engine) {
+    if first_run {
+        return;
+    }
+    let page_type = engine.object_facts[s.object as usize].page_type.clone();
+    let reopen = Reopen {
+        earlier: (s.opened_by_test, s.mode),
+        now,
+        page_type,
+    };
+    if forget_earlier_open_flags(s, &reopen) {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReopenForgetsEarlierOpenFlags);
+    }
+}
+
 /// A second open of a TestPage variable: how the test opened it before and now, and the page's type.
 struct Reopen {
     earlier: (bool, PageMode),
@@ -1649,7 +1658,14 @@ mod tests {
             s.save_failed = true;
             s.gone_temp_list = true;
             s.save_aborted = true;
-            let cleared = forget_earlier_open_flags(&mut s, &Reopen { earlier, now, page_type: Some(page_type) });
+            let cleared = forget_earlier_open_flags(
+                &mut s,
+                &Reopen {
+                    earlier,
+                    now,
+                    page_type: Some(page_type),
+                },
+            );
             (cleared, [s.action_ran, s.save_failed, s.gone_temp_list, s.save_aborted])
         };
         let edit = (true, PageMode::Edit);

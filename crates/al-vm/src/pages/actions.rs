@@ -821,15 +821,10 @@ impl Session {
             // The part read the rows the action left (`land_empty_tree_part_after_action`).
             Ok(v) if std::mem::take(&mut st.borrow_mut().empty_tree_part_landed) => Ok(v),
             Ok(_) if empty_tree_part_in_key && self.view_row_count(st)? > 0 => self.refuse_empty_tree_part_action(),
-            Ok(v) => self
-                .settle_rows_after_action(st, view_before)
-                .and_then(|()| self.journal_part_after_action_refresh(st))
-                .map(|()| v),
+            Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
         };
-        for (_, c) in Self::open_parts_with_hidden(st) {
-            c.borrow_mut().journal_turned = false;
-        }
+        let r = self.journal_part_after_action_refresh(st, r);
         let held = {
             let mut s = st.borrow_mut();
             s.in_action = was_in_action;
@@ -987,8 +982,7 @@ impl Session {
         // its re-read above).
         // A list that serves its rows from OnFindRecord and OnNextRecord does the same (testpage/W2FindRecordUpdate.al: during_action
         // `AGR(20);ActionBegin;ActionEnd;`).
-        // (testpage/W2FindRecordUpdate.al for a list; pages/currpage/UpdateOnFindRecord.al for a card and a list that
-        // declare OnAfterGetCurrRecord: `AGR:2;act:Update(false)` first.)
+        // A card and a list that declare OnAfterGetCurrRecord: pages/currpage/UpdateOnFindRecord.al `AGR:2;act:Update(false)` first.
         let find_list =
             self.declares(st, "onfindrecord") && (self.is_list(st) || self.declares(st, "onaftergetcurrrecord"));
         // A card with OnFindRecord and no OnNextRecord reads its row before the action, again after it, then asks `=` and reads

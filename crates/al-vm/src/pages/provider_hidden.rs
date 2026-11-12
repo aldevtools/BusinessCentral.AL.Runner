@@ -383,9 +383,7 @@ impl Session {
         let never_shown = hidden.borrow().open && !hidden.borrow().seen_visible;
         if before.journal {
             // The journal shape's part: unlinked, with a repeater (`journal_part_miss`).
-            if let Err(reason) = self.journal_part_miss(st, i, &hidden) {
-                return Err(reason);
-            }
+            self.journal_part_miss(st, i, &hidden)?;
         }
         [
             (

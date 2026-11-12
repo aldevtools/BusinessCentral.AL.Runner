@@ -81,9 +81,10 @@ impl Session {
             && page.extensions.is_empty()
             && page.ext_triggers.is_empty()
             && !engine.events.any_subscriber_of(object)
-            && engine.program.objects[object].properties.iter().all(|(k, _)| {
-                pinned_shape::PLAIN_PROPERTIES.contains(&k.to_ascii_lowercase().as_str())
-            });
+            && engine.program.objects[object]
+                .properties
+                .iter()
+                .all(|(k, _)| pinned_shape::PLAIN_PROPERTIES.contains(&k.to_ascii_lowercase().as_str()));
         let parts = page.controls.iter().filter(|c| c.kind == ir::ControlKind::Part).count();
         let controls = page.controls.iter().all(|c| {
             c.owner.is_none()
@@ -95,9 +96,15 @@ impl Session {
         });
         [
             (host_type, "the host page is not a Worksheet or a List"),
-            (code, "the host page declares other triggers, properties, an extension or a subscriber than the measured one"),
+            (
+                code,
+                "the host page declares other triggers, properties, an extension or a subscriber than the measured one",
+            ),
             (parts == 1, "the host page shows more than one part"),
-            (controls, "a control of the host page has a trigger other than an action's OnAction"),
+            (
+                controls,
+                "a control of the host page has a trigger other than an action's OnAction",
+            ),
         ]
         .into_iter()
         .find_map(|(holds, reason)| (!holds).then_some(reason))
@@ -118,9 +125,9 @@ impl Session {
             .as_ref()
             .is_none_or(|l| l.entries.is_empty() && l.provider.is_none());
         let control_props = control.props.iter().all(|(k, v)| match v {
-            ir::PropVal::Lit(lit) => PART_CONTROL_PROPS
-                .iter()
-                .any(|(name, want)| k.eq_ignore_ascii_case(name) && want.is_none_or(|w| lit.trim().eq_ignore_ascii_case(w))),
+            ir::PropVal::Lit(lit) => PART_CONTROL_PROPS.iter().any(|(name, want)| {
+                k.eq_ignore_ascii_case(name) && want.is_none_or(|w| lit.trim().eq_ignore_ascii_case(w))
+            }),
             _ => k.eq_ignore_ascii_case("visible"),
         }) && control
             .props
@@ -128,9 +135,15 @@ impl Session {
             .any(|(k, v)| k.eq_ignore_ascii_case("visible") && !matches!(v, ir::PropVal::Lit(_)));
         let object = child.borrow().object as usize;
         let page = page_of(&engine, child);
-        let list_part = matches!(&engine.object_facts[object].page_type, Some(al_ir::PageType::Other(t)) if t == "listpart");
+        let list_part =
+            matches!(&engine.object_facts[object].page_type, Some(al_ir::PageType::Other(t)) if t == "listpart");
         let properties = &engine.program.objects[object].properties;
-        let prop = |name: &str| properties.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.trim());
+        let prop = |name: &str| {
+            properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.trim())
+        };
         let kind = match prop("sourcetabletemporary") {
             Some(v) if v.eq_ignore_ascii_case("true") => Some(JournalPart::Temporary),
             None => Some(JournalPart::Stored),
@@ -164,13 +177,25 @@ impl Session {
             && !engine.events.any_subscriber_of(table);
         [
             (unlinked, "the part has a SubPageLink or a Provider"),
-            (control_props, "the part control declares other properties than the measured Visible expression"),
+            (
+                control_props,
+                "the part control declares other properties than the measured Visible expression",
+            ),
             (list_part, "the part is not a ListPart"),
             (kind.is_some(), "the part's SourceTableTemporary is not true"),
             (props, "the part page declares other properties than Editable = false"),
-            (code, "the part page declares other triggers, an extension or a subscriber than the measured one"),
-            (controls, "the part page has other controls than a repeater of fields of Rec without a trigger"),
-            (table_code, "the part's source table has code, an extension or a subscriber"),
+            (
+                code,
+                "the part page declares other triggers, an extension or a subscriber than the measured one",
+            ),
+            (
+                controls,
+                "the part page has other controls than a repeater of fields of Rec without a trigger",
+            ),
+            (
+                table_code,
+                "the part's source table has code, an extension or a subscriber",
+            ),
         ]
         .into_iter()
         .find_map(|(holds, reason)| (!holds).then_some(reason))
@@ -188,15 +213,21 @@ impl Session {
         Some((i, child, kind))
     }
 
-    /// After the refresh that followed an action whose body turned the journal part visible (`PageState::journal_turned`): a
-    /// temporary part reads its rows once more on the majors that do (`al_version::journal_temp_part_reads_after_refresh`;
-    /// HiddenPartJournalShape.al:537 `send` ends `st-agr(1) st-agr(1) st-agcr(1)` three times on BC 29, twice before); the stored
-    /// part does not (:672). A major the probe did not measure is refused.
-    pub(super) fn journal_part_after_action_refresh(&mut self, st: &St) -> Result<(), Signal> {
+    /// After the refresh that followed an action (`r`, its result) whose body turned the journal part visible
+    /// (`PageState::journal_turned`, cleared here after every action): a temporary part reads its rows once more on the majors
+    /// that do (`al_version::journal_temp_part_reads_after_refresh`; HiddenPartJournalShape.al:537 `send` ends `st-agr(1)
+    /// st-agr(1) st-agcr(1)` three times on BC 29, twice before); the stored part does not (:672). A major the probe did not
+    /// measure is refused.
+    pub(super) fn journal_part_after_action_refresh(
+        &mut self,
+        st: &St,
+        r: Result<Value, Signal>,
+    ) -> Result<Value, Signal> {
         let turned: Vec<(usize, St)> = Self::open_parts_with_hidden(st)
             .into_iter()
             .filter(|(_, c)| std::mem::take(&mut c.borrow_mut().journal_turned))
             .collect();
+        let v = r?;
         for (i, child) in turned {
             let Some((_, _, kind)) = self.journal_tree(st) else {
                 return unsupported("the page left the journal shape of its hidden part during an action (not pinned)");
@@ -205,7 +236,7 @@ impl Session {
                 self.sync_part(st, i, &child)?;
             }
         }
-        Ok(())
+        Ok(v)
     }
 
     /// Whether the temporary journal part reads again on this major; a major the probe did not measure is refused.
