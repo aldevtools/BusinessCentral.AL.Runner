@@ -64,7 +64,7 @@ impl Session {
     }
 
     /// The pinned page, every fact required (TestPageBlankKeyInsert.al:256 and :272, pages 67997 and 67994, table 60572
-    /// "TPBK Row" in TpbkRow.Table.al):
+    /// "TPBK Row" at testpage/TpbkRow.Table.al:3):
     /// - the draft is the one OpenNew started, and Rec has no filter;
     /// - the page declares no trigger and no property but the plain ones, has no page extension and no event subscriber
     ///   (so no OnNewRecord, OnInsertRecord or their events run);
