@@ -183,6 +183,7 @@ fn lit_bool(name: &str, s: &str) -> Result<bool, Signal> {
 
 type Handler = (usize, usize, Rc<RefCell<al_builtins::value::Instance>>);
 
+mod action_enabled_row;
 mod areas;
 mod background;
 mod end_move_no_read;
@@ -625,6 +626,11 @@ impl Session {
                         }
                     }
                 }
+            }
+        }
+        for slot in self.action_enabled_row_slots(st)? {
+            if !wanted.contains(&slot) {
+                wanted.push(slot);
             }
         }
         if wanted.is_empty() {

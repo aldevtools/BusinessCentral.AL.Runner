@@ -116,6 +116,7 @@ impl Session {
                     triggers: &["onqueryclosepage", "onclosepage"],
                     control_triggers: &[],
                     properties: &["editable"],
+                    action_props: &[],
                 },
             )?;
         Ok((field_ok && lookup_page).then_some(origin))
