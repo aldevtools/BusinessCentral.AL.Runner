@@ -330,6 +330,45 @@ impl Session {
             )),
         }
     }
+
+    /// Whether an import without FormatEvaluate reads the caption of an Enum or Option member as that member, once the name and
+    /// the XML forms did not read: pinned for Format = Xml (field attributes and elements) and VariableText
+    /// (xmlports/import/XpEnumOptionRoundTrip.al:221-257, EOR_LegacyAttr, EOR_LegacyElem, EOR_VarText; al-runner issue 7781).
+    /// FixedText is not measured.
+    pub(super) fn xp_caption_import_pinned(&self, schema: &Schema, ty: &RtType) -> bool {
+        matches!(ty, RtType::Enum(_) | RtType::Option(_))
+            && matches!(schema.xp().format, ir::XmlFormat::Xml | ir::XmlFormat::VariableText)
+    }
+
+    /// The member of field `pos` of `rec` whose caption is `text`, exactly as the export writes it (XpEnumOptionRoundTrip.al:224,
+    /// :234, :254: the caption, a member without one by its name); `None` when no caption is `text`. Another case is not measured
+    /// and does not match.
+    pub(super) fn xp_value_by_caption(
+        &mut self,
+        rec: &Rc<RefCell<al_builtins::value::RecordState>>,
+        pos: usize,
+        text: &str,
+        ty: &RtType,
+    ) -> Result<Option<Value>, Signal> {
+        let members = {
+            let r = rec.borrow();
+            match &self.engine.tables[r.table as usize] {
+                Some(t) => self.members_of_field(t, pos)?,
+                None => None,
+            }
+        };
+        let Some((_, list)) = members else {
+            return Ok(None);
+        };
+        let Some(&(ordinal, _, _)) = list.iter().find(|(_, _, c)| c == text) else {
+            return Ok(None);
+        };
+        Ok(match ty {
+            RtType::Enum(id) => Some(Value::Enum(*id, ordinal)),
+            RtType::Option(names) => Some(Value::Option(ordinal, names.clone())),
+            _ => None,
+        })
+    }
 }
 
 /// `h:mm:ss AM` as milliseconds since midnight.

@@ -1170,6 +1170,15 @@ impl Session {
                 Ok(v) => v,
                 Err(Signal::Error(first)) => match self.xp_value_xml(text, &ty, None) {
                     Ok(v) => v,
+                    // The caption of an Enum or Option member, which this port's export writes, reads back as that member
+                    // (xmlports/import/XpEnumOptionRoundTrip.al:221-257, Format = Xml with field attributes and elements, and
+                    // VariableText; al-runner issue 7781). FixedText is not measured and keeps the error.
+                    Err(Signal::Error(_)) if self.xp_caption_import_pinned(schema, &ty) => {
+                        match self.xp_value_by_caption(&rec, pos, text, &ty)? {
+                            Some(v) => v,
+                            None => return Err(Signal::Error(first)),
+                        }
+                    }
                     // A Date that neither reads gives the long text with the code Evaluate (XpTImportBasic.al: Import_BadDate,
                     // Import_DateWrongFormat).
                     Err(Signal::Error(_)) if matches!(ty, RtType::Date) => {
