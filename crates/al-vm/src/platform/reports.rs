@@ -166,8 +166,11 @@ fn report_name(t: &TableDef, o: &Object, what: &str) -> Value {
 /// Y17_ReportLayoutList_UserDefinedRow, corpus master 97c29f86): Caption the layout's name, CaptionML blank, Runtime Package
 /// ID and Application ID the null guid, Custom Type the null guid, MIME Type blank, Description as stored, Report Name as
 /// for a declared layout, Layout Publisher blank, User Defined Yes, ReportIsInstalled Yes, IsObsolete No,
-/// ExcelLayoutMultipleDataSheets Default, Layout Status Approved, Layout Subtype Default and blank parts. Any other column, and
-/// every column of a layout of another format or of a report the program does not hold, is unknown.
+/// ExcelLayoutMultipleDataSheets Default, Layout Status Approved, Layout Subtype Default and blank parts. The same for a Word and
+/// an Excel layout, with the stored Layout (reports/layouts-saveas/UserDefinedWordExcelLayoutRows.al:64-81, :98-115 `has layout
+/// Yes`), also for a GUID name, a row for one company and a report of another app; the App ID of the stored row is the Runtime
+/// Package ID, while Application ID stays the null guid (UserDefinedLayoutAppIdAndNames.al:226, :259, :265, :309, :333).
+/// Any other column, and every column of a Custom layout or of a report the program does not hold, is unknown.
 pub(super) fn user_layout_rows(p: &Providers, t: &TableDef, tenant: &TableDef, stored: &[al_data::Row]) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
@@ -177,6 +180,7 @@ pub(super) fn user_layout_rows(p: &Providers, t: &TableDef, tenant: &TableDef, s
         return Vec::new();
     };
     let description_col = col("Description");
+    let (app_col, layout_col) = (col("App ID"), col("Layout"));
     let has = |id: u32| t.fields.iter().any(|f| f.id == id);
     stored
         .iter()
@@ -192,7 +196,10 @@ pub(super) fn user_layout_rows(p: &Providers, t: &TableDef, tenant: &TableDef, s
             };
             r[pos(t, 1)] = Value::Integer(report_id);
             r[pos(t, 2)] = Value::Text(name.chars().take(250).collect());
-            r[pos(t, 5)] = Value::Guid([0; 16]);
+            r[pos(t, 5)] = match app_col.map(|a| &row[a]) {
+                Some(Value::Guid(g)) => Value::Guid(*g),
+                _ => Value::Guid([0; 16]),
+            };
             let whose = format!("the user-defined layout '{name}' of report {report_id}");
             let report = c
                 .objects
@@ -200,22 +207,28 @@ pub(super) fn user_layout_rows(p: &Providers, t: &TableDef, tenant: &TableDef, s
                 .enumerate()
                 .find(|(_, o)| o.kind == al_ir::ObjKind::Report && o.id == Some(report_id as u32))
                 .map(|(i, _)| &c.full[i]);
-            let rdlc = matches!(row[format_col], Value::Option(0, _));
-            let Some(o) = report.filter(|_| rdlc) else {
+            let format = match row[format_col] {
+                Value::Option(f @ 0..=2, _) => Some(f),
+                _ => None,
+            };
+            let Some((o, format)) = report.zip(format) else {
                 for f in &t.fields {
                     if ![1, 2, 5].contains(&f.id) {
                         r[pos(t, f.id)] = unknown(
                             t,
                             f.id,
-                            &format!("{whose}, not an RDLC layout of a report of the program"),
+                            &format!("{whose}, not an RDLC, Word or Excel layout of a report of the program"),
                         );
                     }
                 }
                 return Entry::ok(r);
             };
             r[pos(t, 3)] = Value::Text(name.chars().take(250).collect());
-            r[pos(t, 6)] = unknown(t, 6, &whose);
-            r[pos(t, 7)] = option(t, 7, 0);
+            r[pos(t, 6)] = match layout_col.map(|l| &row[l]) {
+                Some(v @ Value::Guid(_)) if format != 0 => v.clone(),
+                _ => unknown(t, 6, &whose),
+            };
+            r[pos(t, 7)] = option(t, 7, format);
             r[pos(t, 10)] = match description_col.map(|d| &row[d]) {
                 Some(Value::Text(v) | Value::Code(v)) => Value::Text(v.chars().take(250).collect()),
                 _ => unknown(t, 10, &whose),
