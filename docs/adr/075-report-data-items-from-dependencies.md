@@ -1,6 +1,6 @@
 # ADR-075: Report data items from dependency extensions
 
-- Status: Proposed
+- Status: Accepted (2026-11-12)
 - Date: 2026-11-12
 - Amends: [ADR-025](025-multiple-reportextensions-per-run.md), decision 2 (cross-app order) and decision 4 (first refusal)
 - Related: [ADR-022](022-compile-cache.md)
