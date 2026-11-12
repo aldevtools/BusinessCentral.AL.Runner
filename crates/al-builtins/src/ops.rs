@@ -1334,6 +1334,20 @@ fn date_invalid<T>() -> Result<T, Signal> {
     raise("The date is not valid.", "DateInvalid")
 }
 
+/// `=` on two values in AL code: as [`compare_operator`]. A Guid compared with a Text that is no Guid leaves its text under
+/// GetLastErrorText(true) (errors/last-error/LastErrorFlagRuntimeCodes.al DateAndConversionSites_ExcludeFlag `guidtext_true`,
+/// `G = 'not a guid'`; corpus pull request 1327). `<>`, the order operators, a Code and the text on the left are not measured.
+pub fn equal_operator(l: &Value, r: &Value) -> Result<bool, Signal> {
+    let o = compare_operator(l, r, false);
+    match (o, l, r) {
+        (Err(Signal::Error(mut e)), Value::Guid(_), Value::Text(_)) if e.code == "InvalidGuidFormat" => {
+            e.origin = crate::native::ErrorOrigin::SameText;
+            Err(Signal::Error(e))
+        }
+        (o, ..) => Ok(o? == Ordering::Equal),
+    }
+}
+
 /// `=`, `<>`, `<`, ... on two values in AL code: as [`compare`], except that an undefined date against 0001-01-01 raises
 /// (types/date-time/Arithmetic.al:Date_Comparisons `af72`, `af75`, `af79`).
 pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering, Signal> {
@@ -1726,9 +1740,8 @@ fn compare_general(l: &Value, r: &Value) -> Result<Ordering, Signal> {
 /// other forms (32 digits, parentheses, blanks around) are not pinned for a comparison and are refused.
 fn guid_of_text(t: &str) -> Result<[u8; 16], Signal> {
     if t.bytes().filter(u8::is_ascii_hexdigit).count() < 32 {
-        // GetLastErrorText(true) leaves the text (errors/last-error/LastErrorFlagRuntimeCodes.al DateAndConversionSites_ExcludeFlag
-        // `guidtext_true`; corpus pull request 1327).
-        return crate::native::raise_same_text(
+        // GetLastErrorText(true) of `Guid = Text` only: `equal_operator`.
+        return crate::native::raise(
             "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
             "InvalidGuidFormat",
         );

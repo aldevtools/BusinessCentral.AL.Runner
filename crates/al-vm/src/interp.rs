@@ -540,7 +540,7 @@ impl Session {
             B::And => Value::Boolean(ops::truthy(l)? & ops::truthy(r)?),
             B::Or => Value::Boolean(ops::truthy(l)? | ops::truthy(r)?),
             B::Xor => Value::Boolean(ops::truthy(l)? ^ ops::truthy(r)?),
-            B::Eq => Value::Boolean(ops::compare_operator(l, r, false)? == Ordering::Equal),
+            B::Eq => Value::Boolean(ops::equal_operator(l, r)?),
             B::Ne => Value::Boolean(ops::compare_operator(l, r, false)? != Ordering::Equal),
             B::Lt => Value::Boolean(ops::compare_operator(l, r, true)? == Ordering::Less),
             B::Le => Value::Boolean(ops::compare_operator(l, r, true)? != Ordering::Greater),
