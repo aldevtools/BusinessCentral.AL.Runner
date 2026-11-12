@@ -8,6 +8,7 @@ impl Session {
     /// and records a refusal in the control's ledger (corpus testpage/TestPageValidationError_Tests.al,
     /// TestPageReadOnlySetValue.al:1-30, TestPageBooleanSpelling_Tests.al).
     pub(super) fn control_set_value(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<Value, Signal> {
+        self.refresh_host_before_set_value(st)?;
         if st.borrow().request_new_blank {
             return unsupported("SetValue on a request page after New() (only Close, OK and Cancel are pinned)");
         }

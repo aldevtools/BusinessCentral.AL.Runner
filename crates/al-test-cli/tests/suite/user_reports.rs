@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_cardpart_drilldown_rereads_the_header_before_set_value() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/card-part-drilldown-refresh.al"),
+    ));
+}
