@@ -112,6 +112,9 @@ pub(super) struct PinnedCode<'a> {
     /// The properties the page may declare, lower case, next to PageType, SourceTable, ApplicationArea, UsageCategory and
     /// Caption (which run nothing and change no read). The predicate checks the value of each one it lists.
     pub properties: &'a [&'a str],
+    /// The properties an Action control of the page may set to an expression, lower case; its other properties are
+    /// literal. Empty: the page has no Action control.
+    pub action_props: &'a [&'a str],
 }
 
 impl Session {
@@ -423,11 +426,16 @@ impl Session {
             let kind = match c.kind {
                 ir::ControlKind::Repeater | ir::ControlKind::Group => c.binding == ir::Binding::None,
                 ir::ControlKind::Field => matches!(c.binding, ir::Binding::Field(_)),
+                ir::ControlKind::Action => !pin.action_props.is_empty() && c.binding == ir::Binding::None,
                 _ => false,
             };
+            let action = c.kind == ir::ControlKind::Action;
             kind && c.owner.is_none()
                 && c.ext_triggers.is_empty()
-                && c.props.iter().all(|(_, v)| matches!(v, ir::PropVal::Lit(_)))
+                && c.props.iter().all(|(k, v)| {
+                    matches!(v, ir::PropVal::Lit(_))
+                        || (action && pin.action_props.contains(&k.to_ascii_lowercase().as_str()))
+                })
         }) && same_names(
             page.controls
                 .iter()
