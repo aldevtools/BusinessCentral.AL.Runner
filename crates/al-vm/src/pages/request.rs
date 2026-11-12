@@ -589,10 +589,11 @@ impl Session {
         let schema = self.report_schema_of(&inst)?;
         // ADR-040 amendments of 2026-11-08 and 2026-11-11: a format the default layout gives writes a placeholder
         // (`report_placeholder::grid`).
-        let placeholder = crate::report_placeholder::Format::from_name(format)
-            .map(|f| self.placeholder_allowed(&schema, f).map(|ok| ok.then_some(f)))
-            .transpose()?
-            .flatten();
+        let target = crate::reports::SaveTarget::File(name);
+        let placeholder = match crate::report_placeholder::Format::from_name(format) {
+            Some(f) => self.placeholder_allowed(&schema, f, &target)?,
+            None => None,
+        };
         if placeholder.is_none() && !self.output_is_ignored(&schema) {
             return unsupported(format!(
                 "SaveAs{format} of \"{}\": only the Xml dataset and placeholders of the formats a default layout gives are \
@@ -619,15 +620,10 @@ impl Session {
         }
         let (written, _) = self.request_page_report_run(st, object, &inst, &schema)?;
         // The dataset is built to run the triggers and dropped.
+        let rows = written.rows;
         drop(written);
-        let (target, output) = (
-            crate::reports::SaveTarget::File(name),
-            match placeholder {
-                Some(f) => crate::report_placeholder::SaveOutput::Placeholder(f),
-                None => crate::report_placeholder::SaveOutput::Discard,
-            },
-        );
-        self.write_save_output(target, output, &schema, &[])?;
+        let output = placeholder.unwrap_or(crate::report_placeholder::SaveOutput::Discard);
+        self.write_save_output(target, output, &schema, &[], rows, None)?;
         st.borrow_mut().result = Some(format!("SaveAs{format}"));
         self.mark_closed(st);
         Ok(Value::Null)

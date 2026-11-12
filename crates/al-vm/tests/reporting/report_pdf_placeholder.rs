@@ -481,6 +481,15 @@ codeunit 50959 "RPP Selection Tests"
         D.SetSelectedLayout('Other');
         exit(Save(Report::"RPP Rdlc"));
     end;
+
+    // Html of an RDLC report answers false for its own layout; a selection may pick a Word layout that renders Html.
+    procedure DesignTimeSelectionHtml(): Text
+    var D: Codeunit "Design-time Report Selection"; R: Record "RPP Row"; Out: OutStream;
+    begin
+        D.SetSelectedLayout('Other');
+        R.Data.CreateOutStream(Out);
+        exit(Format(Report.SaveAs(Report::"RPP Rdlc", '', ReportFormat::Html, Out)));
+    end;
 }
 "#;
 
@@ -518,6 +527,17 @@ fn report_pdf_placeholder_a_design_time_layout_selection_is_refused() {
         &src,
         "RPP Selection Tests",
         "DesignTimeSelection",
+        "Design-time Report Selection",
+    );
+}
+
+#[test]
+fn report_pdf_placeholder_html_of_an_rdlc_report_while_a_design_time_selection_is_held_is_refused() {
+    let src = format!("{SRC}{SELECTION}");
+    refused_with(
+        &src,
+        "RPP Selection Tests",
+        "DesignTimeSelectionHtml",
         "Design-time Report Selection",
     );
 }
