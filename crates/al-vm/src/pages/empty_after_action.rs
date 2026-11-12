@@ -17,9 +17,14 @@ impl Session {
     /// Whether control `idx` reads blank: a control bound to the page's record on a page that shows no row (`shows_no_row`), and
     /// after an action left the view without rows any control in the repeater, a page variable too
     /// (pages/actions/ActionFilterEmptyView.al:226 Action_NoRowsLeft_UpdateFalse_Moves `[|]`).
+    /// On the read-only temporary List of `temp_list_refill` with no row (an action refilled it with none, or a filter no row
+    /// matches) every control of the repeater reads blank, an expression and a page variable too (testpage/
+    /// TempListExpressionRefill.al:347, :426-431, :442-447, :488, :532-537).
     pub(super) fn value_reads_blank(&self, st: &St, idx: usize) -> bool {
-        let blank_row = st.borrow().empty_after_action && st.borrow().cursor == Cursor::None;
-        (blank_row && self.in_repeater(st, idx)) || self.shows_no_row(st, idx)
+        let no_row = st.borrow().cursor == Cursor::None;
+        let blank_row = st.borrow().empty_after_action && no_row;
+        ((blank_row || (no_row && self.temp_list_refill_pinned(st))) && self.in_repeater(st, idx))
+            || self.shows_no_row(st, idx)
     }
 
     pub(super) fn empty_view_after_action(&mut self, st: &St, rec: &Rec) -> Result<(), Signal> {

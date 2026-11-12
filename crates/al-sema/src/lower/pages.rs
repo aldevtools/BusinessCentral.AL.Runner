@@ -262,6 +262,7 @@ impl Lowerer<'_> {
             let mut var_field = None;
             let mut var_slot = None;
             let mut expr_source = None;
+            let mut expr_row_unordered = false;
             let mut expr_call = false;
             let mut array_element = None;
             let mut bare_quoted_ext_source = false;
@@ -393,30 +394,19 @@ impl Lowerer<'_> {
                                                 .then_some((slot, index - 1))
                                         },
                                     );
-                                    // A call as written, Editable False (record/X3PageControlCalls.al:142-147,
-                                    // `pages::call_source_pinned`). Otherwise only text with no quote and single spaces: how
-                                    // BC writes other text is not pinned.
-                                    let call_source = args
+                                    expr_source =
+                                        args.get(1).and_then(|a| own_expr_source(a, globals, found.is_some()));
+                                }
+                                // An expression of a pinned shape, on a page or added by a page extension: the row names the
+                                // source as written and an undeclared Editable is `False` (`pages::expression_source_pinned`,
+                                // pages/controls/PageControlFieldExpressionShapes.al:211-301; al-runner issue 7442). Where BC
+                                // lists the row among the page's other rows is not pinned (`Control::expr_row_unordered`).
+                                if expr_source.is_none() {
+                                    expr_source = raw_args
                                         .get(1)
-                                        .filter(|a| crate::pages::call_source_pinned(a))
+                                        .filter(|a| crate::pages::expression_source_pinned(a, &ow.names))
                                         .map(|a| (a.trim().to_string(), false));
-                                    expr_source = call_source.or_else(|| {
-                                        args.get(1)
-                                            .filter(|a| crate::pages::source_text_pinned(a, found.is_some()))
-                                            .and_then(|a| {
-                                                let element = crate::pages::array_element(a).is_some_and(|(v, _)| {
-                                                    globals.iter().any(|g| {
-                                                        g.name.eq_ignore_ascii_case(&v)
-                                                            && matches!(g.ty, RtType::Array(..))
-                                                    })
-                                                });
-                                                if element || found.is_some() {
-                                                    Some((a.trim().to_string(), true))
-                                                } else {
-                                                    crate::pages::arithmetic(a).then(|| (a.trim().to_string(), false))
-                                                }
-                                            })
-                                    });
+                                    expr_row_unordered = expr_source.is_some();
                                 }
                             }
                             // A control of an extension that names a variable of the base object
@@ -521,6 +511,7 @@ impl Lowerer<'_> {
                 var_field,
                 var_slot,
                 expr_source,
+                expr_row_unordered,
                 expr_call,
                 array_element,
                 bare_quoted_ext_source,
@@ -866,6 +857,30 @@ impl Lowerer<'_> {
 /// The control of a data item of a request page: the test client reads and writes the filters of its record (`binding`).
 /// The source of a page's or report's own control, or of a control of a reportextension that changes the run (`listed`), bound to an
 /// expression, as written and trimmed (`ir::Control::source_text`).
+/// The Page Control Field source of a page's own control bound to `text`, and whether its undeclared Editable is `True`. A call as
+/// written, Editable False (record/X3PageControlCalls.al:142-147, `pages::call_source_pinned`). Otherwise only text with no quote and
+/// single spaces (how BC writes other text is not pinned): an element of a page array or a field of a page record variable
+/// (`var_field`), Editable True, or an arithmetic expression, Editable False (record/TestPageControlFieldArraySource.al).
+fn own_expr_source(text: &str, globals: &[ir::Slot], var_field: bool) -> Option<(String, bool)> {
+    let written = text.trim().to_string();
+    if crate::pages::call_source_pinned(text) {
+        return Some((written, false));
+    }
+    if !crate::pages::source_text_pinned(text, var_field) {
+        return None;
+    }
+    let element = crate::pages::array_element(text).is_some_and(|(v, _)| {
+        globals
+            .iter()
+            .any(|g| g.name.eq_ignore_ascii_case(&v) && matches!(g.ty, RtType::Array(..)))
+    });
+    if element || var_field {
+        Some((written, true))
+    } else {
+        crate::pages::arithmetic(text).then_some((written, false))
+    }
+}
+
 fn expr_source_text(binding: &ir::Binding, listed: bool, sec: &ast::Section) -> Option<String> {
     let own_expr = listed && matches!(binding, ir::Binding::Expr(_));
     own_expr
@@ -891,6 +906,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         var_field: None,
         var_slot: None,
         expr_source: None,
+        expr_row_unordered: false,
         expr_call: false,
         array_element: None,
         bare_quoted_ext_source: false,

@@ -269,6 +269,7 @@ mod server_row_lag;
 mod shown;
 pub(crate) mod state;
 mod table_values_allowed;
+mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
 pub(crate) use shown::ShownNote;

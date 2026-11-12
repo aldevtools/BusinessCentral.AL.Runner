@@ -2950,6 +2950,39 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "WalkBySequence");
 }
 
+// The row of a control bound to an expression shape of al-runner issue 7442 is served when a read picks it alone
+// (pages/controls/PageControlFieldExpressionShapes.al:211-219), but BC lists a page's rows in ControlId order, which the runtime
+// does not follow (:323-332): a walk in key order over two controls of the page may count the rows and read FieldNo, and a read
+// of the ControlName, SourceExpression or Sequence of such a row is refused. A field-bound row keeps its name in that walk
+// (record/TestPageControlFieldPageExtension.al:58-85).
+#[test]
+fn a_walk_in_key_order_refuses_the_name_of_an_expression_shape_row() {
+    let src = r#"table 50001 "Line" { fields { field(1; "No."; Integer) { } field(2; Qty; Integer) { } } keys { key(PK; "No.") { } } }
+page 50002 "Lines" { PageType = List; SourceTable = "Line"; layout { area(Content) { repeater(R) {
+    field(Compare; Rec.Qty > 0) { }
+    field(Negate; -Rec.Qty) { } } } } }
+page 50003 "Plain" { PageType = List; SourceTable = "Line"; layout { area(Content) { repeater(R) {
+    field(NoCtl; Rec."No.") { }
+    field(QtyCtl; Rec.Qty) { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Alone() var P: Record "Page Control Field"; begin P.SetRange(PageNo, 50002); P.SetRange(ControlName, 'Negate'); P.FindFirst();
+    if (P.SourceExpression <> '-Rec.Qty') or (P.FieldNo <> 0) or (P.Sequence <> 1) then Error('%1 %2 %3', P.SourceExpression, P.FieldNo, P.Sequence); end;
+  [Test] procedure WalkCounts() var P: Record "Page Control Field"; N: Integer; begin P.SetRange(PageNo, 50002); P.FindSet();
+    repeat N += 1; if P.FieldNo <> 0 then Error('%1', P.FieldNo); until P.Next() = 0; if N <> 2 then Error('%1', N); end;
+  [Test] procedure WalkReadsName() var P: Record "Page Control Field"; Names: Text; begin P.SetRange(PageNo, 50002); P.FindSet();
+    repeat Names += P.ControlName; until P.Next() = 0; end;
+  [Test] procedure WalkReadsSource() var P: Record "Page Control Field"; Names: Text; begin P.SetRange(PageNo, 50002); P.FindSet();
+    repeat Names += P.SourceExpression; until P.Next() = 0; end;
+  [Test] procedure WalkFieldRows() var P: Record "Page Control Field"; Names: Text; begin P.SetRange(PageNo, 50003); P.FindSet();
+    repeat Names += P.ControlName + ' '; until P.Next() = 0; if StrLen(Names) <> 13 then Error(Names); end; }"#;
+    let o = outcomes(src);
+    passes(&o, "Alone");
+    passes(&o, "WalkCounts");
+    assert!(not_run(&o, "WalkReadsName").contains("ControlId"));
+    assert!(not_run(&o, "WalkReadsSource").contains("ControlId"));
+    passes(&o, "WalkFieldRows");
+}
+
 // al-runner issue 5842 (the reporter's run on real BC 29.0.54011.55407, 2/2 tests): the row of a control bound to an element
 // of a page array (`Costs[1]`) has no source field and reports the expression as written; the other rows of the page are
 // served beside it. Pinned by record/TestPageControlFieldArraySource.al (also run below). A call expression is not pinned and stays refused.

@@ -2344,7 +2344,7 @@ impl Session {
     /// of the rows run; `SetCurrentKey`, `Reset` and `Clear` give the record a key of its own again; every other method refuses.
     fn media_key_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value], why: &str) -> Result<Value, Signal> {
         let rekeys = matches!(method, RecordOp::Reset | RecordOp::SetCurrentKey | RecordOp::Clear);
-        let runs = rekeys || flowfield_key::runs(method, why, args);
+        let runs = rekeys || flowfield_key::runs(method, why, args) || self.auto_calc_on_lookup_key(method, rec, why);
         if !runs {
             return unsupported(format!("Record.{}(): {why}", method.name()));
         }
