@@ -34,6 +34,7 @@ mod drilldown_marked_refill_other_key;
 mod empty_list_action;
 mod empty_to_empty_batch_switch;
 mod empty_tree_part_landing_shape;
+mod ext_column_visible;
 mod ext_record_method_source;
 mod ext_validate_variable;
 mod filterpage;
