@@ -1915,14 +1915,23 @@ impl Session {
     /// TestPage: the extensions' OnBeforeValidate in extension order, the control's own OnValidate when it has one, then the
     /// extensions' OnAfterValidate (corpus pages/extensions/W2ExtModify.al:367-386 Validate_VariableControl `low.before.VarName(first);
     /// high.before.VarName(first);page.VarName(first);low.after.VarName(first);high.after.VarName(first);`, :388-401
-    /// Validate_VariableControlWithoutOwnTrigger; BC 27.5, 28.5 and 29.0; al-runner issue 7372). A page run modally (the
-    /// StandardDialog of the issue, set from a ModalPageHandler), a part and every other page type are not pinned yet (corpus
-    /// probe pages/extensions/ModifyVariableControlOnDialog.al).
+    /// Validate_VariableControlWithoutOwnTrigger; BC 27.5, 28.5 and 29.0; al-runner issue 7372). The same order on a
+    /// StandardDialog page with no source table, run modally and set from a ModalPageHandler or opened with OpenEdit
+    /// (pages/extensions/ModifyVariableControlOnDialog.al:188-190, :207, :232, :258, :282-284). A part and every other page
+    /// type are not pinned yet.
     fn ext_validate_on_variable_pinned(&self, st: &St) -> bool {
-        let s = st.borrow();
-        !s.modal
-            && s.host.is_none()
-            && self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Card)
+        let page_type = {
+            let s = st.borrow();
+            if s.host.is_some() {
+                return false;
+            }
+            (self.engine.object_facts[s.object as usize].page_type.clone(), s.modal)
+        };
+        match page_type {
+            (Some(al_ir::PageType::Card), false) => true,
+            (Some(al_ir::PageType::StandardDialog), _) => !self.has_source(st),
+            _ => false,
+        }
     }
 
     /// Cancel of a list with OnFindRecord that the static Page.RunModal opened in lookup mode finds the current row again (`=`) and
