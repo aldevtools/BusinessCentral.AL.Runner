@@ -6,6 +6,7 @@ mod queries;
 mod query_get_filters_elements;
 mod query_outer_link;
 mod rendered_text;
+mod rendered_text_caption;
 mod rendered_text_chain;
 mod rendered_text_leaks;
 mod report_bare_run;

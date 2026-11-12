@@ -23,6 +23,7 @@ const ALLOWED_AT_ARG0: &[&str] = &[
     "Session.LogMessage#1",
     "Session.LogMessage#2",
     "Variant.Into#1",
+    "System.Clear#1",
 ];
 
 #[test]
@@ -83,8 +84,9 @@ fn every_row_names_its_amendment_row_and_the_form_of_its_result() {
     let mut cites: Vec<&str> = rendered_text::allowed_rows().map(|(_, cite, _)| cite).collect();
     cites.sort_unstable();
     cites.dedup();
-    // P5, P6 are answered by `ops::compare`, P9 by `Variant.Is*`, P12 by `DOTNET_ALLOWED`; P11 (a page field) is not built.
-    assert_eq!(cites, ["A2", "P1", "P10", "P2", "P3", "P4", "P7", "P8"]);
+    // P5 and P6 on a text are answered by `ops::compare` (P5 has the row of `CompressArray`), P9 by `Variant.Is*` (and the row
+    // of `ArrayLen`), P12 by `DOTNET_ALLOWED`, P11 by `pages/rendered_field.rs`.
+    assert_eq!(cites, ["A2", "P1", "P10", "P2", "P3", "P4", "P5", "P7", "P8", "P9"]);
     // One row gives the changed form, `Format(BigText)`; every other result moves the value unchanged (whole form kept).
     let changed: Vec<&str> = rendered_text::allowed_rows()
         .filter(|(_, _, form)| *form == Some(Form::Changed))
@@ -190,4 +192,32 @@ fn the_runner_prints_a_mark_as_its_report() {
     let n = rendered_text::register("Printed Report", "Html", "WordOne").unwrap();
     let shown = rendered_text::describe(&format!("Sig {}", rendered_text::mark_text(n, Form::Whole)));
     assert_eq!(shown, "Sig <rendered content of report Printed Report>");
+}
+
+#[test]
+fn the_guard_looks_into_an_array_and_allows_only_the_array_builtins_of_the_table() {
+    let arr = |v: Value| {
+        Value::Array(std::rc::Rc::new(std::cell::RefCell::new(vec![
+            Value::Text(String::new().into()),
+            v,
+        ])))
+    };
+    let known = arr(Value::Text("known".to_string().into()));
+    let marked_arr = arr(marked());
+    let pos = Value::Integer(1);
+    let copy = rendered_text::guard(
+        "System.CopyArray#1",
+        None,
+        &[known.clone(), marked_arr.clone(), pos.clone()],
+        false,
+    );
+    assert!(copy.is_ok(), "{copy:?}");
+    for name in ["System.CompressArray#1", "System.ArrayLen#1"] {
+        let r = rendered_text::guard(name, None, std::slice::from_ref(&marked_arr), true);
+        assert!(r.is_ok(), "{name}: {r:?}");
+    }
+    // A builtin with no row for an array refuses it, also in a Variant or a List.
+    assert!(rendered_text::guard("System.Format#1", None, std::slice::from_ref(&marked_arr), true).is_err());
+    assert!(rendered_text::guard("Text.StrLen#1", None, std::slice::from_ref(&marked_arr), true).is_err());
+    assert!(rendered_text::guard("Text.StrLen#1", None, std::slice::from_ref(&known), true).is_ok());
 }

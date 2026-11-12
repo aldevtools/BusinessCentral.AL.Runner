@@ -176,7 +176,7 @@ fn held<'a>(vals: impl IntoIterator<Item = &'a Value>) -> Option<String> {
 }
 
 /// The rendered text a value holds: a Text or Code (also inside a Variant, which holds the value itself), a TextBuilder or a
-/// BigText, a List or Dictionary that holds one as a value.
+/// BigText, a List or Dictionary that holds one as a value, an array that holds one as an element.
 fn value_text(v: &Value) -> Option<String> {
     match v {
         // `audited_str` only looks for the mark here; a text with half of a surrogate pair goes on to its own reader.
@@ -189,6 +189,7 @@ fn value_text(v: &Value) -> Option<String> {
         },
         Value::List(l) => l.borrow().iter().find_map(value_text),
         Value::Dictionary(d) => d.borrow().iter().find_map(|(_, v)| value_text(v)),
+        Value::Array(a) => a.borrow().iter().find_map(value_text),
         _ => None,
     }
 }
@@ -223,6 +224,8 @@ enum When {
     /// `BigText.GetSubText(Text, 1)`: a Text target, the Integer position 1, no length, the return value unused (it is a
     /// length).
     SubTextFromOne,
+    /// The value at the row's position is an array (the array builtins: `CopyArray`, `CompressArray`, `ArrayLen`).
+    ArrayAt,
 }
 
 /// One allowed use: the builtin id name, where the marked value may stand, the condition, the form of the result and why BC's
@@ -514,6 +517,50 @@ static ALLOWED: &[Row] = &[
         form: None,
         cite: "A2",
     },
+    // An array that holds rendered content (review round 2 of the amendment, L23). P1: `CopyArray` moves each element unread;
+    // the write-back of the destination gives each one the conversion of an assignment (al-vm `interp.rs`
+    // `rendered_into_place`), which lets it into an unbounded Text and a Variant only. The destination is overwritten whole (its
+    // length is the copy's length, collections/Arrays.al:CopyArray_Forms).
+    Row {
+        name: "System.CopyArray#1",
+        at: At::Arg(0),
+        when: When::ArrayAt,
+        form: None,
+        cite: "P1",
+    },
+    Row {
+        name: "System.CopyArray#1",
+        at: At::Arg(1),
+        when: When::ArrayAt,
+        form: None,
+        cite: "P1",
+    },
+    // P5: `CompressArray` drops the empty texts (streams/TestArrayStreamContracts.al), and rendered content is not empty; the
+    // rest moves unread.
+    Row {
+        name: "System.CompressArray#1",
+        at: At::Arg(0),
+        when: When::ArrayAt,
+        form: None,
+        cite: "P5",
+    },
+    // P9: `ArrayLen` asks only the declared dimensions.
+    Row {
+        name: "System.ArrayLen#1",
+        at: At::Arg(0),
+        when: When::ArrayAt,
+        form: None,
+        cite: "P9",
+    },
+    // P1: `Clear` gives the variable its default value without reading the old one (collections/Arrays.al:253-256 `T cleared`
+    // for a Text array).
+    Row {
+        name: "System.Clear#1",
+        at: At::Arg(0),
+        when: When::Args(1),
+        form: None,
+        cite: "P1",
+    },
     // P10: telemetry is not readable by the test (session-system/session/SqlCounters.al:516).
     Row {
         name: "Session.LogMessage#1",
@@ -597,6 +644,7 @@ fn condition(when: When, recv: Option<&Value>, args: &[Value], ret_used: bool, i
         }
         When::FormatOfBigText => matches!(args, [v] if is_library(v, LibraryKind::BigText)),
         When::SubTextFromOne => matches!(args, [Value::Text(_), Value::Integer(1)]) && !ret_used,
+        When::ArrayAt => matches!(args.get(i), Some(Value::Array(_))),
     }
 }
 

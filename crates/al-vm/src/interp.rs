@@ -1908,13 +1908,26 @@ impl Session {
 
     /// A text that holds rendered content, on its way into the variable `p` outside an assignment (the write-back of a
     /// `var` argument of a builtin or a procedure, the loop variable of a `foreach`): it takes the conversion an assignment takes, which lets
-    /// it into an unbounded Text and a Variant only (`ops::convert`; ADR-040 amendment 2026-11-12, A5, loss mode L3). Any
-    /// other value is given back as it is.
+    /// it into an unbounded Text and a Variant only (`ops::convert`; ADR-040 amendment 2026-11-12, A5, loss mode L3). An array
+    /// (the destination of `CopyArray`, a `var` array parameter) gives each element that holds rendered content the conversion
+    /// to its element type (loss mode L23). Any other value is given back as it is.
     pub(crate) fn rendered_into_place(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<Value, Signal> {
+        let rendered = |v: &Value| matches!(v, Value::Text(t) | Value::Code(t) if t.has_marker() && al_builtins::rendered_text::holds(t.audited_str()));
         match &v {
-            Value::Text(t) | Value::Code(t) if t.has_marker() && al_builtins::rendered_text::holds(t.audited_str()) => {
+            v2 if rendered(v2) => {
                 let ty = self.place_type(p, f);
                 ops::convert(v, &ty)
+            }
+            Value::Array(cells) if cells.borrow().iter().any(rendered) => {
+                let RtType::Array(_, el) = self.place_type(p, f) else {
+                    return Err(Signal::unsupported(
+                        "an array that holds rendered content written into a place that is no array".to_string(),
+                    ));
+                };
+                for cell in cells.borrow_mut().iter_mut().filter(|c| rendered(c)) {
+                    *cell = ops::convert(cell.clone(), &el)?;
+                }
+                Ok(v)
             }
             _ => Ok(v),
         }

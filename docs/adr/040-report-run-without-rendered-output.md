@@ -622,7 +622,7 @@ A lost mark is a silent wrong result: AL would read made-up or missing character
 | L16 | An allowed step changes the content and Part B still answers from the layout | The whole and changed forms (A1). Test: after P12 `Contains` refuses; a `#n` field refuses. The catalog test fails when a row of A3 does not declare its form. |
 | L12 | A later change adds an allowed use by widening a rule | Table A3 is data in one file with one row per builtin id and position, each with its citation. A test fails when a row has no citation or when the table and this ADR section differ in count. |
 
-Added after review round 1 (2026-11-12): the guard of A5 covers builtin calls only. These paths are not builtin calls and
+Added after review rounds 1 and 2 (2026-11-12): the guard of A5 covers builtin calls only. These paths are not builtin calls and
 each has its own owner and test (`al-vm/tests/reporting/rendered_text_leaks.rs`):
 
 | # | Loss | What prevents it |
@@ -632,6 +632,8 @@ each has its own owner and test (`al-vm/tests/reporting/rendered_text_leaks.rs`)
 | L19 | A write that is no append changes a buffer a marked text was written to, or a marked text is written over bytes that were there | `stream::write_bytes` and `rendered_text::mark_written`: the buffer gets the kind "text with rendered content that was written over", and no read answers for it. BC's rendering is longer than its mark, so which bytes BC keeps is not known. |
 | L20 | A report dataset column or an XmlPort text variable writes the mark as bytes into a buffer without a mark | `dataset::escape` and `xp_pass_variable` refuse. |
 | L21 | A page control's text reaches `AssertEquals`, an `As*` method, a lookup or a request page's parameters | `control_text` refuses; only `TestField.Value()` reads it (P11). |
+| L22 | A CaptionClass expression (a page control's, a table field's) gives rendered content, and the area before its first comma is read from the mark | `Session::refuse_rendered_caption_class` (al-vm `pages/caption_class.rs`) refuses where the expression's value becomes a class text. Table A3 has no CaptionClass row. |
+| L23 | An array carries the text past the guard, or `CopyArray` puts it into a `Text[N]` or `Code[N]` element without the conversion of an assignment | The guard of A5 looks into arrays. `CopyArray` (P1), `CompressArray` (P5), `ArrayLen` (P9) and `Clear` (P1) are rows; the write-back of an array (the `CopyArray` destination, a `var` array parameter) converts each marked element to the element type (`rendered_into_place`). |
 
 `BigText.GetSubText` of P3 is the Text target overload with the Integer position 1 only; the BigText target is not in table A3
 and refuses.

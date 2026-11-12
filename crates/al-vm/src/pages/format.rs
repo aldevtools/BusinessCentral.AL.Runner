@@ -1000,8 +1000,14 @@ impl Session {
         let class = match ctl.prop("captionclass") {
             Some(ir::PropVal::Lit(c)) => Some(unquote(c)),
             Some(routine) => match self.prop_routine_value(st, idx, routine)? {
-                Some(Value::Text(t) | Value::Code(t)) => Some(t.into_string()),
-                _ => None,
+                Some(v) => {
+                    Self::refuse_rendered_caption_class(&v)?;
+                    match v {
+                        Value::Text(t) | Value::Code(t) => Some(t.into_string()),
+                        _ => None,
+                    }
+                }
+                None => None,
             },
             None => None,
         };
@@ -1175,7 +1181,11 @@ impl Session {
             let Some(routine @ (ir::PropVal::Routine(_) | ir::PropVal::Ext(..))) = c.prop("captionclass") else {
                 continue;
             };
-            if let Some(Value::Text(t) | Value::Code(t)) = self.prop_routine_value(st, idx, routine)? {
+            let v = self.prop_routine_value(st, idx, routine)?;
+            if let Some(v) = &v {
+                Self::refuse_rendered_caption_class(v)?;
+            }
+            if let Some(Value::Text(t) | Value::Code(t)) = v {
                 if !t.starts_with("3,") {
                     self.fill_caption_class(st, idx, &t)?;
                 }
