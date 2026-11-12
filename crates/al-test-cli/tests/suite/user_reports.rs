@@ -2559,3 +2559,43 @@ codeunit 50993 T {
 "#;
     all_pass(run_with_deps(&[], source));
 }
+
+#[test]
+fn extension_save_record_still_calls_the_base_procedure() {
+    let outcomes = run_with_deps(
+        &[],
+        r###"
+table 50992 "Save Collision Row" {
+    fields { field(1; Id; Integer) {} field(2; Marker; Integer) {} }
+    keys { key(PK; Id) {} }
+}
+page 50993 "Save Collision Base" {
+    PageType = Card;
+    SourceTable = "Save Collision Row";
+    layout { area(Content) { field(Marker; Rec.Marker) {} } }
+    internal procedure SaveRecord() begin Error('base SaveRecord procedure'); end;
+}
+pageextension 50994 "Save Collision Extension" extends "Save Collision Base" {
+    actions { addlast(Processing) {
+        action(CheckExtension) { ApplicationArea = All; trigger OnAction() begin CurrPage.SaveRecord(); end; }
+    } }
+}
+codeunit 50995 T {
+    Subtype = Test;
+    [Test] procedure ExtensionCall()
+    var P: TestPage "Save Collision Base"; R: Record "Save Collision Row";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenEdit();
+        P.CheckExtension.Invoke();
+        P.Close();
+    end;
+}
+"###,
+    );
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "base SaveRecord procedure"),
+        "{outcomes:?}"
+    );
+}
