@@ -4,6 +4,7 @@
 - Amendment 4 (2026-10-30): the default mode models a database with one company (Accepted, owner, 2026-10-30); what
   "My Company" holds under the opt-in (built in parts, see the section)
 - Amendment 3 (2026-10-29, revised the same day): probes Q1 and Q1b landed. Accepted under this ADR's own rule (A2, "a later amendment replaces the refusals a to d with that order"), for the part the probes pin
+- Amendment 9 (2026-11-12): test data from several companies of one backup. Accepted (owner 2026-11-12) in direction; text to be confirmed. It replaces decision 5 and step 2 of decision 3 for a run with test data
 - Date: 2026-10-19 (accepted by the owner, 2026-10-19, with the `--companies` flag); amendment 1 2026-10-19
 - Amends: ADR-013 decision 5 (items 1 and 2) and its section "Install baseline and Global Triggers as built"
 - Amendment 1 (Accepted by the owner 2026-10-19, section "Amendment 1" below) replaces the object-order rule of decision 3 and decision 8 with
@@ -1200,3 +1201,193 @@ none of which can change the database between the orders:
 `al-testrun/tests/suite/install_order_independent.rs`: shapes 1 and 2 with five interacting apps (more than amendment 7 tries), shape 3 with two,
 in the install baseline and as apps under test; the counter-shapes (the setup table written by install code, a logger that
 writes a row) stay refused with the table named.
+
+## Amendment 9 (2026-11-12): test data from several companies of one backup
+
+- Status: Accepted (owner 2026-11-12)
+- Changes: decision 2 (how companies are declared), decision 5 and the "With test data" rule of amendment 4 (backup
+  rows of another company), step 2 of decision 3 (dependency apps in another company). Cross-references: ADR-020 and
+  the test data row of ADR-027.
+
+### Context
+
+A test-data backup can hold several companies. Until now the run loaded the rows of one of them, the session company.
+A table of another company that holds rows in the backup was refused (ADR-020, decision 5, amendment 4). Tests that
+read a second company of a customer database could not run.
+
+An outside pull request ("test-data: Support cross-company reads from selected backups", al-runner pull request 7864)
+builds most of the reading side. It was opened without ADR text. This amendment is that text.
+
+Owner decision (2026-11-12): support it. "I see no reason to refuse this."
+
+### Decision
+
+**The run behaves like a database that holds exactly the selected companies.** Each selected company has the rows the
+backup holds for it. A company of the backup that was not selected does not exist for the run.
+
+1. **One company list.** A repeated `--test-data-company NAME` fills the company list of decision 2. The list still has
+   one owner (`al_host::Identity::companies`). There is no second list for "companies with backup rows".
+   - The first `--test-data-company` is the session company, as today. The others follow in the order given.
+   - One `--test-data-company`, or none, is the default mode of decision 2. Nothing changes there.
+   - Two or more are the same as `--companies` with those names in that order.
+   - With test data, every company on the list gets its backup rows, whichever option declared it. So
+     `--companies "A,B"` on a backup that holds A and B now reads B's rows from the backup.
+   - `--companies all` with test data selects every company of the backup: the session company first, then the others
+     in the key order of the backup's Company table (unchanged from amendment 2).
+
+2. **Usage errors, before anything runs.**
+   - A name the backup does not hold. The message lists the companies of the backup, as the message for one wrong
+     name does today. This holds for both options when the run has test data.
+   - A name that selects the same company twice. Names are compared as the backup lookup compares them (case is
+     ignored; a prefix that resolves to an already selected company counts as a repeat).
+   - A list `--companies NAME,...` given together with a repeated `--test-data-company`, when the two do not name the
+     same companies in the same order.
+   - `--companies all` together with a repeated `--test-data-company`. One asks for every company, the other for a
+     selection.
+   - A repeated `--test-data-company` with `--no-test-data` (already an error for one), or with `--company-data
+     package`.
+
+   A run without test data keeps `--companies` exactly as it is (amendments 2, 4 and 5). The corpus run is such a run.
+
+3. **The Company table holds one row per selected company, and no other row.** The rows come from the backup's Company
+   table, as the session company's row does today (ADR-020). Under the opt-in the list is complete (decision 4, last
+   paragraph), so a scan, a count and a `Get` are answered from it.
+   - A company of the backup that was not selected is answered as missing, the same way a name that is not on the
+     declared list is answered today. `ChangeCompany` to it fails as it does for a company that does not exist.
+   - In the default mode (one selected company) items a and b of decision 4 stay. A test that looks for another
+     company is refused, as today.
+
+4. **Rows of a selected company.** Every per-company table is answered in every selected company, on the same terms as
+   in the session company:
+   - The table is read from the backup on first touch, per company. A company nothing touches costs nothing.
+   - Reads, inserts, modifies, renames and deletes work as in the session company. The first write copies the table
+     of that company into the store (ADR-020, "No baseline copy"). Rollback, the reset per test codeunit and
+     `Checkpoint` restore need no special case.
+   - Shared tables (`DataPerCompany = false`) are read once and are the same in every company.
+   - This replaces decision 5 and the "With test data" rule of amendment 4 for selected companies.
+
+5. **What is still refused.** Every refusal that holds in the session company holds in each selected company, per
+   company and table:
+   - a table whose column shapes are not measured (ADR-027, test data row);
+   - a table whose rows the run does not know (`Engine::unseeded`, decision 6). The outside pull request switched this
+     check off for selected companies. It stays on;
+   - a platform table the loader does not load (ADR-020).
+
+   Two cases need rows of every selected company, not only the session company:
+   - **A rename in a shared table that other companies refer to.** The existing check finds the companies that hold
+     referring rows. It must also see rows that are still only in the backup, in every selected company. Otherwise
+     those rows keep the old key.
+   - **Deleting a company.** Its rows are gone, backup rows included. A company created again with the same name
+     starts empty. A rollback of the delete brings the backup rows back. Renaming a selected company keeps its rows
+     under the new name. Until one of these is built, that operation on a selected company is refused with the company
+     named. It is never answered from rows that should be gone.
+
+6. **Install code, per selected company.** The dependency apps' per-company install code now runs in every selected
+   company. This replaces "session company only" in step 2 of decision 3 when the run has test data. The order follows
+   what is already pinned (facts 2 to 4, amendment 1 A3 and A4, amendments 6 and 7):
+   - one app at a time, in the order of amendments 6 and 7;
+   - inside one app: its per-company part in each selected company, in list order (session company first), then its
+     per-database part once;
+   - SingleInstance state starts again in each company and in the per-database part;
+   - Company Triggers are raised in each selected company to every installed app's subscribers. This ends item 1 of
+     "Decided without owner review (2026-10-29)" for selected companies: the tables "System Initialization" reads
+     there are now answered.
+
+   Install code runs on top of the backup rows and may change them, in every selected company (ADR-020, amendment of
+   2026-10-15).
+
+   **`Company-Initialize` stays in the session company** (step 3). The owner decision names the dependency apps'
+   install code only. The corpus pins that "My Company" of the demo database holds no General Ledger Setup, Sales &
+   Receivables Setup or Company Information row (`record/BfInstallTests.al`, amendment 4), and `Company-Initialize`
+   would insert them.
+
+   **Condition.** The same corpus file counts rows in "My Company" (amendment 1 fact 2: 2 Report Selections, 0 or 1
+   No. Series, 1 Job Queue Entry). A run with the demo backup and both companies selected must give exactly those
+   counts after the install baseline. If the dependency apps' install code changes them, the result goes back to the
+   owner before the code merges.
+
+7. **Cache keys.** Each of these already has a company or a company list in its key, or gets one:
+   - the baseline cache key: the resolved company list (already there, amendment 2);
+   - the identity of the opened backup and the run-input identity: the selected companies, in order;
+   - the cache of raw rows and the cache of built tables: company and table for a per-company table; a shared table
+     has one entry whatever the company;
+   - the load summary (ADR-020, "Counted exclusions"): one outcome per company and table. A shared table is counted
+     once. An excluded table is reported with its company.
+
+   A key is built from the names themselves, in a readable form.
+
+8. **Only the selected companies are read (owner requirement, 2026-11-12).** This is the goal of the feature. A backup
+   can hold 300 companies. A run reads and keeps in memory only the rows of the companies it selected.
+   - Rows of a company that was not selected are not decoded, not cached and not counted in the load summary.
+   - Load time and memory grow with the selected companies and the tables the run touches there. They do not grow
+     with the number of companies in the backup.
+   - The selection is applied when the backup is opened and when a table is loaded. The loader resolves the selected
+     companies once and only ever asks for their tables. A read does not compare against the companies of the file.
+     The outside pull request checks every company of the file on each read; that check moves to load time.
+   - Listing the companies of the backup (for `--companies all` and for the usage error message) reads the backup's
+     Company table only, never a company's data tables.
+   - `--companies all` on a large backup selects every company. That is the caller's choice; rows are still read only
+     on first touch.
+
+9. **Speed.** A run with one company must do exactly the work it does today.
+   - With one selected company the read path takes the session company directly: no list is copied, no key string is
+     built per call, and no extra lookup happens per read.
+   - The work ratchet (`metrics/<major>/work.json`) and the perf budgets must show no change for single-company runs.
+     The pull request reports both before and after.
+   - A second company costs only what the run touches there: its tables on first touch, and the install code per
+     company.
+
+### Tests required
+
+All of these are red before the code and green after it. The fixture is the two-company backup the loader tests
+already use (companies "TP" and "ProbeCo", `al-bcdb-std/tests/provider.rs`).
+
+1. **End to end, two companies.** A run with both companies selected reads a row of the second company through
+   `ChangeCompany`, and reads a different row of the same table in the session company. The Company table holds
+   exactly the two rows.
+2. **One company keeps today's refusals.** One `--test-data-company` on the same backup: a Company table scan and a
+   `ChangeCompany` to the other company are refused with today's reasons.
+3. **A company that was not selected.** On a backup with a third company, or with one of two selected under
+   `--companies`, the unselected name is answered as missing.
+4. **Writes in another company.** Insert, modify and delete in the second company. The session company's rows of the
+   same table do not change. A rollback and the reset between test codeunits bring the backup rows back.
+5. **Shared-table rename.** A rename of a shared parent row that only backup rows of the second company refer to is
+   handled as the same rename is today when the referring rows are in the store.
+6. **Delete and re-create a company.** After the delete the company's rows are gone. A company created again with the
+   same name is empty. After a rollback of the delete the backup rows are back. Until built: the refusal, with the
+   company named.
+7. **Options.** `--companies` with the same list as the repeated option is accepted; a different list or order, `all`
+   with a repeated option, a repeated name, and a name the backup does not hold are usage errors. The session company
+   is the first name.
+8. **Install code.** A dependency app with per-company install code writes one row in each selected company, session
+   company first, then its per-database part once. The demo backup with both companies gives the pinned counts of
+   decision item 6.
+9. **Unknown rows stay refused.** A table in `Engine::unseeded` is refused in the second company too.
+10. **Load summary.** A table that loads in the session company and fails in the second company is reported with the
+    second company's name.
+11. **Single-company work.** The work counts of a single-company run with test data are the same before and after.
+12. **Unselected rows are never read.** On a fixture backup with at least three companies and two selected, a provider
+    that records every table it reads shows no read of a table of the third company, across the whole run: install
+    baseline, tests and the load summary. The summary's row counts hold only selected companies.
+13. **Memory and load time, measured.** On a multi-company fixture, the pull request reports peak memory and load time
+    with one selected company and with two. The run with one selected company matches today's numbers. The run with
+    two adds only the second company's touched tables. Adding more unselected companies to the fixture changes neither
+    number.
+
+### Decided (owner, 2026-11-12)
+
+1. `Company-Initialize` does not run in the other selected companies. In BC it runs when a company is created or
+   initialized, not when a session starts, and a company restored from a backup already holds the result of its own
+   initialization. The session company keeps today's behavior (step 3, pinned by `record/BfInstallTests.al`). Probe to
+   queue: when BC raises Company-Initialize (company creation, session start, server start), measured on BC.
+2. `--companies NAME` with test data naming a company the backup does not hold is a usage error, reported when the run
+   starts.
+
+### Consequences
+
+- Decision 5, the "With test data" rule of amendment 4 and option 2 under "Options considered" no longer hold for a
+  run with test data. They stay for a run without test data.
+- ADR-020's rule "a record in another company on a table the backup holds rows for is refused" ends for selected
+  companies. ADR-027's test data row changes from "only the demo company" to "only the selected companies".
+- `docs/manual/test-data.md` describes the repeated option and that the Company table lists only the selected
+  companies.
