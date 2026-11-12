@@ -2525,3 +2525,8 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_literal_field_caption_reuses_the_resolution_on_repeated_reads() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/literal-field-caption.al")));
+}
