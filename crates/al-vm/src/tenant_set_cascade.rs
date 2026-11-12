@@ -25,14 +25,12 @@ impl Session {
     /// stored Tenant Permission Set table, `run` false, no MarkedOnly, and exactly one filter, on Role ID, in filter group 0
     /// (PermissionImportExportTests.Codeunit.al:195, :202).
     pub(crate) fn tenant_set_cascade_shape(&self, t: &TableDef, rec: &Rec, run: bool, via_recordref: bool) -> bool {
-        let r = rec.borrow();
-        let one_role_filter = matches!(r.filters.as_slice(), [f] if f.field == pos(t, F_ROLE_ID) && f.group == 0);
-        self.table_id(t) == Some(TENANT_PERMISSION_SET)
-            && !r.temporary
-            && !run
-            && !via_recordref
-            && !r.marked_only
-            && one_role_filter
+        // The table first: `pos` of the Role ID field holds only on this table.
+        self.table_id(t) == Some(TENANT_PERMISSION_SET) && {
+            let r = rec.borrow();
+            let one_role_filter = matches!(r.filters.as_slice(), [f] if f.field == pos(t, F_ROLE_ID) && f.group == 0);
+            !r.temporary && !run && !via_recordref && !r.marked_only && one_role_filter
+        }
     }
 
     /// After the set row `rec` is deleted by a DeleteAll of [`Self::tenant_set_cascade_shape`]: when its App ID is zero, its
