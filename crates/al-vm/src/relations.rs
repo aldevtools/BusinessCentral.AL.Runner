@@ -359,7 +359,7 @@ impl Session {
     /// filter in group 0 (RelationWhereFlowFilter.al:426-441 accepts a match, :444-459
     /// rejects a mismatch; BC 27, 28, 29). The outer None preserves the existing
     /// buffer-based comparison for a field assigned without a filter. The neutral
-    /// group-two-enum-flowfilter-relation repro measures one exact enum in group 2.
+    /// record/filters/TestRecordEnumFlowFilterGroup.al (corpus PR 1341, issue 7877) measures one exact enum in group 2.
     fn source_relation_flowfilter(
         &self,
         rec: &Rec,
