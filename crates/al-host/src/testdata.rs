@@ -177,15 +177,31 @@ pub struct TestSequence {
     pub current: i64,
 }
 
-/// Rows of a restored company, read table by table on demand. One provider is shared by every test
-/// thread; [`TestData::read`] makes sure it is asked for a table once.
+/// Rows of restored companies, read table by table on demand. One provider is shared by every test
+/// thread; [`TestData::read_for_company`] caches once per company and table.
 pub trait TableProvider: Send + Sync {
     /// The restored company's name as AL sees it (`CompanyName()`).
     fn company(&self) -> &str;
+    /// The complete company list in the source.
+    fn companies(&self) -> Vec<String> {
+        vec![self.company().to_string()]
+    }
+    /// The exact companies this provider explicitly makes available, when selection is bounded.
+    fn known_companies(&self) -> Option<Vec<String>> {
+        None
+    }
     /// A short name of the source for the summary line (the file name).
     fn source(&self) -> String;
     /// Reads the rows of the table from the source.
     fn read(&self, table: &TableRequest) -> Result<Arc<TableRows>, TableError>;
+    /// Reads a per-company table from a selected company. Shared tables use [`read`](Self::read).
+    fn read_for_company(&self, company: &str, table: &TableRequest) -> Result<Arc<TableRows>, TableError> {
+        if !table.per_company || company == self.company() {
+            self.read(table)
+        } else {
+            Err(TableError::Absent)
+        }
+    }
     /// What opening the source and reading from it cost so far, for `--timings`. Additive: a
     /// provider that does not measure answers `None`.
     fn cost(&self) -> Option<String> {
@@ -212,11 +228,6 @@ pub trait TableProvider: Send + Sync {
     fn last_row_version(&self) -> Option<u64> {
         None
     }
-    /// The names of every company the database holds, as AL spells them, in the key order of its Company table
-    /// (`--companies all`, ADR-046 decision 2). Additive: a provider that knows one company answers it.
-    fn companies(&self) -> Vec<String> {
-        vec![self.company().to_string()]
-    }
     /// Whether the database holds rows of `table` in `company` (as AL spells it), another company than [`company`]
     /// (ADR-046 amendment 4): `Some(false)` when it holds none there. `None`: not known. Additive.
     ///
@@ -235,8 +246,8 @@ type Read = Result<Arc<TableRows>, TableError>;
 pub struct TestData {
     pub provider: Arc<dyn TableProvider>,
     pub stats: Arc<LoadStats>,
-    /// One slot per table. A thread that finds the slot empty reads the table; one that arrives
-    /// meanwhile waits for it, and reads of other tables go on in parallel.
+    /// One slot per company/table pair. A thread that finds the slot empty reads the table; one that
+    /// arrives meanwhile waits for it, and reads of other tables go on in parallel.
     reads: Arc<Mutex<HashMap<String, Arc<OnceLock<Read>>>>>,
     /// [`TableProvider::holds_rows_in`] by company and table, asked once.
     elsewhere: Arc<Mutex<HashMap<String, Option<bool>>>>,
@@ -263,15 +274,34 @@ impl TestData {
         }
     }
 
-    /// The rows of a table. The provider reads it once, whichever thread asks first; every later
-    /// asker, on any thread, gets the same rows (or the same error).
+    /// The rows of a table in the primary company.
     pub fn read(&self, table: &TableRequest) -> Read {
-        let key = format!("{}|{:?}|{}", table.name.to_lowercase(), table.app_id, table.per_company);
+        self.read_for_company(self.provider.company(), table)
+    }
+
+    /// The rows of a table for a company the source makes available. Each company/table pair is
+    /// read once, whichever thread asks first.
+    pub fn read_for_company(&self, company: &str, table: &TableRequest) -> Read {
+        let company_key = if table.per_company {
+            company.to_lowercase()
+        } else {
+            String::new()
+        };
+        let app_id = match table.app_id.as_deref() {
+            Some(id) => format!("some:{id}"),
+            None => "none".into(),
+        };
+        let key = format!(
+            "{company_key}|{}|{app_id}|{}",
+            table.name.to_lowercase(),
+            table.per_company
+        );
         let slot = {
             let mut g = self.reads.lock().unwrap_or_else(|e| e.into_inner());
             g.entry(key).or_default().clone()
         };
-        slot.get_or_init(|| self.provider.read(table)).clone()
+        slot.get_or_init(|| self.provider.read_for_company(company, table))
+            .clone()
     }
 
     /// [`TableProvider::holds_rows_in`], asked of the provider once per company and table.
@@ -329,14 +359,14 @@ pub enum Refusal {
 
 #[derive(Default)]
 struct Inner {
-    /// By table object index: the outcome of its first touch.
-    tables: BTreeMap<u32, (String, Outcome)>,
+    /// By company (empty for shared tables) and table object: the first outcome.
+    tables: BTreeMap<(String, u32), (String, String, Outcome)>,
     /// The largest `timestamp` any loaded row carried.
     max_row_version: u64,
 }
 
-/// The counts behind the summary line. Shared by every thread of a run; a table is recorded once,
-/// by the thread that touches it first.
+/// The counts behind the summary line. Shared by every thread of a run; a company/table pair is
+/// recorded once, while shared tables use an empty company key.
 #[derive(Default)]
 pub struct LoadStats {
     inner: Mutex<Inner>,
@@ -346,21 +376,28 @@ impl LoadStats {
     /// Records the first touch of a table. Returns false (and records nothing) when another
     /// thread, or another engine of the same program, recorded it already.
     pub fn record(&self, object: u32, name: &str, outcome: Outcome) -> bool {
+        self.record_for_company("", object, name, outcome)
+    }
+
+    /// Records a table touch in `company`. Use an empty company for a shared table.
+    pub fn record_for_company(&self, company: &str, object: u32, name: &str, outcome: Outcome) -> bool {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if g.tables.contains_key(&object) {
+        let key = (company.to_lowercase(), object);
+        if g.tables.contains_key(&key) {
             return false;
         }
-        g.tables.insert(object, (name.to_string(), outcome));
+        g.tables.insert(key, (company.to_string(), name.to_string(), outcome));
         true
     }
 
-    /// Whether a table's first touch was recorded.
+    /// Whether any company's first touch of this table was recorded.
     pub fn seen(&self, object: u32) -> bool {
         self.inner
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .tables
-            .contains_key(&object)
+            .keys()
+            .any(|(_, id)| *id == object)
     }
 
     /// Notes the `timestamp` of a loaded row.
@@ -369,21 +406,27 @@ impl LoadStats {
         g.max_row_version = g.max_row_version.max(v);
     }
 
-    /// The outcome recorded for a table.
+    /// The first outcome recorded for this table in any company.
     pub fn outcome(&self, object: u32) -> Option<Outcome> {
         self.inner
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .tables
-            .get(&object)
-            .map(|(_, o)| o.clone())
+            .iter()
+            .find(|((_, id), _)| *id == object)
+            .map(|(_, (_, _, o))| o.clone())
     }
 
     /// The counts of the run so far.
     pub fn summary(&self) -> Summary {
         let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut s = Summary::default();
-        for (name, o) in g.tables.values() {
+        for (company, name, o) in g.tables.values() {
+            let name = if company.is_empty() {
+                name.clone()
+            } else {
+                format!("{name} in company '{company}'")
+            };
             match o {
                 Outcome::Loaded { rows, dropped } => {
                     s.tables += 1;
@@ -531,6 +574,47 @@ mod tests {
         assert_eq!(slow.asked.load(Ordering::SeqCst), 2);
     }
 
+    struct MultiCompany;
+
+    impl TableProvider for MultiCompany {
+        fn company(&self) -> &str {
+            "Main"
+        }
+        fn companies(&self) -> Vec<String> {
+            vec!["Main".into(), "Other".into()]
+        }
+        fn source(&self) -> String {
+            "multi".into()
+        }
+        fn read(&self, table: &TableRequest) -> Read {
+            self.read_for_company("Main", table)
+        }
+        fn read_for_company(&self, company: &str, table: &TableRequest) -> Read {
+            Ok(Arc::new(TableRows {
+                columns: vec![table.name.clone()],
+                rows: vec![vec![Cell::Text(company.into())]],
+            }))
+        }
+    }
+
+    #[test]
+    fn per_company_tables_are_cached_separately() {
+        let data = TestData::new(Arc::new(MultiCompany));
+        let table = TableRequest {
+            name: "Customer".into(),
+            per_company: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            data.read_for_company("Main", &table).unwrap().rows[0][0],
+            Cell::Text("Main".into())
+        );
+        assert_eq!(
+            data.read_for_company("Other", &table).unwrap().rows[0][0],
+            Cell::Text("Other".into())
+        );
+    }
+
     #[test]
     fn a_table_is_recorded_once() {
         let s = LoadStats::default();
@@ -541,6 +625,21 @@ mod tests {
         assert!(s.record(7, "Customer", loaded(3)));
         assert!(!s.record(7, "Customer", loaded(99)), "the second thread adds nothing");
         assert_eq!(s.summary().rows, 3);
+    }
+
+    #[test]
+    fn company_tables_are_counted_separately_and_shared_tables_once() {
+        let s = LoadStats::default();
+        let loaded = |rows| Outcome::Loaded {
+            rows,
+            dropped: Dropped::default(),
+        };
+        assert!(s.record_for_company("Main", 7, "Customer", loaded(3)));
+        assert!(s.record_for_company("Other", 7, "Customer", loaded(5)));
+        assert!(!s.record_for_company("other", 7, "Customer", loaded(99)));
+        assert!(s.record_for_company("", 8, "Company", loaded(4)));
+        assert!(!s.record_for_company("", 8, "Company", loaded(99)));
+        assert_eq!(s.summary().rows, 12);
     }
 
     #[test]

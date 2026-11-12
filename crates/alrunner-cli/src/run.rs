@@ -251,7 +251,10 @@ pub fn write_file(path: &Path, text: &str) -> Result<(), String> {
 }
 
 /// With `al-runner serve`: the backup opened last, kept with the tables read from it, for the next request.
-type KeptBackup = ((PathBuf, Option<String>), TestData);
+type KeptBackup = (
+    (PathBuf, Option<String>, Vec<String>, Option<al_host::Companies>),
+    TestData,
+);
 static KEPT_BACKUP: std::sync::Mutex<Option<KeptBackup>> = std::sync::Mutex::new(None);
 static KEEP_BACKUPS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -263,7 +266,12 @@ pub fn keep_backups() {
 /// Opens a backup file.
 fn open_backup(a: &TestArgs, path: PathBuf) -> Result<(TestData, PathBuf), String> {
     if KEEP_BACKUPS.load(std::sync::atomic::Ordering::Relaxed) {
-        let key = (path.clone(), a.test_data_company.clone());
+        let key = (
+            path.clone(),
+            a.test_data_company.clone(),
+            a.additional_test_data_companies.clone(),
+            a.companies.clone(),
+        );
         if let Some((k, d)) = KEPT_BACKUP.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             if *k == key {
                 return Ok((d.clone(), path));
@@ -282,9 +290,40 @@ fn open_backup_fresh(a: &TestArgs, path: PathBuf) -> Result<(TestData, PathBuf),
     let index_dir = (!a.no_compile_cache
         && !std::env::var("ALRUNNER_NO_COMPILE_CACHE").is_ok_and(|v| !v.is_empty() && v != "0"))
     .then(|| al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("backup-index"));
-    let provider = BackupProvider::open_with_index_dir(&path, a.test_data_company.as_deref(), index_dir.as_deref())
-        .map_err(|e| format!("--test-data {}: {e}", path.display()))?;
+    let all_companies = matches!(a.companies.as_ref(), Some(al_host::Companies::All));
+    let additional_companies = if !a.additional_test_data_companies.is_empty() {
+        a.additional_test_data_companies.clone()
+    } else {
+        match &a.companies {
+            Some(al_host::Companies::List(names)) => names.iter().skip(1).cloned().collect(),
+            _ => Vec::new(),
+        }
+    };
+    let provider = BackupProvider::open_with_index_dir_company_selection(
+        &path,
+        a.test_data_company.as_deref(),
+        &additional_companies,
+        all_companies,
+        index_dir.as_deref(),
+    )
+    .map_err(|e| format!("--test-data {}: {e}", path.display()))?;
+    if let Some(al_host::Companies::List(names)) = &a.companies {
+        provider
+            .validate_company_selection(names)
+            .map_err(|e| format!("--test-data {}: {e}", path.display()))?;
+    }
     Ok((TestData::new(Arc::new(provider)), path))
+}
+
+fn resolved_companies(a: &TestArgs, data: Option<&TestData>) -> al_host::Companies {
+    match (data, &a.companies) {
+        (Some(data), Some(al_host::Companies::List(_) | al_host::Companies::All)) => al_host::Companies::List(
+            data.provider
+                .known_companies()
+                .unwrap_or_else(|| vec![data.provider.company().to_string()]),
+        ),
+        _ => a.companies.clone().unwrap_or_default(),
+    }
 }
 
 /// `--company-data package`: the artifact's RapidStart package as the company data (the Legacy lane's company: a fresh
@@ -1559,7 +1598,7 @@ fn test_inner(
     };
     // ADR-046 decision 2: `--companies`. The session company is chosen as without it (the restored company, the recipe
     // lane's, or AL Runner's); a list must name it first.
-    let companies = a.companies.clone().unwrap_or_default();
+    let companies = resolved_companies(a, test_data.as_ref().map(|(data, _)| data));
     let session_company = match &test_data {
         Some((d, _)) => d.provider.company().to_string(),
         None => a
@@ -2645,6 +2684,35 @@ fn explain(
 #[cfg(test)]
 mod country_tests {
     use super::*;
+
+    #[test]
+    fn backup_company_options_resolve_before_the_runtime_list_is_set() {
+        let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("al-bcdb")
+            .join("tests")
+            .join("fixtures")
+            .join("typeprobe.bak");
+        let mut a = TestArgs {
+            no_compile_cache: true,
+            test_data_company: Some("T".into()),
+            companies: Some(al_host::Companies::List(vec!["T".into(), "P".into()])),
+            ..Default::default()
+        };
+        let (data, _) = open_backup_fresh(&a, file.clone()).unwrap();
+        assert_eq!(
+            resolved_companies(&a, Some(&data)),
+            al_host::Companies::List(vec!["TP".into(), "ProbeCo".into()])
+        );
+        a.companies = Some(al_host::Companies::All);
+        let (data, _) = open_backup_fresh(&a, file.clone()).unwrap();
+        assert_eq!(
+            resolved_companies(&a, Some(&data)),
+            al_host::Companies::List(vec!["TP".into(), "ProbeCo".into()])
+        );
+        a.companies = Some(al_host::Companies::List(vec!["TP".into(), "Missing".into()]));
+        assert!(open_backup_fresh(&a, file).unwrap_err().contains("matches no company"));
+    }
 
     fn args(country: Option<&str>, no_test_data: bool) -> TestArgs {
         TestArgs {

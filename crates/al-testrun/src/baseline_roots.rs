@@ -31,6 +31,11 @@ pub(crate) struct RootRun<'a> {
 impl RootRun<'_> {
     /// Runs root `k`.
     pub(crate) fn run_root(&mut self, session: &mut Session, k: usize) {
+        let company_name = self.company_name.clone();
+        self.run_root_in_company(session, k, &company_name);
+    }
+
+    fn run_root_in_company(&mut self, session: &mut Session, k: usize, company_name: &str) {
         let objs = &self.lowered.program.objects;
         let (oi, ri, keep_prefix, no_company) = self.roots[k];
         let is_step = self.company_roots.contains(&k);
@@ -86,7 +91,7 @@ impl RootRun<'_> {
             Err(Signal::Error(e)) => Some(format!("failed with an error: {}", e.message)),
             Err(_) => None,
         };
-        session.set_company(&self.company_name);
+        session.set_company(company_name);
         match why {
             None => {
                 self.ran += 1;
@@ -122,6 +127,71 @@ impl RootRun<'_> {
             }
         }
     }
+
+    /// ADR-046 amendment 9: backup-backed dependency installs visit selected companies, then the database part.
+    pub(crate) fn run_app(&mut self, session: &mut Session, roots: &[usize]) {
+        let company_roots: Vec<_> = roots.iter().copied().filter(|&k| !self.roots[k].3).collect();
+        let database_roots: Vec<_> = roots.iter().copied().filter(|&k| self.roots[k].3).collect();
+        if company_roots.is_empty() || session.engine.test_data.is_none() || session.companies().len() < 2 {
+            for k in roots {
+                self.run_root(session, *k);
+            }
+            return;
+        }
+
+        let companies = if session.companies().is_empty() {
+            vec![self.company_name.clone()]
+        } else {
+            session.companies().to_vec()
+        };
+        for company in companies {
+            session.reset_single_instances();
+            session.set_company(&company);
+            match crate::install::company_open(self.lowered, session, true) {
+                Ok(()) => {
+                    session.commit_transaction();
+                    for &k in &company_roots {
+                        self.run_root_in_company(session, k, &company);
+                    }
+                }
+                Err(why) => {
+                    session.rollback_transaction();
+                    let mut tables = BTreeSet::new();
+                    let not_installed = session.apps_not_installed().cloned().unwrap_or_default();
+                    for (oi, ri) in
+                        crate::install::company_open_subscribers(self.lowered, &session.engine.events, |oi| {
+                            !not_installed.contains(&self.lowered.program.objects[oi].app)
+                        })
+                    {
+                        tables.extend(crate::baseline::tables_written_or_loaded(self.lowered, oi, ri));
+                    }
+                    for &k in &company_roots {
+                        let (oi, ri, keep_prefix, _) = self.roots[k];
+                        tables.extend(crate::baseline::tables_written_or_loaded(self.lowered, oi, ri));
+                        let label = format!(
+                            "{}.{}",
+                            self.lowered.program.objects[oi].name, self.lowered.program.objects[oi].routines[ri].name
+                        );
+                        self.notes.push(format!(
+                            "{label} did not run to its end: Company Triggers before it could not run: {why}"
+                        ));
+                        self.stopped.push((
+                            crate::baseline::tables_written_or_loaded(self.lowered, oi, ri),
+                            keep_prefix,
+                        ));
+                    }
+                    self.stopped.push((tables, false));
+                }
+            }
+        }
+        if !database_roots.is_empty() {
+            session.reset_single_instances();
+            for k in database_roots {
+                self.run_root(session, k);
+            }
+        }
+        session.set_company(&self.company_name);
+    }
 }
 
 /// The partner apps' roots `roots[from..to]`, for `install_orders::install_partner_apps`.
@@ -151,11 +221,10 @@ impl crate::install_orders::AppInstalls for DependencyInstalls<'_, '_> {
     }
 
     fn install(&mut self, session: &mut Session, app: u32) {
-        for k in self.from..self.to {
-            if self.run.lowered.program.objects[self.run.roots[k].0].app == app {
-                self.run.run_root(session, k);
-            }
-        }
+        let roots: Vec<_> = (self.from..self.to)
+            .filter(|&k| self.run.lowered.program.objects[self.run.roots[k].0].app == app)
+            .collect();
+        self.run.run_app(session, &roots);
     }
 
     fn refuse(&mut self, tables: BTreeSet<u32>, why: String) {

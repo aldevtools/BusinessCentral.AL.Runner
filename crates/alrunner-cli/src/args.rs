@@ -214,8 +214,9 @@ pub struct TestArgs {
     pub no_test_data: bool,
     /// The `.bak` or `.bacpac` named; else the cached artifact for the selected BC build.
     pub test_data_path: Option<PathBuf>,
-    /// `--test-data-company NAME`: which company of the backup (default: the demo company).
+    /// First `--test-data-company NAME`: the test company. Repeats make additional companies available.
     pub test_data_company: Option<String>,
+    pub additional_test_data_companies: Vec<String>,
     /// `--company-data package` (or `--package PATH`): build the company from the artifact's RapidStart package instead of
     /// restoring the backup's company, as Microsoft's Legacy test lane does (Company-Initialize, then the package).
     pub company_package: bool,
@@ -1094,8 +1095,8 @@ TEST DATA
     --test-data [PATH]   Name a backup (.bak or .bacpac), or insist on test data: a missing
                          backup then stops the run. Write `--test-data=PATH` or end the name in
                          .bak/.bacpac: a bare name after --test-data is an APP.
-    --test-data-company NAME  The company to restore (exact name or prefix). Default: the only
-                         company, else 'CRONUS International Ltd.'.
+    --test-data-company NAME  The company to restore (exact name or prefix). Repeat to include
+                         additional companies from the same backup for cross-company reads.
     The summary says what was loaded and every exclusion: tables the runtime could not rebuild,
     tables the reader failed on (with its text), and columns left out.
     --company-data bak|package|demotool|contoso-setup|contoso-all  `bak` (default) restores the CRONUS company of the backup. `package`
@@ -1298,7 +1299,12 @@ fn parse_warm(mut it: impl Iterator<Item = String>) -> Result<Command, String> {
             "--country" => a.country = Some(al_deps::artifact::normalize_country(&text()?)?),
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
             "--no-download" => a.no_download = true,
-            "--test-data-company" => a.test_data_company = Some(text()?),
+            "--test-data-company" => {
+                let company = text()?;
+                if a.test_data_company.replace(company).is_some() {
+                    return Err("--test-data-company may be given once with `warm`".into());
+                }
+            }
             f if !f.starts_with("--") && is_backup(f) => a.test_data_path = Some(PathBuf::from(f)),
             f => {
                 return Err(format!(
@@ -1686,7 +1692,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             }
             "--test-timeout-secs" | "--test-timeout" => a.test_timeout_secs = Some(number(&flag, &text()?)? as u64),
             "--skip-after-timeout" => a.skip_after_timeout = true,
-            "--test-data-company" => a.test_data_company = Some(text()?),
+            "--test-data-company" => {
+                let company = text()?;
+                if a.test_data_company.is_none() {
+                    a.test_data_company = Some(company);
+                } else {
+                    a.additional_test_data_companies.push(company);
+                }
+            }
             "--country" => {
                 let v = text()?;
                 if v.contains(',') {
@@ -1793,39 +1806,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     if a.no_test_data && a.test_data_asked_for() {
         return Err("--test-data and --no-test-data cannot be combined".into());
     }
-    if a.no_test_data && a.test_data_company.is_some() {
-        return Err("--test-data-company cannot be combined with --no-test-data".into());
-    }
+    let has_test_data_company = validate_test_data_company_selection(&mut a)?;
     if a.parity && a.disabled_tests_dir.is_none() {
         return Err("--parity needs --disabled-tests DIR".into());
     }
-    if a.company_package && !al_deps::artifact::is_w1(a.country()) {
-        return Err("--company-data package supports only the w1 country (its RapidStart package comes from the platform artifact)".into());
-    }
-    if a.company_package && a.no_test_data {
-        return Err("--company-data package cannot be combined with --no-test-data".into());
-    }
-    if let Some(e) = company_build_off(&a) {
-        return Err(e);
-    }
-    if a.company_demotool {
-        if !al_deps::artifact::is_w1(a.country()) {
-            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
-        }
-        if a.no_test_data || a.test_data_asked_for() || a.test_data_company.is_some() {
-            return Err("--company-data demotool builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
-        }
-    }
-    if a.company_contoso.is_some() {
-        if !al_deps::artifact::is_w1(a.country()) {
-            return Err(
-                "--company-data contoso-setup|contoso-all supports only the w1 country (the W1 Contoso app)".into(),
-            );
-        }
-        if a.no_test_data || a.test_data_asked_for() || a.test_data_company.is_some() {
-            return Err("--company-data contoso-setup|contoso-all builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
-        }
-    }
+    validate_company_data(&a, has_test_data_company)?;
     if a.bcapps_dir.is_some() && !a.recipe && !a.affected_from.iter().any(|s| s == "microsoft") {
         return Err("--bcapps needs --recipe microsoft or the microsoft test source".into());
     }
@@ -1838,7 +1823,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             (a.no_test_data, "--no-test-data"),
             (a.disabled_tests_dir.is_some(), "--disabled-tests"),
             (a.parity, "--parity"),
-            (a.test_data_company.is_some(), "--test-data-company"),
+            (has_test_data_company, "--test-data-company"),
         ] {
             if given {
                 return Err(format!(
@@ -2086,6 +2071,87 @@ pub fn company_build_off(a: &TestArgs) -> Option<String> {
     })
 }
 
+fn validate_test_data_company_selection(a: &mut TestArgs) -> Result<bool, String> {
+    let has_selection = a.test_data_company.is_some() || !a.additional_test_data_companies.is_empty();
+    if a.no_test_data && has_selection {
+        return Err("--test-data-company cannot be combined with --no-test-data".into());
+    }
+    if a.company_package && !a.additional_test_data_companies.is_empty() {
+        return Err("repeated --test-data-company needs a database backup, not --company-data package".into());
+    }
+    if a.additional_test_data_companies.is_empty() {
+        return Ok(has_selection);
+    }
+
+    let mut selected = Vec::with_capacity(1 + a.additional_test_data_companies.len());
+    if let Some(company) = &a.test_data_company {
+        selected.push(company.clone());
+    }
+    for company in &a.additional_test_data_companies {
+        if selected.iter().any(|name| name.eq_ignore_ascii_case(company)) {
+            return Err(format!("--test-data-company `{company}` is selected more than once"));
+        }
+        selected.push(company.clone());
+    }
+    match a.companies.clone() {
+        Some(al_host::Companies::All) => {
+            return Err(
+                "--companies all cannot be combined with a repeated --test-data-company: the company selection conflicts"
+                    .into(),
+            );
+        }
+        Some(al_host::Companies::List(companies)) => {
+            if companies.len() != selected.len()
+                || !companies
+                    .iter()
+                    .zip(&selected)
+                    .all(|(company, test_data)| same_company_argument(company, test_data))
+            {
+                return Err("--companies and --test-data-company company selections must match in order".into());
+            }
+        }
+        None | Some(al_host::Companies::One) => a.companies = Some(al_host::Companies::List(selected)),
+    }
+    Ok(has_selection)
+}
+
+fn validate_company_data(a: &TestArgs, has_test_data_company: bool) -> Result<(), String> {
+    if a.company_package && !al_deps::artifact::is_w1(a.country()) {
+        return Err("--company-data package supports only the w1 country (its RapidStart package comes from the platform artifact)".into());
+    }
+    if a.company_package && a.no_test_data {
+        return Err("--company-data package cannot be combined with --no-test-data".into());
+    }
+    if let Some(e) = company_build_off(a) {
+        return Err(e);
+    }
+    if a.company_demotool {
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err("--company-data demotool supports only the w1 country (the DemoTool's W1 layer)".into());
+        }
+        if a.no_test_data || a.test_data_asked_for() || has_test_data_company {
+            return Err("--company-data demotool builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
+        }
+    }
+    if a.company_contoso.is_some() {
+        if !al_deps::artifact::is_w1(a.country()) {
+            return Err(
+                "--company-data contoso-setup|contoso-all supports only the w1 country (the W1 Contoso app)".into(),
+            );
+        }
+        if a.no_test_data || a.test_data_asked_for() || has_test_data_company {
+            return Err("--company-data contoso-setup|contoso-all builds the company itself: --test-data, --test-data-company and --no-test-data cannot be combined with it".into());
+        }
+    }
+    Ok(())
+}
+
+fn same_company_argument(left: &str, right: &str) -> bool {
+    let left = left.to_uppercase();
+    let right = right.to_uppercase();
+    left == right || left.starts_with(&right) || right.starts_with(&left)
+}
+
 /// The checks of `al-runner test-microsoft` (ADR-052 section 2). The recipe is always on; the options it decides are
 /// refused, as `--recipe microsoft` refuses them.
 fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
@@ -2100,7 +2166,10 @@ fn test_microsoft_args(mut a: TestArgs) -> Result<Command, String> {
         (a.no_test_data, "--no-test-data"),
         (a.disabled_tests_dir.is_some(), "--disabled-tests"),
         (a.parity, "--parity"),
-        (a.test_data_company.is_some(), "--test-data-company"),
+        (
+            a.test_data_company.is_some() || !a.additional_test_data_companies.is_empty(),
+            "--test-data-company",
+        ),
         (a.explain.is_some(), "--explain"),
         (!a.impact_of.is_empty(), "--impact-of"),
         (a.impact.is_some() && !extension, "--impact (it needs an extension APP)"),
