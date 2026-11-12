@@ -1072,7 +1072,12 @@ impl Session {
                 if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
                 }
-                self.delete_row(&t, rec, run)
+                let r = self.delete_row(&t, rec, run)?;
+                // A stored Tenant Permission Set's permissions and relations go with it (`tenant_set_cascade`, assumed).
+                if self.is_tenant_set_row(&t, rec.borrow().temporary) {
+                    self.tenant_set_after_delete(&t, rec, false)?;
+                }
+                Ok(r)
             }
             RecordOp::DeleteAll => {
                 let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll);

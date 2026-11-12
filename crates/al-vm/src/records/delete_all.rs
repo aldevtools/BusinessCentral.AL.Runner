@@ -12,8 +12,6 @@ impl Session {
         cx: &al_data::AccessContext,
         run: bool,
     ) -> Result<Value, Signal> {
-        // Read first, so a DeleteAll of a trigger or subscriber this one runs does not see it.
-        let via_recordref = std::mem::take(&mut self.deleteall_through_recordref);
         // The platform takes no delete on Tenant License State (record/TestPlatformTablesWritableContracts.al:96-101).
         self.tenant_license_state_refuses(t, "delete")?;
         self.document_service_trigger_refused(t, rec, run, "DeleteAll")?;
@@ -75,9 +73,8 @@ impl Session {
         // Delete_And_DeleteAll_WithAndWithoutRunTrigger).
         // The User table has no bulk delete: the platform deletes it row by row.
         let user_rows = self.is_user_row(t, rec.borrow().temporary);
-        // A Tenant Permission Set DeleteAll in the shape Microsoft's tests show deletes row by row too: each row's permissions
-        // go with it (`tenant_set_cascade`, assumed).
-        let tenant_cascade = self.tenant_set_cascade_shape(t, rec, run, via_recordref);
+        // So does a stored Tenant Permission Set: its permissions and relations go with each row (`tenant_set_cascade`, assumed).
+        let tenant_cascade = self.is_tenant_set_row(t, rec.borrow().temporary);
         // MarkedOnly limits the rows to the marked ones, which the store's bulk delete does not know: delete row
         // by row what the scan finds (Post Inventory Cost to G/L ends its data item with
         // `MarkedOnly(true); DeleteAll()` and keeps the capacity entries it has not posted yet). Only the marked
@@ -116,7 +113,7 @@ impl Session {
                 let deleted = Rc::new(RefCell::new(st));
                 self.delete_row(t, &deleted, run)?;
                 if tenant_cascade {
-                    self.tenant_set_after_delete(t, &deleted)?;
+                    self.tenant_set_after_delete(t, &deleted, true)?;
                 }
             }
             return Ok(Value::Null);
