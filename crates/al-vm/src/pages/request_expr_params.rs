@@ -20,7 +20,8 @@ use super::*;
 type Inst = Rc<RefCell<al_builtins::value::Instance>>;
 
 /// Whether `text` has a form the probe pins: a name, an optional number index, and an optional unquoted field name; with
-/// `quoted` (a control of a report extension) the field name may also be in double quotes (W3RpExtRequestPage.al:1281).
+/// `quoted` (a control of a report extension, or one bound to a field of a global record) the field name may also be in double
+/// quotes (W3RpExtRequestPage.al:1281).
 fn pinned_shape(text: &str, quoted: bool) -> bool {
     let ident = |s: &str| {
         let mut c = s.chars();
@@ -93,7 +94,11 @@ impl Session {
         let (Some(text), Some(write)) = (c.source_text.as_deref(), c.trigger("__sourceset")) else {
             return refuse();
         };
-        if !pinned_shape(text, c.owner.is_some()) {
+        // A field of the report's own global record or of an element of its record array may be quoted too
+        // (`MySetup."Logo Position"`, `SetupArr[2]."Logo Position"`: reports/request-page/
+        // RequestPageOptionFieldOfGlobalRecord.al:514, RequestPage_FieldsOfGlobalRecord_ParametersText).
+        let quoted = c.owner.is_some() || c.var_field.is_some() || c.array_element_field.is_some();
+        if !pinned_shape(text, quoted) {
             return refuse();
         }
         Ok((text.to_string(), read, write, c.owner))

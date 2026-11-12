@@ -166,6 +166,7 @@ mod areas;
 mod background;
 mod flowfield_hidden;
 pub(crate) use background::BgWorker;
+mod choice_entry;
 mod filter;
 mod filter_enum;
 mod filter_link_numbers;

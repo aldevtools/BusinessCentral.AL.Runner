@@ -161,6 +161,7 @@ mod reportext_xapp_order;
 mod request_caption_on_init;
 mod request_close_table_code_refused;
 mod request_page_left_open;
+mod request_page_record_choice;
 mod request_parameters_bindings;
 mod request_view_stale_address;
 mod requestpage;

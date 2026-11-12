@@ -894,6 +894,7 @@ fn walk_control<V: RefVisitor>(
         prop_texts: _,
         var_field,
         var_slot: _,
+        array_element_field,
         expr_source: _,
         expr_call: _,
         array_element: _,
@@ -901,7 +902,7 @@ fn walk_control<V: RefVisitor>(
         source_text: _,
         factbox: _,
     } = c;
-    if let Some((table, field)) = var_field {
+    for (table, field) in [var_field, array_element_field].into_iter().flatten() {
         fld(v, field, TableOf::object(Some(*table)));
         obj(v, table);
     }

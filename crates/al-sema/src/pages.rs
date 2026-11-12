@@ -398,6 +398,21 @@ pub fn array_element(text: &str) -> Option<(String, String)> {
         .map(|n| (n, t.to_string()))
 }
 
+/// Text that is a field of an element of an array with a number index, `Name[2].Field` or `Name[2]."Field Name"`: the
+/// array's name and the field's.
+pub fn array_element_and_field(text: &str) -> Option<(String, String)> {
+    let t = text.trim();
+    let mut quoted = false;
+    let dot = t.char_indices().find_map(|(i, c)| {
+        if c == '"' {
+            quoted = !quoted;
+        }
+        (c == '.' && !quoted).then_some(i)
+    })?;
+    let (name, _) = array_element(&t[..dot])?;
+    Some((name, plain_name(&t[dot + 1..])?))
+}
+
 /// Text that is a single call of a member, written as plain names joined by dots and one argument list that closes at the
 /// end (`Rec.DisplayCode()`, `Names.NameOf(Rec."No.")`, `Names.Fixed()`): a control bound to it has no source field
 /// (record/X3PageControlCalls.al:142-147, al-runner issue 6368). A member access with no argument list
