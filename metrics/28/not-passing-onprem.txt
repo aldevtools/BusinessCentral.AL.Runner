@@ -195,6 +195,7 @@
 98603 RequestPage_SaveAsPdf
 98603 RequestPage_SaveAsWord
 98603 Static_SaveAsExcel
+98603 Static_SaveAsHtml_IsRefused
 98603 Static_SaveAsPdf
 98603 Static_SaveAsWord
 98660 Y21_DatabaseIndex_OwnTable

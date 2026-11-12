@@ -6,7 +6,8 @@
 //! parameters, triggers, data items, errors) and write a small valid file of the format (`files`) where BC writes its
 //! rendering. Which format a default layout gives is the grid of `grid`. The bytes are not BC's: only that the output exists,
 //! is of the right kind and is not empty is meant to match. The output carries the mark of `al_builtins::placeholder_output`,
-//! so a read of its content is refused. Each path marks its assumption (`report-pdf-placeholder`, `report-word-placeholder`,
+//! so a read of its content is refused (a read inside the PDF's pinned first bytes `%PDF-` answers:
+//! `placeholder_output::pdf_read`). Each path marks its assumption (`report-pdf-placeholder`, `report-word-placeholder`,
 //! `report-excel-placeholder`, `report-html-placeholder`), so a test that passes through it is a flagged pass.
 //! `run` is the Run/RunModal/Execute of a report that renders: it runs the Xml path and writes nothing
 //! (`report-run-without-output`).
@@ -89,23 +90,19 @@ impl Session {
             (SaveOutput::Dataset, SaveTarget::Stream(blob)) => al_builtins::stream::write_bytes(&blob, dataset),
             (SaveOutput::Dataset, SaveTarget::File(name)) => self.write_save_file(&name, dataset)?,
             (SaveOutput::Placeholder(format), target) => {
-                // The Word, Excel and Html placeholders carry the mark, so a read of their content is refused (amendment
-                // 2026-11-11). The PDF stays readable as the 2026-11-08 amendment built it: corpus cases that pass read its
-                // header (reports/TestReportSaveAsPdfContent.al, reports/layouts-saveas/ReportExtensionSaveAs.al, streams/CjWordSections.al: `%PDF-`).
-                let mark = (format != Format::Pdf)
-                    .then(|| al_builtins::placeholder_output::mark(format.name(), schema.name()));
-                match (target, mark) {
-                    (SaveTarget::Stream(blob), mark) => {
+                // Every placeholder carries the mark, so a read of its content is refused (amendment 2026-11-11; the PDF too,
+                // owner decision 2026-11-12: only a read inside the bytes the corpus pins at its start answers,
+                // `al_builtins::placeholder_output::pdf_read`).
+                let mark = al_builtins::placeholder_output::mark(format.name(), schema.name());
+                match target {
+                    SaveTarget::Stream(blob) => {
                         al_builtins::stream::write_bytes(&blob, &format.bytes());
-                        if mark.is_some() {
-                            blob.borrow_mut().render_pending = mark;
-                        }
+                        blob.borrow_mut().render_pending = Some(mark);
                     }
-                    (SaveTarget::File(name), Some(mark)) => {
+                    SaveTarget::File(name) => {
                         al_builtins::native::Ctx::fs_write_placeholder(self, &name, &format.bytes(), mark)
                             .map_err(Signal::unsupported)?;
                     }
-                    (SaveTarget::File(name), None) => self.write_save_file(&name, &format.bytes())?,
                 }
                 assume(match format {
                     Format::Pdf => Assumption::ReportPdfPlaceholder,

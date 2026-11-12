@@ -319,10 +319,23 @@ none of them yet (a later change raises them in the pinned order).
   operation is not supported for Excel Layout reports." (`ReportUnsupportedOperation`) before OnPreReport
   (CiReportRunLeads.al:236-260). That pinned error is built (for a report without OnInitReport, request page or reportextension;
   with one of them it stays refused). RDLC and Word layouts run without output as decided.
-- The content mark applies to the Word, Excel and Html placeholders, and stays when AL code opens a new OutStream on the Blob
-  (the stream writes over the first bytes and the rest stays). The PDF placeholder stays readable as the 2026-11-08 amendment
-  built it, with its exact length: corpus cases that pass read more than a pinned prefix of it (open, owner decision: see the
-  pull request).
+- The content mark applies to every placeholder, and stays when AL code opens a new OutStream on the Blob (the stream writes
+  over the first bytes and the rest stays).
+- The PDF placeholder is marked too (owner decision 2026-11-12). A read answers only while it stays inside the bytes the
+  corpus pins at the start of BC's PDF, the signature `%PDF-` (`placeholder_output::PDF_PREFIX`): `ReadText(Text, 5)` of a
+  Windows stream gives '%PDF-' (AMReportOutputTests.al:42-45, AMRdlcOutput.al:177-180, onprem AMRdlcSaveAs.al:199-202), and
+  four Byte reads, each after EOS answered No, give 37,80,68,70 (streams/CjFix.al:128-147 for CjWordSections.al
+  SectionBreaks_WordMergeDataItem_Pdf). So `EOS` before byte 5, `Read` into a Byte (or a Char on a single-byte encoding) of
+  bytes 0-4, and `ReadText(Text, Length)` on a single-byte encoding that ends by byte 5 answer, and only while the buffer
+  starts with those bytes (not a copy taken part way, not bytes AL wrote over them). Everything else is refused: a read past
+  byte 5, a line read, a UTF-8 or UTF-16 text read (the tier may decode ahead), `InStream.Length`, the exact size (the size
+  answers only against 0, as for the other placeholders), page counts, Base64 and hashes. The version after the signature is
+  not BC's ('%PDF-1.3' in ReportEventsMoreCallForms.al:93, the placeholder's '1.4').
+- Five corpus cases had passed on the readable placeholder's made-up bytes and are listed as not passing (owner OK
+  2026-11-12): TestReportSaveAsPdfContent.al Report_SaveAs_Pdf_ReturnValueAgreesWithTheBytesInTheStream (Base64 of the whole
+  blob, the exact length), ReportExtensionSaveAs.al ControlReportWithoutExtension_Xml_Pdf and BaseWithOwnLayout_Xml_Pdf
+  (`Read(Head, 20)`, the exact length), and onprem AMRdlcSaveAs.al Static_SaveAsPdf (the page count) and
+  Static_SaveAsHtml_IsRefused.
 - The size of a marked placeholder (`Blob.Length`, `File.Len`, and through them System Application's `Temp Blob.Length()`) is the
   value `Value::PlaceholderSize`: it answers a comparison with 0 (greater) and refuses everything else (a number, `Format`,
   arithmetic, another comparison, a record field). This is the correction the 2026-11-12 amendment (A4) names. It is a value and

@@ -1453,6 +1453,11 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     {
         return Err(crate::xml::uninitialized("InStream"));
     }
+    if let Some(answer) =
+        crate::placeholder_output::pdf_in(r.as_deref(), &mut [], crate::placeholder_output::PdfRead::Eos)
+    {
+        return answer;
+    }
     // A stream HttpContent.WriteFrom took is not at its end (http/content/DbHttpContentLeads.al:310): its position
     // did not move.
     with_in_of(r, true, |s| {
@@ -1560,6 +1565,13 @@ fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     };
     if a.len() > 2 {
         return unsupported("InStream.ReadText with more arguments (not pinned)");
+    }
+    // The PDF placeholder answers inside its pinned prefix (`placeholder_output::pdf_read`).
+    if max_chars != usize::MAX
+        && let Some(answer) =
+            crate::placeholder_output::pdf_in(r.as_deref(), a, crate::placeholder_output::PdfRead::Text(max_chars))
+    {
+        return answer;
     }
     let mut enc_used = Encoding::Windows;
     crate::stream_cleared::refuse_cleared(r.as_deref())?;
@@ -1693,6 +1705,13 @@ fn is_unit(u: &[u8], c: u8) -> bool {
 /// InOutStream_Write_Integer_ReadInteger) or a Byte (one byte: the HexOf helper of
 /// streams/TestStreamsRuntimeContracts.al reads a stream byte by byte). Other types are not pinned.
 fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // A Byte or Char of the PDF placeholder answers inside its pinned prefix (`placeholder_output::pdf_read`).
+    if a.len() == 1
+        && let Some(answer) =
+            crate::placeholder_output::pdf_in(r.as_deref(), a, crate::placeholder_output::PdfRead::Byte)
+    {
+        return answer;
+    }
     // A BigInteger length into a Text reads as the same Integer length, on a stream created without an encoding
     // (streams/instream-outstream/StreamUncreatedUse.al:InStreamRead_TextWithBigIntegerLength, :139-147 and :167-178: 3, 0 and
     // 10 on a six-byte stream). A Code, a negative length and another encoding are not measured and stay refused below.

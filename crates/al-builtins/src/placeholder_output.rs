@@ -1,4 +1,4 @@
-//! The mark of a placeholder report output (ADR-040 amendments of 2026-11-08 and 2026-11-11).
+//! The mark of a placeholder report output (ADR-040 amendments of 2026-11-08, 2026-11-11 and 2026-11-12).
 //!
 //! A rendering save of a report writes a small valid file of the asked kind (a PDF, a .docx, a .xlsx or an html page) in
 //! place of BC's rendering. The buffer, and a file it is written to, carry this mark (`BlobBuf::render_pending`, the
@@ -13,6 +13,9 @@
 //! Every read of the bytes is refused with [`refusal`]: `Read`, `ReadText`, `EOS`, `InStream.Length`, hashes, Base64,
 //! `XmlDocument.ReadFrom`, Excel Buffer, Data Compression. A test that reads the content tests the renderer, which this
 //! runtime does not have; it is reported as not run, never as a wrong answer.
+//!
+//! One exception, for the PDF only (owner decision 2026-11-12): a read that stays inside the bytes the corpus pins at the start of
+//! BC's PDF answers ([`pdf_read`], [`PDF_PREFIX`]).
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -51,10 +54,87 @@ pub fn of_in(v: &crate::value::Value) -> Option<Arc<str>> {
 
 /// The refusal of a read of a placeholder output's content.
 pub fn refusal(mark: &str) -> Signal {
+    let pinned = if is_pdf(mark) {
+        ", and that a PDF starts with the bytes '%PDF-'"
+    } else {
+        ""
+    };
     Signal::unsupported(format!(
         "a read of the content of {mark} (the runtime writes a placeholder, not BC's rendering: only that the output \
-         exists and is not empty matches BC; a test that reads the content tests the layout renderer)"
+         exists and is not empty{pinned} matches BC; a test that reads the content tests the layout renderer)"
     ))
+}
+
+/// The bytes the corpus pins at the start of BC's PDF: the five-byte signature `%PDF-`. ReadText(Text, 5) of a Windows stream
+/// gives '%PDF-' (reports/layouts-saveas/AMReportOutputTests.al:42-45, reports/layouts-saveas/AMRdlcOutput.al:177-180,
+/// al-language-onprem/reports/layouts-saveas/AMRdlcSaveAs.al:199-202), four Byte reads, each after EOS answered No, give
+/// 37,80,68,70 (streams/CjFix.al:128-147 through streams/CjWordSections.al:125 SectionBreaks_WordMergeDataItem_Pdf `Pdf head`).
+/// The bytes after it (the version: '%PDF-1.3' in events/platform-triggers/ReportEventsMoreCallForms.al:93, the placeholder's
+/// '1.4') are not BC's and stay refused.
+pub const PDF_PREFIX: &[u8] = b"%PDF-";
+
+/// Whether a mark is the PDF placeholder's.
+pub fn is_pdf(mark: &str) -> bool {
+    mark.strip_prefix(PREFIX).is_some_and(|m| m.starts_with("Pdf "))
+}
+
+/// A read of a stream that [`pdf_read`] can answer inside [`PDF_PREFIX`].
+#[derive(Debug, Clone, Copy)]
+pub enum PdfRead {
+    /// `EOS`: No while the next byte is inside the prefix.
+    Eos,
+    /// `Read` into a Byte: one byte, whatever the encoding.
+    Byte,
+    /// `Read` into a Char on a single-byte encoding: one byte (the prefix is ASCII, so every single-byte encoding reads it as
+    /// itself).
+    Char,
+    /// `ReadText(Text, Length)` on a single-byte encoding: Length bytes, one character each.
+    Text(usize),
+}
+
+/// What [`pdf_read`] answers.
+#[derive(Debug)]
+pub enum PdfAnswer {
+    Eos(bool),
+    Byte(u8),
+    Text(Vec<u8>),
+}
+
+/// The answer of `read` on an InStream value that reads the PDF placeholder, or its refusal; `None` for any other stream. It
+/// answers only when the buffer starts with [`PDF_PREFIX`] (a copy taken part way, or bytes AL wrote over it, do not) and the
+/// read ends inside it; a UTF-8 or UTF-16 stream may decode ahead of what it returns and is refused. The position moves as the
+/// read would move it.
+pub fn pdf_read(v: &Value, read: PdfRead) -> Option<Result<PdfAnswer, Signal>> {
+    let Value::Library(_, h) = v else {
+        return None;
+    };
+    let mut g = h.borrow_mut();
+    let crate::value::LibraryValue::InStream(s) = &mut *g else {
+        return None;
+    };
+    let blob = s.live_blob()?.clone();
+    let buf = blob.borrow();
+    let mark = of(&buf).filter(|m| is_pdf(m))?.clone();
+    let single_byte = matches!(s.enc, crate::stream::Encoding::Windows | crate::stream::Encoding::MsDos);
+    let (start, end) = match read {
+        PdfRead::Eos | PdfRead::Byte | PdfRead::Char => (s.pos, s.pos + 1),
+        PdfRead::Text(n) => (s.pos, s.pos.saturating_add(n)),
+    };
+    let decodes_ahead = matches!(read, PdfRead::Text(_) | PdfRead::Char) && !single_byte;
+    if !buf.bytes.starts_with(PDF_PREFIX) || end > PDF_PREFIX.len() || decodes_ahead {
+        return Some(Err(refusal(&mark)));
+    }
+    Some(Ok(match read {
+        PdfRead::Eos => PdfAnswer::Eos(false),
+        PdfRead::Byte | PdfRead::Char => {
+            s.pos = end;
+            PdfAnswer::Byte(PDF_PREFIX[start])
+        }
+        PdfRead::Text(_) => {
+            s.pos = end;
+            PdfAnswer::Text(PDF_PREFIX[start..end].to_vec())
+        }
+    }))
 }
 
 /// The byte size of the placeholder `mark` (`Blob.Length`, `File.Len`): BC's rendering is not empty (reports/layouts-saveas/
@@ -105,4 +185,30 @@ pub fn size_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         }
         _ => unreachable!("size_order is called with a placeholder size"),
     }
+}
+
+/// `InStream.EOS`, `Read` into a Byte or a Char, and `ReadText(Text, Length)` (`length`) of the PDF placeholder, as AL values:
+/// the result and the variable `a[0]` takes. `None` for any other read or stream; the caller's path refuses a placeholder's.
+pub fn pdf_in(r: Option<&Value>, a: &mut [Value], what: PdfRead) -> Option<Result<Value, Signal>> {
+    let read = match (what, a.first()) {
+        (PdfRead::Byte, Some(Value::Byte(_))) => PdfRead::Byte,
+        (PdfRead::Byte, Some(Value::Char(_))) => PdfRead::Char,
+        (PdfRead::Byte, _) => return None,
+        (other, _) => other,
+    };
+    Some(pdf_read(r?, read)?.map(|answer| match answer {
+        PdfAnswer::Eos(at_end) => Value::Boolean(at_end),
+        PdfAnswer::Byte(b) => {
+            a[0] = match read {
+                PdfRead::Char => Value::Char(u16::from(b)),
+                _ => Value::Byte(b),
+            };
+            Value::Integer(1)
+        }
+        PdfAnswer::Text(bytes) => {
+            let n = bytes.len() as i32;
+            a[0] = Value::Text(String::from_utf8_lossy(&bytes).into_owned().into());
+            Value::Integer(n)
+        }
+    }))
 }
