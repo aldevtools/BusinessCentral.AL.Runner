@@ -52,7 +52,7 @@ fn al0264_kept_for_every_other_shape_of_a_moved_stub() {
         &["codeunit 50100 \"Probe C\" { ObsoleteState = Moved; MovedTo = 'dep'; }"],
         Some("codeunit 50100 \"Probe C\" { }"),
     );
-    assert!(codeunit.contains(&"AL0264".to_string()), "{codeunit:?}");
+    assert!(codeunit.contains(&"AL0264".to_string()), "{}", codeunit.join(","));
 }
 
 // Issue 7914: with the pair compiled, a name that finds both tables resolves to the dependency's, and the program carries

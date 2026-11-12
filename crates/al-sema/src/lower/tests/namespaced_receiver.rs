@@ -27,7 +27,7 @@ fn a_qualified_enum_receiver_of_from_integer_compiles_and_is_flagged() {
     ] {
         let src = user(head, CASE).replace("\"Probe Kind\"::B", "Contoso.Foundation.Enums.\"Probe Kind\"::B");
         let (_, l) = lower_files(&[("k.al", KIND), ("u.al", &src)], false);
-        assert!(al_codes(&l).is_empty(), "{head}: {:?}", al_codes(&l));
+        assert!(al_codes(&l).is_empty(), "{head}: {}", al_codes(&l).join(","));
         assert!(assumes(&l), "{head}");
     }
 }
@@ -49,7 +49,7 @@ fn other_receivers_keep_mains_result() {
     ] {
         let src = user("namespace Contoso.Utilities; using Contoso.Foundation.Enums;", body);
         let (_, l) = lower_files(&[("k.al", KIND), ("u.al", &src)], false);
-        assert!(al_codes(&l).is_empty(), "{body}: {:?}", al_codes(&l));
+        assert!(al_codes(&l).is_empty(), "{body}: {}", al_codes(&l).join(","));
         assert!(!assumes(&l), "{body}");
     }
     // A variable named like the first name is that variable: the receiver is not taken.
@@ -79,7 +79,7 @@ fn an_object_named_like_the_first_name_keeps_mains_result() {
         let src = user("namespace Contoso.Utilities;", body);
         let (_, l) = lower_files(&[("k.al", KIND), ("o.al", other), ("u.al", &src)], false);
         assert!(!assumes(&l), "{other}");
-        assert!(al_codes(&l).contains(&"AL0118"), "{other}: {:?}", al_codes(&l));
+        assert!(al_codes(&l).contains(&"AL0118"), "{other}: {}", al_codes(&l).join(","));
     }
     // An enum named like the first name: the receiver is that enum's, as on main; the assumption is not taken.
     let src = user("namespace Contoso.Utilities;", body);
