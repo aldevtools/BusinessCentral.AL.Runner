@@ -27,6 +27,7 @@ table 69961 "FK Header"
         field(11; Low; Decimal) { FieldClass = FlowField; CalcFormula = min("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
         field(12; Mean; Decimal) { FieldClass = FlowField; CalcFormula = average("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
         field(13; NegFirst; Decimal) { FieldClass = FlowField; CalcFormula = -lookup("FK Line".Amount where(DocType = field(DocType), DocNo = field("No."))); }
+        field(14; FirstDocNo; Code[20]) { FieldClass = FlowField; CalcFormula = lookup("FK Line".DocNo where(DocType = field(DocType), DocNo = field("No."))); }
     }
     keys { key(PK; DocType, "No.") { } }
 }
@@ -187,12 +188,21 @@ codeunit 69962 "FK Probe"
         exit(T + R.CurrentKey() + ':' + Codes(R));
     end;
 
-    // A lookup of an Integer field is not pinned.
+    // A lookup of an Integer field orders by its value (record/keys-sorting/KeyLookupFlowFieldFirst.al:220-232).
     procedure IntegerLookupKey(): Boolean
     var R: Record "FK Header";
     begin
         Seed();
         R.SetCurrentKey(FirstId);
+        exit(R.FindFirst());
+    end;
+
+    // A lookup of a Code field is not pinned.
+    procedure CodeLookupKey(): Boolean
+    var R: Record "FK Header";
+    begin
+        Seed();
+        R.SetCurrentKey(FirstDocNo);
         exit(R.FindFirst());
     end;
 
@@ -246,7 +256,15 @@ fn a_lookup_min_max_and_average_flowfield_key() {
 
 #[test]
 fn a_lookup_of_another_type_stays_refused() {
-    for routine in ["IntegerLookupKey", "SignedLookupKey"] {
+    // An Integer lookup is pinned since record/keys-sorting/KeyLookupFlowFieldFirst.al:220-232 (al-runner issue 7427).
+    assert!(
+        matches!(
+            al_testkit::run_in(SRC, "FK Probe", "IntegerLookupKey"),
+            Ok(al_builtins::value::Value::Boolean(true))
+        ),
+        "IntegerLookupKey"
+    );
+    for routine in ["CodeLookupKey", "SignedLookupKey"] {
         let r = al_testkit::run_in(SRC, "FK Probe", routine);
         assert!(
             matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),

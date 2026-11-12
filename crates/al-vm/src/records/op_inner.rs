@@ -1876,6 +1876,9 @@ impl Session {
                                     t.fields[p].name
                                 ));
                             }
+                            if let Some(answer) = self.temporary_lookup_key(rec, &t, &wanted)? {
+                                return Ok(answer);
+                            }
                             let index = self.engine.tables[t.object as usize]
                                 .as_ref()
                                 .map_or(0, |e| e.keys.len());

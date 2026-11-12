@@ -1,5 +1,5 @@
-//! Refusals whose reason text named the wrong cause (al-runner issues 7400, 7414, 7362). The cases stay refused (nothing pins
-//! them yet); the reason now says what actually stopped the run.
+//! Refusals whose reason text named the wrong cause (al-runner issues 7400, 7414, 7362). The reason now says what actually
+//! stopped the run; the shape of 7414 is pinned since and runs.
 
 use al_test_cli::report::Outcome;
 

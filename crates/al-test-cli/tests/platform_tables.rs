@@ -576,6 +576,51 @@ codeunit 50000 "T" { Subtype = Test;
     assert!(why.contains("timestamp"), "UnpinnedColumn: {why}");
 }
 
+// An alternative of names does not see the rowversion row (metadata/platform-tables/FieldTimestampRowTableTypes.al:103 with
+// :164, `timestamp|Id`), nor does one wildcard (:101 with :163) or one case-insensitive name (types/AjMisc.al:712-717). An
+// alternative with a wildcard or a case-insensitive part is not pinned and refuses (review of pull request 7828).
+#[test]
+fn an_alternative_with_a_wildcard_or_a_case_insensitive_name_refuses_on_the_rowversion_row() {
+    let o = outcomes(
+        r#"table 50005 "Fna Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Rows(F: Text): Text var Fld: Record Field; R: Text; begin
+    Fld.SetRange(TableNo, 50005); Fld.SetFilter(FieldName, F);
+    if Fld.FindSet() then repeat R += Format(Fld."No.") + ':' + Fld.FieldName + ';'; until Fld.Next() = 0;
+    exit(R); end;
+  [Test] procedure TwoNames() begin if Rows('timestamp|Id') <> '1:Id;' then Error('got %1', Rows('timestamp|Id')); end;
+  [Test] procedure NameOrWildcard() begin Rows('timestamp|*Na*'); end;
+  [Test] procedure WildcardOrWildcard() begin Rows('*stamp*|*Na*'); end;
+  [Test] procedure NameOrCaseInsensitive() begin Rows('timestamp|@TIMESTAMP'); end; }"#,
+    );
+    passes(&o, "TwoNames");
+    for t in ["NameOrWildcard", "WildcardOrWildcard", "NameOrCaseInsensitive"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("alternative"), "{t}: {why}");
+    }
+}
+
+// The rowversion row is pinned for TableType Normal, Temporary and CRM and for the platform tables User, Field, Integer and Date
+// (metadata/platform-tables/FieldTimestampRowTableTypes.al:153-369); another TableType and another platform table refuse.
+#[test]
+fn the_rowversion_row_of_an_unpinned_table_type_refuses() {
+    let o = outcomes(
+        r#"table 50006 "Tt Temp" { TableType = Temporary; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+table 50007 "Tt Ext" { TableType = ExternalSQL; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Count(Tab: Integer): Integer var Fld: Record Field; begin
+    Fld.SetRange(TableNo, Tab); Fld.SetRange(FieldName, 'timestamp'); exit(Fld.Count()); end;
+  [Test] procedure Temporary() begin if Count(50006) <> 1 then Error('got %1', Count(50006)); end;
+  [Test] procedure ExternalSql() begin Count(50007); end;
+  [Test] procedure CompanyTable() begin Count(2000000006); end; }"#,
+    );
+    passes(&o, "Temporary");
+    for t in ["ExternalSql", "CompanyTable"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("pinned only for tables with TableType"), "{t}: {why}");
+    }
+}
+
 #[test]
 fn registry_providers_are_virtual_or_stored() {
     for (_, name, p) in REGISTRY {
@@ -801,7 +846,7 @@ fn language_selection_lists_the_pinned_rows_per_major() {
   [Test] procedure ByLanguageId() var L: Record "Language Selection"; begin L.SetRange("Language ID", 1031); L.FindFirst(); if (L."Language Tag" <> 'de-DE') or (L."Primary Language ID" <> 1031) or not L.Enabled then Error('de %1', L."Language Tag"); end;
   [Test] procedure QucName() var L: Record "Language Selection"; begin L.SetRange("Language Tag", 'quc-Latn-GT'); L.FindFirst(); if L.Name <> 'K''iche'' (Guatemala)' then Error('quc %1', L.Name); end;
   [Test] procedure ZhTw() var L: Record "Language Selection"; begin L.SetRange("Language Tag", 'zh-TW'); if L.IsEmpty() then Error('no zh-TW'); end;
-  [Test] procedure OtherLanguage() var L: Record "Language Selection"; begin GlobalLanguage(1031); if L.FindFirst() then; end; }"#;
+  [Test] procedure OtherLanguage() var L: Record "Language Selection"; begin GlobalLanguage(1053); if L.FindFirst() then; end; }"#;
     for version in ["29.0.0.0", "27.5.0.0"] {
         let o = outcomes_bc("main", src, al_sema::check::Roots::default(), version);
         for t in ["Count", "FirstRow", "ByLanguageId", "QucName", "ZhTw"] {
@@ -2948,6 +2993,39 @@ codeunit 50000 "T" { Subtype = Test;
     passes(&o, "WalkInKeyOrder");
     assert!(not_run(&o, "WalkInKeyOrderReadsExpression").contains("ControlId"));
     passes(&o, "WalkBySequence");
+}
+
+// The row of a control bound to an expression shape of al-runner issue 7442 is served when a read picks it alone
+// (pages/controls/PageControlFieldExpressionShapes.al:211-219), but BC lists a page's rows in ControlId order, which the runtime
+// does not follow (:323-332): a walk in key order over two controls of the page may count the rows and read FieldNo, and a read
+// of the ControlName, SourceExpression or Sequence of such a row is refused. A field-bound row keeps its name in that walk
+// (record/TestPageControlFieldPageExtension.al:58-85).
+#[test]
+fn a_walk_in_key_order_refuses_the_name_of_an_expression_shape_row() {
+    let src = r#"table 50001 "Line" { fields { field(1; "No."; Integer) { } field(2; Qty; Integer) { } } keys { key(PK; "No.") { } } }
+page 50002 "Lines" { PageType = List; SourceTable = "Line"; layout { area(Content) { repeater(R) {
+    field(Compare; Rec.Qty > 0) { }
+    field(Negate; -Rec.Qty) { } } } } }
+page 50003 "Plain" { PageType = List; SourceTable = "Line"; layout { area(Content) { repeater(R) {
+    field(NoCtl; Rec."No.") { }
+    field(QtyCtl; Rec.Qty) { } } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Alone() var P: Record "Page Control Field"; begin P.SetRange(PageNo, 50002); P.SetRange(ControlName, 'Negate'); P.FindFirst();
+    if (P.SourceExpression <> '-Rec.Qty') or (P.FieldNo <> 0) or (P.Sequence <> 1) then Error('%1 %2 %3', P.SourceExpression, P.FieldNo, P.Sequence); end;
+  [Test] procedure WalkCounts() var P: Record "Page Control Field"; N: Integer; begin P.SetRange(PageNo, 50002); P.FindSet();
+    repeat N += 1; if P.FieldNo <> 0 then Error('%1', P.FieldNo); until P.Next() = 0; if N <> 2 then Error('%1', N); end;
+  [Test] procedure WalkReadsName() var P: Record "Page Control Field"; Names: Text; begin P.SetRange(PageNo, 50002); P.FindSet();
+    repeat Names += P.ControlName; until P.Next() = 0; end;
+  [Test] procedure WalkReadsSource() var P: Record "Page Control Field"; Names: Text; begin P.SetRange(PageNo, 50002); P.FindSet();
+    repeat Names += P.SourceExpression; until P.Next() = 0; end;
+  [Test] procedure WalkFieldRows() var P: Record "Page Control Field"; Names: Text; begin P.SetRange(PageNo, 50003); P.FindSet();
+    repeat Names += P.ControlName + ' '; until P.Next() = 0; if StrLen(Names) <> 13 then Error(Names); end; }"#;
+    let o = outcomes(src);
+    passes(&o, "Alone");
+    passes(&o, "WalkCounts");
+    assert!(not_run(&o, "WalkReadsName").contains("ControlId"));
+    assert!(not_run(&o, "WalkReadsSource").contains("ControlId"));
+    passes(&o, "WalkFieldRows");
 }
 
 // al-runner issue 5842 (the reporter's run on real BC 29.0.54011.55407, 2/2 tests): the row of a control bound to an element
