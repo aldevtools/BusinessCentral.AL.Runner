@@ -701,6 +701,8 @@ impl Session {
         let Value::Record(rec) = self.default_value(&RtType::Record(table, false)) else {
             return unsupported("record buffer for RecordRef.Get");
         };
+        let t = self.table(&rec)?;
+        self.tenant_media_recordref_get_check(&t, &rec)?;
         let mut a = key;
         let found = self.record_op(RecordOp::Get, &rec, &mut a)?;
         match found {
@@ -711,6 +713,39 @@ impl Session {
             Value::Boolean(false) if current.is_none() || self.ret_used => Ok(Some(found)),
             _ => unsupported("RecordRef.Get of a missing row of another table than the open one (not pinned)"),
         }
+    }
+
+    /// `RecordRef.Get(RecordId)` on a ref open on the RecordId's table: the Get of the row the RecordId names.
+    fn rr_get_own_table(&mut self, t: &TableDef, rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+        let key = match args.first() {
+            Some(Value::Library(_, l)) => match &*l.borrow() {
+                LibraryValue::RecordId { table, key, .. } if *table == t.object => key.clone(),
+                LibraryValue::RecordId { .. } => {
+                    return unsupported("RecordRef.Get of a RecordId of another table (error text not pinned yet)");
+                }
+                other => return unsupported(format!("RecordRef.Get of {}", other.describe())),
+            },
+            other => return unsupported(format!("RecordRef.Get of {}", other.describe())),
+        };
+        // The ref fetches the whole row whatever SetLoadFields asked for, and the Record form does not
+        // (record/load-fields/Y87RecordRefLoadFields.al codeunit 94656 Ref_SetLoadFieldsNameThenGet and
+        // Ref_SetLoadFieldsCntThenGet `YesYesYesYesYesYes` against Rec_SetLoadFieldsNameThenGet `YesYesNoYesYesYes`;
+        // record/W4PlatformAndMeta.al:497-516 `recref_loaded_txt` Yes). What a later fetch loads is not pinned: the
+        // request is kept for it.
+        // A RecordId with fewer values than the key: the omitted fields it may hold are checked where the Get key is
+        // built (`get_key_value.rs`).
+        self.record_id_omitted_fields(t, key.len())?;
+        self.tenant_media_recordref_get_check(t, rec)?;
+        let mut a = key;
+        let request = rec.borrow_mut().load.request.take();
+        // RecordRef.Get(RecordId) of an existing row is a denied read like Record.Get (AEDependencyTableReads.al
+        // `Customer_recref_get_recordid`).
+        if self.permission_checks() {
+            self.permission_from_al = true;
+        }
+        let got = self.record_op(RecordOp::Get, rec, &mut a);
+        rec.borrow_mut().load.request = request;
+        got
     }
 
     /// Whether the buffer differs from what the ref last read or wrote (`dirty_base`); a buffer that came from elsewhere
@@ -1092,38 +1127,7 @@ impl Session {
             | "SecurityFiltering" | "GetPosition" | "SetPosition" | "Ascending" | "SetRecFilter" | "Mark"
             | "MarkedOnly" | "ClearMarks" => self.record_meta_op(record_method(method), &rec, &t, args),
             // Doc (RecordRef.Get): loads the row a RecordId names; the table must be the ref's own.
-            "Get" => {
-                let key = match args.first() {
-                    Some(Value::Library(_, l)) => match &*l.borrow() {
-                        LibraryValue::RecordId { table, key, .. } if *table == t.object => key.clone(),
-                        LibraryValue::RecordId { .. } => {
-                            return unsupported(
-                                "RecordRef.Get of a RecordId of another table (error text not pinned yet)",
-                            );
-                        }
-                        other => return unsupported(format!("RecordRef.Get of {}", other.describe())),
-                    },
-                    other => return unsupported(format!("RecordRef.Get of {}", other.describe())),
-                };
-                // The ref fetches the whole row whatever SetLoadFields asked for, and the Record form does not
-                // (record/load-fields/Y87RecordRefLoadFields.al codeunit 94656 Ref_SetLoadFieldsNameThenGet and
-                // Ref_SetLoadFieldsCntThenGet `YesYesYesYesYesYes` against Rec_SetLoadFieldsNameThenGet `YesYesNoYesYesYes`;
-                // record/W4PlatformAndMeta.al:497-516 `recref_loaded_txt` Yes). What a later fetch loads is not pinned: the
-                // request is kept for it.
-                // A RecordId with fewer values than the key: the omitted fields it may hold are checked where the Get key is
-                // built (`get_key_value.rs`).
-                self.record_id_omitted_fields(&t, key.len())?;
-                let mut a = key;
-                let request = rec.borrow_mut().load.request.take();
-                // RecordRef.Get(RecordId) of an existing row is a denied read like Record.Get (AEDependencyTableReads.al
-                // `Customer_recref_get_recordid`).
-                if self.permission_checks() {
-                    self.permission_from_al = true;
-                }
-                let got = self.record_op(RecordOp::Get, &rec, &mut a);
-                rec.borrow_mut().load.request = request;
-                got
-            }
+            "Get" => self.rr_get_own_table(&t, &rec, args),
             // As Record.GetBySystemId, and a miss with the result unused raises "The <table> does not
             // exist" naming the Guid (PXEnumRecordRef.al:199-301).
             "GetBySystemId" => {

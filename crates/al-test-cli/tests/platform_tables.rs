@@ -4815,9 +4815,16 @@ fn recordref_open_of_server_instance_from_an_app_that_is_not_onprem_is_refused()
 #[test]
 fn a_stored_tenant_media_row_allows_only_the_measured_calls() {
     let o = outcomes(
-        r#"codeunit 50000 "T" { Subtype = Test; TestPermissions = Disabled;
+        r#"table 50800 "P Row" { fields { field(1; "No."; Integer) { } field(2; Pic; Media) { } field(3; Pics; MediaSet) { } }
+  keys { key(PK; "No.") { } } }
+table 50811 "P BlobT" { TableType = Temporary; fields { field(1; K; Integer) { } field(2; B; Blob) { } } keys { key(PK; K) { } } }
+codeunit 50000 "T" { Subtype = Test; TestPermissions = Disabled;
   local procedure Ins(Id: Guid) var TM: Record "Tenant Media"; begin
     TM.Init(); TM.ID := Id; TM.Description := 'Synthetic description'; TM.Insert(false); end;
+  local procedure SetPic(Id: Guid) var R: Record "P Row"; RR: RecordRef; begin
+    R."No." := 1; R.Insert(); RR.GetTable(R); RR.Field(R.FieldNo(Pic)).Value(Id); RR.Modify(); end;
+  local procedure Stream(var T: Record "P BlobT"; var I: InStream) var O: OutStream; begin
+    T.B.CreateOutStream(O); O.WriteText('hello'); T.B.CreateInStream(I); end;
   [Test] procedure Measured() var TM: Record "Tenant Media"; begin
     Ins('eb5700b7-a069-42c4-a86e-404e2839de01'); Clear(TM); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de01');
     TM.TestField(Description, 'Synthetic description'); TM.Delete(); end;
@@ -4859,6 +4866,20 @@ fn a_stored_tenant_media_row_allows_only_the_measured_calls() {
   [Test] procedure RecordRefDeleteAfterInsert() var RR: RecordRef; begin
     Ins('eb5700b7-a069-42c4-a86e-404e2839de18'); RR.Open(2000000184);
     RR.Field(1).SetRange('eb5700b7-a069-42c4-a86e-404e2839de18'); RR.FindFirst(); RR.Delete(); end;
+  [Test] procedure RecordRefGetAfterInsert() var RR: RecordRef; TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de19'); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de19'; RR.Open(2000000184);
+    if not RR.Get(TM.RecordId) then Error('notfound'); end;
+  [Test] procedure FindEqualsAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de20'); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de20'; if not TM.Find('=') then Error('notfound'); end;
+  [Test] procedure FindAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de21'); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de21'; if not TM.Find() then Error('notfound'); end;
+  [Test] procedure MediaSetInsertOfStoredId() var R: Record "P Row"; Id: Guid; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de22'); R."No." := 1; Id := 'eb5700b7-a069-42c4-a86e-404e2839de22'; R.Pics.Insert(Id); end;
+  [Test] procedure DeleteRowHoldingStoredId() var R: Record "P Row"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de23'); SetPic('eb5700b7-a069-42c4-a86e-404e2839de23'); R.Get(1); R.Delete(); end;
+  [Test] procedure ModifyReplacingStoredId() var R: Record "P Row"; T: Record "P BlobT"; I: InStream; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de24'); SetPic('eb5700b7-a069-42c4-a86e-404e2839de24'); R.Get(1); Stream(T, I);
+    R.Pic.ImportStream(I, 'desc', 'text/plain'); R.Modify(); end;
   [Test] procedure CountWithoutInsert() var TM: Record "Tenant Media"; begin
     TM.SetRange(ID, 'eb5700b7-a069-42c4-a86e-404e2839de14'); if not TM.IsEmpty() then Error('rows'); end;
   [Test] procedure DeleteAllWithoutInsert() var TM: Record "Tenant Media"; begin
@@ -4883,6 +4904,12 @@ fn a_stored_tenant_media_row_allows_only_the_measured_calls() {
         "DeleteReturnUsed",
         "RecordRefInsert",
         "RecordRefDeleteAfterInsert",
+        "RecordRefGetAfterInsert",
+        "FindEqualsAfterInsert",
+        "FindAfterInsert",
+        "MediaSetInsertOfStoredId",
+        "DeleteRowHoldingStoredId",
+        "ModifyReplacingStoredId",
     ]
     .into_iter()
     .filter(|t| !refused(t))
@@ -4891,4 +4918,34 @@ fn a_stored_tenant_media_row_allows_only_the_measured_calls() {
     // Main's results without a stored row: an empty filtered read and DeleteAll (Y48TenantMediaRows.al:654-655).
     passes(&o, "CountWithoutInsert");
     passes(&o, "DeleteAllWithoutInsert");
+}
+
+/// Main's results while no AL Insert stored a Tenant Media row: MediaSet.Insert of an unknown id answers false, the Delete of
+/// the row that holds an imported media removes its Tenant Media row, a Find('=') and a RecordRef.Get of an unknown id
+/// answer false.
+#[test]
+fn without_a_stored_tenant_media_row_media_and_reads_keep_their_answers() {
+    let o = outcomes(
+        r#"table 50800 "P Row" { fields { field(1; "No."; Integer) { } field(2; Pic; Media) { } field(3; Pics; MediaSet) { } }
+  keys { key(PK; "No.") { } } }
+table 50811 "P BlobT" { TableType = Temporary; fields { field(1; K; Integer) { } field(2; B; Blob) { } } keys { key(PK; K) { } } }
+codeunit 50000 "T" { Subtype = Test; TestPermissions = Disabled;
+  [Test] procedure MediaSetInsertOfUnknownId() var R: Record "P Row"; Id: Guid; begin
+    Id := 'eb5700b7-a069-42c4-a86e-404e2839de25'; R."No." := 1; if R.Pics.Insert(Id) then Error('inserted'); end;
+  [Test] procedure DeleteRowHoldingImportedMedia() var R: Record "P Row"; TM: Record "Tenant Media"; T: Record "P BlobT"; I: InStream; O: OutStream; M: Guid; begin
+    R."No." := 1; R.Insert(); T.B.CreateOutStream(O); O.WriteText('hello'); T.B.CreateInStream(I);
+    R.Pic.ImportStream(I, 'desc', 'text/plain'); R.Modify(); M := R.Pic.MediaId(); R.Delete(); if TM.Get(M) then Error('still there'); end;
+  [Test] procedure FindEqualsOfUnknownId() var TM: Record "Tenant Media"; begin
+    TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de26'; if TM.Find('=') then Error('found'); end;
+  [Test] procedure RecordRefGetOfUnknownId() var TM: Record "Tenant Media"; RR: RecordRef; begin
+    TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de27'; RR.Open(2000000184); if RR.Get(TM.RecordId) then Error('found'); end; }"#,
+    );
+    for t in [
+        "MediaSetInsertOfUnknownId",
+        "DeleteRowHoldingImportedMedia",
+        "FindEqualsOfUnknownId",
+        "RecordRefGetOfUnknownId",
+    ] {
+        passes(&o, t);
+    }
 }
