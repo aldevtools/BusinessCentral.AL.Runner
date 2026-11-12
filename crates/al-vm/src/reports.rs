@@ -2210,7 +2210,6 @@ impl Session {
         let mut iterations = 0u32;
         'rows: while more {
             iterations += 1;
-            crate::decimal_column::normalize_read_row(&mut rec.borrow_mut());
             // The CalcFields property: the listed FlowFields of the row, before its triggers. Pinned for one field of a
             // top-level item (reports/PnH3Link.al:CalcFields_Property_CalculatesTheFlowField) and for two
             // fields of a nested item a report extension adds (reports/AqTests.al:184 CalcFields_ExtensionDataItem_Values);

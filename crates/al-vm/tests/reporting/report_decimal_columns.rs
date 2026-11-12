@@ -1,9 +1,9 @@
 //! The text of a Decimal column in the report dataset, by the shape of the column's source (al-runner issue 7440).
 //! reports/dataset/DatasetDecimalPlacesValueOrigins.al pins the shapes that write a Decimal without trailing zeros: a field of
 //! the data item by name (:47) or with the item's name (:52), a field of a global Record variable (:71), a global Decimal
-//! variable (:79), and an expression over a stored field of the data item's row (:53 `D05 * 1`). Every other shape keeps the
-//! scale of the value (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309 `Dec * 1.5` is `18.5185170`) until a
-//! probe measures it.
+//! variable (:79), and an expression over a stored field of the data item's row (:53 `D05 * 1`). Every other shape writes the
+//! value with its scale (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309 `Dec * 1.5` is `18.5185170`;
+//! DatasetDecimalPlacesValueOrigins.al:425-570 for the other shapes).
 
 use al_testkit::text;
 
@@ -176,34 +176,35 @@ fn the_pinned_source_shapes_write_no_trailing_zeros() {
     assert_eq!(value(&lines, "GetName"), "1.5", "{lines}");
 }
 
-/// Every other source shape keeps the scale of the value, as before the 7440 change, until a probe measures it
-/// (docs/probes-needed.md): an operator over a variable or over a record read by Get, an array element, unary minus,
-/// parentheses, a procedure call with or without parentheses, a codeunit method, a FlowField.
+/// The other source shapes write what the value holds (DatasetDecimalPlacesValueOrigins.al:425-550): `Round(1, 0.00001)` is `1`
+/// (al-builtins `mathfns.rs`), so a variable, an array element, unary minus, parentheses and the calls give `1`; a row read from
+/// the database has no trailing zeros (al-data `MemStore::as_database`), so the stored 1.50 read by Get times two is `3.0` and the
+/// FlowField over the rows 1 and 1.50 is `2.5`. A variable set from the literal 2.50 keeps its scale (`W * 1`).
 #[test]
-fn the_unpinned_source_shapes_keep_the_scale_of_the_value() {
+fn the_other_source_shapes_write_what_the_value_holds() {
     let lines = text(al_testkit::run_in(FIXTURE, "DC Tests", "Dec"));
     for (name, want) in [
-        ("GetTimes2", "3.00"),
-        ("VarTimes1", "1.00000"),
-        ("ArrElem", "1.00000"),
-        ("Neg", "-1.00000"),
-        ("Paren", "1.00000"),
-        ("CallNoParens", "1.00000"),
-        ("CallParens", "1.00000"),
-        ("MemberCall", "1.00000"),
+        ("GetTimes2", "3.0"),
+        ("VarTimes1", "1"),
+        ("ArrElem", "1"),
+        ("Neg", "-1"),
+        ("Paren", "1"),
+        ("CallNoParens", "1"),
+        ("CallParens", "1"),
+        ("MemberCall", "1"),
         ("SetInTrigger", "2.50"),
-        ("FlowTimes1", "2.50000"),
-        ("FlowName", "2.50000"),
+        ("FlowTimes1", "2.5"),
+        ("FlowName", "2.5"),
     ] {
         assert_eq!(value(&lines, name), want, "{name}: {lines}");
     }
 }
 
-/// A temporary data item reads its rows from memory, not from the database: neither its row read nor its name columns are
-/// pinned, so both keep the scale of the value.
+/// A temporary data item keeps its rows in memory: its field set to `Round(1, 0.00001)` is `1`, by name and times one
+/// (DatasetDecimalPlacesValueOrigins.al:555-570).
 #[test]
-fn a_temporary_data_item_keeps_the_scale_of_the_value() {
+fn a_temporary_data_item_writes_what_the_value_holds() {
     let lines = text(al_testkit::run_in(FIXTURE, "DC Tests", "Temp"));
-    assert_eq!(value(&lines, "TmpName"), "1.00000", "{lines}");
-    assert_eq!(value(&lines, "TmpTimes1"), "1.00000", "{lines}");
+    assert_eq!(value(&lines, "TmpName"), "1", "{lines}");
+    assert_eq!(value(&lines, "TmpTimes1"), "1", "{lines}");
 }

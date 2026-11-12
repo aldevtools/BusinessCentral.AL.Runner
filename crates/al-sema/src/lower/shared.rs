@@ -946,6 +946,18 @@ pub(crate) fn init_const(text: &str, ty: &Ty) -> Option<ir::Const> {
     })
 }
 
+/// The value `raw` of a filter or const condition on field `field` of type `ty`, with a member qualifier dropped: the field's enum
+/// or the field's own name on an enum field, the field's name on an Option field (`al_builtins::enum_qualifier::strip_enum_qualifier`
+/// holds the pins). Any other value as it is.
+pub(crate) fn unqualified_member(raw: &str, ty: &Ty, field: &str) -> String {
+    use al_builtins::enum_qualifier::strip_enum_qualifier;
+    match ty {
+        Ty::Enum(name) => strip_enum_qualifier(raw, &[&crate::types::display_name(name), field]).into_owned(),
+        Ty::Option(_) => strip_enum_qualifier(raw, &[field]).into_owned(),
+        _ => raw.to_string(),
+    }
+}
+
 /// A `const(..)` value as a constant of the source field's type.
 pub(crate) fn calc_const(
     ws: &Workspace,
