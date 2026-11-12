@@ -60,6 +60,9 @@ fn equality_of_a_marked_text_keeps_its_answers() {
 
 #[test]
 fn an_ordered_comparison_of_unmarked_texts_keeps_the_culture_order() {
-    assert_eq!(compare_order(&text("Body x"), &text("body")).unwrap(), Ordering::Greater);
+    assert_eq!(
+        compare_order(&text("Body x"), &text("body")).unwrap(),
+        Ordering::Greater
+    );
     assert_eq!(compare_order(&code("9"), &code("10")).unwrap(), Ordering::Less);
 }
