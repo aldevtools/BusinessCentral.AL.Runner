@@ -865,10 +865,11 @@ committed binary fixtures like `Y17LayR1.docx`; the tests are Windows-tier only;
 6. `Error` and `Message` with a marked text refuse in step 1. Open `Message` to a MessageHandler that only receives the
    text when a reported test needs it, or keep it refused?
 
-## Amendment 2026-11-12b: a placeholder's size held in a record field (Proposed)
+## Amendment 2026-11-12b: a placeholder's size held in a record field (Accepted)
 
-Status: **Proposed**, not accepted. Nothing is built on it. It changes the accepted rule of the 2026-11-11 implementation
-notes ("a record field" is one of the uses of `Value::PlaceholderSize` that refuse), so it needs the owner's decision.
+Status: **Accepted** 2026-11-12 by the owner, option "Accept, with tests": points 1 to 4 for stored and temporary rows
+alike, and every platform read path of point 4 gets its own test before the change is built. It replaces the rule of the
+2026-11-11 implementation notes that a record field is one of the uses of `Value::PlaceholderSize` that refuse.
 
 ### The problem
 
@@ -904,8 +905,23 @@ test that never reads the field again is not run.
 | Store the placeholder's byte count | A made-up number: `Size > 1000` is true on BC and false here (A4). |
 | Store only in a temporary record | The reporter's table is not known; the rules of point 4 are the same for both. |
 
-### Open questions
+### Decisions on the open questions
 
-1. Accept points 1 to 4, for stored and temporary rows alike?
-2. Point 4 lists the platform reads known today. A read path not listed falls to the row store compare or `format`, which
-   refuse. Is that the guard the owner wants, or must each path get its own test before the change is built?
+1. Points 1 to 4 hold for stored and temporary rows alike.
+2. Each read path of point 4 has its own Rust test (`crates/al-vm/tests/reporting/report_placeholder_size_field.rs`), red
+   first where the path ran before. A path not listed falls to the central guards, which stay: the row store refuses a filter
+   or a sort on a column that holds the size and a filter whose value is the size (al-data `MemStore::unknown_read`), and
+   `format` refuses `Format`.
+
+### Implementation notes
+
+- The store write is no longer refused (`interp.rs` `write_as`). A field of another type refuses through the conversion
+  (`size_convert`); a Variant that holds the size into a Text field raises the pinned conversion error of a Variant holding an
+  Integer, as before.
+- A key that holds the field refuses at the write (`key_orderable`), so no sort by the field can run.
+- One helper says the refusal of a platform read: `placeholder_output::size_read`. It is called where each read happens:
+  a FlowField over the field (`flowfields.rs` `Tally::add`), `CalcSums`, `Validate(Field)` without a value, a page control
+  that shows the field, and a TestPage whose record holds the size after any step (the page compares its row with xRec and
+  the stored row, and counts a value that does not compare as a change).
+- Already refused before this amendment, kept: `TestField`, `FieldError`, `Format` of the field and of `FieldRef.Value`, a
+  report column, an XmlPort field, `JsonObject.Add`, `IsDirty`, `TransferFields` into a field of another type.

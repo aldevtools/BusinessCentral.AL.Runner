@@ -1490,13 +1490,6 @@ impl Session {
         if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
             return Err(al_builtins::sqlcount::refusal("storing in a record field"));
         }
-        // A placeholder's size in a field would be stored as a number (`al_builtins::placeholder_output::size`).
-        if let (Value::PlaceholderSize(m), ir::Place::Field(..)) = (&v, p) {
-            return Err(al_builtins::placeholder_output::size_refusal(
-                m,
-                "storing in a record field",
-            ));
-        }
         if self.sql.active && matches!(p, ir::Place::Field(..)) && al_builtins::sqlcount::formatted(&v) {
             return Err(al_builtins::sqlcount::refusal(
                 "storing the formatted value in a record field",

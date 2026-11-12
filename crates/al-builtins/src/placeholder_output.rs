@@ -196,6 +196,16 @@ pub fn size_refusal_text(mark: &str, what: &str) -> String {
     )
 }
 
+/// Refuses a platform read of a record field's value `v` (`what`) when the field holds a placeholder's size: a FlowField or
+/// `CalcSums` over it, `Validate` of it, a page control that shows it (ADR-040 amendment 2026-11-12b, point 4). The store
+/// refuses a filter or a sort on such a field itself (al-data `MemStore::unknown_read`), and `format` refuses `Format`.
+pub fn size_read(v: &Value, what: &str) -> Result<(), Signal> {
+    match v {
+        Value::PlaceholderSize(m) => Err(size_refusal(m, what)),
+        _ => Ok(()),
+    }
+}
+
 /// A size held in a slot of type `t`: an Integer, BigInteger, Decimal or Variant keeps it; any other type would read it.
 pub fn size_convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     match (&v, t) {

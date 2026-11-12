@@ -39,6 +39,7 @@ mod report_params_self_closing;
 mod report_params_written_declaration;
 mod report_pdf_placeholder;
 mod report_placeholder_outputs;
+mod report_placeholder_size_field;
 mod report_placeholder_size_uses;
 mod report_properties;
 mod report_region_after_language;

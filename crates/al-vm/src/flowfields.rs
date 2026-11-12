@@ -48,6 +48,9 @@ impl Tally {
     fn add(&mut self, calc: &ir::CalcFormula, row: &[Value]) -> Result<(), Signal> {
         use ir::CalcMethod as M;
         self.n += 1;
+        if let Some(at) = calc.field {
+            al_builtins::placeholder_output::size_read(&row[at], "a FlowField over a record field holding the value")?;
+        }
         match calc.method {
             M::Count | M::Exist => {}
             M::Sum | M::Average => {
@@ -1226,6 +1229,7 @@ impl Session {
         let cx = self.cx_for(rec, &t)?;
         let mut add = |row: &[Value]| -> Result<(), Signal> {
             for (s, &p) in sums.iter_mut().zip(positions) {
+                al_builtins::placeholder_output::size_read(&row[p], "CalcSums of a record field holding the value")?;
                 *s += number(&row[p]).ok_or_else(|| non_number(&row[p]))?;
             }
             Ok(())

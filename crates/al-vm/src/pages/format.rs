@@ -769,6 +769,8 @@ impl Session {
         if let Some(refusal) = Self::rendered_field_refusal(v) {
             return Err(refusal);
         }
+        // A placeholder's size shows its digits (ADR-040 amendment 2026-11-12b, point 4).
+        al_builtins::placeholder_output::size_read(v, "a page control showing the value")?;
         // A Media control shows the id of its media, a MediaSet control the id of the first media
         // of its set; lowercase, no braces, empty when there is none
         // (testpage/TestPageFieldFormats_Tests.al:28, :628-640, TestPageFieldFormatsMediaFilled_Tests.al).
