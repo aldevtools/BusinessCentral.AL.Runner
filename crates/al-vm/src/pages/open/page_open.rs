@@ -896,6 +896,15 @@ impl Session {
             self.no_source_open_current_record_event(st)?;
             return Ok(());
         }
+        if mode == PageMode::New && self.open_new_on_onopenpage_row(st)? {
+            // A NavigatePage over a temporary source whose OnOpenPage inserted its one row opens on that row as OpenEdit
+            // does (al-runner issue 7811; Microsoft's SMTP Account Auth Tests on page SMTP Account Wizard; not probed).
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::OpenNewTempNavigatePageEditsInsertedRow,
+            );
+            st.borrow_mut().mode = PageMode::Edit;
+            return self.load_first_row(st, PageMode::Edit, with_record);
+        }
         if mode == PageMode::New {
             // corpus testpage/TestPageCreateModeNewRecordArgs.al:212-239: OnOpenPage, then
             // OnNewRecord with BelowxRec true and xRec on the last row.

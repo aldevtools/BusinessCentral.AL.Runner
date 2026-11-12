@@ -111,6 +111,7 @@ mod np_blockers_5;
 mod np_blockers_68;
 mod np_blockers_69;
 mod numeric_extends_target;
+mod open_new_temp_navigate_page;
 mod openview_no_row_part_curr_record;
 mod option_enum_bigtext;
 mod or_group_page_rec;
