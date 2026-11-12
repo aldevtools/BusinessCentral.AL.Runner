@@ -199,6 +199,11 @@ impl Session {
             (method == PageMethod::DrillDown && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
         let rec_before = (method == PageMethod::AssistEdit && self.has_source(st))
             .then(|| (self.page_rec(st).borrow().fields.clone(), st.borrow().dirty));
+        let linked_key = if method == PageMethod::AssistEdit {
+            self.seed_empty_card_part_assist_edit(st, idx)?
+        } else {
+            None
+        };
         let result = if method == PageMethod::Lookup {
             self.on_lookup_trigger(st, idx, owner, routine)
         } else {
@@ -216,6 +221,9 @@ impl Session {
         };
         if result.is_err() {
             st.borrow_mut().refresh = false;
+        }
+        if let Some((field, key, blank)) = linked_key {
+            self.finish_empty_card_part_assist_edit(st, field, key, blank, result.is_ok())?;
         }
         let v = result?;
         let pk_shown = self.drilldown_marked_only_refresh(st, method, marked_only_before, shown_before);

@@ -2525,3 +2525,11 @@ codeunit 69502 T {{ Subtype = Test;
         }
     }
 }
+
+#[test]
+fn measured_assist_edit_uses_the_linked_card_part_primary_key() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/linked-card-part-assist.al"),
+    ));
+}

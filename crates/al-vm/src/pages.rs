@@ -260,6 +260,7 @@ mod pageops;
 mod part_filter_find;
 mod part_filter_unsaved_host;
 mod part_host_update;
+mod part_assist_edit;
 mod part_insert_swallowed;
 mod part_refresh_find_forward;
 mod part_visible_gate;
