@@ -720,8 +720,8 @@ pub struct ReportExt {
     /// `OnPreReport` and `OnPostReport` of the extension, as routine indices.
     pub on_pre: Option<usize>,
     pub on_post: Option<usize>,
-    /// (base item index, global slot of the extension that names that item's record).
-    pub aliases: Vec<(usize, usize)>,
+    /// (item, global slot of the extension that names that item's record).
+    pub aliases: Vec<(ItemAnchor, usize)>,
     /// `modify(Item)` blocks.
     pub modifies: Vec<ReportExtModify>,
     /// Data items the extension adds with `addlast`.
@@ -734,11 +734,10 @@ pub struct ReportExt {
     pub labels: Vec<(String, String)>,
 }
 
-/// The columns an `add(Item)` block of a reportextension gives a base item.
+/// The columns an `add(Item)` block of a reportextension gives a data item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReportExtAdd {
-    /// Index of the base item.
-    pub item: usize,
+    pub item: ItemAnchor,
     /// Routines of the extension.
     pub columns: Vec<ReportColumn>,
 }
@@ -746,8 +745,7 @@ pub struct ReportExtAdd {
 /// The triggers of a `modify(Item)` block of a reportextension.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReportExtModify {
-    /// Index of the base item.
-    pub item: usize,
+    pub item: ItemAnchor,
     /// `RequestFilterFields` as written, from the block's property (reports/runtime/YReportExt.al:231).
     #[serde(default)]
     pub request_filter_fields: Option<String>,
@@ -773,18 +771,29 @@ pub struct AddedItem {
     pub item: ReportItem,
     /// The base item it is added under (top-level added items).
     pub base_parent: Option<usize>,
+    /// Parent introduced by a dependency's report extension.
+    pub foreign_parent: Option<ForeignReportItem>,
     /// Where it sits among its siblings (`addlast` unless the extension says otherwise).
     #[serde(default)]
     pub place: AddedPlace,
 }
 
-/// A data item of a report or of the extension, as a sibling anchor.
+/// A data item named by a report extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ItemAnchor {
     /// Index into `Report::items`.
     Base(usize),
     /// Index into `ReportExt::added`.
     Added(usize),
+    /// A data item introduced by an extension in a dependency app.
+    Foreign(ForeignReportItem),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForeignReportItem {
+    pub extension: usize,
+    pub item: usize,
+    pub table: Option<usize>,
 }
 
 /// `addfirst`, `addlast`, `addbefore` and `addafter`

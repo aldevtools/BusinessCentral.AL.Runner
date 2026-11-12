@@ -1727,18 +1727,14 @@ impl Session {
         let report = schema.report();
         // A reportextension that changes the run gets an instance of its own for this run, whose
         // names for the base items point at the report's own records.
-        let mut exts = Vec::new();
+        let mut exts: Vec<(Inst, usize)> = Vec::new();
         for &e in &report.extensions {
             let ext_inst = self.report_extension_instance(inst, e)?;
             let eir = self.engine.program.objects[e]
                 .report_ext
                 .as_ref()
                 .expect("a report names only extensions that were lowered");
-            for &(base_item, slot) in &eir.aliases {
-                let base_slot = report.items[base_item].slot.expect("an alias has a record");
-                let record = inst.borrow().globals[base_slot].clone();
-                ext_inst.borrow_mut().globals[slot] = record;
-            }
+            self.bind_report_item_aliases(report, inst, &ext_inst, eir, &exts)?;
             exts.push((ext_inst, e));
         }
         let run = Run {
@@ -2161,16 +2157,17 @@ impl Session {
             }
         }
         // The `modify` blocks of the extensions that name this item, in object id order.
-        let modifies: Vec<(usize, &ir::ReportExtModify)> = match r {
-            ItemRef::Base(i) => (0..run.exts.len())
-                .filter_map(|k| {
-                    run.ext_ir(k)
-                        .and_then(|x| x.modifies.iter().find(|m| m.item == i))
-                        .map(|m| (k, m))
-                })
-                .collect(),
-            ItemRef::Added(..) => Vec::new(),
-        };
+        let modifies: Vec<(usize, &ir::ReportExtModify)> = (0..run.exts.len())
+            .filter_map(|k| {
+                run.ext_ir(k)
+                    .and_then(|x| {
+                        x.modifies
+                            .iter()
+                            .find(|m| item_anchor(run.report(), k, m.item) == Some(r))
+                    })
+                    .map(|m| (k, m))
+            })
+            .collect();
         // `OnPreDataItem` of the base, with the extensions' OnBefore/OnAfterPreDataItem around it,
         // each in object id order (corpus reports/extensions/TestReportExtensionBaseMembersContracts.al:
         // "for every trigger the base runs first, then the extensions").
@@ -2300,7 +2297,7 @@ impl Session {
 }
 
 /// A data item of the running report: one of its own, or one its reportextension adds.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum ItemRef {
     Base(usize),
     /// Item `.1` of `ReportExt::added` of extension `.0` of the run (`Run::exts`).
@@ -2357,6 +2354,17 @@ impl Run {
         out
     }
 
+    fn item_additions(&self, r: ItemRef) -> impl Iterator<Item = (usize, &ir::ReportExtAdd)> {
+        (0..self.exts.len())
+            .filter_map(|k| self.ext_ir(k).map(|ext| (k, ext)))
+            .flat_map(move |(k, ext)| {
+                ext.adds
+                    .iter()
+                    .filter(move |a| item_anchor(self.report(), k, a.item) == Some(r))
+                    .map(move |a| (k, a))
+            })
+    }
+
     /// The items nested directly under `r`, in the order they run (`ItemTree::children`).
     fn children(&self, r: ItemRef) -> Vec<ItemRef> {
         self.tree().children(r)
@@ -2407,20 +2415,22 @@ impl<'a> ItemTree<'a> {
         for k in 0..self.exts.len() {
             let Some(x) = self.ext(k) else { continue };
             let mine: Vec<usize> = (0..x.added.len())
-                .filter(|&c| match r {
-                    ItemRef::Base(i) => x.added[c].base_parent == Some(i),
-                    ItemRef::Added(kk, j) => kk == k && x.added[c].item.parent == Some(j),
+                .filter(|&c| {
+                    let added = &x.added[c];
+                    let parent = added
+                        .foreign_parent
+                        .map(ir::ItemAnchor::Foreign)
+                        .or_else(|| added.item.parent.map(ir::ItemAnchor::Added))
+                        .or_else(|| added.base_parent.map(ir::ItemAnchor::Base));
+                    parent.and_then(|a| item_anchor(self.report, k, a)) == Some(r)
                 })
                 .collect();
             // Position order (reports/extensions/TestReportExtensionDataItemPlacementContracts.al):
             // the items added first, those before a sibling, the sibling, those after it, the items
             // added last. Items next to an item the extension added are placed once that is.
             let at = |out: &[ItemRef], a: ir::ItemAnchor| {
-                out.iter().position(|c| match (c, a) {
-                    (ItemRef::Base(x), ir::ItemAnchor::Base(y)) => *x == y,
-                    (ItemRef::Added(kk, x), ir::ItemAnchor::Added(y)) => *kk == k && *x == y,
-                    _ => false,
-                })
+                let anchor = item_anchor(self.report, k, a)?;
+                out.iter().position(|&item| item == anchor)
             };
             let mut pending: Vec<usize> = mine
                 .iter()
@@ -3630,13 +3640,7 @@ impl Session {
         };
         let mut calc: Vec<usize> = Vec::new();
         let mut columns: Vec<&ir::ReportColumn> = run.item(r).columns.iter().collect();
-        if let ItemRef::Base(i) = r {
-            for k in 0..run.exts.len() {
-                if let Some(x) = run.ext_ir(k) {
-                    columns.extend(x.adds.iter().filter(|a| a.item == i).flat_map(|a| a.columns.iter()));
-                }
-            }
-        }
+        columns.extend(run.item_additions(r).flat_map(|(_, add)| &add.columns));
         for c in columns {
             if let Some(p) = c.field {
                 let f = &def.fields[p];
@@ -3685,16 +3689,11 @@ impl Session {
             };
             let mut columns = Vec::new();
             for c in &item.columns {
-                columns.push(ty(run.object, c)?);
+                columns.push(ty(run.owner(r).1, c)?);
             }
-            if let ItemRef::Base(i) = r {
-                for k in 0..run.exts.len() {
-                    let Some(x) = run.ext_ir(k) else { continue };
-                    for add in x.adds.iter().filter(|a| a.item == i) {
-                        for c in &add.columns {
-                            columns.push(ty(run.exts[k].1, c)?);
-                        }
-                    }
+            for (k, add) in run.item_additions(r) {
+                for c in &add.columns {
+                    columns.push(ty(run.exts[k].1, c)?);
                 }
             }
             out.push(dataset::DeclaredItem {
@@ -3727,15 +3726,10 @@ impl Session {
         for c in &item.columns {
             columns.push(self.dataset_column(c, &owner, object, table, rec)?);
         }
-        if let ItemRef::Base(i) = r {
-            for k in 0..run.exts.len() {
-                let (ext_inst, e) = &run.exts[k];
-                let Some(x) = run.ext_ir(k) else { continue };
-                for add in x.adds.iter().filter(|a| a.item == i) {
-                    for c in &add.columns {
-                        columns.push(self.dataset_column(c, ext_inst, *e, table, rec)?);
-                    }
-                }
+        for (k, add) in run.item_additions(r) {
+            let (ext_inst, e) = &run.exts[k];
+            for c in &add.columns {
+                columns.push(self.dataset_column(c, ext_inst, *e, table, rec)?);
             }
         }
         // From BC 28 each DataItem names its table and a GUID that differs per element
@@ -4461,6 +4455,8 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
 }
 
 mod blob_column;
+mod dependency_items;
+use dependency_items::item_anchor;
 mod execute_args;
 use execute_args::RefCall;
 pub(crate) mod format_region;

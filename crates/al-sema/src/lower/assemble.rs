@@ -689,36 +689,15 @@ pub(crate) fn build_shared<'a>(
         report_irs[oi] = Some(crate::reports::build(&cx, &obj, over));
         report_layouts[oi] = Some(l);
     }
-    for (ei, base) in ext_base.iter().enumerate() {
-        let (Some(base), Some(layout)) = (*base, ext_layouts[ei].as_ref()) else {
-            continue;
-        };
-        let (Some(base_layout), Some(base_ir)) = (report_layouts[base].as_ref(), report_irs[base].as_ref()) else {
-            continue;
-        };
-        let cx = crate::reports::ExtContext {
-            ws,
-            members,
-            file: ws.objects[ei].file,
-            oi: ei,
-            base,
-            base_layout,
-            base_items: &base_ir.items,
-            layout,
-            routine_at: &routine_at,
-        };
-        let (ir, reasons) = crate::reports::build_ext(&cx, &ws.object_ast(ei));
-        ext_irs[ei] = Some(ir);
-        // The extension's reasons stop the report it changes.
-        let name = &ws.objects[ei].name;
-        if let Some(r) = report_irs[base].as_mut() {
-            r.unsupported.extend(
-                reasons
-                    .into_iter()
-                    .map(|why| format!("reportextension \"{name}\": {why}")),
-            );
-        }
-    }
+    lower_report_extensions(
+        ws,
+        members,
+        &report_layouts,
+        &mut report_irs,
+        &ext_layouts,
+        &mut ext_irs,
+        &routine_at,
+    );
     // Why a variable of an xmlport or report is refused, and the report extension that changes a
     // run: the cache supplies them for its objects.
     let n_objects = ws.objects.len();
@@ -824,6 +803,13 @@ pub(crate) fn build_shared<'a>(
                         if seen.insert(i.name.to_lowercase()) {
                             items_before += 1;
                         }
+                    }
+                    if let Some(ext) = shared.ext_irs[e].as_ref() {
+                        items_before += ext
+                            .aliases
+                            .iter()
+                            .filter(|(item, _)| matches!(item, ir::ItemAnchor::Foreign(_)))
+                            .count();
                     }
                 }
                 for v in ws.object_ast(e).var_decls() {
@@ -2610,6 +2596,59 @@ fn tdd_stub_list(checked: &CheckResult, sites: &[(usize, String)]) -> Vec<String
         all.dedup();
     }
     all
+}
+
+/// Lower each report's extensions in run order so dependency items are available to their consumers.
+fn lower_report_extensions(
+    ws: &Workspace,
+    members: &MemberTable<'_>,
+    report_layouts: &[Option<crate::reports::Layout>],
+    report_irs: &mut [Option<ir::Report>],
+    ext_layouts: &[Option<crate::reports::ExtLayout>],
+    ext_irs: &mut [Option<ir::ReportExt>],
+    routine_at: &RoutineAt,
+) {
+    let ordered_extensions: Vec<_> = report_irs
+        .iter()
+        .enumerate()
+        .flat_map(|(base, report)| {
+            report
+                .iter()
+                .flat_map(move |report| report.extensions.iter().map(move |&extension| (base, extension)))
+        })
+        .collect();
+    for (base, ei) in ordered_extensions {
+        let Some(layout) = ext_layouts[ei].as_ref() else {
+            continue;
+        };
+        let (Some(base_layout), Some(base_ir)) = (report_layouts[base].as_ref(), report_irs[base].as_ref()) else {
+            continue;
+        };
+        let cx = crate::reports::ExtContext {
+            ws,
+            members,
+            file: ws.objects[ei].file,
+            oi: ei,
+            base,
+            base_layout,
+            base_items: &base_ir.items,
+            layout,
+            dependencies: &crate::reports::dependency_dataset_items(ws, ei, base),
+            prior_exts: ext_irs,
+            routine_at,
+        };
+        let (ir, reasons) = crate::reports::build_ext(&cx, &ws.object_ast(ei));
+        ext_irs[ei] = Some(ir);
+        // The extension's reasons stop the report it changes.
+        let name = &ws.objects[ei].name;
+        if let Some(r) = report_irs[base].as_mut() {
+            r.unsupported.extend(
+                reasons
+                    .into_iter()
+                    .map(|why| format!("reportextension \"{name}\": {why}")),
+            );
+        }
+    }
 }
 
 /// The variables of a report extension's request page come after its own variables in its globals (`shared.rs`).

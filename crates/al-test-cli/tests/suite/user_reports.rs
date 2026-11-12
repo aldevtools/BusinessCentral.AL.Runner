@@ -8,11 +8,15 @@ use al_vm::Engine;
 /// Runs the test codeunit `T` of the workspace app `objects`. `apps` are dependency apps in order, each one
 /// depending on the ones before it; the workspace app depends on all of them.
 pub(crate) fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcome)> {
+    run_with_dep_ids(apps, objects, |i| format!("app{i}"))
+}
+
+fn run_with_dep_ids(apps: &[&str], objects: &str, app_id: impl Fn(usize) -> String) -> Vec<(String, Outcome)> {
     let mut sources = Vec::new();
     let mut kinds = Vec::new();
     let mut ids: Vec<String> = Vec::new();
     for (i, src) in apps.iter().chain([&objects]).enumerate() {
-        let id = format!("app{i}");
+        let id = app_id(i);
         sources.push(AppSource {
             id: id.clone(),
             name: id.clone(),
@@ -37,7 +41,6 @@ pub(crate) fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcom
     let engine = Engine::new(l.program.clone(), blocked);
     run_codeunit(&engine, &l, oi)
 }
-
 pub(crate) fn all_pass(results: Vec<(String, Outcome)>) {
     assert!(!results.is_empty());
     for (name, outcome) in results {
@@ -2524,4 +2527,17 @@ codeunit 69502 T {{ Subtype = Test;
             );
         }
     }
+}
+
+#[test]
+fn measured_report_extension_targets_dependency_data_items() {
+    all_pass(run_with_dep_ids(
+        &[
+            include_str!("../fixtures/cross-app-report-items-base.al"),
+            include_str!("../fixtures/cross-app-report-items-alpha.al"),
+            include_str!("../fixtures/cross-app-report-items-leaf.al"),
+        ],
+        include_str!("../fixtures/cross-app-report-items-tests.al"),
+        |i| format!("e0b74651-fb05-47ab-8d77-57b3b30c{i:04x}"),
+    ));
 }

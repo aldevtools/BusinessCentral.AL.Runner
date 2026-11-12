@@ -148,8 +148,53 @@ impl<'a> Checker<'a> {
             .as_ref()
     }
 
-    /// What every routine of object `oi` sees: the object's own variables, the implicit
-    /// record, and the data items of a report extension's base.
+    /// Records available by name and as Rec in a report extension's dataset blocks.
+    fn report_extension_item_types(
+        &self,
+        oi: usize,
+        obj: &ast::Object,
+        globals: &mut HashMap<String, Ty>,
+    ) -> HashMap<String, String> {
+        let o = &self.ws.objects[oi];
+        // Report extensions see the base report's data items; `modify(X)` blocks
+        // run with data item X as their record.
+        let mut base_items: HashMap<String, String> = HashMap::default();
+        if o.kind == ObjKind::ReportExtension {
+            if let Some(base) = obj.extends_parts() {
+                if let Some(r) = self.resolve_parts(o.file, ObjKind::Report, &base) {
+                    for (_, _, item) in crate::reports::dependency_dataset_items(self.ws, oi, r) {
+                        let name = item.name.to_lowercase();
+                        base_items.insert(name.clone(), item.table.clone());
+                        globals.insert(
+                            name,
+                            Ty::Record {
+                                table: item.table.into(),
+                                temporary: crate::reports::uses_temporary(&item.section),
+                            },
+                        );
+                    }
+                    for sec in ast::sections_in(self.ws.object_ast(r).syntax()) {
+                        if sec.name().eq_ignore_ascii_case("dataitem") {
+                            let a = sec.args();
+                            if let (Some(n), Some(t)) = (a.first(), crate::types::section_object_name(&sec, 1)) {
+                                base_items.insert(n.to_lowercase(), t.clone());
+                                globals.insert(
+                                    n.to_lowercase(),
+                                    Ty::Record {
+                                        table: t.into(),
+                                        temporary: false,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        base_items
+    }
+
+    /// What every routine sees: the object's variables, its implicit record, and visible report data items.
     pub(crate) fn object_ctx(&mut self, oi: usize) -> ObjCtx {
         let obj = self.ws.object_ast(oi);
         let o = &self.ws.objects[oi];
@@ -335,30 +380,7 @@ impl<'a> Checker<'a> {
             globals.insert("rec".into(), r.clone());
             globals.insert("xrec".into(), r.clone());
         }
-        // Report extensions see the base report's data items; `modify(X)` blocks
-        // run with data item X as their record.
-        let mut base_items: HashMap<String, String> = HashMap::default();
-        if o.kind == ObjKind::ReportExtension {
-            if let Some(base) = obj.extends_parts() {
-                if let Some(r) = self.resolve_parts(o.file, ObjKind::Report, &base) {
-                    for sec in ast::sections_in(self.ws.object_ast(r).syntax()) {
-                        if sec.name().eq_ignore_ascii_case("dataitem") {
-                            let a = sec.args();
-                            if let (Some(n), Some(t)) = (a.first(), crate::types::section_object_name(&sec, 1)) {
-                                base_items.insert(n.to_lowercase(), t.clone());
-                                globals.insert(
-                                    n.to_lowercase(),
-                                    Ty::Record {
-                                        table: t.into(),
-                                        temporary: false,
-                                    },
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let base_items = self.report_extension_item_types(oi, &obj, &mut globals);
         // ADR-023: a page or report extension sees the base object's `protected var` variables
         // (those the extension does not declare itself) and its procedures.
         let mut base_obj = None;
