@@ -470,6 +470,7 @@ impl Session {
         self.autoinc = b.autoinc.clone();
         self.isolated_storage = b.isolated_storage.clone();
         self.isolated_committed = b.isolated_storage.clone();
+        self.isolated_written_in_codeunit.clear();
         self.sequences = b.sequences.clone();
         self.sequences_changed.clear();
         // The install ran on a clock that its own Sleep calls had moved forward (hours, in Business Central's install

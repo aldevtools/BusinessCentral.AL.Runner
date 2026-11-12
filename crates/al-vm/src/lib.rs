@@ -33,6 +33,7 @@ mod ctx;
 mod debug;
 mod exec;
 mod interp;
+mod isolated_storage_reads;
 pub use baseline::{Baseline, NotShared, RowDelta, SharedBaseline};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
@@ -818,6 +819,8 @@ pub struct Session {
     pub(crate) isolated_committed: std::collections::HashMap<(String, String), (String, bool, bool)>,
     /// The isolated storage keys the running test method set (a page background task reads them differently, sessionops.rs Get).
     pub(crate) isolated_set_in_test: std::collections::HashSet<(String, String)>,
+    /// The isolated storage keys this test codeunit set, in this test or an earlier one (isolated_storage_reads.rs).
+    pub(crate) isolated_written_in_codeunit: std::collections::HashSet<(String, String)>,
     /// The TaskScheduler tasks this session created (`tasks.rs`).
     pub(crate) tasks: tasks::Tasks,
     /// An install codeunit is running.
@@ -1325,6 +1328,7 @@ impl Session {
             isolated_storage: Default::default(),
             isolated_committed: Default::default(),
             isolated_set_in_test: Default::default(),
+            isolated_written_in_codeunit: Default::default(),
             tasks: Default::default(),
             install_scope: false,
             company_build: false,

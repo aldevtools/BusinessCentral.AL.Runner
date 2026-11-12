@@ -638,7 +638,11 @@ impl Mat {
                 let unseen = match &f.expr {
                     e if single_value(e) => !e.matches_checked(&r[col]),
                     FilterExpr::Like(..) => true,
-                    FilterExpr::Or(alts) => alts.iter().all(|a| matches!(a, FilterExpr::Eq(_))),
+                    // An alternative of names, of wildcards or of both: each form alone does not see it (types/AjMisc.al:712-717;
+                    // metadata/platform-tables/FieldTimestampRowTableTypes.al:164-166 on every probed kind of table).
+                    FilterExpr::Or(alts) => alts
+                        .iter()
+                        .all(|a| matches!(a, FilterExpr::Eq(_) | FilterExpr::Like(..))),
                     // A not-equal, an `&` of not-equals, a comparison and a range of two names do not see it either, with or
                     // without the Class, Enabled and ObsoleteState filters (metadata/FieldNameNotEqualFilter.al:57-120, staging
                     // r6980; al-runner issue 6995).

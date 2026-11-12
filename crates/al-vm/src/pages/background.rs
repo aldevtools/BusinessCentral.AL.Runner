@@ -58,6 +58,15 @@ impl Session {
             Some(d @ V::Dictionary(_)) => copy_dictionary(d),
             _ => V::Dictionary(Default::default()),
         };
+        // A page part that already enqueued a task (its OnAfterGetCurrRecord ran again, as on OpenView and then GoToRecord of the
+        // same row): BC reports one task's outcome where the runtime would run two
+        // (session-system/isolated-storage/IsolatedStorageInBackgroundTask.al:242-251, :715-753). Which task BC runs, or
+        // whether it runs OnAfterGetCurrRecord again, is not pinned.
+        if st.borrow().host.is_some() && st.borrow().bg_next_id > 1 {
+            return unsupported(
+                "EnqueueBackgroundTask a second time on a page part (whether BC runs both tasks is not pinned)",
+            );
+        }
         let id = {
             let mut s = st.borrow_mut();
             let id = s.bg_next_id;
