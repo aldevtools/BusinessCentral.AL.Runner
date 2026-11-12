@@ -85,6 +85,20 @@ impl PageRunCall {
     }
 }
 
+impl PageRun {
+    /// `TestPage.Trap()` variable `trap` takes the page AL code runs on `from` (`run_page_ui_with`): it is caught by the trap,
+    /// and `trapped_static_run` says whether the run was the static `Page.Run(Page::X, Rec)`.
+    pub(crate) fn catch_by_trap(trap: &St, from: &St) {
+        let static_run = from
+            .borrow()
+            .page_run
+            .is_some_and(|r| r.call == PageRunCall::StaticWithRecord);
+        let mut t = trap.borrow_mut();
+        t.caught_by_trap = true;
+        t.trapped_static_run = static_run;
+    }
+}
+
 /// More calls than this are not kept in `PageState::code_calls`: a longer list is no pinned run.
 const KEPT_CODE_CALLS: usize = 3;
 
