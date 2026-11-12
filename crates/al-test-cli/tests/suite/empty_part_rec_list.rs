@@ -3068,6 +3068,7 @@ fn empty_list_part_rec_widened_cells_neighbors_refuse() {
 ///   First or Next, a GoToRecord that answered No, a line or a host row written through a Record variable, a second read;
 /// - the test's filter on the part of a form outside the cells (a host with Editable = false and a bare part control, a part
 ///   control with UpdatePropagation = SubPart): the filter re-stamped the link values there with no assumption.
+///
 /// Each refuses the read of the part's Rec. The measured landings stay flagged passes with BC's values, on the reporter's form, on
 /// DocBoth and on a probe's first host (`Base_*`, two reads after a GoToRecord as EmptyPartRecLinkList.al:1370 measures); a Card
 /// host keeps main's result for a second read and for the test's filter on the part (EmptyPartRecLink.al:634 pins the second
