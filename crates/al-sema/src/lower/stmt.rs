@@ -1463,10 +1463,7 @@ impl Lowerer<'_> {
             if let Some(sig) = sig.filter(|_| member || implicit) {
                 // A test page control's setter form is run by the test client, not a native builtin.
                 if al_builtins::native::lookup(&id).is_none() && !id.starts_with("TestField.") {
-                    return Err(match al_builtins::native::refusal(&id) {
-                        Some(why) => format!("builtin {id}: {why} (docs/probes-needed.md)"),
-                        None => format!("builtin {id} is not implemented"),
-                    });
+                    return Err(format!("builtin {id} is not implemented"));
                 }
                 if super::is_compound_assign(n) {
                     return Err("compound assignment to a setter-form builtin is not lowered yet".into());

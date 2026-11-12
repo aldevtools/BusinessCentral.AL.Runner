@@ -470,10 +470,7 @@ impl Lowerer<'_> {
             Some(Res::Builtin(id)) if id == "System.GetDotNetType#1" => self.get_dotnet_type_call(args),
             Some(Res::Builtin(id)) => {
                 if al_builtins::native::lookup(&id).is_none() {
-                    return Err(match al_builtins::native::refusal(&id) {
-                        Some(why) => format!("builtin {id}: {why} (docs/probes-needed.md)"),
-                        None => format!("builtin {id} is not implemented"),
-                    });
+                    return Err(format!("builtin {id} is not implemented"));
                 }
                 let sig = self
                     .catalog

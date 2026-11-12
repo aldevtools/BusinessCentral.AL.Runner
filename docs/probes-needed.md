@@ -408,7 +408,7 @@ pin, and the default chosen:
 ## Builtins refused until a probe pins them
 
 Found by Tests-ERM with test data (issue 8). The lowering refuses each with the reason in the second column
-(`al_builtins::native::refusal`); none is called by a corpus test.
+(once `al_builtins::native::refusal`, now removed: each row says what is pinned and implemented today).
 
 | Builtin | Tests-ERM tests it stops | Probe wanted |
 |---|---:|---|
