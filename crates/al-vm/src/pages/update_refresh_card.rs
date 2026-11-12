@@ -9,6 +9,17 @@ use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 
 impl Session {
+    pub(super) fn refresh_after_card_assist_edit(
+        &mut self,
+        st: &St,
+        rec_before: Option<&(Vec<Value>, bool)>,
+    ) -> Result<(), Signal> {
+        if let Some((before, true)) = rec_before {
+            self.settle_next_only_card_assist_edit(st, before)?;
+        }
+        self.run_refresh(st)
+    }
+
     /// NextOnlyCardRefresh.al: AssistEdit stores and reloads the edited row before Update(false).
     /// The old client edit is no longer pending. BC shows the returned Rec and refreshes the linked
     /// part without raising the card's current-record trigger.
