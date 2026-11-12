@@ -75,7 +75,7 @@ impl Session {
     /// What a save as `format` (not Xml) does once the report and its layout are known: run and write the dataset's
     /// replacement, or answer false at once. A save no arm pins is refused.
     pub(crate) fn rendered_save(
-        &self,
+        &mut self,
         schema: &Schema,
         format: &str,
         target: &SaveTarget,
@@ -119,8 +119,8 @@ impl Session {
             return go(SaveOutput::Dataset);
         }
         if let Some(f) = Format::from_name(format) {
-            if self.placeholder_allowed(schema, f)? {
-                return go(SaveOutput::Placeholder(f));
+            if let Some(output) = self.placeholder_allowed(schema, f, target)? {
+                return go(output);
             }
             if self.output_is_ignored(schema) {
                 return go(SaveOutput::Discard);
@@ -151,7 +151,10 @@ impl Session {
                  before its error are not raised here)"
             ));
         }
-        if !rdlc_html {
+        if rdlc_html {
+            // The false answer is the report's own RDLC layout's; a layout selection may pick a Word layout, which renders Html.
+            self.refuse_layout_selection(schema, &format!("Report.SaveAs as {format}"))?;
+        } else {
             // Only the stream form is pinned for the cells of the 2026-11-11 grid.
             if matches!(target, SaveTarget::File(_)) {
                 return unsupported(format!(

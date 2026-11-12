@@ -80,6 +80,8 @@ impl Session {
             reason: "a call of the test after the Post of a journal that left another primary key in Rec on its new-row line, \
                      other than Close (not pinned)",
             reads: false,
+            one_action: false,
+            first_ends: false,
         });
         Ok(true)
     }

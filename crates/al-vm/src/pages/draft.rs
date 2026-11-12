@@ -1074,11 +1074,14 @@ impl Session {
     /// a control of that row to a non-key control inserts it (corpus
     /// testpage/TestPageBlankKeyInsert.al:1-25 and its List_NewRow_Focus... arm: after New() the
     /// focus still sits on the old row's control).
-    pub(super) fn activate(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
+    pub(super) fn activate(&mut self, st: &St, idx: usize, setting_value: bool) -> Result<(), Signal> {
         let (prev, in_row) = {
             let s = st.borrow();
             (s.focus, s.focus_in_row)
         };
+        if setting_value {
+            self.insert_document_before_variable_validation(st, idx, in_row && prev.is_some() && prev != Some(idx))?;
+        }
         if prev == Some(idx) {
             return Ok(());
         }

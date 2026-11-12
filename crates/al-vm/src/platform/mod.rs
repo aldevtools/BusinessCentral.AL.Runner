@@ -14,8 +14,8 @@ mod apps;
 
 /// The platform table Media Resources (`al_builtins::platform::REGISTRY`).
 pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
-/// Table "Tenant Report Layout", whose rows are the user-defined rows of Report Layout List.
-const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
+// Table "Tenant Report Layout" (`tenant_layouts`), whose rows are the user-defined rows of Report Layout List.
+use crate::tenant_layouts::TENANT_REPORT_LAYOUT;
 const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
 pub(crate) mod coverage;
 mod date;
@@ -527,6 +527,29 @@ impl Providers {
             .collect()
     }
 
+    /// The Tenant Media rows a read by key finds: the media store's, with the rows an AL Insert stored
+    /// (streams/media/Y48TenantMediaRows.al:646, a Get of the stored row).
+    fn tenant_media_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        let stored = store.stored_rows(cx, t);
+        if stored.is_empty() {
+            return self.listed(t, Virtual::TenantMedia);
+        }
+        let mut entries = self.tenant_media_rows(t);
+        entries.extend(stored.into_iter().map(mat::Entry::ok));
+        Ok(Listed::Own(Rc::new(mat::Mat::new(t, entries))))
+    }
+
+    /// The Tenant Media rows a scan or count reads: the media store's. A scan or count while a row an AL Insert stored is
+    /// there is not pinned (Y48TenantMediaRows.al:634-649 reads that row only by key).
+    fn tenant_media_scan(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        if !store.stored_rows(cx, t).is_empty() {
+            return Err(refused(
+                "a read of Tenant Media other than a Get while a row an AL Insert stored is there (not pinned)",
+            ));
+        }
+        self.listed(t, Virtual::TenantMedia)
+    }
+
     /// The Feature Key rows: the served ones, with the rows a Modify stored (`Enabled`) over them.
     /// The session's own Active Session row and the rows an Insert added: a Get, Count and Count with a filter find them
     /// (RvActiveSessionWrites.al:42-70, :90-130, :173-204).
@@ -889,8 +912,15 @@ impl VirtualTables for Providers {
     }
 
     /// Active Session keeps the rows an Insert adds (metadata/platform-tables/RvActiveSessionWrites.al, AL Runner issue 5807).
+    /// Tenant Media keeps the row of the measured Insert(false) (streams/media/Y48TenantMediaRows.al:644; the Record call is
+    /// checked in al-vm `records/tenant_media_rows.rs`).
     fn takes_inserts(&self, t: &TableDef) -> bool {
-        self.served.get(t.object as usize) == Some(&Some(Virtual::ActiveSession))
+        matches!(self.kind(t), Virtual::ActiveSession | Virtual::TenantMedia)
+    }
+
+    /// A Modify of a stored Tenant Media row is not pinned (Y48TenantMediaRows.al:634-649 makes none): only Active Session.
+    fn modifies_stored_rows(&self, t: &TableDef) -> bool {
+        matches!(self.kind(t), Virtual::ActiveSession)
     }
 
     fn write_refusal(&self, t: &TableDef) -> Option<String> {
@@ -939,6 +969,7 @@ impl VirtualTables for Providers {
                 feature_key::get_ignoring_case(&listing, t, pk)
             }
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
+            Virtual::TenantMedia => self.tenant_media_listing(store, cx, t)?.get(t, pk),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.get(t, pk),
             Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),
             Virtual::Media => self.media_of_id(t, pk.first())?.get(t, pk),
@@ -977,6 +1008,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.next(t, scan),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.next(t, scan),
+            Virtual::TenantMedia => self.tenant_media_scan(store, cx, t)?.next(t, scan),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.next(t, scan),
             // A read in key order that chooses between two controls of a page: what the chosen row serves is decided by
             // `pages::page_control_field_chosen_in_key_order`. One read by Sequence is pinned
@@ -1048,6 +1080,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.count(t, filters),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.count(t, filters),
+            Virtual::TenantMedia => self.tenant_media_scan(store, cx, t)?.count(t, filters),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.count(t, filters),
             Virtual::Media => self
                 .media_of_id(t, media_id_filter(t, filters).as_ref())?
