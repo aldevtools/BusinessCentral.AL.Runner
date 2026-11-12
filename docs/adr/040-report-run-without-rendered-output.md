@@ -353,7 +353,8 @@ none of them yet (a later change raises them in the pinned order).
 Status: Accepted by the owner on 2026-11-12, with these answers to the open questions: Part A as written; A7 (run Microsoft's layout
 selection code, a temporary selection of a Word layout no longer refused) yes; the one exact `Regex.Replace` entry yes; Part B is
 built only after the Windows probe is merged; `Contains` only (no `StrPos`/`IndexOf`); `Message` with a marked text stays refused.
-Part A is built (al-builtins `rendered_text.rs`) except A7 (the layout selection), which is still refused; Part B waits for the probe.
+Part A is built (al-builtins `rendered_text.rs`; A7 in al-vm `report_placeholder/selection.rs`, for a user-defined Word layout selected
+by name without an app id); Part B waits for the probe.
 Part A is the opaque value. Part B ("known static text of the chosen layout") is part of the amendment by owner decision
 of 2026-11-12; Part A is written so that it works without Part B.
 
@@ -628,7 +629,8 @@ A lost mark is a silent wrong result: AL would read made-up or missing character
   reporter's tests (al-runner issue 6924). A test through it is a flagged pass.
 - `email-body-rgba-replace-keeps-content`: marked when P12 runs. Text: `Regex.Replace` with that pattern and replacement
   maps a not-empty text to a not-empty text.
-- `report-layout-temp-selection`: marked when A7 resolves a selected layout that is not the report's default.
+- `report-layout-temp-selection`: marked on every save A7 resolves (the selected layout is a Tenant Report Layout row, never the
+  report's default).
 - All three get a row in `docs/probes-needed.md` and a file under `al-builtins/src/assumptions/`.
 - Probes to queue on the corpus (Windows tier, it renders): (1) a Word layout report saved as Html to a Temp Blob,
   `InStream.Read(Text)`, then `T <> ''`, `Format(T) = T`, `TB.Append(T); TB.ToText() = T`, a UTF-8 stream round trip

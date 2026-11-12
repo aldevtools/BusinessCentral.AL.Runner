@@ -21,6 +21,7 @@
 mod files;
 mod grid;
 mod run;
+mod selection;
 
 pub use files::{Format, placeholder_pdf};
 pub(crate) use grid::{Rendered, format_refused_by_layout};
@@ -30,7 +31,7 @@ use crate::{Session, Signal};
 use al_builtins::value::Value;
 
 /// What a rendering save writes.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum SaveOutput {
     /// The Xml dataset the run wrote.
     Dataset,
@@ -38,6 +39,8 @@ pub(crate) enum SaveOutput {
     Discard,
     /// The placeholder file of the format, marked so a read of its content is refused.
     Placeholder(Format),
+    /// The Html placeholder of the Word layout a temporary layout selection named (`selection`): the layout's name.
+    SelectedHtml(std::sync::Arc<str>),
 }
 
 /// The events of codeunit "Reporting Triggers" BC raises around a render (reports/layouts-saveas, events/platform-
@@ -88,6 +91,10 @@ impl Session {
         rows: usize,
     ) -> Result<(), Signal> {
         use al_builtins::assumptions::{Assumption, assume};
+        let (output, selected) = match output {
+            SaveOutput::SelectedHtml(layout) => (SaveOutput::Placeholder(Format::Html), Some(layout)),
+            other => (other, None),
+        };
         match (output, target) {
             (SaveOutput::Dataset, SaveTarget::Stream(blob)) => al_builtins::stream::write_bytes(&blob, dataset),
             (SaveOutput::Dataset, SaveTarget::File(name)) => self.write_save_file(&name, dataset)?,
@@ -96,7 +103,7 @@ impl Session {
                 // owner decision 2026-11-12: only a read inside the bytes the corpus pins at its start answers,
                 // `al_builtins::placeholder_output::pdf_read`).
                 let mark = match format {
-                    Format::Html => self.html_render_mark(schema, rows),
+                    Format::Html => self.html_render_mark(schema, rows, selected.as_deref()),
                     _ => al_builtins::placeholder_output::mark(format.name(), schema.name()),
                 };
                 match target {
@@ -126,19 +133,23 @@ impl Session {
                     .insert(crate::ctx::pending_key(&name), schema.name().into());
                 assume(Assumption::ReportRenderDiscarded);
             }
+            (SaveOutput::SelectedHtml(_), _) => unreachable!("taken apart above"),
         }
         Ok(())
     }
 
     /// The mark of the Html placeholder a save of `schema` writes, with the number of its render: a whole text read of it gives
     /// the rendered content's mark (`al_builtins::rendered_text`, ADR-040 amendment 2026-11-12, A1 and A2). A run that wrote no
-    /// dataset row gives no render, and such a read refuses: what BC renders then is not pinned.
-    fn html_render_mark(&self, schema: &Schema, rows: usize) -> std::sync::Arc<str> {
+    /// dataset row gives no render, and such a read refuses: what BC renders then is not pinned. `selected` is the layout a
+    /// temporary layout selection named (A7), else the report's default layout renders.
+    fn html_render_mark(&self, schema: &Schema, rows: usize, selected: Option<&str>) -> std::sync::Arc<str> {
         let report = schema.report();
-        let layout = report
-            .default_rendering_layout
-            .clone()
-            .unwrap_or_else(|| report.default_layout_kind.clone());
+        let layout = selected.map(str::to_string).unwrap_or_else(|| {
+            report
+                .default_rendering_layout
+                .clone()
+                .unwrap_or_else(|| report.default_layout_kind.clone())
+        });
         let render = (rows > 0)
             .then(|| al_builtins::rendered_text::register(schema.name(), "Html", &layout))
             .flatten();
@@ -150,36 +161,67 @@ impl Session {
         al_builtins::native::Ctx::fs_write(self, name, bytes).map_err(Signal::unsupported)
     }
 
-    /// Whether a save of the report as `format` writes the placeholder: its default layout gives the format (`grid`), and no
-    /// subscriber the test can see listens to an event BC raises around the render. Such a subscriber refuses the save, and so
-    /// does one the compile left out (other than Base Application's ReportManagement, which picks a layout from data: a layout
-    /// selection other than the report's own layout refuses too, [`Session::layout_selection`]).
-    pub(crate) fn placeholder_allowed(&self, schema: &Schema, format: Format) -> Result<bool, Signal> {
+    /// What a save of the report as `format` to `target` writes when it writes a placeholder, `None` when it does not: its
+    /// default layout gives the format (`grid`), and no subscriber the test can see listens to an event BC raises around the
+    /// render. Such a subscriber refuses the save, and so does one the compile left out (other than Base Application's
+    /// ReportManagement, which picks a layout from data: a layout selection other than the report's own layout refuses too,
+    /// [`Session::layout_selection`], except the temporary selection of a Word layout `selection` resolves).
+    pub(crate) fn placeholder_allowed(
+        &mut self,
+        schema: &Schema,
+        format: Format,
+        target: &SaveTarget,
+    ) -> Result<Option<SaveOutput>, Signal> {
         let report = schema.report();
         if report.processing_only || report.layout_file_missing || !grid::writes(&report.default_layout_kind, format) {
-            return Ok(false);
+            return Ok(None);
         }
-        self.refuse_unraised_layout_events(schema, &format!("Report.SaveAs as {}", format.name()), &[])?;
-        Ok(true)
+        let what = format!("Report.SaveAs as {}", format.name());
+        let selected = self.temp_selected_layout(schema, format, target, &what)?;
+        if selected.is_none() {
+            self.refuse_layout_event_subscribers(schema, &what, &[], None)?;
+        }
+        self.refuse_layout_selection(schema, &what)?;
+        Ok(Some(match selected {
+            Some(layout) => SaveOutput::SelectedHtml(layout),
+            None => SaveOutput::Placeholder(format),
+        }))
     }
 
     /// Refuses `what` (a save as a format, a run) while a subscriber the test can see listens to a layout event this runtime
-    /// does not raise (`except` names
-    /// the events BC does not raise on the path, or that the caller raised), or while a layout selection may pick another
-    /// layout than the report's own.
+    /// does not raise (`except` names the events BC does not raise on the path, or that the caller raised), or while a layout
+    /// selection may pick another layout than the report's own.
     pub(crate) fn refuse_unraised_layout_events(
         &self,
         schema: &Schema,
         what: &str,
         except: &[&str],
     ) -> Result<(), Signal> {
-        if let Some(who) = self.layout_event_subscriber(except) {
+        self.refuse_layout_event_subscribers(schema, what, except, None)?;
+        self.refuse_layout_selection(schema, what)
+    }
+
+    /// Refuses `what` while a subscriber the test can see listens to a layout event this runtime does not raise (`except`, and
+    /// the subscribers of object `report_management` to `al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS`, which `selection` raises).
+    fn refuse_layout_event_subscribers(
+        &self,
+        schema: &Schema,
+        what: &str,
+        except: &[&str],
+        report_management: Option<usize>,
+    ) -> Result<(), Signal> {
+        if let Some(who) = self.layout_event_subscriber(except, report_management) {
             return Err(Signal::unsupported(format!(
                 "{what} of report \"{}\" with {who} (BC raises the layout events around a render; this runtime \
                  writes a placeholder or answers without a render and raises none of them)",
                 schema.name()
             )));
         }
+        Ok(())
+    }
+
+    /// Refuses `what` while a layout selection may pick another layout than the report's own ([`Session::layout_selection`]).
+    pub(super) fn refuse_layout_selection(&self, schema: &Schema, what: &str) -> Result<(), Signal> {
         if let Some(why) = self.layout_selection(schema)? {
             return Err(Signal::unsupported(format!(
                 "{what} of report \"{}\" while {why} (BC may render another layout, and an Excel one writes no \
@@ -253,29 +295,45 @@ impl Session {
                 }
             }
         }
+        if self.design_time_selection().is_some() {
+            return Ok(Some("Design-time Report Selection holds a selected layout".into()));
+        }
+        Ok(None)
+    }
+
+    /// The codeunit "Design-time Report Selection" (9654) while its SingleInstance instance holds a selection (a text global
+    /// that is not empty).
+    fn design_time_selection(&self) -> Option<usize> {
         let program = &self.engine.program;
         let design_time = program.objects.heads().iter().position(|o| {
             o.is_kind(al_ir::ObjKind::Codeunit)
                 && o.id == Some(DESIGN_TIME_REPORT_SELECTION)
                 && o.name.eq_ignore_ascii_case("Design-time Report Selection")
-        });
-        if let Some(inst) = design_time.and_then(|oi| self.singletons.get(&oi)) {
-            if inst.borrow().globals.iter().any(|v| !text(v).is_empty()) {
-                return Ok(Some("Design-time Report Selection holds a selected layout".into()));
-            }
-        }
-        Ok(None)
+        })?;
+        let inst = self.singletons.get(&design_time)?;
+        let holds = inst
+            .borrow()
+            .globals
+            .iter()
+            .any(|v| matches!(v, Value::Text(s) | Value::Code(s) if !s.is_empty()));
+        holds.then_some(design_time)
     }
 
-    /// The first subscriber to a layout event (other than those in `except`) that refuses a placeholder, as text for a refusal.
-    fn layout_event_subscriber(&self, except: &[&str]) -> Option<String> {
+    /// The first subscriber to a layout event (other than those in `except`, and those of object `report_management` to the
+    /// events `selection` raises to it) that refuses a placeholder, as text for a refusal.
+    fn layout_event_subscriber(&self, except: &[&str], report_management: Option<usize>) -> Option<String> {
         let events = &self.engine.events;
         let program = &self.engine.program;
         // A subscriber the test cannot see (it names neither the subscriber's codeunit nor a SingleInstance codeunit the
         // subscriber holds) cannot tell whether the event ran, as for CaptionClassTranslate (`Registry::unraised_subscriber`).
         let test = self.test_object.and_then(|t| program.objects.get(t));
         for (key, name) in LAYOUT_EVENTS.iter().filter(|(k, _)| !except.contains(k)) {
-            if let Some((_, sub)) = events.unraised_subscriber("reporting triggers", Some(key), test, self.test_object)
+            let raised = al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS
+                .iter()
+                .any(|e| e.eq_ignore_ascii_case(key));
+            let but = report_management.filter(|_| raised);
+            if let Some((_, sub)) =
+                events.unraised_subscriber_but("reporting triggers", Some(key), test, self.test_object, but)
             {
                 return Some(format!("a subscriber to {name} ({sub})"));
             }

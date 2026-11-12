@@ -30,8 +30,9 @@ fn every_builtin_outside_the_table_refuses_a_marked_argument() {
     let v = marked();
     for name in BuiltinId::all().map(BuiltinId::name) {
         let r = rendered_text::guard(name, None, std::slice::from_ref(&v), false);
-        // The InStream reads take it only as the variable they overwrite; the stream writes need an OutStream receiver.
-        let listed = ALLOWED_AT_ARG0.contains(&name) || name.starts_with("InStream.Read");
+        // The InStream.Read overloads take it only as the variable they overwrite (A2; ReadText reads a line and refuses); the
+        // stream writes need an OutStream receiver.
+        let listed = ALLOWED_AT_ARG0.contains(&name) || name.starts_with("InStream.Read#");
         match (listed, r) {
             (true, Ok(())) | (false, Err(Signal::Unsupported(_))) => {}
             (listed, r) => panic!("{name}: listed {listed}, got {r:?}"),

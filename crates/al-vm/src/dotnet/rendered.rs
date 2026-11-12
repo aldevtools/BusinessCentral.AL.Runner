@@ -43,3 +43,32 @@ impl Session {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use al_builtins::rendered_text::Form;
+
+    fn input() -> String {
+        let n = rendered_text::register("DotNet Report", "Html", "WordOne").expect("a render");
+        rendered_text::mark_text(n, Form::Whole)
+    }
+
+    #[test]
+    fn an_answer_that_is_not_a_text_refuses() {
+        match Session::rendered_dotnet_answer(&input(), Ok(Value::Integer(3))) {
+            Err(Signal::Unsupported(why)) => assert!(why.contains("a .NET answer that is not a text"), "{why}"),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_text_answer_keeps_the_mark_in_the_changed_form() {
+        let input = input();
+        let out = Session::rendered_dotnet_answer(&input, Ok(Value::Text(input.clone().into()))).unwrap();
+        match out {
+            Value::Text(t) => assert_eq!(t.as_str(), rendered_text::to_changed(&input)),
+            other => panic!("expected a text, got {other:?}"),
+        }
+    }
+}

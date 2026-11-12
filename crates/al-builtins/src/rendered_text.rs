@@ -718,8 +718,8 @@ pub fn read_whole(
     let text = match src {
         Source::Html { render: None, .. } => {
             return refuse(
-                "from a report run that produced no dataset row (what BC renders then is not pinned, ADR-040 amendment \
-                 2026-11-12, A2)",
+                "from a report run that has no render number: it produced no dataset row (what BC renders then is not \
+                 pinned, ADR-040 amendment 2026-11-12, A2), or the process used up its render numbers",
             );
         }
         Source::Html { render: Some(n), bytes } => {
