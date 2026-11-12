@@ -246,7 +246,7 @@ fn unmeasured(suite: &SuiteRun, opts: &RunOptions) -> Option<String> {
     let isolation = opts.isolation.filter(|i| recorded || *i != TestIsolation::Codeunit);
     let what = match (runner, isolation) {
         (Some(r), _) => format!("the runner codeunit {r}"),
-        (None, Some(i)) => format!("TestIsolation = {i:?}"),
+        (None, Some(i)) => format!("TestIsolation = {}", i.name()),
         // A recorded suite's runner codeunit decides its isolation; `required_isolation` only picks the TestRunnerHub of a
         // suite without one (`corpus.rs` `hub_path`), as the harness sets it for the main app on BC 28 and later.
         (None, None) if opts.required_isolation && !recorded => "--isolation required".to_string(),
