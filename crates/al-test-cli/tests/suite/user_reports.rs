@@ -3432,3 +3432,64 @@ fn issue_7885_var_variant_and_source_side_keep_main_result() {
         );
     }
 }
+
+#[test]
+fn measured_modal_document_closes_three_draft_parts_after_validation_error() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/modal-three-draft-parts.al"),
+    ));
+}
+
+#[test]
+fn modal_validation_three_draft_parts_refuses_unmeasured_layouts() {
+    let src = include_str!("../fixtures/modal-three-draft-parts.al");
+    let third = r#"            part(ThirdLines; "Three Part Probe Part")
+            {
+                ApplicationArea = All;
+                SubPageLink = Id = field(Id);
+            }
+"#;
+    assert!(src.contains(third));
+    let two = src.replace(third, "").replace("Document.ThirdLines.New();", "");
+    let four = src
+        .replace(third, &format!("{third}{}", third.replace("ThirdLines", "FourthLines")))
+        .replace(
+            "Document.ThirdLines.New();",
+            "Document.ThirdLines.New(); Document.FourthLines.New();",
+        );
+    let dirty = src
+        .replace(
+            "Error('Repro part validation failed.');",
+            "if Rec.Payload = 'INPUT' then Error('Repro part validation failed.');",
+        )
+        .replace(
+            "Document.Lines.Payload.SetValue('INPUT');",
+            "Document.OtherLines.Payload.SetValue('DIRTY'); Document.Lines.Payload.SetValue('INPUT');",
+        );
+    let extension = format!(
+        r#"{src}
+pageextension 50999 UnmeasuredClose extends "Three Part Probe Part" {{
+    trigger OnQueryClosePage(CloseAction: Action): Boolean begin exit(true); end;
+}}
+"#
+    );
+    let subscriber = format!(
+        r#"{src}
+codeunit 50999 UnmeasuredClose {{
+    [EventSubscriber(ObjectType::Page, Page::"Three Part Probe Part", OnQueryClosePageEvent, '', false, false)]
+    local procedure ObserveClose() begin end;
+}}
+"#
+    );
+    for (shape, fixture) in [
+        ("two parts", two),
+        ("four parts", four),
+        ("dirty", dirty),
+        ("extension", extension),
+        ("subscriber", subscriber),
+    ] {
+        let result = run_with_deps(&[], &fixture);
+        assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{shape}: {result:?}");
+    }
+}
