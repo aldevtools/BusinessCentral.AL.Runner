@@ -1187,6 +1187,7 @@ impl Session {
     /// testpage/TestPageControlEditableRoutes.al: Part_HostOpenEdit_ThenViewAction).
     pub(super) fn switch_mode(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
         st.borrow_mut().mode = mode;
+        st.borrow_mut().mode_switched_since_open = true;
         self.set_part_modes(st, mode);
         Ok(Value::Null)
     }
@@ -1203,6 +1204,35 @@ impl Session {
             at = page.controls[p].parent;
         }
         false
+    }
+
+    fn guard_blank_part_host_control(&self, c: &ControlRef, m: PageMethod, field_read: bool) -> Result<(), Signal> {
+        let st = &c.page;
+        // A new host whose part shows rows of the blank key: a read of a host field and OK are pinned (PartLineBeforeHostKey.al:
+        // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), and Activate of a host field: of a non-key field it
+        // inserts the host as without the rows, and the part then links to the new key; of the key field it does nothing
+        // (pages/activate-field-blank-host-rows/Y17ActivateNewHost.al:382 QH_BlankRows_ActivateHostField, :473 _ActivateKeyControl,
+        // :521 _CardHost). Nothing else.
+        if st.borrow().new_host_part_rows && st.borrow().host.is_none() {
+            let ok = matches!(&c.target, ControlTarget::BuiltIn(n) if n == "OK") && m == PageMethod::Invoke;
+            let activate = m == PageMethod::Activate && matches!(c.target, ControlTarget::Control(_));
+            let host_field_read = field_read && matches!(c.target, ControlTarget::Control(_));
+            // After the measured SetValue only a read of a host field follows (`trapped_card_blank_part.rs`).
+            if st.borrow().trapped_blank_part_edit && !host_field_read {
+                return blank_part_host_refusal(m);
+            }
+            let trapped_card_edit = if m == PageMethod::SetValue
+                && let ControlTarget::Control(index) = c.target
+            {
+                self.trapped_card_blank_part_set_value(st, index)?
+            } else {
+                false
+            };
+            if !host_field_read && !ok && !activate && !trapped_card_edit {
+                return blank_part_host_refusal(m);
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn test_control_op(
@@ -1228,20 +1258,7 @@ impl Session {
         let m = method.method();
         let field_read = m == PageMethod::Value && args.is_empty();
         self.first_part_access(st, m, field_read)?;
-        // A new host whose part shows rows of the blank key: a read of a host field and OK are pinned (PartLineBeforeHostKey.al:
-        // 2116 QH_BlankRows_ReadHostControl, :1939 QH_BlankRows_OkInvoke), and Activate of a host field: of a non-key field it
-        // inserts the host as without the rows, and the part then links to the new key; of the key field it does nothing
-        // (pages/activate-field-blank-host-rows/Y17ActivateNewHost.al:382 QH_BlankRows_ActivateHostField, :473 _ActivateKeyControl,
-        // :521 _CardHost). Nothing else.
-        if st.borrow().new_host_part_rows && st.borrow().host.is_none() {
-            let ok = matches!(&c.target, ControlTarget::BuiltIn(n) if n == "OK") && m == PageMethod::Invoke;
-            let activate = m == PageMethod::Activate && matches!(c.target, ControlTarget::Control(_));
-            if !(field_read && matches!(c.target, ControlTarget::Control(_))) && !ok && !activate {
-                return unsupported(format!(
-                    "TestField.{m} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
-                ));
-            }
-        }
+        self.guard_blank_part_host_control(c, m, field_read)?;
         // After a GoToKey that moved a list without OnAfterGetCurrRecord a Value read and SetValue read nothing, and the action
         // after them reads the row twice (pages/list-order/QgGoToKeyNextCall.al:223 Plain_GoToKey_ThenValueRead `no_log`,
         // `qty_log` empty; :236 Plain_GoToKey_ThenSetValue_ThenAction `setvalue_log` empty; :317 _ThenValueRead_ThenAction; the Nav_
@@ -1748,6 +1765,7 @@ impl Session {
             PageMethod::SetValue => {
                 let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.set_value_reading_held_row(st, idx, args)?;
+                self.trapped_card_blank_part_validated(st, idx, before.as_deref())?;
                 self.resync_parts_linked_by(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)

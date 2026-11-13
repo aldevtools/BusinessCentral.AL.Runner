@@ -199,6 +199,7 @@ impl Session {
             (method == PageMethod::DrillDown && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
         let rec_before = (method == PageMethod::AssistEdit && self.has_source(st))
             .then(|| (self.page_rec(st).borrow().fields.clone(), st.borrow().dirty));
+        let linked_key = self.seed_empty_card_part_assist_edit(st, idx, method)?;
         let result = if method == PageMethod::Lookup {
             self.on_lookup_trigger(st, idx, owner, routine)
         } else {
@@ -214,9 +215,7 @@ impl Session {
                 other => other,
             }
         };
-        if result.is_err() {
-            st.borrow_mut().refresh = false;
-        }
+        self.finish_empty_card_part_assist_edit(st, linked_key, result.is_ok())?;
         let v = result?;
         let pk_shown = self.drilldown_marked_only_refresh(st, method, marked_only_before, shown_before);
         // The client refreshes the page after an AssistEdit trigger: OnAfterGetRecord runs again
@@ -257,7 +256,7 @@ impl Session {
             self.torn_down_on_error(st, r)?;
             self.sync_parts(st)?;
         }
-        self.run_refresh(st)?;
+        self.refresh_after_field_trigger(st, method, rec_before.as_ref())?;
         // After the refresh a marking drilldown in the primary key leaves the row the page showed in Rec, and keeps Rec's for the
         // next call (`drilldown_marked_only_refresh`).
         if let Some(shown) = pk_shown {

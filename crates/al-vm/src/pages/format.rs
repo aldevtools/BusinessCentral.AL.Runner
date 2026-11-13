@@ -1112,15 +1112,7 @@ impl Session {
                 );
             }
             if raises_resolve(&c) {
-                // One read is pinned (XTablePropsTests.al:483-487); whether a second read raises the event again is not.
-                if st.borrow().control_captions.iter().any(|(i, _, _)| *i == idx) {
-                    return unsupported(
-                        "a second Caption() of a field CaptionClass that raises OnResolveCaptionClass (whether BC raises it again is not pinned)",
-                    );
-                }
-                let caption = self.caption_class_text(st, &c)?;
-                st.borrow_mut().control_captions.push((idx, c, caption.clone()));
-                return Ok(caption);
+                return self.read_literal_field_caption(st, idx, c);
             }
             return self.caption_class_text(st, &c);
         }

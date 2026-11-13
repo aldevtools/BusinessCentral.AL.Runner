@@ -16,11 +16,16 @@ finds the next neighbor shape. Write the gate in allowlist form:
 - Each fact in the predicate cites its pin (file:line).
 - Facts that were missed most often:
   - open mode: OpenEdit, OpenView and OpenNew are three exact flags (`mode != New` lets OpenView in);
+  - "opened by the test's OpenEdit" is not `mode == Edit`: a page AL code ran and the test caught with Trap has the
+    same mode. Use the one helper `PageState::test_open_edit` (al-vm `pages/state/mod.rs`), not a per-path check;
   - page type, host type, part kind, linked or unlinked part;
   - page properties (Editable, InsertAllowed, AutoSplitKey, DelayedInsert, SourceTableTemporary);
   - triggers declared by extensions (page, table and report extensions) and event subscribers;
   - what the trigger bodies do, not only which triggers exist;
   - the exact test call sequence (what comes before and after the pinned call);
+  - a Write between two measured calls checked by its control index only: its validation is page and table code
+    (control and field OnValidate, subscribers) that can write Rec, set the key or call CurrPage.Update. Require that
+    the write ran no trigger, or that Rec changed only in the typed field;
   - data type, length, sign, position in a filter or expression;
   - record state: temporary, stored, dirty, saved by which call;
   - BC version: a gate that one major measured is not a gate for the others;
@@ -93,6 +98,9 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 
 - A path without a pin runs only through an assumption entry (CLAUDE.md rule 3). The entry text matches what
   the code does (for example "no subscriber" when the code checks none).
+- Before hand-back, read each clause of the entry text against one line of the gate. A fact the text names
+  (the empty page, OpenEdit, "the action committed", "assigned from a Variant") and no line checks is a finding:
+  add the check, or narrow the text.
 - Do not mark where the assumed change has no reader on that page: a pinned clean pass turns into a flagged
   pass. Check `--top-assumptions` for corpus passes under the new id.
 - Regenerate `docs/probes-needed.md` (`--assumptions-doc`) when an entry changes. Do not delete a row while
