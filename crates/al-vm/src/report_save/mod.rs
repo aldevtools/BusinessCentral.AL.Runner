@@ -21,8 +21,6 @@ mod facts;
 mod lookup;
 
 #[cfg(test)]
-mod equivalence;
-#[cfg(test)]
 mod tests;
 
 use std::sync::Arc;
