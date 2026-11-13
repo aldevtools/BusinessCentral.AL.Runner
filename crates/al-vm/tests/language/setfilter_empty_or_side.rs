@@ -92,6 +92,9 @@ codeunit 69992 "SE C"
             31: Row.SetFilter(Num, '99999999999||1');
             // `|%1` on a Code field is not measured.
             32: Row.SetFilter(Cd, '|%1', 'A');
+            // A filter the record already holds: not measured.
+            33: begin Row.SetFilter(Num, '2'); Row.SetFilter(Num, '|10'); end;
+            34: begin Row.SetRange(Id, 1); Row.SetFilter(Name, 'A|'); end;
         end;
     end;
 
@@ -219,6 +222,17 @@ fn an_integer_literal_out_of_range_keeps_mains_evaluate_error() {
             "case {which}"
         );
         assert!(!flagged(), "case {which} must not reach the new path");
+    }
+}
+
+/// The pins and the probe set the filter on a record that held no filter (RcAFilters.al:361-378, SetFilterEmptyTerm.al:98-104):
+/// a record with a filter keeps main's refusal (round-1 review of al-runner PR 7985, cells S900, S901).
+#[test]
+fn a_record_that_holds_a_filter_keeps_mains_refusal() {
+    for which in [33, 34] {
+        let r = call(which);
+        assert!(!flagged(), "case {which}");
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "case {which}: {r:?}");
     }
 }
 

@@ -111,18 +111,20 @@ impl Session {
     }
 
     /// The record and field both the pins and the probe used (RcAObjects.al:16-31 table 71500; SetFilterEmptyTerm.al:15-24 table
-    /// 71907): filter group 0 of a record that is not temporary, an English session, a table numbered below 2000000000 that states
+    /// 71907; the calls RcAFilters.al:361-378 and SetFilterEmptyTerm.al:98-104): filter group 0 of a record that is not temporary
+    /// and holds no filter, an English session, a table numbered below 2000000000 that states
     /// no TableType (or Normal) and whose caption is its name, a Normal field with no TableRelation whose caption is its name, and
     /// on an Integer field no MakeIntFilter subscriber.
     fn measured_record(&self, t: &TableDef, pos: usize, rec: &Rec) -> bool {
-        let (group, temporary) = {
+        let (group, temporary, filtered) = {
             let r = rec.borrow();
-            (r.filter_group, r.temporary)
+            (r.filter_group, r.temporary, !r.filters.is_empty())
         };
         let object = &self.engine.program.objects[t.object as usize];
         let field = &t.fields[pos];
         group == 0
             && !temporary
+            && !filtered
             && self.global_language == 1033
             && object.id.is_some_and(|id| id < 2_000_000_000)
             && matches!(
