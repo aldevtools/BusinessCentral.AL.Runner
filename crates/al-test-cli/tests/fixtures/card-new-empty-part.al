@@ -1,9 +1,4 @@
-// BC Documentation: https://learn.microsoft.com/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpage-opennew-method
-// Scope: Cloud-compatible standalone repro
-// BC versions: 27.5, 28.5, 29.0
-// local object: The Document control, linked part, and header insert trigger define the measured shape.
-
-// local object: the table OnInsert assigns the key used by the variable control trigger.
+// Issue #7888 and corpus PR #1350: the editable Card enters New with an empty linked ListPart.
 table 50810 "Document Repro Row"
 {
     DataClassification = SystemMetadata;
@@ -22,39 +17,6 @@ table 50810 "Document Repro Row"
         if Id = 0 then
             Id := 10;
     end;
-}
-
-// local object: the Document page opens in New mode and validates an unbound control.
-page 50811 "Document Repro Page"
-{
-    PageType = Card;
-    SourceTable = "Document Repro Row";
-    ApplicationArea = All;
-    UsageCategory = None;
-
-    layout
-    {
-        area(Content)
-        {
-            group(General)
-            {
-                field(Id; Rec.Id) { ApplicationArea = All; }
-                field(Scan; InputText)
-                {
-                    ApplicationArea = All;
-
-                    trigger OnValidate()
-                    begin
-                        Rec.Payload := InputText;
-                        Rec.Modify();
-                    end;
-                }
-            }
-        }
-    }
-
-    var
-        InputText: Text[20];
 }
 
 codeunit 50812 T

@@ -377,6 +377,10 @@ pub trait Ctx: FormatCtx {
     fn media_store(&mut self) -> Option<&mut crate::media::MediaStore> {
         None
     }
+    /// Whether `id` is the ID of a Tenant Media row an AL Insert stored, which the media store does not hold.
+    fn is_stored_tenant_media_id(&mut self, _id: [u8; 16]) -> bool {
+        false
+    }
     /// The media and media sets the stored rows hold in Media and MediaSet fields (`FindOrphans`).
     fn media_holders(&mut self) -> Result<crate::media_orphans::MediaHolders, Signal> {
         Err(Signal::Unsupported("FindOrphans: this context has no database".into()))
@@ -411,6 +415,10 @@ pub trait Ctx: FormatCtx {
     fn fs_placeholder(&mut self, _path: &str) -> Option<(std::sync::Arc<str>, Vec<u8>)> {
         None
     }
+    /// `File.Create` or `File.Open` opened an AL File on `path` (not a temporary file); it holds the file until `fs_closed`.
+    fn fs_opened(&mut self, _path: &str) {}
+    /// `File.Close` closed an AL File that was open on `path` (not a temporary file), after the close wrote what it writes.
+    fn fs_closed(&mut self, _path: &str, _handle: &crate::file::FileHandle) {}
     /// Whether `Clear` of a DotNet variable holding the host object `handle` of type `clr_type` changes nothing AL can see, so
     /// the variable just becomes unassigned (an OpenXml workbook writer after its `Close` and the worksheet writers it handed
     /// out, a workbook reader and its worksheet readers). The context marks the assumption it relies on.

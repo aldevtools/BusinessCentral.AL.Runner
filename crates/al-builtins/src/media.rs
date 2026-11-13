@@ -459,13 +459,17 @@ fn set_remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 /// then gets a set id of its own, and the call answers true. An id the set already holds, an id of no media and the null
 /// id answer false and raise nothing. The field holds the new set id at once, a row not yet inserted too; a Modify or
 /// Insert stores it. Not pinned, so refused: adding to a set that holds other media, and the id of a media no set holds
-/// (a Media field's).
+/// (a Media field's), and the ID of a Tenant Media row an AL Insert stored.
 fn set_insert(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let id = id_of(&r)?;
     let Some(Value::Guid(m)) = a.first() else {
         return unsupported("MediaSet.Insert with this argument");
     };
     let m = *m;
+    // The case that stores such a row (streams/media/Y48TenantMediaRows.al:634-649) puts it into no MediaSet.
+    if c.is_stored_tenant_media_id(m) {
+        return unsupported("MediaSet.Insert of the ID of a Tenant Media row an AL Insert stored (not pinned)");
+    }
     let s = store(c)?;
     if m == [0; 16] || !s.objects.borrow().contains_key(&m) {
         return Ok(Value::Boolean(false));

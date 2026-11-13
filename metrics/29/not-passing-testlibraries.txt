@@ -16,11 +16,6 @@
 81564 BiIp_InsertPlain
 81564 BiIp_PermissionFunctions
 81564 BiIp_ScopeEntitlements
-81599 BiTs_A_Plain
-81599 BiTs_B_AssertError
-81599 BiTs_Z_Rows[alpha]
-81599 BiTs_Z_Rows[beta]
-81599 BiTs_Z_Rows[gamma]
 81641 Y24_P23_TestTables
 81641 Y24_P24_FullAccess
 81642 Y24_P25_Restrictive

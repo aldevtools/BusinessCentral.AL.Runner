@@ -1,7 +1,9 @@
 //! `SetTableView` and `SetRecord` on a Page variable: what the page takes of the record it is handed, and what
 //! `SetSelectionFilter` hands back after the page closed.
 
+use super::pinned_shape::{TestCall, capital_word, open_page_filters_then_find, table_code};
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 impl Session {
     /// `P.SetTableView(Rec)` hands the page variable the view of Rec (filters and sorting) but not its position, so the page opens
@@ -158,6 +160,140 @@ impl Session {
             self.record_op(al_builtins::record_op::RecordOp::IsEmpty, &probe, &mut [])?,
             Value::Boolean(true)
         ))
+    }
+
+    /// A fresh destination, or one holding just the blank-key filter of an earlier selection
+    /// (HiddenPartSelectionFilter.al: `rec-before=Id: 0/0`).
+    pub(super) fn plain_no_row_selection_destination(&self, dst: &Rec, initial: &[Value]) -> Result<bool, Signal> {
+        let table = self.table(dst)?;
+        let destination = dst.borrow();
+        let key = &table.keys[0];
+        Ok(destination.marks.is_empty()
+            && !destination.marked_only
+            && destination.filters.iter().all(|filter| {
+                key.len() == 1
+                    && filter.field == key[0]
+                    && match &filter.expr {
+                        al_builtins::filter::FilterExpr::Eq(value) => {
+                            al_builtins::ops::compare(value, &initial[filter.field]).is_ok_and(|order| order.is_eq())
+                        }
+                        al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) => {
+                            let expected = &initial[filter.field];
+                            al_builtins::ops::compare(a, expected).is_ok_and(|order| order.is_eq())
+                                && al_builtins::ops::compare(b, expected).is_ok_and(|order| order.is_eq())
+                        }
+                        _ => false,
+                    }
+            }))
+    }
+
+    /// An action on the empty modal Worksheet of pages/currpage/SelectionFilterNoRow.al:346
+    /// (Page_SetSelectionFilter_EmptyModalWorksheet_FiltersDefaultKey, page 67999) selects the default key: the selection
+    /// filters the primary key on its blank value and finds nothing. Every fact required: the page ran by a statement
+    /// `Page.RunModal(Page::X)` without a record and without its return value used, under a typed modal handler that invokes
+    /// an action, the only call the handler made on the page so far, and no selection answered on the page before (the action
+    /// makes one); a Worksheet on no row that declares OnOpenPage and no
+    /// other trigger, no property but the plain ones, DelayedInsert = true and InsertAllowed = false, with no page extension
+    /// and no event subscriber; its table "ALT Shape 06" (_fixtures/tables/ALTShapeTables.al:108) declares no code and has
+    /// no table extension and no event subscriber; OnOpenPage is `open_page_filters_then_find`; Rec is stored and holds only
+    /// OnOpenPage's `SetRange` of one `capital_word` Text value on a field outside its one-field Integer primary key, in filter group 2; the
+    /// view is empty and no stored row has the blank key (the test stores Id 1, HIDDEN); the destination record is fresh:
+    /// its initial fields, no filter, filter group 0, the primary key, ascending.
+    pub(super) fn empty_modal_worksheet_selection(
+        &mut self,
+        st: &St,
+        src: &Rec,
+        dst: &Rec,
+        initial: &[Value],
+    ) -> Result<bool, Signal> {
+        let object = {
+            let page = st.borrow();
+            if !page.open
+                || !page.modal
+                || page.run_static != Some(true)
+                || page.lookup
+                || page.statement_run
+                || page.field_run
+                || !page.in_action
+                || page.host.is_some()
+                || page.cursor != Cursor::None
+                || page.empty_selection_given
+            {
+                return Ok(false);
+            }
+            page.object as usize
+        };
+        if !self.declares(st, "onopenpage")
+            || !self.page_declares_within(st, &["onopenpage"], &["delayedinsert", "insertallowed"])
+            || !open_page_filters_then_find(&self.engine.program, object, page_of(&self.engine, st))
+            || Self::test_calls(st).as_deref() != Some(&[TestCall::Other(PageMethod::Invoke)])
+        {
+            return Ok(false);
+        }
+        let facts = &self.engine.object_facts[object];
+        let delayed = self.engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(key, value)| key.eq_ignore_ascii_case("DelayedInsert") && value.trim().eq_ignore_ascii_case("true"));
+        if facts.page_type != Some(ir::PageType::Worksheet)
+            || !delayed
+            || self.ui_state.page_handler_depth == 0
+            || !flag_denied(&self.engine, object, "InsertAllowed")?
+            || table_code(&self.engine, src.borrow().table as usize) != Some((Vec::new(), false))
+        {
+            return Ok(false);
+        }
+        let source = src.borrow();
+        let destination = dst.borrow();
+        let fresh = destination.key == 0
+            && destination.adhoc.is_none()
+            && destination.ascending
+            && destination.field_descending == 0
+            && destination.fields.len() == initial.len()
+            && destination
+                .fields
+                .iter()
+                .zip(initial)
+                .all(|(a, b)| al_builtins::ops::compare(a, b).is_ok_and(|order| order.is_eq()));
+        if source.temporary
+            || destination.temporary
+            || !fresh
+            || !destination.filters.is_empty()
+            || destination.filter_group != 0
+            || source.filter_group != 0
+            || source.marked_only
+            || !source.marks.is_empty()
+        {
+            return Ok(false);
+        }
+        let [filter] = source.filters.as_slice() else {
+            return Ok(false);
+        };
+        let table = self.table(src)?;
+        let key = &table.keys[0];
+        let exact_text = match &filter.expr {
+            al_builtins::filter::FilterExpr::Range(Some(Value::Text(lower)), Some(Value::Text(upper))) => {
+                capital_word(lower) && lower == upper
+            }
+            _ => false,
+        };
+        if filter.group != 2
+            || key.len() != 1
+            || key.contains(&filter.field)
+            || !matches!(initial[key[0]], Value::Integer(0))
+            || !exact_text
+            || !Self::same_key(&table.primary_key(&source.fields), &table.primary_key(initial))
+        {
+            return Ok(false);
+        }
+        let blank_key = al_builtins::filter::FieldFilter::new(
+            key[0],
+            al_builtins::filter::FilterExpr::Eq(initial[key[0]].clone()),
+            0,
+        );
+        drop(source);
+        drop(destination);
+        Ok(self.view_row_count(st)? == 0 && self.stored_rows_passing(src, vec![blank_key])? == 0)
     }
 
     /// A TestPage whose own filter shows no row of a table that has rows hands the record that filter

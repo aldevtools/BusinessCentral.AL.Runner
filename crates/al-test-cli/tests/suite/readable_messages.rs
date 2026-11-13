@@ -10,6 +10,11 @@ use std::path::{Path, PathBuf};
 /// `(file suffix, the trimmed source line, why the debug format is fine here)`.
 const KEPT: &[(&str, &str, &str)] = &[
     (
+        "al-sema/src/lower/tests/namespaced_receiver.rs",
+        r#"format!("{:?}", l.program.objects).contains("Assume(NamespacedEnumReceiver)")"#,
+        "a test helper that searches the lowered program's dump for the assumption mark, not a message",
+    ),
+    (
         "al-vm/src/permission_shadow.rs",
         r#"other => self.shadow_note("unknown", site, &format!("{other:?}")),"#,
         "a line of the shadow report (a developer diagnostic of the permission switch, off by default), not a message of a test",

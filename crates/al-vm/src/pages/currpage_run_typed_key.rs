@@ -17,6 +17,7 @@ const CODE: PinnedCode = PinnedCode {
     ],
     control_triggers: &[],
     properties: &["sourcetabletemporary"],
+    action_props: &[],
 };
 
 impl Session {

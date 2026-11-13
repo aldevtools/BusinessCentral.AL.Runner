@@ -395,7 +395,7 @@ impl Session {
                     self.store = before.expect("snapshot taken when isolating");
                     // The subscriber's own transaction is gone with its writes.
                     self.tx.tx_phase = phase;
-                    self.last_error = *e;
+                    self.catch_error(*e);
                     continue;
                 }
                 r => r?,
@@ -693,7 +693,7 @@ impl Session {
     }
 
     /// Live bound instances of codeunit `object`, oldest binding first.
-    fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
+    pub(crate) fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);
         self.events
             .bindings

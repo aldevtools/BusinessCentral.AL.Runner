@@ -46,8 +46,8 @@ impl Session {
         if let Some(from_row) = self.host_new_running {
             // Whether and how often the part's OnAfterGetCurrRecord runs then is not pinned (the PYB pages declare none).
             if observes_curr {
-                // Local HostNew.al: a directly linked empty ListPart of an editable Card
-                // gets no OnAfterGetCurrRecord when the host moves to New().
+                // Corpus PR #1350, pages/parts/TestCardNewEmptyPartRead.al:12-28:
+                // an empty linked ListPart skips OnAfterGetCurrRecord when its Card host moves to New().
                 let host = st
                     .borrow()
                     .host

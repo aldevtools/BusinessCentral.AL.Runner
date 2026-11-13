@@ -110,9 +110,6 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("Dialog.Close#1", dialog_close),
     ("Dialog.HideSubsequentDialogs#1", dialog_hide_subsequent),
     // Reading the latest committed data is what this runtime always does (session-system/TestBCDatabaseContracts.al:170-187).
-    // Telemetry goes to the server's log, which AL cannot read (ADR-009).
-    ("Session.LogMessage#1", |_, _, _| Ok(Value::Null)),
-    ("Session.LogMessage#2", |_, _, _| Ok(Value::Null)),
     // Unique and not null is all the corpus asks (session-system/TestSystemExtended.al:306-328).
     ("Guid.CreateSequentialGuid#1", |c, _, _| Ok(Value::Guid(c.new_guid()))),
     // A TextBuilder is bounded by the Integer range; the corpus needs at least a million
@@ -476,15 +473,6 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("Variant.IsAutomation#1", |_, _, _| Ok(Value::Boolean(false))),
     ("Variant.IsFile#1", |_, _, _| Ok(Value::Boolean(false))),
 ];
-
-/// Builtins that are refused on purpose, with the reason. No corpus test pins what they answer, so
-/// the lowering says so instead of "is not implemented" (hard rule 3; each has a line in
-/// `docs/probes-needed.md`, "Builtins refused until a probe pins them").
-/// None is refused this way now (the last one, `Xmlport.Run#1`, is pinned by corpus master ac3499d6,
-/// xmlports/shapes-properties/Y40XmlPortRequestPage.al).
-pub fn refusal(_id: &str) -> Option<&'static str> {
-    None
-}
 
 pub(super) fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {
     REGISTRY
