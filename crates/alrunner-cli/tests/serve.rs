@@ -383,6 +383,87 @@ fn another_test_runner_is_compiled_again() {
     assert_eq!(run(&mut s, None).last().unwrap()["cached"], true);
 }
 
+/// The reporter's repro of al-runner issue 7978, with a third codeunit.
+const CACHE_PROBE: &str = r#"
+codeunit 50120 "Cache Probe A"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesA()
+    begin
+    end;
+}
+
+codeunit 50121 "Cache Probe B"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesB()
+    begin
+    end;
+}
+
+codeunit 50122 "Cache Probe C"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesC()
+    begin
+    end;
+}
+"#;
+
+/// The compile depends on the sources, not on the `test` filter: a request that selects another codeunit of the same
+/// sources reuses the compile, and runs only what it selects (al-runner issue 7978).
+#[test]
+fn another_test_filter_on_the_same_sources_reuses_the_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "cacheprobe", CACHE_PROBE);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let mut run = |test: &str, coverage: bool| {
+        let mut request = json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "test", "test": test});
+        if coverage {
+            request["coverage"] = json!(true);
+            request["perTestCoverage"] = json!(true);
+        }
+        s.send(request);
+        let lines = s.until_summary();
+        let ran: Vec<String> = lines
+            .iter()
+            .filter(|l| l["type"] == "test" && l["status"] == "pass")
+            .map(|l| l["name"].as_str().unwrap_or_default().to_string())
+            .collect();
+        let summary = lines.last().unwrap().clone();
+        (summary["cached"].clone(), summary["total"].clone(), ran)
+    };
+    let one = |name: &str| vec![name.to_string()];
+    assert_eq!(
+        run("Codeunit50120.", false),
+        (json!(false), json!(1), one("Codeunit50120.PassesA")),
+        "the first request compiles"
+    );
+    assert_eq!(
+        run("Codeunit50121.", false),
+        (json!(true), json!(1), one("Codeunit50121.PassesB"))
+    );
+    assert_eq!(
+        run("Codeunit50121.", false),
+        (json!(true), json!(1), one("Codeunit50121.PassesB"))
+    );
+    assert_eq!(
+        run("Codeunit50122.", true),
+        (json!(true), json!(1), one("Codeunit50122.PassesC"))
+    );
+    assert_eq!(
+        run("Codeunit50120.", true),
+        (json!(true), json!(1), one("Codeunit50120.PassesA"))
+    );
+}
+
 const TWO_UNITS: &str = r#"
 codeunit 50400 "Boom Tests"
 {
