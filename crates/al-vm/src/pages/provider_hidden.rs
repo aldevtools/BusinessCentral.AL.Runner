@@ -292,7 +292,7 @@ impl Session {
             };
             before.journal = (mismatch.is_some() && journal_miss.is_none()).then_some(self.commits);
             before.pinned_host_rec = Some(match (mismatch, journal_miss) {
-                (Some(_), Some(journal)) if self.journal_host_type(st) => Err(journal),
+                (Some(_), Some(journal)) if self.journal_host_type(st).is_some() => Err(journal),
                 (Some(reason), Some(_)) => Err(reason),
                 _ => Ok(self.page_rec(st).borrow().fields.clone()),
             });
@@ -345,7 +345,7 @@ impl Session {
     ///   the open on (`PageState::seen_visible`).
     ///
     /// On the journal shape's host (`BeforeActionBody::journal`) the host facts are `journal_turn_host_miss`, and the part is
-    /// `journal_part_miss`'s (unlinked, with a repeater) instead of the linked part without one (HiddenPartJournalShape.al:537);
+    /// `journal_part_miss`'s (unlinked, with a repeater) instead of the linked part without one (HiddenPartJournalShape.al:540);
     /// `journal_turn` then checks the part's rows and the body's commits.
     ///
     /// `Err` names the first condition that does not hold, for the refusal.
