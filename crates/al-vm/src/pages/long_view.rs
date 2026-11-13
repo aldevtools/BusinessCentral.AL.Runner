@@ -107,6 +107,7 @@ impl Session {
             triggers: &["onaftergetrecord"],
             control_triggers: &[],
             properties: &[],
+            action_props: &[],
         };
         let rec = self.page_rec(st);
         let calls = match Self::test_calls(st).as_deref() {
@@ -224,6 +225,7 @@ impl Session {
             triggers: &["onopenpage", "onaftergetrecord"],
             control_triggers: &[],
             properties: &["sourcetabletemporary", "editable"],
+            action_props: &[],
         };
         const ROWS: usize = 60;
         let rec = self.page_rec(st);

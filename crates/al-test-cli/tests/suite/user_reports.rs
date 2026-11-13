@@ -2526,6 +2526,142 @@ codeunit 69502 T {{ Subtype = Test;
     }
 }
 
+/// Issue 7770: only the focus move on an unfiltered OpenNew Document without parts
+/// is covered by TestPageBlankKeyInsert.al. The neighboring focus moves must refuse; a value typed into the variable
+/// control with no focus move (first control, or after `New`) keeps main's outcome (its Modify finds no row).
+#[test]
+fn issue_7770_document_variable_validation_refuses_unmeasured_shapes() {
+    let key = "field(Id; Rec.Id) { ApplicationArea = All; }";
+    let scan = "field(Scan; Input) { ApplicationArea = All; trigger OnValidate() begin Rec.Payload := Input; Rec.Modify(); end; }";
+    for (controls, part, open, extra, insert, refusal) in [
+        (format!("{scan} {key}"), "", "", "", "", "does not exist"),
+        (format!("{key} {scan}"), "", "Doc.New();", "", "", "does not exist"),
+        (
+            format!("{key} {scan}"),
+            "part(Lines; Lines) { ApplicationArea = All; }",
+            "",
+            "",
+            "",
+            "OpenNew focus move",
+        ),
+        (
+            format!("{key} {scan}"),
+            "",
+            "",
+            "trigger OnOpenPage() begin Rec.SetRange(Id, 3); end;",
+            "",
+            "OpenNew focus move",
+        ),
+        (
+            format!("{key} {scan}"),
+            "",
+            "",
+            "",
+            "Error('Insert rejected');",
+            "an insert error",
+        ),
+    ] {
+        let test = format!(
+            r#"
+table 69500 Row {{
+    fields {{ field(1; Id; Integer) {{ }} field(2; Payload; Text[20]) {{ }} }}
+    keys {{ key(PK; Id) {{ Clustered = true; }} }}
+    trigger OnInsert() begin {insert} Id := 2; end;
+}}
+page 69501 Doc {{
+    PageType = Document; SourceTable = Row;
+    layout {{ area(Content) {{ group(General) {{ {controls} }} {part} }} }}
+    {extra}
+    var Input: Text[20];
+}}
+page 69502 Lines {{
+    PageType = ListPart; SourceTable = Row;
+    layout {{ area(Content) {{ repeater(Lines) {{ field(Id; Rec.Id) {{ ApplicationArea = All; }} }} }} }}
+}}
+codeunit 69503 T {{ Subtype = Test;
+    [Test] procedure P() var Doc: TestPage Doc; begin
+        Doc.OpenNew(); {open} Doc.Scan.SetValue('SCANNED');
+    end;
+}}
+"#
+        );
+        let outcomes = run_with_deps(&[], &test);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) | Outcome::Fail(why) if why.contains(refusal)),
+            "{outcomes:?}"
+        );
+    }
+}
+
+/// Issue 7771: SelectionFilterNoRow.al measures a static modal Worksheet
+/// with DelayedInsert and just one exact filter in group 2.
+#[test]
+fn issue_7771_empty_modal_worksheet_refuses_unmeasured_shapes() {
+    let exact = "Rec.FilterGroup(2); Rec.SetRange(Name, 'VISIBLE'); Rec.FilterGroup(0);";
+    let delayed = "DelayedInsert = true;";
+    let static_run = "Page.RunModal(Page::Worksheet);";
+    for (property, filter, run) in [
+        ("", exact, static_run),
+        (
+            delayed,
+            "Rec.FilterGroup(2); Rec.SetFilter(Name, 'V*'); Rec.FilterGroup(0);",
+            static_run,
+        ),
+        (
+            delayed,
+            "Rec.FilterGroup(2); Rec.SetRange(Name, 'VISIBLE'); Rec.FilterGroup(0); Rec.SetRange(Id, 2);",
+            static_run,
+        ),
+        (
+            "DelayedInsert = true; SourceTableView = where(Name = const('VISIBLE'));",
+            "",
+            static_run,
+        ),
+        (delayed, exact, "Window.RunModal();"),
+        (delayed, exact, "Page.RunModal(Page::Worksheet, Input);"),
+        (delayed, exact, "Input.Get(1); Page.RunModal(Page::Worksheet, Input);"),
+        (
+            delayed,
+            exact,
+            "Response := Page.RunModal(Page::Worksheet); if Response = Action::OK then;",
+        ),
+    ] {
+        let test = format!(
+            r#"
+table 69500 Row {{
+    fields {{ field(1; Id; Integer) {{ }} field(2; Name; Text[20]) {{ }} }}
+    keys {{ key(PK; Id) {{ Clustered = true; }} }}
+}}
+page 69501 Worksheet {{
+    PageType = Worksheet; SourceTable = Row; InsertAllowed = false; {property}
+    layout {{ area(Content) {{ repeater(Rows) {{ field(Id; Rec.Id) {{ ApplicationArea = All; }} }} }} }}
+    actions {{ area(Processing) {{ action(Check) {{
+        ApplicationArea = All;
+        trigger OnAction() var Selected: Record Row; begin
+            CurrPage.SetSelectionFilter(Selected);
+        end;
+    }} }} }}
+    trigger OnOpenPage() begin {filter} if Rec.FindFirst() then; end;
+}}
+codeunit 69502 T {{ Subtype = Test;
+    [Test] [HandlerFunctions('HandleWorksheet')]
+    procedure P() var Row: Record Row; Input: Record Row; Window: Page Worksheet; Response: Action; begin
+        Row.Id := 1; Row.Name := 'HIDDEN'; Row.Insert(); {run}
+    end;
+    [ModalPageHandler] procedure HandleWorksheet(var Window: TestPage Worksheet) begin
+        Window.Check.Invoke();
+    end;
+}}
+"#
+        );
+        let outcomes = run_with_deps(&[], &test);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains("on no row")),
+            "{property} {filter} {run}: {outcomes:?}"
+        );
+    }
+}
+
 #[test]
 fn measured_group_two_enum_flowfilter_constrains_relation() {
     all_pass(run_with_deps(

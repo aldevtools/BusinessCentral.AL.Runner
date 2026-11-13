@@ -21,6 +21,7 @@ mod clientless;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
+mod placeholder_files;
 mod run_restore;
 pub mod single_track;
 mod state;
@@ -51,6 +52,7 @@ pub use profile::{
 pub use state_stamp::StateStamp;
 pub use test_runner_host::TestCodeunitHost;
 mod callstack;
+mod caught_errors;
 mod clear_all_page_ext;
 mod code_storage_check;
 mod column_formatter;
@@ -140,6 +142,7 @@ mod state_stamp;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
+mod tenant_set_delete;
 mod test_rows;
 mod test_runner_host;
 mod testdata;
@@ -788,6 +791,8 @@ pub struct StorageCheckpoint {
 pub struct Session {
     pub engine: Arc<Engine>,
     pub last_error: AlError,
+    /// How many errors AL code caught in this session (`Session::catch_error`, caught_errors.rs).
+    caught_errors: u64,
     depth: usize,
     /// Emptied vectors of call values (arguments, a frame's slots, a builtin's operands), taken again by the next call
     /// (`spare_vec`, `return_vec`): a call of a procedure or a builtin allocates nothing once there are some.
@@ -1081,8 +1086,9 @@ pub struct Session {
     pub(crate) host_new_running: bool,
     /// Set while a host page's open links its parts (`sync_parts_at_open`).
     pub(crate) part_open_running: bool,
-    /// Set while a host's GoToRecord that left its row reads its parts again (`pages/empty_part_rec.rs`).
-    pub(crate) host_goto_record_running: bool,
+    /// The host move whose parts are reading again: Next and Previous, a GoToKey or GoToRecord that stayed on the row, and the
+    /// moves `pageops.rs` syncs in its last branch (GoToRecord, GoToKey and the others) (`pages/empty_part_rec.rs`).
+    pub(crate) host_move_running: Option<pages::HostMove>,
     /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
     /// values did not change (`pages/parts.rs` `sync_parts_with`).
     /// `Some(true)`: a part that shows no row or only its blank line stays as it is too (a part linked through a Provider that
@@ -1128,6 +1134,8 @@ pub struct Session {
     /// written (path in lower case with `/`, name of the report). Any look at one is refused; a write by AL over the
     /// path ends the mark.
     pub(crate) render_pending_files: std::collections::HashMap<String, Arc<str>>,
+    /// How a placeholder file came to be and whether an AL File holds it open (`placeholder_files.rs`).
+    pub(crate) placeholder_files: placeholder_files::PlaceholderFiles,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
     /// The key and count of the draws of how far past a stamp the clock lands (`Session::stamp_millis`): the run seed's
@@ -1285,12 +1293,14 @@ impl Session {
             encryption_key: EncryptionKey::Present,
             temp_files: 0,
             render_pending_files: std::collections::HashMap::new(),
+            placeholder_files: Default::default(),
             last_stamp: i64::MIN / 2,
             clock_key,
             clock_draws: 0,
             work_date: None,
             engine,
             last_error: AlError::default(),
+            caught_errors: 0,
             depth: 0,
             spare_vecs: Vec::new(),
             xp_pass_views: Vec::new(),
@@ -1413,7 +1423,7 @@ impl Session {
             set_value_from_variant: false,
             host_new_running: false,
             part_open_running: false,
-            host_goto_record_running: false,
+            host_move_running: None,
             part_sync_keeps_same_link: None,
             dotnet: Default::default(),
             application_areas: String::new(),
@@ -2558,6 +2568,8 @@ impl Session {
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), _) => a,
                 // An HttpContent passed by reference is the caller's own object; only a by-value one is a copy (see `ops::convert`).
                 (a @ Value::Library(..), true) if matches!(&a, Value::Library(n, _) if n == "HttpContent") => a,
+                // An HttpRequestMessage passed by reference is not handed on (`ops::convert`, `http::request_handed_on`).
+                (a @ Value::Library(..), true) if matches!(&a, Value::Library(n, _) if n == "HttpRequestMessage") => a,
                 // A BigText passed by reference too; a by-value one is a copy (`ops::convert`, al-runner issue 5940).
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::BigText, _), true) => a,
                 // A Variant holding an Integer handed to a `var` Text parameter is passed as it is: no conversion, the callee's
