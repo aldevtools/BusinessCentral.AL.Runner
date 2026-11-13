@@ -344,8 +344,9 @@ impl Session {
     /// - the part has no repeater, takes its rows through a SubPageLink of `field` terms, and a Visible expression hid it from
     ///   the open on (`PageState::seen_visible`).
     ///
-    /// On the journal shape's host (`BeforeActionBody::journal`) the host facts are `journal_host_miss`, and the part is
-    /// `journal_part_miss`'s (unlinked, with a repeater) instead of the linked part without one (HiddenPartJournalShape.al:537).
+    /// On the journal shape's host (`BeforeActionBody::journal`) the host facts are `journal_turn_host_miss`, and the part is
+    /// `journal_part_miss`'s (unlinked, with a repeater) instead of the linked part without one (HiddenPartJournalShape.al:537);
+    /// `journal_turn` then checks the part's rows and the body's commits.
     ///
     /// `Err` names the first condition that does not hold, for the refusal.
     fn first_turn_as_pinned(&self, st: &St, i: usize, before: &BeforeActionBody) -> Result<St, &'static str> {

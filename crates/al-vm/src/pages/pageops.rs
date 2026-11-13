@@ -609,7 +609,7 @@ impl Session {
             if st.borrow().host.is_some() {
                 self.sync_dependents_then_host_follows(st, name)?;
             } else if self.journal_part_stays(st, name, journal_before.as_ref())? {
-                // The journal shape's part reads nothing on a GoToRecord that stays (`hidden_part_journal.rs`).
+                // The journal shape's part reads nothing on the measured GoToRecord that stays (`hidden_part_journal.rs`).
             } else {
                 // First and Last that move the host, Next and Previous: only the linked parts follow
                 // (`sync_parts_after_move`, pages/parts/PartReadsOpen.al:269-283, :336-379). What a First or
