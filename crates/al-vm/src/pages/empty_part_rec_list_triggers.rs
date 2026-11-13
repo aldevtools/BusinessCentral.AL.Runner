@@ -3,7 +3,7 @@
 //! OnOpenPage that sets CurrPage.Editable from a value read at run time and sends a notification, and an OnAfterGetCurrRecord that
 //! sends the same notification. The probe measured Rec of the empty part on hosts with exactly those triggers, both or one of them
 //! (pages 76865-76870). `host_trigger_cell` compares each trigger body, statement by statement, with the probe's, and each called
-//! procedure with the probe's procedure; the SendNotificationHandler of the test with the probe's (`notification_handlers_measured`).
+//! procedure with the probe's procedure; the SendNotificationHandler of the test with the probe's (`notification_handler_measured`).
 
 use super::pinned_shape::{code_stmts, text_log_routine, unconverted, without_pos};
 use al_builtins::builtin_id::ids;
@@ -15,11 +15,11 @@ use al_ir as ir;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum HostStmt {
     /// `Log.AddSeq('open')`: a procedure of a codeunit variable of the trigger that only appends its text argument to a Text
-    /// global of the codeunit (EmptyPartRecListHostTriggers.al:503-508, `text_log_routine`).
+    /// global of the codeunit (EmptyPartRecListHostTriggers.al:257, the procedure :508-513, `text_log_routine`).
     Log,
-    /// `CurrPage.Editable := Setup.IsLicensed()` (:236): the result of `licensed_routine` on a Record variable of the trigger.
+    /// `CurrPage.Editable := Setup.IsLicensed()` (:258): the result of `licensed_routine` on a Record variable of the trigger.
     Editable,
-    /// `Setup.ShowDisabledNotification()` (:237): `notify_routine` on a Record variable of the trigger.
+    /// `Setup.ShowDisabledNotification()` (:259): `notify_routine` on a Record variable of the trigger.
     Notify,
 }
 
@@ -130,7 +130,7 @@ fn by_ref(receiver: &Option<Box<ir::Arg>>) -> Option<&ir::Place> {
     }
 }
 
-/// `t` is the table of the first Record variable seen (`setup`), or the first.
+/// `t` is the table kept in `setup`, which keeps `t` when it holds none yet.
 fn same_table(setup: &mut Option<u32>, t: u32) -> bool {
     *setup.get_or_insert(t) == t
 }
@@ -158,7 +158,7 @@ fn setup_call(locals: &[ir::Slot], e: &ir::Expr) -> Option<(u32, usize)> {
 }
 
 /// `e` calls, not as a try call, a procedure of a codeunit variable in `locals` with one text constant, and the procedure only
-/// appends its argument to a Text global of its codeunit (`text_log_routine`; `Log.AddSeq('open')`, :234).
+/// appends its argument to a Text global of its codeunit (`text_log_routine`; `Log.AddSeq('open')`, :257).
 fn text_log_call(program: &ir::Program, locals: &[ir::Slot], e: &ir::Expr) -> bool {
     let ir::Expr::Call {
         object,
@@ -200,7 +200,7 @@ fn rec_boolean_field(program: &ir::Program, t: u32, rec: usize, e: &ir::Expr) ->
             .is_some_and(|f| f.ty == RtType::Boolean)
 }
 
-/// Procedure `r` of table `t` is the probe's `IsLicensed` (EmptyPartRecListHostTriggers.al:78-83): no parameter, a Boolean
+/// Procedure `r` of table `t` is the probe's `IsLicensed` (EmptyPartRecListHostTriggers.al:79-84): no parameter, a Boolean
 /// result, no local, and the body `if not Get() then exit(false); exit(<Boolean field>);`.
 fn licensed_routine(program: &ir::Program, t: u32, r: usize) -> bool {
     let o = &program.objects[t as usize];
@@ -226,7 +226,7 @@ fn licensed_routine(program: &ir::Program, t: u32, r: usize) -> bool {
     signature(routine, Some(RtType::Boolean)) && no_locals && body
 }
 
-/// Procedure `r` of table `t` is the probe's `ShowDisabledNotification` (EmptyPartRecListHostTriggers.al:85-97): no parameter,
+/// Procedure `r` of table `t` is the probe's `ShowDisabledNotification` (EmptyPartRecListHostTriggers.al:86-98): no parameter,
 /// no result, a codeunit and a Notification local, and the body `if Get() then if <Boolean field> then exit;`, a log call
 /// (`text_log_call`), `N.Message := <text constant>; N.Scope := NotificationScope::LocalScope; N.Send();`. A notification with
 /// an Id, an action or GlobalScope is not measured.
@@ -294,7 +294,7 @@ fn notify_routine(program: &ir::Program, t: u32, r: usize) -> bool {
     signature(routine, None) && two_locals && body
 }
 
-/// Whether routine `r` of test codeunit `object` is the probe's SendNotificationHandler (EmptyPartRecListHostTriggers.al:556-561):
+/// Whether routine `r` of test codeunit `object` is the probe's SendNotificationHandler (EmptyPartRecListHostTriggers.al:567-572):
 /// a log call on a codeunit global of the test codeunit (`text_log_routine`), then `exit(true)`.
 pub(super) fn notification_handler_measured(program: &ir::Program, object: usize, r: usize) -> bool {
     let o = &program.objects[object];

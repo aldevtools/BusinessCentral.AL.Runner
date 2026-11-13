@@ -281,7 +281,7 @@ impl Session {
     /// The first List host shape with the triggers of probe 1378 (EmptyPartRecListHostTriggers.al pages 76865-76867): the part is
     /// page 76863 "PG EPT Part" (as EmptyPartRecLinkList.al page 76842: InsertAllowed = false and no DeleteAllowed, DelayedInsert
     /// or Caption, OnAfterGetCurrRecord and an action's OnAction only), in area(FactBoxes), linked by a `const(..)` then a field
-    /// link (:213 `"Table ID" = const(76860), "No." = field("No.")`), at a landing of `FIRST_FORM_TRIGGER_LANDINGS`.
+    /// link (:247 `"Table ID" = const(76860), "No." = field("No.")`), at a landing of `FIRST_FORM_TRIGGER_LANDINGS`.
     fn first_form_trigger_cell(
         &mut self,
         st: &St,
@@ -308,7 +308,7 @@ impl Session {
 
     /// The landing of a host with the triggers of probe 1378 is one of `landings` (its open form, the landing as the test's first
     /// call since the open on a host without a filter, and the rows around the host's row), and the test binds no
-    /// SendNotificationHandler but the probe's (EmptyPartRecListHostTriggers.al:556-561; :1109 and :1639 bind none). One read.
+    /// SendNotificationHandler but the probe's (EmptyPartRecListHostTriggers.al:567-572; :1109 and :1639 bind none). One read.
     fn trigger_landing_cell(
         &mut self,
         st: &St,
