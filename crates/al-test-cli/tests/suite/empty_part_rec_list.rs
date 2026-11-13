@@ -12,20 +12,29 @@ use al_testrun::isolation::TestIsolation;
 fn run(src: &str) -> Vec<(String, Outcome, bool)> {
     let l = compile(src);
     let engine = al_vm::Engine::new(l.program.clone(), blocked(&l));
-    let oi = l.program.objects.iter().position(|o| o.name == "PG EPL Tests").unwrap();
     let mut hits = Vec::new();
-    let o = al_testrun::runtime::run_codeunit_full(
-        &engine,
-        &l,
-        oi,
-        None,
-        TestIsolation::Codeunit,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut hits,
-        None,
-    );
+    let mut o = Vec::new();
+    // Every codeunit whose name starts with "PG EPL Tests", in object order (one codeunit per handler set).
+    for (oi, _) in l
+        .program
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.name.starts_with("PG EPL Tests"))
+    {
+        o.extend(al_testrun::runtime::run_codeunit_full(
+            &engine,
+            &l,
+            oi,
+            None,
+            TestIsolation::Codeunit,
+            None,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut hits,
+            None,
+        ));
+    }
     o.into_iter()
         .map(|(name, outcome)| {
             let flagged = hits
@@ -475,6 +484,158 @@ page 76854 "PG EPL List DocBoth"
     }
 }
 
+// The reporter's host form (issue 6924): a List page with a Caption whose FactBox part sets ApplicationArea, Caption,
+// UpdatePropagation = Both and links "No." to a host field outside the host key, like the Base Application hosts of page 1178.
+page 76855 "PG EPL List Rep"
+{
+    PageType = List;
+    SourceTable = "PG EPL Head";
+    Caption = 'EPL Reporter List';
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Heads)
+            {
+                field(NoCtl; Rec."No.") { ApplicationArea = All; }
+                field(RefCtl; Rec."Ref Code") { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Box; "PG EPL Part Doc")
+            {
+                ApplicationArea = All;
+                Caption = 'Attachments';
+                SubPageLink = "Table ID" = const(Database::"PG EPL Head"), "No." = field("Ref Code");
+                UpdatePropagation = Both;
+            }
+        }
+    }
+}
+
+// As "PG EPL List Rep", but the part control has only Caption besides ApplicationArea and SubPageLink.
+page 76856 "PG EPL List RepCap"
+{
+    PageType = List;
+    SourceTable = "PG EPL Head";
+    Caption = 'EPL Reporter List Caption';
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Heads)
+            {
+                field(NoCtl; Rec."No.") { ApplicationArea = All; }
+                field(RefCtl; Rec."Ref Code") { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Box; "PG EPL Part Doc")
+            {
+                ApplicationArea = All;
+                Caption = 'Attachments';
+                SubPageLink = "Table ID" = const(Database::"PG EPL Head"), "No." = field("Ref Code");
+            }
+        }
+    }
+}
+
+// As "PG EPL List Rep", on a host with Editable = false.
+page 76857 "PG EPL List RepRO"
+{
+    PageType = List;
+    SourceTable = "PG EPL Head";
+    Caption = 'EPL Reporter List Read Only';
+    Editable = false;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Heads)
+            {
+                field(NoCtl; Rec."No.") { ApplicationArea = All; }
+                field(RefCtl; Rec."Ref Code") { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Box; "PG EPL Part Doc")
+            {
+                ApplicationArea = All;
+                Caption = 'Attachments';
+                SubPageLink = "Table ID" = const(Database::"PG EPL Head"), "No." = field("Ref Code");
+                UpdatePropagation = Both;
+            }
+        }
+    }
+}
+
+// The card page of "PG EPL List RepCard".
+page 76858 "PG EPL Head Card"
+{
+    PageType = Card;
+    SourceTable = "PG EPL Head";
+    Caption = 'EPL Head Card';
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field(NoCtl; Rec."No.") { ApplicationArea = All; }
+                field(RefCtl; Rec."Ref Code") { ApplicationArea = All; }
+            }
+        }
+    }
+}
+
+// As "PG EPL List Rep", on a host with CardPageId.
+page 76859 "PG EPL List RepCard"
+{
+    PageType = List;
+    SourceTable = "PG EPL Head";
+    Caption = 'EPL Reporter List Card';
+    CardPageId = "PG EPL Head Card";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Heads)
+            {
+                field(NoCtl; Rec."No.") { ApplicationArea = All; }
+                field(RefCtl; Rec."Ref Code") { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Box; "PG EPL Part Doc")
+            {
+                ApplicationArea = All;
+                Caption = 'Attachments';
+                SubPageLink = "Table ID" = const(Database::"PG EPL Head"), "No." = field("Ref Code");
+                UpdatePropagation = Both;
+            }
+        }
+    }
+}
+
 codeunit 76849 "PG EPL Log"
 {
     SingleInstance = true;
@@ -546,6 +707,17 @@ codeunit 76850 "PG EPL Tests"
         Initialize();
         Head.Get('B');
         Head.Delete();
+    end;
+
+    // Heads A, B and C (Ref Code RA, RB and RC), no line: C is the last row of the host.
+    local procedure InitializeThree()
+    var
+        Head: Record "PG EPL Head";
+    begin
+        Initialize();
+        Head."No." := 'C';
+        Head."Ref Code" := 'RC';
+        Head.Insert();
     end;
 
     local procedure AddLine(No: Code[20]; LineNo: Integer; Kind: Code[10])
@@ -1636,6 +1808,173 @@ codeunit 76850 "PG EPL Tests"
         Host.Close();
         Error(Got);
     end;
+
+    // The reporter's host form (issue 6924): heads A, B and C, every part empty; GoToRecord moves to the last row C.
+    [Test]
+    procedure EmptyPart_ListOpenEdit_Reporter_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Rep";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenEdit();
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_Reporter_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Rep";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenView();
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_GoToLastRow_Reporter_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Rep";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenEdit();
+        Head.Get('C');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_GoToLastRow_Reporter_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List Rep";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenView();
+        Head.Get('C');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_GoToLastRow_ReporterCaptionOnly_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List RepCap";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenEdit();
+        Head.Get('C');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_GoToLastRow_ReporterCaptionOnly_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List RepCap";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenView();
+        Head.Get('C');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_GoToLastRow_ReporterNotEditable_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List RepRO";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenEdit();
+        Head.Get('C');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_GoToLastRow_ReporterNotEditable_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List RepRO";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenView();
+        Head.Get('C');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenEdit_GoToLastRow_ReporterCardPage_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List RepCard";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenEdit();
+        Head.Get('C');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
+
+    [Test]
+    procedure EmptyPart_ListOpenView_GoToLastRow_ReporterCardPage_FactBox_ActionReadsRec()
+    var
+        Got: Text;
+        Host: TestPage "PG EPL List RepCard";
+        Head: Record "PG EPL Head";
+    begin
+        InitializeThree();
+        Host.OpenView();
+        Head.Get('C');
+        Host.GoToRecord(Head);
+        Host.Box.ReadRec.Invoke();
+        Got += 'action=' + Log.ActionLog() + ';';
+        Host.Close();
+        Error(Got);
+    end;
 }
 "#;
 
@@ -1947,6 +2286,78 @@ const CELLS: &[(&str, &str, bool)] = &[
         "action=act=76840/A/0/;",
         true,
     ),
+    // The cells of page 76854 "PG EPL List DocBoth" and of the reporter's host form (pages 76855-76859), measured on BC 27.5,
+    // 28.5 and 29.0 alike (corpus pull request 1339, commit 831ae544, EmptyPartRecLinkList.al:1800-2031).
+    (
+        "EmptyPart_ListOpenEdit_PartDocBoth_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToRecord_PartDocBoth_FactBox_ActionReadsRec",
+        "action=act=76840/B/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_OneHead_GoToSameRow_PartDocBoth_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_OneHead_GoToSameRow_PartDocBoth_FactBox_ActionReadsRec",
+        "action=act=76840/A/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_Reporter_FactBox_ActionReadsRec",
+        "action=act=76840/RA/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_Reporter_FactBox_ActionReadsRec",
+        "action=act=76840/RA/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToLastRow_Reporter_FactBox_ActionReadsRec",
+        "action=act=76840/RC/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_GoToLastRow_Reporter_FactBox_ActionReadsRec",
+        "action=act=76840/RC/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToLastRow_ReporterCaptionOnly_FactBox_ActionReadsRec",
+        "action=act=76840/RC/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_GoToLastRow_ReporterCaptionOnly_FactBox_ActionReadsRec",
+        "action=act=76840/RC/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToLastRow_ReporterNotEditable_FactBox_ActionReadsRec",
+        "action=act=76840/RC/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_GoToLastRow_ReporterNotEditable_FactBox_ActionReadsRec",
+        "action=act=76840/RC/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenEdit_GoToLastRow_ReporterCardPage_FactBox_ActionReadsRec",
+        "action=act=76840/RC/0/;",
+        true,
+    ),
+    (
+        "EmptyPart_ListOpenView_GoToLastRow_ReporterCardPage_FactBox_ActionReadsRec",
+        "action=act=76840/RC/0/;",
+        true,
+    ),
 ];
 
 /// The cell whose read of the part's Rec is refused: a List opened for edit that shows no row (BC stamps the const of the link,
@@ -1974,25 +2385,16 @@ const GAPS: &[(&str, &str)] = &[
     ),
 ];
 
-/// The cells of a host whose part control sets UpdatePropagation = Both (page 76854 "PG EPL List DocBoth"): the rule leaves them
-/// out, and the read of the part's Rec is refused, through no assumption.
-const NOT_OBSERVED: &[&str] = &[
-    "EmptyPart_ListOpenEdit_PartDocBoth_FactBox_ActionReadsRec",
-    "EmptyPart_ListOpenEdit_GoToRecord_PartDocBoth_FactBox_ActionReadsRec",
-    "EmptyPart_ListOpenEdit_OneHead_GoToSameRow_PartDocBoth_FactBox_ActionReadsRec",
-    "EmptyPart_ListOpenView_OneHead_GoToSameRow_PartDocBoth_FactBox_ActionReadsRec",
-];
-
 /// Every cell raises BC's value (`raised`), except the gaps, which keep the runtime's outcome from before this change, and the
 /// refused cells, whose read of the part's Rec is refused.
 #[test]
 fn empty_list_part_rec_list_host_cells() {
     let o = run(SRC);
-    assert_eq!(o.len(), CELLS.len() + NOT_OBSERVED.len(), "{o:?}");
+    assert_eq!(o.len(), CELLS.len(), "{o:?}");
     let mut wrong = Vec::new();
     for (name, outcome, flagged) in &o {
-        if NOT_OBSERVED.contains(&name.as_str()) || REFUSED.contains(&name.as_str()) {
-            if !matches!(outcome, Outcome::NotRun(m) if m.contains("a read of Rec of a ListPart that shows no row"))
+        if REFUSED.contains(&name.as_str()) {
+            if !matches!(outcome, Outcome::NotRun(m) if m.contains("a read of Rec of a part that shows no row"))
                 || *flagged
             {
                 wrong.push((name, outcome, flagged));
@@ -2127,7 +2529,7 @@ fn empty_list_part_rec_list_host_unmeasured_shapes_refuse() {
 
 /// The test was refused at a read of the empty part's Rec, with the fact that left the measured cells.
 fn refused(outcome: &Outcome) -> bool {
-    matches!(outcome, Outcome::NotRun(m) if m.starts_with("a read of Rec of a ListPart that shows no row"))
+    matches!(outcome, Outcome::NotRun(m) if m.starts_with("a read of Rec of a part that shows no row"))
 }
 
 /// Neighbors of the List-host cells that differ from a probe cell in one fact the probe held fixed (review of corpus pull
@@ -2458,8 +2860,902 @@ fn empty_list_part_rec_reporter_shape_unmeasured_refuses() {
     assert_eq!(o.len(), 1, "{o:?}");
     let (name, outcome, flagged) = &o[0];
     assert!(
-        matches!(outcome, Outcome::NotRun(m) if m.contains("ListPart that shows no row") && m.contains("page extension")),
+        matches!(outcome, Outcome::NotRun(m) if m.contains("part that shows no row") && m.contains("page extension")),
         "{name}: {outcome:?}"
     );
     assert!(!flagged, "{name}: flagged");
+}
+
+/// Neighbors of the cells of page 76854 "PG EPL List DocBoth" and of the reporter's host form (corpus pull request 1339, commit
+/// 831ae544, EmptyPartRecLinkList.al:1800-2031) that differ from each in one fact no probe cell of that form holds: Next, a
+/// GoToRecord to a middle row or to the first of several rows, an open form or a landing the form was not measured in, a part
+/// control with UpdatePropagation = SubPart, a host with Editable = false whose part control has only a SubPageLink, a host with
+/// two of the new properties, a part without page 1178's triggers, a link without its const, and a CardPart. Each refuses the
+/// read of the part's Rec. A Card host whose part control has the reporter's properties keeps
+/// main's result (the Card rule, EmptyPartRecLink.al:558), and so does the part's OnAfterGetCurrRecord on a DocBoth host opened
+/// for view and moved by a GoToRecord that stays on its row (no probe cell reads it there; main runs it once at the move,
+/// `agcr=76910/A`).
+const WIDEN_NEIGHBOR_SRC: &str = r#"
+table 76910 "PG EPLW Head"
+{
+    fields { field(1; "No."; Code[20]) { } field(2; "Ref Code"; Code[20]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+table 76911 "PG EPLW Line"
+{
+    fields { field(1; "Table ID"; Integer) { } field(2; "No."; Code[20]) { } field(3; "Line No."; Integer) { } }
+    keys { key(PK; "Table ID", "No.", "Line No.") { Clustered = true; } }
+}
+codeunit 76912 "PG EPLW Log"
+{
+    SingleInstance = true;
+    var Lines: Text;
+    procedure Reset() begin Lines := ''; end;
+    procedure Add(Line: Text) begin if Lines <> '' then Lines += ' | '; Lines += Line; end;
+    procedure Get(): Text begin exit(Lines); end;
+}
+page 76913 "PG EPLW Part Doc"
+{
+    PageType = ListPart; SourceTable = "PG EPLW Line"; DeleteAllowed = true; DelayedInsert = true; InsertAllowed = false;
+    ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; trigger OnDrillDown() begin end; } } } }
+    actions { area(Processing) { action(ReadRec) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLW Log"; begin Log.Add('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; } } }
+    trigger OnInit() begin end;
+    trigger OnDeleteRecord(): Boolean begin exit(true); end;
+    trigger OnAfterGetCurrRecord() var Log: Codeunit "PG EPLW Log"; begin Log.Add('agcr=' + Format(Rec."Table ID") + '/' + Rec."No."); end;
+}
+page 76914 "PG EPLW Part Plain"
+{
+    PageType = ListPart; SourceTable = "PG EPLW Line"; InsertAllowed = false; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(ReadRec) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLW Log"; begin Log.Add('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; } } }
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76915 "PG EPLW Card Part"
+{
+    PageType = CardPart; SourceTable = "PG EPLW Line"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; } } }
+    actions { area(Processing) { action(ReadRec) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLW Log"; begin Log.Add('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; } } }
+}
+page 76916 "PG EPLW DocBoth"
+{
+    PageType = List; SourceTable = "PG EPLW Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLW Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76910), "No." = field("No."); UpdatePropagation = Both; } }
+    }
+}
+page 76917 "PG EPLW Rep"
+{
+    PageType = List; SourceTable = "PG EPLW Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLW Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76910), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76918 "PG EPLW SubPart"
+{
+    PageType = List; SourceTable = "PG EPLW Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLW Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76910), "No." = field("Ref Code"); UpdatePropagation = SubPart; } }
+    }
+}
+page 76919 "PG EPLW Partner"
+{
+    PageType = List; SourceTable = "PG EPLW Head"; Caption = 'Rep'; Editable = false; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLW Part Doc") { SubPageLink = "Table ID" = const(76910), "No." = field("Ref Code"); } }
+    }
+}
+page 76920 "PG EPLW Head Card"
+{
+    PageType = Card; SourceTable = "PG EPLW Head"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { group(G) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } } }
+}
+page 76921 "PG EPLW TwoProps"
+{
+    PageType = List; SourceTable = "PG EPLW Head"; Caption = 'Rep'; Editable = false; CardPageId = "PG EPLW Head Card";
+    ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLW Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76910), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76922 "PG EPLW Rep Plain"
+{
+    PageType = List; SourceTable = "PG EPLW Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLW Part Plain") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76910), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76923 "PG EPLW Rep FieldOnly"
+{
+    PageType = List; SourceTable = "PG EPLW Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLW Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76924 "PG EPLW CardPart Host"
+{
+    PageType = List; SourceTable = "PG EPLW Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLW Card Part") { ApplicationArea = All; SubPageLink = "Table ID" = const(76910), "No." = field("No."); } }
+    }
+}
+page 76925 "PG EPLW Card Host"
+{
+    PageType = Card; SourceTable = "PG EPLW Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { group(G) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLW Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76910), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+codeunit 76926 "PG EPL Tests"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLW Log";
+    local procedure Init(Rows: Integer)
+    var H: Record "PG EPLW Head"; L: Record "PG EPLW Line";
+    begin
+        H.DeleteAll(); L.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert();
+        if Rows > 1 then begin H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); end;
+        if Rows > 2 then begin H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert(); end;
+        Log.Reset();
+    end;
+    [Test] procedure DocBoth_OpenEdit_Next() var P: TestPage "PG EPLW DocBoth"; begin Init(2); P.OpenEdit(); P.Next(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure DocBoth_OpenView_AsOpened() var P: TestPage "PG EPLW DocBoth"; begin Init(2); P.OpenView(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure DocBoth_OpenView_GoToLastRow() var P: TestPage "PG EPLW DocBoth"; H: Record "PG EPLW Head"; begin Init(2); P.OpenView(); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_OpenEdit_GoToMiddleRow() var P: TestPage "PG EPLW Rep"; H: Record "PG EPLW Head"; begin Init(3); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_OpenEdit_GoToFirstOfThree() var P: TestPage "PG EPLW Rep"; H: Record "PG EPLW Head"; begin Init(3); P.OpenEdit(); H.Get('A'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_OpenEdit_Next() var P: TestPage "PG EPLW Rep"; begin Init(3); P.OpenEdit(); P.Next(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure SubPart_OpenEdit_GoToLastRow() var P: TestPage "PG EPLW SubPart"; H: Record "PG EPLW Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Partner_OpenEdit_GoToLastRow() var P: TestPage "PG EPLW Partner"; H: Record "PG EPLW Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure TwoProps_OpenEdit_GoToLastRow() var P: TestPage "PG EPLW TwoProps"; H: Record "PG EPLW Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure RepPlainPart_OpenEdit_GoToLastRow() var P: TestPage "PG EPLW Rep Plain"; H: Record "PG EPLW Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure RepFieldOnly_OpenEdit_GoToLastRow() var P: TestPage "PG EPLW Rep FieldOnly"; H: Record "PG EPLW Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardPart_OpenEdit_GoToLastRow() var P: TestPage "PG EPLW CardPart Host"; H: Record "PG EPLW Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure CardHost_OpenEdit() var P: TestPage "PG EPLW Card Host"; begin Init(1); P.OpenEdit(); Log.Reset(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure DocBoth_OpenView_GoToSameRow_Curr() var P: TestPage "PG EPLW DocBoth"; H: Record "PG EPLW Head"; begin Init(1); P.OpenView(); Log.Reset(); H.Get('A'); P.GoToRecord(H); P.Close(); Error(Log.Get()); end;
+}
+"#;
+
+/// The neighbors of the widened cells: each refuses, and a CardPart's reason names a part, not a ListPart; the Card host and the
+/// OnAfterGetCurrRecord read keep main's result. A test goes through the assumption only where a landing before the one the
+/// read follows was a measured cell (`LANDED_IN_A_CELL`: the open of a DocBoth or Rep host for edit, the GoToRecord to the only
+/// row of a DocBoth host opened for view).
+#[test]
+fn empty_list_part_rec_widened_cells_neighbors_refuse() {
+    const LANDED_IN_A_CELL: &[&str] = &[
+        "DocBoth_OpenEdit_Next",
+        "Rep_OpenEdit_GoToMiddleRow",
+        "Rep_OpenEdit_GoToFirstOfThree",
+        "Rep_OpenEdit_Next",
+        "DocBoth_OpenView_GoToSameRow_Curr",
+    ];
+    let o = run(WIDEN_NEIGHBOR_SRC);
+    assert_eq!(o.len(), 14, "{o:?}");
+    let main_result: &[(&str, &str)] = &[
+        ("CardHost_OpenEdit", "act=76910/RA/0"),
+        ("DocBoth_OpenView_GoToSameRow_Curr", "agcr=76910/A"),
+    ];
+    let wrong: Vec<_> = o
+        .iter()
+        .filter(|(name, outcome, flagged)| {
+            *flagged != LANDED_IN_A_CELL.contains(&name.as_str())
+                || match main_result.iter().find(|(n, _)| n == name) {
+                    Some((_, want)) => !raised(outcome, want),
+                    None => !matches!(outcome, Outcome::NotRun(m)
+                        if m.starts_with("a read of Rec of a part that shows no row") && !m.contains("ListPart")),
+                }
+        })
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// Neighbors of the measured cells of the reporter's host form and of page 76854 "PG EPL List DocBoth" (corpus pull request 1339,
+/// commit 831ae544, EmptyPartRecLinkList.al:1800-2031) that review round 1 of al-runner PR 7932 found answering:
+/// - a fact every cell holds and the allowlist did not require: the part in the content area, host triggers, a `filter(..)` of
+///   one value in place of the `const(..)`, a part without the field's OnDrillDown;
+/// - a call sequence before the landing no cell has: Next, three moves, a host filter (on the reporter's form, on DocBoth and on a
+///   probe's first host);
+/// - a step after the landing that the landing does not include: the part's `CurrPage.Update(false)` before the read, the part's
+///   First or Next, a GoToRecord that answered No, a line or a host row written through a Record variable, a second read;
+/// - the test's filter on the part of a form outside the cells (a host with Editable = false and a bare part control, a part
+///   control with UpdatePropagation = SubPart): the filter re-stamped the link values there with no assumption.
+///
+/// And those review round 2 found, on the reporter's form and on a probe's first host:
+/// - host page code that calls a procedure of the part, which reads Rec: the OnValidate, OnDrillDown or OnAssistEdit of a host
+///   field, or a host action, after a GoToRecord or as opened (no probe cell reads the part's Rec from host code);
+/// - a rollback (`asserterror Error('x')`) between the landing and the read;
+/// - on a first host, where two reads are measured: a first action that inserts a line or changes a host row, and a first action
+///   that raises, caught by asserterror or by a TryFunction, before the read.
+///
+/// Each refuses the read of the part's Rec. The measured landings stay flagged passes with BC's values, on the reporter's form, on
+/// DocBoth and on a probe's first host (`Base_*`, two reads after a GoToRecord as EmptyPartRecLinkList.al:1370 measures), and on
+/// the hosts whose field has an OnValidate that the test does not run (`*_Val_GoToLast`); a Card
+/// host keeps main's result for a second read and for the test's filter on the part (EmptyPartRecLink.al:634 pins the second
+/// action on a Card).
+const TIED_SRC: &str = r#"
+table 76930 "PG EPLT Head"
+{
+    fields { field(1; "No."; Code[20]) { } field(2; "Ref Code"; Code[20]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+table 76931 "PG EPLT Line"
+{
+    fields { field(1; "Table ID"; Integer) { } field(2; "No."; Code[20]) { } field(3; "Line No."; Integer) { } }
+    keys { key(PK; "Table ID", "No.", "Line No.") { Clustered = true; } }
+}
+codeunit 76932 "PG EPLT Log"
+{
+    SingleInstance = true;
+    var Lines: Text;
+    procedure Reset() begin Lines := ''; end;
+    procedure Add(Line: Text) begin if Lines <> '' then Lines += ' | '; Lines += Line; end;
+    procedure Get(): Text begin exit(Lines); end;
+}
+page 76933 "PG EPLT Part Doc"
+{
+    PageType = ListPart; SourceTable = "PG EPLT Line"; DeleteAllowed = true; DelayedInsert = true; InsertAllowed = false;
+    ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; trigger OnDrillDown() begin end; } } } }
+    actions
+    {
+        area(Processing)
+        {
+            action(ReadRec) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLT Log"; begin Log.Add('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; }
+            action(UpdRead) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLT Log"; begin CurrPage.Update(false); Log.Add('upd=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; }
+            action(InsLine) { ApplicationArea = All; trigger OnAction() var L: Record "PG EPLT Line"; begin L."Table ID" := Rec."Table ID"; L."No." := Rec."No."; L."Line No." := 1; L.Insert(); end; }
+            action(ModHost) { ApplicationArea = All; trigger OnAction() var H: Record "PG EPLT Head"; begin H.Get('B'); H."Ref Code" := 'RY'; H.Modify(); end; }
+            action(Fail) { ApplicationArea = All; trigger OnAction() begin Error('boom'); end; }
+        }
+    }
+    trigger OnInit() begin end;
+    trigger OnDeleteRecord(): Boolean begin exit(true); end;
+    trigger OnAfterGetCurrRecord() begin end;
+    procedure ReadProc() var Log: Codeunit "PG EPLT Log"; begin Log.Add('host=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end;
+}
+page 76934 "PG EPLT Part NoDrill"
+{
+    PageType = ListPart; SourceTable = "PG EPLT Line"; DeleteAllowed = true; DelayedInsert = true; InsertAllowed = false;
+    ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(ReadRec) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLT Log"; begin Log.Add('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; } } }
+    trigger OnInit() begin end;
+    trigger OnDeleteRecord(): Boolean begin exit(true); end;
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76935 "PG EPLT Rep"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76936 "PG EPLT DocBoth"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); UpdatePropagation = Both; } }
+    }
+}
+page 76937 "PG EPLT Rep Content"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } }
+            part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; }
+        }
+    }
+}
+page 76938 "PG EPLT Rep Trig"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    trigger OnOpenPage() begin end;
+    trigger OnAfterGetRecord() begin end;
+    trigger OnAfterGetCurrRecord() begin end;
+}
+page 76939 "PG EPLT Rep FilterLink"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = filter(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76940 "PG EPLT Rep NoDrill"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part NoDrill") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76941 "PG EPLT Partner"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; Editable = false; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); } }
+    }
+}
+page 76942 "PG EPLT SubPart"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = SubPart; } }
+    }
+}
+page 76943 "PG EPLT Base"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+}
+page 76944 "PG EPLT Card Host"
+{
+    PageType = Card; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { group(G) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76946 "PG EPLT Rep Val"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } field(RefCtl; Rec."Ref Code") { ApplicationArea = All; trigger OnValidate() begin CurrPage.Box.Page.ReadProc(); end; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76947 "PG EPLT Rep Drill"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; trigger OnDrillDown() begin CurrPage.Box.Page.ReadProc(); end; } field(RefCtl; Rec."Ref Code") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76948 "PG EPLT Rep Assist"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; trigger OnAssistEdit() begin CurrPage.Box.Page.ReadProc(); end; } field(RefCtl; Rec."Ref Code") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76949 "PG EPLT Rep Act"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } field(RefCtl; Rec."Ref Code") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    actions { area(Processing) { action(CallPart) { ApplicationArea = All; trigger OnAction() begin CurrPage.Box.Page.ReadProc(); end; } } }
+}
+page 76950 "PG EPLT Base Val"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } field(RefCtl; Rec."Ref Code") { ApplicationArea = All; trigger OnValidate() begin CurrPage.Box.Page.ReadProc(); end; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+}
+page 76951 "PG EPLT Base Drill"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; trigger OnDrillDown() begin CurrPage.Box.Page.ReadProc(); end; } field(RefCtl; Rec."Ref Code") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+}
+page 76952 "PG EPLT Base Assist"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; trigger OnAssistEdit() begin CurrPage.Box.Page.ReadProc(); end; } field(RefCtl; Rec."Ref Code") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+}
+page 76953 "PG EPLT Base Act"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } field(RefCtl; Rec."Ref Code") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+    actions { area(Processing) { action(CallPart) { ApplicationArea = All; trigger OnAction() begin CurrPage.Box.Page.ReadProc(); end; } } }
+}
+page 76954 "PG EPLT Part Expr"
+{
+    PageType = ListPart; SourceTable = "PG EPLT Line"; DeleteAllowed = true; DelayedInsert = true; InsertAllowed = false;
+    ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; trigger OnDrillDown() begin end; } field(ExprCtl; GetTid()) { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(ReadRec) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLT Log"; begin Log.Add('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; } } }
+    trigger OnInit() begin end;
+    trigger OnDeleteRecord(): Boolean begin exit(true); end;
+    trigger OnAfterGetCurrRecord() begin end;
+    local procedure GetTid(): Text var Log: Codeunit "PG EPLT Log"; begin Log.Add('expr'); exit(Format(Rec."Table ID") + '/' + Rec."No."); end;
+}
+page 76955 "PG EPLT Rep Expr"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Expr") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76956 "PG EPLT Base Expr"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Expr") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+}
+page 76957 "PG EPLT Rep HX"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } field(ExprH; HostExpr()) { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    local procedure HostExpr(): Text begin CurrPage.Box.Page.ReadProc(); exit('x'); end;
+}
+page 76958 "PG EPLT Base HX"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } field(ExprH; HostExpr()) { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+    local procedure HostExpr(): Text begin CurrPage.Box.Page.ReadProc(); exit('x'); end;
+}
+codeunit 76945 "PG EPL Tests"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLT Log";
+    local procedure Init(Rows: Integer)
+    var H: Record "PG EPLT Head"; L: Record "PG EPLT Line";
+    begin
+        H.DeleteAll(); L.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert();
+        if Rows > 1 then begin H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); end;
+        if Rows > 2 then begin H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert(); end;
+        Log.Reset();
+    end;
+    local procedure AddLine(No: Code[20]) var L: Record "PG EPLT Line"; begin L."Table ID" := 76930; L."No." := No; L."Line No." := 1; L.Insert(); end;
+    [Test] procedure Rep_GoToLast() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_View_GoToLast() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenView(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_AsOpened() var P: TestPage "PG EPLT Rep"; begin Init(3); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure DocBoth_OnlyRow() var P: TestPage "PG EPLT DocBoth"; H: Record "PG EPLT Head"; begin Init(1); P.OpenEdit(); H.Get('A'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened() var P: TestPage "PG EPLT Base"; begin Init(3); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Card_TwoReads() var P: TestPage "PG EPLT Card Host"; begin Init(1); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Card_PartFilter() var P: TestPage "PG EPLT Card Host"; begin Init(1); P.OpenEdit(); P.Box.Filter.SetFilter("Line No.", '5'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Content_GoToLast() var P: TestPage "PG EPLT Rep Content"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Trig_GoToLast() var P: TestPage "PG EPLT Rep Trig"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure FilterLink_GoToLast() var P: TestPage "PG EPLT Rep FilterLink"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure NoDrill_GoToLast() var P: TestPage "PG EPLT Rep NoDrill"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_Next_GoToLast() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Next(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_ThreeMoves() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.Get('A'); P.GoToRecord(H); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_HostFilter_GoToLastOfFilter() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Filter.SetFilter("No.", 'A|B'); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure DocBoth_HostFilter_OnlyRow() var P: TestPage "PG EPLT DocBoth"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Filter.SetFilter("No.", 'B'); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_PartUpdate() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.UpdRead.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_PartFirst() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); if P.Box.First() then; P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_PartNext() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); if P.Box.Next() then; P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_AsOpened_GoToNoRow() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Init(); H."No." := 'Z'; if P.GoToRecord(H) then; P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_LineAdded() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); AddLine('RC'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_HostModified() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H."Ref Code" := 'RX'; H.Modify(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_HostDeleted() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.Delete(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_RowAdded() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H."No." := 'D'; H."Ref Code" := 'RD'; H.Insert(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_TwoReads() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened_TwoReads() var P: TestPage "PG EPLT Base"; begin Init(3); P.OpenEdit(); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened_PartFirst() var P: TestPage "PG EPLT Base"; begin Init(3); P.OpenEdit(); if P.Box.First() then; P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TwoReads() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_Next_GoToLast() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Next(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Base_HostFilter_GoToLastOfFilter() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.Filter.SetFilter("No.", 'A|B'); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Partner_GoToLast_PartFilter() var P: TestPage "PG EPLT Partner"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.Filter.SetFilter("Line No.", '5'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Partner_AsOpened_PartFilter() var P: TestPage "PG EPLT Partner"; begin Init(3); P.OpenEdit(); P.Box.Filter.SetFilter("Line No.", '5'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure SubPart_GoToLast_PartFilter() var P: TestPage "PG EPLT SubPart"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.Filter.SetFilter("Line No.", '5'); P.Box.ReadRec.Invoke(); P.Close(); Error(Log.Get()); end;
+    [Test] procedure Rep_Val_GoToLast() var P: TestPage "PG EPLT Rep Val"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_HostValidateCallsPart() var P: TestPage "PG EPLT Rep Val"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.RefCtl.SetValue('RC'); Error(Log.Get()); end;
+    [Test] procedure Rep_AsOpened_HostValidateCallsPart() var P: TestPage "PG EPLT Rep Val"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.RefCtl.SetValue('RX'); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_HostDrillDownCallsPart() var P: TestPage "PG EPLT Rep Drill"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.NoCtl.Drilldown(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_HostAssistEditCallsPart() var P: TestPage "PG EPLT Rep Assist"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.NoCtl.AssistEdit(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_HostActionCallsPart() var P: TestPage "PG EPLT Rep Act"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.CallPart.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_AsOpened_HostActionCallsPart() var P: TestPage "PG EPLT Rep Act"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.CallPart.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_Rollback() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); asserterror Error('x'); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_AsOpened_Rollback() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); asserterror Error('x'); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_Val_GoToLast() var P: TestPage "PG EPLT Base Val"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_HostValidateCallsPart() var P: TestPage "PG EPLT Base Val"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.RefCtl.SetValue('RC'); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened_HostValidateCallsPart() var P: TestPage "PG EPLT Base Val"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.RefCtl.SetValue('RX'); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_HostDrillDownCallsPart() var P: TestPage "PG EPLT Base Drill"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.NoCtl.Drilldown(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_HostAssistEditCallsPart() var P: TestPage "PG EPLT Base Assist"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.NoCtl.AssistEdit(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_HostActionCallsPart() var P: TestPage "PG EPLT Base Act"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.CallPart.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened_HostActionCallsPart() var P: TestPage "PG EPLT Base Act"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); P.CallPart.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_Rollback() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); asserterror Error('x'); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened_Rollback() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); asserterror Error('x'); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoTo_InsLineThenRead() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.Box.InsLine.Invoke(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoTo_ModHostThenRead() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.Box.ModHost.Invoke(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoTo_FailThenRead() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); asserterror P.Box.Fail.Invoke(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoTo_TryFailThenRead() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); if TryFail(P) then; P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [TryFunction] local procedure TryFail(var P: TestPage "PG EPLT Base") begin P.Box.Fail.Invoke(); end;
+    [Test] procedure Rep_GoToLast_TruncateHost() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_TruncateFiltered() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.SetRange("No.", 'C'); H.Truncate(); H.Reset(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_RecRefTruncate() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); RR.Open(76930); RR.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_TruncateLine() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); L.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_AsOpened_TruncateHost() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_Expr_GoToLast_CtlValue() var P: TestPage "PG EPLT Rep Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); Log.Add('val=' + P.Box.ExprCtl.Value); Error(Log.Get()); end;
+    [Test] procedure Rep_Expr_AsOpened_CtlValue() var P: TestPage "PG EPLT Rep Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); Log.Add('val=' + P.Box.ExprCtl.Value); Error(Log.Get()); end;
+    [Test] procedure Rep_Expr_GoToLast_Read() var P: TestPage "PG EPLT Rep Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_HX_GoToLast_Read() var P: TestPage "PG EPLT Rep HX"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_HX_View_AsOpened_Read() var P: TestPage "PG EPLT Rep HX"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenView(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TruncateHost() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TruncateFiltered() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.SetRange("No.", 'C'); H.Truncate(); H.Reset(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_RecRefTruncate() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); RR.Open(76930); RR.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TruncateLine() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); L.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened_TruncateHost() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_Expr_GoToLast_CtlValue() var P: TestPage "PG EPLT Base Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); Log.Add('val=' + P.Box.ExprCtl.Value); Error(Log.Get()); end;
+    [Test] procedure Base_Expr_AsOpened_CtlValue() var P: TestPage "PG EPLT Base Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); Log.Add('val=' + P.Box.ExprCtl.Value); Error(Log.Get()); end;
+    [Test] procedure Base_Expr_GoToLast_Read() var P: TestPage "PG EPLT Base Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_HX_GoToLast_Read() var P: TestPage "PG EPLT Base HX"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_HX_View_AsOpened_Read() var P: TestPage "PG EPLT Base HX"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenView(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_TempWrite() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; T: Record "PG EPLT Line" temporary; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); T."Line No." := 1; T.Insert(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TempWrite() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; T: Record "PG EPLT Line" temporary; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); T."Line No." := 1; T.Insert(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoTo_TruncateBetweenReads() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+}
+"#;
+
+/// The measured landings answer BC's values through the assumption; the Card host keeps main's result through none; every
+/// neighbor refuses the read of the part's Rec.
+#[test]
+fn empty_list_part_rec_tied_to_its_landing() {
+    let o = run(TIED_SRC);
+    assert_eq!(o.len(), 77, "{o:?}");
+    let kept: &[(&str, &str, bool)] = &[
+        ("Rep_GoToLast", "act=76930/RC/0", true),
+        ("Rep_View_GoToLast", "act=76930/RC/0", true),
+        ("Rep_AsOpened", "act=76930/RA/0", true),
+        ("DocBoth_OnlyRow", "act=76930/A/0", true),
+        ("Base_AsOpened", "act=76930/A/0", true),
+        ("Base_GoToLast_TwoReads", "act=76930/C/0 | act=76930/C/0", true),
+        ("Rep_Val_GoToLast", "act=76930/RC/0", true),
+        ("Base_Val_GoToLast", "act=76930/C/0", true),
+        ("Card_TwoReads", "act=76930/RA/0 | act=76930/RA/0", false),
+        ("Card_PartFilter", "act=76930/RA/5", false),
+    ];
+    let wrong: Vec<_> = o
+        .iter()
+        .filter(
+            |(name, outcome, flagged)| match kept.iter().find(|(n, _, _)| n == name) {
+                Some((_, want, flag)) => !raised(outcome, want) || flagged != flag,
+                None => !refused(outcome),
+            },
+        )
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A UI handler of the test that the measured Invoke lets in calls the page again (review round 4 of the List-host cells): an
+/// action of the host that calls a procedure of the part, a nested Invoke of the part's action (once or three times), a
+/// Drilldown of the part whose trigger reads Rec. No cell measures a test call inside the read, so each refuses, on the
+/// reporter's host form and on the probe's first host form. A handler that makes no test call keeps the measured read
+/// (`W0b`), as does the read without a handler (`W0`).
+const NESTED_SRC: &str = r#"
+table 77100 "PG EPLH Head" { fields { field(1; "No."; Code[20]) { } field(2; "Ref Code"; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+table 77101 "PG EPLH Line"
+{
+    fields { field(1; "Table ID"; Integer) { } field(2; "No."; Code[20]) { } field(3; "Line No."; Integer) { } }
+    keys { key(PK; "Table ID", "No.", "Line No.") { Clustered = true; } }
+}
+codeunit 77102 "PG EPLH Log"
+{
+    SingleInstance = true;
+    var L: Text;
+    procedure Reset() begin L := ''; end;
+    procedure Add(T: Text) begin L += T + ';'; end;
+    procedure Get(): Text begin exit(L); end;
+}
+page 77103 "PG EPLH Part"
+{
+    PageType = ListPart; SourceTable = "PG EPLH Line"; DeleteAllowed = true; DelayedInsert = true; InsertAllowed = false;
+    ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; trigger OnDrillDown() begin ReadProc('drill'); end; } } } }
+    actions
+    {
+        area(Processing)
+        {
+            action(ReadRec) { ApplicationArea = All; trigger OnAction() begin ReadProc('act'); end; }
+            action(ConfirmRead) { ApplicationArea = All; trigger OnAction() begin Log.Add('b'); if Confirm('q') then; ReadProc('after'); end; }
+            action(ConfirmOnly) { ApplicationArea = All; trigger OnAction() begin Log.Add('b'); if Confirm('q') then; Log.Add('e'); end; }
+        }
+    }
+    trigger OnInit() begin end;
+    trigger OnDeleteRecord(): Boolean begin exit(true); end;
+    trigger OnAfterGetCurrRecord() begin end;
+    var Log: Codeunit "PG EPLH Log";
+    procedure ReadProc(Tag: Text) begin Log.Add(Tag + '=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end;
+}
+page 77104 "PG EPLH Rep"
+{
+    PageType = List; SourceTable = "PG EPLH Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLH Part") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(77100), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    actions { area(Processing) { action(CallPart) { ApplicationArea = All; trigger OnAction() begin CurrPage.Box.Page.ReadProc('host'); end; } } }
+}
+page 77105 "PG EPLH Base"
+{
+    PageType = List; SourceTable = "PG EPLH Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLH Part") { ApplicationArea = All; SubPageLink = "Table ID" = const(77100), "No." = field("No."); } }
+    }
+    actions { area(Processing) { action(CallPart) { ApplicationArea = All; trigger OnAction() begin CurrPage.Box.Page.ReadProc('host'); end; } } }
+}
+codeunit 77110 "PG EPL Tests Rep W0"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [Test] procedure Rep_W0() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77111 "PG EPL Tests Rep W0b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h(');  Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W0b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmRead.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77112 "PG EPL Tests Rep W1b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.CallPart.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W1b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77113 "PG EPL Tests Rep W1c"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.CallPart.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W1c() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77114 "PG EPL Tests Rep W2"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.ReadRec.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W2() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77115 "PG EPL Tests Rep W2b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W2b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77116 "PG EPL Tests Rep W8"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.LineNoCtl.Drilldown(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W8() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77117 "PG EPL Tests Base W0"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [Test] procedure Base_W0() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77118 "PG EPL Tests Base W0b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h(');  Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W0b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmRead.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77119 "PG EPL Tests Base W1b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.CallPart.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W1b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77120 "PG EPL Tests Base W1c"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.CallPart.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W1c() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77121 "PG EPL Tests Base W2"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.ReadRec.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W2() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77122 "PG EPL Tests Base W2b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W2b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77123 "PG EPL Tests Base W8"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.LineNoCtl.Drilldown(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W8() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+"#;
+
+#[test]
+fn empty_list_part_rec_nested_test_call_ends_the_read() {
+    let o = run(NESTED_SRC);
+    assert_eq!(o.len(), 14, "{o:?}");
+    let kept: &[(&str, &str)] = &[
+        ("Rep_W0", "act=77100/RC/0;"),
+        ("Rep_W0b", "b;h(;)h;after=77100/RC/0;"),
+        ("Base_W0", "act=77100/C/0;"),
+        ("Base_W0b", "b;h(;)h;after=77100/C/0;"),
+    ];
+    let wrong: Vec<_> = o
+        .iter()
+        .filter(|(name, outcome, flagged)| match kept.iter().find(|(n, _)| n == name) {
+            Some((_, want)) => !raised(outcome, want) || !flagged,
+            None => !refused(outcome),
+        })
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
