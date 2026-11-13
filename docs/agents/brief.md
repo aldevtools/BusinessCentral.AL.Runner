@@ -98,8 +98,9 @@ depend on.
 
 ## Pull request body and final report (the same content)
 - Line 1: `[al-runtime-rs / <task> / DONE | WAITING | HANDOFF | BLOCKED]`
-- `Fixes #N`, one per line, only when the reporter's repro passes with no flagged assumption on its
-  path. Otherwise `Refs #N` and what is still refused.
+- `Fixes #N`, one per line, when the reporter's repro passes, also when the pass is flagged (it runs through
+  an assumption entry; owner, 2026-11-13, as in `docs/agents/assumptions.md`). `Refs #N` and what is still
+  refused only while cases of the issue are still refused.
 - The area table.
 - Red run and green run of the repro or the new tests.
 - The numbers of step 2 for 27, 28 and 29, and the lines you pruned.
