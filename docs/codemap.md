@@ -79,7 +79,8 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `datatransfer.rs` (74): DataTransfer (install and upgrade code only). Entry: `native_for` 58.
 - `datefns.rs` (769): Date, Time and DateTime builtins. Entry: `formula_text` 237, `check_formula` 323.
 - `datefns/brackets.rs` (95): angle brackets inside a term of a date formula (`-62<D>`, `1<>D`, `C<M>`). Entry: `open`, `close`.
-- `datefns/numbers.rs` (17): a formula that is only a number above 9999. Entry: `too_large`.
+- `datefns/numbers.rs` (30): a formula that is only a number above 9999, and CalcDate's `<+10000Y>`. Entry: `too_large`, `year_step_too_large`.
+- `datefns/range.rs` (~110): CalcDate at the ends of the date range: the cells that raise DateInvalid (bases 0001-01-01 and 0001-01-02, a last step past the range) and the closing results from C9999-12-31; every other shape there refuses. Entry: `low_base`, `past_edge`, `first_day_result`, `closing_result`.
 - `autoformat11.rs` (71): `Format` in code of an AutoFormatType 11 field with the format string its expression gave. Entry: `format`.
 - `errorinfo.rs` (307): ErrorInfo: the property bag, Error(ErrorInfo), collected errors. Entry: `raise` 239, `copy_of` 263, `native_for` 283.
 - `features.rs` (~150): `catalog/alc-features.txt` (what the AL compiler reports per property and element kind, data type, attribute and object type at each runtime; `tools/alc-runtimes/alc_features.py`). Entry: `feature`, `al0666_at`.
@@ -362,7 +363,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `run_inputs.rs` (~600, about 420 without tests): The inputs of a run, classified once (al-runner issue 7610). `RunInputs::of` destructures `TestArgs` without `..`: each field is an outcome input, a stored-result-only input, a compile input, a content file, or named as no input with the reason. `outcome_digest(Purpose)` is the options hash of the `--affected` stored result (`affected.rs`) and the options part of the impact index key (`impact_index.rs`); `compile_text` is the options part of the key of serve's kept compile (`run.rs`, beside `warm_key`). A new option is added here and nowhere else; the tests need a miss test per input.
 - `main.rs` (51): The `al-runner` binary: runs on a thread with a large stack, maps results to exit codes. Entry: `main`.
 - `profile.rs` (~200): `--profile PATH`, `--profile-mode`, `--profile-interval` (`Flags`, `Request`) and serve `profile` (`from_json`); `begin`/`end` around a run (`run.rs` `profiled`, from `test` and `test_with`), the `file://` links for the APPs given as folders (by app id from `app.json`), the files written for the serve summary (`take_written`). Entry: `Flags`, `begin`, `end`.
-- `output.rs` (182): Counts, exit codes (0, 1, 6, 7), the summary line, the one-line warnings shown by default (`baseline_warning`, `dependency_line_is_problem`; the rest is `--verbose`) and JUnit XML of a run. Entry: `exit_code`, `junit`.
+- `output.rs` (182): Counts, exit codes (0, 1, 6, 7), the summary line, the one-line warnings shown by default (`baseline_warning`, `dependency_line_is_problem`; the rest is `--verbose`), JUnit XML of a run, and the `--output-json` document; `test_row` is the one builder of a test's JSON row, for the document and for serve's `test` lines (al-runner issue 7954). Entry: `exit_code`, `junit`, `json_tdd`, `test_row`.
 - `run.rs` (433): `al-runner test`: load APPs, select test codeunits, resolve dependencies, compile, run, print. A serve request keeps the dependency apps it read (`WarmCtx::dependencies`, checked by `file_stamps`) and says where its time went (`RequestTimings`, the summary's `timings`). Entry: `test`.
 
 ### al-version

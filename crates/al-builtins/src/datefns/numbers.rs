@@ -8,14 +8,26 @@ use crate::native::{Signal, raise};
 pub(super) fn too_large(body: &str) -> Result<(), Signal> {
     let digits_only = !body.is_empty() && body.bytes().all(|b| b.is_ascii_digit());
     if digits_only && body.trim_start_matches('0').len() > 4 {
-        return raise(
-            format!(
-                "The date formula '{body}' contains a number that is too large.\\\\The number must be in the range 0 - 9999."
-            ),
-            "Evaluate",
-        );
+        return raise(message(body), "Evaluate");
     }
     Ok(())
+}
+
+/// CalcDate with the text formula `<+10000Y>`: the year step is above 9999 and BC raises the same error, with the formula's
+/// sign in the message (code Evaluate; corpus PR 1374, types/date-time/CalcDateOverflow.al:250, :367, assumption
+/// `calcdate-past-date-range`). Only this text is measured; a step above 9999 in any other formula is refused (`range::past_edge`).
+pub(super) fn year_step_too_large(formula: &str) -> Result<(), Signal> {
+    if formula == "<+10000Y>" {
+        crate::assumptions::assume(crate::assumptions::Assumption::CalcDatePastDateRange);
+        return raise(message("+10000Y"), "Evaluate");
+    }
+    Ok(())
+}
+
+fn message(shown: &str) -> String {
+    format!(
+        "The date formula '{shown}' contains a number that is too large.\\\\The number must be in the range 0 - 9999."
+    )
 }
 
 #[cfg(test)]
