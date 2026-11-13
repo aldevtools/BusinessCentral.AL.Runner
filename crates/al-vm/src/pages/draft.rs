@@ -985,9 +985,14 @@ impl Session {
             // The page's own OnInsertRecord vetoed by its named return value, the insert of a SetValue: the SetValue raises
             // the filtered-view error and nothing is stored (open corpus PR 1367, pages/triggers/RecordTriggerReturnValue.al:350
             // False_Insert_OpenNewSetValueClose `end|text`, `log` `I N1 ; `; assumption page-record-trigger-named-false-vetoes).
-            // What the page holds afterwards is not measured: every later call but Close is refused.
-            st.borrow_mut().unpinned_state =
-                Some("a card after its OnInsertRecord vetoed the insert by its named return value (not pinned)".into());
+            // What the page holds afterwards is not measured: every later call on it, Close too, is refused.
+            {
+                let mut s = st.borrow_mut();
+                s.unpinned_state = Some(
+                    "a card after its OnInsertRecord vetoed the insert by its named return value (not pinned)".into(),
+                );
+                s.unpinned_close = true;
+            }
             return Err(view_filtered_error());
         }
         if go == Some(false) {

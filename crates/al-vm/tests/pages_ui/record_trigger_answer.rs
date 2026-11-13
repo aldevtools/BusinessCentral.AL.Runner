@@ -112,6 +112,16 @@ page 75358 "RT Cond Act Card"
             exit(false);
     end;
 }
+page 75359 "RT Unassigned Card"
+{
+    PageType = Card; SourceTable = "RT Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { group(General) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { } } } }
+    var Log: Codeunit "RT Log";
+    trigger OnModifyRecord() Ok: Boolean
+    begin
+        Log.Add('M ' + Rec."Code" + ' ' + Rec.Name);
+    end;
+}
 codeunit 75354 "RT Log"
 {
     SingleInstance = true;
@@ -203,6 +213,20 @@ codeunit 75355 T
         asserterror P.Name.SetValue('new');
         P.Name.SetValue('again');
         exit(Done());
+    end;
+    procedure FalseInsertThenClose(): Text
+    var P: TestPage "RT False Card";
+    begin
+        Setup();
+        P.OpenNew(); P."Code".SetValue('N1');
+        asserterror P.Name.SetValue('new');
+        P.Close();
+        exit(Done());
+    end;
+    procedure UnassignedModifyNext(): Text
+    var P: TestPage "RT Unassigned Card";
+    begin
+        Setup(); P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Next(); P.Close(); exit(Done());
     end;
     procedure CondListModifyNext(): Text
     var P: TestPage "RT Cond List";
@@ -300,6 +324,7 @@ fn unmeasured_neighbors_are_refused() {
         ("FalseInsertKeyOnlyClose", named),
         // a later call after the veto of the insert
         ("FalseInsertThenAgain", "after its OnInsertRecord vetoed the insert"),
+        ("FalseInsertThenClose", "after its OnInsertRecord vetoed the insert"),
         // a List page
         ("CondListModifyNext", exit),
         // the named return value assigned false in a branch
@@ -311,4 +336,17 @@ fn unmeasured_neighbors_are_refused() {
     ] {
         refused(proc, why);
     }
+}
+
+/// A named return value that is never assigned keeps main's answer (no veto) and runs no assumption: not measured either way.
+#[test]
+fn an_unassigned_named_value_keeps_mains_save() {
+    take_hits();
+    assert_eq!(
+        text(run_in(SRC, "T", "UnassignedModifyNext")),
+        "M R1 edited; T-mod R1 edited; | R1=edited R2=second (2 rows)"
+    );
+    let hits = take_hits();
+    assert!(!hits.contains(&Assumption::PageRecordTriggerNamedFalseVetoes));
+    assert!(!hits.contains(&Assumption::PageRecordTriggerExitNotTakenSaves));
 }
