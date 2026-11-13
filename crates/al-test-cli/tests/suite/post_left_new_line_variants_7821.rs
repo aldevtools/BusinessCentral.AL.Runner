@@ -219,6 +219,26 @@ fn neighbors_of_the_cells_keep_mains_refusal() {
     }
 }
 
+/// In a variant cell the Post lets only value reads and Close through: a move after it is refused.
+#[test]
+fn a_move_after_the_post_of_a_variant_cell_is_refused() {
+    let src = variant(&[(
+        "        Observer.Observe('shown line', Worksheet.\"Line No.\".Value());\n        Worksheet.Close();\n        \
+         Observer.Observe('after close', Log.Take());\n        case Subscribers of",
+        "        Observer.Observe('shown line', Worksheet.\"Line No.\".Value());\n        Worksheet.Next();\n        \
+         Worksheet.Close();\n        Observer.Observe('after close', Log.Take());\n        case Subscribers of",
+    )]);
+    let (o, marks) = outcome(&src, "TPV7821_Base_OneLine_PageRun");
+    assert!(
+        matches!(&o, Outcome::NotRun(r) if r.contains("other than a value read and Close")),
+        "{o:?}"
+    );
+    assert!(
+        marks.contains(&Assumption::PostLeftOtherKeyNewLineVariants),
+        "{marks:?}"
+    );
+}
+
 /// The repro's cell (no subscriber of the page, one row, no other row) keeps main's end: after the Post only Close, so the
 /// probe's read of the shown line is refused.
 #[test]
