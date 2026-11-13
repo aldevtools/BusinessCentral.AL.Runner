@@ -415,6 +415,10 @@ pub trait Ctx: FormatCtx {
     fn fs_placeholder(&mut self, _path: &str) -> Option<(std::sync::Arc<str>, Vec<u8>)> {
         None
     }
+    /// `File.Create` or `File.Open` opened an AL File on `path` (not a temporary file); it holds the file until `fs_closed`.
+    fn fs_opened(&mut self, _path: &str) {}
+    /// `File.Close` closed an AL File that was open on `path` (not a temporary file), after the close wrote what it writes.
+    fn fs_closed(&mut self, _path: &str, _handle: &crate::file::FileHandle) {}
     /// Whether `Clear` of a DotNet variable holding the host object `handle` of type `clr_type` changes nothing AL can see, so
     /// the variable just becomes unassigned (an OpenXml workbook writer after its `Close` and the worksheet writers it handed
     /// out, a workbook reader and its worksheet readers). The context marks the assumption it relies on.

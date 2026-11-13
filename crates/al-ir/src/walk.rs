@@ -1087,6 +1087,7 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
             source_view: _,
             calc_fields,
             after_assign_layout: _,
+            plain_import_layout: _,
             text_attr_export: _,
             triggers: _,
         } = n;
