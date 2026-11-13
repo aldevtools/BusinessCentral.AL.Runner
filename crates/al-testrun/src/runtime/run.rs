@@ -1155,7 +1155,7 @@ fn run_codeunit_inner(
             }
             let marks = al_builtins::assumptions::take_hits();
             if !marks.is_empty() {
-                hits.push((name.clone(), marks));
+                hits.push((name.clone(), marks.clone()));
             }
             // `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, its handlers and subscribers included.
             let (reached, ui_answered) = scratch.take_marks(&name, session);
@@ -1199,12 +1199,7 @@ fn run_codeunit_inner(
                     codeunit_name: obj.name.clone(),
                     test: name.clone(),
                     outcome: outcome.clone(),
-                    call_stack: stacks
-                        .iter()
-                        .rev()
-                        .find(|(n, _)| *n == name)
-                        .map(|(_, s)| s.clone())
-                        .unwrap_or_default(),
+                    call_stack: last_stack(stacks, &name),
                     time: took,
                     slept_ms,
                     coverage: cov.clone(),
@@ -1212,6 +1207,7 @@ fn run_codeunit_inner(
                     stubs: reached,
                     ui_answered,
                     entry: None,
+                    assumptions: marks,
                 });
             }
             if covering {
@@ -1312,6 +1308,16 @@ fn discover(
     Vec::new()
 }
 
+/// The call stack recorded last for test `name` (empty when none was).
+fn last_stack(stacks: &[(String, String)], name: &str) -> String {
+    stacks
+        .iter()
+        .rev()
+        .find(|(n, _)| n == name)
+        .map(|(_, s)| s.clone())
+        .unwrap_or_default()
+}
+
 /// The rest of a codeunit after a test panicked: every test left is not run.
 fn not_run_after_panic(
     obj: &al_ir::Object,
@@ -1336,6 +1342,7 @@ fn not_run_after_panic(
                 stubs: Vec::new(),
                 ui_answered: Vec::new(),
                 entry: None,
+                assumptions: Vec::new(),
             });
         }
         out.push((name, outcome));

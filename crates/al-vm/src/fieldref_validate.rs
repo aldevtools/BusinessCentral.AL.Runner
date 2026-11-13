@@ -1,7 +1,7 @@
 //! `FieldRef.Validate(Value)`.
 
 use crate::Session;
-use crate::blob_transfer::BlobMove;
+use crate::blob_transfer::{BlobMove, Holder};
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
 use al_builtins::value::{RecordState, RtType, Value};
@@ -25,8 +25,8 @@ impl Session {
         // A Blob is validated as a copy (`blob_transfer::moved`).
         if let Some(v @ Value::Blob(_)) = a.get_mut(1) {
             let cur = rec.borrow().fields[pos].clone();
-            let measured = || self.blob_field_measured(t.object as usize, pos);
-            *v = crate::blob_transfer::moved(Some(&cur), v.clone(), BlobMove::FieldRefValidate, measured)?;
+            let kind = || self.blob_field_kind(t.object as usize, pos);
+            *v = crate::blob_transfer::moved(Some(&cur), v.clone(), BlobMove::FieldRefValidate, Holder::Other, kind)?;
         }
         self.validate_at(crate::records::ValidateSite::FieldRef, rec, &mut a)
     }
