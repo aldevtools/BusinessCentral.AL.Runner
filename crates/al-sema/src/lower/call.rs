@@ -11,6 +11,7 @@ impl Lowerer<'_> {
     ) -> L<Option<Res>> {
         let resolution = self.res(node).cloned();
         if let Some(Res::Builtin(id)) = &resolution {
+            self.system_function_named_like_a_rec_field(node, receiver)?;
             self.coverage_test_id_call(id, receiver, args)?;
             if id == "Page.SaveRecord#1"
                 && self.ws.objects[self.oi].kind == ObjKind::Page
@@ -24,6 +25,49 @@ impl Lowerer<'_> {
             }
         }
         Ok(resolution)
+    }
+
+    /// A bare call of a system function (`UserId`, `Today`, with or without parentheses) outside the OnRun trigger of a
+    /// codeunit with TableNo whose table has a field of that name. There the name is the system function: the routine has no
+    /// implicit Rec (corpus must-not-compile 3140, corpus PR 1386, merged, not pinned yet). What it returns there is not
+    /// measured on BC: a procedure runs it under `TableNoProcedureBareSystemFunction` (al-runner 6924), and every other
+    /// shape keeps main's refusal (a trigger other than OnRun, a codeunit that declares a global `Rec`, the quoted name).
+    fn system_function_named_like_a_rec_field(&mut self, node: &SyntaxNode, receiver: Option<&SyntaxNode>) -> L<()> {
+        let Some(table) = self.table_of[self.oi].filter(|_| self.ws.objects[self.oi].kind == ObjKind::Codeunit) else {
+            return Ok(());
+        };
+        let callee = match node.kind() {
+            SyntaxKind::CallExpr => node.children().next(),
+            _ => Some(node.clone()),
+        };
+        let Some(callee) = callee.filter(|c| receiver.is_none() && c.kind() == SyntaxKind::NameRef) else {
+            return Ok(());
+        };
+        let text = callee.text_string().trim().to_string();
+        let name = text.trim_matches('"').to_string();
+        let routine = node.ancestors().find_map(ast::Routine::cast);
+        let in_on_run = routine
+            .as_ref()
+            .is_some_and(|r| r.is_trigger() && r.name().eq_ignore_ascii_case("OnRun"));
+        if in_on_run || self.members[table].field(&name).is_none() {
+            return Ok(());
+        }
+        let in_procedure = routine
+            .as_ref()
+            .is_some_and(|r| r.syntax().kind() == SyntaxKind::Procedure);
+        let unquoted = text == name;
+        let declares_global_rec = node.ancestors().find_map(ast::Object::cast).is_some_and(|o| {
+            o.var_decls()
+                .any(|v| v.names().iter().any(|n| n.eq_ignore_ascii_case("Rec")))
+        });
+        if in_procedure && unquoted && !declares_global_rec {
+            self.assume(al_builtins::assumptions::Assumption::TableNoProcedureBareSystemFunction);
+            return Ok(());
+        }
+        Err(format!(
+            "the system function `{name}` called bare outside OnRun of a codeunit with TableNo whose table has a field `{name}`: \
+             its value there is not measured"
+        ))
     }
 
     /// `Rec.SecurityFiltering()` read on a variable declared with `[SecurityFiltering(...)]` answers the declared value on

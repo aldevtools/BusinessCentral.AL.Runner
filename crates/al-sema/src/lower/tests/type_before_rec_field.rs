@@ -384,35 +384,93 @@ fn a_declared_global_rec_of_another_type_refuses() {
     assert!(refusals(&l).is_empty(), "{:?}", refusals(&l));
 }
 
-#[test]
-fn a_field_named_like_a_system_function_read_bare_in_a_procedure_lowers() {
-    // In a procedure of a codeunit with TableNo the bare name is the system function: the routine has no implicit Rec
-    // (corpus must-not-compile 3140, corpus PR 1386). It lowers as in any other codeunit, with no refusal (al-runner 6924:
-    // a refusal here lost a passing test). In OnRun the bare name is the field and lowers as well.
-    let table = "table 50110 \"Probe Context\"
+const SYSTEM_NAMES_TABLE: &str = "table 50110 \"Probe Context\"
 {
     fields
     {
         field(1; \"Entry No.\"; Integer) { }
         field(3; UserId; Code[50]) { }
         field(4; Today; Date) { }
+        field(5; WorkDate; Date) { }
+        field(6; CompanyName; Text[30]) { }
     }
     keys { key(PK; \"Entry No.\") { } }
 }";
-    for (on_run, body) in [
-        ("begin\n    end;", "procedure P(): Text begin exit(UserId); end;"),
-        ("begin\n    end;", "procedure P(): Text begin exit(UserId()); end;"),
-        ("begin\n    end;", "procedure P(): Date begin exit(Today); end;"),
-        ("begin\n    end;", "procedure P(): Date begin exit(Today()); end;"),
+
+/// The debug form of routine `name` of the object `object` in `l`.
+fn routine_ir(l: &Lowered, object: &str, name: &str) -> String {
+    let o = l.program.objects.iter().find(|o| o.name == object).expect("object");
+    let r = o
+        .routines
+        .iter()
+        .find(|r| r.name.eq_ignore_ascii_case(name))
+        .expect("routine");
+    format!("{r:?}")
+}
+
+#[test]
+fn a_field_named_like_a_system_function_read_bare_in_a_procedure_runs_under_the_assumption() {
+    // In a procedure of a codeunit with TableNo the bare name is the system function (no implicit Rec there: corpus
+    // must-not-compile 3140, corpus PR 1386, not pinned yet). Its value there is not measured: it runs under the assumption
+    // `tableno-procedure-bare-system-function` (al-runner 6924) and binds the builtin, not the field.
+    for (body, builtin) in [
+        ("procedure P(): Text begin exit(UserId); end;", "UserId"),
+        ("procedure P(): Text begin exit(UserId()); end;", "UserId"),
+        ("procedure P(): Date begin exit(Today); end;", "Today"),
+        ("procedure P(): Date begin exit(Today()); end;", "Today"),
+        ("procedure P(): Date begin exit(WorkDate); end;", "WorkDate"),
+        ("procedure P(): Text begin exit(CompanyName); end;", "CompanyName"),
+        ("local procedure P(): Text begin exit(UserId); end;", "UserId"),
         (
-            "begin\n        Rec.UserId := UserId;\n        Rec.Today := Today;\n    end;",
-            "",
+            "procedure P(var Rec: Record \"Probe Context\"): Text begin exit(UserId); end;",
+            "UserId",
+        ),
+        (
+            "[EventSubscriber(ObjectType::Codeunit, Codeunit::\"Probe Handler\", 'OnProbe', '', false, false)]\n    local procedure P() begin Message(UserId); end;\n    [IntegrationEvent(false, false)]\n    procedure OnProbe() begin end;",
+            "UserId",
         ),
     ] {
-        let src = codeunit(on_run, &format!("    {body}"));
-        let (ws, l) = lower_files(&[("t.al", table), ("c.al", &src)], false);
+        let src = codeunit("begin\n    end;", &format!("    {body}"));
+        let (ws, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", &src)], false);
         assert!(ws.diagnostics.is_empty(), "{body}: {:?}", ws.diagnostics);
         assert!(al_messages(&l).is_empty(), "{body}: {:?}", al_messages(&l));
-        assert!(refusals(&l).is_empty(), "{on_run} {body}: {:?}", refusals(&l));
+        assert!(refusals(&l).is_empty(), "{body}: {:?}", refusals(&l));
+        let ir = routine_ir(&l, "Probe Handler", "P");
+        assert!(
+            ir.contains("Assume(TableNoProcedureBareSystemFunction)"),
+            "{body}: {ir}"
+        );
+        assert!(
+            ir.contains(&format!(".{builtin}#")),
+            "{body}: binds the builtin {builtin}: {ir}"
+        );
+        assert!(!ir.contains("Field"), "{body}: no field read: {ir}");
     }
+    // OnRun keeps the field and marks nothing.
+    let src = codeunit("var\n        T: Text;\n    begin\n        T := UserId;\n    end;", "");
+    let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", &src)], false);
+    assert!(refusals(&l).is_empty(), "{:?}", refusals(&l));
+    assert!(!routine_ir(&l, "Probe Handler", "OnRun").contains("TableNoProcedureBareSystemFunction"));
+}
+
+#[test]
+fn a_bare_system_function_named_like_a_field_outside_the_assumed_shapes_keeps_main_refusal() {
+    // A trigger other than OnRun, a declared global `Rec` and the quoted name are not measured (no compile case in corpus PR
+    // 1386, or a row of their own in docs/probes-needed.md): main's refusal stays.
+    let install = "codeunit 50111 \"Probe Handler\"\n{\n    Subtype = Install;\n    TableNo = \"Probe Context\";\n    trigger OnInstallAppPerCompany()\n    var\n        T: Text;\n    begin\n        T := UserId;\n    end;\n}";
+    let global_rec = "codeunit 50111 \"Probe Handler\"\n{\n    TableNo = \"Probe Context\";\n    var\n        Rec: Record \"Probe Context\";\n    trigger OnRun() begin end;\n    procedure P(): Text begin exit(UserId); end;\n}";
+    let quoted = codeunit(
+        "begin\n    end;",
+        "    procedure P(): Text begin exit(\"UserId\"); end;",
+    );
+    for src in [install, global_rec, quoted.as_str()] {
+        let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", src)], false);
+        let r = refusals(&l);
+        assert!(r.iter().any(|r| r.contains("system function `UserId`")), "{src}: {r:?}");
+    }
+    // A codeunit without TableNo runs the system function as on main, unmarked.
+    let plain = "codeunit 50111 \"Probe Handler\"\n{\n    procedure P(): Text begin exit(UserId); end;\n}";
+    let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", plain)], false);
+    assert!(refusals(&l).is_empty(), "{:?}", refusals(&l));
+    assert!(!routine_ir(&l, "Probe Handler", "P").contains("TableNoProcedureBareSystemFunction"));
 }
