@@ -31,6 +31,7 @@ impl Session {
             control_triggers: &["onvalidate"],
             properties: &["sourcetabletemporary", "sourcetableview", "insertallowed"],
             action_props: &[],
+            table_triggers: &[],
         };
         let rec = self.page_rec(st);
         let opened = {

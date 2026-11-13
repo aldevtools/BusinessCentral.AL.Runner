@@ -269,6 +269,11 @@ pub(crate) struct PageClients {
     pub(crate) ext_answers: Vec<bool>,
     /// The last `page_trigger_answer` was a veto by a page extension's trigger.
     pub(crate) ext_vetoed: bool,
+    /// The page's own trigger of the last `page_trigger` call ended by running `exit(value)`.
+    pub(crate) own_exited: bool,
+    /// The last `page_trigger_answer` was the page's own OnInsertRecord vetoing by its named return value
+    /// (pages/record_trigger_answer.rs); taken by `insert_draft`.
+    pub(crate) named_false_insert: bool,
     /// The open that starts next is a TestPage's own OpenEdit, OpenView or OpenNew (taken by `open_page_as`).
     pub(crate) test_open: bool,
     /// Set by a FindFirst or FindLast that found a row on Rec in the OnOpenPage of a page an action opened through

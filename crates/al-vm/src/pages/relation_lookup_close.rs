@@ -123,6 +123,7 @@ impl Session {
                     control_triggers: &[],
                     properties: &["editable"],
                     action_props: &[],
+                    table_triggers: &[],
                 },
             )?;
         Ok((field_ok && lookup_page).then_some(origin))

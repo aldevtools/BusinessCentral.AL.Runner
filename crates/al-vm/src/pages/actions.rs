@@ -1652,17 +1652,6 @@ impl Session {
         Ok(true)
     }
 
-    /// The rows of the page's view, counted on a copy of its record.
-    pub(super) fn view_row_count(&mut self, st: &St) -> Result<i32, Signal> {
-        let rec = self.page_rec(st);
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        Ok(match self.record_op(RecordOp::Count, &probe, &mut [])? {
-            Value::Integer(n) => n,
-            _ => 0,
-        })
-    }
-
     /// Before the action's trigger. A list opened for view over an empty table reads its blank record once when the test stored
     /// a row of the view since (testpage/PnGShowRow.al:459 QG_ViewEmptyList_RowStoredByTest_ThenReads `action_log`
     /// `List.AGR(,);ReadTable(,No);...`), and nothing when the view is still empty (:364 QG_ViewEmptyList_InsertViaRec_StepLog).
@@ -3035,6 +3024,9 @@ impl Session {
         }
         if self.declares(st, "onfindrecord") {
             return self.settle_gone_row_with_find(st, &rec);
+        }
+        if self.settle_gone_row_of_temp_list(st, &rec)? {
+            return Ok(());
         }
         self.ret_used = true;
         let moved = matches!(
