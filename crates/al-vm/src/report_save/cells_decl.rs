@@ -27,21 +27,28 @@ const STORED_RDLC: &[Pin] = &[
     pin(RXD, 1441),
 ];
 /// A temporary selection of a user-defined Word layout (`SetTempLayoutSelectedName` of a GUID-named Tenant Report Layout row,
-/// the null App ID) with no row of the company: the selected layout renders Html, Word and Pdf; Excel answers false with
+/// the null App ID), with no row of the company or over one that selects "RDLC (built-in)" or "Word (built-in)" (BC reads no
+/// row of the company then): the selected layout renders Html, Word and Pdf; Excel answers false with
 /// `ReportUnsupportedFormat`, and its statement raises it.
 const TEMP: &[Pin] = &[
     pin(RXD, 313),
     pin(RXD, 340),
     pin(RXD, 367),
     pin(RXD, 391),
+    pin(RXD, 811),
     pin(RXD, 1021),
+    pin(RXD, 1336),
+    pin(RXD, 1651),
 ];
-/// The same over a row of the company that selects "RDLC (built-in)" or "Word (built-in)".
-const TEMP_OVER_STORED: &[Pin] = &[pin(RXD, 811), pin(RXD, 1336), pin(RXD, 1651)];
 /// The rgba replace of `Email Message.Create` on the Html of the selected layout (GetBody holds `rgb(1, 2, 3)` for the
 /// layout's `rgba(1,2,3,1)`), with no row of the company and over one.
-const RGBA_TEMP: &[Pin] = &[pin(RXD_BODY, 69), pin(RXD_BODY, 251)];
-const RGBA_TEMP_OVER_STORED: &[Pin] = &[pin(RXD_BODY, 199), pin(RXD_BODY, 329), pin(RXD_BODY, 407)];
+const RGBA_TEMP: &[Pin] = &[
+    pin(RXD_BODY, 69),
+    pin(RXD_BODY, 199),
+    pin(RXD_BODY, 251),
+    pin(RXD_BODY, 329),
+    pin(RXD_BODY, 407),
+];
 
 /// BC raises no SelectedBuiltinLayoutType once SelectReportLayoutCode answered a selected layout (HtRenderedTextTests.al:494).
 const TEMP_EVENTS: &[&str] = &["selectedbuiltinlayouttype"];
@@ -81,33 +88,23 @@ fn marks(p: &'static [Pin]) -> Evidence {
 pub(super) fn decl_rows(t: &mut Vec<Cell>) {
     for answer in SAVE_FORMS {
         stored_rdlc_rows(t, answer);
-        for (selection, pins) in [
-            (Selection::TempWord, TEMP),
-            (Selection::TempWordOverStored, TEMP_OVER_STORED),
-        ] {
-            temp_rows(t, answer, selection, pins);
-        }
+        temp_rows(t, answer);
     }
-    for (selection, named, pins) in [
-        (Selection::TempWord, false, RGBA_TEMP),
-        (Selection::TempWordOverStored, true, RGBA_TEMP_OVER_STORED),
-    ] {
-        let key = Key {
-            rows: Is(Rows::Some),
-            named: Is(named),
-            dataset_rgba: Is(false),
-            ..base(AnswerForm::Used, Format::Html, selection, Stored::None)
-        };
-        t.push(Cell {
-            rgba: true,
-            ..cell(
-                key,
-                Answer::Placeholder(Renders::Selected),
-                Events::NotRaised(TEMP_EVENTS),
-                marks(pins),
-            )
-        });
-    }
+    let key = Key {
+        rows: Is(Rows::Some),
+        named: Is(false),
+        dataset_rgba: Is(false),
+        ..base(AnswerForm::Used, Format::Html, Selection::TempWord, Stored::None)
+    };
+    t.push(Cell {
+        rgba: true,
+        ..cell(
+            key,
+            Answer::Placeholder(Renders::Selected),
+            Events::NotRaised(TEMP_EVENTS),
+            marks(RGBA_TEMP),
+        )
+    });
 }
 
 fn stored_rdlc_rows(t: &mut Vec<Cell>, answer: AnswerForm) {
@@ -132,24 +129,24 @@ fn stored_rdlc_rows(t: &mut Vec<Cell>, answer: AnswerForm) {
     ));
 }
 
-fn temp_rows(t: &mut Vec<Cell>, answer: AnswerForm, selection: Selection, pins: &'static [Pin]) {
+fn temp_rows(t: &mut Vec<Cell>, answer: AnswerForm) {
     for format in [Format::Pdf, Format::Word, Format::Html] {
         let key = Key {
             rows: Is(Rows::Some),
-            ..base(answer, format, selection, Stored::None)
+            ..base(answer, format, Selection::TempWord, Stored::None)
         };
         t.push(cell(
             key,
             Answer::Placeholder(Renders::Selected),
             Events::NotRaised(TEMP_EVENTS),
-            marks(pins),
+            marks(TEMP),
         ));
     }
-    let key = base(answer, Format::Excel, selection, Stored::None);
+    let key = base(answer, Format::Excel, Selection::TempWord, Stored::None);
     t.push(cell(
         key,
         Answer::False(ErrorId::UnsupportedFormat),
         Events::NotRaised(TEMP_UNSUPPORTED_EVENTS),
-        marks(pins),
+        marks(TEMP),
     ));
 }

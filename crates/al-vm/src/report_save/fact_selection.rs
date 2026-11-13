@@ -8,9 +8,9 @@
 //! BC raises SelectReportLayoutCode, HasCustomLayout and SelectedBuiltinLayoutType for a rendering save, in that order
 //! (events/platform-triggers/PeVTests.al:713, `saveas static html`; entry values LayoutCode `''`, LayoutType None, Success
 //! false). When SelectReportLayoutCode answers a selected layout BC raises no SelectedBuiltinLayoutType
-//! (reports/layouts-html-text/HtRenderedTextTests.al:494, :530, corpus pull request 1362). ReportManagement's subscriber to
-//! SelectedBuiltinLayoutType only reads the company's row (`Get(ReportID, CompanyName)`), so the runtime also raises it to
-//! that subscriber alone when a selected layout was answered: no code can see that call.
+//! (reports/layouts-html-text/HtRenderedTextTests.al:494, :530, corpus pull request 1362), so the platform never reads the
+//! company's row then: a temporary selection renders the same over every row of the company (RxdDeclLayoutTests.al:811,
+//! :1336, :1651; RxdDeclEmailBodyTests.al:199, :329, :407, corpus pull request 1381).
 //!
 //! The mapping:
 //! - SelectedBuiltinLayoutType answers RDLC or Word for a layout of the default layout's kind: [`Selection::SameKind`]
@@ -23,9 +23,8 @@
 //!   [`Selection::Unknown`].
 //! - SelectReportLayoutCode answers Success with a name and LayoutType None while "Design-time Report Selection" held a
 //!   selection (a temporary selection): the platform looks the name up in Tenant Report Layout. Exactly one user-defined
-//!   Word layout of the report: [`Selection::TempWord`] while SelectedBuiltinLayoutType answers None,
-//!   [`Selection::TempWordOverStored`] while it answers RDLC or Word (RxdDeclLayoutTests.al:811, :1336, :1651). Anything else
-//!   is [`Selection::Unknown`].
+//!   Word layout of the report: [`Selection::TempWord`], and SelectedBuiltinLayoutType is not raised. Any other answer while
+//!   a selection was held is [`Selection::DesignTimeHeld`].
 //! - The same answer while no selection was held (the name is the company's Custom Layout row's code): a name of no Tenant
 //!   Report Layout row, while SelectedBuiltinLayoutType answers None, is [`Stored::CustomUnknownCode`]
 //!   (RxLayoutSelectionTests.al:746, :771). Any other answer is [`Selection::Unknown`].
@@ -121,7 +120,6 @@ impl Session {
             Some(_) => self.select_layout_code(schema)?,
             None => Select::NotRaised,
         };
-        let builtin = self.builtin_layout_type(schema)?;
         let tenant = self.tenant_selection_class(schema)?;
         let unknown = SelectionFacts {
             selection: Selection::Unknown,
@@ -132,20 +130,19 @@ impl Session {
             Select::Named(_) if tenant.is_some() => Ok(unknown),
             Select::Named(name) if held => {
                 if !self.user_word_layout(schema, &name)? {
-                    return Ok(unknown);
+                    return Ok(SelectionFacts {
+                        selection: Selection::DesignTimeHeld,
+                        ..unknown
+                    });
                 }
-                let selection = match builtin {
-                    NONE => Selection::TempWord,
-                    RDLC | WORD_TYPE => Selection::TempWordOverStored,
-                    _ => return Ok(unknown),
-                };
                 Ok(SelectionFacts {
-                    selection,
+                    selection: Selection::TempWord,
                     stored: Stored::None,
                     selected: Some(name.into()),
                 })
             }
             Select::Named(name) => {
+                let builtin = self.builtin_layout_type(schema)?;
                 let stored = if builtin == NONE && self.no_tenant_layout_named(&name)? {
                     Stored::CustomUnknownCode
                 } else {
@@ -153,8 +150,13 @@ impl Session {
                 };
                 Ok(SelectionFacts { stored, ..unknown })
             }
+            Select::Other if held => Ok(SelectionFacts {
+                selection: Selection::DesignTimeHeld,
+                ..unknown
+            }),
             Select::Other => Ok(unknown),
             Select::Nothing | Select::NotRaised => {
+                let builtin = self.builtin_layout_type(schema)?;
                 let property_rdlc = save == Some(Declares::WordAndRdlcProperties);
                 let class = match builtin {
                     NONE => None,
@@ -195,9 +197,14 @@ impl Session {
     }
 
     /// Whether a Tenant Report Layout Selection row names the report, or ReportManagement answers SelectedBuiltinLayoutType
-    /// with a layout type (a row of the company selects a built-in layout); read again after the run.
-    pub(super) fn named_fact(&mut self, schema: &Schema) -> Result<bool, Signal> {
-        Ok(self.tenant_selection_class(schema)?.is_some() || self.builtin_layout_type(schema)? != NONE)
+    /// with a layout type (a row of the company selects a built-in layout); read again after the run. Under a temporary
+    /// selection BC raises no SelectedBuiltinLayoutType (HtRenderedTextTests.al:494), so only the tenant rows count.
+    pub(super) fn named_fact(&mut self, schema: &Schema, selection: Selection) -> Result<bool, Signal> {
+        let tenant = self.tenant_selection_class(schema)?.is_some();
+        if tenant || selection == Selection::TempWord {
+            return Ok(tenant);
+        }
+        Ok(self.builtin_layout_type(schema)? != NONE)
     }
 
     /// The worst class of the Tenant Report Layout Selection rows of the report; `None` when there is none.

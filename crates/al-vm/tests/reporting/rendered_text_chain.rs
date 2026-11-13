@@ -407,6 +407,13 @@ fn rendered_text_chain_a_temporary_selection_of_a_user_defined_word_layout_passe
     assert!(hits.contains(&Assumption::ReportLayoutTempSelection), "{hits:?}");
     assert!(hits.contains(&Assumption::ReportHtmlRenderedText), "{hits:?}");
     selected_run("AssertNotEmpty").expect("AreNotEqual('', Body) passes");
+    // Over a Report Layout Selection row of the company: BC raises no SelectedBuiltinLayoutType once a selected layout was
+    // answered (HtRenderedTextTests.al:494), so the row is not read (RxdDeclLayoutTests.al:811, :1336, corpus pull request
+    // 1381; this BASE's subscriber fails the test when it is raised).
+    match selected_run("WithBuiltinSelection") {
+        Ok(Value::Text(t)) => assert!(t.as_str().ends_with("<p>Signature</p>"), "{t:?}"),
+        other => panic!("expected the selected layout's body, got {other:?}"),
+    }
 }
 
 /// The Html of the user-defined Word layout a temporary selection named keeps that as the layout of its render: the form
@@ -436,23 +443,18 @@ fn rendered_text_chain_contains_compare_and_strlen_of_a_selected_layouts_body_re
 #[test]
 fn rendered_text_chain_other_temporary_selections_stay_refused() {
     for (p, want) in [
-        ("RdlcLayout", "is not one Word layout"),
-        (
-            "NameMatchesNothing",
-            "no Tenant Report Layout row of the report is named \"Other\"",
-        ),
+        // A held selection that does not name one user-defined Word layout of the report (ReportManagement hands the name
+        // to the platform: SelectReportLayoutCode answers it with LayoutType None) is a design-time selection no row answers.
+        ("RdlcLayout", "layout selection = a design-time selection"),
+        ("NameMatchesNothing", "layout selection = a design-time selection"),
         // A name or a custom layout code that matches nothing: BC answers false and writes nothing (S5,
         // HtRenderedTextTests.al:543-603); not answered here yet.
-        (
-            "UnknownCustomCode",
-            "no Tenant Report Layout row of the report is named \"HTNOSUCHCODE\"",
-        ),
-        ("LayoutOfOneCompany", "is not one Word layout"),
-        ("WithAppId", "the selection names an app id"),
-        ("WithBuiltinSelection", "a Report Layout Selection row names the report"),
+        ("UnknownCustomCode", "layout selection = a design-time selection"),
+        ("LayoutOfOneCompany", "layout selection = a design-time selection"),
+        ("WithAppId", "layout selection = a design-time selection"),
         (
             "WithTenantSelection",
-            "a Tenant Report Layout Selection row names the report",
+            "layout selection another Report Layout Selection or Tenant Report Layout Selection row",
         ),
         // Main's answer: a save as another format while a selection is held refuses (here for ReportManagement's subscriber,
         // which this test can see through the codeunit it names).

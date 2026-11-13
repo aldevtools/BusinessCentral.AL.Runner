@@ -20,7 +20,7 @@ impl Session {
             // The Xml (UTF-8) holds every column value and name and the labels (`dataset::Dataset::finish`); `rgba(` has no
             // character Xml escapes.
             dataset_rgba: Some(dataset.windows(RGBA.len()).any(|w| w == RGBA)),
-            named: Some(self.named_fact(schema)?),
+            named: Some(self.named_fact(schema, facts.selection)?),
             ..*facts
         })
     }

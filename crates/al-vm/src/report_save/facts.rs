@@ -103,11 +103,9 @@ pub(crate) enum Selection {
     Unknown,
     /// "Design-time Report Selection" holds a selection outside the shape `TempWord` resolves.
     DesignTimeHeld,
-    /// SelectReportLayoutCode named one user-defined Word layout of the report, and SelectedBuiltinLayoutType answers None
-    /// (ADR-040 amendment 2026-11-12, A7).
+    /// SelectReportLayoutCode named one user-defined Word layout of the report (ADR-040 amendment 2026-11-12, A7); BC then
+    /// raises no SelectedBuiltinLayoutType, so no row of the company is read.
     TempWord,
-    /// The same, while SelectedBuiltinLayoutType answers RDLC or Word (a row of the company selects a built-in layout).
-    TempWordOverStored,
 }
 
 /// The stored Report Layout Selection row the probe measured (`fact_selection::stored`).
@@ -281,7 +279,6 @@ describe!(Selection {
     Selection::Unknown => "another Report Layout Selection or Tenant Report Layout Selection row",
     Selection::DesignTimeHeld => "a design-time selection",
     Selection::TempWord => "a temporary selection of a user-defined Word layout",
-    Selection::TempWordOverStored => "a temporary selection of a user-defined Word layout over a company's built-in row",
 });
 describe!(Stored {
     Stored::None => "none",

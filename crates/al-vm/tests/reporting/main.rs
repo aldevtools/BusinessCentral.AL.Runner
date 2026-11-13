@@ -29,6 +29,7 @@ mod report_layout_ext_export;
 mod report_layout_list_columns;
 mod report_layout_list_export;
 mod report_layout_override;
+mod report_management_stand_in;
 mod report_link_filter;
 mod report_link_flowfilter;
 mod report_members_lane;
