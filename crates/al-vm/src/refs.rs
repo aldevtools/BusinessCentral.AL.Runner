@@ -1493,7 +1493,7 @@ impl Session {
             {
                 return Err(fieldref_not_initialized());
             }
-            _ if unassigned_filter_member_measured(method, args) => {
+            LibraryValue::Empty if unassigned_filter_member_measured(method, args) => {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldrefUnassignedFilters);
                 return Err(fieldref_not_initialized());
             }
@@ -1760,7 +1760,7 @@ impl Session {
 }
 
 /// The error of a member called on a FieldRef that holds no field (types/PSUnassignedFieldRef.al UnassignedFieldRef_Members).
-fn fieldref_not_initialized() -> Signal {
+pub(crate) fn fieldref_not_initialized() -> Signal {
     Signal::Error(Box::new(AlError {
         message: "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.".into(),
         code: "NotInitialized".into(),

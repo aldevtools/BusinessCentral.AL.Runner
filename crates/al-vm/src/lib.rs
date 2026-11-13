@@ -988,6 +988,8 @@ pub struct Session {
     pub(crate) shadow_lower_bound: bool,
     /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
     pub(crate) permission_from_al: bool,
+    /// Set by AL code's `Record.SetFilter` right before `record_op_from_al`, taken by the SetFilter of `record_op_inner`.
+    pub(crate) setfilter_from_al: bool,
     /// True while the fields of `SetAutoCalcFields` are calculated after a read: that read is allowed (Y24PermReads.al
     /// Y24_P15_FlowFieldsNothingOnSource, `autocalc_findfirst`).
     pub(crate) permission_autocalc: bool,
@@ -1372,6 +1374,7 @@ impl Session {
             shadow_active: false,
             shadow_lower_bound: false,
             permission_from_al: false,
+            setfilter_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
             permission_opening_source: None,

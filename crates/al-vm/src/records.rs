@@ -22,6 +22,7 @@ mod boolean_filter_error;
 mod delete_all;
 mod delete_all_flow;
 mod empty_find_origin;
+mod filter_error;
 mod flowfield_key;
 mod insert_buffer;
 mod setfilter_empty_or_side;

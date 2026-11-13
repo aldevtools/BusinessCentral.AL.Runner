@@ -13,6 +13,30 @@ table 69991 "SE Row"
     fields { field(1; Id; Integer) { } field(2; Name; Text[50]) { } field(3; Cd; Code[20]) { } field(4; Num; Integer) { } field(5; Amt; Decimal) { } }
     keys { key(PK; Id) { Clustered = true; } }
 }
+table 69993 "SE Flow"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; TxF; Text[30]) { FieldClass = FlowFilter; }
+        field(3; IntF; Integer) { FieldClass = FlowFilter; }
+        field(4; Rel; Integer) { TableRelation = "SE Row"; }
+        field(5; Short; Text[3]) { }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+table 69994 "SE Temp"
+{
+    TableType = Temporary;
+    fields { field(1; Id; Integer) { } field(2; Num; Integer) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+table 69995 "SE Capt"
+{
+    Caption = 'Fancy Table';
+    fields { field(1; Id; Integer) { } field(2; Num; Integer) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
 codeunit 69992 "SE C"
 {
     local procedure Seed()
@@ -62,7 +86,37 @@ codeunit 69992 "SE C"
             26: Row.SetFilter(Name, 'A*|');
             27: begin RR.Open(Database::"SE Row"); FR := RR.Field(2); FR.SetFilter('A|'); end;
             28: begin Row.FilterGroup(2); Row.SetFilter(Name, 'A|'); end;
+            // A literal that does not fit an Integer: main's evaluate error.
+            29: Row.SetFilter(Num, '99999999999|');
+            30: Row.SetFilter(Num, '2147483648|');
+            31: Row.SetFilter(Num, '99999999999||1');
+            // `|%1` on a Code field is not measured.
+            32: Row.SetFilter(Cd, '|%1', 'A');
         end;
+    end;
+
+    [TryFunction]
+    local procedure TryOther(Which: Integer)
+    var Fl: Record "SE Flow"; TmpRow: Record "SE Row" temporary; Tp: Record "SE Temp"; Ca: Record "SE Capt";
+    begin
+        case Which of
+            41: Fl.SetFilter(TxF, '||');
+            42: Fl.SetFilter(IntF, '|10');
+            43: Fl.SetFilter(IntF, '10|');
+            44: TmpRow.SetFilter(Num, '|10');
+            45: Tp.SetFilter(Num, '|10');
+            46: Ca.SetFilter(Num, '|10');
+            47: Fl.SetFilter(Rel, '|10');
+            48: Fl.SetFilter(Short, 'ABCDE|');
+        end;
+    end;
+
+    procedure G(Which: Integer): Text
+    begin
+        ClearLastError();
+        if not TryOther(Which) then
+            exit(GetLastErrorText() + '|' + GetLastErrorCode());
+        exit('no error');
     end;
 
     procedure F(Which: Integer): Text
@@ -143,6 +197,48 @@ fn an_empty_substituted_value_is_a_valid_term() {
 fn the_neighbor_shapes_keep_mains_outcome() {
     for which in [20, 21, 22, 23, 24, 25, 26, 27, 28] {
         let r = call(which);
+        assert!(!flagged(), "case {which} must not reach the new path");
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "case {which}: {r:?}");
+    }
+}
+
+/// A digit literal that does not fit an Integer keeps main's evaluate error (round-1 review of al-runner PR 7985, cells S029,
+/// Z108, Z109).
+#[test]
+fn an_integer_literal_out_of_range_keeps_mains_evaluate_error() {
+    for (which, filter, value) in [
+        (29, "99999999999|", "99999999999"),
+        (30, "2147483648|", "2147483648"),
+        (31, "99999999999||1", "99999999999"),
+    ] {
+        assert_eq!(
+            text(which),
+            format!(
+                "The filter \"{filter}\" is not valid for the Num field on the SE Row table. The value \"{value}\" can't be evaluated into type Integer.|Filter:CSide"
+            ),
+            "case {which}"
+        );
+        assert!(!flagged(), "case {which} must not reach the new path");
+    }
+}
+
+/// `|%1` on a Code field was not measured (SetFilterEmptyTerm.al:161 has only `%1|`): main's refusal.
+#[test]
+fn a_leading_pipe_placeholder_on_code_keeps_mains_refusal() {
+    let r = call(32);
+    assert!(!flagged());
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+}
+
+/// The pinned and measured shapes are a stored field without TableRelation of a non-temporary record of a table that states no
+/// TableType and no Caption, and a literal that fits the field. FlowFilter fields, a temporary record, TableType = Temporary,
+/// a table Caption, a TableRelation and a literal longer than the field keep main's refusal (round-1 review of al-runner PR
+/// 7985, cells S068, S069, S070, S098, S100, S102, S073, S065).
+#[test]
+fn shapes_outside_the_measured_record_keep_mains_refusal() {
+    for which in [41, 42, 43, 44, 45, 46, 47, 48] {
+        take_hits();
+        let r = al_testkit::run_with(SRC, "SE C", "G", vec![Value::Integer(which)]).map(|(v, _)| v);
         assert!(!flagged(), "case {which} must not reach the new path");
         assert!(matches!(r, Err(Signal::Unsupported(_))), "case {which}: {r:?}");
     }

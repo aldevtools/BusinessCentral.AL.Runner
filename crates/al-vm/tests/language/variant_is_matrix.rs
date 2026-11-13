@@ -531,6 +531,69 @@ codeunit 69974 "LT VaM Neighbors"
         V := O;
         exit(V.IsOption());
     end;
+
+    procedure AppOptionWithTheMembersIsOption(): Boolean
+    var
+        O: Option UpdateNoLocks,Update,Snapshot,Browse,Report;
+        V: Variant;
+    begin
+        O := O::Update;
+        V := O;
+        exit(V.IsOption());
+    end;
+
+    procedure AppOptionWithTheMembersIsTransactionType(): Boolean
+    var
+        O: Option UpdateNoLocks,Update,Snapshot,Browse,Report;
+        V: Variant;
+    begin
+        O := O::Update;
+        V := O;
+        exit(V.IsTransactionType());
+    end;
+
+    procedure FieldOptionWithTheMembersIsOption(): Boolean
+    var
+        Row: Record "LT VaM Tt Row";
+        V: Variant;
+    begin
+        Row.Tt := Row.Tt::Browse;
+        V := Row.Tt;
+        exit(V.IsOption());
+    end;
+
+    procedure FieldOptionDefaultIsTransactionType(): Boolean
+    var
+        Row: Record "LT VaM Tt Row";
+        V: Variant;
+    begin
+        V := Row.Tt;
+        exit(V.IsTransactionType());
+    end;
+
+    procedure TransactionTypeLiteralIsOption(): Boolean
+    var
+        V: Variant;
+    begin
+        V := TransactionType::Update;
+        exit(V.IsOption());
+    end;
+}
+
+table 69975 "LT VaM Tt Row"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Tt; Option) { OptionMembers = UpdateNoLocks,Update,Snapshot,Browse,Report; }
+    }
+
+    keys
+    {
+        key(PK; Id) { Clustered = true; }
+    }
 }
 "#;
 
@@ -565,4 +628,47 @@ fn is_option_of_an_app_option_keeps_mains_answer_unflagged() {
         "AppOptionIsOption"
     )));
     assert!(!take_hits().contains(&Assumption::VariantIsMatrix));
+}
+
+/// An Option whose members are the five TransactionType members is an Option, not a TransactionType: an app Option and an Option
+/// field keep main's IsOption = true, unflagged (round-1 review of al-runner PR 7985, cells B200 and B204; the TransactionType
+/// field of the platform table "XmlPort Metadata" is the same kind of value, corpus tests 67450 and 68474).
+#[test]
+fn an_option_with_the_transaction_type_members_keeps_is_option_unflagged() {
+    for routine in ["AppOptionWithTheMembersIsOption", "FieldOptionWithTheMembersIsOption"] {
+        take_hits();
+        assert!(
+            al_testkit::boolean(al_testkit::run_in(NEIGHBORS, "LT VaM Neighbors", routine)),
+            "{routine}"
+        );
+        assert!(!take_hits().contains(&Assumption::VariantIsMatrix), "{routine}");
+    }
+}
+
+/// IsTransactionType of an Option with the five members keeps main's refusal, also at ordinal 0 (cell X04): only a value whose
+/// declared type is TransactionType answers.
+#[test]
+fn is_transaction_type_of_an_option_with_the_members_refuses() {
+    for routine in [
+        "AppOptionWithTheMembersIsTransactionType",
+        "FieldOptionDefaultIsTransactionType",
+    ] {
+        let r = al_testkit::run_in(NEIGHBORS, "LT VaM Neighbors", routine);
+        assert!(
+            matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
+            "{routine}: {r:?}"
+        );
+    }
+}
+
+/// A TransactionType literal in a Variant is no Option (VariantIsMatrix.al:148, `literal=TransactionType,`).
+#[test]
+fn a_transaction_type_literal_is_no_option() {
+    take_hits();
+    assert!(!al_testkit::boolean(al_testkit::run_in(
+        NEIGHBORS,
+        "LT VaM Neighbors",
+        "TransactionTypeLiteralIsOption"
+    )));
+    assert!(take_hits().contains(&Assumption::VariantIsMatrix));
 }

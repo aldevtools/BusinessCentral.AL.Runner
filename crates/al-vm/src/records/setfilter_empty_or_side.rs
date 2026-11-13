@@ -1,6 +1,7 @@
-//! `Record.SetFilter` whose whole filter text has an empty side of `|` (al-runner issue 7764 item 2): BC raises Filter:CSide
-//! before it reads a value. Only the measured shapes take this path ([`empty_or_side`]); every other text goes on to the parser
-//! and keeps its old outcome.
+//! `Record.SetFilter` whose whole filter text has an empty side of `|` (al-runner issue 7764 item 2): BC raises Filter:CSide.
+//! The parser stops such a text with `filter::EMPTY_TERM`, which main refuses; at that refusal (`op_inner.rs`) only the measured
+//! shapes ([`empty_or_side`]) on the measured record ([`Session::measured_record`]) raise the error, every other call keeps the
+//! refusal.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -19,20 +20,23 @@ enum Evidence {
     Probe,
 }
 
-/// The measured cells, the whole filter text by equality. `V` is one literal value (letters and digits on a Text or Code field,
-/// digits on an Integer field) with no placeholder argument, `%1` one placeholder with exactly one argument that is not empty.
+/// The measured cells, the whole filter text by equality. `V` is one literal value with no placeholder argument (letters and
+/// digits on a Text or Code field, no longer than the field; digits that read as an Integer on an Integer field), `%1` one
+/// placeholder with exactly one argument (a non-empty Text no longer than the field on a Text field, an Integer on an Integer
+/// field).
 ///
-/// - Probe (corpus PR 1382, record/filters/SetFilterEmptyTerm.al): Text `%1|` and `|%1` with `'A'`
-///   (:123), `A|`, `|A`, `A||B`, `|` (:142); Code `%1|` with `'A'` (:161), `A|`, `|A`, `A||B` (:177); Integer `%1|` and `|%1`
-///   with `1`, `1||2` (:193); Text `%1|` with a Text literal argument (:222). `V|` and `V||V` name the right side, `|V` and
-///   `|` the left side.
+/// - Probe (corpus PR 1382, record/filters/SetFilterEmptyTerm.al): Text `%1|` and `|%1` with `'A'` (:123), `A|`, `|A`, `A||B`,
+///   `|` (:142); Code `%1|` with `'A'` (:161), `A|`, `|A`, `A||B` (:177); Integer `%1|` and `|%1` with `1`, `1||2` (:193);
+///   Text `%1|` with a Text literal argument (:222). `V|` and `V||V` name the right side, `|V` and `|` the left side. Code
+///   `|%1` was not measured.
 /// - Pinned: Integer `|10` and `10|` (record/crud/RcAFilters.al:376, :378), Text `||` (RcAFilters.al:648, the left side).
 fn empty_or_side(text: &str, args: &[Value], ty: &RtType) -> Option<(Side, Evidence)> {
-    let text_field = matches!(ty, RtType::Text(_) | RtType::Code(_));
-    let int_field = matches!(ty, RtType::Integer);
-    if !text_field && !int_field {
-        return None;
-    }
+    let (text_len, int_field) = match ty {
+        RtType::Text(len) | RtType::Code(len) => (*len, false),
+        RtType::Integer => (None, true),
+        _ => return None,
+    };
+    let fits = |v: &str| text_len.is_some_and(|n| v.chars().count() <= n as usize);
     if int_field && args.is_empty() && text == "|10" {
         return Some((Side::Left, Evidence::Pinned));
     }
@@ -45,9 +49,9 @@ fn empty_or_side(text: &str, args: &[Value], ty: &RtType) -> Option<(Side, Evide
     let literal = |v: &str| {
         !v.is_empty()
             && if int_field {
-                v.bytes().all(|b| b.is_ascii_digit())
+                v.bytes().all(|b| b.is_ascii_digit()) && v.parse::<i32>().is_ok()
             } else {
-                v.bytes().all(|b| b.is_ascii_alphanumeric())
+                v.bytes().all(|b| b.is_ascii_alphanumeric()) && fits(v)
             }
     };
     let side = match args {
@@ -60,13 +64,14 @@ fn empty_or_side(text: &str, args: &[Value], ty: &RtType) -> Option<(Side, Evide
         },
         [arg] => {
             let filled = match arg {
-                Value::Text(s) | Value::Code(s) => text_field && !s.is_empty(),
+                Value::Text(s) | Value::Code(s) => !int_field && !s.is_empty() && fits(s),
                 Value::Integer(_) => int_field,
                 _ => false,
             };
+            let leading_measured = matches!(ty, RtType::Text(_) | RtType::Integer);
             match text {
                 "%1|" if filled => Side::Right,
-                "|%1" if filled => Side::Left,
+                "|%1" if filled && leading_measured => Side::Left,
                 _ => return None,
             }
         }
@@ -76,50 +81,69 @@ fn empty_or_side(text: &str, args: &[Value], ty: &RtType) -> Option<(Side, Evide
 }
 
 impl Session {
-    /// The Filter:CSide error of `Record.SetFilter(field, text, args..)` (called from AL code) when `text` is a measured shape
-    /// of [`empty_or_side`]; `None` sends the call on. The measured calls ran in filter group 0, in an English session, with no
-    /// MakeIntFilter subscriber on an Integer field.
-    pub(crate) fn setfilter_empty_or_side(&mut self, rec: &Rec, args: &[Value]) -> Result<Option<Signal>, Signal> {
-        let [Value::Integer(pos), filter, values @ ..] = args else {
-            return Ok(None);
+    /// The Filter:CSide error of `Record.SetFilter(field, text, args..)`, called from AL code (`from_al`), whose `text` the parser
+    /// stopped with `filter::EMPTY_TERM`, when `text` is a measured shape of [`empty_or_side`] on the measured record; `None`
+    /// keeps main's refusal.
+    pub(crate) fn setfilter_empty_or_side(
+        &self,
+        from_al: bool,
+        t: &TableDef,
+        pos: usize,
+        rec: &Rec,
+        args: &[Value],
+    ) -> Option<Signal> {
+        let [_, Value::Text(text) | Value::Code(text), values @ ..] = args else {
+            return None;
         };
-        let (Value::Text(text) | Value::Code(text)) = filter else {
-            return Ok(None);
-        };
-        if rec.borrow().filter_group != 0 || self.global_language != 1033 {
-            return Ok(None);
-        }
-        let t = self.table(rec)?;
-        let pos = *pos as usize;
-        let Some(field) = t.fields.get(pos) else {
-            return Ok(None);
-        };
-        let Some((side, evidence)) = empty_or_side(text, values, &field.ty) else {
-            return Ok(None);
-        };
-        if matches!(field.ty, RtType::Integer)
-            && self
-                .engine
-                .events
-                .is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makeintfilter")
-        {
-            return Ok(None);
+        let field = t.fields.get(pos)?;
+        let (side, evidence) = empty_or_side(text, values, &field.ty)?;
+        if !(from_al && self.measured_record(t, pos, rec)) {
+            return None;
         }
         if evidence == Evidence::Probe {
             assume(Assumption::SetfilterEmptyOrSide);
         }
-        let side = match side {
-            Side::Left => "left",
-            Side::Right => "right",
+        let reason = match side {
+            Side::Left => al_builtins::filter::LEFT_OF_OR_EMPTY,
+            Side::Right => al_builtins::filter::RIGHT_OF_OR_EMPTY,
         };
-        Ok(Some(crate::transactions::al_error_code(
-            &format!(
-                "The filter \"{text}\" is not valid for the {} field on the {} table. The {side} side of '|' operators cannot be empty.",
-                self.field_caption(&t, pos),
-                self.caption(&t)
-            ),
-            "Filter:CSide",
-        )))
+        Some(self.filter_error(t, pos, text, reason))
+    }
+
+    /// The record and field both the pins and the probe used (RcAObjects.al:16-31 table 71500; SetFilterEmptyTerm.al:15-24 table
+    /// 71907): filter group 0 of a record that is not temporary, an English session, a table numbered below 2000000000 that states
+    /// no TableType (or Normal) and whose caption is its name, a Normal field with no TableRelation whose caption is its name, and
+    /// on an Integer field no MakeIntFilter subscriber.
+    fn measured_record(&self, t: &TableDef, pos: usize, rec: &Rec) -> bool {
+        let (group, temporary) = {
+            let r = rec.borrow();
+            (r.filter_group, r.temporary)
+        };
+        let object = &self.engine.program.objects[t.object as usize];
+        let field = &t.fields[pos];
+        group == 0
+            && !temporary
+            && self.global_language == 1033
+            && object.id.is_some_and(|id| id < 2_000_000_000)
+            && matches!(
+                self.engine.object_facts[t.object as usize].table_type,
+                None | Some(al_ir::TableType::Normal)
+            )
+            && self.engine.field_facts[t.object as usize][pos].class == al_ir::FieldClass::Normal
+            && object
+                .table
+                .as_ref()
+                .and_then(|s| s.fields.get(pos))
+                .is_some_and(|f| !f.relation)
+            && self.caption(t) == t.name
+            && self.field_caption(t, pos) == field.name
+            && match field.ty {
+                RtType::Integer => !self
+                    .engine
+                    .events
+                    .is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makeintfilter"),
+                _ => true,
+            }
     }
 }
 
@@ -164,5 +188,16 @@ mod tests {
         assert_eq!(empty_or_side("A|", &[], &RtType::Integer), None);
         assert_eq!(empty_or_side("1|", &[], &RtType::Decimal), None);
         assert_eq!(empty_or_side("%1|", &[Value::Text("".into())], &text_ty()), None);
+        assert_eq!(empty_or_side("2147483648|", &[], &RtType::Integer), None);
+        assert_eq!(
+            empty_or_side("2147483647|", &[], &RtType::Integer),
+            Some((Side::Right, Evidence::Probe))
+        );
+        assert_eq!(empty_or_side("ABCD|", &[], &RtType::Text(Some(3))), None);
+        assert_eq!(empty_or_side("|%1", &a, &RtType::Code(Some(20))), None);
+        assert_eq!(
+            empty_or_side("%1|", &a, &RtType::Code(Some(20))),
+            Some((Side::Right, Evidence::Probe))
+        );
     }
 }

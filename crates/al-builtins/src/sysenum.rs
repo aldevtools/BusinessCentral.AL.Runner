@@ -301,6 +301,20 @@ pub fn option_members(name: &str) -> Option<Vec<String>> {
     members(name).map(|m| m.iter().map(|s| s.to_string()).collect())
 }
 
+/// The member list a value whose declared type is TransactionType carries in a Variant (`Variant.FromTransactionType`, which
+/// al-sema writes where such a value goes into a Variant): one shared list, so [`is_transaction_type`] tells it by identity from
+/// an Option with the same members (an app Option, the TransactionType field of "XmlPort Metadata").
+pub fn transaction_type_members() -> std::sync::Arc<[String]> {
+    static LIST: std::sync::OnceLock<std::sync::Arc<[String]>> = std::sync::OnceLock::new();
+    LIST.get_or_init(|| option_members("transactiontype").expect("known").into())
+        .clone()
+}
+
+/// Whether an option value with these members is a TransactionType value in a Variant (see [`transaction_type_members`]).
+pub fn is_transaction_type(members: &std::sync::Arc<[String]>) -> bool {
+    std::sync::Arc::ptr_eq(members, &transaction_type_members())
+}
+
 /// The platform enum a value of option type with these members belongs to, when it is one the `Is<Type>` tests of a Variant
 /// tell apart (types/variant/LTP89IsEnumsA.al and LTP89IsEnumsB.al: such a value is `IsAction`, say, and
 /// not `IsOption`). The members decide, so a user option with exactly these members counts as the platform one.

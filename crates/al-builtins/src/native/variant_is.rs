@@ -1,7 +1,8 @@
 //! The Variant.IsXxx methods that corpus PR 1382 measured first (al-runner issue 7963; types/variant/VariantIsMatrix.al:135-493,
 //! not pinned yet, assumption `variant-is-matrix`): IsTransactionType, IsDataClassificationType and IsSecurityFiltering answer
-//! only for the kinds the probe held ([`measured`]); every other kind refuses. IsOption of a TransactionType value is false. The
-//! IsJson and IsXml methods stay in `xml::lists`.
+//! only for the kinds the probe held ([`measured`]); every other kind refuses. IsOption of a TransactionType value is false. A
+//! TransactionType value is one whose declared type is TransactionType (`sysenum::is_transaction_type`); an Option with the same
+//! members is an Option. The IsJson and IsXml methods stay in `xml::lists`.
 
 use super::*;
 use crate::assumptions::{Assumption, assume};
@@ -34,11 +35,11 @@ fn measured(c: &mut dyn Ctx, v: Option<&mut Value>) -> Result<bool, Signal> {
         | Value::Codeunit(_)
         | Value::List(_)
         | Value::Dictionary(_) => true,
-        // An option the app declares, or one of the platform options the probe held (:393 and :135).
+        // An option the app declares, one of the platform options the probe held (:393), or a TransactionType value (:126-152).
         Value::Option(_, members) => {
             !crate::sysenum::is_platform(members)
                 || crate::sysenum::kind_of(members).is_some()
-                || transaction_type(members)
+                || crate::sysenum::is_transaction_type(members)
         }
         Value::Library(LibraryKind::XmlNode, _) => crate::xml::variant_node_is_element(c, Some(v))?,
         Value::Library(kind, _) => {
@@ -77,11 +78,6 @@ fn measured(c: &mut dyn Ctx, v: Option<&mut Value>) -> Result<bool, Signal> {
     })
 }
 
-fn transaction_type(members: &[String]) -> bool {
-    crate::sysenum::members("transactiontype")
-        .is_some_and(|known| members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b))
-}
-
 /// `Variant.Is<kind>` for one of the methods of this module: a TransactionType value is IsTransactionType (:135), a
 /// DataClassification value is IsDataClassificationType (:393), and IsSecurityFiltering is true for none of the held kinds.
 fn is_kind(c: &mut dyn Ctx, r: Option<&mut Value>, kind: &str) -> Result<Value, Signal> {
@@ -93,14 +89,16 @@ fn is_kind(c: &mut dyn Ctx, r: Option<&mut Value>, kind: &str) -> Result<Value, 
         ));
     }
     // The default TransactionType value is IsTransactionType: pinned by types/TestVariantExtended.al:238.
-    if kind == "TransactionType" && matches!(r.as_deref(), Some(Value::Option(0, m)) if transaction_type(m)) {
+    if kind == "TransactionType"
+        && matches!(r.as_deref(), Some(Value::Option(0, m)) if crate::sysenum::is_transaction_type(m))
+    {
         return Ok(Value::Boolean(true));
     }
     assume(Assumption::VariantIsMatrix);
     let answer = match r {
         None | Some(Value::Null) => false,
         Some(Value::Option(_, members)) => match kind {
-            "TransactionType" => transaction_type(members),
+            "TransactionType" => crate::sysenum::is_transaction_type(members),
             "DataClassificationType" => crate::sysenum::kind_of(members) == Some("dataclassification"),
             _ => false,
         },
@@ -113,7 +111,7 @@ fn is_kind(c: &mut dyn Ctx, r: Option<&mut Value>, kind: &str) -> Result<Value, 
 /// every other value answers as `Value::is` says.
 fn is_option(r: Option<&mut Value>) -> Result<Value, Signal> {
     if let Some(Value::Option(_, members)) = r.as_deref() {
-        if transaction_type(members) {
+        if crate::sysenum::is_transaction_type(members) {
             assume(Assumption::VariantIsMatrix);
             return Ok(Value::Boolean(false));
         }
@@ -128,6 +126,14 @@ macro_rules! variant_is {
 }
 
 pub(super) const OPTION: (&str, NativeFn) = ("Variant.IsOption#1", |_, r, _| is_option(r));
+
+/// A value whose declared type is TransactionType going into a Variant (al-sema `convert_after_char_literal`): it carries the
+/// shared member list of its type, which the methods above read.
+pub(super) const FROM_TRANSACTION_TYPE: (&str, NativeFn) =
+    ("Variant.FromTransactionType#1", |_, _, a| match a.first() {
+        Some(Value::Option(o, _)) => Ok(Value::Option(*o, crate::sysenum::transaction_type_members())),
+        _ => unsupported("a TransactionType from a value that is no option"),
+    });
 
 pub(super) const REGISTRY: &[(&str, NativeFn)] =
     variant_is!("TransactionType", "DataClassificationType", "SecurityFiltering");
