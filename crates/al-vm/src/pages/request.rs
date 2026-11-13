@@ -552,6 +552,8 @@ impl Session {
         let declared = self.data_file_items(&run)?;
         let data = written.finish_data_set(&declared)?;
         let parameters = self.save_as_xml_parameters();
+        self.placeholder_files.written(&parameters_file);
+        self.placeholder_files.written(&data_file);
         self.host
             .files
             .write(&parameters_file, &parameters)
@@ -1025,6 +1027,11 @@ impl Session {
         xml: &str,
         call: ParamsCall,
     ) -> Result<(), Signal> {
+        let written = super::request_options::written_bare_root(xml, call);
+        if written.is_some() {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportParamsWrittenDeclaration);
+        }
+        let xml = written.as_deref().unwrap_or(xml);
         let engine = self.engine();
         let o = &engine.program.objects[object];
         let page = o.page.as_ref().expect("a request page");
