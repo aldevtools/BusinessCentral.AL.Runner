@@ -279,6 +279,7 @@ mod action_body;
 mod card_part_new_host;
 mod empty_part_rec;
 mod empty_part_rec_list;
+mod empty_part_rec_list_triggers;
 mod hidden_part_journal;
 mod hidden_part_journal_code;
 mod list_card_action;

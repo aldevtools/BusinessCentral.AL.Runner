@@ -132,6 +132,17 @@ pub(crate) struct UiScope {
 }
 
 impl Session {
+    /// The (object, routine) of each handler of `kind` bound to the running test method.
+    pub(crate) fn bound_handlers(&self, kind: UiKind) -> Vec<(usize, usize)> {
+        self.ui_state.scope.as_ref().map_or_else(Vec::new, |s| {
+            s.handlers
+                .iter()
+                .filter(|h| h.kind == kind)
+                .map(|h| (h.object, h.routine))
+                .collect()
+        })
+    }
+
     /// Checks that routine `routine` of `object` has the signature BC requires
     /// of a handler of `kind`, and binds it to `instance` (the test codeunit's).
     pub fn ui_handler(

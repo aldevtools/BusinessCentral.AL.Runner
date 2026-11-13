@@ -27,6 +27,7 @@
 //! any other test call on the host or its parts that starts inside it (`Session::reading_empty_list_rec`,
 //! `Session::end_read_at_test_call`). Code that the Invoke runs itself (the action body and what it calls) reads the values.
 
+use super::empty_part_rec_list::ListCell;
 use super::parts::LINK_GROUP;
 use super::pinned_shape::{PartStep, TestCall};
 use super::*;
@@ -53,12 +54,13 @@ impl Session {
         };
         match self.empty_part_rec_shape(st, &host)? {
             Shape::Measured => self.stamp_from_filters(st, false)?,
-            Shape::ListCell(reads) => {
+            Shape::ListCell(cell) => {
                 // The values are on Rec only inside a measured read (`reading_empty_list_rec`).
                 unknown_filtered_fields(&rec, OUTSIDE_READ);
                 st.borrow_mut().empty_list_landing = Self::part_steps(st).map(|steps| EmptyListLanding {
                     steps: steps.len(),
-                    reads,
+                    reads: cell.reads,
+                    triggers: cell.triggers,
                     store: self.landing_store_state(),
                     reading: false,
                 });
@@ -98,7 +100,7 @@ impl Session {
         if !self.measured_read(st, &landing, call) {
             return f(self);
         }
-        assumptions::assume(Assumption::EmptyPartRecListHost);
+        assume_list_cell(landing.triggers);
         if let Some(l) = st.borrow_mut().empty_list_landing.as_mut() {
             l.reading = true;
         }
@@ -250,12 +252,12 @@ impl Session {
                 "a filter of the part that is not its SubPageLink on a key field",
             ));
         }
-        let Ok(reads) = list_cell else {
+        let Ok(cell) = list_cell else {
             return Ok(Shape::Measured);
         };
         // A test whose part landed in a cell is flagged, whether or not it reads the values.
-        assumptions::assume(Assumption::EmptyPartRecListHost);
-        Ok(Shape::ListCell(reads))
+        assume_list_cell(cell.triggers);
+        Ok(Shape::ListCell(cell))
     }
 }
 
@@ -266,6 +268,8 @@ pub struct EmptyListLanding {
     steps: usize,
     /// The number of reads by an action of the part the landing's cell measured.
     reads: usize,
+    /// The host has the page triggers of probe 1378 (`ListCell::triggers`).
+    triggers: bool,
     /// The store's state at the landing (`Session::landing_store_state`).
     store: (u64, u64),
     /// A measured read runs: Rec holds the link values (`Session::reading_empty_list_rec`).
@@ -277,8 +281,8 @@ enum Shape {
     /// The pinned Card or Document shape: the link's single values.
     Measured,
     /// A List-host cell (`empty_part_rec_list.rs`): the link's single values, through the assumption, only inside the reads the
-    /// cell measured, with this many reads by an action of the part (`Session::reading_empty_list_rec`).
-    ListCell(usize),
+    /// cell measured (`Session::reading_empty_list_rec`).
+    ListCell(ListCell),
     /// Outside both, with the first fact that left them.
     Miss(&'static str),
 }
@@ -287,6 +291,15 @@ enum Shape {
 const OUTSIDE_READ: &str = "a read of Rec of a part that shows no row, on a field its filters name, on a List host outside the \
      reads the List-host cells measured (an action of the part the test invokes right after the landing, with no other call, \
      write to the store, rollback or error since): whether BC keeps the filter's value on Rec there is not pinned";
+
+/// Marks the assumptions a List-host cell runs through: `empty-part-rec-list-host`, and on a host with the page triggers of
+/// probe 1378 also `empty-part-rec-list-host-triggers`.
+fn assume_list_cell(triggers: bool) {
+    assumptions::assume(Assumption::EmptyPartRecListHost);
+    if triggers {
+        assumptions::assume(Assumption::EmptyPartRecListHostTriggers);
+    }
+}
 
 /// The fields the filters of `rec` name hold a `Value::Unknown` whose read is refused with `why`.
 fn unknown_filtered_fields(rec: &Rec, why: &str) {
