@@ -111,6 +111,11 @@ pub fn unsupported<T>(what: impl Into<Refusal>) -> Result<T, Signal> {
     Err(Signal::unsupported(what))
 }
 
+/// Raises "The date is not valid." (code DateInvalid). Each caller cites the pin of its raise site.
+pub(crate) fn date_invalid<T>() -> Result<T, Signal> {
+    raise("The date is not valid.", "DateInvalid")
+}
+
 /// Raises an AL error with a pinned text and code.
 pub fn raise<T>(message: impl Into<String>, code: &str) -> Result<T, Signal> {
     // A division by zero carries no customer content: the flag leaves its text (P86LastError.al:RuntimeError_Other `div_excl`).
