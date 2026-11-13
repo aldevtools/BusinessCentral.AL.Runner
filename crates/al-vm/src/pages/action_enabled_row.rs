@@ -18,6 +18,7 @@ const CODE: PinnedCode = PinnedCode {
     control_triggers: &["onaction"],
     properties: &["editable"],
     action_props: &["enabled"],
+    table_triggers: &[],
 };
 
 /// The virtual table `Field` the repro's page shows.

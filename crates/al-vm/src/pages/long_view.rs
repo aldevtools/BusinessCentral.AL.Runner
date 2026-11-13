@@ -108,6 +108,7 @@ impl Session {
             control_triggers: &[],
             properties: &[],
             action_props: &[],
+            table_triggers: &[],
         };
         let rec = self.page_rec(st);
         let calls = match Self::test_calls(st).as_deref() {
@@ -226,6 +227,7 @@ impl Session {
             control_triggers: &[],
             properties: &["sourcetabletemporary", "editable"],
             action_props: &[],
+            table_triggers: &[],
         };
         const ROWS: usize = 60;
         let rec = self.page_rec(st);

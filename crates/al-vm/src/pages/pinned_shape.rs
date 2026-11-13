@@ -115,6 +115,8 @@ pub(super) struct PinnedCode<'a> {
     /// The properties an Action control of the page may set to an expression, lower case; its other properties are
     /// literal. Empty: the page has no Action control.
     pub action_props: &'a [&'a str],
+    /// The source table's own triggers, lower case: exactly these, and no procedure or field trigger.
+    pub table_triggers: &'a [&'a str],
 }
 
 impl Session {
@@ -401,7 +403,8 @@ impl Session {
     /// - every control is the repeater, a group or a field bound to a field of Rec (no part, no action, no variable or
     ///   expression source), declared by the page itself, with literal properties only; the control triggers are exactly
     ///   `pin.control_triggers`; no extension adds one;
-    /// - the source table has no trigger, no procedure, no field trigger, no table extension and no subscriber.
+    /// - the source table's triggers are exactly `pin.table_triggers`; it has no procedure, no field trigger, no table extension
+    ///   and no subscriber.
     pub(super) fn page_code_is(&self, st: &St, pin: &PinnedCode) -> Result<bool, Signal> {
         const PLAIN: [&str; 5] = ["pagetype", "sourcetable", "applicationarea", "usagecategory", "caption"];
         let engine = self.engine();
@@ -448,7 +451,11 @@ impl Session {
         }
         let table = self.table(&self.page_rec(st))?.object as usize;
         let t = &engine.program.objects[table];
-        Ok(t.routines.is_empty()
+        let table_code = t.routines.iter().all(|r| r.is_trigger && r.field.is_none()) && {
+            let names: Vec<String> = t.routines.iter().map(|r| r.name.to_ascii_lowercase()).collect();
+            same_names(names.iter().map(String::as_str).collect(), pin.table_triggers)
+        };
+        Ok(table_code
             && t.table.as_ref().is_some_and(|x| x.extensions.is_empty())
             && !engine.events.any_subscriber_of(table))
     }

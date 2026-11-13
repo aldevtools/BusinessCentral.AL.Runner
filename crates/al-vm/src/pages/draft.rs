@@ -228,10 +228,7 @@ impl Session {
         if !self.pages.scope_unpinned.iter().any(|p| Rc::ptr_eq(p, st)) {
             self.pages.scope_unpinned.push(st.clone());
         }
-        Err(error_code(
-            "Validation error for Field: ,  Message = 'The view is filtered, and the entry is outside the filter. Some actions may not work.'",
-            "TestValidation",
-        ))
+        Err(view_filtered_error())
     }
 
     /// Whether control `idx` shows a field of the page's source table outside its primary key.
@@ -984,6 +981,15 @@ impl Session {
             self.set_xrec(st);
             return Ok(());
         }
+        if go == Some(false) && std::mem::take(&mut self.pages.named_false_insert) {
+            // The page's own OnInsertRecord vetoed by its named return value, the insert of a SetValue: the SetValue raises
+            // the filtered-view error and nothing is stored (open corpus PR 1367, pages/triggers/RecordTriggerReturnValue.al:350
+            // False_Insert_OpenNewSetValueClose `end|text`, `log` `I N1 ; `; assumption page-record-trigger-named-false-vetoes).
+            // What the page holds afterwards is not measured: every later call but Close is refused.
+            st.borrow_mut().unpinned_state =
+                Some("a card after its OnInsertRecord vetoed the insert by its named return value (not pinned)".into());
+            return Err(view_filtered_error());
+        }
         if go == Some(false) {
             // A trigger that inserted the row itself and answered false leaves the page on a stored row: its next edit is
             // a modify (as for a template step in `start_draft`). Pinned for a database table, in a card (OpenNew) and a list
@@ -1113,4 +1119,13 @@ impl Session {
         }
         Ok(())
     }
+}
+
+/// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487, open corpus PR 1367
+/// pages/triggers/RecordTriggerReturnValue.al:365).
+fn view_filtered_error() -> Signal {
+    error_code(
+        "Validation error for Field: ,  Message = 'The view is filtered, and the entry is outside the filter. Some actions may not work.'",
+        "TestValidation",
+    )
 }
