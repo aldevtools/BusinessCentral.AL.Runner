@@ -56,6 +56,8 @@ table 50701 "AAR Row"
         field(7; "Rel Code10"; Code[10]) { TableRelation = "AAR Rel"; trigger OnValidate() begin AarLog.Add('validate c10:' + "Rel Code10"); end; }
         field(8; "Rel Code30"; Code[30]) { TableRelation = "AAR Rel"; trigger OnValidate() begin AarLog.Add('validate c30:' + "Rel Code30"); end; }
         field(9; "Rel Code Named"; Code[20]) { TableRelation = "AAR Rel"."Code"; trigger OnValidate() begin AarLog.Add('validate named:' + "Rel Code Named"); end; }
+        field(11; "Plain No"; Integer) { }
+        field(10; "Rel Code B"; Code[20]) { TableRelation = "AAR Rel"; trigger OnValidate() begin AarLog.Add('validate b:' + "Rel Code B"); end; }
     }
     keys { key(PK; Id) { } }
     var AarLog: Codeunit "AAR Log";
@@ -880,7 +882,8 @@ fn a_temporary_table_element_without_triggers_validates_nothing() {
 
 /// Main's answer stays, without either assumption, for the stored layouts without triggers (XpAfterAssignTableRelation.al:1710,
 /// :1730, :1850 measure the same values) and for temporary ones the probe did not measure (an Integer field, an element with
-/// FieldValidate = Yes, ValidateTableRelation = false): main validates them.
+/// FieldValidate = Yes, ValidateTableRelation = false, another first node than the Integer key field `Id`, the measured node
+/// before it): main validates them.
 #[test]
 fn layouts_without_triggers_outside_the_measured_temporary_ones_keep_mains_answer() {
     let p = db(true, "Rel Code", "");
@@ -981,6 +984,38 @@ fn layouts_without_triggers_outside_the_measured_temporary_ones_keep_mains_answe
             "the root with XmlName = 'Other'",
             base.replace("        textelement(Root)\n        {\n", "        textelement(Root)\n        {\n            XmlName = 'Other';\n"),
             r#"<Other><Row Id="1" RelCode="MISS" /></Other>"#.to_string(),
+        ),
+        // The other node is not the `Id` key field, or does not stand first (review round 2 of PR 7933, R01, R02, R03, R07, P26).
+        (
+            "two measured fields with OnValidate and no Id node",
+            base.replace("fieldattribute(Id; Row.Id) { }", "fieldattribute(Other; Row.\"Rel Code B\") { }"),
+            r#"<Root><Row Other="P1" RelCode="MISS" /></Root>"#.to_string(),
+        ),
+        (
+            "the field without OnValidate in place of the Id node",
+            base.replace("fieldattribute(Id; Row.Id) { }", "fieldattribute(Other; Row.\"Rel Code Plain\") { }"),
+            r#"<Root><Row Other="P1" RelCode="MISS" /></Root>"#.to_string(),
+        ),
+        (
+            "the field with ValidateTableRelation = false in place of the Id node",
+            base.replace("fieldattribute(Id; Row.Id) { }", "fieldattribute(Other; Row.\"Rel Code NV\") { }"),
+            r#"<Root><Row Other="X" RelCode="MISS" /></Root>"#.to_string(),
+        ),
+        (
+            "the measured field twice and no Id node",
+            base.replace("fieldattribute(Id; Row.Id) { }", "fieldattribute(Other; Row.\"Rel Code\") { }"),
+            r#"<Root><Row Other="P1" RelCode="MISS" /></Root>"#.to_string(),
+        ),
+        (
+            "an Integer field outside the primary key in place of the Id node",
+            base.replace("fieldattribute(Id; Row.Id) { }", "fieldattribute(Other; Row.\"Plain No\") { }"),
+            r#"<Root><Row Other="5" RelCode="MISS" /></Root>"#.to_string(),
+        ),
+        (
+            "the measured node before the Id node",
+            base.replace("fieldattribute(Id; Row.Id) { }\n", "")
+                .replace("                trigger OnBeforeInsertRecord()", "                fieldattribute(Id; Row.Id) { }\n                trigger OnBeforeInsertRecord()"),
+            doc_miss.to_string(),
         ),
         (
             "OnPreXmlPort and OnPostXmlPort",

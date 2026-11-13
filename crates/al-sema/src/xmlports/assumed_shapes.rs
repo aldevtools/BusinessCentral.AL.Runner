@@ -127,11 +127,12 @@ pub(super) fn after_assign_layout(layout: &Layout, i: usize) -> bool {
 /// - the facts of `import_layout_triggered`, and no node of the table element has a trigger;
 /// - the port declares no trigger;
 /// - the root text element declares nothing, has no trigger and holds only the table element;
-/// - the table element holds two nodes: `i` and a field attribute that declares nothing (`Id`);
+/// - the table element holds two nodes: first a field attribute that declares nothing, then `i` (:592-593, :710-711,
+///   :781-782, :951-952);
 /// - node `i` declares nothing (:711, :782) or only `FieldValidate = Yes` (:954).
 ///
-/// What al-vm `xmlports/after_assign.rs` checks on top: the field, its relation and validate code, and the record; only a
-/// temporary table element changes main's result there.
+/// What al-vm `xmlports/after_assign.rs` checks on top: the field of the first node (the table's Integer key field), the
+/// field of `i`, its relation and validate code, and the record; only a temporary table element changes main's result there.
 pub(super) fn plain_import_layout(layout: &Layout, i: usize) -> bool {
     let Some(t) = layout.nodes[i].parent else {
         return false;
@@ -144,8 +145,9 @@ pub(super) fn plain_import_layout(layout: &Layout, i: usize) -> bool {
         && node_properties(layout, root, &[])
         && triggers(layout, root).is_empty()
         && kids(layout, root) == [t]
-        && matches!(kids(layout, t)[..], [a, b] if (a == i) != (b == i)
-            && [a, b].into_iter().all(|k| k == i || (layout.nodes[k].kind == K::FieldAttr && node_properties(layout, k, &[]))))
+        && matches!(kids(layout, t)[..], [first, second] if second == i
+            && layout.nodes[first].kind == K::FieldAttr
+            && node_properties(layout, first, &[]))
         && (node_properties(layout, i, &[]) || node_properties(layout, i, &[("FieldValidate", "Yes")]))
 }
 

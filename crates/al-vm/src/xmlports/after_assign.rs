@@ -73,8 +73,8 @@ impl Session {
         Ok(true)
     }
 
-    /// The layout al-sema `plain_import_layout` marks, a temporary table element and record, and a combination in
-    /// `measured_plain_temporary`.
+    /// The layout al-sema `plain_import_layout` marks, a temporary table element and record, the table's Integer key field
+    /// on the first node (`xp_first_node_is_integer_key`), and a combination in `measured_plain_temporary`.
     fn xp_plain_temporary_shape(
         &mut self,
         schema: &Schema,
@@ -86,10 +86,46 @@ impl Session {
         if !n.plain_import_layout || stored(schema, node, rec) != Some(false) {
             return Ok(false);
         }
+        if !self.xp_first_node_is_integer_key(schema, node, rec)? {
+            return Ok(false);
+        }
         let Some(field) = self.xp_measured_field(rec, pos)? else {
             return Ok(false);
         };
         Ok(measured_plain_temporary(n.kind, n.field_validate, field))
+    }
+
+    /// The first node of the table element of `node` has the field that `Id` is in the four measured ports
+    /// (XpAfterAssignTableRelation.al:592, :710, :781, :951): the one field of the table's primary key (:115), an Integer
+    /// without TableRelation and without OnValidate (:68), with no table extension validate trigger and no subscriber to
+    /// its validate events.
+    fn xp_first_node_is_integer_key(&mut self, schema: &Schema, node: usize, rec: &Rec) -> Result<bool, Signal> {
+        let Some(table_node) = schema.node(node).table_node else {
+            return Ok(false);
+        };
+        let first = schema.children(table_node).into_iter().next().map(|c| schema.node(c));
+        let Some(pos) = first.filter(|c| c.table_node == Some(table_node)).and_then(|c| c.field) else {
+            return Ok(false);
+        };
+        let t = self.table(rec)?;
+        let engine = self.engine.clone();
+        let Some(table) = engine.program.objects[t.object as usize].table.as_ref() else {
+            return Ok(false);
+        };
+        let Some(field) = table.fields.get(pos) else {
+            return Ok(false);
+        };
+        let plain_integer_key = matches!(table.keys.first().map(|k| &k[..]), Some([k]) if *k == pos)
+            && field.ty == RtType::Integer
+            && !field.relation
+            && field.relation_arms.is_empty()
+            && field.relation_runtime.is_empty()
+            && field.on_validate.is_none()
+            && field.ext_before_validate.is_empty()
+            && field.ext_after_validate.is_empty();
+        Ok(plain_integer_key
+            && !self.listened(&t, "onbeforevalidateevent", Some(&field.name))?
+            && !self.listened(&t, "onaftervalidateevent", Some(&field.name))?)
     }
 
     /// The field at `pos`, when it is one of `MeasuredField`: one TableRelation arm to the primary key of a table without
