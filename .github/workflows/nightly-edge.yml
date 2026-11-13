@@ -38,6 +38,11 @@ on:
         description: "Full 40-character commit of main to publish (empty: newest main commit with green CI on a push)"
         required: false
         default: ""
+      skip_macos:
+        description: "Publish without the macOS archive (only when GitHub has no macOS runner; owner 2026-11-13)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -138,3 +143,4 @@ jobs:
       attestations: write
     with:
       sha: ${{ needs.advance.outputs.sha }}
+      skip_macos: ${{ inputs.skip_macos == true }}

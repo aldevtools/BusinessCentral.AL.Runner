@@ -2103,15 +2103,7 @@ impl Session {
         let item = run.item(r);
         let (owner, object) = run.owner(r);
         let mut rec = self.report_item_record(run, r)?;
-        // A `DataItemLinkReference` names another enclosing item than the parent.
-        let parent_rec = match item.link_item {
-            Some(li) => enclosing
-                .iter()
-                .find(|(e, _)| matches!(e, ItemRef::Base(x) if *x == li))
-                .map(|(_, rec)| rec.clone())
-                .or(parent_rec),
-            None => parent_rec,
-        };
+        let parent_rec = explicit_parent_link::linked_parent(run, r, item.link_item, parent_rec, enclosing);
         if let Some(parent) = parent_rec {
             // The link filter is hidden from GetFilters (reports/TestReportRuntimeContracts.al:62-90).
             let table = self.table(&rec)?;
@@ -2479,7 +2471,7 @@ impl<'a> ItemTree<'a> {
 
 // ---------------------------------------------------------------------- Report.SaveAs
 
-use crate::report_placeholder::{Rendered, SaveOutput};
+use crate::report_placeholder::SaveOutput;
 
 /// Where a rendering save puts its output.
 pub(crate) enum SaveTarget {
@@ -2668,7 +2660,7 @@ impl Session {
             // subscriber that substitutes another report is not pinned.
             if record_ref.is_none()
                 && matches!(target, SaveTarget::Stream(_))
-                && crate::report_placeholder::format_refused_by_layout(&schema, &format)
+                && self.format_unsupported_by_layout(&schema, &format)
                 && self
                     .engine
                     .events
@@ -2725,11 +2717,11 @@ impl Session {
                 return Err(Signal::Error(Box::new(e)));
             }
         }
-        // ADR-040 and its amendments: the format x layout grid (`report_placeholder::grid`).
+        // ADR-040 and its amendments: the save table (`report_save`).
         if format != "Xml" {
-            match self.rendered_save(&schema, &format, &target, result_used, custom.is_some())? {
-                Rendered::Write(o) => output = o,
-                Rendered::False(e) => {
+            match self.static_or_variable_save(&schema, &format, &target, result_used, custom.is_some())? {
+                Ok(o) => output = o,
+                Err(e) => {
                     self.last_error = e;
                     return Ok(Value::Boolean(false));
                 }
@@ -2925,7 +2917,7 @@ impl Session {
         match ran {
             Ok(true) => {
                 let header = self.dataset_header(&schema)?;
-                let bytes = written.expect("a SaveAs run has a dataset").finish(&header)?;
+                let (bytes, rows) = written.expect("a SaveAs run has a dataset").finish_counted(&header)?;
                 if let Some(layout) = custom {
                     let SaveTarget::Stream(blob) = target else {
                         return unsupported(format!(
@@ -2943,8 +2935,8 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                self.write_save_output(target, output, &schema, &bytes)?;
-                Ok(Value::Boolean(true))
+                let saved = self.write_save_output(target, output, &schema, &bytes, rows)?;
+                Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
             // An error a trigger raises: with no layout it reaches the caller
@@ -4471,3 +4463,5 @@ mod request_caption;
 mod request_unshown;
 mod running;
 mod word_xml_part;
+
+mod explicit_parent_link;

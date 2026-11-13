@@ -83,6 +83,19 @@ public sealed class Marshaller
         return arr;
     }
 
+    /// No bridge holds bytes [DrainBridges] has not handed back yet. A failed request sends no bytes (only [Done] drains), so
+    /// a failure the host may show as an AL error must have written into no bridge: else the bytes would reach the Blob only
+    /// with a later reply, after AL went on.
+    public bool BridgesUnwritten()
+    {
+        foreach (var b in bridges.Values)
+        {
+            if (!b.Stream.TryGetBuffer(out var buf)) buf = new ArraySegment<byte>(b.Stream.ToArray());
+            if (buf.Count != b.Drained) return false;
+        }
+        return true;
+    }
+
     // ---- wire to .NET ----
 
     public object? Decode(JsonNode? n, int index)

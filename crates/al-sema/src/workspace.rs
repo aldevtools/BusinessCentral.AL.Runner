@@ -7,6 +7,8 @@ use rayon::prelude::*;
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
+mod moved_tables;
+
 pub use al_ir::ObjKind;
 
 #[derive(Debug, Clone)]
@@ -237,6 +239,9 @@ pub struct Workspace {
     /// later. The default is the corpus symbol of the gate's BC major (`BC<major>PLUS`); a compile with a target sets it from the target's runtime
     /// ([`Workspace::set_user_name_fields_for`]).
     user_name_fields: bool,
+    /// The ids (lower case) of the apps the platform package's `InternalsVisibleTo` grants access to its internal
+    /// members, matched by id and publisher by the caller ([`Workspace::set_internals_granted`]).
+    internals_granted: Vec<String>,
 }
 
 /// The gate that says from which BC major every table has the user-name system FlowFields.
@@ -253,6 +258,18 @@ impl Workspace {
         if let Some(m) = bc_major {
             self.user_name_fields = m >= USER_NAME_FIELDS_GATE.since_bc();
         }
+    }
+
+    /// Sets the apps the platform package's `InternalsVisibleTo` grants (ids; issue 7853). The caller matches each grant
+    /// by app id and publisher, as alc 18.0.39.10160 does.
+    pub fn set_internals_granted(&mut self, app_ids: Vec<String>) {
+        self.internals_granted = app_ids;
+    }
+
+    /// Whether the platform package grants app `app` access to its internal members (see `set_internals_granted`).
+    pub fn internals_granted_to(&self, app: usize) -> bool {
+        let id = &self.apps[app].id;
+        self.internals_granted.iter().any(|g| g.eq_ignore_ascii_case(id))
     }
 
     /// The preprocessor symbols app `app` was parsed with.
@@ -335,6 +352,7 @@ impl Workspace {
             lazy_text: Vec::new(),
             loaded_files: 0,
             user_name_fields: symbols.contains(&format!("BC{}PLUS", USER_NAME_FIELDS_GATE.since_bc())),
+            internals_granted: Vec::new(),
         };
         let all: Vec<&AppSource> = apps.iter().collect();
         ws.visible = (0..apps.len()).map(|i| visible_from(&all, i)).collect();
@@ -1228,12 +1246,13 @@ impl Workspace {
             )
     }
 
-    /// Whether a table named `name` (bare) is among the objects `file` searches before the any-namespace fallback of
-    /// [`resolve_ref`](Self::resolve_ref): those of its own namespace, of its `using`s, and those without a namespace.
-    pub fn table_in_scope_tiers(&self, file: usize, name: &str) -> bool {
+    /// Whether an object of `kind` named `name` (bare) is among the objects `file` searches before the any-namespace
+    /// fallback of [`resolve_ref`](Self::resolve_ref): those of its own namespace, of its `using`s, and those without a
+    /// namespace.
+    pub fn in_scope_tiers(&self, file: usize, kind: ObjKind, name: &str) -> bool {
         let f = &self.files[file];
         self.by_name
-            .get(&(ObjKind::Table, name.to_lowercase()))
+            .get(&(kind, name.to_lowercase()))
             .into_iter()
             .flatten()
             .filter(|&&i| self.visible[f.app].contains(&self.objects[i].app))
@@ -1241,6 +1260,25 @@ impl Workspace {
                 let ns = &self.objects[i].namespace;
                 ns.is_none() || eq_ns(ns, &f.namespace) || f.usings.iter().any(|u| eq_ns(ns, &Some(u.clone())))
             })
+    }
+
+    /// The objects of `kind` named `name` (bare) among the apps `file`'s app sees, in object order.
+    pub fn named_objects_visible(&self, file: usize, kind: ObjKind, name: &str) -> Vec<usize> {
+        let app = self.files[file].app;
+        self.by_name
+            .get(&(kind, name.to_lowercase()))
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|&i| self.visible[app].contains(&self.objects[i].app))
+            .collect()
+    }
+
+    /// Whether an object of any kind, in any namespace, among the apps `file`'s app sees is named `name` (bare).
+    pub fn names_any_visible_object(&self, file: usize, name: &str) -> bool {
+        ObjKind::ALL
+            .iter()
+            .any(|&kind| !self.named_objects_visible(file, kind, name).is_empty())
     }
 
     /// Whether `app` or an app it sees declares a dependency that is not among the loaded apps.
@@ -1398,6 +1436,9 @@ impl Workspace {
                     && (v.trim().eq_ignore_ascii_case("Moved") || v.trim().eq_ignore_ascii_case("Removed"))
             })
         };
+        // A workspace table that is the moved stub of its dependency's table gives way the same way
+        // (`moved_table_of_dependency`, assumption `moved-table-stub-of-dependency`).
+        let moved = |i: &usize| moved(i) || self.moved_table_of_dependency(*i).is_some();
         if tier.len() > 1 && tier.iter().any(|i| !moved(i)) {
             return pick(tier.into_iter().filter(|i| !moved(i)).collect());
         }

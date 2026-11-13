@@ -104,6 +104,7 @@ fn run() -> CorpusRuntime {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
     };
     CorpusRuntime::try_run_suites_with(
         vec![
@@ -152,7 +153,7 @@ fn looking_at_the_file_after_the_save_is_refused_and_the_other_report_stays_refu
         other => panic!("{other:?}"),
     }
     match outcome(&rt, "AReportThatIsNotListedIsRefused") {
-        Outcome::NotRun(why) => assert!(why.contains("layout renderer"), "{why}"),
+        Outcome::NotRun(why) => assert!(why.contains("not measured on BC"), "{why}"),
         other => panic!("{other:?}"),
     }
 }

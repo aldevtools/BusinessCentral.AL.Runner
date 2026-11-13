@@ -17,6 +17,7 @@
 //! Not pinned, refused: an error or a `Skip` in a default handler, an error or a `Skip` in the case callbacks and in
 //! OnAfterTestCodeunitRun, a callback that writes to the database.
 use super::*;
+use al_builtins::assumptions::{self, HitBits};
 use al_builtins::value::{HandlerContext, Instance, LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -55,6 +56,9 @@ pub(crate) struct Handlers {
     list: Vec<Handler>,
     codeunit_id: i32,
     codeunit_name: String,
+    /// The assumptions the callbacks hit so far in this codeunit run. A handler's instance lives for the whole codeunit, so
+    /// what one callback relied on can reach every later test: each test from then on is marked with them (`around`).
+    kept_hits: std::cell::Cell<HitBits>,
 }
 
 /// The handler codeunits of test codeunit `object` as (object, is a default handler), in call order, or why they cannot
@@ -120,6 +124,7 @@ impl Handlers {
                 Some(ns) => format!("{ns}.{}", obj.name),
                 None => obj.name.clone(),
             },
+            kept_hits: std::cell::Cell::new(HitBits::EMPTY),
         }
     }
 
@@ -211,7 +216,9 @@ impl Handlers {
                         codeunit_name: self.codeunit_name.clone(),
                         procedure: procedure.to_string(),
                         case: case.to_string(),
-                        success,
+                        // BiTestHandlerSuccess.al:116: Success() is false in every Before callback.
+                        success: success.unwrap_or(false),
+                        success_assumed: success.is_none() && h.default,
                         skip: None,
                     }));
                     Value::Library(kind, cell)
@@ -229,7 +236,11 @@ impl Handlers {
                 _ => unreachable!(),
             };
             let changes = session.store_mut().change_counter();
+            let earlier = assumptions::take_hit_bits();
             let called = session.call(h.object, r, h.instance.clone(), vec![ctx]);
+            let hit = assumptions::take_hit_bits();
+            assumptions::add_hit_bits(earlier | hit);
+            self.kept_hits.set(self.kept_hits.get() | hit);
             if session.store_mut().change_counter() != changes {
                 return Err(format!(
                     "{} of test handler {} wrote to the database: whether the test framework keeps it is not pinned",
@@ -325,6 +336,7 @@ pub(crate) fn around(
     }
     let refuse = |why: String| Err(Signal::unsupported(why));
     handlers.mark_after_codeunit(lowered);
+    assumptions::add_hit_bits(handlers.kept_hits.get());
     match case {
         None => {
             let name = procedure;

@@ -17,10 +17,12 @@ use std::sync::Arc;
 mod autoinc;
 mod bgsession;
 mod blob_copy;
+mod blob_transfer;
 mod clientless;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
+mod placeholder_files;
 mod run_restore;
 pub mod single_track;
 mod state;
@@ -51,6 +53,7 @@ pub use profile::{
 pub use state_stamp::StateStamp;
 pub use test_runner_host::TestCodeunitHost;
 mod callstack;
+mod caught_errors;
 mod clear_all_page_ext;
 mod code_storage_check;
 mod column_formatter;
@@ -122,11 +125,13 @@ mod records;
 mod refs;
 mod relations;
 mod rename;
+mod rename_blank_key;
 mod report_handler_unshown;
 mod report_layout_export;
 mod report_layout_streams;
 mod report_no_layout_file;
 pub mod report_placeholder;
+mod report_save;
 mod reports;
 mod run_page_link_open;
 mod sessionops;
@@ -136,10 +141,13 @@ mod sqlcount;
 mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
+mod stale_rename;
 mod state_stamp;
+mod table_facts;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
+mod tenant_set_delete;
 mod test_rows;
 mod test_runner_host;
 mod testdata;
@@ -223,7 +231,7 @@ pub struct Engine {
     /// `InitValue` (`0DT` on a DateTime, a closing-date literal on a Date).
     pub unevaluable_init: Arc<std::collections::HashMap<(u32, usize), String>>,
     /// What the VM asks of a table on every record operation, worked out once (ADR-035 decision 4).
-    pub(crate) table_facts: Arc<[TableFacts]>,
+    pub(crate) table_facts: Arc<[table_facts::TableFacts]>,
     /// What the VM reads of each object's properties, worked out once (ADR-032 decision 5).
     pub(crate) object_facts: Arc<[ir::ObjectFacts]>,
     /// The same for each field of each table object, by field position.
@@ -423,41 +431,7 @@ impl Engine {
             .collect();
         let events = events::Registry::build(&program);
         let facts = (0..heads.len()).map(|_| std::sync::OnceLock::new()).collect();
-        let table_facts: Vec<TableFacts> = heads
-            .iter()
-            .map(|o| TableFacts {
-                unresolved_init: o
-                    .table
-                    .as_ref()
-                    .is_some_and(|t| t.fields.iter().any(|f| f.init_text.is_some() && f.init.is_none())),
-                sql_timestamp: o.table.as_ref().map_or_else(Vec::new, |t| {
-                    t.fields
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, f)| {
-                            f.properties.iter().any(|(k, v)| {
-                                k.eq_ignore_ascii_case("SQLTimestamp") && v.trim().eq_ignore_ascii_case("true")
-                            })
-                        })
-                        .map(|(i, _)| i)
-                        .collect()
-                }),
-                insert_unqueued: o.table.as_ref().is_none_or(|t| {
-                    t.fields.iter().any(|f| {
-                        f.auto_increment
-                            || matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob))
-                    })
-                }),
-                code_sql_type: o.table.as_ref().is_some_and(|t| {
-                    t.fields.iter().any(|f| {
-                        matches!(f.ty, RtType::Code(_))
-                            && f.properties.iter().any(|(k, v)| {
-                                k.eq_ignore_ascii_case("SQLDataType") && !v.trim().eq_ignore_ascii_case("Varchar")
-                            })
-                    })
-                }),
-            })
-            .collect();
+        let table_facts = table_facts::of_heads(heads);
         let object_facts: Vec<ir::ObjectFacts> = heads
             .iter()
             .map(|h| ir::ObjectFacts::of_properties(&h.properties))
@@ -788,6 +762,8 @@ pub struct StorageCheckpoint {
 pub struct Session {
     pub engine: Arc<Engine>,
     pub last_error: AlError,
+    /// How many errors AL code caught in this session (`Session::catch_error`, caught_errors.rs).
+    caught_errors: u64,
     depth: usize,
     /// Emptied vectors of call values (arguments, a frame's slots, a builtin's operands), taken again by the next call
     /// (`spare_vec`, `return_vec`): a call of a procedure or a builtin allocates nothing once there are some.
@@ -913,8 +889,11 @@ pub struct Session {
     /// How many `Randomize()` calls without a seed the session has seen.
     pub(crate) unseeded_randomizes: i32,
     pub(crate) next_row_version: i64,
-    /// How many Delete and DeleteAll calls have reached the store: with `next_row_version`, it tells whether code wrote.
+    /// How many Delete calls and DeleteAll calls that found a row have reached the store, and every Truncate call (on an empty
+    /// table too): with `next_row_version`, it tells whether code wrote.
     pub(crate) deletes: u64,
+    /// How many times the store rolled back (`rollback_transaction`): a rollback takes rows back and moves neither count above.
+    pub(crate) rollbacks: u64,
     /// The highest SystemRowVersion install code gave a row (`Session::mark_install_end`): a row at or below it was
     /// written by install code (ADR-046 amendment 1, A2 item d).
     pub(crate) install_row_version: i64,
@@ -955,6 +934,8 @@ pub struct Session {
     pub(crate) seed_refusal: Option<String>,
     /// Whether the builtin being called has its result used (ADR-011 `ret_used`).
     pub(crate) ret_used: bool,
+    /// The routine `call` returned from last ended by running `exit(value)` (al-vm pages/record_trigger_answer.rs).
+    pub(crate) exited_with_value: bool,
     /// The form of the text of the `FieldError` being called, for the text `GetLastErrorText(true)` answers
     /// (`Ctx::field_error_with_form`); `None` outside such a call.
     pub(crate) field_error_form: Option<al_builtins::native::ErrorTextForm>,
@@ -1078,11 +1059,12 @@ pub struct Session {
     /// Set while a `TestField.SetValue` written with a Variant argument runs (`TestField.SetValueVariant#1`).
     pub(crate) set_value_from_variant: bool,
     /// Set while a host page's `TestPage.New()` runs: the parts it links afresh run no OnNewRecord.
-    pub(crate) host_new_running: bool,
+    pub(crate) host_new_running: Option<bool>,
     /// Set while a host page's open links its parts (`sync_parts_at_open`).
     pub(crate) part_open_running: bool,
-    /// Set while a host's GoToRecord that left its row reads its parts again (`pages/empty_part_rec.rs`).
-    pub(crate) host_goto_record_running: bool,
+    /// The host move whose parts are reading again: Next and Previous, a GoToKey or GoToRecord that stayed on the row, and the
+    /// moves `pageops.rs` syncs in its last branch (GoToRecord, GoToKey and the others) (`pages/empty_part_rec.rs`).
+    pub(crate) host_move_running: Option<pages::HostMove>,
     /// A host move syncs a part that serves its rows from OnFindRecord or OnNextRecord: the part keeps its rows when its link
     /// values did not change (`pages/parts.rs` `sync_parts_with`).
     /// `Some(true)`: a part that shows no row or only its blank line stays as it is too (a part linked through a Provider that
@@ -1128,6 +1110,8 @@ pub struct Session {
     /// written (path in lower case with `/`, name of the report). Any look at one is refused; a write by AL over the
     /// path ends the mark.
     pub(crate) render_pending_files: std::collections::HashMap<String, Arc<str>>,
+    /// How a placeholder file came to be and whether an AL File holds it open (`placeholder_files.rs`).
+    pub(crate) placeholder_files: placeholder_files::PlaceholderFiles,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
     /// The key and count of the draws of how far past a stamp the clock lands (`Session::stamp_millis`): the run seed's
@@ -1285,12 +1269,14 @@ impl Session {
             encryption_key: EncryptionKey::Present,
             temp_files: 0,
             render_pending_files: std::collections::HashMap::new(),
+            placeholder_files: Default::default(),
             last_stamp: i64::MIN / 2,
             clock_key,
             clock_draws: 0,
             work_date: None,
             engine,
             last_error: AlError::default(),
+            caught_errors: 0,
             depth: 0,
             spare_vecs: Vec::new(),
             xp_pass_views: Vec::new(),
@@ -1321,6 +1307,7 @@ impl Session {
             unseeded_randomizes: 0,
             next_row_version: restored_row_version,
             deletes: 0,
+            rollbacks: 0,
             install_row_version: restored_row_version,
             restored_row_version,
             session_id_override: None,
@@ -1339,6 +1326,7 @@ impl Session {
             baseline_origin: None,
             seed_refusal: None,
             ret_used: true,
+            exited_with_value: false,
             field_error_form: None,
             error_finals: None,
             var_alias_watch: Vec::new(),
@@ -1411,9 +1399,9 @@ impl Session {
             bulk_modify: false,
             variant_refs: Default::default(),
             set_value_from_variant: false,
-            host_new_running: false,
+            host_new_running: None,
             part_open_running: false,
-            host_goto_record_running: false,
+            host_move_running: None,
             part_sync_keeps_same_link: None,
             dotnet: Default::default(),
             application_areas: String::new(),
@@ -1424,6 +1412,7 @@ impl Session {
             ui_state: UiState::default(),
             pages: PageClients::default(),
             events: EventState {
+                caption_context_revision: 0,
                 bindings: Vec::new(),
                 page_held: Vec::new(),
                 page_var_runs: Vec::new(),
@@ -1603,6 +1592,7 @@ impl Session {
         self.note_rollback_for_stale_rule();
         self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
+        self.rollbacks += 1;
         self.crm_rolled_back();
         self.sql.rolled_back();
         self.tx.row_versions = Default::default();
@@ -1688,6 +1678,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    own_variable: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
                     run_page_link: None,
@@ -2074,6 +2065,9 @@ impl Session {
     pub fn instance(&mut self, object: usize) -> Rc<RefCell<Instance>> {
         let engine = self.engine.clone();
         let globals = self.slot_defaults(&engine.program.objects[object].globals);
+        if engine.program.objects[object].kind == ir::ObjKind::Codeunit {
+            globals.iter().for_each(blob_transfer::new_variable);
+        }
         Rc::new(RefCell::new(Instance {
             object: object as u32,
             globals,
@@ -2430,7 +2424,7 @@ impl Session {
         facts: RoutineFacts,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
-        self.events.next_is_subscriber = false;
+        let subscriber = std::mem::take(&mut self.events.next_is_subscriber);
         self.note_routine(object, routine);
         if self.coverage.cells.is_some() {
             self.tap_cells(object, routine, &instance);
@@ -2453,17 +2447,26 @@ impl Session {
                 // A record of a stored table takes no temporary table: its fresh buffer would only be dropped (issue 6133).
                 locals.push(Value::Null);
             } else {
-                locals.push(self.slot_default(s));
+                let v = self.slot_default(s);
+                if i >= r.params {
+                    blob_transfer::new_variable(&v);
+                }
+                locals.push(v);
             }
         }
         let mut args = args;
+        // A procedure without attributes, called as a procedure: the call whose by-value arguments `blob_transfer::Argument`
+        // measures.
+        let measured_call = !subscriber && !r.is_trigger && r.attributes.is_empty();
         for (i, a) in args.drain(..).enumerate().take(r.params) {
             // No arm below is for these pairs, and the last one hands them back unchanged.
             if passed_unchanged(&a, &r.locals[i].ty) {
                 locals[i] = a;
                 continue;
             }
-            locals[i] = match (a, r.by_var.get(i).copied().unwrap_or(false)) {
+            let by_var = r.by_var.get(i).copied().unwrap_or(false);
+            let argument = blob_transfer::Argument::of(&a, measured_call && !by_var, &r.locals[i].ty);
+            let bound = match (a, by_var) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer
                 // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_PassedToVariantParameter_ByValue, record/TestTempTableContracts.al:141-148).
@@ -2529,15 +2532,12 @@ impl Session {
                     }
                     v
                 }
-                // A RecordRef handed by value to a RecordRef or Variant parameter: a RecordRef of its own on the same buffer, so the
-                // callee's Close leaves the caller's open (`recordref_variant.rs`).
-                (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), false)
-                    if matches!(
-                        r.locals[i].ty,
-                        RtType::Variant | RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef)
-                    ) =>
+                // A RecordRef handed by value to a RecordRef or Variant parameter, or bound to a `var` Variant parameter
+                // (`VariantRefs::param_value`).
+                (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), by_var)
+                    if crate::recordref_variant::takes_param(&r.locals[i].ty, by_var) =>
                 {
-                    crate::recordref_variant::own_copy(&h)
+                    self.variant_refs.param_value(h, &r.locals[i].ty, by_var, subscriber)
                 }
                 // A Variant holding a RecordRef handed by value to a Record parameter: see `record_ref_into_record_param`.
                 (Value::Library(name, h), false)
@@ -2558,6 +2558,8 @@ impl Session {
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), _) => a,
                 // An HttpContent passed by reference is the caller's own object; only a by-value one is a copy (see `ops::convert`).
                 (a @ Value::Library(..), true) if matches!(&a, Value::Library(n, _) if n == "HttpContent") => a,
+                // An HttpRequestMessage passed by reference is not handed on (`ops::convert`, `http::request_handed_on`).
+                (a @ Value::Library(..), true) if matches!(&a, Value::Library(n, _) if n == "HttpRequestMessage") => a,
                 // A BigText passed by reference too; a by-value one is a copy (`ops::convert`, al-runner issue 5940).
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::BigText, _), true) => a,
                 // A Variant holding an Integer handed to a `var` Text parameter is passed as it is: no conversion, the callee's
@@ -2589,6 +2591,7 @@ impl Session {
                 (a @ Value::Unknown(_), false) => a,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
             };
+            locals[i] = self.bind_blobs(argument, bound)?;
         }
         self.return_vec(args);
         let var_lens = if facts.var_lens {
@@ -2730,6 +2733,7 @@ impl Session {
                 return Err(e);
             }
         };
+        self.exited_with_value = ret.is_some();
         let value = match (&r.ret, ret, r.ret_local) {
             (Some(t), Some(v), _) => ops::convert_plain(v, t)?,
             (Some(_), None, Some(l)) => frame.locals[l].clone(),
@@ -2830,19 +2834,6 @@ impl Session {
 
 /// Tables with an extra ad-hoc key, by (table object, key fields).
 pub(crate) type AdhocTables = std::collections::HashMap<(u32, Vec<usize>), Arc<al_data::TableDef>>;
-
-/// Facts about a table object that never change during a run.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct TableFacts {
-    /// Some field has an `InitValue` text that did not evaluate at compile time.
-    pub(crate) unresolved_init: bool,
-    /// The positions of the BigInteger fields with `SQLTimestamp = true`: they read the row version.
-    pub(crate) sql_timestamp: Vec<usize>,
-    /// Some Code field declares an `SQLDataType` other than `Varchar`: a write checks its value.
-    pub(crate) code_sql_type: bool,
-    /// The table has a Blob field or an AutoIncrement field: its Inserts are not queued (`records/insert_buffer.rs`).
-    pub(crate) insert_unqueued: bool,
-}
 
 /// The shared storage of an array value.
 type Cells = Rc<RefCell<Vec<Value>>>;

@@ -505,50 +505,9 @@ impl Session {
                     out.attrs.push((c.xml_name.clone(), v));
                 }
                 ir::XmlNodeKind::Field => {
-                    // Break in OnBeforePassField leaves the field element out of the row alone; the row and the export go on
-                    // (xmlports/shapes-properties/AyXmlPortFlowTriggers.al:712 Export_passfield_Break: `<Row><Id>2</Id></Row>`).
-                    if got!(self.xp_site(inst, schema, child, "onbeforepassfield")) == Some(Flow::Break) {
-                        Self::xp_clear_flow(inst);
-                        continue;
+                    if self.xp_export_field_element(inst, schema, child, out)? {
+                        return Ok(());
                     }
-                    let v = got!(self.xp_field_value_text(inst, schema, child));
-                    let empty = v.is_empty();
-                    let mut e = Elem::new(&doc_name(schema, child));
-                    // An empty value writes no text, so the elements below it are indented like any element content
-                    // (streams/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export `<Name>` then
-                    // `<Child>c1</Child>` on its own line; :178 `<Child />`).
-                    let text_below = schema
-                        .children(child)
-                        .iter()
-                        .any(|&g| schema.node(g).kind == ir::XmlNodeKind::Text);
-                    if !(empty && text_below) {
-                        e.children.push(Node::Text(v));
-                    }
-                    // The attributes and elements below a field element follow its value (AfXmlPortAttrChildren.al:255, 285, 313:
-                    // `<Name Lang="en" Kind="K1">Alpha</Name>`, `<Name>Alpha<Child>c1</Child></Name>`).
-                    if !schema.children(child).is_empty() {
-                        // How an empty value is written before an element is pinned for leaf text elements only.
-                        if empty
-                            && schema.children(child).iter().any(|&g| {
-                                let k = schema.node(g).kind;
-                                k == ir::XmlNodeKind::Field
-                                    || (k == ir::XmlNodeKind::Text && !schema.children(g).is_empty())
-                            })
-                        {
-                            return unsupported(format!(
-                                "XmlPort export of the field element {} with an empty value and an element below it (not pinned)",
-                                c.xml_name
-                            ));
-                        }
-                        let r = self.xp_export_content(inst, schema, child, &mut e);
-                        out.children.push(Node::Elem(e));
-                        r?;
-                        if Self::xp_quit(inst) {
-                            return Ok(());
-                        }
-                        continue;
-                    }
-                    out.children.push(Node::Elem(e));
                 }
                 // A `plain_valued_leaf` (plain_tree.rs): its OnBeforePassVariable sets the text, written once where the schema has it
                 // (XpTableRootNestedText.al XNT_NsTblText_Export, XNT_TblText_Export, XNT_TextTbl_Export, XNT_PlainLeaf_Export).
@@ -594,6 +553,14 @@ impl Session {
                 // element's OnBeforePassVariable, its attributes, then the inner element as the text-only shape above
                 // (`pass entry;pass status;pass admission;pass admcode;`, `<admission option_value="2" />` for an empty text).
                 // The same for an attributed leaf deeper below a table element (`attributed_leaf`, einvoice_shapes.rs).
+                // A text element with one field attribute below a temporary table element (`text_attr_export.rs`).
+                ir::XmlNodeKind::Text if c.text_attr_export => {
+                    let e = got!(self.xp_export_text_attr(inst, schema, child));
+                    out.children.push(Node::Elem(e));
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
                 ir::XmlNodeKind::Text
                     if text_in_table(schema, child).is_some()
                         || nested_inner(schema, child)
@@ -723,17 +690,7 @@ impl Session {
                 // order, Skip there leaves out that leaf (xmlports/shapes-properties/R6924eTreeInTable.al:287-288 all filled,
                 // :296-297 leaves skipped, :305-306 an inner leaf empty). Its own text stays refused (measured at :314, not built).
                 ir::XmlNodeKind::Text if leaf_triggered_tree(schema, child, node) => {
-                    if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
-                        return unsupported(
-                            "XmlPort export of a container text element below a table element with its own text (not pinned)",
-                        );
-                    }
-                    let e = self.xp_export_container(inst, schema, child)?;
-                    if matches!(Self::xp_flow(inst), Some(Flow::Break | Flow::Unbound)) {
-                        return unsupported(
-                            "Break in OnBeforePassVariable of a leaf inside a container text element below a table element (not pinned)",
-                        );
-                    }
+                    let e = got!(self.xp_export_leaf_triggered_tree(inst, schema, child));
                     out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {
                         return Ok(());
@@ -773,21 +730,93 @@ impl Session {
         Ok(())
     }
 
+    /// A field element in `xp_export_content`: OnBeforePassField, then its value and what is below it. True when a Quit ended
+    /// the document here.
+    fn xp_export_field_element(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        child: usize,
+        out: &mut Elem,
+    ) -> Result<bool, Signal> {
+        let c = schema.node(child);
+        // A Quit in a trigger of the field element leaves it out and ends the document.
+        macro_rules! got {
+            ($e:expr) => {
+                match $e {
+                    Ok(v) => v,
+                    Err(Signal::Exit(None)) if Self::xp_quit(inst) => return Ok(true),
+                    Err(e) => return Err(e),
+                }
+            };
+        }
+        // Break in OnBeforePassField leaves the field element out of the row alone; the row and the export go on
+        // (xmlports/shapes-properties/AyXmlPortFlowTriggers.al:712 Export_passfield_Break: `<Row><Id>2</Id></Row>`).
+        if got!(self.xp_site(inst, schema, child, "onbeforepassfield")) == Some(Flow::Break) {
+            Self::xp_clear_flow(inst);
+            return Ok(false);
+        }
+        let v = got!(self.xp_field_value_text(inst, schema, child));
+        let empty = v.is_empty();
+        let mut e = Elem::new(&doc_name(schema, child));
+        // An empty value writes no text, so the elements below it are indented like any element content
+        // (streams/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export `<Name>` then
+        // `<Child>c1</Child>` on its own line; :178 `<Child />`).
+        let text_below = schema
+            .children(child)
+            .iter()
+            .any(|&g| schema.node(g).kind == ir::XmlNodeKind::Text);
+        if !(empty && text_below) {
+            e.children.push(Node::Text(v));
+        }
+        // The attributes and elements below a field element follow its value (AfXmlPortAttrChildren.al:255, 285, 313:
+        // `<Name Lang="en" Kind="K1">Alpha</Name>`, `<Name>Alpha<Child>c1</Child></Name>`).
+        if !schema.children(child).is_empty() {
+            // How an empty value is written before an element is pinned for leaf text elements only.
+            if empty
+                && schema.children(child).iter().any(|&g| {
+                    let k = schema.node(g).kind;
+                    k == ir::XmlNodeKind::Field || (k == ir::XmlNodeKind::Text && !schema.children(g).is_empty())
+                })
+            {
+                return unsupported(format!(
+                    "XmlPort export of the field element {} with an empty value and an element below it (not pinned)",
+                    c.xml_name
+                ));
+            }
+            let r = self.xp_export_content(inst, schema, child, &mut e);
+            out.children.push(Node::Elem(e));
+            r?;
+            return Ok(Self::xp_quit(inst));
+        }
+        out.children.push(Node::Elem(e));
+        Ok(false)
+    }
+
     /// `OnBeforePassVariable`, then the variable's text
     /// (xmlports/TestXmlPortAdvanced.al:XmlPort_TextVariableTriggers_ExportManipulatesTextAndAttributes).
     pub(super) fn xp_pass_variable(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<String, Signal> {
         self.xp_run_trigger(inst, schema, node, "onbeforepassvariable")?;
         let slot = schema.node(node).slot.expect("text nodes have a slot");
-        match &inst.borrow().globals[slot] {
-            Value::Text(s) | Value::Code(s) => Ok(s.to_string()),
+        let text = match &inst.borrow().globals[slot] {
+            Value::Text(s) | Value::Code(s) => s.to_string(),
             // A BigText element writes its whole text (xmlports/shapes-properties/XmlPortBigText.al:178, :198).
             Value::Library(al_builtins::library_kind::LibraryKind::BigText, h) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::Empty => Ok(String::new()),
-                al_builtins::value::LibraryValue::Text(s) => Ok(s.clone()),
-                _ => unsupported("XmlPort export of a BigText variable of this kind"),
+                al_builtins::value::LibraryValue::Empty => String::new(),
+                al_builtins::value::LibraryValue::Text(s) => s.clone(),
+                _ => return unsupported("XmlPort export of a BigText variable of this kind"),
             },
-            other => unsupported(format!("XmlPort export of the variable {}", other.describe())),
+            other => return unsupported(format!("XmlPort export of the variable {}", other.describe())),
+        };
+        // Rendered content never goes into an exported file: its characters would be written as known bytes into a buffer
+        // without a mark (ADR-040 amendment 2026-11-12, A3b: a use that is not in table A3 refuses).
+        if al_builtins::rendered_text::holds(&text) {
+            return Err(al_builtins::rendered_text::refusal(
+                &text,
+                "a text variable an XmlPort exports",
+            ));
         }
+        Ok(text)
     }
 
     /// `OnBeforePassField` (it runs for every row: xmlports/TestXmlPortTriggersReplaceViewContracts.al:

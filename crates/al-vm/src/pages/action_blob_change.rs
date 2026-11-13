@@ -8,7 +8,9 @@
 //! PG7114_EditableCard_ActionModifiesOwnVar_NoCommit and _Commit, BC 27.5, 28.5, 29.0; al-runner issue 7114). A Blob a stream wrote is
 //! a change and is saved after the action (_ActionWritesBlobOfRec `P.MODR(Open/);T.MOD(Open/)`).
 
+use super::pinned_shape::TestCall;
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 impl Session {
     /// Whether Rec of page `st` differs from `before` (Rec as the action found it) after the action. `deleted`: the action
@@ -22,6 +24,16 @@ impl Session {
     ) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
         if Self::same_values(&rec.borrow().fields, before) {
+            return Ok(false);
+        }
+        // A Document action that only calculated a FlowField of Rec and committed its write through another buffer saves
+        // nothing (`document_view_action_only_changed_flowfields`). On the pinned Card and List of
+        // pages/actions/WfFlowFieldActionRec.al the FlowField is a control, filled when the row is read, so CalcFields leaves
+        // Rec as it was and the first check above already answers; the Document repro shows no such control.
+        if !was_dirty && !deleted && self.document_view_action_only_changed_flowfields(st, &rec, before)? {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::DocumentActionCalculatedFieldNotDirty,
+            );
             return Ok(false);
         }
         // A row the action changed and then deleted (a codeunit that modifies and deletes Rec: Make Order, Post) is not
@@ -46,5 +58,84 @@ impl Session {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    /// The measured shape of AL Runner issue 7882 (corpus pull request 1346, assumption
+    /// `document-action-calculated-field-not-dirty`): a top-level Document without parts, opened by the test with OpenView
+    /// (not switched by the View action, not trapped, not modal), not edited, and no OnModifyRecord in the page or an
+    /// extension and no subscriber to it. The action changed only FlowFields of Rec, with CalcFields (not by assignment),
+    /// left no uncommitted write, and the stored row differs from the one the page read. The test's calls on the page are
+    /// exactly GoToRecord and the running Invoke, with no store write between them (`test_calls_all_succeeded`), so the
+    /// stored row still was the one GoToRecord read when the action started, and the action committed its write through
+    /// another buffer.
+    fn document_view_action_only_changed_flowfields(
+        &mut self,
+        st: &St,
+        rec: &Rec,
+        before: &[Value],
+    ) -> Result<bool, Signal> {
+        let state = st.borrow();
+        if state.mode != PageMode::View
+            || !state.opened_by_test
+            || state.mode_switched_since_open
+            || state.caught_by_trap
+            || state.modal
+            || !state.parts.is_empty()
+            || state.host.is_some()
+            || self.engine.object_facts[state.object as usize].page_type != Some(ir::PageType::Document)
+            || !self.tx.writes.is_empty()
+        {
+            return Ok(false);
+        }
+        let object = state.object as usize;
+        drop(state);
+        let measured_calls = Self::test_calls_all_succeeded(st).is_some_and(|calls| {
+            calls.as_slice()
+                == [
+                    TestCall::Page(PageMethod::GoToRecord),
+                    TestCall::Other(PageMethod::Invoke),
+                ]
+        });
+        if !measured_calls {
+            return Ok(false);
+        }
+        if self.declares_or_ext_declares(st, "onmodifyrecord")
+            || self.engine.events.is_subscribed(object, "onmodifyrecordevent")
+        {
+            return Ok(false);
+        }
+        let table = self.table(rec)?;
+        let Some(stored) = self.stored_row(rec)? else {
+            return Ok(false);
+        };
+        let current = rec.borrow();
+        if current.temporary
+            || current.assigned
+            || current.fields.len() != before.len()
+            || table.fields.len() != before.len()
+        {
+            return Ok(false);
+        }
+        let same = |a, b| Self::same_values(std::slice::from_ref(a), std::slice::from_ref(b));
+        let schema = self.engine.program.objects[table.object as usize]
+            .table
+            .as_ref()
+            .expect("table");
+        let mut changed_flowfield = false;
+        let mut stored_changed = false;
+        for (i, field) in table.fields.iter().enumerate() {
+            if field.stored {
+                if !same(&current.fields[i], &before[i]) {
+                    return Ok(false);
+                }
+                stored_changed |= !same(&stored[i], &before[i]);
+            } else if !same(&current.fields[i], &before[i]) {
+                if schema.fields.get(i).is_none_or(|field| field.calc.is_none()) {
+                    return Ok(false);
+                }
+                changed_flowfield = true;
+            }
+        }
+        Ok(changed_flowfield && stored_changed)
     }
 }

@@ -15,6 +15,8 @@ use rust_decimal::Decimal;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
+mod datetime;
+use datetime::as_datetime;
 mod filter;
 mod read_string;
 use read_string::StringAt;
@@ -1075,7 +1077,7 @@ fn as_char(s: &Scalar) -> Result<Value, Signal> {
                 _ => unsupported(format!("reading text of length {} as Char", u.len())),
             }
         }
-        // A whole number is the character of that code (P101PathValues.al:162 `int_as_char` 8364 is €, :170 0, :202 5;
+        // A whole number is the character of that code (P101PathValues.al:162 `int_as_char` 8364 is â‚¬, :170 0, :202 5;
         // json/json/P88ObjectGetCharValues.al:28 7). Codes from the surrogates up are not pinned.
         Scalar::Val(Value::Integer(n)) if (0..0xD800).contains(n) => Ok(Value::Char(*n as u16)),
         Scalar::Val(Value::BigInteger(n)) if (0..0xD800).contains(n) => Ok(Value::Char(*n as u16)),
@@ -1104,24 +1106,6 @@ fn as_date(s: &Scalar) -> Result<Value, Signal> {
         ) => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDate")),
         other => unsupported(format!(
             "reading {} as Date (conversion not pinned yet)",
-            other.describe()
-        )),
-    }
-}
-
-fn as_datetime(s: &Scalar) -> Result<Value, Signal> {
-    match s {
-        Scalar::Val(Value::DateTime(d)) => Ok(Value::DateTime(*d)),
-        Scalar::Val(Value::Text(t)) => match crate::iso::parse_datetime(t) {
-            Some(d) => Ok(Value::DateTime(d)),
-            None => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDateTime")),
-        },
-        // A Date or Time held reads as no DateTime (P88DateTimeReadback.al:78-163, Date_Readback and Time_Readback `_asdatetime`).
-        Scalar::Val(
-            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Date(..) | Value::Time(_),
-        ) => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDateTime")),
-        other => unsupported(format!(
-            "reading {} as DateTime (conversion not pinned yet)",
             other.describe()
         )),
     }

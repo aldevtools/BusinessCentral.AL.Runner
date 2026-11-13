@@ -33,7 +33,10 @@ your scratch folder.
 - **MED**: an unpinned shape runs silently (no pin, no assumption id), or a flag or mark is lost on a path.
 - **LOW**: stale text, a missing test for a refusal, a duplicate owner, small cleanups.
 
-From round 3 on, only HIGH and MED block. LOW findings go into a follow-up list, not into another round.
+From round 2 on (owner, 2026-11-13), only these block: HIGH, and code that contradicts its own assumption text
+(the entry states a fact the gate does not check). An unmeasured neighbor that now passes flagged where main refused
+goes into the follow-up list, like LOW findings, not into another round. A review after round 1 checks only the listed
+findings and the gates; it does not hunt for new neighbors.
 
 ## Hand-back
 

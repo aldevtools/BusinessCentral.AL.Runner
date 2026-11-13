@@ -109,6 +109,7 @@ fn manifest(p: &str) -> Manifest {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     }
 }

@@ -689,9 +689,7 @@ fn run_codeunit_inner(
                             .watch(company_open.watched().union(&leak).copied().collect());
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        if on_run_shape_assumed {
-                            al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
-                        }
+                        mark_test_start_assumptions(lowered, on_run_shape_assumed);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                         session.start_random_scope();
@@ -1157,7 +1155,7 @@ fn run_codeunit_inner(
             }
             let marks = al_builtins::assumptions::take_hits();
             if !marks.is_empty() {
-                hits.push((name.clone(), marks));
+                hits.push((name.clone(), marks.clone()));
             }
             // `--tdd` (ADR-051 decision 5): the stubs that ran while the test ran, its handlers and subscribers included.
             let (reached, ui_answered) = scratch.take_marks(&name, session);
@@ -1201,12 +1199,7 @@ fn run_codeunit_inner(
                     codeunit_name: obj.name.clone(),
                     test: name.clone(),
                     outcome: outcome.clone(),
-                    call_stack: stacks
-                        .iter()
-                        .rev()
-                        .find(|(n, _)| *n == name)
-                        .map(|(_, s)| s.clone())
-                        .unwrap_or_default(),
+                    call_stack: last_stack(stacks, &name),
                     time: took,
                     slept_ms,
                     coverage: cov.clone(),
@@ -1214,6 +1207,7 @@ fn run_codeunit_inner(
                     stubs: reached,
                     ui_answered,
                     entry: None,
+                    assumptions: marks,
                 });
             }
             if covering {
@@ -1314,6 +1308,16 @@ fn discover(
     Vec::new()
 }
 
+/// The call stack recorded last for test `name` (empty when none was).
+fn last_stack(stacks: &[(String, String)], name: &str) -> String {
+    stacks
+        .iter()
+        .rev()
+        .find(|(n, _)| n == name)
+        .map(|(_, s)| s.clone())
+        .unwrap_or_default()
+}
+
 /// The rest of a codeunit after a test panicked: every test left is not run.
 fn not_run_after_panic(
     obj: &al_ir::Object,
@@ -1338,6 +1342,7 @@ fn not_run_after_panic(
                 stubs: Vec::new(),
                 ui_answered: Vec::new(),
                 entry: None,
+                assumptions: Vec::new(),
             });
         }
         out.push((name, outcome));
@@ -1792,5 +1797,16 @@ fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: b
         TestIsolation::Codeunit => session.freeze_min_active_row_version(),
         TestIsolation::Function if hub => session.freeze_min_active_row_version(),
         _ => {}
+    }
+}
+
+/// The marks every test of the codeunit starts with: the program's own (`ir::Program::assumes`: it compiled only through
+/// them) and, when the codeunit's OnRun shape is assumed, `TestCodeunitOnRunRows`.
+fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool) {
+    if on_run_shape_assumed {
+        al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
+    }
+    for &a in &lowered.program.assumes {
+        al_builtins::assumptions::assume(a);
     }
 }

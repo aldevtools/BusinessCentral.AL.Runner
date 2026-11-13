@@ -1,4 +1,5 @@
 use super::*;
+use crate::blob_transfer::{BlobMove, FieldKind, Holder};
 
 /// The start of the refusal of an index with fewer positions than the array has dimensions.
 const ROW_REFUSAL: &str = "a row of a ";
@@ -92,6 +93,7 @@ impl Session {
         }
         for (a, v) in args.iter().zip(values.drain(..)) {
             if let ir::Arg::Ref(p) = a {
+                let v = self.rendered_into_place(p, v, f)?;
                 let v = if class == al_builtins::builtin_id::Class::InStreamRead {
                     self.fit_stream_read(p, v, f)?
                 } else {
@@ -848,7 +850,7 @@ impl Session {
             if let Some(finals) = self.error_finals.take() {
                 for (a, v) in args.iter().zip(finals) {
                     if let ir::Arg::Ref(p) = a {
-                        self.write(p, v, f)?;
+                        self.write_back(p, v, f)?;
                     }
                 }
             }
@@ -860,7 +862,7 @@ impl Session {
             }
             (Err(Signal::Error(mut e)), true) => {
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e);
                 return Ok(Value::Boolean(false));
             }
             (Ok((_, finals)), true) => (Value::Boolean(true), finals),
@@ -1073,6 +1075,8 @@ impl Session {
                 }
             }
         }
+        // A `var Text` parameter can stand for a variable of a declared length.
+        let v = self.rendered_into_place(p, v, f)?;
         self.write(p, v, f)
     }
 
@@ -1339,6 +1343,13 @@ impl Session {
     }
 
     pub(crate) fn read(&mut self, p: &ir::Place, f: &mut Frame) -> Result<Value, Signal> {
+        self.read_place(p, false, f)
+    }
+
+    /// The value of the place `p`. `value` is true only where an expression reads it as a value (`Op::ReadPlace`); it lets the
+    /// index of an array element convert as a value read does (`element`). An element taken by reference (a `var` argument, the
+    /// record whose field is written) reads with `value` false.
+    pub(crate) fn read_place(&mut self, p: &ir::Place, value: bool, f: &mut Frame) -> Result<Value, Signal> {
         match p {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
             ir::Place::Global(i) => {
@@ -1362,7 +1373,7 @@ impl Session {
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
-                let (arr, flat) = match self.element(base, idx, f) {
+                let (arr, flat) = match self.element(base, idx, value, f) {
                     Ok(e) => e,
                     // A row of a two-dimensional array, as an argument.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1471,7 +1482,7 @@ impl Session {
     }
 
     /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
-    /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `field_blob`).
+    /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `blob_transfer::moved`).
     fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
         self.write_as(p, v, f, false)
     }
@@ -1584,6 +1595,7 @@ impl Session {
                                             // (`Session::load_blobs`, al-runner issue 7360).
                                             written: b.written,
                                             written_base: b.written_base.clone(),
+                                            write_origin: al_builtins::stream::WriteOrigin::Copy,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
@@ -1593,6 +1605,7 @@ impl Session {
                                             file: false,
                                             dotnet_view: 0,
                                             unread_content: false,
+                                            assigned_unsaved: false,
                                             utf16_binary: b.utf16_binary,
                                             unicode_read: None,
                                         },
@@ -1611,6 +1624,7 @@ impl Session {
                         d.fields = fields;
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
+                        crate::blob_transfer::buffer_replaced(&mut d);
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
@@ -1645,7 +1659,9 @@ impl Session {
                     if let Some(why) = r.unpinned_buffer {
                         crate::records::held_part_field_write(why)?;
                     }
-                    let v = field_blob(&r.fields[*pos], v, assign);
+                    let how = if assign { BlobMove::Assign } else { BlobMove::WriteBack };
+                    let v =
+                        crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, Holder::Other, || FieldKind::Plain)?;
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;
@@ -1662,7 +1678,17 @@ impl Session {
         // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_AssignedToVariantVariable and :TempRecord_VariantModifiedAfterAssign).
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
-                self.record_by_value_unmeasured(rc)
+                let copy = self.record_by_value_unmeasured(rc);
+                // An assignment to a local Variant moves the copy's Blobs as `Session::blobs_by_value` says.
+                if assign && matches!(p, ir::Place::Local(_)) {
+                    let (temporary, holder) = {
+                        let r = rc.borrow();
+                        (r.temporary, Holder::of(&r))
+                    };
+                    self.blobs_by_value(copy, temporary, holder, crate::blob_transfer::Taker::LocalVariant)?
+                } else {
+                    copy
+                }
             }
             // A RecordRef assigned to a Variant or to another RecordRef: a RecordRef of its own on the same buffer
             // (`recordref_variant.rs`). A builtin's write-back of the receiver keeps its handle.
@@ -1673,7 +1699,20 @@ impl Session {
                     _ => false,
                 } =>
             {
-                crate::recordref_variant::own_copy(h)
+                if matches!(self.place_type(p, f), RtType::Variant) {
+                    self.variant_refs.variant_copy(h)
+                } else {
+                    self.variant_refs.copy_typed_alias(h)
+                }
+            }
+            // A Blob assigned to a local Variant: the Variant holds a copy (`blob_transfer::moved`), whatever field or holder
+            // the Blob came from. A field read stored in another Variant is moved before it comes here
+            // (`blob_transfer::FieldRead`, `Op::BlobFieldRead`).
+            Value::Blob(_)
+                if assign && matches!(p, ir::Place::Local(_)) && matches!(self.place_type(p, f), RtType::Variant) =>
+            {
+                let how = BlobMove::Variant { local: true };
+                crate::blob_transfer::moved(None, v, how, Holder::Other, || FieldKind::Plain)?
             }
             _ => v,
         };
@@ -1723,7 +1762,7 @@ impl Session {
             }
             ir::Place::Index(base, idx) => {
                 let el_ty = self.place_type(p, f);
-                let (arr, flat) = match self.element(base, idx, f) {
+                let (arr, flat) = match self.element(base, idx, false, f) {
                     Ok(e) => e,
                     // The row a callee wrote through a `var` array parameter goes back into the row.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1808,6 +1847,9 @@ impl Session {
                 "assigning a character into a value that is no text".into(),
             ));
         };
+        if s.has_marker() {
+            Self::char_write_into_marked(s.audited_str(), i)?;
+        }
         let mut units: Vec<u16> = s.units();
         let Some(unit) = unit else {
             return Err(Signal::unsupported(format!(
@@ -1873,6 +1915,60 @@ impl Session {
         self.write(base, Value::Text(text), f)
     }
 
+    /// `T[i] := c` on the text `t` that holds a marker (`al_builtins::native::TEXT_MARKS`), `i` counted from 1. Rendered content
+    /// refuses at every position (ADR-040 amendment 2026-11-12, A3b `T[i]` write). Another marker stands for characters that
+    /// are not known, so only a position inside the known characters before the first marker is a known position: that write
+    /// goes on as for a known text. From the marker on the position is not known, and below 1 the range error would name a
+    /// length that is not known: both refuse.
+    fn char_write_into_marked(t: &str, i: i64) -> Result<(), Signal> {
+        if al_builtins::rendered_text::holds(t) {
+            return Err(al_builtins::rendered_text::refusal(
+                t,
+                "assigning a character of the text (T[i] := c)",
+            ));
+        }
+        let known: usize = t
+            .chars()
+            .take_while(|c| !al_builtins::native::TEXT_MARKS.contains(c))
+            .map(char::len_utf16)
+            .sum();
+        if usize::try_from(i).is_ok_and(|i| (1..=known).contains(&i)) {
+            return Ok(());
+        }
+        Err(Signal::unsupported(
+            "assigning a character of a text at or after characters this runtime does not know, or outside the text \
+             (the position and the length are not known)"
+                .to_string(),
+        ))
+    }
+
+    /// A text that holds rendered content, on its way into the variable `p` outside an assignment (the write-back of a
+    /// `var` argument of a builtin or a procedure, the loop variable of a `foreach`): it takes the conversion an assignment takes, which lets
+    /// it into an unbounded Text and a Variant only (`ops::convert`; ADR-040 amendment 2026-11-12, A5, loss mode L3). An array
+    /// (the destination of `CopyArray`, a `var` array parameter) gives each element that holds rendered content the conversion
+    /// to its element type (loss mode L23). Any other value is given back as it is.
+    pub(crate) fn rendered_into_place(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<Value, Signal> {
+        let rendered = |v: &Value| matches!(v, Value::Text(t) | Value::Code(t) if t.has_marker() && al_builtins::rendered_text::holds(t.audited_str()));
+        match &v {
+            v2 if rendered(v2) => {
+                let ty = self.place_type(p, f);
+                ops::convert(v, &ty)
+            }
+            Value::Array(cells) if cells.borrow().iter().any(rendered) => {
+                let RtType::Array(_, el) = self.place_type(p, f) else {
+                    return Err(Signal::unsupported(
+                        "an array that holds rendered content written into a place that is no array".to_string(),
+                    ));
+                };
+                for cell in cells.borrow_mut().iter_mut().filter(|c| rendered(c)) {
+                    *cell = ops::convert(cell.clone(), &el)?;
+                }
+                Ok(v)
+            }
+            _ => Ok(v),
+        }
+    }
+
     /// The cells of row `idx` of the two-dimensional array behind `base`, as (cells, first position, length): `None` for an
     /// array of another number of dimensions or an index that is not one position. A row passed as an argument is a copy for a
     /// value parameter, and for a `var` parameter it is written back into the row when the call returns (corpus
@@ -1919,6 +2015,7 @@ impl Session {
         &mut self,
         base: &ir::Place,
         idx: &[ir::Expr],
+        value_read: bool,
         f: &mut Frame,
     ) -> Result<(Cells, usize), Signal> {
         // The dimensions of an array variable (a local or a global, the usual case) are read where they are
@@ -1966,7 +2063,19 @@ impl Session {
         };
         let mut flat = 0usize;
         for (d, e) in dims.iter().zip(idx) {
-            let i = int(&Self::index_value(e, f)?)?;
+            let at = Self::index_value(e, f)?;
+            // An element of a one-dimensional array read as a value (`R := A[D]`, collections/ListNonIntegerIndex.al:196-217 with
+            // :433-452) converts a Decimal or BigInteger index as a checked cast to System.Int32: a fraction or a value past the
+            // Int32 range raises ConversionCast. A write, an element taken by reference and an array of more dimensions keep `int`.
+            let i = match &at {
+                Value::Decimal(_) | Value::BigInteger(_) if value_read && dims.len() == 1 => {
+                    match al_builtins::conv::convert_cell(&at, &RtType::Integer) {
+                        Some(conv) => int(&conv?)?,
+                        None => int(&at)?,
+                    }
+                }
+                _ => int(&at)?,
+            };
             // A one-dimensional array is measured by the array the variable holds: a parameter declared `array[3]` takes the caller's
             // array of any length and indexes within it (types/W7VarArray.al; Tests-Bank, Tests-Cash Flow and Tests-SCM-Manufacturing
             // index a parameter within the argument's length), so the check against the length follows below.
@@ -2121,29 +2230,4 @@ pub(crate) fn date_key(v: &Value) -> i64 {
 /// The Date a [`date_key`] stands for.
 pub(crate) fn date_of_key(k: i64) -> Value {
     Value::Date((k.div_euclid(2)) as i32, k.rem_euclid(2) == 1)
-}
-
-/// The Blob value a field write stores. A Blob of a record read from the database without CalcFields holds none of its
-/// content: assigned to another field it gives an empty Blob (record/flowfields/BlobCalcFieldsLength.al:404, 'target after
-/// assign' has=No|len=0, and the Modify after it stores nothing). A temporary row read back (Get, FindFirst, FindSet) without
-/// CalcFields gives the same empty copy (record/temporary/TemporaryBlobAutoCalc.al:174-310, al-runner issue 6434). Any other
-/// Blob that another holder still has (the source field, a Variant) is copied: the field gets a value of its own, which a later
-/// Clear of the source or a new write to it does not change, nor the reverse (al-runner issue 7128). The field's own buffer
-/// written back, and a builtin's write-back (`assign` false, `Session::write_native_back`: Clear, CreateOutStream), keep the buffer.
-fn field_blob(cur: &Value, v: Value, assign: bool) -> Value {
-    let Value::Blob(b) = &v else { return v };
-    if matches!(cur, Value::Blob(c) if std::sync::Arc::ptr_eq(c, b)) {
-        return v;
-    }
-    let unloaded = {
-        let buf = b.borrow();
-        (buf.db_row || buf.temp_row) && !buf.loaded
-    };
-    if unloaded {
-        Value::Blob(al_builtins::stream::new_blob())
-    } else if assign && std::sync::Arc::strong_count(b) > 1 {
-        Value::Blob(al_builtins::stream::copy_for_assignment(b))
-    } else {
-        v
-    }
 }

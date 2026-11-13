@@ -18,6 +18,8 @@ const BASE_APPLICATION: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 fn fixture(report_1002_extra: &str) -> String {
     format!(
         r#"
+dotnet {{ assembly("mscorlib") {{ type("System.IO.File"; "IOFile") {{ }} }} }}
+
 table 50900 "RNO Row"
 {{
     fields {{ field(1; Id; Integer) {{ }} field(2; Data; Blob) {{ }} field(3; Other; Blob) {{ }} }}
@@ -175,6 +177,8 @@ codeunit 50903 "RNO Tests"
     procedure F1CreateInStream() var F: File; I: InStream; begin Seed(); ToFile('out/a.pdf'); F.TextMode(true); F.Open('out/a.pdf'); F.CreateInStream(I); end;
     procedure F2Exists(): Boolean begin Seed(); ToFile('out/a.pdf'); exit(File.Exists('out/a.pdf')); end;
     procedure F3Erase() begin Seed(); ToFile('out/a.pdf'); File.Erase('out/a.pdf'); end;
+    // FileManagement.DeleteServerFile: a static System.IO.File.Delete.
+    procedure F3DotNetDelete() var Helper: DotNet IOFile; begin Seed(); ToFile('out/a.pdf'); Helper.Delete('out/a.pdf'); end;
     procedure F4Copy() begin Seed(); ToFile('out/a.pdf'); File.Copy('out/a.pdf', 'out/b.pdf'); end;
     procedure F4CopyOnto() var F: File; begin Seed(); F.Create('x/src.pdf'); F.Close(); ToFile('out/a.pdf'); File.Copy('x/src.pdf', 'out/a.pdf'); end;
     procedure F4Rename() begin Seed(); ToFile('out/a.pdf'); File.Rename('out/a.pdf', 'out/b.pdf'); end;
@@ -301,7 +305,7 @@ fn report_no_output_the_instance_form_and_the_other_formats_run_too() {
 fn report_no_output_a_report_that_is_not_listed_keeps_the_refusal() {
     for proc in ["NotListedStaysRefused", "NotListedStreamStaysRefused"] {
         match run(proc) {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{proc}: {why}"),
+            Err(Signal::Unsupported(why)) => assert!(why.contains("not measured on BC"), "{proc}: {why}"),
             other => panic!("{proc}: {other:?}"),
         }
     }
@@ -316,7 +320,7 @@ fn report_no_output_a_same_named_report_of_another_app_is_not_listed() {
         files: vec![("f.al".into(), fixture(""))],
     }]));
     match b.run_in("RNO Tests", "RunsToAFile") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{why}"),
+        Err(Signal::Unsupported(why)) => assert!(why.contains("not measured on BC"), "{why}"),
         other => panic!("{other:?}"),
     }
 }
@@ -368,6 +372,8 @@ fn report_no_output_f2_exists() {
 #[test]
 fn report_no_output_f3_erase() {
     observed("F3Erase");
+    // The delete of a placeholder file (dotnet-file-delete-placeholder) does not reach a file whose output was never produced.
+    observed("F3DotNetDelete");
 }
 #[test]
 fn report_no_output_f4_copy_and_rename() {
@@ -504,12 +510,12 @@ fn report_no_output_in_the_company_build_save_as_pdf_to_a_file_runs_the_report_a
     }
     for proc in ["CompanyBuildWord", "CompanyBuildPdfStream"] {
         match b.run_in("RNO Tests", proc) {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{proc}: {why}"),
+            Err(Signal::Unsupported(why)) => assert!(why.contains("not measured on BC"), "{proc}: {why}"),
             other => panic!("{proc}: {other:?}"),
         }
     }
     match run("CompanyBuildPdf") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{why}"),
+        Err(Signal::Unsupported(why)) => assert!(why.contains("not measured on BC"), "{why}"),
         other => panic!("outside the company build: {other:?}"),
     }
 }
