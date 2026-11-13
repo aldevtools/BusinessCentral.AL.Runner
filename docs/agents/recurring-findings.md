@@ -38,6 +38,11 @@ finds the next neighbor shape. Write the gate in allowlist form:
     handle, not only for handles that met the shape when they opened.
   - the arguments of a call whose failure is now caught: a stream or by-reference argument, or a stream an earlier
     call handed over, has effects that the failed call's reply does not carry. Require the measured argument kinds.
+  - a body-shape check that accepts any call statement or any condition: Rec and CurrPage methods and procedures of
+    the page pass too. Require the kind of callee and the kind of condition the pin has.
+  - a body with branches (`case`, `if`) checked by its form only: the pin measured one branch. Require the branch that
+    ran (a run-time fact), and the exact branches.
+  - a pinned call checked by its name only (`Next`): the pin also has its outcome (it moved). Require the outcome.
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

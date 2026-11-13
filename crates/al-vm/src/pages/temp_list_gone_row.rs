@@ -10,7 +10,6 @@ use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::ids;
 use al_builtins::page_op::PageMethod;
-use al_builtins::record_op::RecordOp;
 
 /// ReopenSameVariableState.al:151 "PG6 FL Temp List": OnOpenPage fills Rec, OnAfterGetCurrRecord and OnClosePage log, fields of
 /// Rec in a repeater, one action whose OnAction deletes Rec; `Editable = false`, `SourceTableTemporary = true`; the table has
@@ -53,17 +52,6 @@ impl Session {
         let r = self.arrive_after_gone_row(st);
         self.torn_down_on_error(st, r)?;
         Ok(true)
-    }
-
-    /// The fields of the row `step` (1 or -1) from Rec's key in its view, read on a copy of Rec.
-    fn neighbor_row(&mut self, rec: &Rec, step: i32) -> Result<Option<Vec<Value>>, Signal> {
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        let moved = matches!(
-            self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(step)])?,
-            Value::Integer(n) if n == step
-        );
-        Ok(moved.then(|| probe.borrow().fields.clone()))
     }
 
     /// The facts of the probe's cell, each by equality:
@@ -111,7 +99,8 @@ impl Session {
     }
 }
 
-/// The page's triggers have the bodies of ReopenSameVariableState.al:151-212, and the page has no other routine:
+/// The page's triggers have the bodies of ReopenSameVariableState.al:151-212, the page has no other routine, and the action
+/// with the OnAction is its only action (:172-181):
 /// - OnOpenPage (:184-194): `if Row.FindSet() then repeat Rec := Row; Rec.Insert(); until Row.Next() = 0;` with `Row` a local
 ///   record, then one log call (`rec_text_log_call`): Rec ends on the last row it filled;
 /// - the action's OnAction (:174-178): one log call, then `Rec.Delete()` without argument;
@@ -133,6 +122,12 @@ fn probe_bodies(program: &ir::Program, object: usize) -> bool {
         .flat_map(|c| c.triggers.iter().map(|(_, r)| *r))
         .collect();
     let routines = page.triggers.len() + actions.len();
+    let one_action = page
+        .controls
+        .iter()
+        .filter(|c| c.kind == ir::ControlKind::Action)
+        .map(|c| c.triggers.len())
+        .eq([1]);
     let action = matches!(actions.as_slice(), [r] if matches!(body(*r).as_slice(),
         [l, ir::Stmt::Expr(d)] if log(l) && on_rec(d, ids::RECORD_DELETE_1, &[])));
     let triggers = page
@@ -145,7 +140,7 @@ fn probe_bodies(program: &ir::Program, object: usize) -> bool {
             ("onaftergetcurrrecord" | "onclosepage", [l]) => log(l),
             _ => false,
         });
-    o.routines.len() == routines && action && triggers
+    o.routines.len() == routines && one_action && action && triggers
 }
 
 /// `if <find> then <then>` of OnOpenPage (routine `r`) is `if Row.FindSet() then repeat Rec := Row; Rec.Insert(); until

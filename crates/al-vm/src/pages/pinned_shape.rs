@@ -495,6 +495,17 @@ impl Session {
             && r.filters.is_empty()
             && !r.marked_only
     }
+
+    /// The fields of the row `step` (1 or -1) from Rec's key in its view, read on a copy of Rec; `None` when no row is there.
+    pub(super) fn neighbor_row(&mut self, rec: &Rec, step: i32) -> Result<Option<Vec<Value>>, Signal> {
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        let moved = matches!(
+            self.record_op(al_builtins::record_op::RecordOp::Next, &probe, &mut [Value::Integer(step)])?,
+            Value::Integer(n) if n == step
+        );
+        Ok(moved.then(|| probe.borrow().fields.clone()))
+    }
 }
 
 impl Session {
@@ -559,8 +570,9 @@ pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Ex
 }
 
 /// `e` calls a procedure of a codeunit that a global variable of page `object` holds, with arguments that are text built of
-/// constants and fields of Rec with `+` (`Log.Add('I ' + Rec."Code" + ' ' + Rec.Name)`): the log call of the probe pages of
-/// pages/triggers/RecordTriggerReturnValue.al and testpage/lifecycle/ReopenSameVariableState.al (open corpus PR 1367).
+/// constants and fields of Rec with `+` (`Log.Add('I ' + Rec."Code" + ' ' + Rec.Name)`), and the procedure only appends to a
+/// text of its codeunit (`text_log_routine`): the log call of the probe pages of pages/triggers/RecordTriggerReturnValue.al and
+/// testpage/lifecycle/ReopenSameVariableState.al (open corpus PR 1367).
 pub(super) fn rec_text_log_call(program: &ir::Program, object: usize, e: &ir::Expr) -> bool {
     fn rec_text(rec: usize, e: &ir::Expr) -> bool {
         match e {
@@ -575,9 +587,79 @@ pub(super) fn rec_text_log_call(program: &ir::Program, object: usize, e: &ir::Ex
         return false;
     };
     codeunit_var_call(program, object, e)
-        && matches!(e, ir::Expr::Call { object: callee, args, .. }
-            if program.objects[*callee].kind == ir::ObjKind::Codeunit
+        && matches!(e, ir::Expr::Call { object: callee, routine, args, .. }
+            if text_log_routine(program, *callee, *routine)
                 && args.iter().all(|a| matches!(a, ir::Arg::Value(v) if rec_text(rec, v))))
+}
+
+/// `e` without the type conversions around it.
+pub(super) fn unconverted(e: &ir::Expr) -> &ir::Expr {
+    match e {
+        ir::Expr::Convert(_, inner) => unconverted(inner),
+        e => e,
+    }
+}
+
+/// Routine `routine` of `callee` is a procedure of a codeunit that only appends text to one Text global of the codeunit: it has
+/// value parameters only, no local variable and no return value, and each statement is `G += <text>` or
+/// `if G <> <constant> then G += <text>;`, the text built of constants and the parameters with `+`. The log procedures of the
+/// pins: corpus testpage/CcPageLeads.al:32-35 (`Buffer += Entry + ';'`), and of open corpus PR 1367
+/// pages/triggers/RecordTriggerReturnValue.al:190-193 (`Lines += Line + '; '`) and
+/// testpage/lifecycle/ReopenSameVariableState.al:227-232 (`if Entries <> '' then Entries += ' '; Entries += Line;`).
+pub(super) fn text_log_routine(program: &ir::Program, callee: usize, routine: usize) -> bool {
+    fn text(params: usize, e: &ir::Expr) -> bool {
+        match unconverted(e) {
+            ir::Expr::Const(ir::Const::Text(_)) => true,
+            ir::Expr::Load(ir::Place::Local(l)) => *l < params,
+            ir::Expr::Binary(ir::BinOp::Add, a, b) => text(params, a) && text(params, b),
+            _ => false,
+        }
+    }
+    let o = &program.objects[callee];
+    let Some(r) = o.routines.get(routine) else {
+        return false;
+    };
+    let plain = o.kind == ir::ObjKind::Codeunit
+        && !r.is_trigger
+        && r.ret.is_none()
+        && r.locals.len() == r.params
+        && r.by_var.iter().all(|v| !v);
+    let is_log = |g: usize| o.globals.get(g).is_some_and(|s| matches!(s.ty, RtType::Text(_)));
+    // `G += <text>`: the global it appends to.
+    let append = |s: &ir::Stmt| match s {
+        ir::Stmt::Assign(ir::Place::Global(g), e) => match unconverted(e) {
+            ir::Expr::Binary(ir::BinOp::Add, a, b)
+                if matches!(unconverted(a), ir::Expr::Load(ir::Place::Global(h)) if h == g) && text(r.params, b) =>
+            {
+                Some(*g)
+            }
+            _ => None,
+        },
+        _ => None,
+    };
+    let stmts = code_stmts(program, callee, routine);
+    let mut log = None;
+    let mut same_log = |g: Option<usize>| match (g, log) {
+        (Some(g), None) if is_log(g) => {
+            log = Some(g);
+            true
+        }
+        (Some(g), Some(l)) => g == l,
+        _ => false,
+    };
+    plain
+        && !stmts.is_empty()
+        && stmts.iter().all(|s| match s {
+            ir::Stmt::If(ir::Expr::Binary(ir::BinOp::Ne, a, b), then, otherwise) => {
+                let then: Vec<&ir::Stmt> = then.iter().filter(|s| !matches!(s, ir::Stmt::Pos(_))).collect();
+                let tested = match (unconverted(a), unconverted(b)) {
+                    (ir::Expr::Load(ir::Place::Global(g)), ir::Expr::Const(ir::Const::Text(_))) => Some(*g),
+                    _ => None,
+                };
+                otherwise.is_empty() && same_log(tested) && matches!(then.as_slice(), [one] if same_log(append(one)))
+            }
+            s => same_log(append(s)),
+        })
 }
 
 /// Whether trigger `name` (routine `r`) of page `object` has the body the pages of the close-errors fixtures give it

@@ -276,6 +276,126 @@ page 75366 "RT ExitTrueIns Cond Card"
             exit(false);
     end;
 }
+page 75367 "RT MM Fix"
+{
+    PageType = Card; SourceTable = "RT Plain Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } }
+    trigger OnModifyRecord(): Boolean
+    var
+        Log: Codeunit "RT Mode";
+        Other: Record "RT Plain Row";
+    begin
+        Log.Add('M mode=' + Format(Log.GetMode()) + ' name=' + Rec.Name);
+        case Log.GetMode() of
+            1:
+                exit(false);
+            2:
+                begin
+                    Other.Get('R2');
+                    Rec := Other;
+                end;
+            3:
+                exit(true);
+        end;
+    end;
+}
+page 75368 "RT MM Trig"
+{
+    PageType = Card; SourceTable = "RT Plain Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } }
+    trigger OnModifyRecord(): Boolean
+    var
+        Log: Codeunit "RT Mode";
+        Other: Record "RT Plain Row";
+    begin
+        Log.Add('M mode=' + Format(Log.GetMode()) + ' name=' + Rec.Name);
+        case Log.GetMode() of
+            1:
+                exit(false);
+            2:
+                begin
+                    Other.Get('R2');
+                    Rec := Other;
+                end;
+            3:
+                exit(true);
+            4:
+                Rec.Name := 'trig';
+        end;
+    end;
+}
+page 75371 "RT MM One"
+{
+    PageType = Card; SourceTable = "RT Plain Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } }
+    trigger OnModifyRecord(): Boolean
+    var
+        Log: Codeunit "RT Mode";
+        Other: Record "RT Plain Row";
+    begin
+        Log.Add('M mode=' + Format(Log.GetMode()) + ' name=' + Rec.Name);
+        case Log.GetMode() of
+            1:
+                exit(false);
+        end;
+    end;
+}
+page 75372 "RT MM Arg"
+{
+    PageType = Card; SourceTable = "RT Plain Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } }
+    trigger OnModifyRecord(): Boolean
+    var
+        Log: Codeunit "RT Mode";
+        Other: Record "RT Plain Row";
+    begin
+        Log.Add('M mode=' + Format(Log.GetMode()) + ' name=' + Format(Rec.Modify()));
+        case Log.GetMode() of
+            1:
+                exit(false);
+            2:
+                begin
+                    Other.Get('R2');
+                    Rec := Other;
+                end;
+            3:
+                exit(true);
+        end;
+    end;
+}
+page 75373 "RT CondTouch Card"
+{
+    PageType = Card; SourceTable = "RT Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { group(General) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { } } } }
+    var Log: Codeunit "RT Log"; Blocked: Boolean;
+    trigger OnInsertRecord(BelowxRec: Boolean): Boolean
+    begin
+        Log.Add('I ' + Rec."Code" + ' ' + Rec.Name);
+        if Blocked then
+            exit(false);
+    end;
+    trigger OnModifyRecord(): Boolean
+    begin
+        Log.Touch('M ' + Rec."Code" + ' ' + Rec.Name);
+        if Blocked then
+            exit(false);
+    end;
+    trigger OnDeleteRecord(): Boolean
+    begin
+        Log.Add('D ' + Rec."Code");
+        if Blocked then
+            exit(false);
+    end;
+}
+codeunit 75374 "RT Mode"
+{
+    SingleInstance = true;
+    var Buffer: Text; Mode: Integer;
+    procedure Add(Entry: Text) begin Buffer += Entry + ';'; end;
+    procedure Take(): Text var Result: Text; begin Result := Buffer; Buffer := ''; exit(Result); end;
+    procedure SetMode(NewMode: Integer) begin Mode := NewMode; end;
+    procedure GetMode(): Integer begin exit(Mode); end;
+}
 codeunit 75354 "RT Log"
 {
     SingleInstance = true;
@@ -283,6 +403,12 @@ codeunit 75354 "RT Log"
     procedure Reset() begin Lines := ''; end;
     procedure Add(Line: Text) begin Lines += Line + '; '; end;
     procedure Take() Result: Text begin Result := Lines; Lines := ''; end;
+    procedure Touch(Line: Text)
+    var Row: Record "RT Row";
+    begin
+        Lines += Line + '; ';
+        Row.Get('R1'); Row.Name := 'cu'; Row.Modify();
+    end;
 }
 codeunit 75355 T
 {
@@ -455,6 +581,85 @@ codeunit 75355 T
     begin
         Setup(); P.OpenNew(); P."Code".SetValue('N1'); P.Name.SetValue('new'); P.Next(); P.Close(); exit(Done());
     end;
+    procedure CondModifyLastNext(): Text
+    var P: TestPage "RT Cond Card";
+    begin
+        Setup(); P.OpenEdit(); P.GoToKey('R2'); P.Name.SetValue('edited'); P.Next(); P.Close(); exit(Done());
+    end;
+    procedure CondModifyOnlyRowNext(): Text
+    var P: TestPage "RT Cond Card"; Row: Record "RT Row";
+    begin
+        Setup(); Row.Get('R2'); Row.Delete(); Commit(); Log.Reset();
+        P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Next(); P.Close(); exit(Done());
+    end;
+    procedure CondInsertLastNext(): Text
+    var P: TestPage "RT Cond Card";
+    begin
+        Setup(); P.OpenNew(); P."Code".SetValue('Z1'); P.Name.SetValue('new'); P.Next(); P.Close(); exit(Done());
+    end;
+    procedure FalseModifyLastNext(): Text
+    var P: TestPage "RT False Card";
+    begin
+        Setup(); P.OpenEdit(); P.GoToKey('R2'); P.Name.SetValue('edited'); P.Next(); P.Close(); exit(Done());
+    end;
+    procedure CondTouchEdit(): Text
+    var P: TestPage "RT CondTouch Card";
+    begin
+        Setup(); P.OpenEdit(); P.GoToKey('R2'); P.Name.SetValue('edited'); P.Close(); exit(Done());
+    end;
+    local procedure PlainRows()
+    var Row: Record "RT Plain Row";
+    begin
+        Row.DeleteAll();
+        Row."Code" := 'R1'; Row.Name := 'start'; Row.Insert();
+        Row."Code" := 'R2'; Row.Name := 'second'; Row.Insert();
+        Commit();
+    end;
+    local procedure PlainDone(): Text
+    var Row: Record "RT Plain Row"; Mode: Codeunit "RT Mode"; Result: Text;
+    begin
+        Result := Mode.Take() + ' |';
+        Mode.SetMode(0);
+        if Row.FindSet() then
+            repeat
+                Result += ' ' + Row."Code" + '=' + Row.Name;
+            until Row.Next() = 0;
+        exit(Result);
+    end;
+    local procedure MMFix(NewMode: Integer): Text
+    var P: TestPage "RT MM Fix"; Mode: Codeunit "RT Mode";
+    begin
+        PlainRows(); Mode.SetMode(NewMode);
+        P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Close(); exit(PlainDone());
+    end;
+    procedure MMFixNoBranch(): Text begin exit(MMFix(0)); end;
+    procedure MMFixExitFalse(): Text begin exit(MMFix(1)); end;
+    procedure MMFixAssign(): Text begin exit(MMFix(2)); end;
+    procedure MMFixExitTrue(): Text begin exit(MMFix(3)); end;
+    procedure MMTrigField(): Text
+    var P: TestPage "RT MM Trig"; Mode: Codeunit "RT Mode";
+    begin
+        PlainRows(); Mode.SetMode(4);
+        P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Close(); exit(PlainDone());
+    end;
+    procedure MMTrigAssign(): Text
+    var P: TestPage "RT MM Trig"; Mode: Codeunit "RT Mode";
+    begin
+        PlainRows(); Mode.SetMode(2);
+        P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Close(); exit(PlainDone());
+    end;
+    procedure MMOneNoBranch(): Text
+    var P: TestPage "RT MM One"; Mode: Codeunit "RT Mode";
+    begin
+        PlainRows(); Mode.SetMode(0);
+        P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Close(); exit(PlainDone());
+    end;
+    procedure MMArgAssign(): Text
+    var P: TestPage "RT MM Arg"; Mode: Codeunit "RT Mode";
+    begin
+        PlainRows(); Mode.SetMode(2);
+        P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Close(); exit(PlainDone());
+    end;
 }
 "#;
 
@@ -554,6 +759,21 @@ fn unmeasured_neighbors_are_refused() {
         ("ModModeCondEdit", exit),
         // a named return value that ends false after an exit that did not run
         ("NamedFalseExitEdit", named),
+        // round 2 of the review: a Next that does not move, from the last row (N10), the only row (K10), a new row that sorts
+        // last (K9), and on the False card (K1)
+        ("CondModifyLastNext", exit),
+        ("CondModifyOnlyRowNext", exit),
+        ("CondInsertLastNext", exit),
+        ("FalseModifyLastNext", named),
+        // a log procedure that also writes a stored row (L1)
+        ("CondTouchEdit", exit),
+        // the CcFixtures.al page with no branch run (M1), with a fourth branch, run (M3) or not, with one branch only (M5), and
+        // with a method of Rec in the argument of the log call
+        ("MMFixNoBranch", exit),
+        ("MMTrigField", exit),
+        ("MMTrigAssign", exit),
+        ("MMOneNoBranch", exit),
+        ("MMArgAssign", exit),
     ] {
         refused(proc, why);
     }
@@ -583,4 +803,25 @@ fn a_named_true_after_an_exit_not_taken_keeps_mains_save() {
     );
     let hits = take_hits();
     assert!(!hits.contains(&Assumption::PageRecordTriggerExitNotTakenSaves));
+}
+
+/// corpus testpage/CcPageLeads.al:341 ModifyRecord_AssignsAnotherRecord: the `case` ran the branch that sets Rec to row 2, no exit
+/// ran, and both rows stay as they were. The branches with an exit that ran answer as on main (:330, :352).
+#[test]
+fn the_fixture_page_runs_only_with_its_assign_branch() {
+    flagged(
+        "MMFixAssign",
+        "M mode=2 name=edited; | R1=start R2=second",
+        Assumption::PageRecordTriggerExitNotTakenSaves,
+    );
+    take_hits();
+    assert_eq!(
+        text(run_in(SRC, "T", "MMFixExitFalse")),
+        "M mode=1 name=edited; | R1=start R2=second"
+    );
+    assert_eq!(
+        text(run_in(SRC, "T", "MMFixExitTrue")),
+        "M mode=3 name=edited; | R1=edited R2=second"
+    );
+    assert!(!take_hits().contains(&Assumption::PageRecordTriggerExitNotTakenSaves));
 }

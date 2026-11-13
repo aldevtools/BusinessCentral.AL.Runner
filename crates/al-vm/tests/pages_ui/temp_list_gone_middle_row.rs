@@ -144,6 +144,44 @@ page 75383 "FL Temp ArgCall List"
     trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Rec."Code" + ')'); end;
     trigger OnClosePage() begin Log.Add('close'); end;
 }
+page 75384 "FL Temp RunObj List"
+{
+    PageType = List; SourceTable = "FL Row"; SourceTableTemporary = true; Editable = false; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(DelCur) { ApplicationArea = All; trigger OnAction() begin Log.Add('del(' + Rec."Code" + ')'); Rec.Delete(); end; } action(Go) { ApplicationArea = All; RunObject = page "FL Stored List"; } } }
+    var Log: Codeunit "FL Log";
+    trigger OnOpenPage()
+    var Row: Record "FL Row";
+    begin
+        if Row.FindSet() then
+            repeat
+                Rec := Row;
+                Rec.Insert();
+            until Row.Next() = 0;
+        Log.Add('open');
+    end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Rec."Code" + ')'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
+page 75385 "FL Temp Touch List"
+{
+    PageType = List; SourceTable = "FL Row"; SourceTableTemporary = true; Editable = false; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(DelCur) { ApplicationArea = All; trigger OnAction() begin Log.Touch('del(' + Rec."Code" + ')'); Rec.Delete(); end; } } }
+    var Log: Codeunit "FL Log";
+    trigger OnOpenPage()
+    var Row: Record "FL Row";
+    begin
+        if Row.FindSet() then
+            repeat
+                Rec := Row;
+                Rec.Insert();
+            until Row.Next() = 0;
+        Log.Add('open');
+    end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Rec."Code" + ')'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
 codeunit 75374 "FL Log"
 {
     SingleInstance = true;
@@ -151,6 +189,12 @@ codeunit 75374 "FL Log"
     procedure Reset() begin Entries := ''; end;
     procedure Add(Line: Text) begin if Entries <> '' then Entries += ' '; Entries += Line; end;
     procedure Take() Result: Text begin Result := '[' + Entries + ']'; Entries := ''; end;
+    procedure Touch(Line: Text)
+    var Plain: Record "FL Plain Row";
+    begin
+        Add(Line);
+        Plain.Get('R1'); Plain.Name := 'cu'; Plain.Modify();
+    end;
 }
 codeunit 75375 T
 {
@@ -223,6 +267,16 @@ codeunit 75375 T
     begin
         Rows(3); P.OpenView(); P.GoToKey('R2'); P.DelCur.Invoke();
     end;
+    procedure SecondAction()
+    var P: TestPage "FL Temp RunObj List";
+    begin
+        Rows(3); P.OpenView(); P.GoToKey('R2'); P.DelCur.Invoke();
+    end;
+    procedure CalleeWrites()
+    var P: TestPage "FL Temp Touch List";
+    begin
+        Rows(3); P.OpenView(); P.GoToKey('R2'); P.DelCur.Invoke();
+    end;
     procedure StoredList(): Text
     var P: TestPage "FL Stored List";
     begin
@@ -249,6 +303,7 @@ fn the_list_lands_on_the_row_before_the_deleted_one() {
 fn unmeasured_neighbors_are_refused() {
     // The review's neighbors (al-runner PR 7946, round 1): `CurrPage.Update(false)` after the delete (T1), a change of another
     // row in the action (T2), OnOpenPage ending on the first row (T3), a call in the argument of the action's log call.
+    // Round 2: a second action without a trigger (TL1), a log procedure that also writes a stored row (L1).
     for proc in [
         "First",
         "Last",
@@ -260,6 +315,8 @@ fn unmeasured_neighbors_are_refused() {
         "ModifyOtherInAction",
         "OpenOnFirst",
         "ArgCallInAction",
+        "SecondAction",
+        "CalleeWrites",
     ] {
         let r = run_in(SRC, "T", proc);
         assert!(
