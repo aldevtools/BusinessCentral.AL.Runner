@@ -323,3 +323,52 @@ fn a_text_attribute_without_a_trigger_keeps_mains_refusal() {
         "{why}"
     );
 }
+
+/// The reporter's ports (al-runner issue 7865) declare `XmlName` with each node's own name on the table element, the text
+/// element and the attribute, and `MaxOccurs = Once; MinOccurs = Once` on the entry element. An `XmlName` equal to the name
+/// gives the same IR node, so the shape is the measured one (XpTextElemFieldAttrExport.al:468, :478). An `XmlName` that differs
+/// from the name, also only in case, keeps main's refusal.
+fn reporter_names(src: &str, line_name: &str) -> String {
+    src.replace(
+        "MinOccurs = Zero; UseTemporary = true;",
+        &format!("MinOccurs = Zero; XmlName = '{line_name}'; UseTemporary = true;"),
+    )
+    .replace(
+        r#"fieldelement(EntryNo; Line."Entry No.") { }"#,
+        r#"fieldelement(EntryNo; Line."Entry No.") { MaxOccurs = Once; MinOccurs = Once; }"#,
+    )
+    .replace(
+        "MaxOccurs = Once;\n",
+        "XmlName = 'MinValue';\n                    MaxOccurs = Once;\n",
+    )
+    .replace(
+        r#"fieldattribute(equalsValid; Line."Min. Value Equals Valid") { }"#,
+        r#"fieldattribute(equalsValid; Line."Min. Value Equals Valid") { XmlName = 'equalsValid'; }"#,
+    )
+}
+
+#[test]
+fn the_reporters_xml_names_equal_to_the_node_names_run_the_measured_shape() {
+    let with_trigger = reporter_names(
+        &src("Export", &format!("MinOccurs = Zero;\n{}", trigger("")), ATTR, ""),
+        "Line",
+    );
+    assert!(with_trigger.contains("XmlName = 'MinValue';"), "{with_trigger}");
+    assert_eq!(flagged(&with_trigger), standard());
+    let row = format!("trigger OnAfterGetRecord()\n                begin{SET_TEXT}\n                end;");
+    assert_eq!(
+        flagged(&reporter_names(&src("Export", "MinOccurs = Zero;", ATTR, &row), "Line")),
+        standard()
+    );
+    let other_case = reporter_names(
+        &src("Export", &format!("MinOccurs = Zero;\n{}", trigger("")), ATTR, ""),
+        "line",
+    );
+    al_builtins::assumptions::take_hits();
+    let why = refused(&other_case);
+    assert!(why.contains("triggers of the container text element"), "{why}");
+    assert!(
+        !al_builtins::assumptions::take_hits()
+            .contains(&al_builtins::assumptions::Assumption::XmlportTextElemFieldAttrExport)
+    );
+}
