@@ -276,8 +276,9 @@ impl<'a> Checker<'a> {
                     table: crate::types::property_object_name(&t).into(),
                     temporary: false,
                 });
-                // The fields and methods of the implicit Rec can be used unqualified in a codeunit with TableNo
-                // (Microsoft's "Save Data Exch. Blob Sample": `"File Name" := ...; Find(); CalcFields(..)`).
+                // The fields and methods of the implicit Rec can be used unqualified in the OnRun trigger of a codeunit with
+                // TableNo (Microsoft's "Save Data Exch. Blob Sample": `"File Name" := ...; Find(); CalcFields(..)`); its other
+                // routines have no implicit Rec (`implicit_rec_globals`).
                 rec_unqualified = rec.is_some();
             }
             ObjKind::Report | ObjKind::ReportExtension => {
@@ -716,8 +717,9 @@ impl<'a> Checker<'a> {
                 ),
                 None => (rec.clone(), *rec_unqualified),
             };
-            // A procedure (every routine but the OnRun trigger) of a codeunit with TableNo: no implicit Rec.
-            let table_no_procedure = table_no_procedure_globals.as_ref().filter(|_| !r.is_trigger());
+            // Every routine of a codeunit with TableNo but its OnRun trigger: no implicit Rec (`implicit_rec_globals`).
+            let on_run = r.is_trigger() && r.name().eq_ignore_ascii_case("OnRun");
+            let table_no_procedure = table_no_procedure_globals.as_ref().filter(|_| !on_run);
             let (rec, rec_unqualified, globals) = match table_no_procedure {
                 Some(own) => (None, false, own.clone()),
                 None => (rec, rec_unqualified, globals.clone()),
@@ -734,9 +736,7 @@ impl<'a> Checker<'a> {
                 base_vars: base_vars.clone(),
                 ext_vars: ext_vars.clone(),
                 withs: Vec::new(),
-                codeunit_on_run: self.ws.objects[oi].kind == ObjKind::Codeunit
-                    && r.is_trigger()
-                    && r.name().eq_ignore_ascii_case("OnRun"),
+                codeunit_on_run: self.ws.objects[oi].kind == ObjKind::Codeunit && on_run,
                 report_item,
             };
             let mut locals = super::posmap::FxMap::default();
@@ -1024,11 +1024,13 @@ fn request_page_source_table(obj: &ast::Object) -> Option<String> {
 }
 
 /// Puts the implicit `Rec` (and, outside a codeunit, `xRec`) of `rec` into `globals`. For a codeunit with TableNo it returns
-/// the globals its procedures see: the object's own variables only, no `Rec`, no `xRec`, no unqualified field or method of
-/// the implicit record (al-runner issue 7974; alc 18.0.39.10160 gives AL0118 for each, in global, local and internal
-/// procedures, event subscribers and test procedures, also next to a parameter named `Rec`; probe apps in
-/// lower/tests/type_before_rec_field.rs). A global `Rec` or `xRec` the codeunit declares stays that variable there. Only the
-/// OnRun trigger has the implicit Rec, and no implicit `xRec` (AL0161, `al_unresolved_name`).
+/// the globals every routine but OnRun sees: the object's own variables only, no `Rec`, no `xRec`, no unqualified field or
+/// method of the implicit record (al-runner issue 7974; AL0118 for each in corpus must-not-compile 3140 to 3152, corpus PR
+/// 1386: global, local and internal procedures, event subscribers and test procedures, also next to a parameter named
+/// `Rec`; in the triggers of an Install and a TestRunner codeunit alc 18.0.39.10160 and 17.0.34.45391 give the same, review
+/// of PR 7980, no corpus case yet). A global `Rec` or `xRec` the codeunit declares is that variable to the checker there
+/// (3141, 3142); lowering runs a global `Rec` only as main did (`lower::shared::declared_rec_refusal`). Only the OnRun
+/// trigger has the implicit Rec, and no implicit `xRec` (AL0161, 3153, `al_unresolved_name`).
 fn implicit_rec_globals(
     kind: ObjKind,
     rec: Option<&Ty>,

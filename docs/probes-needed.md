@@ -735,6 +735,17 @@ Measured so far: corpus pull request 1371, `reports/html-email-body/RxTenantLayo
 | A save with no dataset row: to a file; two data items with a parent row and no child row; a report extension; report triggers of a `DefaultLayout = Word` report and of an RDLC report; Word of a `DefaultLayout = Word` report; Excel of an RDLC report; behind a stored layout selection row of the report (Report Layout Selection or Tenant Report Layout Selection, of any company). | REFUSED for a Word layout report; an RDLC report writes its placeholder as with rows | `RxLayoutSelectionTests.al` NoRowFacts on reports with those declarations, with the trigger log. |
 | `TestPage` `Value()` of a MultiLine or RichContent control over rendered content (the `Email Editor` page's BodyField). Measured on corpus pull request 1362, `HtRenderedTextTests.al`:646-708: the text comes back unchanged except from a plain control with a long text with line breaks; a hidden MultiLine control raises `TestFieldNotFound`. | REFUSED (measured, not built yet; `pages/rendered_field.rs`) | None; build from the measured cells. |
 
+## Codeunits with TableNo: the implicit Rec only in OnRun (al-runner 7962, 7974, 7803; 2026-11-13)
+
+Compile results come from corpus must-not-compile 3140 to 3163 (corpus PR 1386, open). The rows below are not in it.
+
+| What is not pinned | Today | Probe wanted |
+|---|---|---|
+| `Rec`, a bare field and `xRec` in the triggers of an Install or a TestRunner codeunit with TableNo | AL0118, as alc 17 and 18 give (review of PR 7980) | Must-not-compile cases for both subtypes |
+| `Version.<member>` under a `with` whose record lacks the field `Version`, in a codeunit | AL0132, as alc 18 gives (review of PR 7980) | A must-not-compile case |
+| A global `Rec` declared in a codeunit with TableNo, used in a procedure and in OnRun | A non-temporary record of the TableNo table runs as the codeunit's Rec (main's result, one slot); any other declared type REFUSED at lowering | Set the global `Rec` in a procedure before `Codeunit.Run(R)`, read it after; the same with a record of another table |
+| A field of the TableNo table named like a system function (`UserId`, `Today`), read bare outside OnRun | REFUSED at lowering (alc binds the system function; main returned the field) | Read both names in a procedure after OnRun wrote the fields |
+
 ## Assumptions in force (generated from the registry)
 
 Owner rule of 2026-10-15 (CLAUDE.md hard rule 3): behavior a Microsoft test needs may be implemented before its probe, and every test that passes through such behavior is reported as a FLAGGED pass. The registry is `crates/al-builtins/src/assumptions.rs`; each code path marks its entry when it runs. This table is generated from it (do not edit it by hand: `UPDATE_ASSUMPTIONS_DOC=1 cargo test -p al-builtins assumptions` rewrites it). `alrunner test --top-assumptions` ranks the entries by flagged passes, `--list-assumptions` prints them with the hit counts of the last run. When a probe pins an entry, delete it from the registry; the compiler names every place that still marks it.

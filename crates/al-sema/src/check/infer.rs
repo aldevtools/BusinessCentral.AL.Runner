@@ -909,8 +909,8 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        // AL0161: `xRec` in the OnRun trigger of a codeunit with TableNo (al-runner issue 7974; alc 18.0.39.10160 gives
-        // `'xRec' is inaccessible due to its protection level`, probe app a1 in lower/tests/type_before_rec_field.rs).
+        // AL0161: `xRec` in the OnRun trigger of a codeunit with TableNo (al-runner issue 7974; corpus must-not-compile 3153,
+        // corpus PR 1386; app.json features `[]`, with `NoImplicitWith` alc gives AL0118, which this checker does not read).
         if kind == ObjKind::Codeunit && sc.codeunit_on_run && sc.rec.is_some() && name.eq_ignore_ascii_case("xRec") {
             self.diag(
                 sc,
@@ -995,8 +995,8 @@ impl<'a> Checker<'a> {
                 _ => false,
             };
         if judged {
-            // alc shows the name as written, quotes included (alc 18.0.39.10160, issue 7974: `'"Entry No."'` in a codeunit,
-            // a table trigger and a page trigger; corpus must-not-compile 0222 for a quoted codeunit name).
+            // alc shows the name as written, quotes included (issue 7974; corpus must-not-compile 3163 in a codeunit, 3161 in a
+            // table trigger, 3162 in a page trigger, corpus PR 1386; 0222 for a quoted codeunit name).
             let written = ast::significant_green_tokens(node)
                 .find(|t| matches!(t.kind, SyntaxKind::Ident | SyntaxKind::QuotedIdent))
                 .map_or_else(|| name.clone(), |t| t.text.to_string());
@@ -1146,8 +1146,8 @@ impl<'a> Checker<'a> {
     }
 
     /// AL0107: the keyword `in`, unquoted, after `::` (`R.Direction::In`, `D::In` on an option variable,
-    /// `"Some Enum"::In`): al-runner issue 7803; alc 18.0.39.10160 gives AL0107 at `In`, then syntax errors this parser
-    /// does not reproduce; `::"In"` compiles. Only the word `in` is measured.
+    /// `"Some Enum"::In`): al-runner issue 7803; corpus must-not-compile 3158, 3159 and 3160 (corpus PR 1386) give AL0107 at
+    /// `In`, then syntax errors this parser does not reproduce; `::"In"` compiles. Only the word `in` is measured.
     fn al_unquoted_in_after_scope(&mut self, sc: &Scope, member: Option<&SyntaxNode>) {
         let Some(member) = member else { return };
         let unquoted_in = ast::significant_green_tokens(member)
@@ -1169,12 +1169,17 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// AL0132 for a member the type `Version`, named as a type, does not have in any version of the catalog, static or not:
-    /// `Version.ToUpper()` (al-runner issue 7974; alc 18.0.39.10160 gives `'Version' does not contain a definition for
-    /// 'ToUpper'`, probe app a1 in lower/tests/type_before_rec_field.rs). Only `Version` is measured; a member the type
-    /// has as an instance method (alc: AL0310) and every other type keep main's result.
+    /// AL0132 for a member the type `Version`, named as a type, does not have in any version of the catalog, static or not,
+    /// in the code of a codeunit: `Version.ToUpper()` (al-runner issue 7974; corpus must-not-compile 3154 in a procedure of a
+    /// codeunit with TableNo, 3155 in a codeunit without TableNo, corpus PR 1386). Only `Version` in a codeunit is measured.
+    /// In a report or an xmlport the Rec of a request page SourceTable can supply the name where this checker does not model
+    /// it (alc compiles those), so every other object kind keeps main's result, as do a member the type has as an instance
+    /// method (alc: AL0310) and every other type. Under a `with` whose record lacks the field alc gives the same AL0132 (alc
+    /// 18.0.39.10160, review of PR 7980; no corpus case yet).
     fn al_unknown_type_name_member(&mut self, sc: &Scope, node: &SyntaxNode, t: &Ty, name: &str) {
-        if !matches!(t, Ty::Builtin(n) if &**n == "Version") || self.ws.is_dependency(sc.oi) {
+        let measured =
+            matches!(t, Ty::Builtin(n) if &**n == "Version") && self.ws.objects[sc.oi].kind == ObjKind::Codeunit;
+        if !measured || self.ws.is_dependency(sc.oi) {
             return;
         }
         if !self.catalog.overloads("Version", name).is_empty() || !self.catalog.hidden("Version", name).is_empty() {
