@@ -1675,6 +1675,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    own_variable: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
                     run_page_link: None,
@@ -2061,6 +2062,9 @@ impl Session {
     pub fn instance(&mut self, object: usize) -> Rc<RefCell<Instance>> {
         let engine = self.engine.clone();
         let globals = self.slot_defaults(&engine.program.objects[object].globals);
+        if engine.program.objects[object].kind == ir::ObjKind::Codeunit {
+            globals.iter().for_each(blob_transfer::new_variable);
+        }
         Rc::new(RefCell::new(Instance {
             object: object as u32,
             globals,
@@ -2440,7 +2444,11 @@ impl Session {
                 // A record of a stored table takes no temporary table: its fresh buffer would only be dropped (issue 6133).
                 locals.push(Value::Null);
             } else {
-                locals.push(self.slot_default(s));
+                let v = self.slot_default(s);
+                if i >= r.params {
+                    blob_transfer::new_variable(&v);
+                }
+                locals.push(v);
             }
         }
         let mut args = args;

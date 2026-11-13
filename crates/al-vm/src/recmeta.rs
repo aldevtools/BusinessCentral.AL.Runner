@@ -1018,7 +1018,10 @@ impl Session {
         if crate::records::media_key_marked(src) {
             return unsupported(format!("Copy of a record {}", crate::records::MEDIA_KEY));
         }
-        let s = src.borrow().clone();
+        let (s, holder) = {
+            let src = src.borrow();
+            (src.clone(), crate::blob_transfer::Holder::of(&src))
+        };
         // Copy takes the fields, filters and key but does not move the target to the source's company
         // (record/TestChangeCompanyFiltersCopyDeleteContracts.al:117-121).
         let mut d = rec.borrow_mut();
@@ -1037,7 +1040,7 @@ impl Session {
         // The Blobs move as `BlobMove::record_copy` says.
         if let Some(how) = BlobMove::record_copy(s.temporary, d.temporary) {
             let table = d.table as usize;
-            self.move_blobs(table, &mut d.fields, None, how)?;
+            self.move_blobs(table, &mut d.fields, None, how, holder)?;
         }
         d.filters = s.filters;
         d.filter_group = s.filter_group;
@@ -1468,9 +1471,9 @@ impl Session {
         if Rc::ptr_eq(src, rec) {
             return Ok(Value::Null);
         }
-        let (src_table, src_fields) = {
+        let (src_table, src_fields, holder) = {
             let s = src.borrow();
-            (s.table as usize, s.fields.clone())
+            (s.table as usize, s.fields.clone(), crate::blob_transfer::Holder::of(&s))
         };
         let from = self.engine.tables[src_table]
             .clone()
@@ -1636,7 +1639,7 @@ impl Session {
                     self.blob_field_kind(src_table, sp)
                         .with(self.blob_field_kind(t.object as usize, dp))
                 };
-                let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how, kind)?;
+                let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how, holder, kind)?;
                 updates.push((dp, ops::convert(v, &df.ty)?));
                 continue;
             }
@@ -2046,6 +2049,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    own_variable: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
                     load: Default::default(),

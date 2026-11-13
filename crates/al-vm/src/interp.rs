@@ -1,5 +1,5 @@
 use super::*;
-use crate::blob_transfer::{BlobMove, FieldKind};
+use crate::blob_transfer::{BlobMove, FieldKind, Holder};
 
 /// The start of the refusal of an index with fewer positions than the array has dimensions.
 const ROW_REFUSAL: &str = "a row of a ";
@@ -1445,7 +1445,6 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::unsupported(why.to_string()));
                 }
-                self.note_blob_read(r.table, *pos, &v);
                 if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
                     return Err(Signal::unsupported(why));
                 }
@@ -1597,7 +1596,6 @@ impl Session {
                                             written: b.written,
                                             written_base: b.written_base.clone(),
                                             write_origin: al_builtins::stream::WriteOrigin::Copy,
-                                            read_from_plain_field: false,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
@@ -1625,6 +1623,7 @@ impl Session {
                         d.fields = fields;
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
+                        crate::blob_transfer::buffer_replaced(&mut d);
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
@@ -1660,7 +1659,8 @@ impl Session {
                         crate::records::held_part_field_write(why)?;
                     }
                     let how = if assign { BlobMove::Assign } else { BlobMove::WriteBack };
-                    let v = crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, || FieldKind::Plain)?;
+                    let v =
+                        crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, Holder::Other, || FieldKind::Plain)?;
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;
@@ -1680,7 +1680,11 @@ impl Session {
                 let copy = self.record_by_value_unmeasured(rc);
                 // An assignment to a local Variant moves the copy's Blobs as `Session::blobs_by_value` says.
                 if assign && matches!(p, ir::Place::Local(_)) {
-                    self.blobs_by_value(copy, rc.borrow().temporary, crate::blob_transfer::Taker::LocalVariant)?
+                    let (temporary, holder) = {
+                        let r = rc.borrow();
+                        (r.temporary, Holder::of(&r))
+                    };
+                    self.blobs_by_value(copy, temporary, holder, crate::blob_transfer::Taker::LocalVariant)?
                 } else {
                     copy
                 }
@@ -1696,12 +1700,14 @@ impl Session {
             {
                 crate::recordref_variant::own_copy(h)
             }
-            // A Blob assigned to a Variant: the Variant holds a copy where `BlobMove::into_variant` names the place.
-            Value::Blob(_) if assign && matches!(self.place_type(p, f), RtType::Variant) => {
-                match BlobMove::into_variant(p) {
-                    Some(how) => crate::blob_transfer::into_variant(v, how)?,
-                    None => v,
-                }
+            // A Blob assigned to a local Variant: the Variant holds a copy (`blob_transfer::moved`), whatever field or holder
+            // the Blob came from. A field read stored in another Variant is moved before it comes here
+            // (`blob_transfer::FieldRead`, `Op::BlobFieldRead`).
+            Value::Blob(_)
+                if assign && matches!(p, ir::Place::Local(_)) && matches!(self.place_type(p, f), RtType::Variant) =>
+            {
+                let how = BlobMove::Variant { local: true };
+                crate::blob_transfer::moved(None, v, how, Holder::Other, || FieldKind::Plain)?
             }
             _ => v,
         };

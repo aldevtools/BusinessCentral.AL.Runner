@@ -455,6 +455,8 @@ pub struct RecordState {
     pub row_origin: Option<RowOrigin>,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
+    /// The state is a declared Record variable's own, and nothing stored, read or replaced its buffer (see [`OwnVariable`]).
+    pub own_variable: OwnVariable,
     /// The table's and its extensions' global variables of this record variable (ADR-021).
     pub globals: TableGlobals,
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
@@ -463,6 +465,24 @@ pub struct RecordState {
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
+}
+
+/// The record state is the one a declared Record variable started with (a local variable of a routine or a global of an
+/// object, al-vm `blob_transfer::new_variable`), and since then only field writes, streams on its Blob fields and the record
+/// methods al-vm `blob_transfer::keeps_own_variable` names ran on it: it was never inserted, modified or read, and no other
+/// record's buffer came into it. These are the source records the Blob copy probe measured for a record passed by value,
+/// `Record.Copy`, `TransferFields` with flags and a Blob moved into a Variant that is not local (corpus PR 1372,
+/// streams/BlobValueCopyShapes.al:590-990). `false` for every other state. It never becomes `true` again.
+///
+/// `Clone` gives `false`: a copy of a record state (`:=`, a record passed by value, a Variant's record, xRec, a RecordRef's
+/// copy) is not that variable.
+#[derive(Debug, Default)]
+pub struct OwnVariable(pub bool);
+
+impl Clone for OwnVariable {
+    fn clone(&self) -> Self {
+        OwnVariable(false)
+    }
 }
 
 /// A record variable inserted a row with `Insert()` and then read it with `Get`, with nothing written to the record's store

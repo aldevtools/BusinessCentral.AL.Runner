@@ -381,6 +381,7 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::CharAt { d, a, b } => self.op_char_at(f, d, a, b, nl)?,
+                Op::BlobFieldRead { r, read } => self.op_blob_field_read(f, r, read)?,
                 Op::AppendText { s, old, a } => self.op_append(&chunk.appends[s as usize], f, old, a, nl)?,
                 Op::JumpEq { a, b, t } => {
                     if ops::compare(&f.locals[a as usize], &f.locals[b as usize])? == std::cmp::Ordering::Equal {
@@ -877,6 +878,9 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
+        if !site.field_reads.is_empty() {
+            self.call_field_reads(site, &mut values, f)?;
+        }
         self.call_site(
             site.object,
             site.routine,
@@ -886,6 +890,37 @@ impl Session {
             site.try_call,
             f,
         )
+    }
+
+    /// `Op::BlobFieldRead`: the value in register `r` moves as `Session::field_read_into_variant` says.
+    #[cold]
+    #[inline(never)]
+    fn op_blob_field_read(
+        &mut self,
+        f: &mut Frame,
+        r: u16,
+        read: crate::blob_transfer::FieldRead,
+    ) -> Result<(), Signal> {
+        let v = std::mem::replace(&mut f.locals[r as usize], Value::Null);
+        f.locals[r as usize] = self.field_read_into_variant(v, read, &f.locals)?;
+        Ok(())
+    }
+
+    /// Moves the Blobs among the field reads handed to `site`'s callee (`CallSite::field_reads`) where
+    /// `blob_transfer::FieldRead::handed_to` names the parameter.
+    #[cold]
+    #[inline(never)]
+    fn call_field_reads(&mut self, site: &CallSite, values: &mut [Value], f: &Frame) -> Result<(), Signal> {
+        let engine = self.engine.clone();
+        let callee = &engine.program.objects[site.object].routines[site.routine];
+        for &(arg, read) in site.field_reads.iter() {
+            let arg = usize::from(arg);
+            if crate::blob_transfer::FieldRead::handed_to(callee, site.instance.is_none(), arg) {
+                let v = std::mem::replace(&mut values[arg], Value::Null);
+                values[arg] = self.field_read_into_variant(v, read, &f.locals)?;
+            }
+        }
+        Ok(())
     }
 
     #[inline(never)]

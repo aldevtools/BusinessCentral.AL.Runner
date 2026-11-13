@@ -49,6 +49,8 @@ codeunit 50444 C
 {
     var
         GVar: Variant;
+        GVar2: Variant;
+        GRow: Record "BS Row" temporary;
 
     local procedure W(var R: Record "BS Row"; T: Text)
     var
@@ -919,6 +921,183 @@ codeunit 50444 C
         exit(RdAdded(Dst));
     end;
 
+    // ---- Record states and Variant holders of the round-2 review (S cells) ----
+
+    local procedure KeepVar(V: Variant)
+    begin
+        GVar2 := V;
+    end;
+
+    // Insert of an empty Blob, a write, then the record by value (S1; temporary S2).
+    procedure NeighborInsertEmptyWriteByValue(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Src.Key1 := 71;
+        Src.Insert();
+        W(Src, 'alpha');
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    procedure NeighborTempInsertEmptyWriteByValue(): Text
+    var
+        Src: Record "BS Row" temporary;
+    begin
+        Src.Key1 := 72;
+        Src.Insert();
+        W(Src, 'alpha');
+        ByValueTemp(Src);
+        exit(Rd(Src));
+    end;
+
+    // A write, Insert, Clear of the field, a new write, then by value (S4).
+    procedure NeighborInsertClearFieldWriteByValue(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Src.Key1 := 73;
+        W(Src, 'alpha');
+        Src.Insert();
+        Clear(Src.Data);
+        W(Src, 'beta');
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // Insert of an empty Blob, Modify, a write, then by value (S5).
+    procedure NeighborInsertEmptyModifyWriteByValue(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Src.Key1 := 74;
+        Src.Insert();
+        Src.Modify();
+        W(Src, 'alpha');
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // A write, Insert, Init, a new write, then by value (S14).
+    procedure NeighborInsertInitWriteByValue(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Src.Key1 := 75;
+        W(Src, 'alpha');
+        Src.Insert();
+        Src.Init();
+        W(Src, 'beta');
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // Temporary: Insert of an empty Blob, a write, Record.Copy (S12).
+    procedure NeighborTempInsertEmptyWriteCopy(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+    begin
+        Src.Key1 := 76;
+        Src.Insert();
+        W(Src, 'alpha');
+        Dst.Copy(Src);
+        W(Src, 'beta');
+        exit(Rd(Dst));
+    end;
+
+    // Temporary: Insert of an empty Blob, a write, a global Variant and TransferFields(Src, true) (S13).
+    procedure NeighborTempInsertEmptyWriteGlobalVariantTransferFlags(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+        Dst2: Record "BS Row" temporary;
+    begin
+        Src.Key1 := 77;
+        Src.Insert();
+        W(Src, 'alpha');
+        GVar := Src.Data;
+        Dst2.TransferFields(Src, true);
+        W(Src, 'beta');
+        Dst.Data := GVar;
+        exit(Rd(Dst) + '|' + Rd(Dst2));
+    end;
+
+    // A Variant that took the empty field moves on into a global Variant after the field was written (S8).
+    procedure NeighborVariantHeldBlobToGlobalVariant(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+    begin
+        GVar := Src.Data;
+        W(Src, 'alpha');
+        GVar2 := GVar;
+        W(Src, 'beta');
+        Dst.Data := GVar2;
+        exit(Rd(Dst));
+    end;
+
+    // The same into a by-value Variant parameter that keeps it in a global (S9).
+    procedure NeighborVariantHeldBlobToVariantParameter(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+    begin
+        GVar := Src.Data;
+        W(Src, 'alpha');
+        KeepVar(GVar);
+        W(Src, 'beta');
+        Dst.Data := GVar2;
+        exit(Rd(Dst));
+    end;
+
+    // The field of a global record, of a record in an array, of a `var` parameter record and of a record that is not
+    // temporary into a global Variant, and a field into an element of a two-dimensional array (S11, S17, S18, S19, S16).
+    procedure NeighborOtherSourceRecordsToGlobalVariant(): Text
+    var
+        Arr: array[2] of Record "BS Row" temporary;
+        Src: Record "BS Row" temporary;
+        Stored: Record "BS Row";
+        Dst: Record "BS Row" temporary;
+        A2: array[2, 2] of Variant;
+        Out: Text;
+    begin
+        Clear(GRow);
+        W(GRow, 'alpha');
+        GVar := GRow.Data;
+        W(GRow, 'beta');
+        Dst.Data := GVar;
+        Out := Rd(Dst);
+        W(Arr[1], 'alpha');
+        GVar := Arr[1].Data;
+        W(Arr[1], 'beta');
+        Dst.Data := GVar;
+        Out += '|' + Rd(Dst);
+        W(Src, 'alpha');
+        Out += '|' + FromVarParameter(Src);
+        W(Stored, 'alpha');
+        GVar := Stored.Data;
+        W(Stored, 'beta');
+        Dst.Data := GVar;
+        Out += '|' + Rd(Dst);
+        Clear(Src);
+        W(Src, 'alpha');
+        A2[1, 1] := Src.Data;
+        W(Src, 'beta');
+        Dst.Data := A2[1, 1];
+        exit(Out + '|' + Rd(Dst));
+    end;
+
+    local procedure FromVarParameter(var Src: Record "BS Row"): Text
+    var
+        Dst: Record "BS Row" temporary;
+    begin
+        GVar := Src.Data;
+        W(Src, 'beta');
+        Dst.Data := GVar;
+        exit(Rd(Dst));
+    end;
+
     // ---- Refused ----
 
     // FieldRef.Value into a field with Compressed = true.
@@ -1130,4 +1309,40 @@ fn a_field_that_is_not_plain_into_a_variant_that_is_not_local_shares_as_before()
     );
     assert_eq!(unflagged("NeighborExtensionFieldToGlobalAndArray"), "hv:betaa|hv:betaa");
     assert_eq!(flagged("NeighborCompressedFieldToGlobalAndLocal"), "hv:betaa|hv:alpha");
+}
+
+/// A record that was inserted or modified before its Blob was written, or whose field was cleared or that was set back with
+/// Init after an Insert (S1, S2, S4, S5, S12, S13, S14 of the round-2 review of al-runner PR 7951), is not the record the
+/// probe measured (one never inserted, modified or read). Its Blobs share, as before.
+#[test]
+fn a_record_that_was_stored_before_the_write_shares_as_before() {
+    assert_eq!(unflagged("NeighborInsertEmptyWriteByValue"), "hv:zzpha");
+    assert_eq!(unflagged("NeighborTempInsertEmptyWriteByValue"), "hv:zzpha");
+    assert_eq!(unflagged("NeighborInsertClearFieldWriteByValue"), "hv:zzta");
+    assert_eq!(unflagged("NeighborInsertEmptyModifyWriteByValue"), "hv:zzpha");
+    assert_eq!(unflagged("NeighborInsertInitWriteByValue"), "hv:zzta");
+    assert_eq!(unflagged("NeighborTempInsertEmptyWriteCopy"), "hv:betaa");
+    assert_eq!(
+        unflagged("NeighborTempInsertEmptyWriteGlobalVariantTransferFlags"),
+        "hv:betaa|hv:betaa"
+    );
+}
+
+/// A Blob a Variant holds that moves on into a global Variant or a by-value Variant parameter (S8, S9 of the same review) is
+/// not read from a field at that move: it shares, as before.
+#[test]
+fn a_blob_a_variant_holds_shares_when_it_moves_on_as_before() {
+    assert_eq!(unflagged("NeighborVariantHeldBlobToGlobalVariant"), "hv:betaa");
+    assert_eq!(unflagged("NeighborVariantHeldBlobToVariantParameter"), "hv:betaa");
+}
+
+/// The probe read the field from a local temporary record and stored it in a global Variant or an element of a
+/// one-dimensional local array. A global record, a record in an array, a `var` parameter record, a record that is not
+/// temporary and a two-dimensional array (S11, S17, S18, S19, S16 of the same review) share, as before.
+#[test]
+fn a_field_of_another_source_record_into_a_global_variant_shares_as_before() {
+    assert_eq!(
+        unflagged("NeighborOtherSourceRecordsToGlobalVariant"),
+        "hv:betaa|hv:betaa|hv:betaa|hv:betaa|hv:betaa"
+    );
 }

@@ -56,10 +56,6 @@ pub struct BlobBuf {
     /// Where the unsaved stream write (`written`) was made: on this buffer, or on another one this buffer is a copy of. Read by
     /// al-vm `blob_transfer`, whose measured moves count only some of these as a write in memory.
     pub write_origin: WriteOrigin,
-    /// The last read of this buffer as the value of a record field (al-vm `Session::read_record_field`) read a plain Blob
-    /// field: one the table itself declares, without the `Compressed` property. A copy does not keep it. Read by al-vm
-    /// `blob_transfer` for a Blob moved into a Variant that is not local, where the value no longer knows its field.
-    pub read_from_plain_field: bool,
     /// ADR-040: a report on the allow-list was saved to this buffer in a rendered format and nothing was written:
     /// the name of the report. Any look at the buffer is refused (`observe`); a copy of the buffer carries the mark
     /// (`copy_blob`, a record assignment, `CalcFields`); creating the stream again clears it.
@@ -108,7 +104,8 @@ pub enum WriteOrigin {
     Here,
     /// On another buffer this one is a copy of ([`copy_for_assignment`], a record assignment).
     Copy,
-    /// On the buffer `RecordRef.GetTable` copied this one from, which held its own write (al-vm `blob_transfer`).
+    /// On the buffer `RecordRef.GetTable` copied this one from, which its own record variable had written (al-vm
+    /// `blob_transfer`).
     GetTableCopy,
 }
 
@@ -385,7 +382,6 @@ pub fn new_blob() -> BlobRef {
         written: false,
         written_base: None,
         write_origin: WriteOrigin::Here,
-        read_from_plain_field: false,
         render_pending: None,
         inserted: false,
         temp_inserted: false,
@@ -429,7 +425,6 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         written: false,
         written_base: None,
         write_origin: WriteOrigin::Here,
-        read_from_plain_field: false,
         render_pending: b.render_pending.clone(),
         inserted: b.inserted,
         temp_inserted: false,
@@ -453,7 +448,6 @@ pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
     copy.dotnet_view = 0;
     copy.temp_inserted = false;
     copy.write_origin = WriteOrigin::Copy;
-    copy.read_from_plain_field = false;
     std::sync::Arc::new(BlobCell::new(copy))
 }
 
@@ -1095,7 +1089,6 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         written: false,
         written_base: None,
         write_origin: WriteOrigin::Here,
-        read_from_plain_field: false,
         render_pending: None,
         inserted: false,
         temp_inserted: false,

@@ -5,8 +5,9 @@
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::Signal;
-use al_builtins::stream::{BlobRef, WriteOrigin, copy_blob_db_row_of, copy_for_assignment, new_blob};
-use al_builtins::value::{RecordState, RtType, Value};
+use al_builtins::record_op::RecordOp;
+use al_builtins::stream::{WriteOrigin, copy_blob_db_row_of, copy_for_assignment, new_blob};
+use al_builtins::value::{OwnVariable, RecordState, RtType, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -29,8 +30,9 @@ pub(crate) enum BlobMove {
     SetTableShared,
     /// `Rec.TransferFields(Source, ...)`.
     TransferFields(TransferCall),
-    /// `V := Source` with a Variant `V` that is a local variable or a parameter (`local`), or a global variable or an element
-    /// of a local array ([`BlobMove::into_variant`]); also a Blob handed to a by-value Variant parameter of a procedure.
+    /// `V := Source` with a Variant `V` that is a local variable or a parameter (`local`). Not `local`: a Blob field read
+    /// that is stored in a global Variant or an element of a local array, or handed to a by-value Variant parameter
+    /// ([`FieldRead`]).
     Variant { local: bool },
     /// `Dst.Copy(Src [, ShareTable])` between two temporary records or two that are not.
     RecordCopy,
@@ -73,22 +75,120 @@ pub(crate) enum Taker {
     LocalVariant,
 }
 
+/// What a move knows of the record whose field the source Blob is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Holder {
+    /// A declared Record variable's own state, never inserted, modified or read (`OwnVariable`): the source record of the
+    /// cells [`measured`] takes from corpus PR 1372.
+    OwnVariable,
+    /// Any other record, or one the move does not ask about.
+    Other,
+}
+
+impl Holder {
+    /// What record state `r` is as the source of a move.
+    pub(crate) fn of(r: &RecordState) -> Holder {
+        if r.own_variable.0 {
+            Holder::OwnVariable
+        } else {
+            Holder::Other
+        }
+    }
+}
+
+/// Marks the value a declared variable starts with as that variable's own record (`OwnVariable`): a local variable of a
+/// routine and a global of an object, as the sources of corpus PR 1372 are (streams/BlobValueCopyShapes.al:590 `Src`, :847
+/// `GRow`). A record in an array is not marked (not measured).
+pub(crate) fn new_variable(v: &Value) {
+    if let Value::Record(rc) = v {
+        rc.borrow_mut().own_variable = OwnVariable(true);
+    }
+}
+
+/// Whether record method `method` leaves a record its variable's own (`OwnVariable`). Only what the measured sources ran
+/// before their move does: `Clear` of the variable (corpus PR 1372, streams/BlobValueCopyShapes.al:847). Insert, Modify,
+/// Init, every read and every other method end it.
+pub(crate) fn keeps_own_variable(method: RecordOp) -> bool {
+    method == RecordOp::Clear
+}
+
+/// Record `r` took its buffer from elsewhere (a record assignment, RecordRef.SetTable, Page.GetRecord): it is no longer its
+/// variable's own (`OwnVariable`).
+pub(crate) fn buffer_replaced(r: &mut RecordState) {
+    r.own_variable = OwnVariable(false);
+}
+
 /// What an argument of a procedure call is for the Blob rule, read before the call binds it to its parameter.
 #[derive(Clone, Copy)]
 pub(crate) enum Argument {
-    /// A record handed by value: whether it is temporary, and what takes it.
-    Record(bool, Taker),
-    /// A Blob handed to a by-value Variant parameter (corpus PR 1372, streams/BlobValueCopyShapes.al:590 V3).
-    Blob,
+    /// A record handed by value: whether it is temporary, what it is as a source, and what takes it.
+    Record(bool, Holder, Taker),
     /// Anything else: bound as before.
     Other,
 }
 
+/// A read of a record field as the whole right-hand side of an assignment or as a whole call argument: the place a Blob
+/// that moves into a Variant that is not local must come from. Corpus PR 1372 (streams/BlobValueCopyShapes.al) read the
+/// field of a local temporary record variable (`Src.Data`, :590 V3, :652 V5, :672 GV).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct FieldRead {
+    /// The local slot of the record variable.
+    pub(crate) record: u16,
+    /// The position of the field.
+    pub(crate) pos: u32,
+}
+
+impl FieldRead {
+    /// The field read `e` is, if it is one of a local variable of a routine with `params` parameters. A parameter, a
+    /// global record, an element of an array, and any other expression (a Variant that holds a Blob, a call) are none.
+    pub(crate) fn of(e: &al_ir::Expr, params: usize) -> Option<FieldRead> {
+        use al_ir::{Expr, Place};
+        let e = match e {
+            Expr::Convert(RtType::Variant, inner) => &**inner,
+            e => e,
+        };
+        match e {
+            Expr::Load(Place::Field(base, pos)) => match &**base {
+                Place::Local(i) if *i >= params => Some(FieldRead {
+                    record: u16::try_from(*i).ok()?,
+                    pos: u32::try_from(*pos).ok()?,
+                }),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Whether the assignment target `p` is a place corpus PR 1372 stored such a read in: a global variable of the running
+    /// object (:672 GV) or an element of a one-dimensional local array (:652 V5). A local Variant takes any Blob
+    /// (`Session::write`, as before).
+    pub(crate) fn stored_in(p: &al_ir::Place) -> bool {
+        use al_ir::Place;
+        match p {
+            Place::Global(_) => true,
+            Place::Index(base, at) => matches!(**base, Place::Local(_)) && at.len() == 1,
+            _ => false,
+        }
+    }
+
+    /// Whether routine `callee`, called without an instance (`own_object`), takes argument `arg` as corpus PR 1372
+    /// measured (:551 TakeVar, :590 V3): a by-value Variant parameter of a procedure of the calling object without
+    /// attributes.
+    pub(crate) fn handed_to(callee: &al_ir::Routine, own_object: bool, arg: usize) -> bool {
+        own_object
+            && !callee.is_trigger
+            && callee.attributes.is_empty()
+            && arg < callee.params
+            && callee.by_var.get(arg).copied() == Some(false)
+            && matches!(callee.locals[arg].ty, RtType::Variant)
+    }
+}
+
 impl Argument {
     /// The argument `a` of a call for its parameter of type `param`. `measured_call` is true for a by-value parameter of a
-    /// procedure without attributes that is called as a procedure (:562 FromVariant, :576 ByValueTemp, :582 ByValue, :551
-    /// TakeVar); the arguments of a `var` parameter, a trigger, an event publisher or subscriber and any other procedure
-    /// with an attribute are bound as before.
+    /// procedure without attributes that is called as a procedure (corpus PR 1372, streams/BlobValueCopyShapes.al:562
+    /// FromVariant, :576 ByValueTemp, :582 ByValue); the arguments of a `var` parameter, a trigger, an event publisher or
+    /// subscriber and any other procedure with an attribute are bound as before.
     pub(crate) fn of(a: &Value, measured_call: bool, param: &RtType) -> Argument {
         let taker = match param {
             RtType::Record(_, false) => Taker::RecordParam,
@@ -97,9 +197,10 @@ impl Argument {
             _ => return Argument::Other,
         };
         match a {
-            _ if !measured_call => Argument::Other,
-            Value::Record(rc) => Argument::Record(rc.borrow().temporary, taker),
-            Value::Blob(_) if taker == Taker::VariantParam => Argument::Blob,
+            Value::Record(rc) if measured_call => {
+                let r = rc.borrow();
+                Argument::Record(r.temporary, Holder::of(&r), taker)
+            }
             _ => Argument::Other,
         }
     }
@@ -114,25 +215,14 @@ impl BlobMove {
     }
 
     /// The move of `RecordRef.SetTable` with `arguments` arguments, the second one `share`: one argument (corpus PR 1369,
-    /// FieldRefValueBlobCopy.al:941, :964) and ShareTable true (PR 1372, streams/BlobValueCopyShapes.al:712 X6). With
+    /// FieldRefValueBlobCopy.al:941, :964) and ShareTable true (PR 1372, streams/BlobValueCopyShapes.al:712 X6, between two
+    /// temporary records). The caller raises the Argument error of ShareTable true with a record that is not temporary,
+    /// and refuses a temporary and a normal record mixed, before it asks here, so `share` means both are temporary. With
     /// ShareTable false the Blobs come as before (`None`).
     pub(crate) fn set_table(arguments: usize, share: bool) -> Option<BlobMove> {
         match arguments {
             1 => Some(BlobMove::SetTable),
             2 if share => Some(BlobMove::SetTableShared),
-            _ => None,
-        }
-    }
-
-    /// The move `V := Blob` is for the Variant at place `p`, if that place is measured: a local variable or a parameter
-    /// (corpus PR 1369; PR 1372 BlobValueCopyShapes.al:607 V1 for a `var` parameter), a global variable of the running object
-    /// (:672 GV) or an element of a local array (:652 V5).
-    pub(crate) fn into_variant(p: &al_ir::Place) -> Option<BlobMove> {
-        use al_ir::Place;
-        match p {
-            Place::Local(_) => Some(BlobMove::Variant { local: true }),
-            Place::Global(_) => Some(BlobMove::Variant { local: false }),
-            Place::Index(base, _) if matches!(**base, Place::Local(_)) => Some(BlobMove::Variant { local: false }),
             _ => None,
         }
     }
@@ -196,13 +286,14 @@ impl FieldKind {
 ///
 /// Every other copy runs through assumption `blob-transfer-copies` (corpus PR 1369, recordref-fieldref/fieldref/
 /// FieldRefValueBlobCopy.al, and PR 1372, streams/BlobValueCopyShapes.al; the lines are in the entry), for the cells
-/// [`measured`] names. `kind` says of which kind the fields are the Blob moves between; it is asked only for a Blob in such a
-/// cell or in one [`refused_before`] names. A Blob outside the measured cells is stored as it comes, as before, or refused
-/// where it was refused before.
+/// [`measured`] names. `holder` is the record the source Blob is a field of. `kind` says of which kind the fields are the Blob
+/// moves between; it is asked only for a Blob in such a cell or in one [`refused_before`] names. A Blob outside the measured
+/// cells is stored as it comes, as before, or refused where it was refused before.
 pub(crate) fn moved(
     cur: Option<&Value>,
     v: Value,
     how: BlobMove,
+    holder: Holder,
     kind: impl FnOnce() -> FieldKind,
 ) -> Result<Value, Signal> {
     let Value::Blob(b) = &v else { return Ok(v) };
@@ -216,7 +307,6 @@ pub(crate) fn moved(
             loaded: buf.loaded,
             row_copy,
             written: buf.written,
-            written_over_nothing: buf.written && buf.written_base.as_deref().is_some_and(<[u8]>::is_empty),
             write_origin: buf.write_origin,
             content: !buf.bytes.is_empty(),
             unread_row: buf.db_row
@@ -236,7 +326,7 @@ pub(crate) fn moved(
         BlobMove::TransferFields(_) if !s.loaded && !s.written => return Ok(Value::Blob(new_blob())),
         _ => {}
     }
-    let plain = measured(how, &s);
+    let plain = measured(how, &s, holder);
     let refused = refused_before(how, &s);
     if plain.is_none() && !refused {
         return Ok(v);
@@ -263,8 +353,8 @@ pub(crate) fn moved(
     Ok(Value::Blob(match cell {
         Cell::Copy => {
             let copy = copy_for_assignment(b);
-            // The copy GetTable makes of a buffer that holds its own write: SetTable(Rec, true) moves it as that buffer (:712).
-            if how == BlobMove::GetTable && s.write_origin == WriteOrigin::Here {
+            // The copy GetTable makes of a Blob its own variable wrote: SetTable(Rec, true) moves it on (:712).
+            if how == BlobMove::GetTable && s.written_by(holder) {
                 copy.borrow_mut().write_origin = WriteOrigin::GetTableCopy;
             }
             copy
@@ -272,19 +362,6 @@ pub(crate) fn moved(
         Cell::Unread => new_blob(),
         Cell::UnreadRow => copy_blob_db_row_of(b, uncompressed),
     }))
-}
-
-/// The value a Variant takes when `v` moves into it by `how`, a [`BlobMove::Variant`]. A Blob value does not know the field
-/// it came from. A local Variant takes it as a plain field's, whatever the field (as before this rule: a `Compressed = true`
-/// field included, which is not measured). Any other Variant takes it as the field kind of the read that handed it out
-/// (`BlobBuf::read_from_plain_field`, set by [`Session::note_blob_read`]): plain, or not measured, and then the buffer is kept.
-pub(crate) fn into_variant(v: Value, how: BlobMove) -> Result<Value, Signal> {
-    let kind = match (&v, how) {
-        (_, BlobMove::Variant { local: true }) => FieldKind::Plain,
-        (Value::Blob(b), _) if b.borrow().read_from_plain_field => FieldKind::Plain,
-        _ => FieldKind::Other,
-    };
-    moved(None, v, how, || kind)
 }
 
 impl BlobMove {
@@ -311,8 +388,6 @@ struct Source {
     /// The unloaded copy a read of a database row or of a temporary row handed out.
     row_copy: bool,
     written: bool,
-    /// Written, and the buffer held nothing when the unsaved write began (`BlobBuf::written_base` empty).
-    written_over_nothing: bool,
     write_origin: WriteOrigin,
     content: bool,
     /// The copy a read of a database row handed out, whose row holds content, not loaded and with no stream created on it.
@@ -320,6 +395,23 @@ struct Source {
     /// Loaded, and not tied to a row: not the copy a read handed out, not what an Insert or a Modify stored, not the copy a
     /// record assignment made.
     in_memory: bool,
+}
+
+impl Source {
+    /// Content a stream wrote on this buffer, in memory, in a record that is its variable's own (`holder`): written, and
+    /// neither the buffer nor the record was stored or read.
+    fn written_by(&self, holder: Holder) -> bool {
+        self.in_memory
+            && self.content
+            && self.written
+            && self.write_origin == WriteOrigin::Here
+            && holder == Holder::OwnVariable
+    }
+
+    /// The copy GetTable made of such content ([`Source::written_by`]), in memory.
+    fn gettable_copy_of_written(&self) -> bool {
+        self.in_memory && self.content && self.written && self.write_origin == WriteOrigin::GetTableCopy
+    }
 }
 
 /// What a measured cell of assumption `blob-transfer-copies` gives the target.
@@ -340,13 +432,13 @@ enum Cell {
 /// A loaded source with content (written in memory, or read with CalcFields): a copy. P1 for FieldRef.Value,
 /// FieldRef.Validate, GetTable, SetTable, TransferFields(Source) and a local Variant.
 ///
-/// A source written in memory over an empty buffer by a stream on that buffer, and not stored or read since: a copy. P2 for
-/// TransferFields with two or three arguments (:741 TF2, :762 TF2f, :781 TF3), a Variant that is a by-value parameter (:590 V3),
-/// an array element (:652 V5) or a global (:672 GV), Record.Copy (:906 X2, :929 X2s, :952 X2r) and a record by value (:975
-/// P5t, :990 P5, :824 P1, :847 P2); every one of these sources is a record never inserted, written once or twice. SetTable(Rec,
-/// true) also takes the copy GetTable made of such a source (:712 X6). A buffer whose write came over with another copy (a field
-/// assignment, FieldRef.Value, SetTable, a record assignment), or that held content when the write began (an Insert or a
-/// Modify saved it before), is not measured: its buffer is kept, as before.
+/// A source a stream wrote in memory, in a record that is its variable's own ([`Source::written_by`]: a declared variable never
+/// inserted, modified or read, written once or twice): a copy. P2 for TransferFields with two or three arguments (:741 TF2, :762
+/// TF2f, :781 TF3), a field read stored in a Variant that is a by-value parameter (:590 V3), an array element (:652 V5) or a
+/// global (:672 GV), Record.Copy (:906 X2, :929 X2s, :952 X2r) and a record by value (:975 P5t, :990 P5, :824 P1, :847 P2).
+/// SetTable(Rec, true) takes the copy GetTable made of such a source (:712 X6). A buffer whose write came over with another
+/// copy (a field assignment, FieldRef.Value, SetTable, a record assignment), and a record that was inserted, modified, read,
+/// set back with Init or filled from another record before, are not measured: the buffer is kept, as before.
 ///
 /// A loaded source without content, in memory (never written, or emptied with Clear): a copy, which stays empty. P1 for
 /// FieldRef.Value, whatever the buffer was before (:1807 S5, :1918 Life_EmptySource); P2 for GetTable (:169 E1, :188 E2,
@@ -358,13 +450,9 @@ enum Cell {
 /// with content. SetTable gives the record a not-loaded Blob of its own (P2 :417 N3, :441 N4: the record's CalcFields does
 /// not load the RecordRef's, and RecordRef.Modify after a write to the record keeps the stored value). GetTable takes its
 /// own before it comes here (`recordref_copy`; P2 :368 N1, :393 N2 are the result as before).
-fn measured(how: BlobMove, s: &Source) -> Option<Cell> {
+fn measured(how: BlobMove, s: &Source, holder: Holder) -> Option<Cell> {
     let content = s.loaded && s.content;
     let empty = s.in_memory && !s.content;
-    let written_here = s.in_memory && s.content && s.written_over_nothing;
-    let written = written_here && s.write_origin == WriteOrigin::Here;
-    let written_or_gettable_copy =
-        written_here && matches!(s.write_origin, WriteOrigin::Here | WriteOrigin::GetTableCopy);
     match how {
         BlobMove::FieldRefValue if s.loaded => Some(Cell::Copy),
         BlobMove::FieldRefValue if s.row_copy => Some(Cell::Unread),
@@ -377,12 +465,12 @@ fn measured(how: BlobMove, s: &Source) -> Option<Cell> {
         {
             Some(Cell::Copy)
         }
-        BlobMove::SetTableShared if written_or_gettable_copy => Some(Cell::Copy),
+        BlobMove::SetTableShared if s.gettable_copy_of_written() => Some(Cell::Copy),
         BlobMove::TransferFields(TransferCall::Flags)
         | BlobMove::Variant { local: false }
         | BlobMove::RecordCopy
         | BlobMove::RecordByValue
-            if written =>
+            if s.written_by(holder) =>
         {
             Some(Cell::Copy)
         }
@@ -434,29 +522,21 @@ impl Session {
             .map_or(FieldKind::Other, |(_, k)| *k)
     }
 
-    /// Notes on Blob `v`, just read as the value of field `pos` of a record of table object `table`, whether that field is
-    /// [`FieldKind::Plain`] (`BlobBuf::read_from_plain_field`, read by [`into_variant`]).
-    pub(crate) fn note_blob_read(&self, table: u32, pos: usize, v: &Value) {
-        if let Value::Blob(b) = v {
-            let plain = self.blob_field_kind(table as usize, pos) == FieldKind::Plain;
-            note_read(b, plain);
-        }
-    }
-
-    /// Moves the Blobs among `fields`, which a record-wide move (`how`) just took over from the other record of table object
-    /// `table`, as [`moved`] says; `cur` is what the target held before.
+    /// Moves the Blobs among `fields`, which a record-wide move (`how`) just took over from the record `holder` of table
+    /// object `table`, as [`moved`] says; `cur` is what the target held before.
     pub(crate) fn move_blobs(
         &self,
         table: usize,
         fields: &mut [Value],
         cur: Option<&[Value]>,
         how: BlobMove,
+        holder: Holder,
     ) -> Result<(), Signal> {
         for &(pos, kind) in self.engine.table_facts[table].blob_fields.iter() {
             let Some(v) = fields.get_mut(pos) else { continue };
             if let Value::Blob(_) = v {
                 let old = cur.and_then(|c| c.get(pos));
-                *v = moved(old, v.clone(), how, || kind)?;
+                *v = moved(old, v.clone(), how, holder, || kind)?;
             }
         }
         Ok(())
@@ -469,9 +549,15 @@ impl Session {
         src: &Rc<RefCell<RecordState>>,
         from_record: bool,
     ) -> Result<RecordState, Signal> {
-        let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
+        let (mut copy, holder) = {
+            let src = src.borrow();
+            (
+                al_builtins::record_into_recordref::recordref_copy(&src),
+                Holder::of(&src),
+            )
+        };
         if from_record {
-            self.move_blobs(copy.table as usize, &mut copy.fields, None, BlobMove::GetTable)?;
+            self.move_blobs(copy.table as usize, &mut copy.fields, None, BlobMove::GetTable, holder)?;
         }
         Ok(copy)
     }
@@ -479,8 +565,14 @@ impl Session {
     /// The by-value copy `copy` of a record: its Blobs are moved as [`moved`] says in the pairs of source and taker corpus
     /// PR 1372 measured (streams/BlobValueCopyShapes.al): a record that is not temporary into a Record parameter (:990 P5),
     /// and a temporary record into a `temporary` parameter (:975 P5t), a Variant parameter (:847 P2) or a local Variant
-    /// (:824 P1). In every other pair the copy shares the Blobs with the source, as before.
-    pub(crate) fn blobs_by_value(&self, copy: Value, source_temporary: bool, taker: Taker) -> Result<Value, Signal> {
+    /// (:824 P1). In every other pair the copy shares the Blobs with the source, as before. `holder` is the source record.
+    pub(crate) fn blobs_by_value(
+        &self,
+        copy: Value,
+        source_temporary: bool,
+        holder: Holder,
+        taker: Taker,
+    ) -> Result<Value, Signal> {
         let measured = matches!(
             (source_temporary, taker),
             (false, Taker::RecordParam)
@@ -491,25 +583,43 @@ impl Session {
         if let (Value::Record(rc), true) = (&copy, measured) {
             let mut r = rc.borrow_mut();
             let table = r.table as usize;
-            self.move_blobs(table, &mut r.fields, None, BlobMove::RecordByValue)?;
+            self.move_blobs(table, &mut r.fields, None, BlobMove::RecordByValue, holder)?;
         }
         Ok(copy)
     }
 
-    /// The value `bound` a call made of its argument `argument`, with its Blobs moved as [`moved`] and
-    /// [`Session::blobs_by_value`] say.
+    /// The value `bound` a call made of its argument `argument`, with its Blobs moved as [`Session::blobs_by_value`] says.
     pub(crate) fn bind_blobs(&self, argument: Argument, bound: Value) -> Result<Value, Signal> {
         match argument {
-            Argument::Record(temporary, taker) => self.blobs_by_value(bound, temporary, taker),
-            Argument::Blob => into_variant(bound, BlobMove::Variant { local: false }),
+            Argument::Record(temporary, holder, taker) => self.blobs_by_value(bound, temporary, holder, taker),
             Argument::Other => Ok(bound),
         }
     }
-}
 
-/// Sets `BlobBuf::read_from_plain_field` of `b` to `plain`, without a write where it holds that already.
-fn note_read(b: &BlobRef, plain: bool) {
-    if b.borrow().read_from_plain_field != plain {
-        b.borrow_mut().read_from_plain_field = plain;
+    /// The value a Variant that is not local takes when `v`, the value of field read `read` in the frame with locals
+    /// `locals`, moves into it ([`BlobMove::Variant`]). A Blob of a temporary record (corpus PR 1372,
+    /// streams/BlobValueCopyShapes.al:590, :652, :672: every source is temporary) moves as [`moved`] says, with the record
+    /// and the field kind of the read. Anything else stays as it is.
+    pub(crate) fn field_read_into_variant(&self, v: Value, read: FieldRead, locals: &[Value]) -> Result<Value, Signal> {
+        let (Value::Blob(_), Some(Value::Record(rc))) = (&v, locals.get(usize::from(read.record))) else {
+            return Ok(v);
+        };
+        let (temporary, holder, table) = {
+            let r = rc.borrow();
+            (r.temporary, Holder::of(&r), r.table as usize)
+        };
+        if !temporary {
+            return Ok(v);
+        }
+        let kind = || self.blob_field_kind(table, read.pos as usize);
+        moved(None, v, BlobMove::Variant { local: false }, holder, kind)
+    }
+
+    /// Record method `method` starts on `rec`: a method [`keeps_own_variable`] does not name ends `OwnVariable`.
+    #[inline]
+    pub(crate) fn own_variable_before(method: RecordOp, rec: &Rc<RefCell<RecordState>>) {
+        if !keeps_own_variable(method) && rec.borrow().own_variable.0 {
+            buffer_replaced(&mut rec.borrow_mut());
+        }
     }
 }

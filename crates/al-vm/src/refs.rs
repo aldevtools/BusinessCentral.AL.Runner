@@ -7,7 +7,7 @@
 //! does not pin raises `Signal::Unsupported` instead of guessing.
 
 use crate::Session;
-use crate::blob_transfer::BlobMove;
+use crate::blob_transfer::{BlobMove, Holder};
 use al_builtins::catalog::Catalog;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FilterExpr;
@@ -1417,8 +1417,9 @@ impl Session {
             let before = std::mem::replace(&mut d.fields, s.fields.clone());
             // The Blobs move as `BlobMove::set_table` says.
             if let Some(how) = BlobMove::set_table(args.len(), share) {
-                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how)?;
+                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, Holder::Other)?;
             }
+            crate::blob_transfer::buffer_replaced(&mut d);
             d.filters = s.filters.clone();
             d.key = s.key;
             d.adhoc = s.adhoc.clone();
@@ -1596,7 +1597,13 @@ impl Session {
                     let v = self.fieldref_value_into(&t, pos, &field.ty, v)?;
                     let mut r = rec.borrow_mut();
                     let kind = || self.blob_field_kind(t.object as usize, pos);
-                    let v = crate::blob_transfer::moved(Some(&r.fields[pos]), v, BlobMove::FieldRefValue, kind)?;
+                    let v = crate::blob_transfer::moved(
+                        Some(&r.fields[pos]),
+                        v,
+                        BlobMove::FieldRefValue,
+                        Holder::Other,
+                        kind,
+                    )?;
                     r.fields[pos] = v;
                     if r.load.partial {
                         r.load.written(pos);

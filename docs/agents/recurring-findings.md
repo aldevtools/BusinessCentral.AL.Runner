@@ -101,6 +101,9 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
   sync point that a test can skip (close, test end, an undo).
 - A mark or flag on a value must survive every copy path: a second stream on the same buffer, `push_str`,
   a copy into another variable. Clear it only when the content is gone.
+- A mark set on a shared buffer at a read or a write says nothing about a later move by another holder, and a buffer that is
+  empty after Insert, Modify, Clear or Init looks like a new one. Take the fact from the expression at the move site (assignment
+  right-hand side, call argument) and from the record's own state, not from the buffer (al-runner PR 7951).
 - A mark on a record variable that its own methods follow must also end where another object writes the
   variable's buffer (RecordRef.SetTable, Page.GetRecord). The call that starts the mark is checked as strictly
   as the call that reads it: its arguments, its triggers and subscribers, and the variable's state.
