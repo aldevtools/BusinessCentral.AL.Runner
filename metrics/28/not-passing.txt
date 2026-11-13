@@ -931,7 +931,6 @@
 73709 P132_SetFilter_Guid_Texts
 73709 P132_SetView_Date_Texts
 73709 P132_SetView_Guid_Texts
-73800 CalcDate_Text_Overload_Errors
 73800 Invalid_Formula_Evaluate
 73800 WD_Numbers
 73800 Weeks
