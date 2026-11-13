@@ -1819,7 +1819,7 @@ impl<'a> Checker<'a> {
     /// of a codeunit with `TableNo`, where the implicit Rec has a field of that name: `Version`, `Guid`, `Text`,
     /// `Database` or `Session` is the built-in type when the type has a static method of the called name, as alc
     /// compiles it (al-runner issue 7962; alc 18.0.39.10160, probe apps in lower/tests/type_before_rec_field.rs). OnRun,
-    /// a `with`, a variable of the name, another name, another object kind or a method the type does not have keep the
+    /// a `with`, a variable of the name, a procedure of the codeunit with the name, another name, another object kind or a method the type does not have keep the
     /// field (main's result).
     fn builtin_type_before_rec_field(&mut self, sc: &mut Scope, node: &SyntaxNode, recv: &SyntaxNode) -> Option<E> {
         const MEASURED: &[&str] = &["Version", "Guid", "Text", "Database", "Session"];
@@ -1836,6 +1836,10 @@ impl<'a> Checker<'a> {
         let ty_name = *MEASURED.iter().find(|m| m.eq_ignore_ascii_case(&written))?;
         let key = ty_name.to_ascii_lowercase();
         if sc.vars.iter().any(|frame| frame.contains_key(&key)) || sc.globals.contains_key(&key) {
+            return None;
+        }
+        // A procedure of the codeunit with the name wins over the type (alc: AL0132 on its `Text` result).
+        if !self.members[sc.oi].procedures_named(ty_name).is_empty() {
             return None;
         }
         let rec = sc.rec.clone().filter(|r| matches!(r, Ty::Record { .. }))?;

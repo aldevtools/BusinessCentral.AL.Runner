@@ -130,3 +130,22 @@ fn the_field_keeps_winning_in_on_run_a_page_and_under_a_variable() {
     let (_, l) = lower_files(&[("t.al", TABLE), ("c.al", &field_method)], false);
     assert!(al_codes(&l).is_empty(), "{:?}", al_codes(&l));
 }
+
+#[test]
+fn a_procedure_of_the_name_keeps_main_result() {
+    // alc 18.0.39.10160 (review probe apps n9proc, n10procs): a procedure of the codeunit named `Version`, `Guid`,
+    // `Session` or `Database` wins over the type, so the call reaches the procedure's `Text` result: AL0132.
+    for (name, call) in [
+        ("Version", "Version.Create(1, 0, 0, 0).ToText()"),
+        ("Guid", "Format(Guid.CreateGuid())"),
+        ("Session", "Session.ApplicationIdentifier()"),
+        ("Database", "Database.CompanyName()"),
+    ] {
+        let procs = format!(
+            "    procedure {name}(): Text\n    begin\n        exit('x');\n    end;\n\n    procedure P(): Text\n    begin\n        exit({call});\n    end;"
+        );
+        let src = codeunit("begin\n    end;", &procs);
+        let (_, l) = lower_files(&[("t.al", TABLE), ("c.al", &src)], false);
+        assert_eq!(al_codes(&l), ["AL0132"], "{name}");
+    }
+}
