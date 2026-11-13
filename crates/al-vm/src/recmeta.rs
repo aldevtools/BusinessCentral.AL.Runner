@@ -1632,7 +1632,7 @@ impl Session {
                     BlobMove::TransferFields { plain: args.len() == 1 },
                     measured,
                 )?;
-                updates.push((dp, v));
+                updates.push((dp, ops::convert(v, &df.ty)?));
                 continue;
             }
             updates.push((dp, ops::convert(src_fields[sp].clone(), &df.ty)?));
