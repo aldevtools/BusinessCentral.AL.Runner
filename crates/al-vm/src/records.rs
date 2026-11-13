@@ -2023,9 +2023,11 @@ impl Session {
                     }
                     _ => false,
                 };
-            // An assigned Blob that nothing saved or wrote since is kept, as an unsaved stream write is (assumption
-            // `blob-assign-counts-as-write`: al-runner issue 7961, the reporter's repro on real BC).
-            if keeps_content && stored.is_some() && buf.borrow().assigned_unsaved {
+            // An assigned Blob that nothing saved or wrote since is kept, as an unsaved stream write is, when the stored row's
+            // Blob is empty (assumption `blob-assign-counts-as-write`: al-runner issue 7961, the reporter's repro on real BC).
+            let stored_empty =
+                matches!(stored.as_ref().map(|row| &row[pos]), Some(Value::Blob(src)) if src.borrow().bytes.is_empty());
+            if keeps_content && stored_empty && buf.borrow().assigned_unsaved {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobAssignCountsAsWrite);
                 continue;
             }

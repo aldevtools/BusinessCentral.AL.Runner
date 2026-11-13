@@ -85,6 +85,76 @@ codeunit 50301 C
         Row.CalcFields(Content);
         exit(Format(Row.Content.HasValue()));
     end;
+    // Neighbor: a stored source read with Get and CalcFields. Outside the assumption: main's result.
+    procedure NeighborStoredSource(): Text
+    var
+        Row: Record "PX Blob Row";
+        Source: Record "PX Blob Row";
+        OutS: OutStream;
+    begin
+        Row."No." := 'D';
+        Row.Insert();
+        Source."No." := 'S';
+        Source.Content.CreateOutStream(OutS);
+        OutS.WriteText('hello');
+        Source.Insert();
+        Clear(Source);
+        Source.Get('S');
+        Source.CalcFields(Content);
+        Row.Content := Source.Content;
+        Row.CalcFields(Content);
+        exit(Format(Row.Content.HasValue()));
+    end;
+
+    // Neighbor: a stored target whose Blob already holds content. Outside the assumption: main's result.
+    procedure NeighborTargetWithContent(): Text
+    var
+        Row: Record "PX Blob Row";
+        Source: Record "PX Blob Row" temporary;
+        OutS: OutStream;
+        InS: InStream;
+        Txt: Text;
+    begin
+        Row."No." := 'E';
+        Row.Content.CreateOutStream(OutS);
+        OutS.WriteText('old');
+        Row.Insert();
+        Source."No." := 'S';
+        Source.Content.CreateOutStream(OutS);
+        OutS.WriteText('hello');
+        Source.Insert();
+        Row.Content := Source.Content;
+        Row.CalcFields(Content);
+        Row.Content.CreateInStream(InS);
+        InS.ReadText(Txt);
+        exit(Txt);
+    end;
+
+    // Neighbor: a stored target read with Get and no CalcFields, the stored Blob with content. Outside the assumption.
+    procedure NeighborUnloadedTarget(): Text
+    var
+        Row: Record "PX Blob Row";
+        Source: Record "PX Blob Row" temporary;
+        OutS: OutStream;
+        InS: InStream;
+        Txt: Text;
+    begin
+        Row."No." := 'F';
+        Row.Content.CreateOutStream(OutS);
+        OutS.WriteText('old');
+        Row.Insert();
+        Clear(Row);
+        Row.Get('F');
+        Source."No." := 'S';
+        Source.Content.CreateOutStream(OutS);
+        OutS.WriteText('hello');
+        Source.Insert();
+        Row.Content := Source.Content;
+        Row.CalcFields(Content);
+        Row.Content.CreateInStream(InS);
+        InS.ReadText(Txt);
+        exit(Txt);
+    end;
 }
 "#;
 
@@ -117,4 +187,22 @@ fn a_temporary_target_reads_its_row_as_before() {
 #[test]
 fn a_source_with_an_unsaved_write_is_copied_as_before() {
     assert_eq!(run("NeighborUnsavedSource"), ("Yes".into(), false));
+}
+
+/// Main's result, unflagged: the gate needs the source a temporary record's Insert stored.
+#[test]
+fn a_stored_source_read_with_calcfields_is_copied_as_before() {
+    assert_eq!(run("NeighborStoredSource"), ("No".into(), false));
+}
+
+/// Main's result, unflagged: the gate needs a target Blob without content.
+#[test]
+fn a_target_with_content_is_copied_as_before() {
+    assert_eq!(run("NeighborTargetWithContent"), ("old".into(), false));
+}
+
+/// Main's result, unflagged: the gate needs a loaded target Blob.
+#[test]
+fn an_unloaded_target_is_copied_as_before() {
+    assert_eq!(run("NeighborUnloadedTarget"), ("old".into(), false));
 }

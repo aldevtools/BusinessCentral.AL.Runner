@@ -112,14 +112,20 @@ pub(crate) fn moved(
 }
 
 /// The copy `Target.Field := Source` stores when another holder has the source Blob `b` too (`copy_for_assignment`); `cur`
-/// is what the target holds now. In the cell of assumption `blob-assign-counts-as-write` (al-runner issue 7961, the
-/// reporter's repro: a temporary record's Blob after its Insert, assigned to a Blob without an unsaved write) the copy is
-/// marked `BlobBuf::assigned_unsaved`: a loaded source with content and no unsaved write of its own, and a target Blob with
-/// none. `Session::load_blobs` reads the mark and raises the flag. Every other copy is as before.
+/// is what the target holds now. The copy is marked `BlobBuf::assigned_unsaved` only in the shape of assumption
+/// `blob-assign-counts-as-write` (al-runner issue 7961, the reporter's repro): the source is the Blob a temporary record's
+/// Insert stored while it held content, with no stream created on it and no unsaved write since (`temp_inserted`; in the
+/// repro a stream wrote the content), and the target is a loaded Blob without content and without an unsaved write.
+/// `Session::load_blobs` reads the mark. Every other copy is as before.
 fn assigned_copy(cur: Option<&Value>, b: &al_builtins::stream::BlobRef, s: &Source) -> Value {
     let copy = copy_for_assignment(b);
-    let target_unwritten = matches!(cur, Some(Value::Blob(c)) if !c.borrow().written);
-    if target_unwritten && s.loaded && s.content && !s.written {
+    let source_in_cell = matches!(
+        (b.borrow().temp_inserted, s.loaded, s.content, s.written),
+        (true, true, true, false)
+    );
+    let target_in_cell = matches!(cur, Some(Value::Blob(c))
+        if matches!((c.borrow().loaded, c.borrow().bytes.is_empty(), c.borrow().written), (true, true, false)));
+    if source_in_cell && target_in_cell {
         copy.borrow_mut().assigned_unsaved = true;
     }
     Value::Blob(copy)
