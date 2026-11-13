@@ -453,7 +453,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         Ok(v)
     }),
     ("Variant.IsDateFormula#1", |_, r, _| is(r, "DateFormula")),
-    ("Variant.IsOption#1", |_, r, _| is(r, "Option")),
+    super::variant_is::OPTION,
     ("Variant.IsList#1", |_, r, _| is(r, "List")),
     ("Variant.IsDictionary#1", |_, r, _| is(r, "Dictionary")),
     ("Variant.IsCodeunit#1", |_, r, _| is(r, "Codeunit")),
@@ -490,6 +490,7 @@ pub(super) fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {
         .chain(crate::media_orphans::REGISTRY)
         .chain(crate::moduleinfo::REGISTRY)
         .chain(crate::conv::REGISTRY)
+        .chain(super::variant_is::REGISTRY)
 }
 
 /// Implementations chosen per catalog signature instead of being listed by id

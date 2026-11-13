@@ -21,6 +21,7 @@ mod strings;
 pub(crate) mod tests;
 mod unpinned;
 mod values;
+mod variant_is;
 
 use crate::describe::Describe;
 use crate::format::{FormatCtx, FormatFail, format_value, try_format};
