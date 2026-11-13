@@ -448,6 +448,7 @@ fn cached_local_outcomes() -> Vec<(String, Outcome)> {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     let dir = tempfile::tempdir().unwrap();

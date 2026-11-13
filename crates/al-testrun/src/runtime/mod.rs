@@ -84,6 +84,9 @@ pub struct Manifest {
     /// The top-level keys of the app's own app.json; empty for a package. With `target` and `runtime`, what the AL
     /// compiler's checks of the app's context need (`al_sema::alcodes::AppContext`).
     pub app_json_keys: Vec<String>,
+    /// For the platform package, the modules its manifest's `InternalsVisibleTo` names
+    /// (`al_deps::load::DependencyApp::platform_internals_visible_to`); empty for every other app.
+    pub platform_internals_visible_to: Vec<al_deps::package::InternalsGrant>,
 }
 
 /// The components of `path` made absolute, with `.` and `..` resolved without touching the file system.
@@ -221,6 +224,8 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .as_object()
             .map(|o| o.keys().cloned().collect())
             .unwrap_or_default(),
+        // An app folder is never the platform package here: its `internalsVisibleTo` is not read.
+        platform_internals_visible_to: Vec::new(),
     })
 }
 
@@ -1157,6 +1162,7 @@ mod discovery;
 mod grow;
 mod handlers;
 mod install_snapshot;
+mod internals_grant;
 mod lane_starts;
 #[cfg(test)]
 mod login_tests;
