@@ -74,11 +74,19 @@ pub(crate) enum AfterRun {
 }
 
 fn what(facts: &Facts, schema: &Schema) -> String {
-    format!(
-        "Report.SaveAs as {} of report \"{}\"",
-        facts.format.name(),
-        schema.name()
-    )
+    match facts.answer {
+        // The request page form names its call, as main's refusal did (`TestRequestPage.SaveAsPdf`).
+        AnswerForm::None => format!(
+            "TestRequestPage.SaveAs{} of report \"{}\"",
+            facts.format.name(),
+            schema.name()
+        ),
+        _ => format!(
+            "Report.SaveAs as {} of report \"{}\"",
+            facts.format.name(),
+            schema.name()
+        ),
+    }
 }
 
 /// The save's target as a fact.
