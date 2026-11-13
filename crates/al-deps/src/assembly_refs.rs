@@ -5,6 +5,17 @@
 /// The simple names in `bytes`' `AssemblyRef` table, in table order. `None` when `bytes` is not a .NET assembly
 /// this reader understands (no CLI header, a damaged table stream); the caller then follows no references.
 pub fn assembly_refs(bytes: &[u8]) -> Option<Vec<String>> {
+    metadata(bytes).map(|m| m.0)
+}
+
+/// The version in `bytes`' `Assembly` table (major, minor, build, revision). `None` when `bytes` is not a .NET assembly
+/// this reader understands, or has no `Assembly` row (a module).
+pub fn assembly_version(bytes: &[u8]) -> Option<[u16; 4]> {
+    metadata(bytes)?.1
+}
+
+/// The `AssemblyRef` names and the `Assembly` version of `bytes`.
+fn metadata(bytes: &[u8]) -> Option<(Vec<String>, Option<[u16; 4]>)> {
     let r = Reader(bytes);
     let pe = r.u32(0x3c)? as usize;
     if r.slice(pe, 4)? != b"PE\0\0" {
@@ -60,7 +71,7 @@ pub fn assembly_refs(bytes: &[u8]) -> Option<Vec<String>> {
 }
 
 /// Rows of the tables before `AssemblyRef` (0x23) are skipped by their sizes; the coded index sizes follow II.24.2.6.
-fn read_assembly_refs(r: &Reader, tables: usize, strings: &[u8]) -> Option<Vec<String>> {
+fn read_assembly_refs(r: &Reader, tables: usize, strings: &[u8]) -> Option<(Vec<String>, Option<[u16; 4]>)> {
     let heaps = *r.0.get(tables + 6)?;
     let valid = r.u64(tables + 8)?;
     let mut rows = [0u32; 64];
@@ -134,7 +145,12 @@ fn read_assembly_refs(r: &Reader, tables: usize, strings: &[u8]) -> Option<Vec<S
         4,                                                   // 0x21 AssemblyProcessor
         12,                                                  // 0x22 AssemblyOS
     ];
+    let mut version = None;
     for (t, size) in row_size.iter().enumerate() {
+        // Assembly: u32 hash algorithm, then four u16 version parts.
+        if t == 0x20 && rows[t] > 0 {
+            version = Some([r.u16(at + 4)?, r.u16(at + 6)?, r.u16(at + 8)?, r.u16(at + 10)?]);
+        }
         at = at.checked_add((rows[t] as usize).checked_mul(*size)?)?;
     }
     // AssemblyRef: four u16 version parts, u32 flags, blob public key or token, string name, string culture, blob hash.
@@ -151,7 +167,7 @@ fn read_assembly_refs(r: &Reader, tables: usize, strings: &[u8]) -> Option<Vec<S
         let end = rest.iter().position(|&c| c == 0)?;
         out.push(String::from_utf8_lossy(&rest[..end]).into_owned());
     }
-    Some(out)
+    Some((out, version))
 }
 
 fn wide(flag: u8) -> usize {
@@ -308,5 +324,17 @@ mod tests {
             "{}: {refs:?}",
             dll.display()
         );
+        // The runtime folder is named by the runtime version; its assemblies carry the major as their version.
+        let folder = dll.parent().unwrap().file_name().unwrap().to_string_lossy().into_owned();
+        let major: u16 = folder.split('.').next().unwrap().parse().unwrap();
+        let v = assembly_version(&std::fs::read(&dll).unwrap()).expect("an Assembly row");
+        assert_eq!((v[0], v[2], v[3]), (major, 0, 0), "{}: {v:?}", dll.display());
+    }
+
+    #[test]
+    fn a_module_without_an_assembly_row_has_no_version() {
+        let bytes = testutil::assembly(&["System.Runtime"]);
+        assert_eq!(assembly_version(&bytes), None);
+        assert_eq!(assembly_refs(&bytes).unwrap(), vec!["System.Runtime".to_string()]);
     }
 }

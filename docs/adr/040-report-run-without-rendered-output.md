@@ -1039,3 +1039,82 @@ assumption entry that cites it, and `Evidence::Kept` is deleted.
   Kept rows and the statement refusals read the other value, so they are unchanged.
 - **The seven Kept rows are unchanged.** Pull request 1381 measures only the Word-to-Excel one, and only for the
   declared-properties report, not for the rendering-section shape the Kept row covers.
+
+## Amendment 2026-11-13b: Word layouts rendered by BC's own assemblies (Accepted, owner 2026-11-13)
+
+Status: Accepted by the owner 2026-11-13, with the corrections of the round-0 spike below. Replaces "Decision, part 2:
+merged Word text" of the amendment of 2026-11-13. Changes row 7 of ADR-027 section 3 ("layout rendering" refused by
+design) for Word layouts. Part 1 of that amendment (the table) is unchanged.
+
+### Context
+
+An outside user showed (al-runner issue 7977) that BC's own Word merger and BC's own document converter can be called
+outside the server: public static methods of assemblies in the BC platform artifact. The owner decided on 2026-11-13
+that the runner may call them. The runner uses only assemblies from the BC artifact the user downloads and ships none.
+
+A spike (round 0, Linux, builds 24.5, 27.5, 28.1, 28.5 and 29.1) measured:
+
+- The public overloads are the same on every build measured. The merger has a Stream overload
+  (`MergeWordDocument(Stream, Stream, Stream, string x4, CancellationToken)`) that gives the same `word/document.xml` as
+  its path overload, so no temporary files are needed. The converter has `ConvertToPdf(Stream, Stream)` and
+  `ConvertToHtml(Stream, Stream)`.
+- On Linux the merge works on all three majors (BC 29 on .NET 10 too) with no extra piece for a layout without picture
+  controls. A picture control needs libgdiplus and `System.Drawing.Common` 6.0.0 with Unix support.
+- PDF and Html work on Linux on all three majors. Every conversion loads Aspose.PDF and Aspose.Cells, so the conversion
+  set is about 65 MB to download and 112 MB inflated on Linux (125 to 128 MB on Windows, with the two native libraries).
+- The SkiaSharp version depends on the build, not on the major (28.5 ships 4.152.1, 27.5 and 28.1 ship 3.119.0). A
+  missing or mismatched Linux `libSkiaSharp.so` raises nothing: pictures are dropped silently.
+- The public merger does not raise the section-break error of `streams/CjWordSections.al:138-139`: WordMergeDataItem is
+  server work outside the methods the runner calls.
+- Warm cost per call: merge about 20 ms, PDF about 170 ms. Cold: about 0.35 s and 2.3 s.
+
+### Decision
+
+1. A render process (the .NET helper of ADR-014, started with `--render`, one per run, calls one at a time) offers four
+   requests: `render_probe` (what is available, or the first missing piece by name), `word_merge` (layout, dataset, title,
+   company), `word_to_pdf`, `word_to_html`. It is reached through an additive capability trait, `ReportRenderer` in
+   `al-host`. Protocol version 6.
+2. The assemblies are found as ADR-014 section 3 says. When no extracted artifact is on disk, two named sets are fetched
+   by range from the platform artifact: the merge set (about 2 MB to download, 7 MB inflated) and the conversion set.
+   Nothing else of the service folder is fetched.
+3. On Linux, `System.Drawing.Common` 6.0.0, `Microsoft.Win32.SystemEvents` 6.0.0 and `libSkiaSharp.so` of the build's own
+   SkiaSharp version are fetched from nuget.org; each file is checked against a SHA-256 kept in the repository.
+   libgdiplus, HarfBuzz, fontconfig and fonts are distribution packages the user installs.
+4. `render_probe` loads the Skia native and compares its version with the build's managed SkiaSharp. A mismatch makes
+   PDF and Html unavailable, by name. A picture control needs libgdiplus; without it the merge of such a layout is
+   unavailable, by name.
+5. Entry-point overloads are a closed table, one row per entry point (24.5 to 29.1). An overload that is not in it is
+   refused and the refusal prints the parameter list found. "Pass the first N arguments" is not done.
+6. The table of part 1 still decides whether a save is answered, its error and its events. For a row that saves a Word
+   layout as Word, the bytes come from the render process when the layout's shape is one the corpus measured and the
+   process is available. Every other save keeps the placeholder of the amendments of 2026-11-08 and 2026-11-11.
+7. The merge runs at save time. A merger exception whose AL error the corpus pins gives that error. Any other exception
+   refuses the save. A WordMergeDataItem report saved as Word is refused (BC raises an unexpected CLR exception there,
+   corpus pull request 1388).
+8. A real Word output can be opened and its parts read. Its exact size and whole-file comparisons stay refused. A PDF
+   stays opaque. A pass through a real render is a flagged pass until the probe is pinned; a PDF render stays flagged.
+9. PDF conversion inside tests is off by default and turned on by a switch; without it a Pdf save keeps the placeholder.
+   Every PDF the render process makes carries a visible "test output" watermark on every page, with no switch to turn it
+   off. The step that adds it fails closed: no watermark, no PDF. Word output carries no watermark.
+10. Html of a Word layout comes from the same converter only if it reproduces the cells already measured for that Html.
+    Otherwise Html stays as Part A of the amendment of 2026-11-12 describes.
+11. Without the pieces a platform needs, nothing changes from today, and a read of content names the missing piece.
+12. The runtime's own Word merge (`word_merge/`, known text pieces) is not built.
+13. A command that renders one report to PDF without a test (name still open; the design suggests `preview-report`) is
+    built in the first rounds: PDF only, mandatory watermark, a required output folder, one report per call.
+
+### What stays refused
+
+RDLC rendering in any format, Excel layouts, a PDF's content, exact sizes, layout shapes no cell measured, WordMergeDataItem
+reports saved as Word, an unknown overload, and picture merges on a machine without libgdiplus.
+
+### Testing tool
+
+AL Runner is a testing tool, not for production. Rendered output exists inside a test run and is gone when the run ends.
+
+### Consequences
+
+- New: `al-host/src/render.rs` (the trait), `al-testrun/src/report_render.rs` (the process), `al-deps/src/render_set.rs`
+  (the sets and the nuget pieces), `tools/dotnet-sidecar/Render.cs`, later `al-vm/src/report_render/`.
+- Outcomes of tests that read rendered content depend on whether the machine can render. CI requires the renderer.
+- A save that BC's merger rejects is no longer answered "saved".
