@@ -256,7 +256,7 @@ impl Session {
             self.torn_down_on_error(st, r)?;
             self.sync_parts(st)?;
         }
-        self.refresh_after_card_assist_edit(st, rec_before.as_ref())?;
+        self.refresh_after_field_trigger(st, method, rec_before.as_ref())?;
         // After the refresh a marking drilldown in the primary key leaves the row the page showed in Rec, and keeps Rec's for the
         // next call (`drilldown_marked_only_refresh`).
         if let Some(shown) = pk_shown {

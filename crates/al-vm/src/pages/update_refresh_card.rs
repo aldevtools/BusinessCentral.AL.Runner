@@ -7,13 +7,21 @@
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::page_op::PageMethod;
 
 impl Session {
-    pub(super) fn refresh_after_card_assist_edit(
+    /// The client's refresh after a field's DrillDown, AssistEdit or Lookup trigger, with the two measured shapes that change
+    /// it first: a CardPart drilldown that defers its host's reread (`defer_host_refresh_after_part_drilldown`), and an
+    /// AssistEdit on a dirty Card that stored the edited row itself (`settle_next_only_card_assist_edit`).
+    pub(super) fn refresh_after_field_trigger(
         &mut self,
         st: &St,
+        method: PageMethod,
         rec_before: Option<&(Vec<Value>, bool)>,
     ) -> Result<(), Signal> {
+        if method == PageMethod::DrillDown {
+            self.defer_host_refresh_after_part_drilldown(st)?;
+        }
         if let Some((before, true)) = rec_before {
             self.settle_next_only_card_assist_edit(st, before)?;
         }

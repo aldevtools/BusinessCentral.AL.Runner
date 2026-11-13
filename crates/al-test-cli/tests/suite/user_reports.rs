@@ -3009,3 +3009,23 @@ fn issue_7883_neighbor_keeps_the_previous_result() {
         .unwrap();
     assert_ne!(outcome, &Outcome::Pass, "{outcome:?}");
 }
+
+#[test]
+fn measured_cardpart_drilldown_rereads_the_header_before_set_value() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/card-part-drilldown-refresh.al"),
+    ));
+}
+
+#[test]
+fn default_update_propagation_keeps_main_scan_result() {
+    let source = include_str!("../fixtures/card-part-drilldown-refresh.al");
+    let default_propagation = source.replace("                UpdatePropagation = Both;\n", "");
+    assert_ne!(source, default_propagation);
+    let outcomes = run_with_deps(&[], &default_propagation);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "Before the next scan the page showed FIRST. The scan used package FIRST."),
+        "{outcomes:?}"
+    );
+}

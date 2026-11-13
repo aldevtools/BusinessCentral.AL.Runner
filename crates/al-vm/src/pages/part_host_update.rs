@@ -9,11 +9,99 @@
 //! look into the action, so the Update is refused there (`refuse_update_in_action`).
 
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 /// A part's view (up to a window of rows) and the place of its row in it.
 type LaterRow = (Vec<Vec<Value>>, usize);
 
 impl Session {
+    /// CardPartRefresh.al on real BC. The header control initially still shows
+    /// its prior value. The next SetValue validates against the stored header.
+    pub(super) fn defer_host_refresh_after_part_drilldown(&mut self, part: &St) -> Result<(), Signal> {
+        let (host, index) = {
+            let child = part.borrow();
+            if !child.open
+                || child.cursor != Cursor::Row
+                || child.draft
+                || child.dirty
+                || !child.refresh
+                || !child.refresh_by_update
+                || !child.refresh_update_false
+                || self.engine.object_facts[child.object as usize].page_type_lower() != "cardpart"
+            {
+                return Ok(());
+            }
+            let Some((host, index)) = child.host.as_ref().and_then(|(h, i)| h.upgrade().map(|h| (h, *i))) else {
+                return Ok(());
+            };
+            (host, index)
+        };
+        if !self.clean_document_refresh_row(&host) || !self.unextended_unsubscribed(&host) || !self.has_source(part) {
+            return Ok(());
+        }
+        let engine = self.engine();
+        let control = &page_of(&engine, &host).controls[index];
+        if !matches!(control.prop("updatepropagation"), Some(ir::PropVal::Lit(v)) if v.eq_ignore_ascii_case("both")) {
+            return Ok(());
+        }
+        let hrec = self.page_rec(&host);
+        let crec = self.page_rec(part);
+        let table = self.table(&hrec)?;
+        if hrec.borrow().temporary
+            || hrec.borrow().table != crec.borrow().table
+            || !control.part_link.as_ref().is_some_and(|link| {
+                matches!((table.keys[0].as_slice(), link.entries.as_slice()), ([key], [ir::LinkEntry::Field(child, parent)]) if key == child && key == parent)
+                    && link.provider.is_none()
+                    && link.view.is_none()
+            })
+        {
+            return Ok(());
+        }
+        let key = self.row_key(&hrec)?;
+        if Self::same_key(&key, &self.row_key(&crec)?)
+            && self
+                .stored_row(&hrec)?
+                .is_some_and(|stored| !Self::same_values(&stored, &hrec.borrow().fields))
+        {
+            host.borrow_mut().deferred_part_drilldown_refresh = Some(key);
+        }
+        Ok(())
+    }
+
+    fn clean_document_refresh_row(&self, st: &St) -> bool {
+        let state = st.borrow();
+        state.open
+            && state.cursor == Cursor::Row
+            && !state.draft
+            && !state.dirty
+            && state.host.is_none()
+            && self.engine.object_facts[state.object as usize].page_type == Some(ir::PageType::Document)
+            && self.has_source(st)
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+    }
+
+    pub(super) fn observe_control_for_deferred_refresh(&self, st: &St, method: PageMethod, no_args: bool) -> bool {
+        let field_read = method == PageMethod::Value && no_args;
+        if method != PageMethod::SetValue && !field_read {
+            st.borrow_mut().deferred_part_drilldown_refresh = None;
+        }
+        field_read
+    }
+
+    pub(super) fn refresh_host_before_set_value(&mut self, st: &St) -> Result<(), Signal> {
+        let pending = st.borrow_mut().deferred_part_drilldown_refresh.take();
+        let Some(key) = pending else { return Ok(()) };
+        if self.clean_document_refresh_row(st) && Self::same_key(&key, &self.row_key(&self.page_rec(st))?) {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::CardPartDrilldownDeferredHostRefresh,
+            );
+            st.borrow_mut().refresh = true;
+            self.run_refresh(st)?;
+        }
+        Ok(())
+    }
+
     /// Whether `child` is a linked ListPart on a stored row of its view other than the first, within a window, and the view
     /// and its row: `None` when it is not (it then reads as before).
     fn part_on_later_row(&mut self, child: &St) -> Result<Option<LaterRow>, Signal> {
