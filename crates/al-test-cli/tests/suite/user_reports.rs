@@ -2722,3 +2722,77 @@ fn issue_7877_other_group_two_flowfilter_shapes_keep_their_refusals() {
         );
     }
 }
+
+#[test]
+fn measured_currpage_save_record_prefers_the_platform_method() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/curr-page-save-record-collision.al"),
+    ));
+}
+
+#[test]
+fn issue_7887_bare_save_record_still_calls_the_internal_procedure() {
+    let source = r#"
+page 50992 "Save Collision Control" {
+    PageType = Card;
+    layout { area(Content) { field(Observed; Called) {} } }
+    actions { area(Processing) {
+        action(Check) { trigger OnAction() begin SaveRecord(); end; }
+    } }
+    var Called: Boolean;
+    internal procedure SaveRecord() begin Called := true; end;
+}
+codeunit 50993 T {
+    Subtype = Test;
+    [Test] procedure BareCall() var P: TestPage "Save Collision Control";
+    begin
+        P.OpenView();
+        P.Check.Invoke();
+        if not P.Observed.AsBoolean() then Error('Bare SaveRecord did not invoke the page procedure.');
+        P.Close();
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], source));
+}
+
+#[test]
+fn extension_save_record_still_calls_the_base_procedure() {
+    let outcomes = run_with_deps(
+        &[],
+        r###"
+table 50992 "Save Collision Row" {
+    fields { field(1; Id; Integer) {} field(2; Marker; Integer) {} }
+    keys { key(PK; Id) {} }
+}
+page 50993 "Save Collision Base" {
+    PageType = Card;
+    SourceTable = "Save Collision Row";
+    layout { area(Content) { field(Marker; Rec.Marker) {} } }
+    internal procedure SaveRecord() begin Error('base SaveRecord procedure'); end;
+}
+pageextension 50994 "Save Collision Extension" extends "Save Collision Base" {
+    actions { addlast(Processing) {
+        action(CheckExtension) { ApplicationArea = All; trigger OnAction() begin CurrPage.SaveRecord(); end; }
+    } }
+}
+codeunit 50995 T {
+    Subtype = Test;
+    [Test] procedure ExtensionCall()
+    var P: TestPage "Save Collision Base"; R: Record "Save Collision Row";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenEdit();
+        P.CheckExtension.Invoke();
+        P.Close();
+    end;
+}
+"###,
+    );
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "base SaveRecord procedure"),
+        "{outcomes:?}"
+    );
+}
