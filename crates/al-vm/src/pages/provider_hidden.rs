@@ -14,8 +14,9 @@ pub(super) struct BeforeActionBody {
     /// Rec's fields when the host is the one of a pinned turn (`Session::first_turn_as_pinned`), else the first fact of
     /// the pinned Document host it does not have; `None` when no part was hidden.
     pinned_host_rec: Option<Result<Vec<Value>, &'static str>>,
-    /// The host is the one of the journal shape (`hidden_part_journal.rs`), not the pinned Document.
-    journal: bool,
+    /// The host is the one of the journal shape before its measured turn (`Session::journal_turn_host_miss`), not the pinned
+    /// Document: the session's commits before the action's body.
+    journal: Option<u64>,
 }
 
 impl Session {
@@ -283,10 +284,13 @@ impl Session {
                 .into_iter()
                 .find_map(|(holds, reason)| (!holds).then_some(reason))
             };
-            // A host outside the pinned Document may be the journal shape's (`journal_host_miss`). A refusal names the journal
-            // host's first missing fact on a Worksheet or a List, the Document's on any other page, as before.
-            let journal_miss = mismatch.and(self.journal_host_miss(st));
-            before.journal = mismatch.is_some() && journal_miss.is_none();
+            // A host outside the pinned Document may be the journal shape's (`journal_turn_host_miss`). A refusal names the
+            // journal host's first missing fact on a Worksheet or a List, the Document's on any other page, as before.
+            let journal_miss = match mismatch {
+                Some(_) => self.journal_turn_host_miss(st)?,
+                None => None,
+            };
+            before.journal = (mismatch.is_some() && journal_miss.is_none()).then_some(self.commits);
             before.pinned_host_rec = Some(match (mismatch, journal_miss) {
                 (Some(_), Some(journal)) if self.journal_host_type(st) => Err(journal),
                 (Some(reason), Some(_)) => Err(reason),
@@ -318,16 +322,15 @@ impl Session {
                     ));
                 }
             };
-            if before.journal {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::HiddenPartJournalShape);
-            }
             {
                 let mut c = child.borrow_mut();
                 c.seen_visible = true;
                 c.visible_at_sync = true;
-                c.journal_turned = before.journal;
             }
-            self.sync_part(st, i, &child)?;
+            match before.journal {
+                Some(commits) => self.journal_turn(st, i, &child, commits)?,
+                None => self.sync_part(st, i, &child)?,
+            }
         }
         Ok(())
     }
@@ -363,7 +366,7 @@ impl Session {
                     .iter()
                     .all(|(_, c)| !c.borrow().refresh && !c.borrow().save_record_called)
         };
-        let linked_by_fields = before.journal || {
+        let linked_by_fields = before.journal.is_some() || {
             let engine = self.engine();
             page_of(&engine, st).controls[i]
                 .part_link
@@ -381,7 +384,7 @@ impl Session {
             return Err("the part was not hidden as the page opened");
         };
         let never_shown = hidden.borrow().open && !hidden.borrow().seen_visible;
-        if before.journal {
+        if before.journal.is_some() {
             // The journal shape's part: unlinked, with a repeater (`journal_part_miss`).
             self.journal_part_miss(st, i, &hidden)?;
         }
@@ -395,7 +398,10 @@ impl Session {
                 "the part has no SubPageLink of field terms, or takes its link from a Provider",
             ),
             (never_shown, "the part showed before"),
-            (before.journal || !self.has_repeater(&hidden), "the part has a repeater"),
+            (
+                before.journal.is_some() || !self.has_repeater(&hidden),
+                "the part has a repeater",
+            ),
         ]
         .into_iter()
         .find_map(|(holds, reason)| (!holds).then_some(reason))

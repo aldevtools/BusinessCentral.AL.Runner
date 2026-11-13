@@ -382,7 +382,7 @@ impl Session {
         } else {
             None
         };
-        let journal_before = self.journal_row_before(st, name)?;
+        let journal_before = self.journal_before_move(st, name)?;
         let waiting = if st.borrow().host.is_none() && !st.borrow().parts.is_empty() {
             self.parts_waiting_refresh(st)
         } else {
@@ -608,7 +608,7 @@ impl Session {
         if moved && st.borrow().open {
             if st.borrow().host.is_some() {
                 self.sync_dependents_then_host_follows(st, name)?;
-            } else if self.journal_part_stays(st, journal_before.as_deref())? {
+            } else if self.journal_part_stays(st, name, journal_before.as_ref())? {
                 // The journal shape's part reads nothing on a GoToRecord that stays (`hidden_part_journal.rs`).
             } else {
                 // First and Last that move the host, Next and Previous: only the linked parts follow
@@ -625,7 +625,7 @@ impl Session {
                             self.restore_held_xrec_of_empty_parts(st);
                         }
                         self.during_host_move(HostMove::moved(name), |s| s.sync_parts_after_move_fn(st, name))?;
-                        self.journal_part_after_host_move(st, name)?;
+                        self.journal_part_after_host_move(st, name, journal_before.as_ref())?;
                         true
                     }
                     PageMethod::First | PageMethod::Last if before.is_some() && !stayed => {

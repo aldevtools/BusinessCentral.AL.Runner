@@ -1606,30 +1606,23 @@ struct Reopen {
     page_type: Option<al_ir::PageType>,
 }
 
-/// Clears the flags of three states an earlier open reached, each only in the reopen open corpus PR 1367 measured for it
-/// (testpage/lifecycle/ReopenSameVariableState.al, group G8: nothing carries into the second open): the test opened the page
-/// itself both times, with the same mode, on the same page type. Whether one was cleared, for the assumption
-/// `reopen-forgets-earlier-open-flags`. Every other reopen keeps the flag, as before.
-/// - `action_ran`: a Card opened with OpenEdit, :303;
-/// - `save_failed` (the client's save before Next failed in the table's OnModify): a Card opened with OpenEdit, :335;
-/// - `expr_set_no_source`: a Card without a source table opened with OpenEdit, :437 (the flag is set only on such a page).
+/// Clears `save_failed` (the client's save before a step failed) in the reopen open corpus PR 1367 measured for it
+/// (testpage/lifecycle/ReopenSameVariableState.al:335, group G8: after a save that failed in the table's OnModify on Next,
+/// nothing carries into the second open): a Card the test opened itself both times, with OpenEdit. Whether it was cleared, for
+/// the assumption `reopen-forgets-earlier-open-flags`. Every other reopen keeps the flag, as before.
 ///
-/// Two flags keep carrying: `save_aborted` (a save that ModifyAllowed = false denied; the probe aborts the save through
-/// OnModifyRecord, :386, which sets no flag) and `gone_temp_list` (set when a read-only temporary list lost its only row; the
-/// probe's list keeps two rows, :469, and sets no flag).
+/// Every other flag keeps carrying, as before; the probe sets none of them where it would show:
+/// - `action_ran` (:303): its one reader, `moved_onto_deleted_shape`, needs a repeater, so a Card logs the same either way;
+/// - `expr_set_no_source` (:437): the probe's control is bound to a page variable, and only a control bound to an expression
+///   sets the flag;
+/// - `save_aborted` (a save that ModifyAllowed = false denied; the probe aborts the save through OnModifyRecord, :386);
+/// - `gone_temp_list` (a read-only temporary list that lost its only row; the probe's list keeps two rows, :469).
 fn forget_earlier_open_flags(s: &mut crate::pages::PageState, r: &Reopen) -> bool {
     let edit = (true, PageMode::Edit);
-    if !(r.earlier == edit && r.now == edit && r.page_type == Some(al_ir::PageType::Card)) {
-        return false;
-    }
-    let mut cleared = false;
-    for flag in [&mut s.action_ran, &mut s.save_failed, &mut s.expr_set_no_source] {
-        if *flag {
-            *flag = false;
-            cleared = true;
-        }
-    }
-    cleared
+    r.earlier == edit
+        && r.now == edit
+        && r.page_type == Some(al_ir::PageType::Card)
+        && std::mem::take(&mut s.save_failed)
 }
 
 #[cfg(test)]
@@ -1647,15 +1640,16 @@ mod tests {
         assert!(s.draft_start.is_none());
     }
 
-    /// The reopen ReopenSameVariableState.al measured clears the flags; a neighbor that differs in one fact keeps them (main's
-    /// result), and the two flags the probe did not reach always carry.
+    /// The reopen ReopenSameVariableState.al measured clears `save_failed`; a neighbor that differs in one fact keeps it (main's
+    /// result), and the flags the probe cannot tell apart or did not reach always carry.
     #[test]
     fn earlier_open_flags_clear_only_in_the_measured_reopen() {
         use al_ir::PageType::{Card, Document, List};
         let run = |earlier: (bool, PageMode), now: (bool, PageMode), page_type: al_ir::PageType| {
             let mut s = crate::pages::PageState::closed(1);
-            s.action_ran = true;
             s.save_failed = true;
+            s.action_ran = true;
+            s.expr_set_no_source = true;
             s.gone_temp_list = true;
             s.save_aborted = true;
             let cleared = forget_earlier_open_flags(
@@ -1666,13 +1660,15 @@ mod tests {
                     page_type: Some(page_type),
                 },
             );
-            (cleared, [s.action_ran, s.save_failed, s.gone_temp_list, s.save_aborted])
+            let kept = [s.action_ran, s.expr_set_no_source, s.gone_temp_list, s.save_aborted];
+            assert_eq!(kept, [true; 4]);
+            (cleared, s.save_failed)
         };
         let edit = (true, PageMode::Edit);
         let view = (true, PageMode::View);
-        assert_eq!(run(edit, edit, Card), (true, [false, false, true, true]));
+        assert_eq!(run(edit, edit, Card), (true, false));
         // Another page type, another mode on either open, an open the test did not make: kept.
-        let kept = (false, [true; 4]);
+        let kept = (false, true);
         assert_eq!(run(edit, edit, Document), kept);
         assert_eq!(run(view, view, List), kept);
         assert_eq!(run(view, view, Card), kept);
