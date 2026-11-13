@@ -1174,6 +1174,8 @@ impl SidecarSession {
                                     .collect()
                             })
                             .unwrap_or_default(),
+                        bound: v["bound"].as_str().unwrap_or("").to_string(),
+                        folded: v["folded"].as_bool().unwrap_or(false),
                     }));
                 }
                 Err(DotNetFailure::Refused(
