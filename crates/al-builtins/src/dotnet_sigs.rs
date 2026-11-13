@@ -61,6 +61,12 @@ pub const AL_EXCEPTION: &str = "Microsoft.Dynamics.Nav.Types.Exceptions.NavALExc
 pub const TEST_FIELD_EXCEPTION: &str = "Microsoft.Dynamics.Nav.Types.NavTestFieldException";
 pub const NCL_EVALUATE_EXCEPTION: &str = "Microsoft.Dynamics.Nav.Types.Exceptions.NavNCLEvaluateException";
 pub const DIVIDE_BY_ZERO_EXCEPTION: &str = "System.DivideByZeroException";
+/// The exception `GetLastErrorObject` answers after a .NET exception of a DotNet call, and its inner exception, the .NET
+/// exception (al-vm `dotnet/invoke_exception.rs`; corpus PR 1365, onprem-dotnet dotnet/dotnet/DotNetExceptionOutcome.al:305-386).
+/// The inner one is no real CLR type name: a registry type of the .NET exception's own name would take the members of the host's
+/// objects of that type.
+pub const NCL_DOTNET_INVOKE_EXCEPTION: &str = "Microsoft.Dynamics.Nav.Types.Exceptions.NavNCLDotNetInvokeException";
+pub const DOTNET_INVOKE_INNER_EXCEPTION: &str = "<inner exception of NavNCLDotNetInvokeException>";
 /// The inner exception of a `NavALException`: only that it is not null is pinned, so it has no member.
 pub const AL_INNER_EXCEPTION: &str = "<inner exception of NavALException (type not pinned)>";
 /// What `GetLastErrorObject` answers when there is no last error (after `ClearLastError`): `IsNull` is true and
@@ -263,6 +269,11 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (NCL_EVALUATE_EXCEPTION, "ToString", Ret::Text),
     (DIVIDE_BY_ZERO_EXCEPTION, "Message", Ret::Text),
     (DIVIDE_BY_ZERO_EXCEPTION, "GetType", Ret::Object),
+    (NCL_DOTNET_INVOKE_EXCEPTION, "Message", Ret::Text),
+    (NCL_DOTNET_INVOKE_EXCEPTION, "GetType", Ret::Object),
+    (NCL_DOTNET_INVOKE_EXCEPTION, "InnerException", Ret::Object),
+    (DOTNET_INVOKE_INNER_EXCEPTION, "Message", Ret::Text),
+    (DOTNET_INVOKE_INNER_EXCEPTION, "GetType", Ret::Object),
     (NCL_DIALOG_EXCEPTION, "GetBaseException", Ret::Object),
     (NCL_DIALOG_EXCEPTION, "Equals", Ret::Boolean),
     (RECORD_NOT_FOUND_EXCEPTION, "GetBaseException", Ret::Object),

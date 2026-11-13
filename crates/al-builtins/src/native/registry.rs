@@ -103,6 +103,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("Database.Commit#1", |c, _, _| c.commit().map(|_| Value::Null)),
     ("Database.SID#1", database_sid),
     ("System.Clear#1", clear),
+    ("System.ClearWithEventsTimer#1", clear_with_events_timer),
     ("System.ArrayLen#1", array_len),
     // A progress dialog is a headless no-op in a test (ui-handlers/TestHandlersDialogProgressNoOp.al:24-110).
     ("Dialog.Open#1", dialog_open),

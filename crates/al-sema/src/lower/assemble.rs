@@ -567,7 +567,8 @@ pub(crate) fn build_shared<'a>(
             continue;
         }
         let obj = ws.object_ast(oi);
-        let mut l = crate::reports::layout(&obj);
+        let timer_trigger = super::with_events::timer_elapsed_trigger(ws, oi);
+        let mut l = crate::reports::layout(&obj, timer_trigger.as_deref());
         // The layouts a reportextension adds refuse a run that renders output, as the report's own do.
         for &e in changing.get(&oi).into_iter().flatten() {
             if let Some(el) = ext_layouts[e].as_ref() {

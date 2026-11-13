@@ -36,6 +36,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a fact kept as session state about a path (how a file was written, whether it is open): list every call that can
     set it and every call that can clear it. The fact must be set only by the measured call and counted for every
     handle, not only for handles that met the shape when they opened.
+  - the arguments of a call whose failure is now caught: a stream or by-reference argument, or a stream an earlier
+    call handed over, has effects that the failed call's reply does not carry. Require the measured argument kinds.
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
@@ -55,6 +57,8 @@ refusal on a shape main ran is a regression, often in Base App code that partner
 - PR body claims that the code does not do ("outside shapes keep the old path", "stays refused"), a refused
   cells list that misses cells, file names that changed, "green on 27.5 and 28.5" when that CI failed.
 - Before hand-back, read the PR body and the area table against the final diff and the actual CI result.
+- Run the tests of every crate whose tests call the changed path, not only the crates whose source changed:
+  `grep -rn` the changed member or refusal text under `crates/*/tests` first.
 
 ## 4. More than one owner (10 of 34)
 

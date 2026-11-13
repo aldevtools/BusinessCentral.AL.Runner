@@ -170,6 +170,7 @@ fn every_registered_id_is_in_the_catalog() {
         "System.FormatDecimalField#1",
         "System.FormatAutoFormatField#1",
         "System.FormatOptionColumn#1",
+        "System.ClearWithEventsTimer#1",
         "System.OptionCaptionML#1",
         "Dialog.ErrorNotLiteral#1",
         "Dialog.ErrorConstant#1",
@@ -481,4 +482,22 @@ fn no_builtin_id_is_registered_twice_in_the_registry_lists() {
         .filter(|id| !seen.insert(*id))
         .collect();
     assert!(twice.is_empty(), "registered twice: {twice:?}");
+}
+
+// `Clear` of a WithEvents Timer (al-runner issue 7832): an unassigned variable stays null; anything that is not a Timer the host
+// holds is refused (only the Timer is measured, N4WithEventsNoRaise.al:209-212).
+#[test]
+fn clear_of_a_with_events_timer_unassigns_only_a_timer() {
+    let mut ctx = TestCtx::default();
+    let mut args = [Value::Null];
+    assert!(matches!(
+        super::values::clear_with_events_timer(&mut ctx, None, &mut args),
+        Ok(Value::Null)
+    ));
+    assert!(matches!(args[0], Value::Null));
+    let mut args = [Value::Text("x".to_string().into())];
+    match super::values::clear_with_events_timer(&mut ctx, None, &mut args) {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("WithEvents Timer"), "{why}"),
+        other => panic!("{other:?}"),
+    }
 }
