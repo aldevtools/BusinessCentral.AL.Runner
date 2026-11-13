@@ -134,7 +134,8 @@ impl<C: Cdn> ServiceTier<C> {
 
     /// Makes exactly the files `names` (simple names) present in [`Self::dir`], following no reference: a named set of
     /// the report render process ([`crate::render_set`]). A file already there with the size the archive records is not
-    /// fetched again. A name the service folder does not hold is listed in [`Fetched::missing`].
+    /// fetched again. A name the service folder does not hold is listed in [`Fetched::missing`]. With downloading off, a
+    /// file that is not on disk is an error.
     pub fn ensure_set(&self, names: &[&str]) -> Result<Fetched, String> {
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let dir = self.dir();
@@ -143,6 +144,13 @@ impl<C: Cdn> ServiceTier<C> {
             let lower = name.to_ascii_lowercase();
             if self.present(&dir, &lower, &mut st)? {
                 continue;
+            }
+            // `--no-download`: a cached central directory would still let `fetch` read the entry from the feed.
+            if !self.download {
+                return Err(format!(
+                    "{name}.dll of build {} is not in the artifact cache and downloading is off",
+                    self.build
+                ));
             }
             match self.fetch(&dir, &lower, &mut st)? {
                 Some((file, b)) => {
@@ -393,6 +401,14 @@ mod tests {
         );
         assert_eq!(got.files.len(), 2);
         assert_eq!(got.missing, vec!["Not.In.The.Folder".to_string()]);
+        // Downloading off: a file that is not on disk is not read from the feed, even with the central directory cached.
+        let off = ServiceTier::new(Platform(platform(t.path())), &t.path().join("c"), build(), false);
+        let e = off.ensure_set(&["DocumentFormat.OpenXml"]).unwrap_err();
+        assert!(e.contains("downloading is off"), "{e}");
+        assert_eq!(
+            off.ensure_set(&["Microsoft.Dynamics.Nav.OpenXml"]).unwrap(),
+            Fetched::default()
+        );
         // Asked again, nothing is fetched; the missing name is still reported.
         let again = tier
             .ensure_set(&["Microsoft.Dynamics.Nav.OpenXml", "Not.In.The.Folder"])
