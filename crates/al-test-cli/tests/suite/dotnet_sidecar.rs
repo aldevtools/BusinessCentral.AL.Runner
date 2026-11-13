@@ -231,6 +231,124 @@ fn exceptions_carry_the_clr_type_and_message_and_the_sidecar_survives_them() {
     sess.close();
 }
 
+// An exception reply says what threw (al-runner issue 7924): a method called as one, a property read by a get, a constructor;
+// nothing for an indexer or a property reached through a call. `folded` when the member was written in another letter case.
+#[test]
+fn an_exception_reply_names_the_binding_that_threw_and_a_folded_name() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let e = exception(sess.invoke(st("System.Convert"), "ToInt32", vec![s("abc")]));
+    assert_eq!((e.bound.as_str(), e.folded), ("method", false));
+    let e = exception(sess.invoke(st("System.Convert"), "toint32", vec![s("abc")]));
+    assert_eq!((e.bound.as_str(), e.folded), ("method", true));
+    let e = exception(sess.construct(&ty("System.Text.StringBuilder"), vec![arg(DotNetValue::Int32(-1))]));
+    assert_eq!((e.bound.as_str(), e.folded), ("constructor", false));
+    assert_eq!(e.clr_type, "System.ArgumentOutOfRangeException");
+    let rel = sess
+        .construct(
+            &ty("System.Uri"),
+            vec![
+                s("a/b"),
+                arg(DotNetValue::Enum {
+                    ty: "System.UriKind".into(),
+                    name: "Relative".into(),
+                    ordinal: 2,
+                }),
+            ],
+        )
+        .unwrap();
+    let DotNetValue::Handle { handle, .. } = rel.value else {
+        panic!("expected an object, got {:?}", rel.value)
+    };
+    let e = exception(sess.get_property(DotNetTarget::Instance(handle), "AbsolutePath"));
+    assert_eq!(
+        (e.bound.as_str(), e.clr_type.as_str()),
+        ("property", "System.InvalidOperationException")
+    );
+    // The same property reached through a call is no binding the host lets through.
+    let e = exception(sess.invoke(DotNetTarget::Instance(handle), "AbsolutePath", vec![]));
+    assert_eq!(e.bound, "");
+    sess.close();
+}
+
+// A method with a ref or out parameter names no binding: what it wrote before it threw does not reach the host, which then
+// keeps the refusal (Math.DivRem(1, 0, out r) throws DivideByZeroException).
+#[test]
+fn an_exception_of_a_member_with_a_by_reference_parameter_names_no_binding() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let by_ref = DotNetArg {
+        by_ref: true,
+        ..arg(DotNetValue::Int32(0))
+    };
+    let e = exception(sess.invoke(
+        st("System.Math"),
+        "DivRem",
+        vec![arg(DotNetValue::Int32(1)), arg(DotNetValue::Int32(0)), by_ref],
+    ));
+    assert_eq!(
+        (e.clr_type.as_str(), e.bound.as_str()),
+        ("System.DivideByZeroException", "")
+    );
+    sess.close();
+}
+
+// A call that writes into the OutStream bridge of an earlier call and then throws names no binding: the bytes it wrote reach
+// the host only with a later reply, so the host keeps the refusal. A CryptoStream with a FromBase64Transform over text that
+// turns invalid after 64 characters writes 48 bytes into the bridge, then throws FormatException.
+#[test]
+fn an_exception_of_a_call_that_wrote_into_an_earlier_bridge_names_no_binding() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let handle = |r: &DotNetReply| arg(r.value.clone());
+    let w = sess
+        .construct(&ty("System.IO.StreamWriter"), vec![arg(DotNetValue::OutStream)])
+        .unwrap();
+    let base = sess
+        .get_property(DotNetTarget::Instance(handle_of(&w)), "BaseStream")
+        .unwrap();
+    let ascii = sess.get_property(st("System.Text.Encoding"), "ASCII").unwrap();
+    let text = format!("{}!!!!!!!!QUJD", "QUJD".repeat(16));
+    let bytes = sess
+        .invoke(DotNetTarget::Instance(handle_of(&ascii)), "GetBytes", vec![s(&text)])
+        .unwrap();
+    // A fresh CryptoStream over the bytes, copied into `to` with a buffer of 12 bytes: it throws after 48 bytes.
+    let failing_copy = |sess: &mut Box<dyn DotNetSession>, to: DotNetArg| {
+        let src = sess
+            .construct(&ty("System.IO.MemoryStream"), vec![handle(&bytes)])
+            .unwrap();
+        let transform = sess
+            .construct(&ty("System.Security.Cryptography.FromBase64Transform"), vec![])
+            .unwrap();
+        let read = arg(DotNetValue::Enum {
+            ty: "System.Security.Cryptography.CryptoStreamMode".into(),
+            name: "Read".into(),
+            ordinal: 0,
+        });
+        let crypto = sess
+            .construct(
+                &ty("System.Security.Cryptography.CryptoStream"),
+                vec![handle(&src), handle(&transform), read],
+            )
+            .unwrap();
+        exception(sess.invoke(
+            DotNetTarget::Instance(handle_of(&crypto)),
+            "CopyTo",
+            vec![to, arg(DotNetValue::Int32(12))],
+        ))
+    };
+    // Control: the same failed call into a stream that is no bridge names its binding.
+    let dst = sess.construct(&ty("System.IO.MemoryStream"), vec![]).unwrap();
+    let e = failing_copy(&mut sess, handle(&dst));
+    assert_eq!(
+        (e.clr_type.as_str(), e.bound.as_str()),
+        ("System.FormatException", "method")
+    );
+    let e = failing_copy(&mut sess, handle(&base));
+    assert_eq!((e.clr_type.as_str(), e.bound.as_str()), ("System.FormatException", ""));
+    sess.close();
+}
+
 #[test]
 fn a_missing_type_or_member_is_a_refusal_not_an_exception() {
     let Some(h) = host() else { return };
