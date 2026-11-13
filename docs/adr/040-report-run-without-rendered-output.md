@@ -1018,3 +1018,24 @@ branch `al-runtime-rs-staging-reports-decl` (pull request not open yet) measures
 row of the company, Word layout to Excel, answers false with `ReportUnsupportedFormat`. The six cells of Excel and RDLC
 default layouts still need a probe. In the round that opens the step-1 probe pull request, the Kept rows move to an
 assumption entry that cites it, and `Evidence::Kept` is deleted.
+
+### State after step 1 round 2 (2026-11-13)
+
+- **Selection from ReportManagement.** A save that reaches the layout selection raises SelectReportLayoutCode, and then,
+  unless it answered a selected layout, SelectedBuiltinLayoutType (events/platform-triggers/PeVTests.al:713;
+  reports/layouts-html-text/HtRenderedTextTests.al:494, :530). Both go to Base Application's ReportManagement only, not
+  yet to every subscriber as owner decision 2 says; a subscriber of another app stays unseen (follow-up). The runtime reads
+  no row of table 9651: Microsoft's code decides which rows count. A program that holds table 9651 but did not compile
+  ReportManagement's subscriber refuses the save (`report_save::fact_selection::without_report_management`).
+- **Codeunit 9654 still read natively.** The globals of "Design-time Report Selection" are read only to tell a temporary
+  selection from the code of a Custom Layout row, which BC answers differently when the name matches nothing
+  (HtRenderedTextTests.al:543-603 against reports/html-email-body/RxLayoutSelectionTests.al:746), and for the
+  DesignTimeHeld fact of a run (follow-up).
+- **Temporary selection.** Once SelectReportLayoutCode answers a selected name, BC reads no row of the company, so
+  `Selection::TempWord` covers every stored state (RxdDeclLayoutTests.al:811, :1336, :1651; RxdDeclEmailBodyTests.al:199,
+  :329, :407, corpus pull request 1381). Any other answer while a selection was held is `Selection::DesignTimeHeld`.
+- **Declares fact.** A report whose `WordLayout` and `RDLCLayout` properties declare its layouts is its own fact value;
+  its rows (al-vm `report_save/cells_decl.rs`) mark `report-save-decl-word-rdlc` until a bump pins pull request 1381.
+  Kept rows and the statement refusals read the other value, so they are unchanged.
+- **The seven Kept rows are unchanged.** Pull request 1381 measures only the Word-to-Excel one, and only for the
+  declared-properties report, not for the rendering-section shape the Kept row covers.

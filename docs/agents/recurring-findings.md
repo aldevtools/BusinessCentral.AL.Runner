@@ -61,6 +61,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
     checked there. Pass the kind from the read site, or do not claim it in the entry (al-runner PR 7951).
   - a name-resolution shortcut checked against variables only: check every kind of declaration that can own the name
     (local, parameter, return value, global, procedure of the object), each measured (al-runner PR 7973).
+  - an events exception list copied from a sibling row: the exception is true only where the caller raises the event
+    (`format_unsupported_by_layout`). Check who raises each excepted event for the new row's shape (al-runner PR 7979).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
@@ -103,6 +105,8 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 - Before hand-back, read each clause of the entry text against one line of the gate. A fact the text names
   (the empty page, OpenEdit, "the action committed", "assigned from a Variant") and no line checks is a finding:
   add the check, or narrow the text.
+- When a native check is replaced (for example by Microsoft's code run as AL), reread every entry that names the old check,
+  not only the entry the pull request adds (al-runner PR 7979).
 - Do not mark where the assumed change has no reader on that page: a pinned clean pass turns into a flagged
   pass. Check `--top-assumptions` for corpus passes under the new id.
 - Regenerate `docs/probes-needed.md` (`--assumptions-doc`) when an entry changes. Do not delete a row while
@@ -168,3 +172,10 @@ first commit. A rule gated to BC 28 must still answer the BC 27 cells the corpus
 
 A check that proves "nothing else can see this" fails when its reach analysis has unknown entries (RecordRef
 with a run-time id, dynamic object ids), unless the owner named that kind of unknown as safe.
+
+## 13. Microsoft text in fixtures (al-runner PR 7979, and PR 7949 before it)
+
+A stand-in of a Base Application object in a Rust fixture is written from the pinned behavior, never from the object's
+source (CLAUDE.md hard rule 7). Only object ids and names, field ids and names, and procedure and event signatures may
+match. Before hand-back, compare the fixture's lines with the files in the artifact cache; only signatures, one-word
+lines and one-statement assignments of an answer value (`Success := true;`) may match.
