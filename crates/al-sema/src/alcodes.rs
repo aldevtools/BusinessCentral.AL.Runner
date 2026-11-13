@@ -44,7 +44,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0107",
-        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332)",
+        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); the keyword `in`, unquoted, after `::` (issue 7803)",
     ),
     (
         "AL0301",
@@ -60,7 +60,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0118",
-        "a bare call of a name that is not a procedure or system function, in a codeunit; an undeclared bare name in a codeunit, or assigned in a trigger of a table, page, report, query or xmlport; Codeunit::\"X\" or an event subscriber naming a codeunit nobody declares",
+        "a bare call of a name that is not a procedure or system function, in a codeunit; an undeclared bare name in a codeunit, or assigned in a trigger of a table, page, report, query or xmlport; Codeunit::\"X\" or an event subscriber naming a codeunit nobody declares; `Rec`, `xRec`, a field or a method of the implicit Rec in a procedure of a codeunit with TableNo (issue 7974)",
     ),
     (
         "AL0122",
@@ -72,7 +72,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0132",
-        "ExecutionMode::Install, Uninstall, Upgrade, Report, Profile; a field or method of a record that the table and the catalog lack; a method the catalog lacks on Text, Code, Boolean, List, Dictionary, JsonObject, JsonToken, HttpClient, RecordRef or TextBuilder; a method that a codeunit of an app under test does not declare, called on a Codeunit variable; a value an enum of the workspace lacks, also as a SubPageLink const(\"Enum\"::Value) (case 2276); a page field Rec.X the source table lacks",
+        "ExecutionMode::Install, Uninstall, Upgrade, Report, Profile; a field or method of a record that the table and the catalog lack; a method the catalog lacks on Text, Code, Boolean, List, Dictionary, JsonObject, JsonToken, HttpClient, RecordRef or TextBuilder; a method that a codeunit of an app under test does not declare, called on a Codeunit variable; a value an enum of the workspace lacks, also as a SubPageLink const(\"Enum\"::Value) (case 2276); a page field Rec.X the source table lacks; a member the type Version lacks, on the type name (issue 7974)",
     ),
     (
         "AL0383",
@@ -84,7 +84,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0161",
-        "a page extension names a non-protected variable or a local procedure of its base page, or a report extension does; a Cloud app names an internal agent table of the platform; a subscriber to the internal event GetRoleCenterBannerPartID of System Action Triggers; a page customization names a variable of its page in Editable of a modify; `CurrReport.RequestOptionsPage` (case 2514)",
+        "a page extension names a non-protected variable or a local procedure of its base page, or a report extension does; a Cloud app names an internal agent table of the platform; a subscriber to the internal event GetRoleCenterBannerPartID of System Action Triggers; a page customization names a variable of its page in Editable of a modify; `CurrReport.RequestOptionsPage` (case 2514); `xRec` in the OnRun trigger of a codeunit with TableNo (issue 7974)",
     ),
     (
         "AL0162",
@@ -1496,6 +1496,11 @@ const PARAM_NAME_KEYWORDS: &[&str] = &[
     "var",
 ];
 
+/// The AL0107 text, as alc gives it for a keyword or another token where a name must stand (must-not-compile 2024 and
+/// the other parameter cases of `parameter_names`, 2830).
+pub(crate) const IDENTIFIER_EXPECTED: &str =
+    "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
+
 /// Of [`PARAM_NAME_KEYWORDS`], the words alc reads as the end of the parameter list when they come without `var`.
 const PARAM_NAME_ENDS_LIST: &[&str] = &["begin", "procedure", "trigger"];
 
@@ -1524,8 +1529,6 @@ fn declarations(obj: &SyntaxNode) -> (Vec<ast::VarDecl>, Vec<SyntaxNode>) {
 }
 
 fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<Diagnostic>) {
-    const INVALID: &str =
-        "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
     // Statement blocks and var sections hold no parameter list; they are most of the tree, so they are not entered.
     let params = ast::find_nodes(
         obj,
@@ -1550,7 +1553,7 @@ fn parameter_names(ws: &Workspace, file: usize, obj: &SyntaxNode, out: &mut Vec<
         }
         let offset = name.text_range().start().into();
         let (code, message) = if after_var {
-            ("AL0107", INVALID.to_string())
+            ("AL0107", IDENTIFIER_EXPECTED.to_string())
         } else if PARAM_NAME_ENDS_LIST.contains(&word.as_str()) {
             ("AL0104", "Syntax error, ')' expected".to_string())
         } else {
@@ -1695,8 +1698,6 @@ fn match_shape(root: &SyntaxNode, shape: &[Pat], at: Option<&str>) -> Option<(St
 /// must-not-compile cases 2016 (begin), 2017 (procedure), 2018 (trigger), 2039 (var), and 2019-2038 for the other words
 /// (one list for all of them, the word named). AL 30.0.42.60748-beta, the same for BC 27, 28 and 29.
 fn keyword_param_pair_list(word: &str) -> Vec<(&'static str, String)> {
-    const INVALID: &str =
-        "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
     let kw = format!("Syntax error, identifier expected; '{word}' is a keyword");
     let s = |code: &'static str, text: &str| (code, text.to_string());
     let expected = |what: &str| ("AL0104", format!("Syntax error, '{what}' expected"));
@@ -1711,7 +1712,7 @@ fn keyword_param_pair_list(word: &str) -> Vec<(&'static str, String)> {
     // 2016:1-15, 2017:1-13, 2018:1-15: the procedure with `var` gives three diagnostics at the name, then those of the other one.
     let ends_list = |tail: Vec<(&'static str, String)>| {
         let mut v = tail.clone();
-        v.extend([s("AL0107", INVALID), expected(":"), ("AL0105", kw.clone())]);
+        v.extend([s("AL0107", IDENTIFIER_EXPECTED), expected(":"), ("AL0105", kw.clone())]);
         v.extend(tail);
         v
     };
@@ -1726,23 +1727,23 @@ fn keyword_param_pair_list(word: &str) -> Vec<(&'static str, String)> {
         ]),
         "procedure" => ends_list(vec![
             expected(")"),
-            s("AL0107", INVALID),
+            s("AL0107", IDENTIFIER_EXPECTED),
             expected("("),
             expected(":"),
-            s("AL0107", INVALID),
+            s("AL0107", IDENTIFIER_EXPECTED),
         ]),
         "trigger" => ends_list(vec![
             expected(")"),
             trigger,
-            s("AL0107", INVALID),
+            s("AL0107", IDENTIFIER_EXPECTED),
             expected("("),
             expected(":"),
-            s("AL0107", INVALID),
+            s("AL0107", IDENTIFIER_EXPECTED),
         ]),
         // 2039:1-5.
         "var" => vec![
-            s("AL0107", INVALID),
-            s("AL0107", INVALID),
+            s("AL0107", IDENTIFIER_EXPECTED),
+            s("AL0107", IDENTIFIER_EXPECTED),
             expected(":"),
             ("AL0105", kw),
             expected(";"),
@@ -1751,8 +1752,8 @@ fn keyword_param_pair_list(word: &str) -> Vec<(&'static str, String)> {
         _ => vec![
             ("AL0105", kw.clone()),
             expected(":"),
-            s("AL0107", INVALID),
-            s("AL0107", INVALID),
+            s("AL0107", IDENTIFIER_EXPECTED),
+            s("AL0107", IDENTIFIER_EXPECTED),
             expected(":"),
             ("AL0105", kw),
             expected(";"),

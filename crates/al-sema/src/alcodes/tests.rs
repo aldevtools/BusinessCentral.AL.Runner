@@ -2318,7 +2318,7 @@ fn al0118_system_variables_the_object_does_not_have() {
         );
     }
     let ok = [
-        "table 50000 T { fields { field(1; Id; Integer) { } } } codeunit 50001 C { TableNo = T; procedure Run1() begin xRec.Init(); Rec.Init(); end; }",
+        "table 50000 T { fields { field(1; Id; Integer) { } } } codeunit 50001 C { TableNo = T; trigger OnRun() begin Rec.Init(); end; }",
         "table 50001 T { fields { field(1; Id; Integer) { } } trigger OnInsert() begin Rec.Init(); xRec.Init(); end; }",
         "report 50001 R { trigger OnPreReport() begin CurrReport.Skip(); end; }",
         "page 50001 P { trigger OnOpenPage() begin CurrPage.Update(); end; }",
@@ -2662,3 +2662,27 @@ fn a_table_field_of_type_char_or_byte_is_al0156() {
 
 mod internals_grant;
 mod scope;
+
+// al-runner issue 7803, alc 18.0.39.10160: `::In` (the keyword `in`, unquoted) after an option field, an option variable
+// or an enum type is AL0107 at `In`, the first of alc's syntax errors there; `::"In"` compiles.
+#[test]
+fn al0107_unquoted_in_after_the_scope_operator() {
+    const INVALID: &str =
+        "AL0107 Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only).";
+    let table = "table 50110 \"Probe Dir\" { fields { field(1; \"Entry No.\"; Integer) { } field(2; Direction; Option) { OptionMembers = \"In\",\"Out\"; } } }";
+    let field = format!(
+        "{table} codeunit 50111 C {{ procedure P1(var R: Record \"Probe Dir\") begin R.Direction := R.Direction::In; end; }}"
+    );
+    assert_eq!(messages(&field), vec![INVALID.to_string()]);
+    let var =
+        "codeunit 50111 C { procedure P1(): Integer var D: Option \"In\",\"Out\"; begin D := D::In; exit(D); end; }";
+    assert_eq!(messages(var), vec![INVALID.to_string()]);
+    let enum_ty = "enum 50112 \"Probe Dir Enum\" { value(0; \"In\") { } value(1; Out) { } } \
+        codeunit 50113 C { procedure P2(): Integer begin exit(\"Probe Dir Enum\"::In.AsInteger()); end; }";
+    assert_eq!(messages(enum_ty), vec![INVALID.to_string()]);
+    let quoted = format!(
+        "{table} enum 50112 \"Probe Dir Enum\" {{ value(0; \"In\") {{ }} value(1; Out) {{ }} }} \
+        codeunit 50114 C {{ procedure P3(var R: Record \"Probe Dir\"): Integer var D: Option \"In\",\"Out\"; begin D := D::\"In\"; R.Direction := R.Direction::\"In\"; R.Direction := R.Direction::Out; exit(\"Probe Dir Enum\"::\"In\".AsInteger() + D); end; }}"
+    );
+    assert!(messages(&quoted).is_empty(), "{:?}", messages(&quoted));
+}

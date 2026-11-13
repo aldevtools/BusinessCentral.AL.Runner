@@ -331,9 +331,23 @@ impl<'a> Checker<'a> {
             }
             _ => {}
         }
+        // The procedures of a codeunit with TableNo see the object's own variables only: no `Rec`, no `xRec`, no
+        // unqualified field or method of the implicit record (al-runner issue 7974; alc 18.0.39.10160 gives AL0118
+        // for each, in global, local and internal procedures, event subscribers and test procedures, also next to a
+        // parameter named `Rec`; probe apps in lower/tests/type_before_rec_field.rs). A global `Rec` or `xRec` the
+        // codeunit declares stays that variable there. Only the OnRun trigger has the implicit Rec.
+        let table_no_procedure_globals =
+            (o.kind == ObjKind::Codeunit && rec.is_some()).then(|| std::rc::Rc::new(globals.clone()));
         if let Some(r) = &rec {
             globals.insert("rec".into(), r.clone());
-            globals.insert("xrec".into(), r.clone());
+            // The OnRun trigger of a codeunit with TableNo has `Rec` but no implicit `xRec` (AL0161, `al_unresolved_name`);
+            // a global `xRec` the codeunit declares stays.
+            match o.kind {
+                ObjKind::Codeunit => {}
+                _ => {
+                    globals.insert("xrec".into(), r.clone());
+                }
+            }
         }
         // Report extensions see the base report's data items; `modify(X)` blocks
         // run with data item X as their record.
@@ -458,6 +472,7 @@ impl<'a> Checker<'a> {
             base_obj,
             base_vars: std::rc::Rc::new(base_vars),
             ext_vars: std::rc::Rc::new(ext_vars),
+            table_no_procedure_globals,
         }
     }
 
@@ -689,6 +704,7 @@ impl<'a> Checker<'a> {
             base_obj,
             base_vars,
             ext_vars,
+            table_no_procedure_globals,
         } = ctx;
         let (oi, file, self_obj) = (*oi, *file, *self_obj);
         {
@@ -717,10 +733,16 @@ impl<'a> Checker<'a> {
                 ),
                 None => (rec.clone(), *rec_unqualified),
             };
+            // A procedure (every routine but the OnRun trigger) of a codeunit with TableNo: no implicit Rec.
+            let table_no_procedure = table_no_procedure_globals.as_ref().filter(|_| !r.is_trigger());
+            let (rec, rec_unqualified, globals) = match table_no_procedure {
+                Some(own) => (None, false, own.clone()),
+                None => (rec, rec_unqualified, globals.clone()),
+            };
             let mut sc = Scope {
                 oi,
                 file,
-                globals: globals.clone(),
+                globals,
                 vars: Vec::new(),
                 rec,
                 rec_unqualified,
