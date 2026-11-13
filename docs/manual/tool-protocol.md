@@ -194,9 +194,11 @@ plain way, and these make a run of another kind.
 Differences a client must adapt to:
 
 1. **Test lines stream**, one per test as it finishes, then the summary.
-2. The server is **warm and in-process**: compiled dependency apps and test data stay in memory. Same sources and the
-   same selected test codeunits as the last request: the compiled workspace is reused and `cached` is `true` (a request
-   that selects another codeunit compiles again and has `cached: false`). A changed source always shows. When only the
+2. The server is **warm and in-process**: compiled dependency apps and test data stay in memory. Same sources as the
+   last request: the compiled workspace is reused and `cached` is `true`, whatever the request selects (`test`,
+   `excludeTests`, `coverage`). The compile holds every test codeunit of the sources, so the first request compiles
+   all of them even when it selects one, and with `tdd` the summary's `generatedStubs` also lists the stubs of test
+   codeunits the request does not select (a one-shot `al-runner test --tdd --test` compiles only the selected ones). A changed source always shows. When only the
    code of routines of codeunits, tables or table extensions changed, just those objects are compiled again and the
    summary has `incremental: true` (a request takes 0.4 s on the corpus app and 2.2 s on Tests-ERM, of which
    1.8 s is the tests); any other change compiles the workspace again. Resource files (`resourceFolders`) are not

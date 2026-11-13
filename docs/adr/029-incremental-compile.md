@@ -29,8 +29,9 @@ compile is at hand.
      `text_looks_pure`, and the update says no).
 
    Anything else compiles all of it again, as before. Not covered yet: pages, reports and other kinds (the lowering of
-   a page or report reads the code of its extensions), files added or removed, a changed selection, and the compile
-   without the dependency cache (the demand-driven path for tests free of data, which costs 0.5 s anyway).
+   a page or report reads the code of its extensions), files added or removed, and the compile
+   without the dependency cache (the demand-driven path for tests free of data, which costs 0.5 s anyway). A changed
+   selection needs no update: since ADR-028's amendment of 2026-11-13 the warm compile holds every test codeunit.
 2. **What is renewed.** `Workspace::replace_file` swaps the tree, the offsets of the file's objects and the file's
    reference diagnostics. `check_with` runs on the objects of the file only (`Roots::only_objects`; the left-out test
    codeunits of the selection keep their status except where the text changed). The tables the lowering reads are built
