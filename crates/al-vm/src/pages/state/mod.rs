@@ -55,6 +55,20 @@ pub(crate) fn closed_page(object: u32) -> PageHandle {
 /// makes a value, so no handle of a run holds anything but a `PageState`.
 pub(crate) fn register_closed_page() {
     al_builtins::page_handle::set_closed_page(closed_page);
+    al_builtins::instance_cycles::set_page_instances(page_instance);
+}
+
+/// The instance of a page value that no other value shares (`al_builtins::instance_cycles`).
+fn page_instance(handle: &PageHandle, f: &mut dyn FnMut(&Rc<RefCell<Instance>>)) {
+    let Some(st) = handle
+        .get::<Rc<RefCell<PageState>>>()
+        .filter(|st| Rc::strong_count(st) == 1)
+    else {
+        return;
+    };
+    if let Some(i) = st.try_borrow().ok().as_ref().and_then(|s| s.instance.as_ref()) {
+        f(i);
+    }
 }
 
 /// How a page was opened by the test client.

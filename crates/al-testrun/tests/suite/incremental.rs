@@ -264,6 +264,8 @@ fn warm_run(warm: &mut Warm, texts: &[&str], dir: &std::path::Path) -> (WarmUse,
     (used, outcomes(&rt))
 }
 
+/// The complete compile holds every test codeunit, as a warm one does whatever the selection (al-runner issue 7978);
+/// the run runs the selection.
 fn complete(texts: &[&str], dir: &std::path::Path) -> (Compiled, Vec<String>) {
     let (apps, kinds, m) = build(texts);
     let o = opts(dir);
@@ -274,7 +276,10 @@ fn complete(texts: &[&str], dir: &std::path::Path) -> (Compiled, Vec<String>) {
         &Default::default(),
         None,
         &[SuiteRun::everything()],
-        &o,
+        &RunOptions {
+            only: None,
+            ..o.clone()
+        },
     )
     .unwrap();
     let rt = CorpusRuntime::run_compiled(&c, None, Default::default(), &o);
@@ -443,18 +448,19 @@ fn a_text_that_does_not_parse_is_compiled_all_over_and_the_next_good_one_is_take
     assert_eq!(got, want);
 }
 
+/// With a selection, a change in a test codeunit it does not select updates the compile as a complete compile does: the
+/// warm compile holds every test codeunit, the selection only picks what runs (al-runner issue 7978).
 #[test]
-fn a_test_codeunit_the_selection_leaves_out_is_left_out_or_not_by_its_own_text() {
+fn with_a_selection_a_change_in_an_unselected_test_codeunit_updates_like_a_complete_compile() {
     SELECTION.with(|s| *s.borrow_mut() = Some(vec![(0, 60101)]));
     let dir = tempfile::tempdir().unwrap();
     let mut warm = Warm::new();
     warm_run(&mut warm, &[LIB, TESTS, OTHER, TABLES], dir.path());
-    // A word in a comment makes the left-out test codeunit stay compiled (it might subscribe to events).
     let other = OTHER.replace("C.Init();", "// EventSubscriber\n        C.Init();");
     let texts = [LIB, TESTS, other.as_str(), TABLES];
     let (used, got) = warm_run(&mut warm, &texts, dir.path());
     assert_eq!(used, WarmUse::Updated);
-    assert_same(&warm, &texts, dir.path(), "a left-out test codeunit that stays");
+    assert_same(&warm, &texts, dir.path(), "a changed unselected test codeunit");
     let (_, want) = complete(&texts, dir.path());
     assert_eq!(got, want);
     // And back.
@@ -464,7 +470,7 @@ fn a_test_codeunit_the_selection_leaves_out_is_left_out_or_not_by_its_own_text()
         &warm,
         &[LIB, TESTS, OTHER, TABLES],
         dir.path(),
-        "a left-out test codeunit that goes",
+        "an unselected test codeunit changed back",
     );
 }
 
@@ -522,11 +528,10 @@ fn with_tdd_the_stubs_follow_the_objects_compiled_again_and_the_real_procedure_e
     );
 }
 
-/// A change that makes a selected test call a procedure of a test codeunit the selection leaves out compiles that
-/// codeunit with it: the outcome is the one of a complete compile, which compiles a left-out test codeunit that kept
-/// code names (`check::named_by_kept`).
+/// A change that makes a selected test call a procedure of a test codeunit the selection does not select gives the
+/// outcome of a complete compile.
 #[test]
-fn a_change_that_names_a_left_out_test_codeunit_gives_the_outcome_of_a_complete_compile() {
+fn a_change_that_names_an_unselected_test_codeunit_gives_the_outcome_of_a_complete_compile() {
     SELECTION.with(|s| *s.borrow_mut() = Some(vec![(0, 60101)]));
     let dir = tempfile::tempdir().unwrap();
     let mut warm = Warm::new();
@@ -547,7 +552,12 @@ fn a_change_that_names_a_left_out_test_codeunit_gives_the_outcome_of_a_complete_
     assert!(tests.contains("Codeunit_Other: Codeunit Other;"));
     let texts = [LIB, tests.as_str(), other.as_str(), TABLES];
     let (_, got) = warm_run(&mut warm, &texts, dir.path());
-    assert_same(&warm, &texts, dir.path(), "a test that names a left-out test codeunit");
+    assert_same(
+        &warm,
+        &texts,
+        dir.path(),
+        "a test that names an unselected test codeunit",
+    );
     let (_, want) = complete(&texts, dir.path());
     assert_eq!(got, want);
     assert!(got.iter().any(|l| l.contains("60101 Greets Pass")), "{got:?}");

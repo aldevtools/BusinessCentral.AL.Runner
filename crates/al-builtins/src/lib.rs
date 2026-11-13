@@ -5,6 +5,7 @@ mod conv_undefined;
 pub mod date_filter_forms;
 mod date_formula_language;
 mod format_boolean;
+pub mod instance_cycles;
 pub mod library_kind;
 pub mod signature;
 pub mod stream;

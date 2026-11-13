@@ -194,10 +194,10 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         Value::Codeunit(rc) if !rc.borrow().initialized => return Ok(Value::Null),
         Value::Codeunit(rc) => {
             let object = rc.borrow().object;
-            Value::Codeunit(std::rc::Rc::new(std::cell::RefCell::new(crate::value::Instance {
+            Value::Codeunit(crate::instance_cycles::shared(crate::value::Instance {
                 object,
                 ..Default::default()
-            })))
+            }))
         }
         // An array goes back to its initial value element by element, in place: a `var` parameter
         // that shares it sees the change (docs/probes-needed.md; the oracle runs
