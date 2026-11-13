@@ -264,6 +264,8 @@ fn warm_run(warm: &mut Warm, texts: &[&str], dir: &std::path::Path) -> (WarmUse,
     (used, outcomes(&rt))
 }
 
+/// The complete compile holds every test codeunit, as a warm one does whatever the selection (al-runner issue 7978);
+/// the run runs the selection.
 fn complete(texts: &[&str], dir: &std::path::Path) -> (Compiled, Vec<String>) {
     let (apps, kinds, m) = build(texts);
     let o = opts(dir);
@@ -274,7 +276,10 @@ fn complete(texts: &[&str], dir: &std::path::Path) -> (Compiled, Vec<String>) {
         &Default::default(),
         None,
         &[SuiteRun::everything()],
-        &o,
+        &RunOptions {
+            only: None,
+            ..o.clone()
+        },
     )
     .unwrap();
     let rt = CorpusRuntime::run_compiled(&c, None, Default::default(), &o);
