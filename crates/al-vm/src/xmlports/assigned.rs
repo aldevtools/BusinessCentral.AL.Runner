@@ -21,6 +21,61 @@ pub(super) fn separator(inst: &Inst, kind: u8, declared: Option<&str>, default: 
     }
 }
 
+/// The port declares no FieldDelimiter, FieldSeparator, RecordSeparator or TableSeparator and the program set none of them
+/// (`Instance::xp_text` kinds 0 to 3), as port 75182 of corpus pull request 1340 (xmlports/import/XpLegacyGuidImport.al:53-71).
+pub(super) fn default_separators(inst: &Inst, xp: &ir::XmlPort) -> bool {
+    xp.field_delimiter.is_none()
+        && xp.field_separator.is_none()
+        && xp.record_separator.is_none()
+        && xp.table_separator.is_none()
+        && inst.borrow().xp_text.iter().all(|(k, _)| *k > 3)
+}
+
+impl Session {
+    /// `FieldDelimiter`, `FieldSeparator`, `RecordSeparator` and `TableSeparator` of a text xmlport. The setter stores the text
+    /// as given; the getter reads the separator as an export uses it (`separator`): a value the program set as it was given
+    /// (metadata/session-system/P94XpDelim.al:Getters_*, Setters_*, *_Variants), a declared one with its tokens read as
+    /// `text_separator` reads them (xmlports/shapes-properties/XpSeparatorGetterTokens.al:105-118 for <>, <None>, <none>,
+    /// <TAB>, <tab>, <LF>, <CR>, <CR/LF>, <NewLine>, ;<TAB>, <TAB><TAB>; :155-156 for <none>, <tab>, ;<LF>, <None> as record and
+    /// table separators), an undeclared one as the default.
+    pub(super) fn xp_separator_builtin(
+        &mut self,
+        id: al_ir::BuiltinId,
+        receiver: Option<Value>,
+        args: &[Value],
+    ) -> Result<Value, Signal> {
+        let inst = self.xp_instance(receiver)?;
+        let kind: u8 = match id {
+            ids::XMLPORT_FIELDDELIMITER_1 => 0,
+            ids::XMLPORT_FIELDSEPARATOR_1 => 1,
+            ids::XMLPORT_RECORDSEPARATOR_1 => 2,
+            _ => 3,
+        };
+        if let Some(v) = args.first() {
+            let Some(text) = al_builtins::native::text_of(v) else {
+                return unsupported(format!("{id} with {}", v.describe()));
+            };
+            let mut i = inst.borrow_mut();
+            i.xp_text.retain(|(k, _)| *k != kind);
+            i.xp_text.push((kind, text.to_string()));
+            return Ok(Value::Null);
+        }
+        let object = inst.borrow().object as usize;
+        let Some(xp) = self.engine.program.objects[object].xmlport.as_ref() else {
+            return unsupported(format!("object {object} is not an xmlport"));
+        };
+        let (declared, default) = match kind {
+            0 => (&xp.field_delimiter, "\""),
+            1 => (&xp.field_separator, ","),
+            2 => (&xp.record_separator, "\r\n"),
+            _ => (&xp.table_separator, "\r\n\r\n"),
+        };
+        Ok(Value::Text(
+            separator(&inst, kind, declared.as_deref(), default)?.into(),
+        ))
+    }
+}
+
 /// The text encoding the program set (`currXMLport.TextEncoding := v`, the member index MSDos 0, UTF8 1, UTF16 2,
 /// Windows 3), if any.
 pub(super) fn set_encoding(inst: &Inst) -> Option<i64> {
