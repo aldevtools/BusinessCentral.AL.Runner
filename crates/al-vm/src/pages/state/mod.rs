@@ -634,6 +634,9 @@ pub struct PageState {
     /// The action's refresh just ran the new-row line of a list that lost its only row three times (`settle_after_action`); read
     /// by `post_left_other_key_settled` and cleared when the action ends (al-runner issue 7821).
     pub gone_new_line_settled: bool,
+    /// A Card landed on a header whose Provider part shows no row, in the shape `provider_no_row.rs` admits; its parts then
+    /// sync again under the `PinnedEnd` that landing set (al-runner issue 7392).
+    pub provider_no_row_landed: bool,
     /// A rule pinned for one scenario ran on this page or one of its parts, and the scenario does nothing after it but the
     /// calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
     pub pinned_end: Option<crate::pages::pinned_shape::PinnedEnd>,
@@ -970,6 +973,7 @@ impl PageState {
         self.empty_list_landing = None;
         self.typed_key_dropped = false;
         self.pinned_end = None;
+        self.provider_no_row_landed = false;
         self.empty_selection_given = false;
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;

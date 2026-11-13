@@ -91,9 +91,12 @@ impl Session {
                 reason: "a call of the test after the refresh of an empty Worksheet opened for edit, other than a read, one \
                          action, First and Close (not pinned)",
                 reads: true,
+                part_reads: false,
                 one_action: true,
                 first_ends: true,
                 part_visible: false,
+                part_moves: false,
+                no_writes: false,
                 next: NextEnd::Refused,
             });
         }
