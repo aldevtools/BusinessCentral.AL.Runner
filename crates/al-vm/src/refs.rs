@@ -1491,12 +1491,11 @@ impl Session {
             _ if matches!(method, "Name" | "Number" | "Type" | "Length" | "Record")
                 || (method == "Value" && args.is_empty()) =>
             {
-                return Err(Signal::Error(Box::new(AlError {
-                    message: "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.".into(),
-                    code: "NotInitialized".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                })));
+                return Err(fieldref_not_initialized());
+            }
+            _ if unassigned_filter_member_measured(method, args) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldrefUnassignedFilters);
+                return Err(fieldref_not_initialized());
             }
             _ => {
                 return unsupported(format!(
@@ -1757,6 +1756,29 @@ impl Session {
             }
             other => unsupported(format!("FieldRef.{other}")),
         }
+    }
+}
+
+/// The error of a member called on a FieldRef that holds no field (types/PSUnassignedFieldRef.al UnassignedFieldRef_Members).
+fn fieldref_not_initialized() -> Signal {
+    Signal::Error(Box::new(AlError {
+        message: "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.".into(),
+        code: "NotInitialized".into(),
+        call_stack: String::new(),
+        ..Default::default()
+    }))
+}
+
+/// The filter members corpus PR 1382 measured on a FieldRef that holds no field, both never assigned and after `Clear`, which
+/// the runtime cannot tell apart (recordref-fieldref/fieldref/FieldRefUnassignedFilters.al:88-127, not pinned yet, assumption
+/// `fieldref-unassigned-filters`): SetRange with no argument or one Text, SetFilter with one Text and no placeholder value,
+/// GetFilter and GetRangeMin. SetRange with an Integer or two values, SetFilter(''), GetRangeMax were measured only never
+/// assigned (:88, :106) and keep the refusal.
+fn unassigned_filter_member_measured(method: &str, args: &[Value]) -> bool {
+    match (method, args) {
+        ("SetRange" | "GetFilter" | "GetRangeMin", []) => true,
+        ("SetRange", [Value::Text(t)]) | ("SetFilter", [Value::Text(t)]) => !t.is_empty(),
+        _ => false,
     }
 }
 

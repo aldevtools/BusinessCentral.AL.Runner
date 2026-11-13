@@ -89,6 +89,7 @@ mod failed_insert_system_id;
 mod failed_insert_then_modify;
 mod field_named_like_method;
 mod fieldref_blob_compare;
+mod fieldref_unassigned_filters;
 mod fieldref_blob_compare_reopen;
 mod fieldref_enum_into_text;
 mod fieldref_length_more_kinds;
