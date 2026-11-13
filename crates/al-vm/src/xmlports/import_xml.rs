@@ -976,7 +976,7 @@ impl Session {
         Ok(())
     }
 
-    /// Field element or attribute: the text becomes the field's value, then `OnAfterAssignField`.
+    /// Field attribute: the text becomes the field's value, then `OnAfterAssignField`.
     /// Returns the field's position.
     pub(super) fn xp_assign_field(
         &mut self,
@@ -985,7 +985,9 @@ impl Session {
         node: usize,
         text: &str,
     ) -> Result<usize, Signal> {
-        Ok(self.xp_assign_field_flow(inst, schema, node, text)?.0)
+        Ok(self
+            .xp_assign_field_flow_in(inst, schema, node, text, false, Written::Attribute)?
+            .0)
     }
 
     /// `xp_assign_field` for the text of the element `ce`: with PreserveWhiteSpace a CDATA section of white space only is kept.
@@ -999,7 +1001,12 @@ impl Session {
         let text = ce.text();
         let keep_blank =
             schema.xp().preserve_whitespace && !text.is_empty() && text.trim().is_empty() && Self::xp_blank_cdata(ce)?;
-        Ok(self.xp_assign_field_flow_in(inst, schema, node, &text, keep_blank)?.0)
+        let written = Written::Element {
+            self_closed: ce.self_closed,
+        };
+        Ok(self
+            .xp_assign_field_flow_in(inst, schema, node, &text, keep_blank, written)?
+            .0)
     }
 
     /// Whether the white space only text of `ce` is a CDATA section, which an import with PreserveWhiteSpace keeps
@@ -1015,18 +1022,22 @@ impl Session {
         }
     }
 
-    /// `xp_assign_field`, and what `OnAfterAssignField` asked for.
+    /// `xp_assign_field` for a value of a line of a text format (`quoted`: it stood in the field delimiter), and what
+    /// `OnAfterAssignField` asked for.
     pub(super) fn xp_assign_field_flow(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         node: usize,
         text: &str,
+        quoted: bool,
     ) -> Result<(usize, Option<Flow>), Signal> {
-        self.xp_assign_field_flow_in(inst, schema, node, text, false)
+        self.xp_assign_field_flow_in(inst, schema, node, text, false, Written::Value { quoted })
     }
 
-    /// `xp_assign_field_flow`; `keep_blank` keeps a value of white space only (a CDATA section, with PreserveWhiteSpace).
+    /// The text becomes the field's value, then `OnAfterAssignField`; the result is the field's position and what the trigger
+    /// asked for. `keep_blank` keeps a value of white space only (a CDATA section, with PreserveWhiteSpace); `written` says how
+    /// the text stood in the source (read by the Guid import without FormatEvaluate only, `xp_legacy_guid`).
     fn xp_assign_field_flow_in(
         &mut self,
         inst: &Inst,
@@ -1034,6 +1045,7 @@ impl Session {
         node: usize,
         text: &str,
         keep_blank: bool,
+        written: Written,
     ) -> Result<(usize, Option<Flow>), Signal> {
         // White space around a value is dropped, for text too (xmlports/import/XpTImportBasic.al:
         // Import_WhitespaceAroundValues).
@@ -1162,7 +1174,7 @@ impl Session {
             };
             self.xp_value_xml(text, &ty, members.map(|(_, m)| m))?
         } else if !schema.xp().format_evaluate_declared && ty == RtType::Guid {
-            self.xp_legacy_guid(schema, raw)?
+            self.xp_legacy_guid(inst, schema, n.kind, written, raw)?
         } else if !schema.xp().format_evaluate_declared {
             if matches!(&ty, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId) {
                 return unsupported("XmlPort import into a RecordId field without FormatEvaluate (not pinned)");
