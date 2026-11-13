@@ -45,6 +45,14 @@ fn text(v: &Value) -> Option<&str> {
     }
 }
 
+/// Whether `row` of `t` has `id` in its field "Report ID".
+fn report_id_is(t: &al_data::TableDef, row: &al_data::Row, id: i32) -> bool {
+    t.fields
+        .iter()
+        .position(|f| f.name.eq_ignore_ascii_case("Report ID"))
+        .is_some_and(|r| matches!(row[r], Value::Integer(n) if n == id))
+}
+
 impl Session {
     /// The entry of A7: a save as Html to a stream of a report whose default layout is Word and that no report extension
     /// extends, while the "Design-time Report Selection" of the app with Base Application's id holds a selection.
@@ -148,18 +156,11 @@ impl Session {
         raised
     }
 
-    /// Why `name` does not name exactly one user-defined Word layout of the report for every company, without an app id, while
-    /// no Tenant Report Layout Selection or Report Layout Selection row names the report; `None` when it does.
-    fn user_word_layout(&self, schema: &Schema, name: &str) -> Result<Option<String>, Signal> {
+    /// The stored layout selection that names the report, as text: a row of Tenant Report Layout Selection or of Report
+    /// Layout Selection with the report's id, for any company. `None`: neither table holds one.
+    pub(super) fn selection_row_of_report(&self, schema: &Schema) -> Result<Option<&'static str>, Signal> {
         let id = self.object_id_of(schema.object as u32) as i32;
         let cx = self.cx.clone();
-        let of_report = |t: &al_data::TableDef, row: &al_data::Row| {
-            t.fields
-                .iter()
-                .position(|f| f.name.eq_ignore_ascii_case("Report ID"))
-                .is_some_and(|r| matches!(row[r], Value::Integer(n) if n == id))
-        };
-        // A selection row of either table is not measured together with a temporary selection.
         for (table, what) in [
             (
                 TENANT_REPORT_LAYOUT_SELECTION,
@@ -171,11 +172,24 @@ impl Session {
             ),
         ] {
             if let Some(t) = self.table_def(table) {
-                if self.all_rows(&cx, &t)?.iter().any(|row| of_report(&t, row)) {
-                    return Ok(Some(what.into()));
+                if self.all_rows(&cx, &t)?.iter().any(|row| report_id_is(&t, row, id)) {
+                    return Ok(Some(what));
                 }
             }
         }
+        Ok(None)
+    }
+
+    /// Why `name` does not name exactly one user-defined Word layout of the report for every company, without an app id, while
+    /// no Tenant Report Layout Selection or Report Layout Selection row names the report; `None` when it does.
+    fn user_word_layout(&self, schema: &Schema, name: &str) -> Result<Option<String>, Signal> {
+        // A selection row of either table is not measured together with a temporary selection.
+        if let Some(what) = self.selection_row_of_report(schema)? {
+            return Ok(Some(what.into()));
+        }
+        let id = self.object_id_of(schema.object as u32) as i32;
+        let cx = self.cx.clone();
+        let of_report = |t: &al_data::TableDef, row: &al_data::Row| report_id_is(t, row, id);
         let Some(t) = self.table_def(TENANT_REPORT_LAYOUT) else {
             return Ok(Some("the program holds no Tenant Report Layout table".into()));
         };

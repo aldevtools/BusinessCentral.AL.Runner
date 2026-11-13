@@ -20,8 +20,10 @@
 
 mod files;
 mod grid;
+mod no_row;
 mod run;
 mod selection;
+mod stored;
 
 pub use files::{Format, placeholder_pdf};
 pub(crate) use grid::{Rendered, format_refused_by_layout};
@@ -29,6 +31,41 @@ pub(crate) use grid::{Rendered, format_refused_by_layout};
 use crate::reports::{SaveTarget, Schema};
 use crate::{Session, Signal};
 use al_builtins::value::Value;
+
+/// What the report of `schema` declares of the facts the measured Html cells tell apart
+/// (`al_builtins::rendered_text::ReportShape`): read by the save with no dataset row (`no_row`) and by the rgba replace
+/// (`Session::html_render_mark`).
+fn report_shape(program: &al_ir::Program, schema: &Schema) -> al_builtins::rendered_text::ReportShape {
+    use al_builtins::rendered_text::{DataItems, Extensions, ReportShape};
+    let report = schema.report();
+    let data_items = match report.items.as_slice() {
+        [_] => DataItems::One,
+        [top, inner] if top.parent.is_none() && inner.parent == Some(0) => DataItems::ParentAndChild,
+        _ => DataItems::Unmeasured,
+    };
+    let extensions = match report.extensions.as_slice() {
+        [] => Extensions::None,
+        [e] => match program.objects[*e].report_ext.as_ref() {
+            Some(x)
+                if x.on_pre.is_none()
+                    && x.on_post.is_none()
+                    && x.modifies.is_empty()
+                    && x.added.is_empty()
+                    && x.labels.is_empty()
+                    && !x.adds.is_empty() =>
+            {
+                Extensions::OneAddingColumns
+            }
+            _ => Extensions::Unmeasured,
+        },
+        _ => Extensions::Unmeasured,
+    };
+    ReportShape {
+        data_items,
+        extensions,
+        rendering_layout_declared: report.default_rendering_layout.is_some(),
+    }
+}
 
 /// What a rendering save writes.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -41,6 +78,8 @@ pub(crate) enum SaveOutput {
     Placeholder(Format),
     /// The Html placeholder of the Word layout a temporary layout selection named (`selection`): the layout's name.
     SelectedHtml(std::sync::Arc<str>),
+    /// The placeholder file of the format, rendered by the RDLC layout a stored selection row names (`stored`).
+    StoredRdlc(Format),
 }
 
 /// The events of codeunit "Reporting Triggers" BC raises around a render (reports/layouts-saveas, events/platform-
@@ -99,9 +138,11 @@ impl Session {
         {
             return Ok(saved);
         }
-        let (output, selected) = match output {
-            SaveOutput::SelectedHtml(layout) => (SaveOutput::Placeholder(Format::Html), Some(layout)),
-            other => (other, None),
+        let default_kind = schema.report().default_layout_kind.as_str();
+        let (output, selected, layout_kind) = match output {
+            SaveOutput::SelectedHtml(layout) => (SaveOutput::Placeholder(Format::Html), Some(layout), default_kind),
+            SaveOutput::StoredRdlc(format) => (SaveOutput::Placeholder(format), None, "rdlc"),
+            other => (other, None, default_kind),
         };
         match (output, target) {
             (SaveOutput::Dataset, SaveTarget::Stream(blob)) => al_builtins::stream::write_bytes(&blob, dataset),
@@ -111,11 +152,10 @@ impl Session {
                 // owner decision 2026-11-12: only a read inside the bytes the corpus pins at its start answers,
                 // `al_builtins::placeholder_output::pdf_read`).
                 let mark = match format {
-                    Format::Html => self.html_render_mark(schema, rows, selected.as_deref()),
+                    Format::Html => self.html_render_mark(schema, dataset, rows, selected.as_deref())?,
                     _ => al_builtins::placeholder_output::mark(format.name(), schema.name()),
                 };
-                self.placeholder_files
-                    .saved(&mark, &schema.report().default_layout_kind);
+                self.placeholder_files.saved(&mark, layout_kind);
                 match target {
                     SaveTarget::Stream(blob) => {
                         al_builtins::stream::write_bytes(&blob, &format.bytes());
@@ -144,53 +184,24 @@ impl Session {
                     .insert(crate::ctx::pending_key(&name), schema.name().into());
                 assume(Assumption::ReportRenderDiscarded);
             }
-            (SaveOutput::SelectedHtml(_), _) => unreachable!("taken apart above"),
+            (SaveOutput::SelectedHtml(_) | SaveOutput::StoredRdlc(_), _) => unreachable!("taken apart above"),
         }
         Ok(true)
     }
 
-    /// The answer of a placeholder save of a Word layout report whose run wrote no dataset row, `None` for any other save (it
-    /// writes as before). BC writes no Html then and answers false without an error: one data item, a stream, the answer used
-    /// (corpus probe pull request 1362, reports/layouts-html-text/HtRenderedTextTests.al:320-335 Html_SaveAs_NoDatasetRow,
-    /// `saved` No, `length > 0` No; BC 27.5 and 28.5), under the assumption `report-html-no-dataset-row` until it is pinned.
-    /// Every other placeholder save of a Word layout report with no dataset row refuses.
-    fn no_row_save(
-        &self,
-        output: &SaveOutput,
-        target: &SaveTarget,
-        schema: &Schema,
-        answer_used: bool,
-    ) -> Result<Option<bool>, Signal> {
-        let report = schema.report();
-        let format = match output {
-            SaveOutput::Placeholder(f) => f.name(),
-            SaveOutput::SelectedHtml(_) => "Html with a temporary layout selection",
-            SaveOutput::Dataset | SaveOutput::Discard => return Ok(None),
-        };
-        if report.default_layout_kind != "word" {
-            return Ok(None);
-        }
-        let pinned = *output == SaveOutput::Placeholder(Format::Html)
-            && matches!(target, SaveTarget::Stream(_))
-            && answer_used
-            && report.items.len() == 1
-            && report.extensions.is_empty();
-        if !pinned {
-            return Err(Signal::unsupported(format!(
-                "Report.SaveAs as {format} of report \"{}\", a Word layout report whose run wrote no dataset row (only an Html \
-                 save to a stream of one data item, with its answer used, is measured)",
-                schema.name()
-            )));
-        }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportHtmlNoDatasetRow);
-        Ok(Some(false))
-    }
-
     /// The mark of the Html placeholder a save of `schema` writes, with the number of its render: a whole text read of it gives
     /// the rendered content's mark (`al_builtins::rendered_text`, ADR-040 amendment 2026-11-12, A1 and A2). A run that wrote no
-    /// dataset row writes nothing (`no_row_save`); the render number is taken only for a run with rows. `selected` is the layout a
-    /// temporary layout selection named (A7), else the report's default layout renders.
-    fn html_render_mark(&self, schema: &Schema, rows: usize, selected: Option<&str>) -> std::sync::Arc<str> {
+    /// dataset row writes nothing (`no_row`); the render number is taken only for a run with rows. `selected` is the layout a
+    /// temporary layout selection named (A7), else the report's default layout renders. `dataset` is the Xml the run wrote; the
+    /// render keeps what `rendered_text::RenderFacts` asks of it.
+    fn html_render_mark(
+        &self,
+        schema: &Schema,
+        dataset: &[u8],
+        rows: usize,
+        selected: Option<&str>,
+    ) -> Result<std::sync::Arc<str>, Signal> {
+        const RGBA: &[u8] = b"rgba(";
         let report = schema.report();
         let layout = selected.map(str::to_string).unwrap_or_else(|| {
             report
@@ -198,10 +209,27 @@ impl Session {
                 .clone()
                 .unwrap_or_else(|| report.default_layout_kind.clone())
         });
-        let render = (rows > 0)
-            .then(|| al_builtins::rendered_text::register(schema.name(), "Html", &layout))
-            .flatten();
-        al_builtins::rendered_text::html_mark(schema.name(), render)
+        if rows == 0 {
+            return Ok(al_builtins::rendered_text::html_mark(schema.name(), None));
+        }
+        use al_builtins::rendered_text::RenderLayout;
+        let facts = al_builtins::rendered_text::RenderFacts {
+            shape: report_shape(&self.engine.program, schema),
+            layout: match selected {
+                // `selection::temp_selected_layout` gives a name only for the one user-defined Word layout of the report.
+                Some(_) => RenderLayout::TempSelectedTenantWord,
+                None if report.default_layout_kind == "word" => RenderLayout::DefaultWord,
+                None => RenderLayout::Unmeasured,
+            },
+            // Behind a stored selection row, even one `layout_selection` lets the placeholder through for, which layout
+            // renders is not measured.
+            no_selection_row: self.selection_row_of_report(schema)?.is_none(),
+            // The Xml (UTF-8) holds every column value and name and the labels (`dataset::Dataset::finish`); `rgba(` has no
+            // character Xml escapes.
+            dataset_holds_rgba: dataset.windows(RGBA.len()).any(|w| w == RGBA),
+        };
+        let render = al_builtins::rendered_text::register_with(schema.name(), "Html", &layout, facts);
+        Ok(al_builtins::rendered_text::html_mark(schema.name(), render))
     }
 
     /// Writes a file a save produced; a write over a path that was pending ends the mark, as a write by AL does.
@@ -229,7 +257,7 @@ impl Session {
         if selected.is_none() {
             self.refuse_layout_event_subscribers(schema, &what, &[], None)?;
         }
-        self.refuse_layout_selection(schema, &what)?;
+        self.refuse_layout_selection(schema, &what, Some(format))?;
         Ok(Some(match selected {
             Some(layout) => SaveOutput::SelectedHtml(layout),
             None => SaveOutput::Placeholder(format),
@@ -238,15 +266,16 @@ impl Session {
 
     /// Refuses `what` (a save as a format, a run) while a subscriber the test can see listens to a layout event this runtime
     /// does not raise (`except` names the events BC does not raise on the path, or that the caller raised), or while a layout
-    /// selection may pick another layout than the report's own.
+    /// selection may pick another layout than the report's own (`format`: the format saved, `None` for a run).
     pub(crate) fn refuse_unraised_layout_events(
         &self,
         schema: &Schema,
         what: &str,
         except: &[&str],
+        format: Option<Format>,
     ) -> Result<(), Signal> {
         self.refuse_layout_event_subscribers(schema, what, except, None)?;
-        self.refuse_layout_selection(schema, what)
+        self.refuse_layout_selection(schema, what, format)
     }
 
     /// Refuses `what` while a subscriber the test can see listens to a layout event this runtime does not raise (`except`, and
@@ -269,8 +298,13 @@ impl Session {
     }
 
     /// Refuses `what` while a layout selection may pick another layout than the report's own ([`Session::layout_selection`]).
-    pub(super) fn refuse_layout_selection(&self, schema: &Schema, what: &str) -> Result<(), Signal> {
-        if let Some(why) = self.layout_selection(schema)? {
+    pub(super) fn refuse_layout_selection(
+        &self,
+        schema: &Schema,
+        what: &str,
+        format: Option<Format>,
+    ) -> Result<(), Signal> {
+        if let Some(why) = self.layout_selection(schema, format)? {
             return Err(Signal::unsupported(format!(
                 "{what} of report \"{}\" while {why} (BC may render another layout, and an Excel one writes no \
                  output; this runtime answers only for the report's own layout)",
@@ -284,16 +318,37 @@ impl Session {
     /// as text for a refusal. Base Application's ReportManagement answers SelectedBuiltinLayoutType and SelectReportLayoutCode
     /// from table 9651 "Report Layout Selection" and from the SingleInstance codeunit 9654 "Design-time Report Selection"
     /// (ReportManagement.Codeunit.al, Base Application 29); the platform reads Tenant Report Layout Selection. What BC does
-    /// with each selection is not probed, so any selection but a built-in RDLC or Word one, or a tenant row naming an RDLC or
+    /// with the other selections is not probed, so any selection but a built-in RDLC or Word one, or a tenant row naming an RDLC or
     /// Word layout the report declares, refuses (reports/layouts-saveas/AMReportOutputTests.al:257: a Pdf of an Excel layout
     /// writes nothing).
-    fn layout_selection(&self, schema: &Schema) -> Result<Option<String>, Signal> {
+    ///
+    /// The selected layout renders, not the default one (reports/html-email-body/RxLayoutSelectionTests.al:452 the company's
+    /// RDLC row of a Word default report, :648 a tenant row; corpus pull request 1371, open). A selection of the default
+    /// layout's kind answers as the default layout (:403, :428 a Word row of a Word default report, :501 a tenant row naming
+    /// another Word layout). One of the other kind answers as the default layout only for a save as Pdf or Word, which both
+    /// kinds give as a placeholder, and for a run (`format` `None`), as before; for Html and Excel the grid differs between
+    /// the kinds, so it refuses. `stored` answers the measured cells of the other kind before this check.
+    fn layout_selection(&self, schema: &Schema, format: Option<Format>) -> Result<Option<String>, Signal> {
         let report = schema.report();
         let Some(id) = self.engine.program.objects[schema.object()].id else {
             return Ok(None);
         };
         let has_kind =
             |kind: &str| report.default_layout_kind == kind || report.rendering_layouts.iter().any(|l| l.kind == kind);
+        let both_kinds_give = matches!(format, None | Some(Format::Pdf | Format::Word));
+        // Whether a selected built-in layout of `kind` answers as the default layout; `None` when it is not an RDLC or Word
+        // layout of the report.
+        let answers_as_default = |kind: &str| match kind {
+            "rdlc" | "word" if report.default_layout_kind == kind => Some(true),
+            "rdlc" | "word" if has_kind(kind) => Some(both_kinds_give),
+            _ => None,
+        };
+        let other_kind = |what: String| {
+            format!(
+                "{what}, of another kind than the default layout (the two kinds answer a save as {} differently)",
+                format.map_or("", Format::name)
+            )
+        };
         let field = |t: &al_data::TableDef, name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
         let text = |v: &Value| match v {
             Value::Text(s) | Value::Code(s) => s.to_string(),
@@ -314,12 +369,19 @@ impl Session {
                     }
                     // Option 0 "RDLC (built-in)", 1 "Word (built-in)".
                     let builtin = match &row[k] {
-                        Value::Integer(0) | Value::Option(0, _) => has_kind("rdlc"),
-                        Value::Integer(1) | Value::Option(1, _) => has_kind("word"),
-                        _ => false,
+                        Value::Integer(0) | Value::Option(0, _) => Some(("rdlc", "RDLC")),
+                        Value::Integer(1) | Value::Option(1, _) => Some(("word", "Word")),
+                        _ => None,
                     };
-                    if !builtin {
-                        return Ok(Some("a Report Layout Selection row selects a layout for it".into()));
+                    let name = builtin.map_or("", |(_, name)| name);
+                    match builtin.and_then(|(kind, _)| answers_as_default(kind)) {
+                        Some(true) => {}
+                        Some(false) => {
+                            return Ok(Some(other_kind(format!(
+                                "a Report Layout Selection row selects its built-in {name} layout"
+                            ))));
+                        }
+                        None => return Ok(Some("a Report Layout Selection row selects a layout for it".into())),
                     }
                 }
             }
@@ -331,14 +393,22 @@ impl Session {
                         continue;
                     }
                     let name = text(&row[n]);
-                    let known = report
+                    let named = report
                         .rendering_layouts
                         .iter()
-                        .any(|l| l.name.eq_ignore_ascii_case(&name) && matches!(l.kind.as_str(), "rdlc" | "word"));
-                    if !known {
-                        return Ok(Some(format!(
-                            "Tenant Report Layout Selection selects layout \"{name}\", not an RDLC or Word layout of it"
-                        )));
+                        .find(|l| l.name.eq_ignore_ascii_case(&name));
+                    match named.and_then(|l| answers_as_default(&l.kind)) {
+                        Some(true) => {}
+                        Some(false) => {
+                            return Ok(Some(other_kind(format!(
+                                "Tenant Report Layout Selection selects layout \"{name}\""
+                            ))));
+                        }
+                        None => {
+                            return Ok(Some(format!(
+                                "Tenant Report Layout Selection selects layout \"{name}\", not an RDLC or Word layout of it"
+                            )));
+                        }
                     }
                 }
             }
