@@ -1415,14 +1415,8 @@ impl Session {
             // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
             d.read_isolation = s.read_isolation;
             let before = std::mem::replace(&mut d.fields, s.fields.clone());
-            // The one-argument call and the call that shares the table move their Blobs as `blob_transfer::moved` says; with
-            // ShareTable false they come as before.
-            let how = match args.len() {
-                1 => Some(BlobMove::SetTable),
-                _ if share => Some(BlobMove::SetTableShared),
-                _ => None,
-            };
-            if let Some(how) = how {
+            // The Blobs move as `BlobMove::set_table` says.
+            if let Some(how) = BlobMove::set_table(args.len(), share) {
                 self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how)?;
             }
             d.filters = s.filters.clone();

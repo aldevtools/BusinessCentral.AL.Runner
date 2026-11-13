@@ -38,6 +38,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
     handle, not only for handles that met the shape when they opened.
   - the arguments of a call whose failure is now caught: a stream or by-reference argument, or a stream an earlier
     call handed over, has effects that the failed call's reply does not carry. Require the measured argument kinds.
+  - a value that does not carry its origin (a Blob handed to a Variant or a parameter): a gate on the field kind cannot be
+    checked there. Pass the kind from the read site, or do not claim it in the entry (al-runner PR 7951).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

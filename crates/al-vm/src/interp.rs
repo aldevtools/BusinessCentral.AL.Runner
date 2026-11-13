@@ -1445,6 +1445,7 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::unsupported(why.to_string()));
                 }
+                self.note_blob_read(r.table, *pos, &v);
                 if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
                     return Err(Signal::unsupported(why));
                 }
@@ -1595,6 +1596,8 @@ impl Session {
                                             // (`Session::load_blobs`, al-runner issue 7360).
                                             written: b.written,
                                             written_base: b.written_base.clone(),
+                                            write_origin: al_builtins::stream::WriteOrigin::Copy,
+                                            read_from_plain_field: false,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
@@ -1696,7 +1699,7 @@ impl Session {
             // A Blob assigned to a Variant: the Variant holds a copy where `BlobMove::into_variant` names the place.
             Value::Blob(_) if assign && matches!(self.place_type(p, f), RtType::Variant) => {
                 match BlobMove::into_variant(p) {
-                    Some(how) => crate::blob_transfer::moved(None, v, how, || FieldKind::Plain)?,
+                    Some(how) => crate::blob_transfer::into_variant(v, how)?,
                     None => v,
                 }
             }

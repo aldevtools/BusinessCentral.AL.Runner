@@ -720,6 +720,190 @@ codeunit 50444 C
         exit(RdAdded(Dst));
     end;
 
+    // ---- A stored or saved Blob written again, and a Blob that got its write by a copy (review of al-runner PR 7951) ----
+
+    // Insert, then a new write, then by value (A1).
+    procedure NeighborInsertWriteAgainByValue(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Src.Key1 := 60;
+        W(Src, 'alpha');
+        Src.Insert();
+        W(Src, 'beta');
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // The same with a temporary record (A2).
+    procedure NeighborTempInsertWriteAgainByValue(): Text
+    var
+        Src: Record "BS Row" temporary;
+    begin
+        Src.Key1 := 61;
+        W(Src, 'alpha');
+        Src.Insert();
+        W(Src, 'beta');
+        ByValueTemp(Src);
+        exit(Rd(Src));
+    end;
+
+    // Insert, a new write, Record.Copy, a write of the copy, Modify of the source (A3).
+    procedure NeighborInsertWriteAgainCopyModify(): Text
+    var
+        Src: Record "BS Row";
+        Dst: Record "BS Row";
+    begin
+        Src.Key1 := 62;
+        W(Src, 'alpha');
+        Src.Insert();
+        W(Src, 'beta');
+        Dst.Copy(Src);
+        W(Dst, 'zz');
+        Src.Modify();
+        exit(Rd(Src) + '|' + Stored(62));
+    end;
+
+    // Modify, then a new write, then by value (A4).
+    procedure NeighborModifyWriteAgainByValue(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Src.Key1 := 63;
+        Src.Insert();
+        W(Src, 'alpha');
+        Src.Modify();
+        W(Src, 'beta');
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // Insert, a new write, a global Variant and TransferFields(Rec, true) (A5).
+    procedure NeighborInsertWriteAgainGlobalVariantTransferFlags(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+        Dst2: Record "BS Row" temporary;
+    begin
+        Src.Key1 := 64;
+        W(Src, 'alpha');
+        Src.Insert();
+        W(Src, 'beta');
+        GVar := Src.Data;
+        Dst2.TransferFields(Src, true);
+        W(Src, 'zz');
+        Dst.Data := GVar;
+        exit(Rd(Dst) + '|' + Rd(Dst2));
+    end;
+
+    // A Blob that got its content by a field assignment, by value (B1).
+    procedure NeighborAssignedBlobByValue(): Text
+    var
+        Src: Record "BS Row";
+        Mid: Record "BS Row";
+    begin
+        W(Src, 'alpha');
+        Mid.Data := Src.Data;
+        ByValue(Mid);
+        exit(Rd(Mid));
+    end;
+
+    // A Blob that got its content by FieldRef.Value and SetTable, by value (B3).
+    procedure NeighborFieldRefValueBlobByValue(): Text
+    var
+        Src: Record "BS Row";
+        Mid: Record "BS Row";
+        RR: RecordRef;
+    begin
+        W(Src, 'alpha');
+        RR.GetTable(Mid);
+        RR.Field(2).Value := Src.Data;
+        RR.SetTable(Mid);
+        ByValue(Mid);
+        exit(Rd(Mid));
+    end;
+
+    // ---- A Blob of a field that is not plain moved into a Variant that is not local (review of al-runner PR 7951) ----
+
+    local procedure TakeVarWrite(V: Variant; var Src: Record "BS Row"; var Dst: Record "BS Row"; Which: Integer)
+    var
+        OS: OutStream;
+    begin
+        case Which of
+            1:
+                Src.Added.CreateOutStream(OS);
+            2:
+                Src.Plain.CreateOutStream(OS);
+            3:
+                Src.Packed.CreateOutStream(OS);
+        end;
+        OS.WriteText('beta');
+        Dst.Data := V;
+    end;
+
+    // A table extension field, a Compressed = false field and a Compressed = true field to a by-value Variant parameter
+    // (C1, C2, C3).
+    procedure NeighborVariationFieldsToVariantParameter(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+        OS: OutStream;
+        A: Text;
+    begin
+        Src.Added.CreateOutStream(OS);
+        OS.WriteText('alpha');
+        TakeVarWrite(Src.Added, Src, Dst, 1);
+        A := Rd(Dst);
+        Src.Plain.CreateOutStream(OS);
+        OS.WriteText('alpha');
+        TakeVarWrite(Src.Plain, Src, Dst, 2);
+        A += '|' + Rd(Dst);
+        Src.Packed.CreateOutStream(OS);
+        OS.WriteText('alpha');
+        TakeVarWrite(Src.Packed, Src, Dst, 3);
+        exit(A + '|' + Rd(Dst));
+    end;
+
+    // A table extension field to a global Variant and an array element (C4).
+    procedure NeighborExtensionFieldToGlobalAndArray(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+        Dst2: Record "BS Row" temporary;
+        A: array[2] of Variant;
+        OS: OutStream;
+    begin
+        Src.Added.CreateOutStream(OS);
+        OS.WriteText('alpha');
+        GVar := Src.Added;
+        A[1] := Src.Added;
+        Src.Added.CreateOutStream(OS);
+        OS.WriteText('beta');
+        Dst.Data := GVar;
+        Dst2.Data := A[1];
+        exit(Rd(Dst) + '|' + Rd(Dst2));
+    end;
+
+    // A Compressed = true field to a global Variant and a local one (C5).
+    procedure NeighborCompressedFieldToGlobalAndLocal(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+        Dst2: Record "BS Row" temporary;
+        V: Variant;
+        OS: OutStream;
+    begin
+        Src.Packed.CreateOutStream(OS);
+        OS.WriteText('alpha');
+        GVar := Src.Packed;
+        V := Src.Packed;
+        Src.Packed.CreateOutStream(OS);
+        OS.WriteText('beta');
+        Dst.Data := GVar;
+        Dst2.Data := V;
+        exit(Rd(Dst) + '|' + Rd(Dst2));
+    end;
+
     // ---- Refused ----
 
     // FieldRef.Value into a field with Compressed = true.
@@ -895,4 +1079,39 @@ fn fieldref_value_and_validate_into_an_extension_or_uncompressed_field_copy() {
 fn content_in_a_field_kind_that_is_not_measured_stays_refused() {
     refused("RefusedValueIntoCompressedField");
     refused("RefusedGetTableExtensionFieldWithCompressed");
+}
+
+/// A Blob an Insert or a Modify saved and a stream wrote again (A1 to A5 of the review of al-runner PR 7951): the probe measured
+/// the new moves only on a buffer that held nothing when its unsaved write began. They share, as before.
+#[test]
+fn a_saved_blob_written_again_shares_as_before() {
+    assert_eq!(unflagged("NeighborInsertWriteAgainByValue"), "hv:zztaa");
+    assert_eq!(unflagged("NeighborTempInsertWriteAgainByValue"), "hv:zztaa");
+    assert_eq!(unflagged("NeighborInsertWriteAgainCopyModify"), "hv:zztaa|hv:zztaa");
+    assert_eq!(unflagged("NeighborModifyWriteAgainByValue"), "hv:zztaa");
+    assert_eq!(
+        unflagged("NeighborInsertWriteAgainGlobalVariantTransferFlags"),
+        "hv:zztaa|hv:zztaa"
+    );
+}
+
+/// A Blob whose unsaved write came over with a copy (B1 and B3 of the review of al-runner PR 7951) shares when its record is
+/// passed by value, as before. FieldRef.Value and SetTable copy on the way of B3 (flagged).
+#[test]
+fn a_blob_written_by_a_copy_shares_by_value_as_before() {
+    assert_eq!(unflagged("NeighborAssignedBlobByValue"), "hv:zzpha");
+    assert_eq!(run("NeighborFieldRefValueBlobByValue").0, "hv:zzpha");
+}
+
+/// A Blob of a table extension, Compressed = false or Compressed = true field moved into a by-value Variant parameter, a global
+/// Variant or an array element (C1 to C5 of the review of al-runner PR 7951) is shared, as before. A local Variant copies it,
+/// as before (flagged).
+#[test]
+fn a_field_that_is_not_plain_into_a_variant_that_is_not_local_shares_as_before() {
+    assert_eq!(
+        unflagged("NeighborVariationFieldsToVariantParameter"),
+        "hv:betaa|hv:betaa|hv:betaa"
+    );
+    assert_eq!(unflagged("NeighborExtensionFieldToGlobalAndArray"), "hv:betaa|hv:betaa");
+    assert_eq!(flagged("NeighborCompressedFieldToGlobalAndLocal"), "hv:betaa|hv:alpha");
 }

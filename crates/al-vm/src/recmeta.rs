@@ -1034,11 +1034,10 @@ impl Session {
         // The row version the buffer got comes over with the fields, and where it came from (record/crud/
         // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
         (d.fields, d.row_origin) = (s.fields, s.row_origin);
-        // Between two temporary records or two that are not, the Blobs move as `blob_transfer::moved` says; between
-        // one of each they come as before.
-        if s.temporary == d.temporary {
+        // The Blobs move as `BlobMove::record_copy` says.
+        if let Some(how) = BlobMove::record_copy(s.temporary, d.temporary) {
             let table = d.table as usize;
-            self.move_blobs(table, &mut d.fields, None, BlobMove::RecordCopy)?;
+            self.move_blobs(table, &mut d.fields, None, how)?;
         }
         d.filters = s.filters;
         d.filter_group = s.filter_group;
