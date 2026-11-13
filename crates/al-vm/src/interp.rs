@@ -1699,7 +1699,11 @@ impl Session {
                     _ => false,
                 } =>
             {
-                crate::recordref_variant::own_copy(h)
+                if matches!(self.place_type(p, f), RtType::Variant) {
+                    self.variant_refs.variant_copy(h)
+                } else {
+                    self.variant_refs.copy_typed_alias(h)
+                }
             }
             // A Blob assigned to a local Variant: the Variant holds a copy (`blob_transfer::moved`), whatever field or holder
             // the Blob came from. A field read stored in another Variant is moved before it comes here

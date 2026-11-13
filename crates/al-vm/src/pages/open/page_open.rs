@@ -307,12 +307,14 @@ impl Session {
             s.new_row_inserted_by_trigger = false;
             s.test_opened_new = test_open && mode == PageMode::New;
             s.opened_by_test = test_open;
+            s.mode_switched_since_open = false;
             s.forget_pinned_scenario();
             s.closed_by = None;
             s.never_stored = false;
             s.dirty = false;
             s.frozen_visible = Vec::new();
             s.control_captions = Vec::new();
+            s.literal_field_caption_contexts.clear();
             s.forget_field_captions();
             s.moving_next = false;
             s.window = Vec::new();
@@ -1576,6 +1578,7 @@ fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.draft_start = None;
     s.part_accessed = false;
     s.new_host_part_rows = false;
+    s.trapped_blank_part_edit = false;
     s.host_stored_blank_key = false;
     s.part_insert_swallowed = false;
     s.blank_key_edit_reread = false;

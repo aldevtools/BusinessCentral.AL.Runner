@@ -1411,6 +1411,7 @@ impl Session {
             ui_state: UiState::default(),
             pages: PageClients::default(),
             events: EventState {
+                caption_context_revision: 0,
                 bindings: Vec::new(),
                 page_held: Vec::new(),
                 page_var_runs: Vec::new(),
@@ -2530,15 +2531,12 @@ impl Session {
                     }
                     v
                 }
-                // A RecordRef handed by value to a RecordRef or Variant parameter: a RecordRef of its own on the same buffer, so the
-                // callee's Close leaves the caller's open (`recordref_variant.rs`).
-                (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), false)
-                    if matches!(
-                        r.locals[i].ty,
-                        RtType::Variant | RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef)
-                    ) =>
+                // A RecordRef handed by value to a RecordRef or Variant parameter, or bound to a `var` Variant parameter
+                // (`VariantRefs::param_value`).
+                (Value::Library(al_builtins::library_kind::LibraryKind::RecordRef, h), by_var)
+                    if crate::recordref_variant::takes_param(&r.locals[i].ty, by_var) =>
                 {
-                    crate::recordref_variant::own_copy(&h)
+                    self.variant_refs.param_value(h, &r.locals[i].ty, by_var, subscriber)
                 }
                 // A Variant holding a RecordRef handed by value to a Record parameter: see `record_ref_into_record_param`.
                 (Value::Library(name, h), false)
