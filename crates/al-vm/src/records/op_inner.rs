@@ -1505,6 +1505,7 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::SetFilter => {
+                let from_al = std::mem::take(&mut self.setfilter_from_al);
                 let pos = arg_pos(args, 0)?;
                 rec.borrow_mut().position = None;
                 let ty = t.fields[pos].ty.clone();
@@ -1612,17 +1613,8 @@ impl Session {
                         let (type_name, value) = e[al_builtins::filter::NOT_EVALUATED.len()..]
                             .split_once('\t')
                             .expect("type and value");
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The value \"{value}\" can't be evaluated into type {type_name}.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = format!("The value \"{value}\" can't be evaluated into type {type_name}.");
+                        return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     // A number filter that starts with a placeholder kept as written next to a wildcard
                     // (record/filters/W4Filters.al:694 `num_star_after`).
@@ -1631,33 +1623,17 @@ impl Session {
                             && self.global_language == 1033 =>
                     {
                         let value = &e[al_builtins::filter::VARIABLE_NOT_UNDERSTOOD.len()..];
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The variable \"{value}\" was not understood.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = format!("The variable \"{value}\" was not understood.");
+                        return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     // The German error of a date no Date filter reads (P143Date_DePlain.al, _DeRanges.al, _DeFormulas.al).
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1033 => {
                         // P81DateFilters.al:SetFilter_Date_InvalidTexts.
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The format of the Date '{bad}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = format!(
+                            "The format of the Date '{bad}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
+                        );
+                        return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     Err(e) if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language == 1033 => {
                         let inner = &e[al_builtins::filter::FILTER_SYNTAX.len()..];
@@ -1665,16 +1641,7 @@ impl Session {
                             Some(i) => (text.as_str(), i),
                             None => (text.trim(), inner),
                         };
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{shown}\" is not valid for the {} field on the {} table. {inner}",
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        return Err(self.filter_error(&t, pos, shown, inner));
                     }
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) => {
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
@@ -1699,17 +1666,14 @@ impl Session {
                     }
                     // types/date-time/P143Guid_Filters.al:P143_GuidInvalid, P143Date_FieldRef.al:P143_FieldRefGuid.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_GUID) => {
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.";
+                        return Err(self.filter_error(&t, pos, text.trim(), reason));
+                    }
+                    // An empty side of `|` in the measured shapes (`setfilter_empty_or_side`); every other text main refused.
+                    Err(e) if e == al_builtins::filter::EMPTY_TERM => {
+                        return Err(self
+                            .setfilter_empty_or_side(from_al, &t, pos, rec, args)
+                            .unwrap_or_else(|| Signal::unsupported(format!("SetFilter: {e}"))));
                     }
                     Err(e) => return Err(Signal::unsupported(format!("SetFilter: {e}"))),
                 };

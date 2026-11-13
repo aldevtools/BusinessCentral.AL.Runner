@@ -246,6 +246,13 @@ pub const FILTER_SYNTAX: &str = "invalid Date filter syntax: ";
 /// (FMOptionBlankField.al `flt_neg`); the Date errors keep the trimmed text.
 pub const AS_WRITTEN: &str = "\u{1}";
 
+/// The error for a filter text with an empty term the parser does not answer (al-vm `setfilter_empty_or_side` answers some).
+pub const EMPTY_TERM: &str = "empty filter term";
+/// The reasons BC gives for an empty side of `|` (a Date field: `Parser::or`; Text, Code and Integer fields: al-vm
+/// `setfilter_empty_or_side`).
+pub const LEFT_OF_OR_EMPTY: &str = "The left side of '|' operators cannot be empty.";
+pub const RIGHT_OF_OR_EMPTY: &str = "The right side of '|' operators cannot be empty.";
+
 /// The prefix of the error for a filter value BC cannot evaluate into the field's type: the type's name, a tab, the value
 /// (`The value "abc" can't be evaluated into type Integer.`, record/crud/RcAFilters.al:SetFilter_Integer_Invalid,
 /// events/platform-triggers/PtObserve.al:Bad_Int, Bad_Decimal, Bad_Time).
@@ -1108,17 +1115,13 @@ impl Parser<'_> {
 
     fn or(&mut self) -> Result<FilterExpr, String> {
         if self.date() && self.peek_op() == Some("|") {
-            return Err(format!(
-                "{FILTER_SYNTAX}The left side of '|' operators cannot be empty."
-            ));
+            return Err(format!("{FILTER_SYNTAX}{LEFT_OF_OR_EMPTY}"));
         }
         let mut xs = vec![self.and()?];
         while self.peek_op() == Some("|") {
             self.i += 1;
             if self.date() && self.peek_op() == Some("|") {
-                return Err(format!(
-                    "{FILTER_SYNTAX}The right side of '|' operators cannot be empty."
-                ));
+                return Err(format!("{FILTER_SYNTAX}{RIGHT_OF_OR_EMPTY}"));
             }
             xs.push(self.and()?);
         }
@@ -1610,7 +1613,7 @@ impl Parser<'_> {
             _ => {
                 let Some(lo) = self.value() else {
                     // An empty filter value (`''` was a quoted empty literal and is a value).
-                    return Err("empty filter term".into());
+                    return Err(EMPTY_TERM.into());
                 };
                 if self.peek_op() == Some("..") {
                     self.i += 1;
