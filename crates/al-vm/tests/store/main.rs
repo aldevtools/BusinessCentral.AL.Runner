@@ -2,6 +2,7 @@
 
 mod assigned_audit_fields;
 mod autoinc_non_key;
+mod blob_assign_then_calcfields;
 mod blob_calcfields_after_run;
 mod blob_clear_shared_xrec;
 mod blob_field_assign_copy;

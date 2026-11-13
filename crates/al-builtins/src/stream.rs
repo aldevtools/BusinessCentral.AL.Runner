@@ -78,6 +78,10 @@ pub struct BlobBuf {
     /// The id of the `DotNet` System.IO.Stream an `OutStream` on this buffer was given to (al-vm `dotnet/blob_stream.rs`), or 0.
     /// `CreateOutStream` and `Import` set it back to 0: what the .NET stream does after that is not pinned.
     pub dotnet_view: u32,
+    /// The buffer is the copy `Target.Field := Source.Blob` stored, in the cell of assumption `blob-assign-counts-as-write`
+    /// (al-vm `blob_transfer::assigned_copy`, al-runner issue 7961), and nothing saved, fetched or wrote it since:
+    /// `CalcFields` keeps it as it keeps an unsaved stream write (al-vm `Session::load_blobs`). A copy does not keep it.
+    pub assigned_unsaved: bool,
     /// The empty Blob `FieldRef.Value` hands out for a stored row's Blob that holds content and was not read with CalcFields
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
@@ -373,6 +377,7 @@ pub fn new_blob() -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
         utf16_binary: false,
         unicode_read: None,
     }))
@@ -415,6 +420,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
         utf16_binary: b.utf16_binary,
         unicode_read: None,
     }))
@@ -429,6 +435,7 @@ pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
     let mut copy = b.borrow().clone();
     copy.dotnet_view = 0;
     copy.temp_inserted = false;
+    copy.assigned_unsaved = false;
     std::sync::Arc::new(BlobCell::new(copy))
 }
 
@@ -460,6 +467,7 @@ pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
 fn write_bytes_at(b: &BlobRef, bytes: &[u8]) -> bool {
     let mut buf = b.borrow_mut();
     buf.unicode_read = None;
+    buf.assigned_unsaved = false;
     if !buf.written {
         buf.written_base = Some(buf.bytes.clone());
     }
@@ -1076,6 +1084,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
         utf16_binary: false,
         unicode_read: None,
     });
