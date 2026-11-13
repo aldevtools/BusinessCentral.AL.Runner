@@ -3,7 +3,8 @@
 //! plain AL-like form (`pinned_body::page_lines`, `table_lines`, `routine_text`). The pin states the repro's lines and requires
 //! them all, in order, with equality (al-runner PR 7838 review, round 2: an entry condition that checks only names or a
 //! subset also runs on pages the repro does not show). Anything the renderer does not know gives `None`: the object is not
-//! the pinned one.
+//! the pinned one. A pinned line may hold a name slot (`«T»`, see [`Names`]) where the pins measured the same answer under
+//! other object and variable names; every other character is compared as written.
 
 use al_builtins::value::RtType;
 use al_ir as ir;
@@ -199,23 +200,106 @@ pub(super) fn routine_text(program: &ir::Program, object: usize, r: usize, calle
     Some(s)
 }
 
+/// The names the name slots of pinned lines stand for, once bound: the same slot stands for the same name in every line of
+/// one comparison. Slots: `«T»` and `«L»` an object name (anything but a double quote), `«V»` a variable name (letters,
+/// digits, underscore).
+#[derive(Debug, Default)]
+pub(super) struct Names(Vec<(char, String)>);
+
+impl Names {
+    /// Whether `have` reads as `want`, the name slots of `want` bound as `self` holds them or bound now.
+    pub(super) fn line_is(&mut self, have: &str, want: &str) -> bool {
+        let before = self.0.len();
+        let ok = self.rest_is(have, want);
+        if !ok {
+            self.0.truncate(before);
+        }
+        ok
+    }
+
+    fn rest_is(&mut self, have: &str, want: &str) -> bool {
+        let Some(at) = want.find('«') else {
+            return have == want;
+        };
+        let (lit, slot) = want.split_at(at);
+        let mut chars = slot.chars();
+        let (Some('«'), Some(name), Some('»')) = (chars.next(), chars.next(), chars.next()) else {
+            return false;
+        };
+        let rest = chars.as_str();
+        let Some(have) = have.strip_prefix(lit) else {
+            return false;
+        };
+        if let Some((_, bound)) = self.0.iter().find(|(n, _)| *n == name) {
+            let bound = bound.clone();
+            return have.strip_prefix(bound.as_str()).is_some_and(|h| self.rest_is(h, rest));
+        }
+        let allowed = |c: char| match name {
+            'V' => c.is_ascii_alphanumeric() || c == '_',
+            _ => c != '"',
+        };
+        for (end, c) in have.char_indices() {
+            if !allowed(c) {
+                break;
+            }
+            let end = end + c.len_utf8();
+            self.0.push((name, have[..end].to_string()));
+            if self.rest_is(&have[end..], rest) {
+                return true;
+            }
+            self.0.pop();
+        }
+        false
+    }
+
+    /// Whether `have` reads, line for line, as `want`; when not, nothing is bound.
+    fn lines_are(&mut self, have: &[String], want: &[&str]) -> bool {
+        let before = self.0.len();
+        let ok = have.len() == want.len() && have.iter().zip(want).all(|(h, w)| self.line_is(h, w));
+        if !ok {
+            self.0.truncate(before);
+        }
+        ok
+    }
+}
+
 /// Whether page `object` reads, line for line, as `want` (`page_lines`), and nothing subscribes to its events.
-pub(super) fn page_is(engine: &crate::Engine, object: usize, want: &[&str], callees: &mut Callees) -> bool {
-    !engine.events.any_subscriber_of(object)
-        && page_lines(&engine.program, object, callees)
-            .is_some_and(|have| have.iter().map(String::as_str).eq(want.iter().copied()))
+pub(super) fn page_is(
+    engine: &crate::Engine,
+    object: usize,
+    want: &[&str],
+    callees: &mut Callees,
+    names: &mut Names,
+) -> bool {
+    !engine.events.any_subscriber_of(object) && page_reads_as(&engine.program, object, want, callees, names)
+}
+
+/// Whether page `object` reads, line for line, as `want` (`page_lines`); its subscribers are the caller's to check.
+pub(super) fn page_reads_as(
+    program: &ir::Program,
+    object: usize,
+    want: &[&str],
+    callees: &mut Callees,
+    names: &mut Names,
+) -> bool {
+    page_lines(program, object, callees).is_some_and(|have| names.lines_are(&have, want))
 }
 
 /// Whether table `object` reads, line for line, as `want` (`table_lines`), and nothing subscribes to its events.
-pub(super) fn table_is(engine: &crate::Engine, object: usize, want: &[&str], callees: &mut Callees) -> bool {
+pub(super) fn table_is(
+    engine: &crate::Engine,
+    object: usize,
+    want: &[&str],
+    callees: &mut Callees,
+    names: &mut Names,
+) -> bool {
     !engine.events.any_subscriber_of(object)
-        && table_lines(&engine.program, object, callees)
-            .is_some_and(|have| have.iter().map(String::as_str).eq(want.iter().copied()))
+        && table_lines(&engine.program, object, callees).is_some_and(|have| names.lines_are(&have, want))
 }
 
 /// Whether every procedure in `callees` reads as one of `want`, each written `"<object>".<procedure>: <body>`, calls
 /// nothing itself, and its object has no subscriber.
-pub(super) fn callees_are(engine: &crate::Engine, callees: &Callees, want: &[&str]) -> bool {
+pub(super) fn callees_are(engine: &crate::Engine, callees: &Callees, want: &[&str], names: &mut Names) -> bool {
     callees.iter().all(|&(o, r)| {
         let mut inner = Vec::new();
         let Some(body) = routine_text(&engine.program, o, r, &mut inner) else {
@@ -225,7 +309,7 @@ pub(super) fn callees_are(engine: &crate::Engine, callees: &Callees, want: &[&st
             "\"{}\".{}: {body}",
             engine.program.objects[o].name, engine.program.objects[o].routines[r].name
         );
-        inner.is_empty() && !engine.events.any_subscriber_of(o) && want.contains(&text.as_str())
+        inner.is_empty() && !engine.events.any_subscriber_of(o) && want.iter().any(|w| names.line_is(&text, w))
     })
 }
 
@@ -367,6 +451,30 @@ impl Writer<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_slot_binds_once_and_stands_for_the_same_name_after() {
+        let mut names = Names::default();
+        assert!(names.line_is("SourceTable = \"TP Line\"", "SourceTable = \"«T»\""));
+        assert!(names.line_is("var Posted: Record \"TP Line\"", "var Posted: Record \"«T»\""));
+        assert!(!names.line_is("var Posted: Record \"Other\"", "var Posted: Record \"«T»\""));
+        assert!(names.line_is(
+            "var Log: Codeunit \"TP Log\"; begin Log.Add('R'); end",
+            "var «V»: Codeunit \"«L»\"; begin «V».Add('R'); end"
+        ));
+        assert!(!names.line_is(
+            "var Other: Codeunit \"TP Log\"; begin Other.Add('R'); end",
+            "var «V»: Codeunit \"«L»\"; begin «V».Add('R'); end"
+        ));
+        // A failed line binds nothing: `«V»` still stands for `Log`, and `«T»` for `TP Line`.
+        let mut fresh = Names::default();
+        assert!(!fresh.line_is("x \"A\" y", "x \"«T»\" z"));
+        assert!(fresh.line_is("x \"B\" z", "x \"«T»\" z"));
+        // A variable slot takes no space or quote; a line without slots compares as written.
+        assert!(!Names::default().line_is("var A B: Integer", "var «V»: Integer"));
+        assert!(Names::default().line_is("{applicationarea=All}", "{applicationarea=All}"));
+        assert!(!Names::default().line_is("{applicationarea=All}", "{applicationarea=all}"));
+    }
 
     #[test]
     fn a_page_and_its_table_render_as_written() {

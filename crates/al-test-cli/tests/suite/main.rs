@@ -151,6 +151,7 @@ mod part_unsettled_reread;
 mod part_visible_rec_field;
 mod parts_pinned_exact;
 mod perm_compose;
+mod post_left_new_line_variants_7821;
 mod prepush_script;
 mod printer_table;
 mod provider_chain_outside_factboxes;
