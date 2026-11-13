@@ -85,6 +85,7 @@ fn matches(key: &Key, facts: &Facts) -> bool {
 }
 
 /// Whether `a` reads every fact `b` reads, with the same value (`a` is at least as specific as `b`).
+#[cfg(test)]
 pub(super) fn refines(a: &Key, b: &Key) -> bool {
     Fact::ALL
         .iter()
