@@ -10,7 +10,7 @@ use crate::Session;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
-use al_builtins::value::{RecordState, Value};
+use al_builtins::value::{RecordState, RtType, Value};
 use al_data::{Store, TableDef};
 use al_ir as ir;
 use std::cell::RefCell;
@@ -358,7 +358,8 @@ impl Session {
     /// (record/filters/RelationWhereFlowFilter.al:398-412), or one equality for an exact
     /// filter in group 0 (RelationWhereFlowFilter.al:426-441 accepts a match, :444-459
     /// rejects a mismatch; BC 27, 28, 29). The outer None preserves the existing
-    /// buffer-based comparison for a field assigned without a filter.
+    /// buffer-based comparison for a field assigned without a filter. The neutral
+    /// record/filters/TestRecordEnumFlowFilterGroup.al (corpus PR 1341, issue 7877) measures one exact enum in group 2.
     fn source_relation_flowfilter(
         &self,
         rec: &Rec,
@@ -372,8 +373,13 @@ impl Session {
         let exact = match (filters.next(), filters.next()) {
             (None, _) if !default_buffer => return Ok(None),
             (None, _) if source.filter_group == 0 => None,
-            (Some(filter), None) if default_buffer && filter.group == 0 && source.filter_group == 0 => {
-                match &filter.expr {
+            (Some(filter), None)
+                if default_buffer
+                    && source.filter_group == 0
+                    && (filter.group == 0
+                        || filter.group == 2 && matches!(table.fields[field].ty, RtType::Enum(_))) =>
+            {
+                let exact = match &filter.expr {
                     FilterExpr::Eq(value) => Some(value.clone()),
                     FilterExpr::Range(Some(lower), Some(upper)) if ops::compare(lower, upper)?.is_eq() => {
                         Some(lower.clone())
@@ -383,7 +389,13 @@ impl Session {
                             "TableRelation validation requires one exact source FlowFilter value (not pinned)",
                         );
                     }
+                };
+                if filter.group == 2 {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::GroupTwoEnumFlowFilterRelation,
+                    );
                 }
+                exact
             }
             _ => {
                 return unsupported(
