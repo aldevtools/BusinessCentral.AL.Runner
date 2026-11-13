@@ -304,9 +304,11 @@ fn a_caption_class_expression_read_after_it_changed_without_a_fill_is_refused() 
 }
 
 #[test]
-fn a_second_read_of_a_field_caption_class_that_raises_the_event_is_refused() {
-    // XTablePropsTests.al:483-487 pins one read only.
-    refused("FieldClassTwice");
+fn a_second_read_of_a_literal_field_caption_class_reuses_its_resolution() {
+    assert_eq!(
+        text(al_testkit::run_in(UNPINNED_SRC, "C", "FieldClassTwice")),
+        "resolved:Field|resolved:Field"
+    );
 }
 
 /// A page field bound to a bare field name of the source table (no `Rec.`, warning AL0604) is that field: its caption is the

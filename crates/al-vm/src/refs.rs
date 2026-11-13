@@ -7,6 +7,7 @@
 //! does not pin raises `Signal::Unsupported` instead of guessing.
 
 use crate::Session;
+use crate::blob_transfer::{BlobMove, Holder};
 use al_builtins::catalog::Catalog;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FilterExpr;
@@ -701,6 +702,8 @@ impl Session {
         let Value::Record(rec) = self.default_value(&RtType::Record(table, false)) else {
             return unsupported("record buffer for RecordRef.Get");
         };
+        let t = self.table(&rec)?;
+        self.tenant_media_recordref_get_check(&t, &rec)?;
         let mut a = key;
         let found = self.record_op(RecordOp::Get, &rec, &mut a)?;
         match found {
@@ -711,6 +714,39 @@ impl Session {
             Value::Boolean(false) if current.is_none() || self.ret_used => Ok(Some(found)),
             _ => unsupported("RecordRef.Get of a missing row of another table than the open one (not pinned)"),
         }
+    }
+
+    /// `RecordRef.Get(RecordId)` on a ref open on the RecordId's table: the Get of the row the RecordId names.
+    fn rr_get_own_table(&mut self, t: &TableDef, rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+        let key = match args.first() {
+            Some(Value::Library(_, l)) => match &*l.borrow() {
+                LibraryValue::RecordId { table, key, .. } if *table == t.object => key.clone(),
+                LibraryValue::RecordId { .. } => {
+                    return unsupported("RecordRef.Get of a RecordId of another table (error text not pinned yet)");
+                }
+                other => return unsupported(format!("RecordRef.Get of {}", other.describe())),
+            },
+            other => return unsupported(format!("RecordRef.Get of {}", other.describe())),
+        };
+        // The ref fetches the whole row whatever SetLoadFields asked for, and the Record form does not
+        // (record/load-fields/Y87RecordRefLoadFields.al codeunit 94656 Ref_SetLoadFieldsNameThenGet and
+        // Ref_SetLoadFieldsCntThenGet `YesYesYesYesYesYes` against Rec_SetLoadFieldsNameThenGet `YesYesNoYesYesYes`;
+        // record/W4PlatformAndMeta.al:497-516 `recref_loaded_txt` Yes). What a later fetch loads is not pinned: the
+        // request is kept for it.
+        // A RecordId with fewer values than the key: the omitted fields it may hold are checked where the Get key is
+        // built (`get_key_value.rs`).
+        self.record_id_omitted_fields(t, key.len())?;
+        self.tenant_media_recordref_get_check(t, rec)?;
+        let mut a = key;
+        let request = rec.borrow_mut().load.request.take();
+        // RecordRef.Get(RecordId) of an existing row is a denied read like Record.Get (AEDependencyTableReads.al
+        // `Customer_recref_get_recordid`).
+        if self.permission_checks() {
+            self.permission_from_al = true;
+        }
+        let got = self.record_op(RecordOp::Get, rec, &mut a);
+        rec.borrow_mut().load.request = request;
+        got
     }
 
     /// Whether the buffer differs from what the ref last read or wrote (`dirty_base`); a buffer that came from elsewhere
@@ -916,7 +952,7 @@ impl Session {
                     },
                     other => return unsupported(format!("RecordRef.GetTable of {}", other.describe())),
                 };
-                let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
+                let mut copy = self.gettable_copy(&src, matches!(args.first(), Some(Value::Record(_))))?;
                 // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
                 // as any RecordRef: GetView, SetView, SetFilter, FindFirst (corpus
                 // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
@@ -927,7 +963,7 @@ impl Session {
                     copy.unpinned_buffer = None;
                     copy.run_page_link = None;
                 }
-                *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
+                self.variant_refs.install_get_table_buffer(lib, copy, !from_variant);
                 return Ok(Value::Null);
             }
 
@@ -1092,38 +1128,7 @@ impl Session {
             | "SecurityFiltering" | "GetPosition" | "SetPosition" | "Ascending" | "SetRecFilter" | "Mark"
             | "MarkedOnly" | "ClearMarks" => self.record_meta_op(record_method(method), &rec, &t, args),
             // Doc (RecordRef.Get): loads the row a RecordId names; the table must be the ref's own.
-            "Get" => {
-                let key = match args.first() {
-                    Some(Value::Library(_, l)) => match &*l.borrow() {
-                        LibraryValue::RecordId { table, key, .. } if *table == t.object => key.clone(),
-                        LibraryValue::RecordId { .. } => {
-                            return unsupported(
-                                "RecordRef.Get of a RecordId of another table (error text not pinned yet)",
-                            );
-                        }
-                        other => return unsupported(format!("RecordRef.Get of {}", other.describe())),
-                    },
-                    other => return unsupported(format!("RecordRef.Get of {}", other.describe())),
-                };
-                // The ref fetches the whole row whatever SetLoadFields asked for, and the Record form does not
-                // (record/load-fields/Y87RecordRefLoadFields.al codeunit 94656 Ref_SetLoadFieldsNameThenGet and
-                // Ref_SetLoadFieldsCntThenGet `YesYesYesYesYesYes` against Rec_SetLoadFieldsNameThenGet `YesYesNoYesYesYes`;
-                // record/W4PlatformAndMeta.al:497-516 `recref_loaded_txt` Yes). What a later fetch loads is not pinned: the
-                // request is kept for it.
-                // A RecordId with fewer values than the key: the omitted fields it may hold are checked where the Get key is
-                // built (`get_key_value.rs`).
-                self.record_id_omitted_fields(&t, key.len())?;
-                let mut a = key;
-                let request = rec.borrow_mut().load.request.take();
-                // RecordRef.Get(RecordId) of an existing row is a denied read like Record.Get (AEDependencyTableReads.al
-                // `Customer_recref_get_recordid`).
-                if self.permission_checks() {
-                    self.permission_from_al = true;
-                }
-                let got = self.record_op(RecordOp::Get, &rec, &mut a);
-                rec.borrow_mut().load.request = request;
-                got
-            }
+            "Get" => self.rr_get_own_table(&t, &rec, args),
             // As Record.GetBySystemId, and a miss with the result unused raises "The <table> does not
             // exist" naming the Guid (PXEnumRecordRef.al:199-301).
             "GetBySystemId" => {
@@ -1409,7 +1414,12 @@ impl Session {
             d.field_descending = s.field_descending;
             // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
             d.read_isolation = s.read_isolation;
-            d.fields = s.fields.clone();
+            let before = std::mem::replace(&mut d.fields, s.fields.clone());
+            // The Blobs move as `BlobMove::set_table` says.
+            if let Some(how) = BlobMove::set_table(args.len(), share) {
+                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, Holder::Other)?;
+            }
+            crate::blob_transfer::buffer_replaced(&mut d);
             d.filters = s.filters.clone();
             d.key = s.key;
             d.adhoc = s.adhoc.clone();
@@ -1586,6 +1596,14 @@ impl Session {
                     }
                     let v = self.fieldref_value_into(&t, pos, &field.ty, v)?;
                     let mut r = rec.borrow_mut();
+                    let kind = || self.blob_field_kind(t.object as usize, pos);
+                    let v = crate::blob_transfer::moved(
+                        Some(&r.fields[pos]),
+                        v,
+                        BlobMove::FieldRefValue,
+                        Holder::Other,
+                        kind,
+                    )?;
                     r.fields[pos] = v;
                     if r.load.partial {
                         r.load.written(pos);

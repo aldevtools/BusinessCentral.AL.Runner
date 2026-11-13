@@ -552,6 +552,8 @@ impl Session {
         let declared = self.data_file_items(&run)?;
         let data = written.finish_data_set(&declared)?;
         let parameters = self.save_as_xml_parameters();
+        self.placeholder_files.written(&parameters_file);
+        self.placeholder_files.written(&data_file);
         self.host
             .files
             .write(&parameters_file, &parameters)
@@ -588,19 +590,22 @@ impl Session {
         let inst = st.borrow().instance.clone().expect("open page");
         let schema = self.report_schema_of(&inst)?;
         // ADR-040 amendments of 2026-11-08 and 2026-11-11: a format the default layout gives writes a placeholder
-        // (`report_placeholder::grid`).
-        let placeholder = crate::report_placeholder::Format::from_name(format)
-            .map(|f| self.placeholder_allowed(&schema, f).map(|ok| ok.then_some(f)))
-            .transpose()?
-            .flatten();
-        if placeholder.is_none() && !self.output_is_ignored(&schema) {
-            return unsupported(format!(
-                "SaveAs{format} of \"{}\": only the Xml dataset and placeholders of the formats a default layout gives are \
-                 produced (a rendered format needs a layout renderer, and the Linux tier the corpus was measured on does not \
-                 render them either)",
-                schema.name()
-            ));
-        }
+        // (`report_save`).
+        let target = crate::reports::SaveTarget::File(name);
+        // `None`: the ADR-040 allow-list's answer, run and write nothing.
+        let placeholder = {
+            use crate::report_save::{AnswerForm, BeforeRun};
+            let Some(f) = crate::report_placeholder::Format::from_name(format) else {
+                return unsupported(format!("SaveAs{format} of \"{}\"", schema.name()));
+            };
+            match self.save_before_run(&schema, f, &target, AnswerForm::None, false)? {
+                BeforeRun::Run(plan) => Some(crate::report_placeholder::SaveOutput::Rendered(Box::new(plan))),
+                BeforeRun::Discard => None,
+                // No row of the request page's form answers before the run (`report_save` test
+                // `report_save_the_request_page_form_answers_only_after_a_run`).
+                BeforeRun::Dataset | BeforeRun::False(_) => unreachable!("a request page save answers after its run"),
+            }
+        };
         // What the handler sees of a layout without a file, or of a processing-only report, is not pinned here.
         let report = schema.report();
         if report.layout_file_missing || report.processing_only {
@@ -619,15 +624,10 @@ impl Session {
         }
         let (written, _) = self.request_page_report_run(st, object, &inst, &schema)?;
         // The dataset is built to run the triggers and dropped.
+        let rows = written.rows;
         drop(written);
-        let (target, output) = (
-            crate::reports::SaveTarget::File(name),
-            match placeholder {
-                Some(f) => crate::report_placeholder::SaveOutput::Placeholder(f),
-                None => crate::report_placeholder::SaveOutput::Discard,
-            },
-        );
-        self.write_save_output(target, output, &schema, &[])?;
+        let output = placeholder.unwrap_or(crate::report_placeholder::SaveOutput::Discard);
+        self.write_save_output(target, output, &schema, &[], rows)?;
         st.borrow_mut().result = Some(format!("SaveAs{format}"));
         self.mark_closed(st);
         Ok(Value::Null)
@@ -1029,6 +1029,11 @@ impl Session {
         xml: &str,
         call: ParamsCall,
     ) -> Result<(), Signal> {
+        let written = super::request_options::written_bare_root(xml, call);
+        if written.is_some() {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportParamsWrittenDeclaration);
+        }
+        let xml = written.as_deref().unwrap_or(xml);
         let engine = self.engine();
         let o = &engine.program.objects[object];
         let page = o.page.as_ref().expect("a request page");

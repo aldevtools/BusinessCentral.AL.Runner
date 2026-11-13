@@ -9,6 +9,7 @@
 //! Core code: no OS access (ADR-006). The writer builds a string; the caller writes the bytes.
 
 use al_builtins::native::{Signal, unsupported};
+use al_builtins::value::Value;
 
 /// The name of a data item or column as the dataset spells it. A name made of letters, digits
 /// and underscores is written as it is (text/TestReportSaveAsDatasetContracts.al: `P`,
@@ -131,7 +132,7 @@ pub(crate) fn leading_digit(d: char, name: &str) -> Result<String, Signal> {
 /// Text as an XML element writes it: `&`, `<` and `>` become entities
 /// (text/TestReportSaveAsDatasetContracts.al: `one <&>` is `one &lt;&amp;&gt;`). In an
 /// attribute value a quote does too. A control character is refused: how the writer treats it is
-/// not pinned.
+/// not pinned. Rendered content is refused (`al_builtins::rendered_text`).
 pub(crate) fn escape(text: &str) -> Result<String, Signal> {
     escape_as(text, false)
 }
@@ -141,6 +142,14 @@ fn escape_as(text: &str, attribute: bool) -> Result<String, Signal> {
 }
 
 fn escape_xml(text: &str, attribute: bool, column_line_breaks: bool) -> Result<String, Signal> {
+    // Rendered content never goes into a dataset or a query file: its characters would be written as known bytes into a
+    // buffer without a mark (ADR-040 amendment 2026-11-12, A3b: a use that is not in table A3 refuses).
+    if al_builtins::rendered_text::holds(text) {
+        return Err(al_builtins::rendered_text::refusal(
+            text,
+            "a text written to a report dataset or a query file",
+        ));
+    }
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
@@ -455,15 +464,29 @@ pub(crate) struct Dataset {
 }
 
 impl Dataset {
-    pub(crate) fn for_save_as_xml() -> Self {
+    pub(crate) fn for_report_save(
+        id: al_ir::BuiltinId,
+        format: &str,
+        target: &crate::reports::SaveTarget,
+        region: Option<(String, al_builtins::format::Region)>,
+        language: i32,
+    ) -> Self {
         Self {
-            column_line_breaks: true,
+            column_line_breaks: id == al_builtins::builtin_id::ids::REPORT_SAVEAS_2
+                && format == "Xml"
+                && matches!(target, crate::reports::SaveTarget::Stream(_)),
+            region,
+            language: (language == 1031).then(|| "de-DE".to_string()),
             ..Self::default()
         }
     }
 
-    pub(crate) fn escape_column_text(&self, text: &str) -> Result<String, Signal> {
-        escape_xml(text, false, self.column_line_breaks)
+    pub(crate) fn escape_column_text(dataset: Option<&Self>, text: &str, value: &Value) -> Result<String, Signal> {
+        escape_xml(
+            text,
+            false,
+            dataset.is_some_and(|d| d.column_line_breaks) && matches!(value, Value::Text(_)),
+        )
     }
 }
 
@@ -850,6 +873,12 @@ impl Dataset {
             j = Self::subtree_end(flat, j);
         }
         Ok(())
+    }
+
+    /// [`Dataset::finish`] and the number of data item records written.
+    pub(crate) fn finish_counted(self, header: &Header) -> Result<(Vec<u8>, usize), Signal> {
+        let rows = self.rows;
+        Ok((self.finish(header)?, rows))
     }
 
     /// The bytes of the whole dataset: the byte order mark, the header, the data items.
@@ -1341,10 +1370,10 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            ds.escape_column_text("a\rb\r\nc\nd<&").unwrap(),
+            Dataset::escape_column_text(Some(&ds), "a\rb\r\nc\nd<&", &Value::Text("".into())).unwrap(),
             "a\r\nb\r\nc\r\nd&lt;&amp;"
         );
-        assert!(ds.escape_column_text("a\u{1}b").is_err());
-        assert!(Dataset::default().escape_column_text("a\rb").is_err());
+        assert!(Dataset::escape_column_text(Some(&ds), "a\u{1}b", &Value::Text("".into())).is_err());
+        assert!(Dataset::escape_column_text(None, "a\rb", &Value::Text("".into())).is_err());
     }
 }

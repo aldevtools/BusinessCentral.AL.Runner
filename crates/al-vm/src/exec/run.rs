@@ -159,13 +159,14 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::SingleWrite { i, kind } => self.single_write_op(i as usize, kind, f),
-                Op::ReadPlace { d, p } => {
-                    let v = self.read(&chunk.places[p as usize], f)?;
+                Op::ReadPlace { d, p, value } => {
+                    let v = self.read_place(&chunk.places[p as usize], value, f)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::StoreLocal { i, a, p } => {
                     let v = take(f, a, nl);
-                    if matches!(v, Value::Record(_) | Value::Library(..)) {
+                    // A Blob goes through `write` too: a Variant takes a copy (`blob_transfer::moved`).
+                    if matches!(v, Value::Record(_) | Value::Library(..) | Value::Blob(_)) {
                         self.write(&chunk.places[p as usize], v, f)?;
                     } else {
                         set(&mut f.locals[i as usize], v);
@@ -380,6 +381,7 @@ impl Session {
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::CharAt { d, a, b } => self.op_char_at(f, d, a, b, nl)?,
+                Op::BlobFieldRead { r, read } => self.op_blob_field_read(f, r, read)?,
                 Op::AppendText { s, old, a } => self.op_append(&chunk.appends[s as usize], f, old, a, nl)?,
                 Op::JumpEq { a, b, t } => {
                     if ops::compare(&f.locals[a as usize], &f.locals[b as usize])? == std::cmp::Ordering::Equal {
@@ -440,7 +442,7 @@ impl Session {
             Err(Signal::Error(mut e)) => {
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e);
                 set(&mut f.locals[d as usize], Value::Boolean(false));
                 Ok(stop + 1)
             }
@@ -467,7 +469,7 @@ impl Session {
                 // The statements the error left open are closed.
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e);
                 // Temporaries of the body that the error left behind hold nothing alive.
                 for r in from.max(nl) as usize..f.locals.len() {
                     f.locals[r] = Value::Null;
@@ -635,6 +637,7 @@ impl Session {
         if let Some(r) = site.cap_loop {
             self.cap_loop_pass(cap_id(f, r));
         }
+        let item = self.rendered_into_place(&site.var, item, f)?;
         self.write(&site.var, item, f)?;
         if site.cap_loop.is_some() {
             self.cap_loop_var(&site.var, f);
@@ -875,6 +878,9 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
+        if !site.field_reads.is_empty() {
+            self.call_field_reads(site, &mut values, f)?;
+        }
         self.call_site(
             site.object,
             site.routine,
@@ -884,6 +890,37 @@ impl Session {
             site.try_call,
             f,
         )
+    }
+
+    /// `Op::BlobFieldRead`: the value in register `r` moves as `Session::field_read_into_variant` says.
+    #[cold]
+    #[inline(never)]
+    fn op_blob_field_read(
+        &mut self,
+        f: &mut Frame,
+        r: u16,
+        read: crate::blob_transfer::FieldRead,
+    ) -> Result<(), Signal> {
+        let v = std::mem::replace(&mut f.locals[r as usize], Value::Null);
+        f.locals[r as usize] = self.field_read_into_variant(v, read, &f.locals)?;
+        Ok(())
+    }
+
+    /// Moves the Blobs among the field reads handed to `site`'s callee (`CallSite::field_reads`) where
+    /// `blob_transfer::FieldRead::handed_to` names the parameter.
+    #[cold]
+    #[inline(never)]
+    fn call_field_reads(&mut self, site: &CallSite, values: &mut [Value], f: &Frame) -> Result<(), Signal> {
+        let engine = self.engine.clone();
+        let callee = &engine.program.objects[site.object].routines[site.routine];
+        for &(arg, read) in site.field_reads.iter() {
+            let arg = usize::from(arg);
+            if crate::blob_transfer::FieldRead::handed_to(callee, site.instance.is_none(), arg) {
+                let v = std::mem::replace(&mut values[arg], Value::Null);
+                values[arg] = self.field_read_into_variant(v, read, &f.locals)?;
+            }
+        }
+        Ok(())
     }
 
     #[inline(never)]
@@ -904,8 +941,17 @@ impl Session {
         if al_builtins::placeholder_output::sizes_made() {
             al_builtins::placeholder_output::size_guard("a DotNet member", None, &values)?;
         }
+        let rendered = if al_builtins::rendered_text::active() {
+            self.rendered_dotnet_guard(site.ty, &recv, &site.op, &values)?
+        } else {
+            None
+        };
         self.dotnet.result_ty = site.result_ty;
         let r = self.dotnet_apply_closing_entry_streams(site.ty, recv, values, places, &site.op, f);
+        let r = match rendered {
+            Some(input) => Self::rendered_dotnet_answer(&input, r),
+            None => r,
+        };
         if let (Err(Signal::Error(_)), Some(p)) = (&r, site.header_pos) {
             self.at_line_of(p);
         }
@@ -938,6 +984,9 @@ impl Session {
         }
         if al_builtins::placeholder_output::sizes_made() {
             al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?
@@ -1084,6 +1133,9 @@ impl Session {
         }
         if al_builtins::placeholder_output::sizes_made() {
             al_builtins::placeholder_output::size_guard(site.id.name(), recv.as_ref(), &values)?;
+        }
+        if al_builtins::rendered_text::active() {
+            al_builtins::rendered_text::guard(site.id.name(), recv.as_ref(), &values, site.ret_used)?;
         }
         if self.without_client()
             && let Some(answer) = self.clientless_guard(site.id, &values)?

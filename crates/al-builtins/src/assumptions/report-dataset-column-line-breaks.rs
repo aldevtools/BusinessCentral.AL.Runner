@@ -1,6 +1,11 @@
 ReportDatasetColumnLineBreaks => {
     id: "report-dataset-column-line-breaks",
-    assumed: "The SaveAs XML dataset writes a CR, LF or CRLF inside text column data as one literal CRLF.",
-    tests: "Local neutral Dataset.al probe measuring the raw XML bytes.",
-    probe: "Add the XML dataset text column line break cases to the pinned corpus.",
+    assumed: "Static Report.SaveAs to an XML OutStream normalizes CR, LF and CRLF in Text dataset columns to CRLF.",
+    tests: "al-runner issue 7905 and corpus PR #1359, reports/dataset/TestReportDatasetLineBreaks.al (BC 27.5, 28.5 and 29.0).",
+    probe: "Corpus PR #1359, reports/dataset/TestReportDatasetLineBreaks.al.",
+    awaiting: Awaiting {
+        issues: &[7905],
+        files: &["tests/al-language/reports/dataset/TestReportDatasetLineBreaks.al"],
+        since: "2026-11-13",
+    },
 }

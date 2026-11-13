@@ -59,6 +59,7 @@ pub(crate) fn manifest_digest(m: &Manifest) -> [u8; 32] {
         translation_source: _,
         runtime,
         app_json_keys,
+        platform_internals_visible_to,
     } = m;
     let mut h = Sha256::new();
     let mut put = |name: &str, value: &[u8]| {
@@ -88,6 +89,10 @@ pub(crate) fn manifest_digest(m: &Manifest) -> [u8; 32] {
     put("translation_files", format!("{translation_files:?}").as_bytes());
     put("runtime", format!("{runtime:?}").as_bytes());
     put("app_json_keys", format!("{app_json_keys:?}").as_bytes());
+    put(
+        "platform_internals_visible_to",
+        format!("{platform_internals_visible_to:?}").as_bytes(),
+    );
     h.finalize().into()
 }
 

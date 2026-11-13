@@ -1061,14 +1061,14 @@ impl Session {
                 // OnBeforeDeleteEvent, OnDelete, OnAfterDeleteEvent and the caller's buffer afterwards read the stored value
                 // (record/load-fields/P170JitLoadGone.al WA_Delete_FindSetForUpdate_DeleteTrue, WA_Delete_Control_PlainTable,
                 // WA_Delete_Control_TriggerTable; al-runner issue 6924).
-                let tenant_media =
-                    self.engine.program.objects.get(t.object as usize).and_then(|o| o.id) == Some(2_000_000_184);
-                if tenant_media && !rec.borrow().temporary {
+                // A row an AL Insert stored is deleted as a stored row (streams/media/Y48TenantMediaRows.al:648).
+                if self.is_tenant_media(&t) && !rec.borrow().temporary && !self.tenant_media_stored_key(&t, rec)? {
                     return self.delete_tenant_media(&t, rec, run);
                 }
                 if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
                 }
+                self.tenant_set_delete_one_refuses(&cx, &t, rec)?;
                 self.delete_row(&t, rec, run)
             }
             RecordOp::DeleteAll => {
@@ -2011,6 +2011,7 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::Rename => {
+                let from_al = std::mem::take(&mut self.tx.rename_from_al);
                 let rename_note = (self.tx.writes.len(), self.store.change_counter());
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other);
                 if !rec.borrow().temporary {
@@ -2074,6 +2075,11 @@ impl Session {
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
                 }
+                // After the All Profile key check: a tenant profile renamed from the empty App ID gets that error
+                // (profiles/TestAllProfileTable.al:186).
+                // A stale record gets DB:RecordChanged before the blank-key error (stale_rename.rs).
+                self.stale_rename(&cx, rec, &t, &old, &new, from_al, rename_note.0)?;
+                let blank_key = self.blank_key_rename(&cx, rec, &t, &refs, &old, &new, from_al)?;
                 // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
                 // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).
                 let old_pk = Self::sql_key(rec, &t, &old);
@@ -2098,6 +2104,7 @@ impl Session {
                 }
                 self.run_ext_trigger(&t, "OnRename", rec, Some(&xrec))?;
                 self.raise_deferred_auto_increment(&cx, &t, rec, &xrec, (&old_pk, &old), auto_increment_refusal)?;
+                self.blank_key_rename_raise(&t, rec, blank_key, &old)?;
                 let _ = self.bump_row_version(&t, rec);
                 let _ = self.stamp_rename(&t, rec);
                 let row = audit.row(&rec.borrow().fields);

@@ -33,6 +33,7 @@ mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
 mod stale_rule;
+mod tenant_media_rows;
 pub(crate) use stale_rule::{TrappedRollback, same_key};
 mod guarded_run_body;
 pub(crate) use guarded_run_body::GuardedBody;
@@ -1000,6 +1001,11 @@ impl Session {
         pos: usize,
         id: [u8; 16],
     ) -> Result<(), Signal> {
+        if self.is_stored_tenant_media_id(id) {
+            return unsupported(
+                "a Modify or Delete that lets go of the ID of a Tenant Media row an AL Insert stored (not pinned)",
+            );
+        }
         let held = |s: &mut Self, table: &TableDef, field: usize| -> Result<bool, Signal> {
             let filters = [FieldFilter {
                 lang: al_builtins::filter::filter_language(),
@@ -2017,6 +2023,14 @@ impl Session {
                     }
                     _ => false,
                 };
+            // An assigned Blob that nothing saved or wrote since is kept, as an unsaved stream write is, when the stored row's
+            // Blob is empty (assumption `blob-assign-counts-as-write`: al-runner issue 7961, the reporter's repro on real BC).
+            let stored_empty =
+                matches!(stored.as_ref().map(|row| &row[pos]), Some(Value::Blob(src)) if src.borrow().bytes.is_empty());
+            if keeps_content && stored_empty && buf.borrow().assigned_unsaved {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobAssignCountsAsWrite);
+                continue;
+            }
             if stale {
                 // Pinned: streams/CalcFieldsBlobStaleBuffer.al (empty, loaded-earlier and unsaved-write buffers).
             } else if copied_write {
@@ -2042,6 +2056,7 @@ impl Session {
             b.bytes = bytes;
             b.written = false;
             b.written_base = None;
+            b.assigned_unsaved = false;
             b.fetched = true;
             // ADR-040: the stored row carries the mark of an output that was never produced.
             b.render_pending = pending;
@@ -2058,6 +2073,7 @@ impl Session {
                 let mut b = b.borrow_mut();
                 b.written = false;
                 b.written_base = None;
+                b.assigned_unsaved = false;
                 // A Blob the record read without CalcFields stays as stored by the save (record/load-fields/
                 // P81LoadFields.al:700-711) and stays unloaded: a later CalcFields fetches it (streams/TestBlob.al
                 // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), it does not keep the empty view the buffer shows.
@@ -2367,6 +2383,7 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        Session::own_variable_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);
         let r = if self.coverage.profiler.is_some() {
             self.record_op_profiled(method, rec, args)

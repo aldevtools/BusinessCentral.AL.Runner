@@ -1144,6 +1144,7 @@ impl<'a> Checker<'a> {
 
     /// A call `X.Name()` is the platform's method `Name` even when the object has a member of that name that cannot be
     /// called: a page action or control, a query column, or a table field. The bare `X.Name` stays the member.
+    /// The measured argumentless CurrPage.SaveRecord call also takes precedence over an internal parameterless procedure.
     fn called_builtin_over_member(&mut self, sc: &Scope, node: &SyntaxNode, base_ty: &Ty, mname: &str) -> Option<E> {
         if !(node.parent().is_some_and(|p| p.kind() == SyntaxKind::CallExpr) && node.prev_sibling().is_none()) {
             return None;
@@ -1152,9 +1153,24 @@ impl<'a> Checker<'a> {
             // `CurrPage.Update(true)` is the page's method even when the page has an action or control of
             // that name (System Application's "Schedule Feature Data Update" has an action `Update`): a
             // control is not called. Real BC compiles that code; no corpus test names a control like a method.
-            Ty::Object(ObjKind::Page, page) => self
-                .resolve(sc, ObjKind::Page, page)
-                .is_some_and(|oi| self.named_section(oi, mname).is_some()),
+            Ty::Object(ObjKind::Page, page) => self.resolve(sc, ObjKind::Page, page).is_some_and(|oi| {
+                self.named_section(oi, mname).is_some()
+                        // AutoSplitSaveRecord.al: an explicit CurrPage.SaveRecord() calls
+                        // the platform method. A call through CurrPage.Part.Page calls
+                        // the internal procedure with that name.
+                        || (oi == sc.oi
+                            && mname.eq_ignore_ascii_case("SaveRecord")
+                            && node.children().next().is_some_and(|receiver| {
+                                receiver.kind() == SyntaxKind::NameRef
+                                    && name_of(&receiver).eq_ignore_ascii_case("CurrPage")
+                            })
+                            && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
+                            && node.parent().is_some_and(|call| {
+                                call.children().find(|n| n.kind() == SyntaxKind::ArgList)
+                                    .is_none_or(|args| args.children().next().is_none())
+                            })
+                            && crate::members::has_internal_parameterless_save_record(self.ws, oi))
+            }),
             // `Q.Open()` is the query's method even when the query has a column named Open (Base
             // Application's "Summarized Stock By Item Trkg." has one): a column is not called.
             // Compiles in real BC; no corpus test names a column like a method (docs/probes-needed.md).
@@ -1535,7 +1551,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                let base = self.infer(sc, &kids[0]);
+                let base = self.member_receiver(sc, node, &kids[0]);
                 let mname = kids.get(1).map(name_of).unwrap_or_default();
                 if let E::PartialObj(k, mut parts) = base {
                     parts.push(mname);
@@ -1764,8 +1780,93 @@ impl<'a> Checker<'a> {
         Some(E::TypeName(ty))
     }
 
+    /// The receiver `recv` of member access `node`. `Ns.Sub."Enum".FromInteger(n)` names the enum through its namespace when
+    /// the first name `Ns` is no variable, parameter, field or procedure in scope and no object of any kind in any app the
+    /// file sees has that name (al-runner issue 7920, the reporter's alc 18.1 repro: alc compiles it;
+    /// assumption `namespaced-enum-receiver` with probe corpus PR 1363, which lowering marks). Only `FromInteger` called on a chain of two or more names
+    /// is taken; every other receiver is inferred as before.
+    fn member_receiver(&mut self, sc: &mut Scope, node: &SyntaxNode, recv: &SyntaxNode) -> E {
+        let called = node
+            .parent()
+            .is_some_and(|p| p.kind() == SyntaxKind::CallExpr && p.first_child().as_ref() == Some(node));
+        let from_integer = node
+            .children()
+            .nth(1)
+            .is_some_and(|m| name_of(&m).eq_ignore_ascii_case("FromInteger"));
+        if called && from_integer && recv.kind() == SyntaxKind::MemberExpr {
+            let mut first = recv.clone();
+            while first.kind() == SyntaxKind::MemberExpr {
+                let Some(c) = first.first_child() else { break };
+                first = c;
+            }
+            if first.kind() == SyntaxKind::NameRef
+                && self.lookup_name(sc, &first).is_none()
+                && !self.ws.names_any_visible_object(sc.file, &name_of(&first))
+                && let Some(ei) = self.namespaced_enum_index(sc, recv)
+            {
+                self.touch(ei);
+                self.record(sc, recv, Res::NamespacedEnumReceiver(ei));
+                return E::TypeName(Ty::Enum(self.ws.objects[ei].name.as_str().into()));
+            }
+        }
+        if called && let Some(e) = self.builtin_type_before_rec_field(sc, node, recv) {
+            return e;
+        }
+        self.infer(sc, recv)
+    }
+
+    /// The receiver `recv` (a plain or quoted name) of the method call `node` in a procedure (global, local or internal)
+    /// of a codeunit with `TableNo`, where the implicit Rec has a field of that name: `Version`, `Guid`, `Text`,
+    /// `Database` or `Session` is the built-in type when the type has a static method of the called name, as alc
+    /// compiles it (al-runner issue 7962; alc 18.0.39.10160, probe apps in lower/tests/type_before_rec_field.rs). OnRun,
+    /// a `with`, a variable of the name, a procedure of the codeunit with the name, another name, another object kind or a method the type does not have keep the
+    /// field (main's result).
+    fn builtin_type_before_rec_field(&mut self, sc: &mut Scope, node: &SyntaxNode, recv: &SyntaxNode) -> Option<E> {
+        const MEASURED: &[&str] = &["Version", "Guid", "Text", "Database", "Session"];
+        // A codeunit has one trigger, OnRun; every other routine of it is a procedure.
+        let in_procedure_of_table_no_codeunit = sc.rec_unqualified
+            && self.ws.objects[sc.oi].kind == ObjKind::Codeunit
+            && sc.self_obj == sc.oi
+            && sc.withs.is_empty()
+            && !sc.codeunit_on_run;
+        if !(in_procedure_of_table_no_codeunit && recv.kind() == SyntaxKind::NameRef) {
+            return None;
+        }
+        let written = name_of(recv);
+        let ty_name = *MEASURED.iter().find(|m| m.eq_ignore_ascii_case(&written))?;
+        let key = ty_name.to_ascii_lowercase();
+        if sc.vars.iter().any(|frame| frame.contains_key(&key)) || sc.globals.contains_key(&key) {
+            return None;
+        }
+        // A procedure of the codeunit with the name wins over the type (alc: AL0132 on its `Text` result).
+        if !self.members[sc.oi].procedures_named(ty_name).is_empty() {
+            return None;
+        }
+        let rec = sc.rec.clone().filter(|r| matches!(r, Ty::Record { .. }))?;
+        self.field_res(sc, &rec, ty_name)?;
+        let method = node.children().nth(1).map(|m| name_of(&m))?;
+        let (e, receiver) = match ty_name {
+            "Database" => (E::ObjKeyword(ObjKind::Table), "Database"),
+            _ => (E::TypeName(Ty::Builtin(ty_name.into())), ty_name),
+        };
+        let has_static = self
+            .catalog
+            .overloads(receiver, &method)
+            .into_iter()
+            .chain(self.catalog.hidden(receiver, &method))
+            .any(|s| !s.instance);
+        has_static.then_some(e)
+    }
+
     /// `Ns.Sub."Enum"` before `::`: a chain of names that resolves to an enum through its namespace.
     pub(crate) fn namespaced_enum(&self, sc: &Scope, node: &SyntaxNode) -> Option<E> {
+        let i = self.namespaced_enum_index(sc, node)?;
+        self.touch(i);
+        Some(E::TypeName(Ty::Enum(self.ws.objects[i].name.as_str().into())))
+    }
+
+    /// The enum a chain of names `Ns.Sub."Enum"` names through its namespace.
+    fn namespaced_enum_index(&self, sc: &Scope, node: &SyntaxNode) -> Option<usize> {
         fn parts(n: &SyntaxNode, out: &mut Vec<String>) -> bool {
             match n.kind() {
                 SyntaxKind::NameRef => {
@@ -1793,10 +1894,7 @@ impl<'a> Checker<'a> {
             return None;
         }
         match self.ws.resolve_ref(sc.file, ObjKind::Enum, &names) {
-            Resolution::Found(i) => {
-                self.touch(i);
-                Some(E::TypeName(Ty::Enum(self.ws.objects[i].name.as_str().into())))
-            }
+            Resolution::Found(i) => Some(i),
             _ => None,
         }
     }
