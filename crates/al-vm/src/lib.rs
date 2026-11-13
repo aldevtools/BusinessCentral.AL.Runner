@@ -142,6 +142,7 @@ mod stale_buffer_origin;
 mod stale_own_modify;
 mod stale_rename;
 mod state_stamp;
+mod table_facts;
 mod tasks;
 mod tenant_layout_cfg;
 mod tenant_layouts;
@@ -229,7 +230,7 @@ pub struct Engine {
     /// `InitValue` (`0DT` on a DateTime, a closing-date literal on a Date).
     pub unevaluable_init: Arc<std::collections::HashMap<(u32, usize), String>>,
     /// What the VM asks of a table on every record operation, worked out once (ADR-035 decision 4).
-    pub(crate) table_facts: Arc<[TableFacts]>,
+    pub(crate) table_facts: Arc<[table_facts::TableFacts]>,
     /// What the VM reads of each object's properties, worked out once (ADR-032 decision 5).
     pub(crate) object_facts: Arc<[ir::ObjectFacts]>,
     /// The same for each field of each table object, by field position.
@@ -429,41 +430,7 @@ impl Engine {
             .collect();
         let events = events::Registry::build(&program);
         let facts = (0..heads.len()).map(|_| std::sync::OnceLock::new()).collect();
-        let table_facts: Vec<TableFacts> = heads
-            .iter()
-            .map(|o| TableFacts {
-                unresolved_init: o
-                    .table
-                    .as_ref()
-                    .is_some_and(|t| t.fields.iter().any(|f| f.init_text.is_some() && f.init.is_none())),
-                sql_timestamp: o.table.as_ref().map_or_else(Vec::new, |t| {
-                    t.fields
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, f)| {
-                            f.properties.iter().any(|(k, v)| {
-                                k.eq_ignore_ascii_case("SQLTimestamp") && v.trim().eq_ignore_ascii_case("true")
-                            })
-                        })
-                        .map(|(i, _)| i)
-                        .collect()
-                }),
-                insert_unqueued: o.table.as_ref().is_none_or(|t| {
-                    t.fields.iter().any(|f| {
-                        f.auto_increment
-                            || matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob))
-                    })
-                }),
-                code_sql_type: o.table.as_ref().is_some_and(|t| {
-                    t.fields.iter().any(|f| {
-                        matches!(f.ty, RtType::Code(_))
-                            && f.properties.iter().any(|(k, v)| {
-                                k.eq_ignore_ascii_case("SQLDataType") && !v.trim().eq_ignore_ascii_case("Varchar")
-                            })
-                    })
-                }),
-            })
-            .collect();
+        let table_facts = table_facts::of_heads(heads);
         let object_facts: Vec<ir::ObjectFacts> = heads
             .iter()
             .map(|h| ir::ObjectFacts::of_properties(&h.properties))
@@ -1709,6 +1676,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
+                    own_variable: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
                     run_page_link: None,
@@ -2095,6 +2063,9 @@ impl Session {
     pub fn instance(&mut self, object: usize) -> Rc<RefCell<Instance>> {
         let engine = self.engine.clone();
         let globals = self.slot_defaults(&engine.program.objects[object].globals);
+        if engine.program.objects[object].kind == ir::ObjKind::Codeunit {
+            globals.iter().for_each(blob_transfer::new_variable);
+        }
         Rc::new(RefCell::new(Instance {
             object: object as u32,
             globals,
@@ -2451,7 +2422,7 @@ impl Session {
         facts: RoutineFacts,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
-        self.events.next_is_subscriber = false;
+        let subscriber = std::mem::take(&mut self.events.next_is_subscriber);
         self.note_routine(object, routine);
         if self.coverage.cells.is_some() {
             self.tap_cells(object, routine, &instance);
@@ -2474,17 +2445,26 @@ impl Session {
                 // A record of a stored table takes no temporary table: its fresh buffer would only be dropped (issue 6133).
                 locals.push(Value::Null);
             } else {
-                locals.push(self.slot_default(s));
+                let v = self.slot_default(s);
+                if i >= r.params {
+                    blob_transfer::new_variable(&v);
+                }
+                locals.push(v);
             }
         }
         let mut args = args;
+        // A procedure without attributes, called as a procedure: the call whose by-value arguments `blob_transfer::Argument`
+        // measures.
+        let measured_call = !subscriber && !r.is_trigger && r.attributes.is_empty();
         for (i, a) in args.drain(..).enumerate().take(r.params) {
             // No arm below is for these pairs, and the last one hands them back unchanged.
             if passed_unchanged(&a, &r.locals[i].ty) {
                 locals[i] = a;
                 continue;
             }
-            locals[i] = match (a, r.by_var.get(i).copied().unwrap_or(false)) {
+            let by_var = r.by_var.get(i).copied().unwrap_or(false);
+            let argument = blob_transfer::Argument::of(&a, measured_call && !by_var, &r.locals[i].ty);
+            let bound = match (a, by_var) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer
                 // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_PassedToVariantParameter_ByValue, record/TestTempTableContracts.al:141-148).
@@ -2612,6 +2592,7 @@ impl Session {
                 (a @ Value::Unknown(_), false) => a,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
             };
+            locals[i] = self.bind_blobs(argument, bound)?;
         }
         self.return_vec(args);
         let var_lens = if facts.var_lens {
@@ -2854,19 +2835,6 @@ impl Session {
 
 /// Tables with an extra ad-hoc key, by (table object, key fields).
 pub(crate) type AdhocTables = std::collections::HashMap<(u32, Vec<usize>), Arc<al_data::TableDef>>;
-
-/// Facts about a table object that never change during a run.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct TableFacts {
-    /// Some field has an `InitValue` text that did not evaluate at compile time.
-    pub(crate) unresolved_init: bool,
-    /// The positions of the BigInteger fields with `SQLTimestamp = true`: they read the row version.
-    pub(crate) sql_timestamp: Vec<usize>,
-    /// Some Code field declares an `SQLDataType` other than `Varchar`: a write checks its value.
-    pub(crate) code_sql_type: bool,
-    /// The table has a Blob field or an AutoIncrement field: its Inserts are not queued (`records/insert_buffer.rs`).
-    pub(crate) insert_unqueued: bool,
-}
 
 /// The shared storage of an array value.
 type Cells = Rc<RefCell<Vec<Value>>>;

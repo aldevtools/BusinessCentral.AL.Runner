@@ -1,5 +1,5 @@
 use super::*;
-use crate::blob_transfer::BlobMove;
+use crate::blob_transfer::{BlobMove, FieldKind, Holder};
 
 /// The start of the refusal of an index with fewer positions than the array has dimensions.
 const ROW_REFUSAL: &str = "a row of a ";
@@ -1595,6 +1595,7 @@ impl Session {
                                             // (`Session::load_blobs`, al-runner issue 7360).
                                             written: b.written,
                                             written_base: b.written_base.clone(),
+                                            write_origin: al_builtins::stream::WriteOrigin::Copy,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
@@ -1622,6 +1623,7 @@ impl Session {
                         d.fields = fields;
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
+                        crate::blob_transfer::buffer_replaced(&mut d);
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
@@ -1657,7 +1659,8 @@ impl Session {
                         crate::records::held_part_field_write(why)?;
                     }
                     let how = if assign { BlobMove::Assign } else { BlobMove::WriteBack };
-                    let v = crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, || true)?;
+                    let v =
+                        crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, Holder::Other, || FieldKind::Plain)?;
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;
@@ -1674,7 +1677,17 @@ impl Session {
         // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_AssignedToVariantVariable and :TempRecord_VariantModifiedAfterAssign).
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
-                self.record_by_value_unmeasured(rc)
+                let copy = self.record_by_value_unmeasured(rc);
+                // An assignment to a local Variant moves the copy's Blobs as `Session::blobs_by_value` says.
+                if assign && matches!(p, ir::Place::Local(_)) {
+                    let (temporary, holder) = {
+                        let r = rc.borrow();
+                        (r.temporary, Holder::of(&r))
+                    };
+                    self.blobs_by_value(copy, temporary, holder, crate::blob_transfer::Taker::LocalVariant)?
+                } else {
+                    copy
+                }
             }
             // A RecordRef assigned to a Variant or to another RecordRef: a RecordRef of its own on the same buffer
             // (`recordref_variant.rs`). A builtin's write-back of the receiver keeps its handle.
@@ -1687,11 +1700,14 @@ impl Session {
             {
                 crate::recordref_variant::own_copy(h)
             }
-            // A Blob assigned to a local Variant: the Variant holds a copy (`blob_transfer::moved`).
+            // A Blob assigned to a local Variant: the Variant holds a copy (`blob_transfer::moved`), whatever field or holder
+            // the Blob came from. A field read stored in another Variant is moved before it comes here
+            // (`blob_transfer::FieldRead`, `Op::BlobFieldRead`).
             Value::Blob(_)
                 if assign && matches!(p, ir::Place::Local(_)) && matches!(self.place_type(p, f), RtType::Variant) =>
             {
-                crate::blob_transfer::moved(None, v, BlobMove::Variant, || true)?
+                let how = BlobMove::Variant { local: true };
+                crate::blob_transfer::moved(None, v, how, Holder::Other, || FieldKind::Plain)?
             }
             _ => v,
         };
