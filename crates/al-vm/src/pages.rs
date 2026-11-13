@@ -279,6 +279,8 @@ mod action_body;
 mod card_part_new_host;
 mod empty_part_rec;
 mod empty_part_rec_list;
+mod hidden_part_journal;
+mod hidden_part_journal_code;
 mod list_card_action;
 mod other_record_no_row;
 mod page_get_record;
@@ -294,6 +296,7 @@ mod part_visible_gate;
 mod pinned_body;
 mod post_left_new_line;
 mod provider_hidden;
+mod record_trigger_answer;
 mod refill;
 mod refresh_new_line;
 mod rows;
@@ -304,6 +307,7 @@ mod server_row_lag;
 mod shown;
 pub(crate) mod state;
 mod table_values_allowed;
+mod temp_list_gone_row;
 mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
@@ -489,7 +493,10 @@ impl Session {
         if let Some(r) = page.triggers.iter().find(|(n, _)| n == name).map(|(_, r)| *r) {
             let inst = st.borrow().instance.clone().expect("open page");
             match self.page_call(st, object, r, inst, args.clone()) {
-                Ok((v, _)) => answer = Some(v),
+                Ok((v, _)) => {
+                    self.pages.own_exited = self.exited_with_value;
+                    answer = Some(v)
+                }
                 Err(e) => {
                     if matches!(e, Signal::Error(_)) {
                         self.pages.failed_trigger = Some((object as u32, name.to_string()));
@@ -757,26 +764,20 @@ impl Session {
         }
     }
 
-    /// A page trigger that answers Boolean: `Some(answer)` when the trigger exists and can state one,
-    /// `None` when it is absent or never executes `exit(value)`. A trigger that falls off its end
-    /// without an exit does not veto (corpus pages/currpage/PageUpdateNewRowCard.Page.al: OnInsertRecord
-    /// assigns the key and exits nothing, and the row is saved; testpage/TrtCardNoInsert.Page.al
-    /// exits false and it is not).
+    /// A page trigger that answers Boolean: `Some(answer)` when the trigger exists and states one, `None` when it is absent
+    /// or lets the row be saved (`own_record_trigger_answer`, pages/record_trigger_answer.rs).
     fn page_trigger_answer(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<bool>, Signal> {
         let engine = self.engine();
-        let object = st.borrow().object as usize;
         let routine = page_of(&engine, st)
             .triggers
             .iter()
             .find(|(n, _)| n == name)
             .map(|(_, r)| *r);
         self.pages.ext_vetoed = false;
-        let states_answer = routine.is_some_and(|r| has_value_exit(&engine.program.objects[object].routines[r].body));
+        self.pages.own_exited = false;
+        self.pages.named_false_insert = false;
         let v = self.page_trigger(st, name, args)?;
-        let own = match v {
-            Some(Value::Boolean(b)) if states_answer => Some(b),
-            _ => None,
-        };
+        let own = self.own_record_trigger_answer(st, name, routine, v)?;
         // OnInsertRecord and OnModifyRecord of the page extensions: all of them run, the page's first, whatever the others
         // answered, and one false answer of an extension vetoes the insert or the modify (testpage/
         // UeTriggerTests.al NewRow_FirstExtensionAnswersFalse, ModifyRow_SecondExtensionAnswersFalse; awaiting the corpus pin).
@@ -1117,7 +1118,7 @@ impl Session {
 }
 
 /// Whether any statement of `body` executes `exit(value)`.
-fn has_value_exit(body: &[ir::Stmt]) -> bool {
+pub(super) fn has_value_exit(body: &[ir::Stmt]) -> bool {
     use ir::Stmt;
     body.iter().any(|s| match s {
         Stmt::Exit(Some(_)) => true,
