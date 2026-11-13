@@ -89,6 +89,7 @@ impl Session {
                 one_action: false,
                 first_ends: false,
                 part_visible: false,
+                part_moves: false,
                 next: NextEnd::Refused,
             });
         }

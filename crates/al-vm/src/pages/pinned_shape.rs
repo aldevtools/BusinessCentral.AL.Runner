@@ -55,8 +55,8 @@ pub enum PartStep {
 
 /// What a page lets through after a rule pinned for one scenario ran (`PageState::pinned_end`): Close of the page, with
 /// `reads` a read of a control's value or an `AssertEquals`, with `one_action` one action's Invoke, with `first_ends` a
-/// `First`, which ends the limit, with `part_visible` the `Visible` of a part and with `next` one `Next`, as the scenario makes
-/// them.
+/// `First`, which ends the limit, with `part_visible` the `Visible` of a part, with `part_moves` the moves of a part and with
+/// `next` one `Next`, as the scenario makes them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PinnedEnd {
     /// The refusal of any other call.
@@ -68,6 +68,8 @@ pub struct PinnedEnd {
     pub first_ends: bool,
     /// `Visible` of a part of the page (`P.Part.Visible()`) is let through.
     pub part_visible: bool,
+    /// `First`, `Last` and `Next` of a part of the page are let through.
+    pub part_moves: bool,
     pub next: NextEnd,
 }
 
@@ -159,6 +161,9 @@ impl Session {
                 true
             }
             Some(TestCall::Page(PageMethod::Visible)) => end.part_visible && part.is_some(),
+            Some(TestCall::Page(PageMethod::First | PageMethod::Last | PageMethod::Next)) if end.part_moves => {
+                part.is_some()
+            }
             Some(TestCall::Read) => end.reads,
             Some(TestCall::Other(PageMethod::Invoke)) if end.one_action && part.is_none() => {
                 root.borrow_mut().pinned_end = Some(PinnedEnd {

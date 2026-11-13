@@ -94,6 +94,7 @@ impl Session {
                 one_action: true,
                 first_ends: true,
                 part_visible: false,
+                part_moves: false,
                 next: NextEnd::Refused,
             });
         }

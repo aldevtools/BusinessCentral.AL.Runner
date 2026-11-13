@@ -47,6 +47,7 @@ const TURN_END: PinnedEnd = PinnedEnd {
     one_action: false,
     first_ends: false,
     part_visible: true,
+    part_moves: false,
     next: NextEnd::Once,
 };
 

@@ -1309,6 +1309,7 @@ impl Session {
             let table = self.table(&rec)?;
             let mut fresh: Vec<FieldFilter> = Vec::new();
             let mut fields = Vec::new();
+            let mut no_row_provider: Option<St> = None;
             // Pinned by testpage/UjSubPageLink.al (was assumption `subpagelink-const-qualified-enum-value`).
             for entry in link.entries.iter() {
                 match entry {
@@ -1331,14 +1332,13 @@ impl Session {
                         // A Provider that shows no row: on BC the linked part shows no row, also where a row holds the blank
                         // link value (ProviderPartOutsideFactBoxes.al `h2`, `next-host`: `detail=` with a `Line Ref` 0 row in the
                         // table; corpus pull request 1324). The runner links to the blank value instead, so on the chains that
-                        // probe admits beyond the pinned ones the read is refused.
+                        // probe admits beyond the pinned ones the read is refused below, except in the cells
+                        // `provider_no_row.rs` admits.
                         if link.provider.is_some()
                             && src_page.borrow().cursor == Cursor::None
                             && self.chain_outside_pinned_areas(host)
                         {
-                            return unsupported(
-                                "a part linked through a Provider part that shows no row, on a Provider chain declared in the base page's FactBoxes or added by a page extension outside FactBoxes (BC shows no row; not modelled)",
-                            );
+                            no_row_provider = Some(src_page.clone());
                         }
                         let value = if src_page.borrow().cursor == Cursor::None || unsaved_host {
                             let host_ty = engine.program.objects[*src_table]
@@ -1402,6 +1402,13 @@ impl Session {
                         });
                     }
                 }
+            }
+            if let Some(provider) = no_row_provider
+                && !self.provider_no_row_ext_chain(host, control, child, &provider, &fresh)?
+            {
+                return unsupported(
+                    "a part linked through a Provider part that shows no row, on a Provider chain declared in the base page's FactBoxes or added by a page extension outside FactBoxes (BC shows no row; not modelled)",
+                );
             }
             let keeps_link = self.part_sync_keeps_same_link.take();
             if keeps_link.is_some() && !child.borrow().dirty {
