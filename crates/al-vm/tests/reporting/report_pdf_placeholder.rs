@@ -489,7 +489,9 @@ fn report_pdf_placeholder_a_report_layout_selection_of_a_custom_layout_with_no_c
     // Main read the row itself and refused.
     let src = format!("{SRC}{SELECTION}");
     assert_eq!(
-        al_testkit::text(super::report_management_stand_in::built(&src).run_in("RPP Selection Tests", "CustomSelection")),
+        al_testkit::text(
+            super::report_management_stand_in::built(&src).run_in("RPP Selection Tests", "CustomSelection")
+        ),
         "Yes"
     );
 }
@@ -498,7 +500,9 @@ fn report_pdf_placeholder_a_report_layout_selection_of_a_custom_layout_with_no_c
 fn report_pdf_placeholder_a_report_layout_selection_of_the_builtin_rdlc_layout_writes_a_pdf() {
     let src = format!("{SRC}{SELECTION}");
     assert_eq!(
-        al_testkit::text(super::report_management_stand_in::built(&src).run_in("RPP Selection Tests", "BuiltinSelection")),
+        al_testkit::text(
+            super::report_management_stand_in::built(&src).run_in("RPP Selection Tests", "BuiltinSelection")
+        ),
         "Yes"
     );
 }

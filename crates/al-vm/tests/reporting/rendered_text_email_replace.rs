@@ -8,7 +8,6 @@ use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_builtins::rendered_text::{self, RgbaReplace};
 use al_builtins::value::Value;
-use al_testkit::Built;
 
 use super::rendered_text::FIXTURE;
 
