@@ -18,6 +18,7 @@ macro_rules! each_fact {
             kind: Kind,
             layout: Layout,
             decl: Decl,
+            declares: Declares,
             file: File,
             processing_only: ProcessingOnly,
             data_items: DataItems,

@@ -909,6 +909,11 @@ impl PageState {
         self.opened_by_test && self.mode == PageMode::Edit && !self.modal && self.host.is_none()
     }
 
+    /// The same for the test's own `TestPage.OpenView`: the entry condition of a rule whose pins all open with OpenView.
+    pub(crate) fn test_open_view(&self) -> bool {
+        self.opened_by_test && self.mode == PageMode::View && !self.modal && self.host.is_none()
+    }
+
     /// A static `Page.RunModal(Id [, Rec [, Field]])` runs the page: `used` says its return value is used, `record` that it
     /// got a record, `field` a field number, `from_table` that the id was 0 (the table's lookup page). Used, the page opens
     /// as a lookup (pages/triggers/BeRunModalOnLookup.al:916 Shape_ReturnNotUsed_WalkOnly, :949 Shape_ReturnInIf_WalkOnly).

@@ -25,6 +25,7 @@ pub(crate) struct Key {
     pub kind: K<Kind>,
     pub layout: K<Layout>,
     pub decl: K<Decl>,
+    pub declares: K<Declares>,
     pub file: K<LayoutFile>,
     pub processing_only: K<bool>,
     pub data_items: K<DataItems>,
@@ -49,6 +50,7 @@ impl Key {
         kind: Unread,
         layout: Unread,
         decl: Unread,
+        declares: Unread,
         file: Unread,
         processing_only: Unread,
         data_items: Unread,
@@ -126,8 +128,6 @@ pub(crate) enum Events {
     NotRaised(&'static [&'static str]),
     /// The row's path checks no subscriber (main's answer).
     NotChecked,
-    /// Checked by the fact owner before it raised SelectReportLayoutCode to ReportManagement (`fact_selection`).
-    AtFact,
 }
 
 /// A corpus line.
