@@ -1280,6 +1280,182 @@ fn list_get_outside_the_list_with_the_result_used_still_answers_false() {
 }
 
 #[test]
+fn a_fractional_decimal_index_outside_the_pinned_array_read_keeps_the_refusal() {
+    // collections/ListNonIntegerIndex.al:433-452 pins only the read of a one-dimensional array; a write and a read of a
+    // two-dimensional array keep main's refusal.
+    for (decl, body) in [
+        ("a: array[4] of Text; d: Decimal;", "d := 2.5; a[d] := 'x'; exit('');"),
+        ("a: array[2, 2] of Text; d: Decimal;", "d := 1.5; exit(a[d, 1]);"),
+    ] {
+        let r = text_of(decl, body);
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("used as an integer")),
+            "{body}: {r:?}"
+        );
+    }
+}
+
+#[test]
+fn a_fractional_decimal_index_of_an_element_taken_by_reference_keeps_the_refusal() {
+    // collections/ListNonIntegerIndex.al:433-452 pins `R := A[D]`, a value read; a `var` argument, the target of a field
+    // write and the receiver of a method call take the element by reference and keep main's refusal.
+    for (routine, src) in [
+        (
+            "Method",
+            "codeunit 50100 C { procedure Method(): Text var a: array[4] of Text; d: Decimal; begin d := 2.5; exit(a[d].ToUpper()); end; }",
+        ),
+        (
+            "VarArg",
+            "codeunit 50100 C { procedure VarArg(): Text var a: array[4] of Integer; d: Decimal; begin d := 2.5; Bump(a[d]); exit(''); end;
+               local procedure Bump(var i: Integer) begin i += 1; end; }",
+        ),
+        (
+            "FieldWrite",
+            "table 50100 T { fields { field(1; K; Integer) { } field(2; N; Integer) { } } keys { key(PK; K) { } } }
+             codeunit 50100 C { procedure FieldWrite(): Text var a: array[2] of Record T temporary; d: Decimal; begin d := 1.5; a[d].N := 5; exit(''); end; }",
+        ),
+    ] {
+        let r = run(src, routine);
+        assert!(
+            matches!(&r, Err(Signal::Unsupported(m)) if m.contains("used as an integer")),
+            "{routine}: {r:?}"
+        );
+    }
+}
+
+#[test]
+fn a_fractional_decimal_index_of_an_element_read_as_a_value_raises_conversion_cast() {
+    // collections/ListNonIntegerIndex.al:433-452 (`decimal 2.5`): the pinned `R := A[D]` and a by-value argument read the
+    // element as a value.
+    for (routine, src) in [
+        (
+            "Assign",
+            "codeunit 50100 C { procedure Assign(): Text var a: array[4] of Text; d: Decimal; r: Text; begin d := 2.5; r := a[d]; exit(r); end; }",
+        ),
+        (
+            "ValArg",
+            "codeunit 50100 C { procedure ValArg(): Text var a: array[4] of Integer; d: Decimal; begin d := 2.5; Val(a[d]); exit(''); end;
+               local procedure Val(i: Integer): Integer begin exit(i); end; }",
+        ),
+    ] {
+        let r = run(src, routine);
+        assert!(
+            matches!(&r, Err(Signal::Error(e)) if e.code == "ConversionCast"),
+            "{routine}: {r:?}"
+        );
+    }
+}
+
+#[test]
+fn a_list_index_outside_the_pinned_static_types_keeps_the_list_error() {
+    // collections/ListNonIntegerIndex.al:240-430 declares every index Decimal, BigInteger, Char, Option or Byte. A Variant
+    // holding a Decimal, a Char index of Set and a Decimal index of the GetRange form with a var result are not pinned and
+    // keep main's list error.
+    for body in [
+        "l.Add(1); l.Add(2); d := 2; v := d; l.Get(v); exit('');",
+        "l.Add(1); l.Add(2); c := 2; l.Set(c, 9); exit('');",
+        "l.Add(1); l.Add(2); d := 1; l.GetRange(d, 1, r); exit('');",
+    ] {
+        let r = text_of(
+            "l: List of [Integer]; r: List of [Integer]; d: Decimal; v: Variant; c: Char;",
+            body,
+        );
+        let Err(Signal::Error(e)) = &r else {
+            panic!("{body}: {r:?}")
+        };
+        assert_eq!(e.code, "ArgumentOutOfRange", "{body}");
+    }
+}
+
+#[test]
+fn a_local_variable_declared_char_option_or_byte_indexes_list_get() {
+    // collections/ListNonIntegerIndex.al:163-181 with :419-430: `R := L.Get(X)`, X a local variable declared Char, Option with
+    // its members, or Byte.
+    for body in [
+        "c := 2; r := l.Get(c); exit(r);",
+        "o := o::Two; r := l.Get(o); exit(r);",
+        "y := 2; r := l.Get(y); exit(r);",
+    ] {
+        let r = text_of(
+            "l: List of [Text]; c: Char; o: Option Zero,One,Two,Three; y: Byte; r: Text;",
+            &format!("l.Add('a'); l.Add('b'); l.Add('c'); {body}"),
+        );
+        assert_eq!(r.unwrap(), "b", "{body}");
+    }
+}
+
+#[test]
+fn a_char_option_or_byte_index_that_is_no_such_local_variable_keeps_the_list_error() {
+    // collections/ListNonIntegerIndex.al:163-167 declares the three indexes as local variables, the Option with its members.
+    // The option types of the platform (TextEncoding, Action, PromptMode), an Option member, a global variable, a parameter, a
+    // function result, an array element and a character of a Text are not pinned and keep main's list error. So do the
+    // call forms the file does not have: `exit(L.Get(X))`, the statement `L.Get(X)` and `L.Get(X)` inside an expression,
+    // an Option declared without members, and a List of another type.
+    let fill = "l.Add('a'); l.Add('b'); l.Add('c');";
+    let mut wrong = Vec::new();
+    for (vars, body) in [
+        ("c: Char;", "c := 2; exit(l.Get(c));"),
+        ("o: Option Zero,One,Two,Three;", "o := o::Two; l.Get(o); exit('done');"),
+        (
+            "o: Option Zero,One,Two,Three; r: Text;",
+            "o := o::Two; r := l.Get(o) + ''; exit(r);",
+        ),
+        ("o: Option; r: Text;", "o := 1; r := l.Get(o); exit(r);"),
+        (
+            "o: Option Zero,One,Two,Three; il: List of [Integer]; r: Text;",
+            "il.Add(7); il.Add(8); o := o::One; r := Format(il.Get(o)); exit(r);",
+        ),
+        (
+            "o: Option Zero,One,Two,Three; il: List of [Integer]; n: Integer;",
+            "il.Add(7); il.Add(8); o := o::One; n := il.Get(o); exit(Format(n));",
+        ),
+        ("e: TextEncoding;", "e := TextEncoding::UTF8; exit(l.Get(e));"),
+        ("", "exit(l.Get(TextEncoding::UTF16));"),
+        ("a: Action;", "a := Action::OK; exit(l.Get(a));"),
+        ("", "exit(l.Get(Action::Cancel));"),
+        ("p: PromptMode;", "p := PromptMode::Generate; exit(l.Get(p));"),
+        ("o: Option Zero,One,Two,Three;", "exit(l.Get(o::Two));"),
+        ("", "G := G::Two; exit(l.Get(G));"),
+        ("", "GC := 2; exit(l.Get(GC));"),
+        ("", "GY := 2; exit(l.Get(GY));"),
+        ("o: Option Zero,One,Two,Three;", "o := o::Two; exit(ByParam(l, o));"),
+        ("", "exit(l.Get(Two()));"),
+        ("", "exit(l.Get(TwoChar()));"),
+        (
+            "arr: array[2] of Option Zero,One,Two,Three;",
+            "arr[1] := arr[1]::Two; exit(l.Get(arr[1]));",
+        ),
+        ("t: Text;", "t[1] := 2; exit(l.Get(t[1]));"),
+    ] {
+        let src = format!(
+            "codeunit 50100 C {{
+                var G: Option Zero,One,Two,Three; GC: Char; GY: Byte;
+                procedure F(): Text var l: List of [Text]; {vars} begin {fill} {body} end;
+                local procedure ByParam(var l: List of [Text]; o: Option Zero,One,Two,Three): Text begin exit(l.Get(o)); end;
+                local procedure Two(): Option Zero,One,Two,Three var o: Option Zero,One,Two,Three; begin o := o::Two; exit(o); end;
+                local procedure TwoChar(): Char begin exit(2); end;
+            }}"
+        );
+        match run(&src, "F") {
+            Err(Signal::Error(e)) if e.code == "ArgumentOutOfRange" => {}
+            r => wrong.push(format!("{body}: {r:?}")),
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn a_decimal_list_index_converts_as_a_checked_cast() {
+    // collections/ListNonIntegerIndex.al:266-289: a fraction raises ConversionCast before the list is read.
+    let r = text_of(
+        "l: List of [Integer]; d: Decimal;",
+        "l.Add(1); l.Add(2); d := 1.5; l.Get(d); exit('');",
+    );
+    let Err(Signal::Error(e)) = r else { panic!("{r:?}") };
+    assert_eq!(e.code, "ConversionCast");
+}
+
+#[test]
 fn dictionary_get_of_a_missing_key_raises_the_key_not_found_error() {
     // collections/TestCollectionsDictionary.al:42-55 pins the statement form; the value form
     // (collections/TestCollectionContracts.al:188) is pinned as an error with a text (probes-needed).

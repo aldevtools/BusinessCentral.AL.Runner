@@ -576,3 +576,84 @@ fn two_default_handlers_in_one_app_are_refused() {
         "{got:?}"
     );
 }
+
+/// The tests of `codeunit` and the assumptions each one hit.
+fn hits_of(objects: &str, codeunit: &str) -> Vec<(String, Vec<al_testrun::assumptions::Assumption>)> {
+    let l = al_testkit::compile(&format!("{SYSTEM}\n{objects}"));
+    let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
+    let (mut stacks, mut hits) = (Vec::new(), Vec::new());
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Codeunit,
+        None,
+        &mut stacks,
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    assert!(out.iter().all(|(_, o)| *o == Outcome::Pass), "{out:?}");
+    out.into_iter()
+        .map(|(n, _)| {
+            let h = hits
+                .iter()
+                .find(|(t, _)| *t == n)
+                .map(|(_, h)| h.clone())
+                .unwrap_or_default();
+            (n, h)
+        })
+        .collect()
+}
+
+/// A default handler that reads Success in OnBeforeTestCodeunitRun, or in OnBeforeTestProcedureRun of the procedure `T2` only.
+fn success_reader(in_codeunit_callback: bool) -> String {
+    let (cu, proc_) = if in_codeunit_callback {
+        ("Log.Add(Format(Context.Success()));", "")
+    } else {
+        (
+            "",
+            "if Context.ProcedureName() = 'T2' then Log.Add(Format(Context.Success()));",
+        )
+    };
+    format!(
+        r#"
+codeunit 50150 "TH Reader" implements ITestHandler
+{{
+    procedure OnBeforeTestCodeunitRun(Context: TestHandlerContext) var Log: Codeunit "TH Log"; begin {cu} end;
+    procedure OnAfterTestCodeunitRun(Context: TestHandlerContext) begin end;
+    procedure OnBeforeTestProcedureRun(Context: TestHandlerContext) var Log: Codeunit "TH Log"; begin {proc_} end;
+    procedure OnAfterTestProcedureRun(Context: TestHandlerContext) begin end;
+    procedure OnBeforeTestCaseRun(Context: TestHandlerContext) begin end;
+    procedure OnAfterTestCaseRun(Context: TestHandlerContext) begin end;
+}}
+{}
+codeunit 50151 T
+{{
+    Subtype = Test;
+    [Test] procedure T1() begin end;
+    [Test] procedure T2() begin end;
+    [Test] procedure T3() begin end;
+}}
+"#,
+        default_ext(50152, "TH Reader")
+    )
+}
+
+// Review of PR 7840, MED 3: the read of Success in a Before callback of a default handler rests on assumption
+// test-handler-default-before-success. The handler instance lives for the whole codeunit, so the value can reach every later
+// test: every test from the read on is flagged, a read in OnBeforeTestCodeunitRun flags them all.
+#[test]
+fn a_default_handler_reading_success_in_a_before_callback_flags_every_test_it_can_reach() {
+    use al_testrun::assumptions::Assumption::TestHandlerDefaultBeforeSuccess as A;
+    let flagged = |hits: &[(String, Vec<al_testrun::assumptions::Assumption>)]| -> Vec<String> {
+        hits.iter()
+            .filter(|(_, h)| h.contains(&A))
+            .map(|(n, _)| n.clone())
+            .collect()
+    };
+    assert_eq!(flagged(&hits_of(&success_reader(true), "T")), ["T1", "T2", "T3"]);
+    assert_eq!(flagged(&hits_of(&success_reader(false), "T")), ["T2", "T3"]);
+}

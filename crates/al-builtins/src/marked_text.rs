@@ -20,7 +20,7 @@
 //! on the tail), `Format` with a length, a range that reaches into the tail where BC may raise, an `IndexOf` that finds nothing
 //! in P. The pinned behavior of the tail itself is a probe (docs/probes-needed.md).
 
-use crate::native::{CALL_STACK_MARK, CARRIED_TEXT_MARK, Ctx, SQL_COUNT_TEXT_MARK, Signal};
+use crate::native::{CALL_STACK_MARK, Ctx, Signal};
 use crate::text::Txt;
 use crate::value::Value;
 
@@ -64,8 +64,8 @@ fn prefix_of(v: Option<&Value>) -> Option<Txt> {
     let s = t.as_str();
     let end = s.find(CALL_STACK_MARK)?;
     let head = &s[..end];
-    // A prefix that holds another kind of marker is not known text.
-    if head.contains([CARRIED_TEXT_MARK, SQL_COUNT_TEXT_MARK]) {
+    // A prefix that holds another kind of marker is not known text (the head ends before the first call stack mark).
+    if head.contains(crate::native::TEXT_MARKS) {
         return None;
     }
     Some(head.to_string().into())

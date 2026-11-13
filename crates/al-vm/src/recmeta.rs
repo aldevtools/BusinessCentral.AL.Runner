@@ -323,7 +323,9 @@ impl Session {
                 expr.trim()
             ));
         };
-        match self.call_on_record(object, routine, rec.clone(), None, Vec::new())?.0 {
+        let class = self.call_on_record(object, routine, rec.clone(), None, Vec::new())?.0;
+        Self::refuse_rendered_caption_class(&class)?;
+        match class {
             Value::Text(c) | Value::Code(c) => Ok(c.into_string()),
             other => unsupported(format!(
                 "the CaptionClass expression of field {} gave a {}",

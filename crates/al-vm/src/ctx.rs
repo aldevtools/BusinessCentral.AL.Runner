@@ -190,7 +190,7 @@ impl al_builtins::native::Ctx for Session {
         self.last_error.clone()
     }
     fn set_last_error(&mut self, e: AlError) {
-        self.last_error = e;
+        self.set_last_error_of_builtin(e);
     }
     fn field_error_with_form(
         &mut self,
@@ -258,6 +258,9 @@ impl al_builtins::native::Ctx for Session {
     fn media_store(&mut self) -> Option<&mut al_builtins::media::MediaStore> {
         Some(&mut self.media)
     }
+    fn is_stored_tenant_media_id(&mut self, id: [u8; 16]) -> bool {
+        Session::is_stored_tenant_media_id(self, id)
+    }
     fn media_holders(&mut self) -> Result<al_builtins::media_orphans::MediaHolders, Signal> {
         self.media_holders_impl()
     }
@@ -281,14 +284,16 @@ impl al_builtins::native::Ctx for Session {
         if !self.render_pending_files.is_empty() {
             self.render_pending_files.remove(&pending_key(path));
         }
+        self.placeholder_files.written(path);
         self.host.files.write(path, bytes)
     }
     fn fs_remove(&mut self, path: &str) -> Result<bool, Signal> {
-        if self.fs_carried_mark(path).is_some() || self.placeholder_file_mark(path).is_some() {
+        if self.fs_carried_mark(path).is_some() {
             self.render_pending_files.remove(&pending_key(path));
-        } else {
+        } else if !self.forget_placeholder_file(path) {
             self.refuse_pending_file(path)?;
         }
+        self.placeholder_files.written(path);
         Ok(self.host.files.remove(path))
     }
     fn company_build(&self) -> bool {
@@ -315,13 +320,23 @@ impl al_builtins::native::Ctx for Session {
     fn fs_write_placeholder(&mut self, path: &str, bytes: &[u8], mark: Arc<str>) -> Result<(), String> {
         self.host.files.write(path, bytes)?;
         self.render_pending_files.insert(pending_key(path), mark);
+        self.placeholder_files.written(path);
         Ok(())
     }
     fn fs_placeholder(&mut self, path: &str) -> Option<(Arc<str>, Vec<u8>)> {
         let mark = self.placeholder_file_mark(path)?;
-        Some((mark, self.host.files.read(path)?))
+        let bytes = self.host.files.read(path)?;
+        Some((mark, bytes))
+    }
+    fn fs_opened(&mut self, path: &str) {
+        self.placeholder_files.opened(path);
+    }
+    fn fs_closed(&mut self, path: &str, handle: &al_builtins::file::FileHandle) {
+        let holds_placeholder = self.placeholder_file_mark(path).is_some();
+        self.placeholder_files.closed(path, handle, holds_placeholder);
     }
     fn fs_write_unproduced(&mut self, path: &str, mark: &str) -> Result<(), String> {
+        self.placeholder_files.written(path);
         self.host.files.write(path, &[])?;
         self.render_pending_files.insert(pending_key(path), mark.into());
         Ok(())
@@ -769,6 +784,18 @@ impl Session {
             .get(&pending_key(path))
             .filter(|m| al_builtins::placeholder_output::is_placeholder(m))
             .cloned()
+    }
+
+    /// Drops the mark of a file that holds a placeholder report output, for a delete of the file: a delete looks at no byte
+    /// (ADR-040 amendment 2026-11-11). AL `File.Erase` of a saved report file after it was opened, copied and closed:
+    /// reports/layouts-saveas/AMRdlcSaveAs.al:179. The DotNet delete calls it only for the shape of assumption
+    /// dotnet-file-delete-placeholder (`placeholder_files.rs`). Whether the path held one.
+    pub(crate) fn forget_placeholder_file(&mut self, path: &str) -> bool {
+        if self.placeholder_file_mark(path).is_none() {
+            return false;
+        }
+        self.render_pending_files.remove(&pending_key(path));
+        true
     }
 
     /// Refuses a look at a file whose rendered output was never produced (ADR-040).

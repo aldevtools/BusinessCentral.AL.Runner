@@ -5,8 +5,8 @@
 //! `open/temp_ws_preloaded.rs`, `currpage_run_typed_key.rs`, and for a part on a host `split_key_view.rs`, `part_unsettled.rs`,
 //! `part_filter_find.rs` and `end_move_no_read.rs` (al-runner PR 7805 review, round 3), which compare the calls on the host and
 //! on the part in the order the test made them (`part_steps`) and the pages of the pin (`PinnedPart`). A rule pinned for an
-//! outside reporter's repro compares the objects line for line (`pinned_body.rs`) and lets through only the calls the repro
-//! makes after it (`PinnedEnd`).
+//! outside reporter's repro compares the objects line for line (`pinned_body.rs`). A rule pinned for one repro or one corpus
+//! scenario lets through only the calls the scenario makes after it (`PinnedEnd`).
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
@@ -53,13 +53,18 @@ pub enum PartStep {
     Sibling,
 }
 
-/// What a page lets through after a rule pinned for one outside reporter's repro ran (`PageState::pinned_end`): Close of the
-/// page, and with `reads` a read of a control's value or an `AssertEquals`, as the repro makes them.
+/// What a page lets through after a rule pinned for one scenario ran (`PageState::pinned_end`): Close of the page, with
+/// `reads` a read of a control's value or an `AssertEquals`, with `one_action` one action's Invoke, and with `first_ends` a
+/// `First`, which ends the limit, as the scenario makes them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PinnedEnd {
     /// The refusal of any other call.
     pub reason: &'static str,
     pub reads: bool,
+    /// One `Invoke` of an action is let through; a second one is refused.
+    pub one_action: bool,
+    /// `First` is let through and ends the limit: the page then reads its view again, as on main's path.
+    pub first_ends: bool,
 }
 
 /// More calls on a page and its parts than this are not kept; no pinned scenario of a part has that many.
@@ -107,6 +112,9 @@ pub(super) struct PinnedCode<'a> {
     /// The properties the page may declare, lower case, next to PageType, SourceTable, ApplicationArea, UsageCategory and
     /// Caption (which run nothing and change no read). The predicate checks the value of each one it lists.
     pub properties: &'a [&'a str],
+    /// The properties an Action control of the page may set to an expression, lower case; its other properties are
+    /// literal. Empty: the page has no Action control.
+    pub action_props: &'a [&'a str],
 }
 
 impl Session {
@@ -121,7 +129,18 @@ impl Session {
             // Not a call of the test client (`note_test_call`).
             None => true,
             Some(TestCall::Page(PageMethod::Close)) => part.is_none(),
+            Some(TestCall::Page(PageMethod::First)) if end.first_ends && part.is_none() => {
+                root.borrow_mut().pinned_end = None;
+                true
+            }
             Some(TestCall::Read) => end.reads,
+            Some(TestCall::Other(PageMethod::Invoke)) if end.one_action && part.is_none() => {
+                root.borrow_mut().pinned_end = Some(PinnedEnd {
+                    one_action: false,
+                    ..end
+                });
+                true
+            }
             Some(TestCall::Other(m)) => end.reads && (m == PageMethod::AssertEquals || Self::field_read(m)),
             _ => false,
         };
@@ -237,6 +256,28 @@ impl Session {
         )
     }
 
+    /// Whether page `p` declares no trigger outside `triggers` and no property outside the plain ones and `properties` (lower
+    /// case), has no page extension and no event subscriber, and its controls come from the page itself, with literal
+    /// properties and no extension trigger.
+    pub(super) fn page_declares_within(&self, p: &St, triggers: &[&str], properties: &[&str]) -> bool {
+        let engine = self.engine();
+        let object = p.borrow().object as usize;
+        let page = page_of(&engine, p);
+        page.triggers.iter().all(|(n, _)| triggers.contains(&n.as_str()))
+            && page.extensions.is_empty()
+            && page.ext_triggers.is_empty()
+            && !engine.events.any_subscriber_of(object)
+            && engine.program.objects[object].properties.iter().all(|(k, _)| {
+                let k = k.to_ascii_lowercase();
+                PLAIN_PROPERTIES.contains(&k.as_str()) || properties.contains(&k.as_str())
+            })
+            && page.controls.iter().all(|c| {
+                c.owner.is_none()
+                    && c.ext_triggers.is_empty()
+                    && c.props.iter().all(|(_, v)| matches!(v, ir::PropVal::Lit(_)))
+            })
+    }
+
     /// Whether `part` and its host are pages as `pin` lists them, every fact required:
     /// - the host: a top-level page of `pin.host_type` that declares no property but the plain ones and no trigger outside
     ///   `pin.host_triggers`; its controls are fields of Rec without a trigger, groups and this one part (other parts with
@@ -262,22 +303,8 @@ impl Session {
         let engine = self.engine();
         let object_of = |p: &St| p.borrow().object as usize;
         let page_type = |p: &St| engine.object_facts[object_of(p)].page_type.clone();
-        let declares_within = |p: &St, triggers: &[&str], properties: &[&str]| {
-            let page = page_of(&engine, p);
-            page.triggers.iter().all(|(n, _)| triggers.contains(&n.as_str()))
-                && page.extensions.is_empty()
-                && page.ext_triggers.is_empty()
-                && !engine.events.any_subscriber_of(object_of(p))
-                && engine.program.objects[object_of(p)].properties.iter().all(|(k, _)| {
-                    let k = k.to_ascii_lowercase();
-                    PLAIN_PROPERTIES.contains(&k.as_str()) || properties.contains(&k.as_str())
-                })
-                && page.controls.iter().all(|c| {
-                    c.owner.is_none()
-                        && c.ext_triggers.is_empty()
-                        && c.props.iter().all(|(_, v)| matches!(v, ir::PropVal::Lit(_)))
-                })
-        };
+        let declares_within =
+            |p: &St, triggers: &[&str], properties: &[&str]| self.page_declares_within(p, triggers, properties);
         let plain_field = |c: &ir::Control| matches!(c.binding, ir::Binding::Field(_)) && c.triggers.is_empty();
         let host_page = page_of(&engine, &host);
         let host_ok = page_type(&host) == Some(pin.host_type.clone())
@@ -399,11 +426,16 @@ impl Session {
             let kind = match c.kind {
                 ir::ControlKind::Repeater | ir::ControlKind::Group => c.binding == ir::Binding::None,
                 ir::ControlKind::Field => matches!(c.binding, ir::Binding::Field(_)),
+                ir::ControlKind::Action => !pin.action_props.is_empty() && c.binding == ir::Binding::None,
                 _ => false,
             };
+            let action = c.kind == ir::ControlKind::Action;
             kind && c.owner.is_none()
                 && c.ext_triggers.is_empty()
-                && c.props.iter().all(|(_, v)| matches!(v, ir::PropVal::Lit(_)))
+                && c.props.iter().all(|(k, v)| {
+                    matches!(v, ir::PropVal::Lit(_))
+                        || (action && pin.action_props.contains(&k.to_ascii_lowercase().as_str()))
+                })
         }) && same_names(
             page.controls
                 .iter()
@@ -419,6 +451,29 @@ impl Session {
         Ok(t.routines.is_empty()
             && t.table.as_ref().is_some_and(|x| x.extensions.is_empty())
             && !engine.events.any_subscriber_of(table))
+    }
+
+    /// The stored rows of the table of `rec` that pass `filters` alone (none of `rec`'s own filters or marks): a fact the
+    /// entry predicates compare with the rows their pin stored.
+    pub(super) fn stored_rows_passing(
+        &mut self,
+        rec: &Rec,
+        filters: Vec<al_builtins::filter::FieldFilter>,
+    ) -> Result<i32, Signal> {
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        {
+            let mut rows = probe.borrow_mut();
+            rows.filters = filters;
+            rows.marks.clear();
+            rows.marked_only = false;
+        }
+        self.ret_used = true;
+        Ok(
+            match self.record_op(al_builtins::record_op::RecordOp::Count, &probe, &mut [])? {
+                Value::Integer(n) => n,
+                _ => 0,
+            },
+        )
     }
 
     /// Whether Rec is in the plain view of a pinned page: `key` (a position in the table's key list), ascending, no filter in
@@ -496,6 +551,39 @@ pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Ex
     }
 }
 
+/// Whether trigger `name` (routine `r`) of page `object` has the body the pages of the close-errors fixtures give it
+/// (CemFixtures.al:201-224 CEM Card, :412-423 CEM Doc): OnModifyRecord and OnInsertRecord call a procedure of a codeunit
+/// variable, then `exit(true)`; OnQueryClosePage is the `exit` of such a call; OnClosePage is such a call. `false` for
+/// every other trigger and body.
+pub(super) fn cem_trigger_body(program: &ir::Program, object: usize, name: &str, r: usize) -> bool {
+    cem_trigger_call(program, object, name, r).is_some()
+}
+
+/// The call of a procedure of a codeunit variable in trigger `name` (routine `r`) of page `object`, when the trigger has
+/// the body of `cem_trigger_body`; `None` for every other trigger and body.
+pub(super) fn cem_trigger_call<'p>(
+    program: &'p ir::Program,
+    object: usize,
+    name: &str,
+    r: usize,
+) -> Option<&'p ir::Expr> {
+    let call = |e: &'p ir::Expr| codeunit_var_call(program, object, e).then_some(e);
+    let mut stmts = code_stmts(program, object, r);
+    // The lowering ends a trigger with a return value by an `exit` of its default, unreachable after an `exit`.
+    if let [.., ir::Stmt::Exit(Some(_)), ir::Stmt::Exit(Some(_))] = stmts.as_slice() {
+        stmts.pop();
+    }
+    match (name, stmts.as_slice()) {
+        ("onmodifyrecord" | "oninsertrecord", [ir::Stmt::Expr(e), ir::Stmt::Exit(Some(t))]) => {
+            let exits_true = matches!(t, ir::Expr::Const(ir::Const::Boolean(true)))
+                | matches!(t, ir::Expr::Convert(_, b) if matches!(**b, ir::Expr::Const(ir::Const::Boolean(true))));
+            call(e).filter(|_| exits_true)
+        }
+        ("onqueryclosepage", [ir::Stmt::Exit(Some(e))]) | ("onclosepage", [ir::Stmt::Expr(e)]) => call(e),
+        _ => None,
+    }
+}
+
 /// `s` is `CurrPage.Update()` without an argument (it saves the row: the parameter defaults to true) on the page whose
 /// `CurrPage` is global slot `curr_page`.
 pub(super) fn is_curr_page_update(s: &ir::Stmt, curr_page: usize) -> bool {
@@ -532,6 +620,12 @@ pub(super) fn table_code(engine: &Engine, object: usize) -> Option<(Vec<String>,
     if !t.table.as_ref().is_some_and(|x| x.extensions.is_empty()) || engine.events.any_subscriber_of(object) {
         return None;
     }
+    Some(own_table_code(t))
+}
+
+/// The triggers table `t` declares itself (lower case, sorted) and whether it has a field trigger or a procedure; its table
+/// extensions and subscribers are the caller's to check.
+pub(super) fn own_table_code(t: &ir::Object) -> (Vec<String>, bool) {
     let mut triggers: Vec<String> = t
         .routines
         .iter()
@@ -540,5 +634,42 @@ pub(super) fn table_code(engine: &Engine, object: usize) -> Option<(Vec<String>,
         .collect();
     triggers.sort_unstable();
     let more = t.routines.iter().any(|r| r.field.is_some() || !r.is_trigger);
-    Some((triggers, more))
+    (triggers, more)
+}
+
+/// A filter value of the kind the pins of SelectionFilterNoRow.al set (`'SELECTED'` on page 67996, `'VISIBLE'` on page
+/// 67999): one or more ASCII capital letters.
+pub(super) fn capital_word(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|b| b.is_ascii_uppercase())
+}
+
+/// The OnOpenPage of `page` (object `object`) is, statement by statement, the one of pages 67996 and 67999
+/// (pages/currpage/SelectionFilterNoRow.al): `Rec.FilterGroup(..); Rec.SetRange(..); Rec.FilterGroup(..); if Rec.FindFirst()
+/// then;`. The values the filters take are the callers' to check.
+pub(super) fn open_page_filters_then_find(program: &ir::Program, object: usize, page: &ir::Page) -> bool {
+    use al_builtins::builtin_id::ids;
+    let Some(rec) = program.objects[object].rec_slot else {
+        return false;
+    };
+    let Some((_, r)) = page.triggers.iter().find(|(n, _)| n == "onopenpage") else {
+        return false;
+    };
+    let on_rec = |e: &ir::Expr, want: al_builtins::builtin_id::BuiltinId| {
+        matches!(e, ir::Expr::Builtin { id, receiver: Some(receiver), .. } if *id == want
+            && matches!(&**receiver, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g))
+                if *g == rec))
+    };
+    let call = |s: &ir::Stmt, want| matches!(s, ir::Stmt::Expr(e) if on_rec(e, want));
+    let empty = |b: &[ir::Stmt]| b.iter().all(|s| matches!(s, ir::Stmt::Pos(_)));
+    match code_stmts(program, object, *r).as_slice() {
+        [group, range, group_back, ir::Stmt::If(find, then, otherwise)] => {
+            call(group, ids::RECORD_FILTERGROUP_1)
+                && call(range, ids::RECORD_SETRANGE_1)
+                && call(group_back, ids::RECORD_FILTERGROUP_1)
+                && on_rec(find, ids::RECORD_FINDFIRST_1)
+                && empty(then)
+                && empty(otherwise)
+        }
+        _ => false,
+    }
 }

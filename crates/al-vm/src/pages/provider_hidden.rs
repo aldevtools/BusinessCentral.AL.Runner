@@ -11,8 +11,9 @@ pub(super) struct BeforeActionBody {
     /// The Visible value of each part that runs record triggers, shown or hidden at open, as (control, visible). Empty on a
     /// page with a Provider link.
     visible: Vec<(usize, bool)>,
-    /// Rec's fields, when the host is the one of the pinned turn (`Session::first_turn_as_pinned`).
-    pinned_host_rec: Option<Vec<Value>>,
+    /// Rec's fields when the host is the one of the pinned turn (`Session::first_turn_as_pinned`), else the first fact of
+    /// the pinned host it does not have; `None` when no part was hidden.
+    pinned_host_rec: Option<Result<Vec<Value>, &'static str>>,
 }
 
 impl Session {
@@ -262,16 +263,29 @@ impl Session {
                 before.visible.push((i, visible));
             }
         }
-        let host_as_pinned = no_edit && before.visible.iter().any(|(_, visible)| !visible) && {
-            let s = st.borrow();
-            s.opened_by_test
-                && s.mode == PageMode::Edit
-                && s.host.is_none()
-                && s.cursor == Cursor::Row
-                && !s.draft
-                && self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Document)
-        };
-        before.pinned_host_rec = host_as_pinned.then(|| self.page_rec(st).borrow().fields.clone());
+        if before.visible.iter().any(|(_, visible)| !visible) {
+            let mismatch = {
+                let s = st.borrow();
+                let document = self.engine.object_facts[s.object as usize].page_type == Some(al_ir::PageType::Document);
+                [
+                    (document, "the host page is not a Document"),
+                    (s.opened_by_test, "the test did not open the host page itself"),
+                    (s.mode == PageMode::Edit, "the host page was not opened with OpenEdit"),
+                    (s.host.is_none(), "the host page is itself a part"),
+                    (
+                        s.cursor == Cursor::Row && !s.draft,
+                        "the host page stands on no stored row",
+                    ),
+                    (no_edit, "the host page or a part held an unsaved edit"),
+                ]
+                .into_iter()
+                .find_map(|(holds, reason)| (!holds).then_some(reason))
+            };
+            before.pinned_host_rec = Some(match mismatch {
+                Some(reason) => Err(reason),
+                None => Ok(self.page_rec(st).borrow().fields.clone()),
+            });
+        }
         Ok(before)
     }
 
@@ -289,10 +303,13 @@ impl Session {
             if was_visible || !self.control_visible(st, i)? {
                 continue;
             }
-            let Some(child) = self.first_turn_as_pinned(st, i, before) else {
-                return unsupported(
-                    "an action that makes a part visible, other than the pinned shape: a Document page opened with OpenEdit, on a stored row without an unsaved edit, whose action body only sets the variable, shows a linked part without a repeater that was hidden since the page opened (not pinned)",
-                );
+            let child = match self.first_turn_as_pinned(st, i, before) {
+                Ok(child) => child,
+                Err(reason) => {
+                    return unsupported(format!(
+                        "an action that makes a part visible, other than the pinned shape (a Document page opened with OpenEdit, on a stored row without an unsaved edit, whose action body only sets the variable, shows a linked part without a repeater that was hidden since the page opened): {reason} (not pinned)"
+                    ));
+                }
             };
             {
                 let mut c = child.borrow_mut();
@@ -312,8 +329,14 @@ impl Session {
     ///   neither it nor a part was asked for CurrPage.Update or CurrPage.SaveRecord;
     /// - the part has no repeater, takes its rows through a SubPageLink of `field` terms, and a Visible expression hid it from
     ///   the open on (`PageState::seen_visible`).
-    fn first_turn_as_pinned(&self, st: &St, i: usize, before: &BeforeActionBody) -> Option<St> {
-        let rec_before = before.pinned_host_rec.as_ref()?;
+    ///
+    /// `Err` names the first condition that does not hold, for the refusal.
+    fn first_turn_as_pinned(&self, st: &St, i: usize, before: &BeforeActionBody) -> Result<St, &'static str> {
+        let rec_before = match &before.pinned_host_rec {
+            Some(Ok(rec)) => rec,
+            Some(Err(reason)) => return Err(reason),
+            None => return Err("no part was hidden before the action"),
+        };
         let body_only_set_the_variable = {
             let s = st.borrow();
             s.open
@@ -334,14 +357,31 @@ impl Session {
                 .is_some_and(|l| l.provider.is_none() && !l.entries.is_empty())
                 && self.link_by_fields_only(st, i)
         };
-        let hidden = st
+        let Some(hidden) = st
             .borrow()
             .hidden_parts
             .iter()
             .find(|(h, _)| *h == i)
-            .map(|(_, c)| c.clone())?;
+            .map(|(_, c)| c.clone())
+        else {
+            return Err("the part was not hidden as the page opened");
+        };
         let never_shown = hidden.borrow().open && !hidden.borrow().seen_visible;
-        (body_only_set_the_variable && linked_by_fields && never_shown && !self.has_repeater(&hidden)).then_some(hidden)
+        [
+            (
+                body_only_set_the_variable,
+                "the action body did more than set the variable (moved, changed Rec, CurrPage.Update or SaveRecord)",
+            ),
+            (
+                linked_by_fields,
+                "the part has no SubPageLink of field terms, or takes its link from a Provider",
+            ),
+            (never_shown, "the part showed before"),
+            (!self.has_repeater(&hidden), "the part has a repeater"),
+        ]
+        .into_iter()
+        .find_map(|(holds, reason)| (!holds).then_some(reason))
+        .map_or(Ok(hidden), Err)
     }
 
     /// Whether page `st` and its parts hold no unsaved edit.
