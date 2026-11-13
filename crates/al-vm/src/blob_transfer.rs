@@ -35,10 +35,14 @@ pub(crate) enum BlobMove {
     /// that is stored in an element of a local array, or handed to a by-value Variant parameter ([`FieldRead`]). A record
     /// stored in a Variant is [`BlobMove::RecordByValue`].
     Variant { local: bool },
-    /// A Blob field read stored in a global Variant of the running object ([`FieldRead`]), of a `temporary` record or not.
-    GlobalVariant { temporary: bool },
-    /// `Dst.Copy(Src [, ShareTable])`.
-    RecordCopy,
+    /// A Blob field read stored in a global Variant of the running object ([`FieldRead`]), of a `temporary` record or not,
+    /// that `inserted` its row since its last Init or Clear or not (`RecordState::inserted`).
+    GlobalVariant { temporary: bool, inserted: bool },
+    /// `Dst.Copy(Src [, ShareTable])`, from a `temporary` source record or not into a `temporary` target record or not.
+    RecordCopy {
+        source_temporary: bool,
+        target_temporary: bool,
+    },
     /// A record handed by value to a parameter of a procedure, or assigned to a Variant ([`Session::blobs_by_value`]).
     RecordByValue,
 }
@@ -431,6 +435,7 @@ pub(crate) fn moved(
                 && !buf.bytes.is_empty(),
             in_memory: buf.loaded && !row_copy && !buf.inserted && !buf.persisted && !buf.refetch,
             unsaved_since_insert: buf.loaded && !row_copy && !buf.persisted && !buf.refetch,
+            inserted: buf.inserted,
             plain_buffer: !buf.file
                 && buf.dotnet_view == 0
                 && buf.render_pending.is_none()
@@ -496,7 +501,7 @@ impl BlobMove {
             BlobMove::Variant { .. } | BlobMove::GlobalVariant { .. } => "an assignment to a Variant",
             BlobMove::Assign => "an assignment",
             BlobMove::WriteBack => "a write-back",
-            BlobMove::RecordCopy => "Record.Copy",
+            BlobMove::RecordCopy { .. } => "Record.Copy",
             BlobMove::RecordByValue => "a record passed by value",
         }
     }
@@ -536,6 +541,8 @@ struct Source {
     in_memory: bool,
     /// As `in_memory`, but an Insert may have stored the buffer before.
     unsaved_since_insert: bool,
+    /// An Insert stored the content, and no Modify or stream write came after (`BlobBuf::inserted`).
+    inserted: bool,
     /// No mark of another rule: not the content of a `File`, not handed to a .NET stream, no rendered report pending, not
     /// the empty Blob `FieldRef.Value` hands out for unread content, no first write that truncates, no unsaved assignment
     /// (assumption `blob-assign-counts-as-write`). The buffers the probes measured carry none of them.
@@ -598,34 +605,55 @@ fn measured(how: BlobMove, s: &Source, holder: Holder) -> Option<Cell> {
         {
             Some(Cell::Copy)
         }
-        BlobMove::RecordByValue
-        | BlobMove::RecordCopy
-        | BlobMove::SetTableShared
-        | BlobMove::TransferFields(TransferCall::Flags)
+        BlobMove::RecordByValue | BlobMove::SetTableShared | BlobMove::TransferFields(TransferCall::Flags)
             if probed && s.loaded =>
         {
             Some(Cell::Copy)
         }
-        BlobMove::RecordByValue | BlobMove::RecordCopy | BlobMove::SetTableShared
-            if probed && get_only && !s.written =>
-        {
-            Some(Cell::Copy)
-        }
+        BlobMove::RecordCopy {
+            source_temporary,
+            target_temporary,
+        } if probed && copy_measured(source_temporary, target_temporary, s) => Some(Cell::Copy),
+        BlobMove::RecordByValue | BlobMove::SetTableShared if probed && get_only && !s.written => Some(Cell::Copy),
         BlobMove::RecordByValue if probed && get_only && s.written => Some(Cell::Copy),
         BlobMove::Variant { local: false } if probed && s.in_memory && s.content && s.written => Some(Cell::Copy),
         // A temporary source written in memory (P2 :672 GV) or written again after its Insert (P3 :2825); a source that is
         // not temporary written again after its Insert (P3 :2852).
-        BlobMove::GlobalVariant { temporary: true } if probed && s.content && s.written && s.unsaved_since_insert => {
-            Some(Cell::Copy)
-        }
-        BlobMove::GlobalVariant { temporary: false }
-            if probed && s.content && s.written && s.unsaved_since_insert && !s.in_memory =>
+        BlobMove::GlobalVariant { temporary: true, .. }
+            if probed && s.content && s.written && s.unsaved_since_insert =>
         {
             Some(Cell::Copy)
         }
+        BlobMove::GlobalVariant {
+            temporary: false,
+            inserted: true,
+        } if probed && s.content && s.written && s.unsaved_since_insert => Some(Cell::Copy),
         BlobMove::FieldRefValidate | BlobMove::Variant { local: true } if s.unread_row => Some(Cell::Unread),
         BlobMove::SetTable if s.unread_row => Some(Cell::UnreadRow),
         _ => None,
+    }
+}
+
+/// Whether Record.Copy from a source record that is `temporary` or not (`source_temporary`) into a target that is or is not
+/// (`target_temporary`) was measured with a source Blob in state `s`, in a measured source ([`Holder::Probed`]). The states
+/// are those of `PrepareF` in corpus PR 1375 (streams/BlobCopyStates.al:306-350): `mem` written in memory, `ins` written and
+/// inserted, `get` read with Get only.
+/// - Two records that are not temporary: every state the probe has, loaded or read with Get only and not written (:1285-1368
+///   `Copy_*`, :2775 A3, :2949 B1, :3274 E2).
+/// - Not temporary into temporary: `mem`, `ins`, `get` (:2101, :2116, :2131).
+/// - Temporary into not temporary: `mem`, `ins` (:2146, :2160).
+/// - Two temporary records: `mem` (corpus PR 1372, streams/BlobValueCopyShapes.al:906 X2, :929 X2s, :952 X2r).
+///
+/// Every other pair of records and state keeps the shared buffer, as before.
+fn copy_measured(source_temporary: bool, target_temporary: bool, s: &Source) -> bool {
+    let mem = s.in_memory && s.content && s.written;
+    let ins = s.unsaved_since_insert && s.inserted && s.content;
+    let get = s.row_copy && !s.loaded && !s.written;
+    match (source_temporary, target_temporary) {
+        (false, false) => s.loaded || get,
+        (false, true) => mem || ins || get,
+        (true, false) => mem || ins,
+        (true, true) => mem,
     }
 }
 
@@ -651,13 +679,18 @@ fn first_probe_move(how: BlobMove) -> bool {
 /// Whether a move of a field of kind `kind` (not [`FieldKind::Plain`] nor [`FieldKind::Other`]) by `how` takes what a
 /// plain field takes in the cells corpus PR 1375 measured (streams/BlobCopyStates.al): content a stream wrote in memory in a
 /// measured source, moved by a record by value (:3108 C6, every kind), as a field read handed to a by-value Variant parameter
-/// (:3017 C1-C3), stored in a global Variant or an array element (:3087 C4, C5), and by Record.Copy for a `Compressed =
-/// false` field (:3274 E2).
+/// (:3017 C1-C3), read from a temporary record and stored in a global Variant or an array element (:3087 C4, C5), and by
+/// Record.Copy between two records that are not temporary for a `Compressed = false` field (:3274 E2).
 fn other_kind_move(how: BlobMove, kind: FieldKind, s: &Source, holder: Holder) -> bool {
     let written = holder == Holder::Probed && s.plain_buffer && s.in_memory && s.content && s.written;
     match how {
-        BlobMove::RecordByValue | BlobMove::Variant { local: false } | BlobMove::GlobalVariant { .. } => written,
-        BlobMove::RecordCopy => written && kind == FieldKind::Variation,
+        BlobMove::RecordByValue
+        | BlobMove::Variant { local: false }
+        | BlobMove::GlobalVariant { temporary: true, .. } => written,
+        BlobMove::RecordCopy {
+            source_temporary: false,
+            target_temporary: false,
+        } => written && kind == FieldKind::Variation,
         _ => false,
     }
 }
@@ -775,16 +808,16 @@ impl Session {
         let (Value::Blob(_), Some(Value::Record(rc))) = (&v, locals.get(usize::from(read.record))) else {
             return Ok(v);
         };
-        let (temporary, holder, table) = {
+        let (temporary, inserted, holder, table) = {
             let r = rc.borrow();
-            (r.temporary, Holder::of(&r), r.table as usize)
+            (r.temporary, r.inserted, Holder::of(&r), r.table as usize)
         };
         if !(temporary || read.global) {
             return Ok(v);
         }
         let kind = || self.blob_field_kind(table, read.pos as usize);
         let how = if read.global {
-            BlobMove::GlobalVariant { temporary }
+            BlobMove::GlobalVariant { temporary, inserted }
         } else {
             BlobMove::Variant { local: false }
         };

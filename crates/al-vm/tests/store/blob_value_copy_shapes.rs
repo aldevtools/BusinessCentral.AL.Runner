@@ -613,6 +613,19 @@ codeunit 50444 C
         exit(Rd(Src) + '|' + Rd(E));
     end;
 
+    // Record.Copy of an empty Blob from a record that is not temporary into a temporary one: corpus PR 1375 measures this
+    // pair only written in memory, written and inserted, and read with Get only (:2101-2145).
+    procedure NeighborCopyStoredToTemporaryEmpty(): Text
+    var
+        Src: Record "BS Row";
+        Dst: Record "BS Row" temporary;
+    begin
+        Src.Init();
+        Dst.Copy(Src);
+        W(Dst, 'zz');
+        exit(Rd(Src));
+    end;
+
     // TransferFields(Rec, true, false) and SetTable(Rec, false).
     procedure NeighborOtherArguments(): Text
     var
@@ -1244,14 +1257,18 @@ fn a_record_by_value_to_a_tryfunction_or_an_event_subscriber_copies() {
 }
 
 #[test]
-// Measured since the third probe: corpus PR 1375, streams/BlobCopyStates.al:3108 C6, :3274 E2 (Compressed = false only), :1299, :1341, :1837; an extension field through Record.Copy is not measured and shares.
+// Measured since the third probe: corpus PR 1375, streams/BlobCopyStates.al:3108 C6, :3274 E2 (Compressed = false only), :1299, :2146; an extension field through Record.Copy is not measured and shares.
 fn record_copy_copies_in_the_third_probes_states_but_not_an_extension_field() {
     assert_eq!(
         flagged("NeighborVariationFieldsByValueAndCopy"),
         "hv:alpha|hv:alpha|hv:yypha|hv:alpha"
     );
     assert_eq!(flagged("NeighborCopyTemporaryToStored"), "hv:alpha");
-    assert_eq!(flagged("NeighborCopyAfterInsertAndEmpty"), "hv:alpha|nohv:");
+    // E2.Copy(E) of an empty Blob between two temporary records is not measured (PR 1372 :906-952 measures this pair
+    // written in memory only): the buffer is shared, as on main.
+    assert_eq!(flagged("NeighborCopyAfterInsertAndEmpty"), "hv:alpha|hv:x");
+    // An empty Blob from a record that is not temporary into a temporary one is not measured: shared, as on main.
+    assert_eq!(unflagged("NeighborCopyStoredToTemporaryEmpty"), "hv:zz");
 }
 
 #[test]

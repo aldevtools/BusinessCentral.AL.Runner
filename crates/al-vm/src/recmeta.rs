@@ -1039,7 +1039,11 @@ impl Session {
         (d.fields, d.row_origin) = (s.fields, s.row_origin);
         // The Blobs move as `BlobMove::RecordCopy` says.
         let table = d.table as usize;
-        self.move_blobs(table, &mut d.fields, None, BlobMove::RecordCopy, holder)?;
+        let how = BlobMove::RecordCopy {
+            source_temporary: s.temporary,
+            target_temporary: d.temporary,
+        };
+        self.move_blobs(table, &mut d.fields, None, how, holder)?;
         d.filters = s.filters;
         d.filter_group = s.filter_group;
         d.key = s.key;
