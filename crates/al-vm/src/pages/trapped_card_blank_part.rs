@@ -2,9 +2,10 @@
 //!
 //! Measured shape (AL Runner issue 7879, corpus pull request 1343; assumption
 //! `trapped-card-draft-blank-part-set-value`): a Card caught by `Trap()`, `New()`, then SetValue of a non-key field.
-//! The Card has no triggers, no DelayedInsert, no page extension and no subscriber; its stored source table is keyed by
+//! The Card has no page or control triggers, no DelayedInsert, no page extension and no subscriber; its stored source table is keyed by
 //! one field, and the table's OnInsert gives the new row a key that is not blank. Its single part is a ListPart without
-//! extension or subscriber, linked by one `field(...)` entry on that key field. After the SetValue only a read of a host
+//! extension or subscriber, linked by one `field(...)` entry on that key field. The SetValue's validation changes no field of
+//! Rec but the typed one, and the key stays blank. After the SetValue only a read of a host
 //! field and Close follow, and Close stores the Card under a key that is not blank. Every other shape keeps the refusal of
 //! `blank_part_host_refusal`.
 
@@ -51,6 +52,7 @@ impl Session {
                 && matches!(link.entries.as_slice(), [ir::LinkEntry::Field(_, host)] if table.keys[0] == [*host])
         });
         if !layout.triggers.is_empty()
+            || !layout.controls.iter().all(|c| c.triggers.is_empty())
             || !self.unextended_unsubscribed(st)
             || !self.unextended_unsubscribed(&part)
             || engine.object_facts[part.borrow().object as usize].page_type_lower() != "listpart"
@@ -67,6 +69,40 @@ impl Session {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TrappedCardDraftBlankPartSetValue);
         st.borrow_mut().trapped_blank_part_edit = true;
         Ok(true)
+    }
+
+    /// After the measured SetValue of control `index`: in the issue's repro its validation changed only the typed field, and
+    /// the key stayed blank. Validation code that changed another field or the key (a table field trigger, a subscriber) is
+    /// not measured: it keeps the refusal. `before` is Rec before the SetValue.
+    pub(super) fn trapped_card_blank_part_validated(
+        &self,
+        st: &St,
+        index: usize,
+        before: Option<&[Value]>,
+    ) -> Result<(), Signal> {
+        if !st.borrow().trapped_blank_part_edit {
+            return Ok(());
+        }
+        let ir::Binding::Field(typed) = page_of(&self.engine(), st).controls[index].binding else {
+            return blank_part_host_refusal(PageMethod::SetValue);
+        };
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let after = rec.borrow().fields.clone();
+        let mut kept = before.is_some_and(|before| {
+            before.len() == after.len()
+                && before.iter().zip(&after).enumerate().all(|(i, (b, a))| {
+                    i == typed || Self::same_values(std::slice::from_ref(b), std::slice::from_ref(a))
+                })
+        });
+        for &k in &table.keys[0] {
+            kept &= crate::recmeta::is_blank(&after[k])?;
+        }
+        if kept {
+            Ok(())
+        } else {
+            blank_part_host_refusal(PageMethod::SetValue)
+        }
     }
 
     /// After the save of Close: in the issue's repro the table's OnInsert gave the new Card a key that is not blank, so the

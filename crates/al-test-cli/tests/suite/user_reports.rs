@@ -3263,3 +3263,172 @@ fn issue_7883_card_part_with_insert_allowed_keeps_main_result() {
         )
     );
 }
+
+/// Issue 7879: the measured SetValue's validation runs no AL code that changes Rec. A table field OnValidate that sets the
+/// key, or a control OnValidate, keeps main's refusal.
+#[test]
+fn issue_7879_set_value_whose_validation_runs_code_keeps_the_refusal() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    for (shape, from, to) in [
+        (
+            "table field OnValidate sets the key",
+            "field(2; Category; Code[20]) { }",
+            "field(2; Category; Code[20]) { trigger OnValidate() begin if Code = '' then Code := 'VAL'; end; }",
+        ),
+        (
+            "control OnValidate",
+            "field(Category; Rec.Category) { }",
+            "field(Category; Rec.Category) { trigger OnValidate() begin Rec.Category := 'CATEGORY'; end; }",
+        ),
+    ] {
+        assert_eq!(source.matches(from).count(), 1, "{shape}");
+        let outcome = outcome_named(
+            &run_with_deps(&[], &source.replace(from, to)),
+            "SetValueOnNewCardWithBlankLinkedRows",
+        );
+        assert!(
+            matches!(&outcome, Outcome::NotRun(reason)
+                if reason.contains("TestField.SetValue on a new, unsaved host whose part shows rows of the blank key (not pinned)")),
+            "{shape}: {outcome:?}"
+        );
+    }
+}
+
+/// Issue 7880: the measured Worksheet is opened by the test's own OpenEdit and its line starts on the empty page. A trapped
+/// Page.Run, or a line started by Last and Next on a page with a row, keeps main's refusal.
+#[test]
+fn issue_7880_trapped_or_moved_worksheet_keeps_the_refusal() {
+    let source = include_str!("../fixtures/worksheet-draft-close-empty-part.al");
+    let open = "        Worksheet.OpenEdit();\n";
+    let delete = "        Header.DeleteAll();\n";
+    assert!(source.contains(open) && source.contains(delete));
+    let trapped = source.replace(
+        open,
+        "        Worksheet.Trap();\n        Page.Run(Page::\"Draft Probe Worksheet\");\n",
+    );
+    let moved = source
+        .replace(
+            delete,
+            &format!("{delete}        Header.Batch := 'PLAN'; Header.\"Line No.\" := 5000; Header.Item := 'OLD'; Header.Insert();\n"),
+        )
+        .replace(open, &format!("{open}        Worksheet.Last();\n        Worksheet.Next();\n"));
+    for (shape, changed) in [("trapped Page.Run", trapped), ("Last and Next", moved)] {
+        let outcome = outcome_named(
+            &run_with_deps(&[], &changed),
+            "CloseStoresWorksheetRowWithoutReadingEmptyPart",
+        );
+        assert!(
+            matches!(&outcome, Outcome::NotRun(reason) if reason.contains("closing a new host row")),
+            "{shape}: {outcome:?}"
+        );
+    }
+}
+
+/// Issue 7881: the measured Card is opened by the test's own OpenEdit. The same Card run by Page.Run and caught by Trap
+/// keeps main's refusal.
+#[test]
+fn issue_7881_trapped_card_keeps_the_refusal() {
+    let source = include_str!("../fixtures/next-only-card-assist-edit-refresh.al");
+    let open = "        Card.OpenEdit();\n        Card.GoToKey(1);\n";
+    assert_eq!(source.matches(open).count(), 1);
+    let changed = source.replace(
+        open,
+        "        Card.Trap();\n        Header.Get(1);\n        Page.Run(Page::\"Next Refresh Card\", Header);\n",
+    );
+    let outcome = outcome_named(
+        &run_with_deps(&[], &changed),
+        "AssistEditRefreshesAfterSyncStoredTheEditedRow",
+    );
+    assert!(
+        matches!(&outcome, Outcome::NotRun(reason) if reason.contains("re-anchoring not pinned")),
+        "{outcome:?}"
+    );
+}
+
+/// Issue 7882: the measured action committed the write itself. When the test wrote and committed the row between
+/// GoToRecord and the Invoke, and the action only calculates, the page keeps main's refusal.
+#[test]
+fn issue_7882_row_written_by_the_test_keeps_the_refusal() {
+    let source = include_str!("../fixtures/rework-flowfield-action.al");
+    let action_write = "                    WriteCommittedDescription(Rec.Id);\n";
+    let goto = "        Document.GoToRecord(Header);\n";
+    assert!(source.contains(action_write) && source.contains(goto));
+    let changed = source.replace(action_write, "").replace(
+        goto,
+        &format!(
+            "{goto}        Header.Get(1); Header.Description := 'Written by test'; Header.Modify(true); Commit();\n"
+        ),
+    );
+    let outcomes = run_with_deps(&[], &changed);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("stale committed-read")),
+        "{outcomes:?}"
+    );
+}
+
+/// Issue 7883: the measured trigger returns the inserted row in Rec. A trigger that inserts the row and leaves Rec as it
+/// was keeps main's result: the part keeps the blank key.
+#[test]
+fn issue_7883_trigger_that_does_not_return_the_row_keeps_main_result() {
+    let source = include_str!("../fixtures/linked-card-part-assist.al");
+    let assign = "                        Rec := Detail;\n";
+    assert_eq!(source.matches(assign).count(), 1);
+    let outcome = outcome_named(
+        &run_with_deps(&[], &source.replace(assign, "")),
+        "UpdateAfterAssistEditShowsInsertedDetail",
+    );
+    assert!(
+        matches!(&outcome, Outcome::Fail(reason) if reason.contains("does not exist") && reason.contains("Code=''")),
+        "{outcome:?}"
+    );
+}
+
+/// Issue 7886: only a SetValue takes the pending reread. `Value := x` ends it, so a later SetValue uses the header the
+/// page showed (main's result).
+#[test]
+fn issue_7886_value_assignment_ends_the_pending_reread() {
+    let source = include_str!("../fixtures/card-part-drilldown-refresh.al");
+    let set_value = "        Document.Scan.SetValue('SCAN');\n";
+    assert_eq!(source.matches(set_value).count(), 1);
+    let changed = source.replace(
+        set_value,
+        "        Document.Scan.Value := 'SCAN';\n        Row.Get('ORDER'); if Row.LastScannedPackage <> 'FIRST' then Error('first write used %1', Row.LastScannedPackage);\n        Row.PackageCode := 'THIRD'; Row.Modify();\n        Document.Scan.SetValue('SCAN2');\n        Row.Get('ORDER'); Error('obs second write used %1', Row.LastScannedPackage);\n",
+    );
+    let outcomes = run_with_deps(&[], &changed);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "obs second write used FIRST"),
+        "{outcomes:?}"
+    );
+}
+
+/// Issue 7885: GetTable on the copy of an assigned RecordRef was measured. A RecordRef assigned from a `var` Variant bound to
+/// a RecordRef, and GetTable on the source side of the assignment, keep main's result (own buffers).
+#[test]
+fn issue_7885_var_variant_and_source_side_keep_main_result() {
+    let source = include_str!("../fixtures/recordref-gettable-shared.al");
+    let alias_steps = "        Alias := Original;\n        Row.Category := 7;\n        Alias.GetTable(Row);\n";
+    let subscriber = "    [EventSubscriber(ObjectType::Codeunit, Codeunit::T, 'OnReplace', '', false, false)]\n";
+    assert!(source.contains(alias_steps) && source.contains(subscriber));
+    let var_variant = source.replace(alias_steps, "        AliasFromVarVariant(Original);\n").replace(
+        subscriber,
+        &format!(
+            "    local procedure AliasFromVarVariant(var V: Variant)\n    var\n        Alias: RecordRef;\n        Row: Record \"Probe Ref Row\";\n    begin\n        Alias := V;\n        Row.Id := 1;\n        Row.Category := 7;\n        Alias.GetTable(Row);\n    end;\n\n{subscriber}"
+        ),
+    );
+    let observe = "        Observed := Original.Field(2).Value;\n";
+    assert!(source.contains(observe));
+    let source_side = source
+        .replace("        Alias.GetTable(Row);\n", "        Original.GetTable(Row);\n")
+        .replace(observe, "        Observed := Alias.Field(2).Value;\n");
+    for (shape, changed) in [("var Variant", var_variant), ("source side", source_side)] {
+        let outcome = outcome_named(
+            &run_with_deps(&[], &changed),
+            "GetTableUpdatesAnAssignedAliasOfTheSameTable",
+        );
+        assert_eq!(
+            outcome,
+            Outcome::Fail("The assigned alias changed the value to 0.".into()),
+            "{shape}"
+        );
+    }
+}

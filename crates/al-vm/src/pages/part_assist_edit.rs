@@ -2,8 +2,8 @@
 //!
 //! Measured shape (AL Runner issue 7883, corpus pull request 1347; assumption `linked-card-part-assist-edit`): a CardPart with
 //! InsertAllowed = false, a stored source table keyed by one Code field, no OnAfterGetRecord or OnAfterGetCurrRecord, no
-//! page extension and no subscriber, on a Document linked by one `field(...)` entry on that key. Other shapes keep main's
-//! result.
+//! page extension and no subscriber, on a Document linked by one `field(...)` entry on that key. The part lands on the row
+//! the trigger inserted only when Rec equals that stored row. Other shapes keep main's result.
 
 use super::*;
 use al_builtins::filter::FilterExpr;
@@ -99,9 +99,12 @@ impl Session {
         {
             return Ok(());
         }
+        // The trigger inserted the row and returned it in Rec (the repro's `Rec := Detail`): Rec equals the stored row. A trigger
+        // that inserted the row and left Rec holding only the seeded key keeps main's blank key.
         if completed
             && self.view_row_count(st)? == 1
             && let Some(stored) = self.stored_row(&rec)?
+            && Self::same_but_unwritten_blobs(&rec.borrow().fields, &stored)
         {
             st.borrow_mut().cursor = Cursor::Row;
             self.set_xrec_fields(st, stored);

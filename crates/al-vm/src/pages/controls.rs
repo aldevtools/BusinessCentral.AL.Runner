@@ -1765,6 +1765,7 @@ impl Session {
             PageMethod::SetValue => {
                 let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.set_value_reading_held_row(st, idx, args)?;
+                self.trapped_card_blank_part_validated(st, idx, before.as_deref())?;
                 self.resync_parts_linked_by(st, idx, before.as_deref())?;
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)

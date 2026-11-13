@@ -97,10 +97,10 @@ impl Session {
             && !self.declares(st, "onnextrecord")
     }
 
-    /// The test makes call `call` on page `st`: a pending reread of its page tree's host stays only for the measured next
-    /// steps, a read of a host field and a value typed into a host control (whose SetValue takes it,
-    /// `refresh_host_before_set_value`). A drilldown on a part leaves it `Spent`; any other call ends it.
-    pub(super) fn end_deferred_host_reread(st: &St, call: Option<TestCall>) {
+    /// The test makes call `call` (method `method`) on page `st`: a pending reread of its page tree's host stays only for the
+    /// measured next steps, a read of a host field and a SetValue of a host control (which takes it,
+    /// `refresh_host_before_set_value`). A drilldown on a part leaves it `Spent`; any other call ends it, `Value := x` too.
+    pub(super) fn end_deferred_host_reread(st: &St, call: Option<TestCall>, method: PageMethod) {
         let Some(call) = call else { return };
         let (root, part) = Self::tree_root(st);
         let mut r = root.borrow_mut();
@@ -108,7 +108,8 @@ impl Session {
             return;
         }
         r.deferred_part_drilldown_refresh = match (part, call) {
-            (None, TestCall::Read | TestCall::Write(_)) => r.deferred_part_drilldown_refresh.take(),
+            (None, TestCall::Read) => r.deferred_part_drilldown_refresh.take(),
+            (None, TestCall::Write(_)) if method == PageMethod::SetValue => r.deferred_part_drilldown_refresh.take(),
             (Some(_), TestCall::Other(PageMethod::DrillDown)) => Some(DeferredReread::Spent),
             _ => None,
         };

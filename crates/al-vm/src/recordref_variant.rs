@@ -12,7 +12,7 @@
 //! seen by the other (:460-482) and a RecordRef parameter by value that the callee closes (:484-500).
 
 use al_builtins::library_kind::LibraryKind;
-use al_builtins::value::{LibraryValue, RecordState, Value};
+use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
@@ -41,15 +41,46 @@ pub(crate) fn own_copy(h: &Lib) -> Value {
     Value::Library(LibraryKind::RecordRef, copy)
 }
 
+/// Whether a RecordRef handed to a parameter of type `ty` goes through `VariantRefs::param_value`: by value to a RecordRef or
+/// Variant parameter, or bound to a `var` Variant parameter. A `var` RecordRef parameter keeps the caller's handle as it is.
+pub(crate) fn takes_param(ty: &RtType, by_var: bool) -> bool {
+    match ty {
+        RtType::Variant => true,
+        RtType::Library(LibraryKind::RecordRef) => !by_var,
+        _ => false,
+    }
+}
+
 impl VariantRefs {
+    /// The value a parameter of type `ty` gets for RecordRef `handle` (`takes_param`). By value: a RecordRef of its own on
+    /// the same buffer, so the callee's Close leaves the caller's open; a subscriber's RecordRef parameter is a typed alias.
+    /// Bound to a `var` Variant: the Variant holds the caller's handle, noted as Variant-held, so a RecordRef assigned from
+    /// it is no typed alias.
+    pub(crate) fn param_value(&mut self, handle: Lib, ty: &RtType, by_var: bool, is_subscriber: bool) -> Value {
+        match ty {
+            RtType::Variant if by_var => {
+                self.note_variant_held(&handle);
+                Value::Library(LibraryKind::RecordRef, handle)
+            }
+            RtType::Variant => self.variant_copy(&handle),
+            _ if is_subscriber => self.copy_typed_alias(&handle),
+            _ => own_copy(&handle),
+        }
+    }
+
     /// The copy of RecordRef `source` that a Variant gets (`own_copy`); its handle is noted as held by a Variant.
     pub(crate) fn variant_copy(&mut self, source: &Lib) -> Value {
         let copy = own_copy(source);
         if let Value::Library(_, handle) = &copy {
-            self.variant_held.retain(|h| h.strong_count() > 0);
-            self.variant_held.push(Rc::downgrade(handle));
+            self.note_variant_held(handle);
         }
         copy
+    }
+
+    /// Notes `handle` as held by a Variant: a Variant's copy, or a RecordRef bound to a `var` Variant parameter.
+    pub(crate) fn note_variant_held(&mut self, handle: &Lib) {
+        self.variant_held.retain(|h| h.strong_count() > 0);
+        self.variant_held.push(Rc::downgrade(handle));
     }
 
     /// The copy of RecordRef `source` that a RecordRef variable or a RecordRef parameter of a subscriber gets. The pair is
@@ -74,12 +105,14 @@ impl VariantRefs {
         copy
     }
 
+    /// Whether `receiver` is the copy of a typed alias pair (corpus pull request 1357 measures GetTable on the copy, not on
+    /// the source) and both handles still share `current`.
     fn has_typed_alias(&self, receiver: &Lib, current: &crate::records::Rec) -> bool {
         self.typed_aliases.iter().any(|(a, b)| {
             let (Some(a), Some(b)) = (a.upgrade(), b.upgrade()) else {
                 return false;
             };
-            (Rc::ptr_eq(receiver, &a) || Rc::ptr_eq(receiver, &b))
+            Rc::ptr_eq(receiver, &b)
                 && [a, b]
                     .iter()
                     .all(|handle| matches!(&*handle.borrow(), LibraryValue::RecordRef(rec) if Rc::ptr_eq(rec, current)))

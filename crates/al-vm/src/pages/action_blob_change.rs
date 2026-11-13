@@ -8,7 +8,9 @@
 //! PG7114_EditableCard_ActionModifiesOwnVar_NoCommit and _Commit, BC 27.5, 28.5, 29.0; al-runner issue 7114). A Blob a stream wrote is
 //! a change and is saved after the action (_ActionWritesBlobOfRec `P.MODR(Open/);T.MOD(Open/)`).
 
+use super::pinned_shape::TestCall;
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 impl Session {
     /// Whether Rec of page `st` differs from `before` (Rec as the action found it) after the action. `deleted`: the action
@@ -62,8 +64,10 @@ impl Session {
     /// `document-action-calculated-field-not-dirty`): a top-level Document without parts, opened by the test with OpenView
     /// (not switched by the View action, not trapped, not modal), not edited, and no OnModifyRecord in the page or an
     /// extension and no subscriber to it. The action changed only FlowFields of Rec, with CalcFields (not by assignment),
-    /// left no uncommitted write, and the stored row differs from the one the page read (the action committed its write
-    /// through another buffer).
+    /// left no uncommitted write, and the stored row differs from the one the page read. The test's calls on the page are
+    /// exactly GoToRecord and the running Invoke, with no store write between them (`test_calls_all_succeeded`), so the
+    /// stored row still was the one GoToRecord read when the action started, and the action committed its write through
+    /// another buffer.
     fn document_view_action_only_changed_flowfields(
         &mut self,
         st: &St,
@@ -85,6 +89,16 @@ impl Session {
         }
         let object = state.object as usize;
         drop(state);
+        let measured_calls = Self::test_calls_all_succeeded(st).is_some_and(|calls| {
+            calls.as_slice()
+                == [
+                    TestCall::Page(PageMethod::GoToRecord),
+                    TestCall::Other(PageMethod::Invoke),
+                ]
+        });
+        if !measured_calls {
+            return Ok(false);
+        }
         if self.declares_or_ext_declares(st, "onmodifyrecord")
             || self.engine.events.is_subscribed(object, "onmodifyrecordevent")
         {
