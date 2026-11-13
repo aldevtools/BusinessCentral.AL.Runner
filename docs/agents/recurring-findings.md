@@ -94,6 +94,24 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 A flag set for the pinned shape must be cleared on every move, close, host change and exit. A value tied to
 one run or session must use that run's or session's id, not a shared slot or a per-session counter.
 
+## 7a. A value stamped at a measured landing outlives the landing (al-runner PRs 7929 and 7932)
+
+A value put on a record at a measured landing is read after steps the landing does not include. Tie the value to its landing:
+every later page step that does not make the page read again (a test call on the host or the part, a page-code call such as
+`CurrPage.Update`, a write to the store) must end it, and every other site that writes the same value (a second stamp
+function) must go through the owner's allowlist. End the value where it can be READ from, not only on calls made on the page that
+holds it: code of another page that calls into it (a host calling a part's procedure), a rollback, and a write or an error inside
+a kept call also leave the measured shape. Keep the store state of the landing (writes and rollbacks) with the value and compare
+it at each read. Take the store state from the store's own change counter, not only from the places in the VM that count
+writes: a call that writes another way (Truncate) is missed. A control whose source is an expression is code that reads Rec: a
+value read of it is a read of the stamped value. A value that is on the record only while one call runs is also there for code
+that call lets in: a UI handler of the test that calls the page again. End the window at any test call on the page tree that
+starts inside it.
+
+Prefer the allowlist form of the same rule (round 3 of PR 7932): keep the value off the record (unknown, a read refuses), put
+it on only while the measured read runs and its landing facts still hold, and take it off when that read ends. Then no list of
+"events that end the value" exists that the next reader or the next kind of write can be missing from.
+
 ## 8. Citations (6 of 34)
 
 - Cite `file:line`, not only a test name.
