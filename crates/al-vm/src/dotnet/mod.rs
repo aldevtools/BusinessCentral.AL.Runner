@@ -11,6 +11,7 @@ mod generic_dictionary;
 mod generic_dictionary_more;
 mod gettype;
 pub(crate) mod instream_arg;
+mod invoke_exception;
 mod last_error;
 mod not_created;
 mod pinned_exceptions;
@@ -21,6 +22,7 @@ mod business_chart_data;
 mod key_vault;
 mod query_metadata;
 pub mod registry;
+mod rendered;
 pub mod server_classes;
 mod server_helpers;
 mod staged_dir;
@@ -552,6 +554,7 @@ impl Session {
                 }
                 if let Some((path, blob)) = save_to {
                     let bytes = blob.borrow().bytes.clone();
+                    self.placeholder_files.written(&path);
                     // A document holding content carried unread (owner decision 2026-10-23 "Carry bytes unread": the
                     // DemoTool's RapidStart package with a re-encoded or re-zipped media) is saved as a marked file.
                     let wrote = if self.company_build && holds_carried_text(&bytes) {
@@ -581,6 +584,10 @@ impl Session {
                     &values,
                     &e,
                 )?;
+                let streams = book.ins.len() + book.outs.len();
+                if let Some(error) = invoke_exception::signal(kind, &target, &clr_type, &member, streams, &e) {
+                    return Err(error);
+                }
                 let inner: String = e.inner.iter().map(|(t, m)| format!(" <- {t}: {m}")).collect();
                 unsupported(format!(
                     "DotNet {shown} raised the .NET exception {}: {}{inner}; the text AL would see is not pinned (ADR-014 section 7)",
@@ -830,9 +837,12 @@ impl Session {
                 Ok(Value::Boolean(found))
             }
             // File Management.DeleteServerFile deletes a file it found (QxDotNetDemoShapes.al:326-328). Deleting a file that
-            // is not there is not pinned.
+            // is not there is not pinned. A file that holds a placeholder report output: `dotnet_delete_placeholder_file`
+            // (Base Application's e-mail body round trip through a server file; assumption dotnet-file-delete-placeholder).
             ("system.io.file", "delete", []) => {
-                self.refuse_pending_file(path)?;
+                if !self.dotnet_delete_placeholder_file(path)? {
+                    self.refuse_pending_file(path)?;
+                }
                 if self.host.files.remove(path) {
                     Ok(Value::Null)
                 } else {

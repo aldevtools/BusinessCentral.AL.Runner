@@ -794,6 +794,21 @@ pub(crate) fn view_parts(view: &str) -> Option<Vec<(String, &str)>> {
     Some(out)
 }
 
+/// The field of a view that is exactly one `WHERE(field = CONST(value))` condition and nothing else, read by [`view_parts`];
+/// `None` for every other view.
+pub(crate) fn single_where_const(t: &TableDef, view: &str) -> Option<usize> {
+    let parts = view_parts(view)?;
+    let [(word, body)] = parts.as_slice() else { return None };
+    let [item] = split_top(body, ',')[..] else { return None };
+    let (field, condition) = item.split_once('=')?;
+    let open = condition.find('(')?;
+    (word == "WHERE"
+        && condition[..open].trim().eq_ignore_ascii_case("const")
+        && balanced(&condition[open..])?.1.trim().is_empty())
+    .then(|| field_by_name(t, field.trim()))
+    .flatten()
+}
+
 /// Which of SORTING, ORDER and WHERE a view has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ViewClauses {

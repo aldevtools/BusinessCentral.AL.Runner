@@ -221,6 +221,9 @@ impl Session {
                     ))
                 }
                 Some(Value::Integer(n)) if *n > 0 => {
+                    if self.global_language != *n {
+                        self.events.caption_context_revision += 1;
+                    }
                     self.global_language = *n;
                     self.events.event_stats.language.set(*n);
                     // A Code assignment under Turkish or Azerbaijani upper-cases `i` to `İ` (CaseConv.Codeunit.al:280-310).

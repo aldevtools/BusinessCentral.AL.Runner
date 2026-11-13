@@ -14,7 +14,6 @@
 61455 MockGraph_SubscribedSkus
 61455 MockGraph_TenantFlags
 61456 AadGraph_Mock_SaaS_ReadsMock
-61457 KeyVault_Certificates
 61462 PageSummaryFunctions_BadBookmark
 61462 PageSummaryFunctions_FieldLists
 61462 PageSummaryFunctions_GetSummary

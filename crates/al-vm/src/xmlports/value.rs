@@ -303,10 +303,7 @@ impl Session {
                 // Pinned by xmlports/shapes-properties/QrXpContainerOccurs.al TS_Guid_Import_Element, TS_Guid_Import_Attribute, TS_Guid_Export (was assumption `xmlport-guid-xml`).
                 match xml_guid(text) {
                     XmlGuid::Value(g) => Ok(Value::Guid(g)),
-                    XmlGuid::Invalid => Err(xerr(
-                        "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-                        "InvalidGuidFormat",
-                    )),
+                    XmlGuid::Invalid => Err(invalid_guid()),
                     XmlGuid::Unpinned => unsupported(format!(
                         "XmlPort import of `{text}` into a Guid field with FormatEvaluate = Xml (this form is not pinned)"
                     )),
@@ -328,6 +325,88 @@ impl Session {
                 "XmlPort import into a field of type {} with FormatEvaluate = Xml (the XML form is not pinned)",
                 other.describe()
             )),
+        }
+    }
+
+    /// The Guid an import without FormatEvaluate reads from `raw`, the text of node kind `kind` before the trim, `written` in
+    /// the source. The cells corpus pull request 1340 measures (`LegacyGuidSite::of`, `legacy_guid`) run under the assumption
+    /// `xmlport-guid-legacy-import` (al-runner issue 7854): the Guid, or the InvalidGuidFormat error
+    /// (XpLegacyGuidImport.al:226-227). Every other site and text keep main's result (`xp_value`).
+    pub(super) fn xp_legacy_guid(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        kind: ir::XmlNodeKind,
+        written: Written,
+        raw: &str,
+    ) -> Result<Value, Signal> {
+        use super::legacy_guid::{LegacyGuidSite, legacy_guid};
+        let xp = schema.xp();
+        if let Some(site) = LegacyGuidSite::of(xp.format, assigned::default_separators(inst, xp), kind, written) {
+            match legacy_guid(site, raw) {
+                XmlGuid::Value(g) => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidLegacyImport);
+                    return Ok(Value::Guid(g));
+                }
+                XmlGuid::Invalid => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidLegacyImport);
+                    return Err(invalid_guid());
+                }
+                XmlGuid::Unpinned => {}
+            }
+        }
+        self.xp_value(raw.trim(), &RtType::Guid, false)
+    }
+
+    /// Whether an import without FormatEvaluate may read the caption of an Enum or Option member as that member, once the name
+    /// and the XML forms did not read: pinned for Format = Xml (field attributes and elements) and VariableText under
+    /// GlobalLanguage 1033 (xmlports/import/XpEnumOptionRoundTrip.al:221-257, EOR_LegacyAttr, EOR_LegacyElem, EOR_VarText; the
+    /// test runs in the default language; al-runner issue 7781). FixedText and other languages are not measured.
+    pub(super) fn xp_caption_import_pinned(&self, schema: &Schema, ty: &RtType) -> bool {
+        matches!(ty, RtType::Enum(_) | RtType::Option(_))
+            && matches!(schema.xp().format, ir::XmlFormat::Xml | ir::XmlFormat::VariableText)
+            && al_builtins::format::FormatCtx::language(self) == 1033
+    }
+
+    /// The member of field `pos` of `rec` whose caption is `text`, exactly as the export writes it (XpEnumOptionRoundTrip.al:224,
+    /// :234, :254: the caption, a member without one by its name), in the shapes that file measures: an enum no enumextension
+    /// extends (enum 75140) or an Option field with OptionCaption (table 75141 field 3), and exactly one member with this
+    /// caption. `None` keeps main's error: another case, a caption two members share, an extended enum, and a field whose member
+    /// list its owner refuses to read (CaptionML, OptionCaptionML, a translation).
+    pub(super) fn xp_value_by_caption(
+        &mut self,
+        rec: &Rc<RefCell<al_builtins::value::RecordState>>,
+        pos: usize,
+        text: &str,
+        ty: &RtType,
+    ) -> Option<Value> {
+        if let RtType::Enum(id) = ty {
+            let base = self.engine.program.objects.get(*id as usize)?.id;
+            let extended = self
+                .engine
+                .program
+                .objects
+                .heads()
+                .iter()
+                .any(|o| o.kind == ir::ObjKind::EnumExtension && o.extends_id == base);
+            if extended {
+                return None;
+            }
+        }
+        let (_, list) = {
+            let r = rec.borrow();
+            let t = self.engine.tables[r.table as usize].as_ref()?;
+            self.members_of_field(t, pos).ok()??
+        };
+        let mut found = list.iter().filter(|(_, _, c)| c == text);
+        let (ordinal, _, _) = found.next()?;
+        if found.next().is_some() {
+            return None;
+        }
+        match ty {
+            RtType::Enum(id) => Some(Value::Enum(*id, *ordinal)),
+            RtType::Option(names) => Some(Value::Option(*ordinal, names.clone())),
+            _ => None,
         }
     }
 }
@@ -443,4 +522,12 @@ pub(super) fn parse_duration_text(t: &str) -> Option<i64> {
         any = true;
     }
     any.then_some(total)
+}
+
+/// The error of a text that is no Guid (xmlports/shapes-properties/QrXpContainerOccurs.al:2010 TS_Guid_Import_Element).
+fn invalid_guid() -> Signal {
+    xerr(
+        "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
+        "InvalidGuidFormat",
+    )
 }

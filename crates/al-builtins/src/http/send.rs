@@ -230,6 +230,9 @@ pub(super) fn send(
 macro_rules! verb {
     ($name:ident, $method:expr, $with_content:expr) => {
         pub(super) fn $name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+            if let (true, Some(Value::Library(_, content))) = ($with_content, a.get(1)) {
+                content_handed_on(content);
+            }
             let (base, cert) = with_client(r, |s| {
                 (
                     s.base_address.clone(),
@@ -254,6 +257,9 @@ verb!(client_put, "PUT", true);
 verb!(client_patch, "PATCH", true);
 
 pub(super) fn client_send(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
+    if let Some(Value::Library(_, req)) = a.first() {
+        request_handed_on(req);
+    }
     let (base, cert) = with_client(r, |s| {
         (
             s.base_address.clone(),
