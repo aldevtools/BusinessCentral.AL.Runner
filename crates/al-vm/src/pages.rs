@@ -289,6 +289,7 @@ mod page_get_record;
 mod page_var_modeless_temp;
 mod page_var_view;
 mod pageops;
+mod part_assist_edit;
 mod part_filter_find;
 mod part_filter_unsaved_host;
 mod part_host_update;
