@@ -53,6 +53,9 @@ pub struct BlobBuf {
     /// Blob since, unsaved write or not (streams/CalcFieldsBlobStaleBuffer.al:75-98 `Stale_UnsavedWriteInA_OtherModifies_CalcFields`);
     /// it keeps the write when the row is as it was (streams/TestBlobCalcFieldsUncommittedWrite.al).
     pub written_base: Option<Vec<u8>>,
+    /// Where the unsaved stream write (`written`) was made: on this buffer, or on another one this buffer is a copy of. Read by
+    /// al-vm `blob_transfer`, whose measured moves count only some of these as a write in memory.
+    pub write_origin: WriteOrigin,
     /// ADR-040: a report on the allow-list was saved to this buffer in a rendered format and nothing was written:
     /// the name of the report. Any look at the buffer is refused (`observe`); a copy of the buffer carries the mark
     /// (`copy_blob`, a record assignment, `CalcFields`); creating the stream again clears it.
@@ -78,6 +81,10 @@ pub struct BlobBuf {
     /// The id of the `DotNet` System.IO.Stream an `OutStream` on this buffer was given to (al-vm `dotnet/blob_stream.rs`), or 0.
     /// `CreateOutStream` and `Import` set it back to 0: what the .NET stream does after that is not pinned.
     pub dotnet_view: u32,
+    /// The buffer is the copy `Target.Field := Source.Blob` stored, in the cell of assumption `blob-assign-counts-as-write`
+    /// (al-vm `blob_transfer::assigned_copy`, al-runner issue 7961), and nothing saved, fetched or wrote it since:
+    /// `CalcFields` keeps it as it keeps an unsaved stream write (al-vm `Session::load_blobs`). A copy does not keep it.
+    pub assigned_unsaved: bool,
     /// The empty Blob `FieldRef.Value` hands out for a stored row's Blob that holds content and was not read with CalcFields
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
@@ -91,6 +98,19 @@ pub struct BlobBuf {
     /// last written, while a stream write is not saved or fetched yet (`written`). A later `ReadText` through a stream of the other of the two encodings does not decode as that stream
     /// says, and what it does is not pinned (`refuse_unicode_switch`). A copy does not keep it.
     pub unicode_read: Option<Encoding>,
+}
+
+/// Where the unsaved stream write of a buffer (`BlobBuf::written`) was made.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum WriteOrigin {
+    /// On this buffer (also the state of a buffer nothing wrote to).
+    #[default]
+    Here,
+    /// On another buffer this one is a copy of ([`copy_for_assignment`], a record assignment).
+    Copy,
+    /// On the buffer `RecordRef.GetTable` copied this one from, which its own record variable had written (al-vm
+    /// `blob_transfer`).
+    GetTableCopy,
 }
 
 thread_local! {
@@ -365,6 +385,7 @@ pub fn new_blob() -> BlobRef {
         uncompressed: false,
         written: false,
         written_base: None,
+        write_origin: WriteOrigin::Here,
         render_pending: None,
         inserted: false,
         temp_inserted: false,
@@ -373,6 +394,7 @@ pub fn new_blob() -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
         utf16_binary: false,
         unicode_read: None,
     }))
@@ -407,6 +429,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         uncompressed: false,
         written: false,
         written_base: None,
+        write_origin: WriteOrigin::Here,
         render_pending: b.render_pending.clone(),
         inserted: b.inserted,
         temp_inserted: false,
@@ -415,6 +438,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
         utf16_binary: b.utf16_binary,
         unicode_read: None,
     }))
@@ -429,6 +453,8 @@ pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
     let mut copy = b.borrow().clone();
     copy.dotnet_view = 0;
     copy.temp_inserted = false;
+    copy.write_origin = WriteOrigin::Copy;
+    copy.assigned_unsaved = false;
     std::sync::Arc::new(BlobCell::new(copy))
 }
 
@@ -460,8 +486,10 @@ pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
 fn write_bytes_at(b: &BlobRef, bytes: &[u8]) -> bool {
     let mut buf = b.borrow_mut();
     buf.unicode_read = None;
+    buf.assigned_unsaved = false;
     if !buf.written {
         buf.written_base = Some(buf.bytes.clone());
+        buf.write_origin = WriteOrigin::Here;
     }
     if buf.first_write_truncates {
         buf.first_write_truncates = false;
@@ -1068,6 +1096,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         uncompressed: false,
         written: false,
         written_base: None,
+        write_origin: WriteOrigin::Here,
         render_pending: None,
         inserted: false,
         temp_inserted: false,
@@ -1076,6 +1105,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
         utf16_binary: false,
         unicode_read: None,
     });

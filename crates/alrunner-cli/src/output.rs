@@ -300,7 +300,7 @@ pub fn json(results: &[&TestResult], exit_code: u8, wall_s: f64) -> String {
 
 /// The counts of a part of a run (an entry of a `serve` request), named as in the summary.
 pub fn json_counts(c: &Counts) -> serde_json::Value {
-    serde_json::json!({"passed": c.pass, "failed": c.fail, "errors": c.not_run, "notRun": c.not_run, "total": c.total, "notRunSeconds": not_run_seconds(c)})
+    serde_json::json!({"passed": c.pass, "flagged": c.flagged, "failed": c.fail, "errors": c.not_run, "notRun": c.not_run, "total": c.total, "notRunSeconds": not_run_seconds(c)})
 }
 
 /// [`json`] of a run with `--tdd` (ADR-051 decision 8) when `tdd_stubs` (every stub of the program) is given: the
@@ -312,15 +312,7 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
     let tests: Vec<Value> = results
         .iter()
         .map(|r| {
-            let mut row = json_row(r.codeunit, &r.codeunit_name, &r.test, &r.outcome, &r.call_stack, r.time);
-            add_stubs(&mut row, &r.stubs);
-            crate::dev_endpoint_ui::add_json(&mut row, &r.ui_answered);
-            add_slept(&mut row, r.slept_ms);
-            // A pass that ran through an unprobed assumption (additive: v2 readers ignore it); the matrix report shows
-            // it as PASS* (ADR-052 3.6).
-            if matches!(r.outcome, Outcome::Pass) && !r.assumptions.is_empty() {
-                row.insert("flagged".into(), json!(true));
-            }
+            let mut row = test_row(RowOf::from(*r));
             // ADR-066 amendment 12, decision 2 (additive): why a failed test may pass in BC's order.
             if let Some(h) = &r.order_hint {
                 row.insert("orderHint".into(), json!(h.text()));
@@ -331,6 +323,7 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
     let mut doc = json!({
         "tests": tests,
         "passed": c.pass,
+        "flagged": c.flagged,
         "failed": c.fail,
         "errors": c.not_run,
         "skipped": 0,
@@ -345,6 +338,70 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
         doc["generatedStubs"] = json!(all);
     }
     serde_json::to_string_pretty(&doc).expect("a JSON value serializes")
+}
+
+/// What a test's JSON row is built from: a finished result ([`TestResult`], the `--output-json` document) or a streamed event
+/// (`al_testrun::events::TestEvent`, a `test` line of `al-runner serve`), so both carry the same fields (al-runner issue 7954).
+pub struct RowOf<'a> {
+    pub codeunit: u32,
+    pub codeunit_name: &'a str,
+    pub test: &'a str,
+    pub outcome: &'a Outcome,
+    pub call_stack: &'a str,
+    pub time: std::time::Duration,
+    pub stubs: &'a [String],
+    pub ui_answered: &'a [String],
+    pub slept_ms: u64,
+    pub assumptions: &'a [al_builtins::assumptions::Assumption],
+}
+
+impl<'a> From<&'a TestResult> for RowOf<'a> {
+    fn from(r: &'a TestResult) -> Self {
+        RowOf {
+            codeunit: r.codeunit,
+            codeunit_name: &r.codeunit_name,
+            test: &r.test,
+            outcome: &r.outcome,
+            call_stack: &r.call_stack,
+            time: r.time,
+            stubs: &r.stubs,
+            ui_answered: &r.ui_answered,
+            slept_ms: r.slept_ms,
+            assumptions: &r.assumptions,
+        }
+    }
+}
+
+impl<'a> From<&'a al_testrun::events::TestEvent> for RowOf<'a> {
+    fn from(e: &'a al_testrun::events::TestEvent) -> Self {
+        RowOf {
+            codeunit: e.codeunit,
+            codeunit_name: &e.codeunit_name,
+            test: &e.test,
+            outcome: &e.outcome,
+            call_stack: &e.call_stack,
+            time: e.time,
+            stubs: &e.stubs,
+            ui_answered: &e.ui_answered,
+            slept_ms: e.slept_ms,
+            assumptions: &e.assumptions,
+        }
+    }
+}
+
+/// The row of a test in `tests[]` of the `--output-json` document and the body of a `test` line of `al-runner serve`:
+/// [`json_row`], the stubs, the answered UI calls, the slept time and `flagged`.
+pub fn test_row(r: RowOf) -> serde_json::Map<String, serde_json::Value> {
+    let mut row = json_row(r.codeunit, r.codeunit_name, r.test, r.outcome, r.call_stack, r.time);
+    add_stubs(&mut row, r.stubs);
+    crate::dev_endpoint_ui::add_json(&mut row, r.ui_answered);
+    add_slept(&mut row, r.slept_ms);
+    // A pass that ran through an unprobed assumption (additive: v2 readers ignore it); the matrix report shows it as PASS*
+    // (ADR-052 3.6).
+    if matches!(r.outcome, Outcome::Pass) && !r.assumptions.is_empty() {
+        row.insert("flagged".into(), serde_json::json!(true));
+    }
+    row
 }
 
 /// `sleptMs` on the JSON row of a test whose `Sleep` calls asked for time: their sum in milliseconds (`Sleep` returns at
@@ -634,7 +691,7 @@ pub fn junit_parts(parts: &[JunitPart], wall_s: f64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -709,7 +766,7 @@ mod tests {
         assert_eq!(baseline_warning(0, 0), None);
     }
 
-    fn r(cu: u32, name: &str, test: &str, outcome: Outcome) -> TestResult {
+    pub(crate) fn r(cu: u32, name: &str, test: &str, outcome: Outcome) -> TestResult {
         TestResult {
             suite: 0,
             app: 0,

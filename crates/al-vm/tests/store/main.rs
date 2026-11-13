@@ -2,6 +2,7 @@
 
 mod assigned_audit_fields;
 mod autoinc_non_key;
+mod blob_assign_then_calcfields;
 mod blob_calcfields_after_run;
 mod blob_clear_shared_xrec;
 mod blob_field_assign_copy;
@@ -10,6 +11,7 @@ mod blob_length_sign;
 mod blob_roundtrip_after_insert;
 mod blob_stored_size_contents;
 mod blob_transfer_copy;
+mod blob_value_copy_shapes;
 mod blob_write_then_record_copies;
 mod blob_write_unloaded;
 mod bump_36_transferfields_system_fields;
