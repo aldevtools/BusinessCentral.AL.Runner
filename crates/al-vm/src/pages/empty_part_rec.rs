@@ -153,11 +153,12 @@ impl Session {
         }
     }
 
-    /// What tells that the store is as a landing found it: the store's own change counter (every write to a stored table
-    /// moves it, by whatever call), the write mark (it also moves with a write to a temporary table) and the count of
-    /// rollbacks (a rollback takes rows back and moves neither).
-    fn landing_store_state(&self) -> (u64, (i64, u64), u64) {
-        (self.store.change_counter(), self.write_mark(), self.rollbacks)
+    /// What tells that the store is as a landing found it: the store's own change counter (every write that changes a stored
+    /// table moves it, by whatever call) and the count of rollbacks (a rollback takes rows back and does not move the
+    /// counter). A write call between two test calls, also one that changes no row or writes a temporary table, already makes
+    /// `Session::part_steps` unknown (`note_tree_call`, by the write mark).
+    fn landing_store_state(&self) -> (u64, u64) {
+        (self.store.change_counter(), self.rollbacks)
     }
 
     /// Runs `f` (a host's parts reading again) with `host_move_running` set to `m`, and restores it after, on an error too.
@@ -232,7 +233,7 @@ pub struct EmptyListLanding {
     /// The number of reads by an action of the part the landing's cell measured.
     reads: usize,
     /// The store's state at the landing (`Session::landing_store_state`).
-    store: (u64, (i64, u64), u64),
+    store: (u64, u64),
     /// A measured read runs: Rec holds the link values (`Session::reading_empty_list_rec`).
     reading: bool,
 }
