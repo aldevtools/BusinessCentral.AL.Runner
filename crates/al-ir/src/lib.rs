@@ -1413,7 +1413,7 @@ pub struct PartLink {
     pub view: Option<String>,
     /// `Provider = <part>`: the control index (on the same page) whose current row the link reads.
     pub provider: Option<usize>,
-    /// The `RunPageLink` entries (indices into `entries`) written `const(...)`; empty for a part's `SubPageLink`.
+    /// The entries (indices into `entries`) written `const(...)`, not `filter(...)` or `field(...)`.
     #[serde(default)]
     pub consts: Vec<usize>,
     /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.

@@ -176,7 +176,7 @@ impl Session {
     }
 
     /// The page `tree_calls` of `st` are kept on (`st` itself, or the host of a part) and the part's control index there.
-    fn tree_root(st: &St) -> (St, Option<usize>) {
+    pub(super) fn tree_root(st: &St) -> (St, Option<usize>) {
         match st
             .borrow()
             .host
