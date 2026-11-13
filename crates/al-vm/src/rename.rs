@@ -22,6 +22,25 @@ pub(crate) struct RenameRef {
     table: usize,
     pos: usize,
     arm: ir::RelationArm,
+    /// The field's relation has this one arm.
+    sole_arm: bool,
+}
+
+impl RenameRef {
+    /// The referencing table object, the position of its field and the arm.
+    pub(crate) fn parts(&self) -> (usize, usize, &ir::RelationArm) {
+        (self.table, self.pos, &self.arm)
+    }
+
+    /// The field's relation has this one arm.
+    pub(crate) fn sole_arm(&self) -> bool {
+        self.sole_arm
+    }
+
+    /// The field of the renamed table `t` the arm relates to: the one it names, or the first primary key field.
+    pub(crate) fn related_field(&self, t: &TableDef) -> usize {
+        self.arm.field.unwrap_or(t.keys[0][0])
+    }
 }
 
 impl Session {
@@ -78,6 +97,7 @@ impl Session {
                                 table: oi,
                                 pos,
                                 arm: arm.clone(),
+                                sole_arm: arms.len() == 1,
                             });
                         }
                         // An arm whose target the workspace does not declare may still be this table
@@ -131,8 +151,7 @@ impl Session {
             if !self.engine.field_facts[r.table][r.pos].validate_relation {
                 continue;
             }
-            // The related field: the arm's, or the first primary key field.
-            let rel = r.arm.field.unwrap_or(t.keys[0][0]);
+            let rel = r.related_field(t);
             if rename_equal(&old[rel], &new[rel])? {
                 continue;
             }
@@ -140,7 +159,7 @@ impl Session {
             let wheres = r.arm.wheres.clone().unwrap_or_default();
             let mut parent_ok = true;
             for w in &wheres {
-                if let ir::RelationWhere::Value { related, text } = w {
+                if let ir::RelationWhere::Value { related, text, .. } = w {
                     let expr = self
                         .parse_filter_text(text, &t.fields[*related].ty)
                         .map_err(|e| Signal::unsupported(format!("where() of a relation: {e}")))?;

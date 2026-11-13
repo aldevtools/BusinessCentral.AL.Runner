@@ -50,6 +50,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
     `test_calls_all_succeeded`), not from the names (`test_calls`).
   - facts checked one by one where the pin measured pairs: host type and part kind, or step and host type, are
     measured cells. List the measured cells and require membership, not each factor alone.
+  - whether the object exists in the database: TableType = Temporary, a Removed table, Enabled = false, FlowField and
+    FlowFilter. A rule about related fields must name which of them count.
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
