@@ -161,7 +161,8 @@ impl<C: Cdn> ServiceTier<C> {
         let Some(len) = std::fs::read_dir(dir).ok().and_then(|rd| {
             rd.flatten().find_map(|e| {
                 let f = e.file_name().to_string_lossy().to_ascii_lowercase();
-                (f == format!("{name}.dll") || f == format!("{name}.exe")).then(|| e.metadata().ok().map(|m| m.len()))?
+                (f == format!("{name}.dll") || f == format!("{name}.exe"))
+                    .then(|| e.metadata().ok().map(|m| m.len()))?
             })
         }) else {
             return Ok(false);
@@ -386,11 +387,16 @@ mod tests {
         let got = tier
             .ensure_set(&["Microsoft.Dynamics.Nav.OpenXml", "QrProvider", "Not.In.The.Folder"])
             .unwrap();
-        assert_eq!(names(&tier.dir()), vec!["Microsoft.Dynamics.Nav.OpenXml.dll", "QrProvider.dll"]);
+        assert_eq!(
+            names(&tier.dir()),
+            vec!["Microsoft.Dynamics.Nav.OpenXml.dll", "QrProvider.dll"]
+        );
         assert_eq!(got.files.len(), 2);
         assert_eq!(got.missing, vec!["Not.In.The.Folder".to_string()]);
         // Asked again, nothing is fetched; the missing name is still reported.
-        let again = tier.ensure_set(&["Microsoft.Dynamics.Nav.OpenXml", "Not.In.The.Folder"]).unwrap();
+        let again = tier
+            .ensure_set(&["Microsoft.Dynamics.Nav.OpenXml", "Not.In.The.Folder"])
+            .unwrap();
         assert!(again.files.is_empty());
         assert_eq!(again.missing, vec!["Not.In.The.Folder".to_string()]);
     }

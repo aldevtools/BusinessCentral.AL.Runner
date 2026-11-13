@@ -325,7 +325,13 @@ mod tests {
             dll.display()
         );
         // The runtime folder is named by the runtime version; its assemblies carry the major as their version.
-        let folder = dll.parent().unwrap().file_name().unwrap().to_string_lossy().into_owned();
+        let folder = dll
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
         let major: u16 = folder.split('.').next().unwrap().parse().unwrap();
         let v = assembly_version(&std::fs::read(&dll).unwrap()).expect("an Assembly row");
         assert_eq!((v[0], v[2], v[3]), (major, 0, 0), "{}: {v:?}", dll.display());
