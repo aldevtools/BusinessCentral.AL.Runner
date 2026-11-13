@@ -385,9 +385,10 @@ fn a_declared_global_rec_of_another_type_refuses() {
 }
 
 #[test]
-fn a_field_named_like_a_system_function_read_bare_in_a_procedure_refuses() {
-    // In a procedure of a codeunit with TableNo the bare name is the system function (no implicit Rec there), but its value
-    // there is not measured on BC; main returned the field (review of PR 7980, run1 SystemNamesInProcedure). Refused.
+fn a_field_named_like_a_system_function_read_bare_in_a_procedure_lowers() {
+    // In a procedure of a codeunit with TableNo the bare name is the system function: the routine has no implicit Rec
+    // (corpus must-not-compile 3140, corpus PR 1386). It lowers as in any other codeunit, with no refusal (al-runner 6924:
+    // a refusal here lost a passing test). In OnRun the bare name is the field and lowers as well.
     let table = "table 50110 \"Probe Context\"
 {
     fields
@@ -398,34 +399,20 @@ fn a_field_named_like_a_system_function_read_bare_in_a_procedure_refuses() {
     }
     keys { key(PK; \"Entry No.\") { } }
 }";
-    for body in [
-        "procedure P(): Text begin exit(UserId); end;",
-        "procedure P(): Text begin exit(UserId()); end;",
-        "procedure P(): Date begin exit(Today); end;",
+    for (on_run, body) in [
+        ("begin\n    end;", "procedure P(): Text begin exit(UserId); end;"),
+        ("begin\n    end;", "procedure P(): Text begin exit(UserId()); end;"),
+        ("begin\n    end;", "procedure P(): Date begin exit(Today); end;"),
+        ("begin\n    end;", "procedure P(): Date begin exit(Today()); end;"),
+        (
+            "begin\n        Rec.UserId := UserId;\n        Rec.Today := Today;\n    end;",
+            "",
+        ),
     ] {
-        let src = codeunit("begin\n    end;", &format!("    {body}"));
+        let src = codeunit(on_run, &format!("    {body}"));
         let (ws, l) = lower_files(&[("t.al", table), ("c.al", &src)], false);
         assert!(ws.diagnostics.is_empty(), "{body}: {:?}", ws.diagnostics);
         assert!(al_messages(&l).is_empty(), "{body}: {:?}", al_messages(&l));
-        let r = refusals(&l);
-        assert!(r.iter().any(|r| r.contains("system function")), "{body}: {r:?}");
+        assert!(refusals(&l).is_empty(), "{on_run} {body}: {:?}", refusals(&l));
     }
-    // Without a field of the name, and in a codeunit without TableNo, the system function runs as on main.
-    let src = codeunit(
-        "begin\n    end;",
-        "    procedure P(): Text begin exit(CompanyName()); end;",
-    );
-    let (_, l) = lower_files(&[("t.al", table), ("c.al", &src)], false);
-    assert!(
-        refusals(&l).iter().all(|r| !r.contains("system function")),
-        "{:?}",
-        refusals(&l)
-    );
-    let plain = "codeunit 50111 \"Probe Handler\"\n{\n    procedure P(): Text begin exit(UserId); end;\n}";
-    let (_, l) = lower_files(&[("t.al", table), ("c.al", plain)], false);
-    assert!(
-        refusals(&l).iter().all(|r| !r.contains("system function")),
-        "{:?}",
-        refusals(&l)
-    );
 }

@@ -744,7 +744,6 @@ Compile results come from corpus must-not-compile 3140 to 3163 (corpus PR 1386, 
 | `Rec`, a bare field and `xRec` in the triggers of an Install or a TestRunner codeunit with TableNo | AL0118, as alc 17 and 18 give (review of PR 7980) | Must-not-compile cases for both subtypes |
 | `Version.<member>` under a `with` whose record lacks the field `Version`, in a codeunit | AL0132, as alc 18 gives (review of PR 7980) | A must-not-compile case |
 | A global `Rec` declared in a codeunit with TableNo, used in a procedure and in OnRun | A non-temporary record of the TableNo table runs as the codeunit's Rec (main's result, one slot); any other declared type REFUSED at lowering | Set the global `Rec` in a procedure before `Codeunit.Run(R)`, read it after; the same with a record of another table |
-| A field of the TableNo table named like a system function (`UserId`, `Today`), read bare outside OnRun | REFUSED at lowering (alc binds the system function; main returned the field) | Read both names in a procedure after OnRun wrote the fields |
 
 ## Assumptions in force (generated from the registry)
 

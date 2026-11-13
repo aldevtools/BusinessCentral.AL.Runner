@@ -15,6 +15,7 @@ mod autoformat_units;
 mod awaiting_assumptions;
 mod bare_name_control_named_like_field;
 mod bare_quoted_ext_control;
+mod bare_system_function_table_no;
 mod bg_task_part_moves;
 mod bigtext_write;
 mod blocked_set_2;
