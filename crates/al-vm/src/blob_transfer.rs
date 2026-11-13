@@ -8,7 +8,7 @@ use al_builtins::builtin_id::{BuiltinId, ids};
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
 use al_builtins::stream::{copy_blob_db_row_of, copy_for_assignment, new_blob};
-use al_builtins::value::{ProbedSource, RecordState, RtType, Value};
+use al_builtins::value::{LibraryValue, ProbedSource, RecordState, RtType, Value};
 use al_ir::{Attribute, Const};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -132,8 +132,9 @@ const FRESH: u8 = 1;
 /// method between Insert and the by-value call).
 const MEASURED: u8 = 2;
 /// `RecordState::probed_source` byte: the record of a RecordRef that `RecordRef.GetTable` made of a [`FRESH`] or
-/// [`MEASURED`] variable, with since only the RecordRef methods [`after`] names, `FieldRef.Value :=` and a RecordRef
-/// assignment (PR 1375 :1709; PR 1387 :2446).
+/// [`MEASURED`] variable with no Commit since it was made, with since only the RecordRef and FieldRef calls
+/// [`recordref_keeps_table_copy`] names (and the record methods they reach, [`after`]) and a RecordRef assignment (PR 1375
+/// :1709; PR 1387 :2446).
 const TABLE_COPY: u8 = 3;
 
 /// What a record method `method` with `args` leaves of the fact `b` of its record (0: the fact ends). The calls
@@ -150,7 +151,7 @@ fn after(b: u8, method: RecordOp, args: &[Value]) -> u8 {
             RecordOp::Init | RecordOp::Clear | RecordOp::IsTemporary | RecordOp::Get | RecordOp::CalcFields,
         ) => MEASURED,
         (FRESH | MEASURED, RecordOp::Insert | RecordOp::Modify | RecordOp::FindFirst) if no_args => MEASURED,
-        (TABLE_COPY, RecordOp::IsTemporary | RecordOp::CalcFields | RecordOp::SetRange | RecordOp::Reset) => TABLE_COPY,
+        (TABLE_COPY, RecordOp::CalcFields | RecordOp::SetRange | RecordOp::Reset) => TABLE_COPY,
         (TABLE_COPY, RecordOp::Insert | RecordOp::Modify | RecordOp::FindFirst) if no_args => TABLE_COPY,
         _ => 0,
     }
@@ -171,9 +172,9 @@ pub(crate) enum Holder {
 
 impl Holder {
     /// What record state `r` is as the source of a move, with `commits` the session's commit count now. A [`MEASURED`]
-    /// variable and a [`TABLE_COPY`] record ran no Commit since the call that made them so (the probes ran none there); a
-    /// [`FRESH`] variable holds no row a Commit could act on (corpus PR 1375, streams/BlobCopyStates.al:3208 D5, a global
-    /// record of a test codeunit made before earlier tests ran).
+    /// variable and a [`TABLE_COPY`] record ran no Commit since they were made (the probes ran none there,
+    /// [`measured_variable`]); a [`FRESH`] variable may have run one before (corpus PR 1375, streams/BlobCopyStates.al:3208
+    /// D5, Clear and a write on a global record of a test codeunit made before earlier tests ran).
     pub(crate) fn of(r: &RecordState, commits: u64) -> Holder {
         match r.probed_source {
             ProbedSource(FRESH, _) => Holder::Fresh,
@@ -187,6 +188,14 @@ impl Holder {
     fn variable(self) -> bool {
         matches!(self, Holder::Fresh | Holder::Measured)
     }
+}
+
+/// Whether record state `r` may become or stay [`MEASURED`], with `commits` the session's commit count now: a [`FRESH`] or
+/// [`MEASURED`] variable on which no Commit ran since it was made. Every Insert, Modify, Get, CalcFields, FindFirst, record
+/// assignment and SetTable the probes ran on a source ran with no Commit before it in the test (PR 1387
+/// streams/BlobCopyNeighbors.al `Prep` :200-:303, :3205, :3243); a Commit before them is not measured.
+fn measured_variable(r: &RecordState, commits: u64) -> bool {
+    matches!(r.probed_source, ProbedSource(FRESH | MEASURED, at) if at == commits)
 }
 
 /// Marks the value a declared variable starts with as a [`FRESH`] source; `commits` is the session's commit count, `sources`
@@ -250,11 +259,61 @@ fn builtin_keeps_probed(id: BuiltinId) -> bool {
     )
 }
 
+/// Whether builtin `id` on a RecordRef or FieldRef receiver with operands `operands` leaves the [`TABLE_COPY`] record it works
+/// on as it is. Only the calls corpus PR 1387 ran between GetTable and SetTable(Rec, true) (streams/BlobCopyNeighbors.al:2446
+/// `ShareFindCalc`, `ShareFieldValue`, `ShareModify`, `ShareInsert`, `ShareSetRange`, `ShareReset`): `RecordRef.Field(No)`,
+/// `FindFirst()`, `Modify()`, `Insert()`, `Reset()`, `FieldRef.CalcField()`, `FieldRef.SetRange` with one value,
+/// `FieldRef.Value :=` (one operand), and SetTable(Rec, true) itself, which moves the Blobs ([`BlobMove::SetTableShared`]).
+/// The record methods these reach are [`after`]'s.
+fn recordref_keeps_table_copy(id: BuiltinId, operands: &[Value]) -> bool {
+    matches!(
+        (id, operands.len()),
+        (
+            ids::RECORDREF_FIELD_2 | ids::FIELDREF_SETRANGE_1 | ids::FIELDREF_VALUE_1,
+            1
+        ) | (ids::RECORDREF_SETTABLE_2, 2)
+            | (
+                ids::RECORDREF_FINDFIRST_1
+                    | ids::RECORDREF_MODIFY_1
+                    | ids::RECORDREF_INSERT_1
+                    | ids::RECORDREF_RESET_1
+                    | ids::FIELDREF_CALCFIELD_1,
+                0
+            )
+    )
+}
+
+/// The [`TABLE_COPY`] record of RecordRef, FieldRef or KeyRef value `v` is a measured source no longer.
+fn end_table_copy(v: &Value) {
+    if let Some(rc) = ref_record(v)
+        && rc.borrow().probed_source.0 == TABLE_COPY
+    {
+        rc.borrow_mut().probed_source.0 = 0;
+    }
+}
+
+/// The record a RecordRef, FieldRef or KeyRef value works on.
+fn ref_record(v: &Value) -> Option<Rc<RefCell<RecordState>>> {
+    let Value::Library(_, lib) = v else {
+        return None;
+    };
+    match &*lib.borrow() {
+        LibraryValue::RecordRef(r)
+        | LibraryValue::FieldRef(r, _)
+        | LibraryValue::KeyFieldRef(r, _)
+        | LibraryValue::KeyRef(r, _)
+        | LibraryValue::UserNameFieldRef { rec: r, .. } => Some(r.clone()),
+        _ => None,
+    }
+}
+
 /// Builtin `id` is about to run on receiver `recv` and operands `operands`: the one place a record goes by reference into
 /// platform code. A record among them is a measured source no longer, whatever the builtin does with it (a page that hands
 /// back the picked row, `SetSelectionFilter`, `Codeunit.Run`, `Page.GetRecord`), unless [`builtin_keeps_probed`] names the
-/// builtin. A Record receiver is the record of a record method, which reaches `Session::record_op` and is [`after`]'s.
-/// `sources` is the session's [`Sources`]: without any measured source there is nothing to end.
+/// builtin. A Record receiver is the record of a record method, which reaches `Session::record_op` and is [`after`]'s. The
+/// [`TABLE_COPY`] record of a RecordRef, FieldRef or KeyRef receiver or operand ends too, unless the receiver's call is one
+/// [`recordref_keeps_table_copy`] names. `sources` is the session's [`Sources`]: without any measured source there is
+/// nothing to end.
 #[inline]
 pub(crate) fn records_into_builtin(sources: Sources, id: BuiltinId, recv: Option<&Value>, operands: &[Value]) {
     if !sources.any() {
@@ -269,6 +328,10 @@ pub(crate) fn records_into_builtin(sources: Sources, id: BuiltinId, recv: Option
             rc.borrow_mut().probed_source.0 = 0;
         }
     }
+    if let (Some(r), false) = (recv, recordref_keeps_table_copy(id, operands)) {
+        end_table_copy(r);
+    }
+    operands.iter().for_each(end_table_copy);
 }
 
 /// The events whose by-value subscribers the probes measured.
@@ -343,7 +406,7 @@ pub(crate) fn publisher_copy(measured: bool, source: &Rc<RefCell<RecordState>>, 
 /// count `commits`: [`MEASURED`] when both are measured variables (corpus PR 1387, streams/BlobCopyNeighbors.al:257, :261 state asg;
 /// :2650, :2943 `Src := Other` after an Insert, measured at :3205, :3243).
 pub(crate) fn assigned(target: &RecordState, source: &RecordState, commits: u64) -> ProbedSource {
-    let both = Holder::of(target, commits).variable() && Holder::of(source, commits).variable();
+    let both = measured_variable(target, commits) && measured_variable(source, commits);
     ProbedSource(if both { MEASURED } else { 0 }, commits)
 }
 
@@ -352,10 +415,7 @@ pub(crate) fn assigned(target: &RecordState, source: &RecordState, commits: u64)
 /// streams/BlobCopyNeighbors.al:2424: after GetTable of the same or another record, `SetTable(Src, false)`, Open and
 /// FindFirst, CalcField, `FieldRef.Value :=` and `RecordRef.Modify`).
 pub(crate) fn set_table_target(target: &RecordState, share: bool, commits: u64) -> ProbedSource {
-    let kept = matches!(
-        (share, Holder::of(target, commits)),
-        (false, Holder::Fresh | Holder::Measured)
-    );
+    let kept = matches!((share, measured_variable(target, commits)), (false, true));
     ProbedSource(if kept { MEASURED } else { 0 }, commits)
 }
 
@@ -913,16 +973,18 @@ impl Session {
         src: &Rc<RefCell<RecordState>>,
         from_record: bool,
     ) -> Result<RecordState, Signal> {
-        let (mut copy, holder) = {
+        let (mut copy, holder, measured) = {
             let src = src.borrow();
             (
                 al_builtins::record_into_recordref::recordref_copy(&src),
                 self.holder(&src),
+                measured_variable(&src, self.commits),
             )
         };
-        // The RecordRef's record is a measured source when the record is a measured variable: SetTable(Rec, true) moves its
-        // Blobs on (corpus PR 1375, streams/BlobCopyStates.al:1709; PR 1387, streams/BlobCopyNeighbors.al:2446).
-        if from_record && holder.variable() {
+        // The RecordRef's record is a measured source when the record is a measured variable with no Commit since it was
+        // made: SetTable(Rec, true) moves its Blobs on (corpus PR 1375, streams/BlobCopyStates.al:1709; PR 1387,
+        // streams/BlobCopyNeighbors.al:2446).
+        if from_record && measured {
             copy.probed_source = ProbedSource(TABLE_COPY, self.commits);
         }
         if from_record {
@@ -985,20 +1047,19 @@ impl Session {
     }
 
     /// Record method `method` starts on `rec` with arguments `args`: the fact of the record goes on as [`after`] says, or
-    /// ends. A [`FRESH`] variable that becomes [`MEASURED`] takes the session's commit count now ([`Holder::of`]).
+    /// ends. A [`FRESH`] variable becomes [`MEASURED`] only when no Commit ran since it was made ([`measured_variable`]).
     #[inline]
     pub(crate) fn probed_source_before(&self, method: RecordOp, rec: &Rc<RefCell<RecordState>>, args: &[Value]) {
-        let b = rec.borrow().probed_source.0;
+        let ProbedSource(b, at) = rec.borrow().probed_source;
         if b == 0 {
             return;
         }
-        let next = after(b, method, args);
+        let next = match (b, after(b, method, args)) {
+            (FRESH, MEASURED) if measured_variable(&rec.borrow(), self.commits) => MEASURED,
+            (FRESH, MEASURED) => 0,
+            (_, next) => next,
+        };
         if next != b {
-            let at = if b == FRESH {
-                self.commits
-            } else {
-                rec.borrow().probed_source.1
-            };
             rec.borrow_mut().probed_source = ProbedSource(next, at);
         }
     }

@@ -1286,6 +1286,125 @@ codeunit 50444 C
         W(Dst, 'zz');
         exit(RdRR(RR));
     end;
+
+    // A Commit while the local is fresh, then a write, an Insert and the by-value call.
+    procedure NeighborCommitWhileFreshThenInsert(): Text
+    var
+        Src: Record "BS Row";
+    begin
+        Commit();
+        Src.Key1 := 608;
+        W(Src, 'alpha');
+        Src.Insert();
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // A Commit while the local is fresh, then a record assignment from another fresh local and the by-value call.
+    procedure NeighborCommitWhileFreshThenAssign(): Text
+    var
+        Src: Record "BS Row";
+        Other: Record "BS Row";
+    begin
+        Commit();
+        W(Other, 'alpha');
+        Src := Other;
+        ByValue(Src);
+        exit(Rd(Src));
+    end;
+
+    // One RecordRef call `Which` on the GetTable copy of a temporary record, then SetTable(Rec, true): what the RecordRef
+    // reads after a write to the target.
+    local procedure RrCallThenShare(Which: Integer): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+        RR: RecordRef;
+        RR2: RecordRef;
+        FR: FieldRef;
+        T: Text;
+        I: Integer;
+        B: Boolean;
+    begin
+        Src.Key1 := 610;
+        W(Src, 'alpha');
+        Src.Insert();
+        RR.GetTable(Src);
+        case Which of
+            1:
+                B := RR.IsTemporary();
+            2:
+                RR.SetView('WHERE(Key1=CONST(610))');
+            3:
+                RR.SetRecFilter();
+            4:
+                RR.Ascending(false);
+            5:
+                T := RR.Name();
+            6:
+                begin
+                    FR := RR.Field(1);
+                    I := FR.Value;
+                end;
+            7:
+                RR.Field(1).SetFilter('610');
+            8:
+                RR.Field(1).SetRange(610);
+            9:
+                begin
+                    RR2.Open(Database::"BS Row", true);
+                    RR2.Copy(RR);
+                end;
+        end;
+        RR.SetTable(Dst, true);
+        W(Dst, 'zz');
+        exit(RdRR(RR));
+    end;
+
+    procedure NeighborRrIsTemporary(): Text
+    begin
+        exit(RrCallThenShare(1));
+    end;
+
+    procedure NeighborRrSetView(): Text
+    begin
+        exit(RrCallThenShare(2));
+    end;
+
+    procedure NeighborRrSetRecFilter(): Text
+    begin
+        exit(RrCallThenShare(3));
+    end;
+
+    procedure NeighborRrAscending(): Text
+    begin
+        exit(RrCallThenShare(4));
+    end;
+
+    procedure NeighborRrName(): Text
+    begin
+        exit(RrCallThenShare(5));
+    end;
+
+    procedure NeighborRrFieldRead(): Text
+    begin
+        exit(RrCallThenShare(6));
+    end;
+
+    procedure NeighborRrFieldSetFilter(): Text
+    begin
+        exit(RrCallThenShare(7));
+    end;
+
+    procedure NeighborRrCopiedFrom(): Text
+    begin
+        exit(RrCallThenShare(9));
+    end;
+
+    procedure RrFieldSetRange(): Text
+    begin
+        exit(RrCallThenShare(8));
+    end;
 }
 "#;
 
@@ -1541,4 +1660,32 @@ fn neighbors_of_the_fourth_probe_keep_mains_shared_buffer() {
 #[test]
 fn settable_sharetable_after_a_fieldref_validate_shares_as_before() {
     assert_eq!(run("NeighborValidateBeforeSetTableShared").0, "hv:zzpha");
+}
+
+/// A Commit while a local is fresh, before the call that makes it a measured source: no probe ran it (P3 :3208 D5 commits
+/// before a global record only Clear and a write touch), so the by-value call shares as on main.
+#[test]
+fn a_commit_before_the_first_record_method_keeps_mains_shared_buffer() {
+    assert_eq!(unflagged("NeighborCommitWhileFreshThenInsert"), "hv:zzpha");
+    assert_eq!(unflagged("NeighborCommitWhileFreshThenAssign"), "hv:zzpha");
+}
+
+/// A RecordRef call the probes did not run on the GetTable copy before SetTable(Rec, true): the copy's fact ends and the table
+/// is shared, as on main (GetTable copies on the way, flagged). FieldRef.SetRange with one value is a call P4 ran (:2446
+/// `ShareSetRange`): the RecordRef keeps its own Blob.
+#[test]
+fn a_recordref_call_not_measured_before_settable_sharetable_shares_as_before() {
+    for routine in [
+        "NeighborRrIsTemporary",
+        "NeighborRrSetView",
+        "NeighborRrSetRecFilter",
+        "NeighborRrAscending",
+        "NeighborRrName",
+        "NeighborRrFieldRead",
+        "NeighborRrFieldSetFilter",
+        "NeighborRrCopiedFrom",
+    ] {
+        assert_eq!(run(routine).0, "hv:zzpha", "{routine}");
+    }
+    assert_eq!(flagged("RrFieldSetRange"), "hv:alpha");
 }
