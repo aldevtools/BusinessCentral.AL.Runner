@@ -99,6 +99,7 @@
 62439 EnumBlank_Part_New_Value
 62439 EnumBlank_Part_NoRows_SetValue
 62439 EnumBlank_Part_NoRows_Value
+62449 LPX_ExtendedPage_SetValueError_UntouchedAndModified_Dutch
 62666 RunPageLinkList_Action_OnLastRow
 62666 RunPageLinkList_OnAfterGetCurrRecord
 62666 RunPageLinkList_OnNewRecord
