@@ -2449,7 +2449,8 @@ fn empty_list_part_rec_trigger_hosts_cells() {
 /// Neighbors of the probe's hosts, each one fact away from a cell: a trigger body the probe does not have (CurrPage.Editable from
 /// a constant, a log that reads Rec, a notification with GlobalScope, a page procedure that sets CurrPage.Editable as the
 /// reporter's license check does), another trigger set, a handler that answers false, Next on the reporter's form, other numbers
-/// of host rows, a GoToRecord that stays on the row. The read of the part's Rec is refused there, as before this change.
+/// of host rows, a GoToRecord that stays on the row, page 1178's part shape on the first host form. The read of the part's Rec
+/// is refused there, as before this change, each with the fact that left the cells.
 const NEIGHBORS: &str = r##"
 table 76880 "PG EPTN Setup2"
 {
@@ -2571,6 +2572,23 @@ page 76885 "PG EPTN OpenGetRecord"
         Log.AddSeq('hrec');
     end;
 }
+page 76887 "PG EPTN DocPart"
+{
+    PageType = List; SourceTable = "PG EPT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76860), "No." = field("No."); } }
+    }
+    trigger OnOpenPage()
+    var
+        Setup: Record "PG EPT Setup";
+        Log: Codeunit "PG EPT Log";
+    begin
+        Log.AddSeq('open');
+        CurrPage.Editable := Setup.IsLicensed();
+    end;
+}
 codeunit 76886 "PG EPTN Tests"
 {
     Subtype = Test;
@@ -2598,22 +2616,46 @@ codeunit 76886 "PG EPTN Tests"
     [Test] [HandlerFunctions('Handler')] procedure FirstFormThreeRows() var P: TestPage "PG EPT List Both"; H: Record "PG EPT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
     [Test] [HandlerFunctions('Handler')] procedure FirstFormOpenOneRow() var P: TestPage "PG EPT List Both"; begin Init(1); P.OpenView(); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
     [Test] [HandlerFunctions('Handler')] procedure GoToSameRow() var P: TestPage "PG EPT List Both"; H: Record "PG EPT Head"; begin Init(2); P.OpenEdit(); H.Get('A'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
+    [Test] procedure DocPart() var P: TestPage "PG EPTN DocPart"; begin Init(2); P.OpenEdit(); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
     [Test] [HandlerFunctions('Handler')] procedure ReporterTwoRows() var P: TestPage "PG EPT Rep Both"; begin Init(2); P.OpenEdit(); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
 }
 "##;
 
 #[test]
 fn empty_list_part_rec_trigger_hosts_neighbors_refuse() {
+    // The fact each neighbor is refused with.
+    let triggers = "the List host has a set of triggers no probe host has";
+    let landing = "with a number of host rows no probe cell of a List host with page triggers has";
+    let want: [(&str, &str); 12] = [
+        ("ConstEditable", triggers),
+        ("ReadsRec", triggers),
+        ("GlobalScope", triggers),
+        ("PageProc", triggers),
+        ("OpenGetRecord", triggers),
+        (
+            "HandlerFalse",
+            "the test binds a SendNotificationHandler no probe test has",
+        ),
+        // RepNext and GoToSameRow land in a cell as the host opens (a flagged landing) and are refused after the move.
+        ("RepNext", landing),
+        ("FirstFormThreeRows", landing),
+        ("FirstFormOpenOneRow", landing),
+        ("GoToSameRow", landing),
+        ("DocPart", "differ from the cells of a List host with page triggers"),
+        ("ReporterTwoRows", landing),
+    ];
     let o = run(
         &format!("{PROBE}\n{NEIGHBORS}"),
         "PG EPTN Tests",
         Assumption::EmptyPartRecListHostTriggers,
     );
-    assert_eq!(o.len(), 11, "{o:?}");
+    assert_eq!(o.len(), want.len(), "{o:?}");
     let wrong: Vec<_> = o
         .iter()
-        // RepNext and GoToSameRow land in a cell as the host opens (a flagged landing) and are refused after the move.
-        .filter(|(_, outcome, _)| !matches!(outcome, Outcome::NotRun(m) if m.contains("a read of Rec of a part that shows no row")))
+        .filter(|(name, outcome, _)| {
+            let fact = want.iter().find(|(n, _)| n == name).map_or("?", |(_, f)| *f);
+            !matches!(outcome, Outcome::NotRun(m) if m.contains("a read of Rec of a part that shows no row") && m.contains(fact))
+        })
         .collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
