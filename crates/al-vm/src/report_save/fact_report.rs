@@ -2,13 +2,14 @@
 //! report extensions.
 
 use super::Schema;
-use super::facts::{DataItems, Decl, Extensions, Kind, Layout, LayoutFile, Triggers};
+use super::facts::{DataItems, Decl, Declares, Extensions, Kind, Layout, LayoutFile, Triggers};
 
 /// What the report declares, as the cells tell it apart.
 pub(super) struct ReportFacts {
     pub kind: Kind,
     pub layout: Layout,
     pub decl: Decl,
+    pub declares: Declares,
     pub file: LayoutFile,
     pub processing_only: bool,
     pub data_items: DataItems,
@@ -64,6 +65,12 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
             Decl::Rendering
         } else {
             Decl::Legacy
+        },
+        // reports/html-email-body/RxdDeclFixtures.al, report 80040 (corpus pull request 1381).
+        declares: if report.rendering_layouts.is_empty() && report.layout_properties == ["rdlc", "word"] {
+            Declares::WordAndRdlcProperties
+        } else {
+            Declares::Other
         },
         file: if report.layout_file_missing {
             LayoutFile::Missing

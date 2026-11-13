@@ -48,6 +48,15 @@ pub(crate) enum Decl {
     Legacy,
 }
 
+/// Which layouts the report declares, as the cells tell them apart.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Declares {
+    /// Exactly a `WordLayout` and an `RDLCLayout` property, no `ExcelLayout` property and no rendering section
+    /// (reports/html-email-body/RxdDeclFixtures.al, report 80040, corpus pull request 1381).
+    WordAndRdlcProperties,
+    Other,
+}
+
 /// `ir::Report::layout_file_missing`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum LayoutFile {
@@ -80,8 +89,8 @@ pub(crate) enum Triggers {
     OnPost,
 }
 
-/// Which layout selection BC follows, as Base Application's ReportManagement answers it today (round 2 takes it from the
-/// events; `fact_selection`).
+/// Which layout selection BC follows, from the answers of Base Application's ReportManagement to the layout events
+/// (`fact_selection`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Selection {
     /// No Report Layout Selection row of the company, no Tenant Report Layout Selection row, no design-time selection.
@@ -94,8 +103,11 @@ pub(crate) enum Selection {
     Unknown,
     /// "Design-time Report Selection" holds a selection outside the shape `TempWord` resolves.
     DesignTimeHeld,
-    /// A temporary selection named one user-defined Word layout of the report (ADR-040 amendment 2026-11-12, A7).
+    /// SelectReportLayoutCode named one user-defined Word layout of the report, and SelectedBuiltinLayoutType answers None
+    /// (ADR-040 amendment 2026-11-12, A7).
     TempWord,
+    /// The same, while SelectedBuiltinLayoutType answers RDLC or Word (a row of the company selects a built-in layout).
+    TempWordOverStored,
 }
 
 /// The stored Report Layout Selection row the probe measured (`fact_selection::stored`).
@@ -123,6 +135,7 @@ pub(crate) struct Facts {
     pub kind: Kind,
     pub layout: Layout,
     pub decl: Decl,
+    pub declares: Declares,
     pub file: LayoutFile,
     pub processing_only: bool,
     pub data_items: DataItems,
@@ -153,6 +166,7 @@ pub(crate) enum Fact {
     Kind,
     Layout,
     Decl,
+    Declares,
     File,
     ProcessingOnly,
     DataItems,
@@ -169,13 +183,14 @@ pub(crate) enum Fact {
 }
 
 impl Fact {
-    pub(crate) const ALL: [Fact; 19] = [
+    pub(crate) const ALL: [Fact; 20] = [
         Fact::Format,
         Fact::Target,
         Fact::Answer,
         Fact::Kind,
         Fact::Layout,
         Fact::Decl,
+        Fact::Declares,
         Fact::File,
         Fact::ProcessingOnly,
         Fact::DataItems,
@@ -204,6 +219,7 @@ impl Fact {
             Fact::Kind => "default layout",
             Fact::Layout => "layout kind",
             Fact::Decl => "declared by",
+            Fact::Declares => "declared layouts",
             Fact::File => "layout file",
             Fact::ProcessingOnly => "processing only",
             Fact::DataItems => "data items",
@@ -246,6 +262,10 @@ describe!(AnswerForm { AnswerForm::Used => "used", AnswerForm::Statement => "a s
 describe!(Kind { Kind::Rdlc => "RDLC", Kind::Word => "Word", Kind::Excel => "Excel", Kind::Other => "another kind" });
 describe!(Layout { Layout::Rdlc => "RDLC", Layout::NotRdlc => "not RDLC" });
 describe!(Decl { Decl::Rendering => "DefaultRenderingLayout", Decl::Legacy => "DefaultLayout or a single layout" });
+describe!(Declares {
+    Declares::WordAndRdlcProperties => "WordLayout and RDLCLayout properties",
+    Declares::Other => "another declaration",
+});
 describe!(LayoutFile { LayoutFile::Present => "present", LayoutFile::Missing => "missing" });
 describe!(DataItems { DataItems::One => "one", DataItems::ParentAndChild => "one inside one", DataItems::Other => "another tree" });
 describe!(Extensions {
@@ -261,6 +281,7 @@ describe!(Selection {
     Selection::Unknown => "another Report Layout Selection or Tenant Report Layout Selection row",
     Selection::DesignTimeHeld => "a design-time selection",
     Selection::TempWord => "a temporary selection of a user-defined Word layout",
+    Selection::TempWordOverStored => "a temporary selection of a user-defined Word layout over a company's built-in row",
 });
 describe!(Stored {
     Stored::None => "none",
@@ -289,6 +310,7 @@ impl Facts {
             Fact::Kind => self.kind.describe(),
             Fact::Layout => self.layout.describe(),
             Fact::Decl => self.decl.describe(),
+            Fact::Declares => self.declares.describe(),
             Fact::File => self.file.describe(),
             Fact::ProcessingOnly => self.processing_only.describe(),
             Fact::DataItems => self.data_items.describe(),

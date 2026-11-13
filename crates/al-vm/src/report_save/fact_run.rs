@@ -8,7 +8,7 @@ use crate::{Session, Signal};
 impl Session {
     /// `facts` with the run facts of a run that wrote `rows` dataset rows and the Xml `dataset`.
     pub(super) fn after_run_facts(
-        &self,
+        &mut self,
         facts: &Facts,
         schema: &Schema,
         dataset: &[u8],
