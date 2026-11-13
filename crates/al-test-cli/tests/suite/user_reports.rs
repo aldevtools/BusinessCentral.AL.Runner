@@ -2847,3 +2847,30 @@ fn report_extension_refuses_unmeasured_parent_references() {
         );
     }
 }
+
+#[test]
+fn measured_trapped_card_sets_non_key_field_with_blank_part_rows() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/trapped-card-draft-blank-part-rows.al"),
+    ));
+}
+
+#[test]
+fn issue_7879_neighbor_keeps_the_previous_result() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    let changed = format!(
+        r#"{source}
+pageextension 50979 "Draft Card Extension" extends "Draft Probe Card" {{ trigger OnAfterGetCurrRecord() begin end; }}"#
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "SetValueOnNewCardWithBlankLinkedRows")
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::NotRun(reason) if reason.contains("whose part shows rows of the blank key")),
+        "{outcome:?}"
+    );
+}
