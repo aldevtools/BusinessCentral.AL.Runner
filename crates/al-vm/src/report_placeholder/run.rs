@@ -44,7 +44,7 @@ impl Session {
         if !matches!(report.default_layout_kind.as_str(), "rdlc" | "word" | "excel") {
             return refused();
         }
-        self.refuse_unraised_layout_events(schema, "a run", &["substitutereport"])?;
+        self.refuse_unraised_layout_events(schema, "a run", &["substitutereport"], None)?;
         if let Some(who) = self.run_event_subscriber() {
             return unsupported(format!(
                 "a run of report \"{}\" with {who} (BC raises the printer and download events around a render; this runtime \
