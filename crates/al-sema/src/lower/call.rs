@@ -3,6 +3,29 @@ use super::*;
 use al_syntax::ast::NodeText;
 
 impl Lowerer<'_> {
+    fn prepare_call_resolution(
+        &mut self,
+        node: &SyntaxNode,
+        receiver: Option<&SyntaxNode>,
+        args: &[SyntaxNode],
+    ) -> L<Option<Res>> {
+        let resolution = self.res(node).cloned();
+        if let Some(Res::Builtin(id)) = &resolution {
+            self.coverage_test_id_call(id, receiver, args)?;
+            if id == "Page.SaveRecord#1"
+                && self.ws.objects[self.oi].kind == ObjKind::Page
+                && receiver.is_some_and(|r| {
+                    r.kind() == SyntaxKind::NameRef && r.text_string().trim().eq_ignore_ascii_case("CurrPage")
+                })
+                && args.is_empty()
+                && crate::members::has_internal_parameterless_save_record(self.ws, self.oi)
+            {
+                self.assume(al_builtins::assumptions::Assumption::CurrPageSaveRecordNameCollision);
+            }
+        }
+        Ok(resolution)
+    }
+
     /// `Rec.SecurityFiltering()` read on a variable declared with `[SecurityFiltering(...)]` answers the declared value on
     /// BC (al-language/reports/runtime/ACAttributes.al:176-191); the runtime keeps it for a local record, a local
     /// one-dimension array of records and a global record of a codeunit, a table, a page or a report
@@ -289,10 +312,7 @@ impl Lowerer<'_> {
             .then(|| callee.children().next())
             .flatten()
             .filter(|r| !crate::check::is_this_keyword(r));
-        if let Some(Res::Builtin(id)) = self.res(node) {
-            self.coverage_test_id_call(id, receiver_node.as_ref(), args)?;
-        }
-        match self.res(node).cloned() {
+        match self.prepare_call_resolution(node, receiver_node.as_ref(), args)? {
             Some(Res::Proc { object, offset }) if self.ws.objects[object].kind == ObjKind::Interface => {
                 self.interface_call(object, offset, receiver_node.as_ref(), args)
             }
