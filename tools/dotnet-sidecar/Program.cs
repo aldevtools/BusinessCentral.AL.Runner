@@ -54,7 +54,7 @@ public static class Program
             }
             catch (Exception ex)
             {
-                resp = Server.Failure(ex);
+                resp = server.FailureOf(ex);
             }
             resp["id"] = id;
             WriteFrame(protocolOut, Encoding.UTF8.GetBytes(resp.ToJsonString()));
