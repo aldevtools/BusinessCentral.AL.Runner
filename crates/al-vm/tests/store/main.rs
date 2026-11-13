@@ -115,6 +115,7 @@ mod relation_where_qualified_const;
 mod relation_where_quoted_literal;
 mod relations;
 mod rename;
+mod rename_blank_key;
 mod rename_filter_arm;
 mod rename_trigger_before_autoincrement;
 mod row_version_shapes;

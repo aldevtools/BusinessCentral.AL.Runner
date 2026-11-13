@@ -735,7 +735,7 @@ fn walk_field<V: RefVisitor>(f: &mut Field, v: &mut V) {
         if let Some(ws) = wheres {
             for w in ws {
                 match w {
-                    RelationWhere::Value { related: f, text: _ } => fld(v, f, related),
+                    RelationWhere::Value { related: f, .. } => fld(v, f, related),
                     RelationWhere::Field { related: f, own } => {
                         fld(v, f, related);
                         fld(v, own, TableOf::Own);
