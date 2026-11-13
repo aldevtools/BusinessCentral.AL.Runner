@@ -2961,3 +2961,26 @@ fn measured_next_only_card_refreshes_after_assist_edit_stored_the_row() {
         }
     }
 }
+
+#[test]
+fn measured_document_action_calculated_field_does_not_save_stale_row() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/rework-flowfield-action.al"),
+    ));
+}
+
+#[test]
+fn dirty_document_action_keeps_main_stale_row_refusal() {
+    let source = include_str!("../fixtures/rework-flowfield-action.al");
+    let edit = source.replace("Document.OpenView();", "Document.OpenEdit();").replace(
+        "        Document.CalculateAndWrite.Invoke();",
+        "        Document.Description.SetValue('Client edit');\n        Document.CalculateAndWrite.Invoke();",
+    );
+    assert_ne!(source, edit);
+    let outcomes = run_with_deps(&[], &edit);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("a page saves a row that code changed after the page read it")),
+        "{outcomes:?}"
+    );
+}
