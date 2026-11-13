@@ -2,7 +2,7 @@
 //! by refusing before (al-runner issue 7964 item 3; reports/runtime/ReportQuitInOnInit.al:235-355, not pinned yet, assumption
 //! `report-quit-in-oninit-request-page`): RunRequestPage on a variable and the static one answer '' and open no page, an Xml
 //! SaveAs to a stream answers false and writes nothing, and `UseRequestPage(false)` as the first use of a variable quits so
-//! that its next Run or RunModal runs nothing. A Run, RunModal or Execute that runs OnInitReport itself already stopped there
+//! that its next Run or RunModal runs nothing (a Clear gives the variable a new instance, which does not hold it). A Run, RunModal or Execute that runs OnInitReport itself already stopped there
 //! (`REPORT_RUN_1 | REPORT_RUNMODAL_1`, `REPORT_EXECUTE_1`, the static forms) and is not changed here.
 
 use super::*;

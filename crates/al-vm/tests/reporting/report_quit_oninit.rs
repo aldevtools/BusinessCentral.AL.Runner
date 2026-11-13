@@ -234,11 +234,11 @@ fn not_processing_only() -> String {
 }
 
 /// The probe's runner with three more forms: RunRequestPage after `UseRequestPage(false)` (14), SaveAs with the answer dropped
-/// (15), and UseRequestPage(false) then SaveAs (16).
+/// (15), UseRequestPage(false) then SaveAs (16), and UseRequestPage(false), Clear, Run (17).
 fn with_neighbor_forms(src: &str) -> String {
     src.replace(
         "            13:\n",
-        "            14:\n                begin\n                    Rep.UseRequestPage(false);\n                    Result := Rep.RunRequestPage();\n                end;\n            15:\n                begin\n                    Buf.Id := 1;\n                    Buf.Insert();\n                    Buf.Data.CreateOutStream(OutS);\n                    Rep.SaveAs('', ReportFormat::Xml, OutS);\n                end;\n            16:\n                begin\n                    Rep.UseRequestPage(false);\n                    Buf.Id := 1;\n                    Buf.Insert();\n                    Buf.Data.CreateOutStream(OutS);\n                    Ok := Rep.SaveAs('', ReportFormat::Xml, OutS);\n                end;\n            13:\n",
+        "            14:\n                begin\n                    Rep.UseRequestPage(false);\n                    Result := Rep.RunRequestPage();\n                end;\n            15:\n                begin\n                    Buf.Id := 1;\n                    Buf.Insert();\n                    Buf.Data.CreateOutStream(OutS);\n                    Rep.SaveAs('', ReportFormat::Xml, OutS);\n                end;\n            16:\n                begin\n                    Rep.UseRequestPage(false);\n                    Buf.Id := 1;\n                    Buf.Insert();\n                    Buf.Data.CreateOutStream(OutS);\n                    Ok := Rep.SaveAs('', ReportFormat::Xml, OutS);\n                end;\n            17:\n                begin\n                    Rep.UseRequestPage(false);\n                    Clear(Rep);\n                    Rep.Run();\n                end;\n            13:\n",
     )
 }
 
@@ -292,4 +292,14 @@ fn shapes_outside_the_probe_keep_mains_refusal() {
     for mode in [14, 15, 16] {
         refused(&mut b, mode);
     }
+}
+
+#[test]
+fn clear_drops_the_kept_quit_and_the_next_run_is_a_first_run() {
+    // Clear gives the variable a new instance (as for Execute, reports/request-page/ExecuteParamsTwiceAndViews.al:146-183),
+    // so the quit UseRequestPage(false) kept stays with the old one: the Run runs OnInitReport again, which quits, as mode 4.
+    let mut b = al_testkit::Built::from_source(&with_neighbor_forms(SRC));
+    take_hits();
+    assert_eq!(form(&mut b, 17), "Yes||OnInitReport;OnInitReport;");
+    assert!(take_hits().contains(&Assumption::ReportQuitInOninitRequestPage));
 }
