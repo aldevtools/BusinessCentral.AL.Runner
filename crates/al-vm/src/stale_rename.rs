@@ -9,7 +9,7 @@
 //!
 //! The error is raised only in the measured shape (`Session::measured_stale_rename`). Every other Rename through a stale
 //! record that holds a committed row version is refused. Main's rename stays for a record that is not stale and for one
-//! that read a row version written in the open transaction (pinned by record/filters/P68H_StaleModify.al:111-129).
+//! that read a row version written in the open transaction (pinned by record/filters/P68H_StaleModify.al:108-132).
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;
@@ -66,7 +66,7 @@ impl Session {
         }
         // A record that read a row version written in the open transaction keeps main's rename: one such shape is pinned, a
         // Get of a row inserted in the open transaction, another variable's Modify, then the Rename, which writes the
-        // record's values under the new key (corpus record/filters/P68H_StaleModify.al:111-129).
+        // record's values under the new key (corpus record/filters/P68H_StaleModify.al:108-132).
         if mine > self.tx.committed_row_version {
             return Ok(());
         }

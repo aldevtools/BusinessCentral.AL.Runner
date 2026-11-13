@@ -105,6 +105,14 @@ fn a_stale_rename_outside_the_measured_shape_is_refused() {
             cell("X", &format!("{STALE} Commit();"), "asserterror M.Rename('Y')"),
         ),
         (
+            "filter",
+            cell(
+                "X",
+                &format!("{STALE} M.SetRange(Name, 'N');"),
+                "asserterror M.Rename('Y')",
+            ),
+        ),
+        (
             "record changed since its Get",
             cell("X", &format!("{STALE} M.Name := 'Z';"), "asserterror M.Rename('Y')"),
         ),
@@ -165,7 +173,7 @@ fn a_record_that_is_not_stale_keeps_mains_rename() {
         "||[Y][]"
     );
     // A record that read a row inserted in the open transaction renames with its own values (corpus
-    // record/filters/P68H_StaleModify.al:111-129).
+    // record/filters/P68H_StaleModify.al:108-132).
     let uncommitted = format!(
         "var M: Record \"S Master\"; Other: Record \"S Master\"; begin
             M.Code := 'X'; M.Name := 'N'; M.Insert();
