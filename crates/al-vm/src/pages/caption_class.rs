@@ -1,6 +1,8 @@
 //! The caption a CaptionClass text stands for (moved out of rows.rs).
 
 use super::*;
+use super::pinned_shape::TestCall;
+use al_builtins::page_op::PageMethod;
 
 const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 
@@ -21,6 +23,11 @@ impl Session {
         }
     }
 
+    /// `Caption()` of control `index` whose field CaptionClass `class` raises OnResolveCaptionClass. The first read resolves it
+    /// (XTablePropsTests.al:483-487). A second read gives the same caption without raising the event again only in the
+    /// measured sequences (AL Runner issue 7884, corpus pull request 1356, assumption `literal-field-caption-resolution-reused`):
+    /// two reads in a row, or a read after a SetValue on another control of the page, with the same class text, the same
+    /// language and the same bound subscriptions. Every other call between the reads keeps the refusal.
     pub(super) fn read_literal_field_caption(
         &mut self,
         st: &St,
@@ -29,36 +36,57 @@ impl Session {
     ) -> Result<String, Signal> {
         let revision = self.events.caption_context_revision;
         let subscriptions = self.bound_subscriptions();
-        {
-            let state = st.borrow();
-            if let Some((_, prior_class, caption)) = state.control_captions.iter().find(|(i, _, _)| *i == index) {
-                if *prior_class == class
-                    && state
-                        .literal_field_caption_contexts
-                        .iter()
-                        .any(|(i, saved_revision, saved_subscriptions)| {
-                            *i == index && *saved_revision == revision && *saved_subscriptions == subscriptions
-                        })
-                {
-                    // Corpus PR 1356 (issue 7884): repeated reads, including after an unrelated control edit.
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::LiteralFieldCaptionResolutionReused,
-                    );
-                    return Ok(caption.clone());
-                }
+        let calls = Self::tree_root(st).0.borrow().tree_calls.len();
+        let prior = st.borrow().control_captions.iter().find(|(i, _, _)| *i == index).cloned();
+        if let Some((_, prior_class, caption)) = prior {
+            let context = st
+                .borrow()
+                .literal_field_caption_contexts
+                .iter()
+                .find(|(i, _, _, _)| *i == index)
+                .cloned();
+            let reused = prior_class == class
+                && context.is_some_and(|(_, saved_revision, saved_subscriptions, saved_calls)| {
+                    saved_revision == revision
+                        && saved_subscriptions == subscriptions
+                        && Self::only_caption_reads_or_other_writes(st, index, saved_calls)
+                });
+            if !reused {
                 return unsupported(
                     "a second Caption() of a field CaptionClass that raises OnResolveCaptionClass (whether BC raises it again is not pinned)",
                 );
             }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LiteralFieldCaptionResolutionReused);
+            if let Some(c) = st.borrow_mut().literal_field_caption_contexts.iter_mut().find(|c| c.0 == index) {
+                c.3 = calls;
+            }
+            return Ok(caption);
         }
-        // XTablePropsTests.al:483-487 pins the first read.
         let caption = self.caption_class_text(st, &class)?;
         let mut state = st.borrow_mut();
         state.control_captions.push((index, class, caption.clone()));
-        state
-            .literal_field_caption_contexts
-            .push((index, revision, subscriptions));
+        state.literal_field_caption_contexts.push((index, revision, subscriptions, calls));
         Ok(caption)
+    }
+
+    /// Whether every test call on the page tree of `st` from position `from` of its call log is a `Caption()` or a value
+    /// typed into a control of `st` other than `index`, and none of them failed. False when the log does not tell
+    /// (`PageState::tree_calls_unknown`).
+    fn only_caption_reads_or_other_writes(st: &St, index: usize, from: usize) -> bool {
+        let (root, part) = Self::tree_root(st);
+        let r = root.borrow();
+        !r.tree_calls_unknown
+            && r.tree_calls.get(from..).is_some_and(|calls| {
+                calls.iter().all(|c| {
+                    c.part == part
+                        && !c.failed
+                        && match c.call {
+                            TestCall::Other(PageMethod::Caption) => true,
+                            TestCall::Write(j) => j != index,
+                            _ => false,
+                        }
+                })
+            })
     }
 
     /// The caption a CaptionClass text stands for. Area 3 is the literal text. Other numeric areas

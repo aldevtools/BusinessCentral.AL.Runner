@@ -317,22 +317,7 @@ impl Session {
 
     /// Only Close, OK and Cancel are pinned on a request page after New() (`request_new_blank_row`), and only Close and a part's
     /// Visible() and Editable() after a swallowed insert of a new host (`refuse_after_swallowed_part_insert`).
-    fn refuse_after_request_new(&mut self, st: &St, name: PageMethod) -> Result<PageMethod, Signal> {
-        if matches!(
-            name,
-            PageMethod::First
-                | PageMethod::Last
-                | PageMethod::Next
-                | PageMethod::Previous
-                | PageMethod::GoToKey
-                | PageMethod::GoToRecord
-                | PageMethod::FindFirstField
-                | PageMethod::FindNextField
-                | PageMethod::FindPreviousField
-                | PageMethod::New
-        ) {
-            st.borrow_mut().literal_field_caption_contexts.clear();
-        }
+    fn refuse_after_request_new(&self, st: &St, name: PageMethod) -> Result<PageMethod, Signal> {
         self.refuse_after_swallowed_part_insert(st, Some(name))?;
         if st.borrow().request_new_blank && !matches!(name, PageMethod::Close | PageMethod::OK | PageMethod::Cancel) {
             return unsupported(format!(

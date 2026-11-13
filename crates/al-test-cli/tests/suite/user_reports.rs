@@ -3178,3 +3178,19 @@ fn issue_7886_part_calls_after_the_drilldown_keep_main_result() {
         );
     }
 }
+
+/// Issue 7884: only two reads in a row and a read after a SetValue on another control were measured. A SetValue on the
+/// caption's own control, a value read of another control, or Next() between the reads keeps main's refusal.
+#[test]
+fn issue_7884_other_calls_between_the_reads_keep_the_refusal() {
+    let source = include_str!("../fixtures/literal-field-caption.al");
+    let needle = "        SecondCaption := Pg.Payload.Caption();";
+    assert!(source.contains(needle));
+    for call in ["Pg.Payload.SetValue('X');", "if Pg.EditValue.Value() = '' then;", "Pg.Next();"] {
+        let outcomes = run_with_deps(&[], &source.replace(needle, &format!("        {call}\n{needle}")));
+        assert!(
+            matches!(outcomes.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("a second Caption()")),
+            "{call}: {outcomes:?}"
+        );
+    }
+}
