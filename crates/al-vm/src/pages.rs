@@ -320,6 +320,7 @@ mod part_visible_gate;
 mod pinned_body;
 mod post_left_new_line;
 mod provider_hidden;
+mod provider_no_row;
 mod record_trigger_answer;
 mod refill;
 mod refresh_new_line;

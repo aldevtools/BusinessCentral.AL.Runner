@@ -219,6 +219,30 @@ pub(crate) fn run_codeunit_core(
     limit: Option<std::time::Duration>,
     execute: bool,
 ) -> Vec<(String, Outcome)> {
+    let outcomes = run_codeunit_checked(
+        engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
+    );
+    // The codeunit's session has ended: the instances only a reference cycle of its AL code keeps are freed, so a warm
+    // server's memory does not grow with each request (al-runner issue 7975).
+    al_builtins::instance_cycles::collect();
+    outcomes
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_codeunit_checked(
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    object: usize,
+    baseline: Option<&al_vm::Baseline>,
+    isolation: TestIsolation,
+    observe: Option<&mut Observer>,
+    stacks: &mut Vec<(String, String)>,
+    times: &mut Vec<(String, std::time::Duration)>,
+    hits: &mut Vec<(String, Vec<Assumption>)>,
+    scratch: &mut Scratch,
+    limit: Option<std::time::Duration>,
+    execute: bool,
+) -> Vec<(String, Outcome)> {
     if execute {
         return run_codeunit_inner(
             engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
