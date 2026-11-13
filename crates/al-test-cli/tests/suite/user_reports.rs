@@ -2661,3 +2661,64 @@ codeunit 69502 T {{ Subtype = Test;
         );
     }
 }
+
+#[test]
+fn measured_group_two_enum_flowfilter_constrains_relation() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/group-two-enum-flowfilter-relation.al"),
+    ));
+}
+
+#[test]
+fn issue_7877_other_group_two_flowfilter_shapes_keep_their_refusals() {
+    let source = include_str!("../fixtures/group-two-enum-flowfilter-relation.al");
+    let narrow = r#"Source.SetRange("Kind Filter", Source."Kind Filter"::Selected);"#;
+    let other_type = source.replace(
+        r#"Enum "Group Relation Kind") {"#,
+        "Option) { OptionMembers = Other,Selected;",
+    );
+    let variants = [
+        ("Option", other_type),
+        (
+            "group 3",
+            source.replace("Source.FilterGroup(2);", "Source.FilterGroup(3);"),
+        ),
+        (
+            "multiple filters",
+            source.replace(
+                narrow,
+                &format!("{narrow}\n        Source.FilterGroup(0);\n        {narrow}"),
+            ),
+        ),
+        (
+            "range",
+            source.replace(
+                narrow,
+                r#"Source.SetRange("Kind Filter", Source."Kind Filter"::Other, Source."Kind Filter"::Selected);"#,
+            ),
+        ),
+        (
+            "assigned buffer",
+            source.replace(
+                narrow,
+                &format!(
+                    r#"{narrow}
+            Source."Kind Filter" := Source."Kind Filter"::Selected;"#
+                ),
+            ),
+        ),
+    ];
+    for (label, variant) in variants {
+        assert_ne!(source, variant, "{label}");
+        let results = run_with_deps(&[], &variant);
+        let (_, result) = results
+            .iter()
+            .find(|(name, _)| name == "GroupTwoFlowFilterConstrainsDirectValidation")
+            .unwrap();
+        assert!(
+            matches!(result, Outcome::NotRun(reason) if reason.contains("source FlowFilter")),
+            "{label}: {result:?}"
+        );
+    }
+}
