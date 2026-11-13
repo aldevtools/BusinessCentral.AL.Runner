@@ -5,9 +5,10 @@
 //! second open). Only that cell runs, under an assumption; every other such list is refused, because the landing main gives
 //! it (the row after) is the one the probe showed wrong.
 
-use super::pinned_shape::{PinnedCode, TestCall};
+use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::builtin_id::ids;
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
 
@@ -68,6 +69,8 @@ impl Session {
     /// The facts of the probe's cell, each by equality:
     /// - the page's code is `CODE` (`page_code_is`), `Editable = false`, at the top level without parts, opened by the test with
     ///   OpenView, not modal, not a lookup;
+    /// - the triggers have the probe's bodies (`probe_bodies`), so the open stood on the last row of the view, and the action
+    ///   asked for no refresh (`refresh` is false);
     /// - the view is the primary key without filters or marks (`rec_view_is`), and the client held the whole view of three rows
     ///   from its start, Rec's key the middle one;
     /// - the test's calls since the open: `GoToKey`, then the action's `Invoke`, with one control read before the `GoToKey` on the
@@ -77,6 +80,7 @@ impl Session {
         let opened = {
             let s = st.borrow();
             s.open
+                && !s.refresh
                 && s.opened_by_test
                 && s.mode == PageMode::View
                 && !s.modal
@@ -103,6 +107,97 @@ impl Session {
                     ]
             )
         );
-        Ok(calls && self.page_code_is(st, &CODE)?)
+        Ok(calls && self.page_code_is(st, &CODE)? && probe_bodies(&self.engine().program, object))
     }
+}
+
+/// The page's triggers have the bodies of ReopenSameVariableState.al:151-212, and the page has no other routine:
+/// - OnOpenPage (:184-194): `if Row.FindSet() then repeat Rec := Row; Rec.Insert(); until Row.Next() = 0;` with `Row` a local
+///   record, then one log call (`rec_text_log_call`): Rec ends on the last row it filled;
+/// - the action's OnAction (:174-178): one log call, then `Rec.Delete()` without argument;
+/// - OnAfterGetCurrRecord and OnClosePage (:196-206): one log call.
+fn probe_bodies(program: &ir::Program, object: usize) -> bool {
+    let o = &program.objects[object];
+    let (Some(rec), Some(page)) = (o.rec_slot, o.page.as_ref()) else {
+        return false;
+    };
+    let log = |s: &ir::Stmt| matches!(s, ir::Stmt::Expr(e) if rec_text_log_call(program, object, e));
+    let on_rec = |e: &ir::Expr, want, args: &[ir::Arg]| {
+        matches!(e, ir::Expr::Builtin { id, receiver: Some(r), args: a, .. } if *id == want && a.as_slice() == args
+            && matches!(&**r, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g)) if *g == rec))
+    };
+    let body = |r: usize| code_stmts(program, object, r);
+    let actions: Vec<usize> = page
+        .controls
+        .iter()
+        .flat_map(|c| c.triggers.iter().map(|(_, r)| *r))
+        .collect();
+    let routines = page.triggers.len() + actions.len();
+    let action = matches!(actions.as_slice(), [r] if matches!(body(*r).as_slice(),
+        [l, ir::Stmt::Expr(d)] if log(l) && on_rec(d, ids::RECORD_DELETE_1, &[])));
+    let triggers = page
+        .triggers
+        .iter()
+        .all(|(name, r)| match (name.as_str(), body(*r).as_slice()) {
+            ("onopenpage", [ir::Stmt::If(find, then, otherwise), l]) => {
+                otherwise.is_empty() && log(l) && fill_loop(program, object, *r, rec, find, then)
+            }
+            ("onaftergetcurrrecord" | "onclosepage", [l]) => log(l),
+            _ => false,
+        });
+    o.routines.len() == routines && action && triggers
+}
+
+/// `if <find> then <then>` of OnOpenPage (routine `r`) is `if Row.FindSet() then repeat Rec := Row; Rec.Insert(); until
+/// Row.Next() = 0;` with `Row` a local record of the routine and Rec global slot `rec`.
+fn fill_loop(program: &ir::Program, object: usize, r: usize, rec: usize, find: &ir::Expr, then: &[ir::Stmt]) -> bool {
+    let locals = &program.objects[object].routines[r].locals;
+    let local_of = |a: &ir::Arg| match a {
+        ir::Arg::Value(ir::Expr::Load(ir::Place::Local(l))) | ir::Arg::Ref(ir::Place::Local(l)) => locals
+            .get(*l)
+            .is_some_and(|s| matches!(s.ty, RtType::Record(..)))
+            .then_some(*l),
+        _ => None,
+    };
+    fn builtin(e: &ir::Expr, want: ir::BuiltinId) -> Option<&ir::Arg> {
+        match e {
+            ir::Expr::Builtin {
+                id,
+                receiver: Some(r),
+                args,
+                ..
+            } if *id == want && args.is_empty() => Some(r),
+            _ => None,
+        }
+    }
+    fn strip(e: &ir::Expr) -> &ir::Expr {
+        match e {
+            ir::Expr::Convert(_, inner) => inner,
+            e => e,
+        }
+    }
+    let Some(row) = builtin(find, ids::RECORD_FINDSET_1).and_then(local_of) else {
+        return false;
+    };
+    let stmts: Vec<&ir::Stmt> = then.iter().filter(|s| !matches!(s, ir::Stmt::Pos(_))).collect();
+    let [ir::Stmt::Repeat(body, until)] = stmts.as_slice() else {
+        return false;
+    };
+    let body: Vec<&ir::Stmt> = body.iter().filter(|s| !matches!(s, ir::Stmt::Pos(_))).collect();
+    let copy = |s: &ir::Stmt| {
+        matches!(s, ir::Stmt::Assign(ir::Place::Global(g), e) if *g == rec
+            && matches!(strip(e), ir::Expr::Load(ir::Place::Local(l)) if *l == row))
+    };
+    let insert = |s: &ir::Stmt| {
+        matches!(s, ir::Stmt::Expr(e) if builtin(e, ids::RECORD_INSERT_1).is_some_and(|r|
+            matches!(r, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g)) if *g == rec)))
+    };
+    let next_is_zero = match until {
+        ir::Expr::Binary(ir::BinOp::Eq, a, b) => {
+            builtin(strip(a), ids::RECORD_NEXT_1).and_then(local_of) == Some(row)
+                && matches!(strip(b), ir::Expr::Const(ir::Const::Integer(0)))
+        }
+        _ => false,
+    };
+    matches!(body.as_slice(), [c, i] if copy(c) && insert(i)) && next_is_zero
 }

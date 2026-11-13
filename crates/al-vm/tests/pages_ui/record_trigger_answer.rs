@@ -122,6 +122,160 @@ page 75359 "RT Unassigned Card"
         Log.Add('M ' + Rec."Code" + ' ' + Rec.Name);
     end;
 }
+table 75369 "RT Plain Row"
+{
+    fields { field(1; "Code"; Code[10]) { } field(2; Name; Text[30]) { } }
+    keys { key(PK; "Code") { Clustered = true; } }
+}
+page 75360 "RT InsSelf Cond Card"
+{
+    PageType = Card; SourceTable = "RT Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { group(General) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { } } } }
+    var Log: Codeunit "RT Log"; Blocked: Boolean;
+    trigger OnInsertRecord(BelowxRec: Boolean): Boolean
+    begin
+        Log.Add('I ' + Rec."Code" + ' ' + Rec.Name);
+        Rec.Insert();
+        if Blocked then
+            exit(false);
+    end;
+    trigger OnModifyRecord(): Boolean
+    begin
+        Log.Add('M ' + Rec."Code" + ' ' + Rec.Name);
+        if Blocked then
+            exit(false);
+    end;
+    trigger OnDeleteRecord(): Boolean
+    begin
+        Log.Add('D ' + Rec."Code");
+        if Blocked then
+            exit(false);
+    end;
+}
+page 75361 "RT SideCond Card"
+{
+    PageType = Card; SourceTable = "RT Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { group(General) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { } } } }
+    var Log: Codeunit "RT Log"; Blocked: Boolean;
+    trigger OnInsertRecord(BelowxRec: Boolean): Boolean
+    begin
+        Log.Add('I ' + Rec."Code" + ' ' + Rec.Name);
+        if Touch() then
+            exit(false);
+    end;
+    trigger OnModifyRecord(): Boolean
+    begin
+        Log.Add('M ' + Rec."Code" + ' ' + Rec.Name);
+        if Touch() then
+            exit(false);
+    end;
+    trigger OnDeleteRecord(): Boolean
+    begin
+        Log.Add('D ' + Rec."Code");
+        if Blocked then
+            exit(false);
+    end;
+    local procedure Touch(): Boolean
+    begin
+        Rec.Name := 'touched';
+        exit(Blocked);
+    end;
+}
+page 75362 "RT InsSelf False Card"
+{
+    PageType = Card; SourceTable = "RT Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { group(General) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { } } } }
+    var Log: Codeunit "RT Log"; Blocked: Boolean;
+    trigger OnInsertRecord(BelowxRec: Boolean) Ok: Boolean
+    begin
+        Log.Add('I ' + Rec."Code" + ' ' + Rec.Name);
+        Rec.Insert();
+        Ok := false;
+    end;
+    trigger OnModifyRecord() Ok: Boolean
+    begin
+        Rec.Modify();
+        Ok := false;
+    end;
+    trigger OnDeleteRecord() Ok: Boolean
+    begin
+        Log.Add('D ' + Rec."Code");
+        Ok := false;
+    end;
+}
+page 75363 "RT ModMode Cond"
+{
+    PageType = Card; SourceTable = "RT Plain Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { } } }
+    var Log: Codeunit "RT Log"; Blocked: Boolean;
+    trigger OnModifyRecord(): Boolean
+    begin
+        Log.Add('M ' + Rec."Code" + ' ' + Rec.Name);
+        if Blocked then
+            exit(false);
+    end;
+}
+page 75364 "RT NamedTrue Exit Card"
+{
+    PageType = Card; SourceTable = "RT Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { group(General) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { } } } }
+    var Log: Codeunit "RT Log"; Blocked: Boolean;
+    trigger OnModifyRecord() Ok: Boolean
+    begin
+        Log.Add('M ' + Rec."Code" + ' ' + Rec.Name);
+        Ok := Rec.Name <> 'veto';
+        if Blocked then
+            exit(false);
+    end;
+}
+page 75365 "RT ArgCall Cond Card"
+{
+    PageType = Card; SourceTable = "RT Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { group(General) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { } } } }
+    var Log: Codeunit "RT Log"; Blocked: Boolean;
+    trigger OnInsertRecord(BelowxRec: Boolean): Boolean
+    begin
+        Log.Add(Format(Rec.Insert()));
+        if Blocked then
+            exit(false);
+    end;
+    trigger OnModifyRecord(): Boolean
+    begin
+        Log.Add('M ' + Rec."Code" + ' ' + Rec.Name);
+        if Blocked then
+            exit(false);
+    end;
+    trigger OnDeleteRecord(): Boolean
+    begin
+        Log.Add('D ' + Rec."Code");
+        if Blocked then
+            exit(false);
+    end;
+}
+page 75366 "RT ExitTrueIns Cond Card"
+{
+    PageType = Card; SourceTable = "RT Row"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { group(General) { field("Code"; Rec."Code") { } field(Name; Rec.Name) { } } } }
+    var Log: Codeunit "RT Log"; Blocked: Boolean;
+    trigger OnInsertRecord(BelowxRec: Boolean): Boolean
+    begin
+        Log.Add('I ' + Rec."Code" + ' ' + Rec.Name);
+        Rec.Name := 'by insert';
+        exit(true);
+    end;
+    trigger OnModifyRecord(): Boolean
+    begin
+        Log.Add('M ' + Rec."Code" + ' ' + Rec.Name);
+        if Blocked then
+            exit(false);
+    end;
+    trigger OnDeleteRecord(): Boolean
+    begin
+        Log.Add('D ' + Rec."Code");
+        if Blocked then
+            exit(false);
+    end;
+}
 codeunit 75354 "RT Log"
 {
     SingleInstance = true;
@@ -248,6 +402,59 @@ codeunit 75355 T
     begin
         Setup(); P.OpenView(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Next(); P.Close(); exit(Done());
     end;
+    procedure InsSelfCondNew(): Text
+    var P: TestPage "RT InsSelf Cond Card";
+    begin
+        Setup(); P.OpenNew(); P."Code".SetValue('N1'); P.Name.SetValue('new'); P.Close(); exit(Done());
+    end;
+    procedure SideCondNew(): Text
+    var P: TestPage "RT SideCond Card";
+    begin
+        Setup(); P.OpenNew(); P."Code".SetValue('N1'); P.Name.SetValue('new'); P.Close(); exit(Done());
+    end;
+    procedure SideCondEdit(): Text
+    var P: TestPage "RT SideCond Card";
+    begin
+        Setup(); P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Close(); exit(Done());
+    end;
+    procedure InsSelfFalseNew(): Text
+    var P: TestPage "RT InsSelf False Card";
+    begin
+        Setup(); P.OpenNew(); P."Code".SetValue('N1'); P.Name.SetValue('new'); P.Close(); exit(Done());
+    end;
+    procedure ModSelfFalseEdit(): Text
+    var P: TestPage "RT InsSelf False Card";
+    begin
+        Setup(); P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Close(); exit(Done());
+    end;
+    procedure ModModeCondEdit(): Text
+    var P: TestPage "RT ModMode Cond"; Row: Record "RT Plain Row";
+    begin
+        Setup(); Row.DeleteAll(); Row."Code" := 'R1'; Row.Name := 'start'; Row.Insert();
+        P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Close();
+        Row.Get('R1');
+        exit(Log.Take() + '| ' + Row.Name);
+    end;
+    procedure NamedTrueExitEdit(): Text
+    var P: TestPage "RT NamedTrue Exit Card";
+    begin
+        Setup(); P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited'); P.Next(); P.Close(); exit(Done());
+    end;
+    procedure NamedFalseExitEdit(): Text
+    var P: TestPage "RT NamedTrue Exit Card";
+    begin
+        Setup(); P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('veto'); P.Next(); P.Close(); exit(Done());
+    end;
+    procedure ArgCallCondNew(): Text
+    var P: TestPage "RT ArgCall Cond Card";
+    begin
+        Setup(); P.OpenNew(); P."Code".SetValue('N1'); P.Name.SetValue('new'); P.Close(); exit(Done());
+    end;
+    procedure ExitTrueInsModifyNew(): Text
+    var P: TestPage "RT ExitTrueIns Cond Card";
+    begin
+        Setup(); P.OpenNew(); P."Code".SetValue('N1'); P.Name.SetValue('new'); P.Next(); P.Close(); exit(Done());
+    end;
 }
 "#;
 
@@ -333,6 +540,20 @@ fn unmeasured_neighbors_are_refused() {
         ("CondModifyAction", exit),
         // OpenView
         ("CondModifyOpenView", exit),
+        // the review's neighbors (al-runner PR 7946, round 1): Rec.Insert() before the condition (N1), a page procedure as the
+        // condition (N2, N2b), Rec.Insert() or Rec.Modify() before `Ok := false` (N6, N6b), a call in the argument of the log
+        // call, and an OnInsertRecord of another form before the OnModifyRecord cell
+        ("InsSelfCondNew", exit),
+        ("SideCondNew", exit),
+        ("SideCondEdit", exit),
+        ("InsSelfFalseNew", named),
+        ("ModSelfFalseEdit", named),
+        ("ArgCallCondNew", exit),
+        ("ExitTrueInsModifyNew", exit),
+        // a Card with one OnModifyRecord of the probe's form on a table without code: not the CcFixtures.al page (N3)
+        ("ModModeCondEdit", exit),
+        // a named return value that ends false after an exit that did not run
+        ("NamedFalseExitEdit", named),
     ] {
         refused(proc, why);
     }
@@ -348,5 +569,18 @@ fn an_unassigned_named_value_keeps_mains_save() {
     );
     let hits = take_hits();
     assert!(!hits.contains(&Assumption::PageRecordTriggerNamedFalseVetoes));
+    assert!(!hits.contains(&Assumption::PageRecordTriggerExitNotTakenSaves));
+}
+
+/// A named return value that ends true after an `exit(false)` that did not run keeps main's save (al-runner PR 7946 review, N15):
+/// main reads the named value, the rule the True cells pin (RecordTriggerReturnValue.al:446-541).
+#[test]
+fn a_named_true_after_an_exit_not_taken_keeps_mains_save() {
+    take_hits();
+    assert_eq!(
+        text(run_in(SRC, "T", "NamedTrueExitEdit")),
+        "M R1 edited; T-mod R1 edited; | R1=edited R2=second (2 rows)"
+    );
+    let hits = take_hits();
     assert!(!hits.contains(&Assumption::PageRecordTriggerExitNotTakenSaves));
 }

@@ -67,6 +67,83 @@ page 75378 "FL Stored List"
     trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Rec."Code" + ')'); end;
     trigger OnClosePage() begin Log.Add('close'); end;
 }
+page 75380 "FL Temp Update List"
+{
+    PageType = List; SourceTable = "FL Row"; SourceTableTemporary = true; Editable = false; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(DelCur) { ApplicationArea = All; trigger OnAction() var Tmp: Record "FL Row" temporary; begin Log.Add('del(' + Rec."Code" + ')'); Rec.Delete(); CurrPage.Update(false); end; } } }
+    var Log: Codeunit "FL Log";
+    trigger OnOpenPage()
+    var Row: Record "FL Row";
+    begin
+        if Row.FindSet() then
+            repeat
+                Rec := Row;
+                Rec.Insert();
+            until Row.Next() = 0;
+        Log.Add('open');
+    end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Rec."Code" + ')'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
+page 75381 "FL Temp ModOther List"
+{
+    PageType = List; SourceTable = "FL Row"; SourceTableTemporary = true; Editable = false; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(DelCur) { ApplicationArea = All; trigger OnAction() var Tmp: Record "FL Row" temporary; begin Log.Add('del(' + Rec."Code" + ')'); Rec.Delete(); Tmp.Copy(Rec, true); Tmp.Get('R1'); Tmp.Name := 'chg'; Tmp.Modify(); end; } } }
+    var Log: Codeunit "FL Log";
+    trigger OnOpenPage()
+    var Row: Record "FL Row";
+    begin
+        if Row.FindSet() then
+            repeat
+                Rec := Row;
+                Rec.Insert();
+            until Row.Next() = 0;
+        Log.Add('open');
+    end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Rec."Code" + ')'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
+page 75382 "FL Temp First List"
+{
+    PageType = List; SourceTable = "FL Row"; SourceTableTemporary = true; Editable = false; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(DelCur) { ApplicationArea = All; trigger OnAction() var Tmp: Record "FL Row" temporary; begin Log.Add('del(' + Rec."Code" + ')'); Rec.Delete(); end; } } }
+    var Log: Codeunit "FL Log";
+    trigger OnOpenPage()
+    var Row: Record "FL Row";
+    begin
+        if Row.FindSet() then
+            repeat
+                Rec := Row;
+                Rec.Insert();
+            until Row.Next() = 0;
+        Rec.FindFirst();
+        Log.Add('open');
+    end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Rec."Code" + ')'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
+page 75383 "FL Temp ArgCall List"
+{
+    PageType = List; SourceTable = "FL Row"; SourceTableTemporary = true; Editable = false; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Rows) { field("Code"; Rec."Code") { ApplicationArea = All; } field(Name; Rec.Name) { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(DelCur) { ApplicationArea = All; trigger OnAction() var Tmp: Record "FL Row" temporary; begin Log.Add(Format(Tmp.IsEmpty())); Rec.Delete(); end; } } }
+    var Log: Codeunit "FL Log";
+    trigger OnOpenPage()
+    var Row: Record "FL Row";
+    begin
+        if Row.FindSet() then
+            repeat
+                Rec := Row;
+                Rec.Insert();
+            until Row.Next() = 0;
+        Log.Add('open');
+    end;
+    trigger OnAfterGetCurrRecord() begin Log.Add('agcr(' + Rec."Code" + ')'); end;
+    trigger OnClosePage() begin Log.Add('close'); end;
+}
 codeunit 75374 "FL Log"
 {
     SingleInstance = true;
@@ -126,6 +203,26 @@ codeunit 75375 T
     begin
         Rows(3); P.OpenView(); P.GoToKey('R1'); P.Next(); P.DelCur.Invoke();
     end;
+    procedure UpdateInAction()
+    var P: TestPage "FL Temp Update List";
+    begin
+        Rows(3); P.OpenView(); P.GoToKey('R2'); P.DelCur.Invoke();
+    end;
+    procedure ModifyOtherInAction()
+    var P: TestPage "FL Temp ModOther List";
+    begin
+        Rows(3); P.OpenView(); P.GoToKey('R2'); P.DelCur.Invoke();
+    end;
+    procedure OpenOnFirst()
+    var P: TestPage "FL Temp First List";
+    begin
+        Rows(3); P.OpenView(); P.GoToKey('R2'); P.DelCur.Invoke();
+    end;
+    procedure ArgCallInAction()
+    var P: TestPage "FL Temp ArgCall List";
+    begin
+        Rows(3); P.OpenView(); P.GoToKey('R2'); P.DelCur.Invoke();
+    end;
     procedure StoredList(): Text
     var P: TestPage "FL Stored List";
     begin
@@ -150,7 +247,20 @@ fn the_list_lands_on_the_row_before_the_deleted_one() {
 /// The neighbors of the probe's cell on a list over a temporary table: refused.
 #[test]
 fn unmeasured_neighbors_are_refused() {
-    for proc in ["First", "Last", "FourRows", "OpenEdit", "EditableList", "NextBefore"] {
+    // The review's neighbors (al-runner PR 7946, round 1): `CurrPage.Update(false)` after the delete (T1), a change of another
+    // row in the action (T2), OnOpenPage ending on the first row (T3), a call in the argument of the action's log call.
+    for proc in [
+        "First",
+        "Last",
+        "FourRows",
+        "OpenEdit",
+        "EditableList",
+        "NextBefore",
+        "UpdateInAction",
+        "ModifyOtherInAction",
+        "OpenOnFirst",
+        "ArgCallInAction",
+    ] {
         let r = run_in(SRC, "T", proc);
         assert!(
             matches!(&r, Err(Signal::Unsupported(why)) if why.contains("a list over a temporary table after its action deleted")),

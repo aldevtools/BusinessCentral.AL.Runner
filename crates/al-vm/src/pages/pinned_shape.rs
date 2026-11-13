@@ -558,6 +558,28 @@ pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Ex
     }
 }
 
+/// `e` calls a procedure of a codeunit that a global variable of page `object` holds, with arguments that are text built of
+/// constants and fields of Rec with `+` (`Log.Add('I ' + Rec."Code" + ' ' + Rec.Name)`): the log call of the probe pages of
+/// pages/triggers/RecordTriggerReturnValue.al and testpage/lifecycle/ReopenSameVariableState.al (open corpus PR 1367).
+pub(super) fn rec_text_log_call(program: &ir::Program, object: usize, e: &ir::Expr) -> bool {
+    fn rec_text(rec: usize, e: &ir::Expr) -> bool {
+        match e {
+            ir::Expr::Const(_) => true,
+            ir::Expr::Load(ir::Place::Field(base, _)) => matches!(**base, ir::Place::Global(g) if g == rec),
+            ir::Expr::Binary(ir::BinOp::Add, a, b) => rec_text(rec, a) && rec_text(rec, b),
+            ir::Expr::Convert(_, a) => rec_text(rec, a),
+            _ => false,
+        }
+    }
+    let Some(rec) = program.objects[object].rec_slot else {
+        return false;
+    };
+    codeunit_var_call(program, object, e)
+        && matches!(e, ir::Expr::Call { object: callee, args, .. }
+            if program.objects[*callee].kind == ir::ObjKind::Codeunit
+                && args.iter().all(|a| matches!(a, ir::Arg::Value(v) if rec_text(rec, v))))
+}
+
 /// Whether trigger `name` (routine `r`) of page `object` has the body the pages of the close-errors fixtures give it
 /// (CemFixtures.al:201-224 CEM Card, :412-423 CEM Doc): OnModifyRecord and OnInsertRecord call a procedure of a codeunit
 /// variable, then `exit(true)`; OnQueryClosePage is the `exit` of such a call; OnClosePage is such a call. `false` for

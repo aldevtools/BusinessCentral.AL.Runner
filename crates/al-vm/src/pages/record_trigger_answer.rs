@@ -6,13 +6,15 @@
 //!   PageUpdateNewRowCard.Page.al: OnInsertRecord assigns the key and exits nothing, and the row is saved).
 //! - A named return value that ends true saves (open corpus PR 1367, pages/triggers/RecordTriggerReturnValue.al:446-541, the
 //!   True cells; the rule main had).
-//! - An `exit(false)` that did not run saves, and a named return value assigned false vetoes (RecordTriggerReturnValue.al, the
-//!   Cond and False cells). Both run only in the probe's shape (`probe_cell`), under an assumption; every other shape of them is
-//!   refused, because the earlier rule (the default value of an unnamed return is a veto, a named one never vetoes) is the one
-//!   the probe showed wrong.
+//! - An `exit(value)` that did not run, without a named return value, saves (RecordTriggerReturnValue.al, the Cond cells; corpus
+//!   testpage/CcPageLeads.al:341), and a named return value assigned false vetoes (the False cells). Both run only in the
+//!   measured shapes (`probe_cell`, `mod_mode_cell`), under an assumption; every other shape of them is refused, because the
+//!   earlier rule (the default value of an unnamed return is a veto, a named one never vetoes) is the one the probe showed
+//!   wrong. A named return value with an `exit(value)` that did not run keeps the earlier answer, the value it ends with (not
+//!   measured with such an exit).
 //! - A named return value that is never assigned keeps the earlier answer (no veto): not measured either way.
 
-use super::pinned_shape::{PinnedCode, TestCall};
+use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
@@ -46,30 +48,29 @@ impl Session {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let routine = &engine.program.objects[object].routines[r];
-        if super::has_value_exit(&routine.body) {
+        let Some(local) = routine.ret_local else {
+            if !super::has_value_exit(&routine.body) {
+                return Ok(None);
+            }
             // RecordTriggerReturnValue.al:252 Cond_Insert_OpenNewSetValueClose, :276 _Next, :301 Cond_Modify_SetValueNext,
             // :326 _Close: `if Blocked then exit(false);` with Blocked false saves.
             // corpus testpage/CcPageLeads.al:341 ModifyRecord_AssignsAnotherRecord agrees: its `case` runs no exit and sets Rec to
             // row 2, and the save leaves both rows as they were (`row1` a, `row2` b).
-            let cell =
-                (only_exit_false_last(&routine.body) && self.probe_cell(st, name)?) || self.mod_mode_cell(st, name)?;
-            if routine.ret_local.is_none() && cell {
+            if self.probe_cell(st, name, ProbeForm::Cond)? || self.mod_mode_cell(st, name)? {
                 assume(Assumption::PageRecordTriggerExitNotTakenSaves);
                 return Ok(None);
             }
             return unsupported(format!(
                 "the page's {name} trigger ended without running its exit(value) (measured only for the probe's Card)"
             ));
-        }
-        let Some(local) = routine.ret_local else {
-            return Ok(None);
         };
+        // A named return value answers with the value it ends with, as before, also next to an `exit(value)` that did not run.
         if b || !assigns(&routine.body, local) {
             return Ok(None);
         }
         // RecordTriggerReturnValue.al:350 False_Insert_OpenNewSetValueClose, :373 _Next, :397 False_Modify_SetValueNext,
         // :422 _Close: `Ok := false;` vetoes.
-        if assigns_false_last(&routine.body, local) && self.probe_cell(st, name)? {
+        if self.probe_cell(st, name, ProbeForm::False)? {
             assume(Assumption::PageRecordTriggerNamedFalseVetoes);
             self.pages.named_false_insert = name == "oninsertrecord";
             return Ok(Some(false));
@@ -79,18 +80,36 @@ impl Session {
         ))
     }
 
-    /// Whether the page, its open and the test's calls are those of a cell of the probe:
+    /// Whether the page, its code, its open and the test's calls are those of a cell of the probe:
     /// - a top-level Card over a stored table, without parts, with the probe's code (`CODE`), opened by the test, not modal;
+    /// - the page has no routine beside its three record triggers, and each one has the body `form` (:72-90 the Cond card,
+    ///   :117-135 the False card), so the trigger that runs earlier in the cell (OnInsertRecord before OnModifyRecord on
+    ///   OpenNew) has it too;
     /// - OnInsertRecord on OpenNew after the calls `SetValue` of the key field, then `SetValue` of a field outside the key
     ///   (:258-261: the second SetValue inserts);
     /// - OnModifyRecord on OpenNew after those two calls and `Next` or `Close` (:283-287, :259-262), or on OpenEdit after
     ///   `GoToKey`, `SetValue` of a field outside the key and `Next` or `Close` (:308-312, :333-336).
-    fn probe_cell(&mut self, st: &St, name: &str) -> Result<bool, Signal> {
+    fn probe_cell(&mut self, st: &St, name: &str, form: ProbeForm) -> Result<bool, Signal> {
         let mode = st.borrow().mode;
         if !self.top_card_of_test(st) {
             return Ok(false);
         }
         if !self.page_code_is(st, &CODE)? {
+            return Ok(false);
+        }
+        let bodies = {
+            let engine = self.engine();
+            let program = &engine.program;
+            let object = st.borrow().object as usize;
+            let triggers = &page_of(&engine, st).triggers;
+            let routines = &program.objects[object].routines;
+            routines.len() == triggers.len()
+                && routines.iter().all(|r| r.is_trigger && r.field.is_none())
+                && triggers
+                    .iter()
+                    .all(|(_, r)| probe_form(program, object, *r) == Some(form))
+        };
+        if !bodies {
             return Ok(false);
         }
         let Some(calls) = Self::test_calls(st) else {
@@ -124,7 +143,7 @@ impl Session {
         if name != "onmodifyrecord" || st.borrow().mode != PageMode::Edit || !self.top_card_of_test(st) {
             return Ok(false);
         }
-        if !self.page_code_is(st, &MOD_MODE)? {
+        if !self.page_code_is(st, &MOD_MODE)? || !self.mod_mode_body(st) {
             return Ok(false);
         }
         Ok(match Self::test_calls(st).as_deref() {
@@ -139,6 +158,27 @@ impl Session {
         })
     }
 
+    /// The page has no routine beside its OnModifyRecord, whose body is the fixture's (CcFixtures.al:260-275): one call of a
+    /// procedure of a codeunit held in a local variable, then one `case` without `else`, nothing after it.
+    fn mod_mode_body(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let program = &engine.program;
+        let object = st.borrow().object as usize;
+        let routines = &program.objects[object].routines;
+        let [(_, r)] = page_of(&engine, st).triggers.as_slice() else {
+            return false;
+        };
+        if routines.len() != 1 {
+            return false;
+        }
+        match code_stmts(program, object, *r).as_slice() {
+            [ir::Stmt::Expr(call), ir::Stmt::Case { otherwise, .. }] => {
+                otherwise.is_empty() && local_codeunit_call(program, object, *r, call)
+            }
+            _ => false,
+        }
+    }
+
     /// A Card over a stored table at the top level, without parts, opened by the test, not modal, not a lookup.
     fn top_card_of_test(&self, st: &St) -> bool {
         let shape = {
@@ -149,39 +189,53 @@ impl Session {
     }
 }
 
+/// The body forms of the probe's record triggers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeForm {
+    /// RecordTriggerReturnValue.al:72-77, :79-84, :86-91: `Log.Add(..); if Blocked then exit(false);`, no named return value.
+    Cond,
+    /// :117-121, :123-127, :129-133: `Log.Add(..); Ok := false;`, `Ok` the named return value.
+    False,
+}
+
+/// The form of routine `r` of page `object`: one log call (`rec_text_log_call`), then the last statement of the form; `None`
+/// for every other body.
+fn probe_form(program: &ir::Program, object: usize, r: usize) -> Option<ProbeForm> {
+    let routine = &program.objects[object].routines[r];
+    let stmts = code_stmts(program, object, r);
+    let [ir::Stmt::Expr(call), last] = stmts.as_slice() else {
+        return None;
+    };
+    if !rec_text_log_call(program, object, call) {
+        return None;
+    }
+    let false_const = |e: &ir::Expr| matches!(e, ir::Expr::Const(ir::Const::Boolean(false)));
+    match (last, routine.ret_local) {
+        (ir::Stmt::If(cond, then, otherwise), None) => {
+            let flag = matches!(cond, ir::Expr::Load(ir::Place::Global(g))
+                if program.objects[object].globals.get(*g).is_some_and(|s| s.ty == RtType::Boolean));
+            let exit_false = matches!(plain(then).as_slice(), [ir::Stmt::Exit(Some(e))] if false_const(e));
+            (flag && exit_false && otherwise.is_empty()).then_some(ProbeForm::Cond)
+        }
+        (ir::Stmt::Assign(ir::Place::Local(l), e), Some(local)) => {
+            (*l == local && false_const(e)).then_some(ProbeForm::False)
+        }
+        _ => None,
+    }
+}
+
+/// `e` calls a procedure of a codeunit that a local variable of routine `r` of `object` holds, not as a try call.
+fn local_codeunit_call(program: &ir::Program, object: usize, r: usize, e: &ir::Expr) -> bool {
+    let locals = &program.objects[object].routines[r].locals;
+    matches!(e, ir::Expr::Call { object: callee, instance: Some(inst), try_call: false, .. }
+        if program.objects[*callee].kind == ir::ObjKind::Codeunit
+            && matches!(&**inst, ir::Expr::Load(ir::Place::Local(l))
+                if locals.get(*l).is_some_and(|s| matches!(s.ty, RtType::Codeunit(_)))))
+}
+
 /// The statements of `body` without the position marks.
 fn plain(body: &[ir::Stmt]) -> Vec<&ir::Stmt> {
     body.iter().filter(|s| !matches!(s, ir::Stmt::Pos(_))).collect()
-}
-
-/// `body` is calls, then `if <condition> then exit(false);` (RecordTriggerReturnValue.al:72-77, :79-84).
-fn only_exit_false_last(body: &[ir::Stmt]) -> bool {
-    let stmts = plain(body);
-    let Some((last, before)) = stmts.split_last() else {
-        return false;
-    };
-    let ir::Stmt::If(_, then, otherwise) = last else {
-        return false;
-    };
-    before.iter().all(|s| matches!(s, ir::Stmt::Expr(_)))
-        && otherwise.is_empty()
-        && matches!(
-            plain(then).as_slice(),
-            [ir::Stmt::Exit(Some(ir::Expr::Const(ir::Const::Boolean(false))))]
-        )
-}
-
-/// `body` is calls, then `<named return value> := false;` (RecordTriggerReturnValue.al:117-121, :123-127).
-fn assigns_false_last(body: &[ir::Stmt], local: usize) -> bool {
-    let stmts = plain(body);
-    let Some((last, before)) = stmts.split_last() else {
-        return false;
-    };
-    before.iter().all(|s| matches!(s, ir::Stmt::Expr(_)))
-        && matches!(
-            last,
-            ir::Stmt::Assign(ir::Place::Local(l), ir::Expr::Const(ir::Const::Boolean(false))) if *l == local
-        )
 }
 
 /// Whether a statement of `body`, at any depth, assigns local `local`.
