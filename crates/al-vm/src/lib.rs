@@ -131,6 +131,7 @@ mod report_layout_export;
 mod report_layout_streams;
 mod report_no_layout_file;
 pub mod report_placeholder;
+mod report_save;
 mod reports;
 mod run_page_link_open;
 mod sessionops;

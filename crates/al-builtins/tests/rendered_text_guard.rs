@@ -2,7 +2,7 @@
 
 use al_builtins::builtin_id::BuiltinId;
 use al_builtins::native::Signal;
-use al_builtins::rendered_text::{self, DataItems, Extensions, Form, RenderFacts, RenderLayout, ReportShape};
+use al_builtins::rendered_text::{self, Form, RgbaReplace};
 use al_builtins::value::Value;
 
 fn marked() -> Value {
@@ -10,11 +10,11 @@ fn marked() -> Value {
     Value::Text(rendered_text::mark_text(n, Form::Whole).into())
 }
 
-/// The first render the rgba replace is measured for (`rendered_text::RGBA_REPLACE_BASE`).
-const MEASURED: RenderFacts = rendered_text::RGBA_REPLACE_BASE;
+/// A render whose save row measured the rgba replace (al-vm `report_save`, the rgba column).
+const MEASURED: RgbaReplace = RgbaReplace::Measured;
 
-fn marked_with(facts: RenderFacts, form: Form) -> Value {
-    let n = rendered_text::register_with("Guard Report", "Html", "WordOne", facts).expect("a render");
+fn marked_with(rgba: RgbaReplace, form: Form) -> Value {
+    let n = rendered_text::register_with("Guard Report", "Html", "WordOne", rgba).expect("a render");
     Value::Text(rendered_text::mark_text(n, form).into())
 }
 
@@ -225,84 +225,17 @@ fn the_rgba_replace_takes_only_renders_of_the_measured_shape() {
         assert!(matches!(call(marked_with(MEASURED, form)), Ok(true)));
         assert!(assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
     }
-    let shape = |data_items, extensions, rendering_layout_declared| RenderFacts {
-        shape: ReportShape {
-            data_items,
-            extensions,
-            rendering_layout_declared,
-        },
-        ..MEASURED
-    };
-    let tenant = |facts: RenderFacts| RenderFacts {
-        layout: RenderLayout::TempSelectedTenantWord,
-        ..facts
-    };
-    // The four forms measured with one fact changed (corpus pull request 1371, RxTenantLayoutBodyTests.al:319, :346, :373,
-    // :121).
-    for facts in [
-        shape(DataItems::One, Extensions::None, false),
-        shape(DataItems::ParentAndChild, Extensions::None, true),
-        shape(DataItems::One, Extensions::OneAddingColumns, true),
-        tenant(MEASURED),
-    ] {
-        assumptions::clear_hits();
-        assert!(matches!(call(marked_with(facts, Form::Whole)), Ok(true)), "{facts:?}");
-        assert!(assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
-    }
-    // One refusal reason per fact no cell measured, and one for two measured forms together.
-    let unmeasured = [
-        (
-            RenderFacts {
-                layout: RenderLayout::Unmeasured,
-                ..MEASURED
-            },
-            "it is not the default Word layout of its report or a user-defined Word layout a temporary selection named",
-        ),
-        (
-            RenderFacts {
-                no_selection_row: false,
-                ..MEASURED
-            },
-            "a stored layout selection row names the report",
-        ),
-        (
-            shape(DataItems::Unmeasured, Extensions::None, true),
-            "its data items are not one item or one item with one item inside it",
-        ),
-        (
-            shape(DataItems::One, Extensions::Unmeasured, true),
-            "its report extensions are not one extension that only adds columns",
-        ),
-        // A dataset that holds `rgba(`: BC's Html may then hold a color the replace rewrites.
-        (
-            RenderFacts {
-                dataset_holds_rgba: true,
-                ..MEASURED
-            },
-            "its dataset holds the text rgba(",
-        ),
-        (
-            tenant(shape(DataItems::One, Extensions::None, false)),
-            "it combines forms that are measured only one at a time: a user-defined Word layout a temporary selection \
-             named and a default layout not declared with DefaultRenderingLayout",
-        ),
-        (
-            tenant(shape(DataItems::ParentAndChild, Extensions::None, true)),
-            "measured only one at a time: a user-defined Word layout a temporary selection named and two data items",
-        ),
-        (
-            shape(DataItems::ParentAndChild, Extensions::OneAddingColumns, false),
-            "a default layout not declared with DefaultRenderingLayout and two data items and a report extension",
-        ),
-    ];
+    // A render whose save row did not measure it refuses with the save's reason; which renders those are is the table's
+    // (al-vm `report_save`, tested there).
     assumptions::clear_hits();
-    for (facts, want) in unmeasured {
-        replace_refused(marked_with(facts, Form::Whole), want);
-    }
     replace_refused(
-        marked(),
-        "it is not the default Word layout of its report or a user-defined",
+        marked_with(
+            RgbaReplace::NotMeasured("the nearest measured renders differ in: data items".into()),
+            Form::Whole,
+        ),
+        "is not measured on the Html of report Guard Report: the nearest measured renders differ in: data items",
     );
+    replace_refused(marked(), "nothing is known of the render");
     // A body that joins two renders, even two of the measured shape: one render per body was measured.
     let (Value::Text(a), Value::Text(b)) = (marked_with(MEASURED, Form::Whole), marked_with(MEASURED, Form::Whole))
     else {
