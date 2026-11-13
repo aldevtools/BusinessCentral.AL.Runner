@@ -995,8 +995,8 @@ impl<'a> Checker<'a> {
                 _ => false,
             };
         if judged {
-            // alc shows the name as written, quotes included (alc 18.0.39.10160, issue 7974: `'"Entry No."'`; corpus
-            // must-not-compile 0222 for a quoted codeunit name).
+            // alc shows the name as written, quotes included (alc 18.0.39.10160, issue 7974: `'"Entry No."'` in a codeunit,
+            // a table trigger and a page trigger; corpus must-not-compile 0222 for a quoted codeunit name).
             let written = ast::significant_green_tokens(node)
                 .find(|t| matches!(t.kind, SyntaxKind::Ident | SyntaxKind::QuotedIdent))
                 .map_or_else(|| name.clone(), |t| t.text.to_string());
