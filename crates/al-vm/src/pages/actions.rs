@@ -1409,13 +1409,11 @@ impl Session {
                 );
             }
             if std::mem::take(&mut st.borrow_mut().rec_moved_other) {
-                // An action that emptied the view and left Rec, with CurrPage.Update(false), on a primary key no row has
-                // (`post_left_new_line.rs` says what is pinned, with and without the new-row line).
+                // An action that emptied the view and left Rec on a key no row has (`post_left_new_line.rs` says what is pinned).
                 let rows_before = held_before.as_ref().map_or(0, Vec::len);
-                let settled = if moved_to_unstored_by_update_false {
-                    self.post_left_other_key_settled(st, rows_before)?
-                } else {
-                    None
+                let settled = match moved_to_unstored_by_update_false {
+                    true => self.post_left_other_key_settled(st, rows_before)?,
+                    false => None,
                 };
                 let Some(more) = settled else {
                     return unsupported(
