@@ -44,6 +44,9 @@ const PART_PROPS: [(&str, Option<&str>); 8] = [
     ("caption", None),
 ];
 
+/// The one page property of a `FORM_CELLS` host besides `HOST_PROPS`, if any (`FormCell::host_extra`).
+type HostExtra = Option<(&'static str, Option<&'static str>)>;
+
 /// The part properties every probe part sets: a ListPart without the new-row line (page 76842, as page 1178).
 const PART_REQUIRED: [(&str, &str); 2] = [("pagetype", "listpart"), ("insertallowed", "false")];
 
@@ -358,14 +361,8 @@ impl Session {
     /// with the properties and triggers of a probe host, every field control bound to a field of Rec, no page extension and no
     /// event subscriber. `Ok` with the one property of a `FORM_CELLS` host it has besides `HOST_PROPS`, if any, and whether its
     /// triggers are those of probe 1378 (`empty_part_rec_list_triggers::host_trigger_cell`); else the fact.
-    #[allow(clippy::type_complexity)]
-    fn list_host_measured(
-        &self,
-        host: &St,
-        st: &St,
-    ) -> Result<(Option<(&'static str, Option<&'static str>)>, bool), &'static str> {
-        let host_table = self.page_rec(host).borrow().table;
-        let part_table = self.page_rec(st).borrow().table;
+    fn list_host_measured(&self, host: &St, st: &St) -> Result<(HostExtra, bool), &'static str> {
+        let part = st.borrow().object as usize;
         let engine = self.engine();
         let (object, opened, stored_row) = {
             let h = host.borrow();
@@ -400,9 +397,7 @@ impl Session {
             _ => return Err("the List host has a page property no probe host has"),
         };
         let triggers = !trigger_set_measured(&page_of(&engine, host).triggers, &HOST_TRIGGERS);
-        if triggers
-            && !super::empty_part_rec_list_triggers::host_trigger_cell(&engine.program, object, host_table, part_table)
-        {
+        if triggers && !super::empty_part_rec_list_triggers::host_trigger_cell(&engine.program, object, part) {
             return Err("the List host has a set of triggers no probe host has");
         }
         if !self.unextended_unsubscribed(host) {

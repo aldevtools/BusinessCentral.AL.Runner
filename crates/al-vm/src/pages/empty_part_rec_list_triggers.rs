@@ -25,8 +25,11 @@ enum HostStmt {
 
 use HostStmt::{Editable, Log, Notify};
 
-/// The measured hosts: their OnOpenPage and OnAfterGetCurrRecord bodies (`None`: no such trigger). Each host form has the three.
-const CELLS: [(Option<&[HostStmt]>, Option<&[HostStmt]>); 3] = [
+/// The statements of one trigger, `None` when the host has no such trigger.
+type Body = Option<&'static [HostStmt]>;
+
+/// The measured hosts: their OnOpenPage and OnAfterGetCurrRecord bodies. Each host form has the three.
+const CELLS: [(Body, Body); 3] = [
     // Pages 76865 "PG EPT List Both" (:224) and 76868 "PG EPT Rep Both" (:352).
     (Some(&[Log, Editable, Notify]), Some(&[Log, Notify])),
     // Pages 76866 "PG EPT List OpenOnly" (:273) and 76869 "PG EPT Rep OpenOnly" (:403).
@@ -37,9 +40,14 @@ const CELLS: [(Option<&[HostStmt]>, Option<&[HostStmt]>); 3] = [
 
 /// Whether the page triggers of List page `host` are those of a host of probe 1378 (`CELLS`): exactly OnOpenPage,
 /// OnAfterGetCurrRecord or both, each body the probe's statements in the probe's order, the Record variables of every trigger on
-/// one table that is neither `host_table` nor `part_table` (table 76862 "PG EPT Setup", :63) and not temporary.
-pub(super) fn host_trigger_cell(program: &ir::Program, host: usize, host_table: u32, part_table: u32) -> bool {
-    let Some(page) = program.objects[host].page.as_ref() else {
+/// one table that is neither the source table of `host` nor that of its part page `part` (table 76862 "PG EPT Setup", :63) and
+/// not temporary.
+pub(super) fn host_trigger_cell(program: &ir::Program, host: usize, part: usize) -> bool {
+    let (Some(page), Some(host_table), Some(part_table)) = (
+        program.objects[host].page.as_ref(),
+        source_table(program, host),
+        source_table(program, part),
+    ) else {
         return false;
     };
     let mut open = None;
@@ -65,6 +73,15 @@ pub(super) fn host_trigger_cell(program: &ir::Program, host: usize, host_table: 
         && CELLS
             .iter()
             .any(|(o, c)| open.as_deref() == *o && curr.as_deref() == *c)
+}
+
+/// The source table of page `object`, from the type of its Rec.
+fn source_table(program: &ir::Program, object: usize) -> Option<u32> {
+    let o = &program.objects[object];
+    match o.globals.get(o.rec_slot?)?.ty {
+        RtType::Record(t, _) => Some(t),
+        _ => None,
+    }
 }
 
 /// What statement `s` of trigger `r` of host `host` is, when it is one the probe hosts have (`HostStmt`). The table of a Record
