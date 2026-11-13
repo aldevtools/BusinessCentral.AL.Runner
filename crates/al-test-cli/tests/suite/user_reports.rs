@@ -3126,3 +3126,35 @@ fn issue_7881_card_with_on_after_get_record_keeps_main_result() {
         "{outcome:?}"
     );
 }
+
+/// Issue 7882: a Document switched to view mode by the built-in View action, and a Document with a part, were not
+/// measured: the action keeps main's result.
+#[test]
+fn issue_7882_view_action_and_document_with_part_keep_main_result() {
+    let source = include_str!("../fixtures/rework-flowfield-action.al");
+    let goto = "        Document.GoToRecord(Header);\n";
+    let view_action = source
+        .replace("Document.OpenView();", "Document.OpenEdit();")
+        .replace(goto, &format!("{goto}        Document.View().Invoke();\n"));
+    let description = "                field(Description; Rec.Description) { }\n            }\n";
+    assert!(source.contains(description));
+    let with_part = source.replace(
+        description,
+        &format!("{description}            part(Links; \"Action Link Part\") {{ SubPageLink = Id = field(Id); }}\n"),
+    ) + r#"
+page 50925 "Action Link Part"
+{
+    PageType = ListPart;
+    SourceTable = "Action Link Row";
+    ApplicationArea = All;
+    layout { area(Content) { repeater(Rows) { field(Code; Rec.Code) { } } } }
+}
+"#;
+    for (shape, changed) in [("View action", view_action), ("part", with_part)] {
+        let outcome = outcome_named(&run_with_deps(&[], &changed), "CalculatedFieldDoesNotSaveStaleDocument");
+        assert!(
+            matches!(&outcome, Outcome::NotRun(reason) if reason.contains("a page saves a row that code changed after the page read it")),
+            "{shape}: {outcome:?}"
+        );
+    }
+}

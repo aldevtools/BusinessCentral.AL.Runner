@@ -660,6 +660,8 @@ pub struct PageState {
     pub test_opened_new: bool,
     /// The last open was the test's own `TestPage.OpenEdit`, `OpenView` or `OpenNew` (not a run by AL code).
     pub opened_by_test: bool,
+    /// The built-in Edit or View action switched the page's mode since it opened (`switch_mode`).
+    pub mode_switched_since_open: bool,
     /// What closed the page the last time (`None` before the first close, reset when the page opens). Decides what the
     /// page's code reaches through a part after the close (`pages/held_page_part.rs`).
     pub closed_by: Option<ClosedBy>,

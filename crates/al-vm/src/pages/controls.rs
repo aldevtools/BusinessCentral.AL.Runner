@@ -1187,6 +1187,7 @@ impl Session {
     /// testpage/TestPageControlEditableRoutes.al: Part_HostOpenEdit_ThenViewAction).
     pub(super) fn switch_mode(&mut self, st: &St, mode: PageMode) -> Result<Value, Signal> {
         st.borrow_mut().mode = mode;
+        st.borrow_mut().mode_switched_since_open = true;
         self.set_part_modes(st, mode);
         Ok(Value::Null)
     }

@@ -307,6 +307,7 @@ impl Session {
             s.new_row_inserted_by_trigger = false;
             s.test_opened_new = test_open && mode == PageMode::New;
             s.opened_by_test = test_open;
+            s.mode_switched_since_open = false;
             s.forget_pinned_scenario();
             s.closed_by = None;
             s.never_stored = false;

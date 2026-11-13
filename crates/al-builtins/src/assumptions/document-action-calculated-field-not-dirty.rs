@@ -1,6 +1,11 @@
 DocumentActionCalculatedFieldNotDirty => {
     id: "document-action-calculated-field-not-dirty",
-    assumed: "On a clean Document page, a change only to a calculated field in Rec during an action does not cause an implicit page save, including when the action committed a write through a separate record buffer.",
-    tests: "AL Runner issue 7882, measured on all three supported BC majors. The issue records the exact builds.",
+    assumed: "On a clean top-level Document page without parts, opened in view mode by the test's OpenView, an action that only changes FlowFields of Rec with CalcFields and committed its write through a separate record buffer causes no implicit page save. The page and its extensions declare no OnModifyRecord and nothing subscribes to it.",
+    tests: "AL Runner issue 7882 (reporter's repro CalculatedFieldDoesNotSaveStaleDocument, measured on all three supported BC majors; the issue records the exact builds).",
     probe: "Corpus pull request 1346.",
+    awaiting: Awaiting {
+        issues: &[7882],
+        files: &["tests/al-language/pages/currpage/TestDocumentFlowFieldSave.al"],
+        since: "2026-11-12",
+    },
 }

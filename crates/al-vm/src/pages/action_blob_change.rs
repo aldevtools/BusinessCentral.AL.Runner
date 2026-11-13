@@ -24,8 +24,10 @@ impl Session {
         if Self::same_values(&rec.borrow().fields, before) {
             return Ok(false);
         }
-        // Corpus PR 1346 (issue 7882): a view-mode Document action calculates a FlowField
-        // and commits a change through a separate buffer. The page has no modify observers.
+        // A Document action that only calculated a FlowField of Rec and committed its write through another buffer saves
+        // nothing (`document_view_action_only_changed_flowfields`). On the pinned Card and List of
+        // pages/actions/WfFlowFieldActionRec.al the FlowField is a control, filled when the row is read, so CalcFields leaves
+        // Rec as it was and the first check above already answers; the Document repro shows no such control.
         if !was_dirty && !deleted && self.document_view_action_only_changed_flowfields(st, &rec, before)? {
             al_builtins::assumptions::assume(
                 al_builtins::assumptions::Assumption::DocumentActionCalculatedFieldNotDirty,
@@ -56,6 +58,12 @@ impl Session {
         Ok(false)
     }
 
+    /// The measured shape of AL Runner issue 7882 (corpus pull request 1346, assumption
+    /// `document-action-calculated-field-not-dirty`): a top-level Document without parts, opened by the test with OpenView
+    /// (not switched by the View action, not trapped, not modal), not edited, and no OnModifyRecord in the page or an
+    /// extension and no subscriber to it. The action changed only FlowFields of Rec, with CalcFields (not by assignment),
+    /// left no uncommitted write, and the stored row differs from the one the page read (the action committed its write
+    /// through another buffer).
     fn document_view_action_only_changed_flowfields(
         &mut self,
         st: &St,
@@ -64,6 +72,11 @@ impl Session {
     ) -> Result<bool, Signal> {
         let state = st.borrow();
         if state.mode != PageMode::View
+            || !state.opened_by_test
+            || state.mode_switched_since_open
+            || state.caught_by_trap
+            || state.modal
+            || !state.parts.is_empty()
             || state.host.is_some()
             || self.engine.object_facts[state.object as usize].page_type != Some(ir::PageType::Document)
             || !self.tx.writes.is_empty()
