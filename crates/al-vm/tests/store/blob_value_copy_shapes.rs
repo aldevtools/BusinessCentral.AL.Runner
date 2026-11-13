@@ -17,13 +17,18 @@ table 50440 "BS Row"
         field(2; Data; Blob) { }
         field(3; Other; Blob) { }
         field(4; Plain; Blob) { Compressed = false; }
+        field(5; Packed; Blob) { Compressed = true; }
     }
     keys { key(PK; Key1) { Clustered = true; } }
 }
 
 tableextension 50441 "BS Row Ext" extends "BS Row"
 {
-    fields { field(50441; Added; Blob) { } }
+    fields
+    {
+        field(50441; Added; Blob) { }
+        field(50442; AddedPlain; Blob) { Compressed = false; }
+    }
 }
 
 codeunit 50443 "BS Sub"
@@ -646,10 +651,30 @@ codeunit 50444 C
         exit(A + '|' + Rd(E2));
     end;
 
-    // ---- Refused ----
+    // ---- Compressed = false and table extension fields in the moves of the first probe ----
 
-    // FieldRef.Validate into a table extension field.
-    procedure RefusedValidateIntoExtensionField(): Text
+    // FieldRef.Value and FieldRef.Validate into a table extension field.
+    procedure ValueAndValidateIntoExtensionField(): Text
+    var
+        Src: Record "BS Row" temporary;
+        Dst: Record "BS Row" temporary;
+        Dst2: Record "BS Row" temporary;
+        RR: RecordRef;
+        RR2: RecordRef;
+    begin
+        W(Src, 'alpha');
+        RR.GetTable(Dst);
+        RR.Field(50441).Value := Src.Data;
+        RR2.GetTable(Dst2);
+        RR2.Field(50441).Validate(Src.Data);
+        W(Src, 'beta');
+        RR.SetTable(Dst);
+        RR2.SetTable(Dst2);
+        exit(RdAdded(Dst) + '|' + RdAdded(Dst2));
+    end;
+
+    // FieldRef.Value into a Compressed = false field.
+    procedure ValueIntoUncompressedField(): Text
     var
         Src: Record "BS Row" temporary;
         Dst: Record "BS Row" temporary;
@@ -657,14 +682,17 @@ codeunit 50444 C
     begin
         W(Src, 'alpha');
         RR.GetTable(Dst);
-        RR.Field(50441).Validate(Src.Data);
-        exit('ran');
+        RR.Field(4).Value := Src.Data;
+        W(Src, 'beta');
+        RR.SetTable(Dst);
+        exit(RdPlain(Dst));
     end;
 
     // GetTable of a Compressed = false Blob read with CalcFields.
-    procedure RefusedGetTableUncompressedCalcFields(): Text
+    procedure GetTableUncompressedCalcFields(): Text
     var
         Src: Record "BS Row";
+        Dst: Record "BS Row" temporary;
         RR: RecordRef;
     begin
         Src.Key1 := 54;
@@ -673,18 +701,49 @@ codeunit 50444 C
         Src.Get(54);
         Src.CalcFields(Plain);
         RR.GetTable(Src);
-        exit('ran');
+        WPlain(Src, 'new');
+        RR.SetTable(Dst);
+        exit(RdPlain(Dst));
     end;
 
     // FieldRef.Value into a table extension field from a row read without CalcFields.
-    procedure RefusedExtensionFieldValueFromUnreadSource(): Text
+    procedure ExtensionFieldValueFromUnreadSource(): Text
     var
         Src: Record "BS Row";
+        Dst: Record "BS Row" temporary;
         RR: RecordRef;
     begin
         StoreUnloaded(Src, 55);
-        RR.Open(Database::"BS Row", true);
+        RR.GetTable(Dst);
         RR.Field(50441).Value := Src.Data;
+        RR.SetTable(Dst);
+        exit(RdAdded(Dst));
+    end;
+
+    // ---- Refused ----
+
+    // FieldRef.Value into a field with Compressed = true.
+    procedure RefusedValueIntoCompressedField(): Text
+    var
+        Src: Record "BS Row" temporary;
+        RR: RecordRef;
+    begin
+        W(Src, 'alpha');
+        RR.Open(Database::"BS Row", true);
+        RR.Field(5).Value := Src.Data;
+        exit('ran');
+    end;
+
+    // GetTable of a record whose table extension field with the Compressed property holds content.
+    procedure RefusedGetTableExtensionFieldWithCompressed(): Text
+    var
+        Src: Record "BS Row" temporary;
+        RR: RecordRef;
+        OS: OutStream;
+    begin
+        Src.AddedPlain.CreateOutStream(OS);
+        OS.WriteText('alpha');
+        RR.GetTable(Src);
         exit('ran');
     end;
 }
@@ -777,7 +836,10 @@ fn uncompressed_and_table_extension_fields_copy_in_the_measured_moves() {
         flagged("VariationFields"),
         "hv:zzpha|hv:zzmma|hv:alpha|hv:gamma|hv:alpha|hv:gamma"
     );
-    assert_eq!(flagged("ExtensionFieldStoredGetTableModify"), "row=hv:alpha src=hv:newha");
+    assert_eq!(
+        flagged("ExtensionFieldStoredGetTableModify"),
+        "row=hv:alpha src=hv:newha"
+    );
 }
 
 #[test]
@@ -818,9 +880,19 @@ fn arguments_and_states_that_are_not_measured_share_as_before() {
     assert_eq!(unflagged("NeighborOtherStates"), "hv:betaa|hv:x");
 }
 
+/// These were refused after al-runner PR 7936 and shared the buffer before it (issue 6924: three tests of an outside reporter
+/// stopped running). FieldRef.Value into such a field is not a cell of its own in corpus PR 1372: the fields copy in GetTable,
+/// SetTable and TransferFields (streams/BlobValueCopyShapes.al:1174, :1190, :1206).
 #[test]
-fn content_in_a_field_kind_outside_the_measured_moves_stays_refused() {
-    refused("RefusedValidateIntoExtensionField");
-    refused("RefusedGetTableUncompressedCalcFields");
-    refused("RefusedExtensionFieldValueFromUnreadSource");
+fn fieldref_value_and_validate_into_an_extension_or_uncompressed_field_copy() {
+    assert_eq!(flagged("ValueAndValidateIntoExtensionField"), "hv:alpha|hv:alpha");
+    assert_eq!(flagged("ValueIntoUncompressedField"), "hv:alpha");
+    assert_eq!(flagged("GetTableUncompressedCalcFields"), "hv:alpha");
+    assert_eq!(flagged("ExtensionFieldValueFromUnreadSource"), "nohv:");
+}
+
+#[test]
+fn content_in_a_field_kind_that_is_not_measured_stays_refused() {
+    refused("RefusedValueIntoCompressedField");
+    refused("RefusedGetTableExtensionFieldWithCompressed");
 }

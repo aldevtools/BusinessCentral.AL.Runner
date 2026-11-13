@@ -34,7 +34,7 @@ pub(crate) enum BlobMove {
     Variant { local: bool },
     /// `Dst.Copy(Src [, ShareTable])` between two temporary records or two that are not.
     RecordCopy,
-    /// A record handed by value to a parameter of a procedure, or assigned to a local Variant ([`by_value`]).
+    /// A record handed by value to a parameter of a procedure, or assigned to a local Variant ([`Session::blobs_by_value`]).
     RecordByValue,
 }
 
@@ -130,6 +130,7 @@ pub(crate) enum FieldKind {
     /// the property (:53).
     Variation,
     /// Any other field: a FlowField, a FlowFilter, another value of `Compressed`, a table extension field with the property.
+    /// Not measured.
     Other,
 }
 
@@ -177,7 +178,11 @@ pub(crate) fn moved(
             row_copy,
             written: buf.written,
             content: !buf.bytes.is_empty(),
-            unread_row: buf.db_row && !buf.loaded && !buf.written && !buf.first_write_truncates && !buf.bytes.is_empty(),
+            unread_row: buf.db_row
+                && !buf.loaded
+                && !buf.written
+                && !buf.first_write_truncates
+                && !buf.bytes.is_empty(),
             in_memory: buf.loaded && !row_copy && !buf.inserted && !buf.persisted && !buf.refetch,
         };
         (s, buf.uncompressed)
@@ -195,14 +200,18 @@ pub(crate) fn moved(
     if plain.is_none() && !refused {
         return Ok(v);
     }
-    // A buffer a read of a `Compressed = false` field handed out is not measured in any move.
-    let kind = if uncompressed { FieldKind::Other } else { kind() };
+    // A buffer a read of a `Compressed = false` field handed out counts as a field of that kind.
+    let kind = match (kind(), uncompressed) {
+        (FieldKind::Plain, true) => FieldKind::Variation,
+        (kind, _) => kind,
+    };
     let cell = match kind {
         FieldKind::Plain => plain,
-        FieldKind::Variation if variation_measured(how, &s) => Some(Cell::Copy),
+        FieldKind::Variation if first_probe_move(how) => plain,
+        FieldKind::Variation => None,
         _ if refused => {
             return Err(Signal::unsupported(format!(
-                "a Blob with content moved by {} into or from a FlowField, a field with the Compressed property or a field of a table extension, in a form that is not measured (whether it is copied is not pinned)",
+                "a Blob with content moved by {} into or from a FlowField or a field with a Compressed property other than Compressed = false in a table (whether it is copied is not pinned)",
                 how.text()
             )));
         }
@@ -260,8 +269,9 @@ enum Cell {
     UnreadRow,
 }
 
-/// The measured cell a move between [`FieldKind::Plain`] fields belongs to, if any. P1 is corpus PR 1369
-/// (FieldRefValueBlobCopy.al), P2 is corpus PR 1372 (streams/BlobValueCopyShapes.al).
+/// The measured cell a move between [`FieldKind::Plain`] fields belongs to, if any; [`FieldKind::Variation`] fields take the
+/// same cell in the moves [`first_probe_move`] names. P1 is corpus PR 1369 (FieldRefValueBlobCopy.al), P2 is corpus PR 1372
+/// (streams/BlobValueCopyShapes.al).
 ///
 /// A loaded source with content (written in memory, or read with CalcFields): a copy. P1 for FieldRef.Value,
 /// FieldRef.Validate, GetTable, SetTable, TransferFields(Source) and a local Variant.
@@ -312,20 +322,25 @@ fn measured(how: BlobMove, s: &Source) -> Option<Cell> {
     }
 }
 
-/// The cells measured between [`FieldKind::Variation`] fields: a loaded source with content through GetTable, SetTable and
-/// TransferFields(Source) (corpus PR 1372, streams/BlobValueCopyShapes.al:1174 Compressed = false, :1190 and :1206 a table
-/// extension field).
-fn variation_measured(how: BlobMove, s: &Source) -> bool {
-    s.loaded
-        && s.content
-        && matches!(
-            how,
-            BlobMove::GetTable | BlobMove::SetTable | BlobMove::TransferFields(TransferCall::Plain)
-        )
+/// The moves in which a [`FieldKind::Variation`] field gives what a plain field gives ([`measured`]). Corpus PR 1372
+/// (streams/BlobValueCopyShapes.al) measured loaded content through GetTable, SetTable and TransferFields(Source) (:1174
+/// Compressed = false, :1190 and :1206 a table extension field), and such a field as the source of FieldRef.Value and of a
+/// local Variant (:1174, :1190). Such a field as the target of FieldRef.Value and FieldRef.Validate, and its empty and
+/// not-loaded states, are taken to follow: these moves were refused for these fields between al-runner PR 7936 and this
+/// rule, which cost tests of an outside reporter that passed before (al-runner issue 6924).
+fn first_probe_move(how: BlobMove) -> bool {
+    matches!(
+        how,
+        BlobMove::FieldRefValue
+            | BlobMove::FieldRefValidate
+            | BlobMove::GetTable
+            | BlobMove::SetTable
+            | BlobMove::TransferFields(TransferCall::Plain)
+            | BlobMove::Variant { local: true }
+    )
 }
 
-/// The moves of content that were refused, before corpus PR 1372, for a field that is not [`FieldKind::Plain`]: they stay
-/// refused where [`variation_measured`] does not name them.
+/// The moves of content that are refused for a field of [`FieldKind::Other`] (as since al-runner PR 7936).
 fn refused_before(how: BlobMove, s: &Source) -> bool {
     match how {
         BlobMove::FieldRefValue => (s.loaded && s.content) || (!s.loaded && s.row_copy),

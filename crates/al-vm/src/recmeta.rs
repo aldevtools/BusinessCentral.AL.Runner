@@ -1065,7 +1065,6 @@ impl Session {
             d.temp_id = s.temp_id.clone();
         }
         Ok(Value::Null)
-    
     }
 
     /// `TestField(Field [, Value])`. The "must have a value" text is pinned by the corpus
@@ -1634,7 +1633,10 @@ impl Session {
             if let Value::Blob(_) = &src_fields[sp] {
                 let cur = rec.borrow().fields[dp].clone();
                 let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(args));
-                let kind = || self.blob_field_kind(src_table, sp).with(self.blob_field_kind(t.object as usize, dp));
+                let kind = || {
+                    self.blob_field_kind(src_table, sp)
+                        .with(self.blob_field_kind(t.object as usize, dp))
+                };
                 let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how, kind)?;
                 updates.push((dp, ops::convert(v, &df.ty)?));
                 continue;

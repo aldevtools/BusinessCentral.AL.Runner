@@ -290,7 +290,7 @@ codeunit 50437 C
         exit(Rd(Dst));
     end;
 
-    // Not measured: a field a table extension declares.
+    // A field a table extension declares.
     procedure ExtensionFieldWithContent(): Text
     var
         Src: Record "RM Row" temporary;
@@ -302,7 +302,7 @@ codeunit 50437 C
         exit('ran');
     end;
 
-    // Not measured: Compressed = false.
+    // Compressed = false.
     procedure UncompressedFieldWithContent(): Text
     var
         Src: Record "RM Row" temporary;
@@ -516,18 +516,18 @@ fn a_variant_holds_a_copy() {
 
 #[test]
 fn content_into_or_from_a_field_that_is_not_measured_is_refused() {
-    refused("ExtensionFieldWithContent");
-    refused("UncompressedFieldWithContent");
     refused("FlowFieldWithContent");
-    refused("ExtensionFieldFromUnreadSource");
 }
 
-/// Refused until corpus PR 1372 measured them: GetTable of a table extension field (streams/BlobValueCopyShapes.al:1190) and
-/// TransferFields(Rec) of a Compressed = false field (:1174) copy.
+/// Refused until corpus PR 1372 measured that a table extension field and a Compressed = false field copy as the others do
+/// (streams/BlobValueCopyShapes.al:1174, :1190, :1206); the values are in `blob_value_copy_shapes.rs`.
 #[test]
-fn gettable_and_transferfields_of_an_extension_or_uncompressed_field_run() {
+fn moves_of_an_extension_or_uncompressed_field_run() {
     assert_eq!(run("GetTableExtensionFieldWithContent"), ("ran".into(), true));
     assert_eq!(run("TransferFieldsUncompressedWithContent"), ("ran".into(), true));
+    assert_eq!(run("ExtensionFieldWithContent"), ("ran".into(), true));
+    assert_eq!(run("UncompressedFieldWithContent"), ("ran".into(), true));
+    assert_eq!(run("ExtensionFieldFromUnreadSource"), ("ran".into(), true));
 }
 
 /// Shared until corpus PR 1372 measured them: TransferFields(Rec, true) (streams/BlobValueCopyShapes.al:741) and a global
