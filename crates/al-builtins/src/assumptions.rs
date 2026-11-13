@@ -352,7 +352,7 @@ mod tests {
                         continue;
                     }
                     stack.push(p);
-                } else if name.ends_with(".rs") && p.to_string_lossy().contains("/src/") {
+                } else if name.ends_with(".rs") && p.components().any(|c| c.as_os_str() == "src") {
                     if let Ok(t) = std::fs::read_to_string(&p) {
                         out.push((p, t));
                     }

@@ -705,15 +705,24 @@ impl Lowerer<'_> {
         if !matches!(subject_type, Ty::Integer | Ty::BigInteger | Ty::Decimal) {
             return Ok(());
         }
-        // IntegerMembership.al measures a qualified Integer record field, an Integer
-        // set and Boolean AND, including eager evaluation of the right operand.
+        // al-runner issue 7906, corpus PR #1360: language/operators/TestIntegerRecordMembership.al.
+        let record_field = |node: &SyntaxNode| {
+            node.kind() == SyntaxKind::MemberExpr
+                && matches!(self.res(node), Some(Res::Field { .. }))
+                && node
+                    .children()
+                    .next()
+                    .is_some_and(|receiver| matches!(self.ty_ref(&receiver), Ty::Record { .. }))
+        };
         let measured = op == "and"
-            && subject.kind() == SyntaxKind::MemberExpr
             && matches!(subject_type, Ty::Integer)
-            && matches!(self.res(&subject), Some(Res::Field { .. }))
+            && record_field(&subject)
+            && (rhs.kind() == SyntaxKind::CallExpr || record_field(rhs))
             && operands.next().is_some_and(|set| {
                 set.kind() == SyntaxKind::SetExpr
-                    && set.children().all(|entry| matches!(self.ty_ref(&entry), Ty::Integer))
+                    && set
+                        .children()
+                        .all(|entry| entry.kind() == SyntaxKind::Literal && matches!(self.ty_ref(&entry), Ty::Integer))
             });
         if !measured {
             return Err(
@@ -766,7 +775,9 @@ impl Lowerer<'_> {
             NameRef if crate::check::is_this_keyword(n) && self.ws.objects[self.oi].kind == ObjKind::Report => {
                 Ok(ir::Expr::ThisInstance)
             }
-            ParenExpr => self.expr(&kids[0]),
+            // The parser recovers from `Do();` (alc: AL0104) with an empty `()`: refuse it, never index into it
+            // (al-runner issue 7957).
+            ParenExpr => self.expr(kids.first().ok_or("parenthesized expression without an operand")?),
             PrefixExpr => {
                 let op = match sig_tokens(n)[0].text().to_ascii_lowercase().as_str() {
                     "not" => ir::UnOp::Not,
@@ -810,7 +821,7 @@ impl Lowerer<'_> {
                 // `and`, `or` and `xor` (grammar/expressions.rs; corpus types/lt-in-precedence-date-guid-filters/P143Prec_*.al).
                 // `<Integer> in [..] and|or|xor <Boolean>`: the corpus has BC answer `1 in [1, 2] and false` with Yes
                 // (P143Prec_InAnd_Int), which neither reading of the precedence explains, while the Boolean and enum forms follow
-                // `(a in [..]) and b`. The Integer form is refused until it is probed again (docs/probes-needed.md).
+                // `(a in [..]) and b`. The guard admits only the measured Integer record-field form.
                 self.guard_numeric_in_followed_by_boolean(&op, &kids[0], &kids[1])?;
                 // How a settled DotNet operand may be used depends on the operator (ADR-024).
                 let operand_use = match op.as_str() {

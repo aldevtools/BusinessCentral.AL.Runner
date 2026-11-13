@@ -330,8 +330,9 @@ fn bool_prop(value: &str) -> Option<bool> {
     }
 }
 
-/// Walks the `dataset` section of report `obj` and checks the object's own properties.
-pub fn layout(obj: &ast::Object) -> Layout {
+/// Walks the `dataset` section of report `obj` and checks the object's own properties. `timer_trigger` is the lowercase name of
+/// the Elapsed trigger of the report's WithEvents Timer (`lower::with_events::timer_elapsed_trigger`), which never runs.
+pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
     let mut out = Layout {
         items: Vec::new(),
         processing_only: false,
@@ -416,7 +417,9 @@ pub fn layout(obj: &ast::Object) -> Layout {
     }
     for t in obj.triggers() {
         let n = t.name().to_ascii_lowercase();
-        if !["oninitreport", "onprereport", "onpostreport", "onprerendering"].contains(&n.as_str()) {
+        if !["oninitreport", "onprereport", "onpostreport", "onprerendering"].contains(&n.as_str())
+            && timer_trigger != Some(n.as_str())
+        {
             out.reasons.push(format!("report trigger {n} is not supported yet"));
         }
     }
@@ -1129,7 +1132,7 @@ fn split_outside_quotes(s: &str) -> Vec<&str> {
 }
 
 /// An enclosing data item a `DataItemLinkReference` names: its index and its table.
-type EnclosingItem = (usize, Option<usize>);
+type EnclosingItem = (Option<usize>, Option<usize>);
 
 /// The IR of one data item. `parent_table` is the table of the item it is nested under.
 fn item_ir(
@@ -1165,12 +1168,14 @@ fn item_ir(
     // `DataItemLinkReference = Name` links the fields to the named enclosing data item's row, not the
     // parent's (corpus streams/TestReportDataItemLinkReferenceContracts.al).
     let mut link_item = None;
+    let mut reference_resolved = false;
     let mut parent_table = parent_table;
     if let Some(name) = prop("DataItemLinkReference") {
         let name = crate::scan::unquote_double(name.trim());
         match enclosing(&name) {
             Some((idx, table)) => {
-                link_item = Some(idx);
+                link_item = idx;
+                reference_resolved = true;
                 parent_table = table;
             }
             None => reasons.push(format!(
@@ -1179,7 +1184,7 @@ fn item_ir(
             )),
         }
     }
-    let referenced_unknown = prop("DataItemLinkReference").is_some() && link_item.is_none();
+    let referenced_unknown = prop("DataItemLinkReference").is_some() && !reference_resolved;
     if let Some(text) = prop("DataItemLink").filter(|_| !referenced_unknown) {
         match parent_table.zip(table) {
             None => reasons.push(format!(
@@ -1360,7 +1365,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
             let mut at = raw.parent;
             while let Some(i) = at {
                 if layout.items[i].name.eq_ignore_ascii_case(name) {
-                    return Some((i, items.get(i).and_then(|x| x.table)));
+                    return Some((Some(i), items.get(i).and_then(|x| x.table)));
                 }
                 at = layout.items[i].parent;
             }
@@ -1563,10 +1568,28 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
         } else {
             raw.parent.and_then(|p| added.get(p).and_then(|a| a.item.table))
         };
-        let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &|_| None, &mut reasons);
+        let has_link = raw
+            .section
+            .properties()
+            .any(|p| p.name().eq_ignore_ascii_case("DataItemLink"));
+        let enclosing = |name: &str| {
+            // Issue #7904 and corpus PR #1358: reports/extensions/TestReportExtensionParentLink.al:51-57.
+            let anchor = base_parent
+                .map(|p| (Some(p), cx.base_items[p].name.as_str()))
+                .or_else(|| parent.map(|p| (None, cx.layout.items[p].name.as_str())));
+            anchor
+                .filter(|(_, parent)| has_link && parent.eq_ignore_ascii_case(name))
+                .map(|(index, _)| (index, parent_table))
+        };
+        let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &enclosing, &mut reasons);
+        let explicit_parent_link = raw
+            .section
+            .properties()
+            .any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"));
         added.push(ir::AddedItem {
             item,
             base_parent,
+            explicit_parent_link,
             place,
         });
     }
@@ -1619,7 +1642,7 @@ mod tests {
     fn layout_of(src: &str) -> Layout {
         let parse = al_syntax::parse(src, &Default::default());
         let root = ast::SourceFile::cast(parse.syntax()).unwrap();
-        layout(&root.objects().next().unwrap())
+        layout(&root.objects().next().unwrap(), None)
     }
 
     #[test]

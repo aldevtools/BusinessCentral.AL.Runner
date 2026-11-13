@@ -2526,7 +2526,946 @@ codeunit 69502 T {{ Subtype = Test;
     }
 }
 
+/// Issue 7770: only the focus move on an unfiltered OpenNew Document without parts
+/// is covered by TestPageBlankKeyInsert.al. The neighboring focus moves must refuse; a value typed into the variable
+/// control with no focus move (first control, or after `New`) keeps main's outcome (its Modify finds no row).
+#[test]
+fn issue_7770_document_variable_validation_refuses_unmeasured_shapes() {
+    let key = "field(Id; Rec.Id) { ApplicationArea = All; }";
+    let scan = "field(Scan; Input) { ApplicationArea = All; trigger OnValidate() begin Rec.Payload := Input; Rec.Modify(); end; }";
+    for (controls, part, open, extra, insert, refusal) in [
+        (format!("{scan} {key}"), "", "", "", "", "does not exist"),
+        (format!("{key} {scan}"), "", "Doc.New();", "", "", "does not exist"),
+        (
+            format!("{key} {scan}"),
+            "part(Lines; Lines) { ApplicationArea = All; }",
+            "",
+            "",
+            "",
+            "OpenNew focus move",
+        ),
+        (
+            format!("{key} {scan}"),
+            "",
+            "",
+            "trigger OnOpenPage() begin Rec.SetRange(Id, 3); end;",
+            "",
+            "OpenNew focus move",
+        ),
+        (
+            format!("{key} {scan}"),
+            "",
+            "",
+            "",
+            "Error('Insert rejected');",
+            "an insert error",
+        ),
+    ] {
+        let test = format!(
+            r#"
+table 69500 Row {{
+    fields {{ field(1; Id; Integer) {{ }} field(2; Payload; Text[20]) {{ }} }}
+    keys {{ key(PK; Id) {{ Clustered = true; }} }}
+    trigger OnInsert() begin {insert} Id := 2; end;
+}}
+page 69501 Doc {{
+    PageType = Document; SourceTable = Row;
+    layout {{ area(Content) {{ group(General) {{ {controls} }} {part} }} }}
+    {extra}
+    var Input: Text[20];
+}}
+page 69502 Lines {{
+    PageType = ListPart; SourceTable = Row;
+    layout {{ area(Content) {{ repeater(Lines) {{ field(Id; Rec.Id) {{ ApplicationArea = All; }} }} }} }}
+}}
+codeunit 69503 T {{ Subtype = Test;
+    [Test] procedure P() var Doc: TestPage Doc; begin
+        Doc.OpenNew(); {open} Doc.Scan.SetValue('SCANNED');
+    end;
+}}
+"#
+        );
+        let outcomes = run_with_deps(&[], &test);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) | Outcome::Fail(why) if why.contains(refusal)),
+            "{outcomes:?}"
+        );
+    }
+}
+
+/// Issue 7771: SelectionFilterNoRow.al measures a static modal Worksheet
+/// with DelayedInsert and just one exact filter in group 2.
+#[test]
+fn issue_7771_empty_modal_worksheet_refuses_unmeasured_shapes() {
+    let exact = "Rec.FilterGroup(2); Rec.SetRange(Name, 'VISIBLE'); Rec.FilterGroup(0);";
+    let delayed = "DelayedInsert = true;";
+    let static_run = "Page.RunModal(Page::Worksheet);";
+    for (property, filter, run) in [
+        ("", exact, static_run),
+        (
+            delayed,
+            "Rec.FilterGroup(2); Rec.SetFilter(Name, 'V*'); Rec.FilterGroup(0);",
+            static_run,
+        ),
+        (
+            delayed,
+            "Rec.FilterGroup(2); Rec.SetRange(Name, 'VISIBLE'); Rec.FilterGroup(0); Rec.SetRange(Id, 2);",
+            static_run,
+        ),
+        (
+            "DelayedInsert = true; SourceTableView = where(Name = const('VISIBLE'));",
+            "",
+            static_run,
+        ),
+        (delayed, exact, "Window.RunModal();"),
+        (delayed, exact, "Page.RunModal(Page::Worksheet, Input);"),
+        (delayed, exact, "Input.Get(1); Page.RunModal(Page::Worksheet, Input);"),
+        (
+            delayed,
+            exact,
+            "Response := Page.RunModal(Page::Worksheet); if Response = Action::OK then;",
+        ),
+    ] {
+        let test = format!(
+            r#"
+table 69500 Row {{
+    fields {{ field(1; Id; Integer) {{ }} field(2; Name; Text[20]) {{ }} }}
+    keys {{ key(PK; Id) {{ Clustered = true; }} }}
+}}
+page 69501 Worksheet {{
+    PageType = Worksheet; SourceTable = Row; InsertAllowed = false; {property}
+    layout {{ area(Content) {{ repeater(Rows) {{ field(Id; Rec.Id) {{ ApplicationArea = All; }} }} }} }}
+    actions {{ area(Processing) {{ action(Check) {{
+        ApplicationArea = All;
+        trigger OnAction() var Selected: Record Row; begin
+            CurrPage.SetSelectionFilter(Selected);
+        end;
+    }} }} }}
+    trigger OnOpenPage() begin {filter} if Rec.FindFirst() then; end;
+}}
+codeunit 69502 T {{ Subtype = Test;
+    [Test] [HandlerFunctions('HandleWorksheet')]
+    procedure P() var Row: Record Row; Input: Record Row; Window: Page Worksheet; Response: Action; begin
+        Row.Id := 1; Row.Name := 'HIDDEN'; Row.Insert(); {run}
+    end;
+    [ModalPageHandler] procedure HandleWorksheet(var Window: TestPage Worksheet) begin
+        Window.Check.Invoke();
+    end;
+}}
+"#
+        );
+        let outcomes = run_with_deps(&[], &test);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains("on no row")),
+            "{property} {filter} {run}: {outcomes:?}"
+        );
+    }
+}
+
+#[test]
+fn measured_group_two_enum_flowfilter_constrains_relation() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/group-two-enum-flowfilter-relation.al"),
+    ));
+}
+
+#[test]
+fn issue_7877_other_group_two_flowfilter_shapes_keep_their_refusals() {
+    let source = include_str!("../fixtures/group-two-enum-flowfilter-relation.al");
+    let narrow = r#"Source.SetRange("Kind Filter", Source."Kind Filter"::Selected);"#;
+    let other_type = source.replace(
+        r#"Enum "Group Relation Kind") {"#,
+        "Option) { OptionMembers = Other,Selected;",
+    );
+    let variants = [
+        ("Option", other_type),
+        (
+            "group 3",
+            source.replace("Source.FilterGroup(2);", "Source.FilterGroup(3);"),
+        ),
+        (
+            "multiple filters",
+            source.replace(
+                narrow,
+                &format!("{narrow}\n        Source.FilterGroup(0);\n        {narrow}"),
+            ),
+        ),
+        (
+            "range",
+            source.replace(
+                narrow,
+                r#"Source.SetRange("Kind Filter", Source."Kind Filter"::Other, Source."Kind Filter"::Selected);"#,
+            ),
+        ),
+        (
+            "assigned buffer",
+            source.replace(
+                narrow,
+                &format!(
+                    r#"{narrow}
+            Source."Kind Filter" := Source."Kind Filter"::Selected;"#
+                ),
+            ),
+        ),
+    ];
+    for (label, variant) in variants {
+        assert_ne!(source, variant, "{label}");
+        let results = run_with_deps(&[], &variant);
+        let (_, result) = results
+            .iter()
+            .find(|(name, _)| name == "GroupTwoFlowFilterConstrainsDirectValidation")
+            .unwrap();
+        assert!(
+            matches!(result, Outcome::NotRun(reason) if reason.contains("source FlowFilter")),
+            "{label}: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn measured_currpage_save_record_prefers_the_platform_method() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/curr-page-save-record-collision.al"),
+    ));
+}
+
+#[test]
+fn issue_7887_bare_save_record_still_calls_the_internal_procedure() {
+    let source = r#"
+page 50992 "Save Collision Control" {
+    PageType = Card;
+    layout { area(Content) { field(Observed; Called) {} } }
+    actions { area(Processing) {
+        action(Check) { trigger OnAction() begin SaveRecord(); end; }
+    } }
+    var Called: Boolean;
+    internal procedure SaveRecord() begin Called := true; end;
+}
+codeunit 50993 T {
+    Subtype = Test;
+    [Test] procedure BareCall() var P: TestPage "Save Collision Control";
+    begin
+        P.OpenView();
+        P.Check.Invoke();
+        if not P.Observed.AsBoolean() then Error('Bare SaveRecord did not invoke the page procedure.');
+        P.Close();
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], source));
+}
+
+#[test]
+fn extension_save_record_still_calls_the_base_procedure() {
+    let outcomes = run_with_deps(
+        &[],
+        r###"
+table 50992 "Save Collision Row" {
+    fields { field(1; Id; Integer) {} field(2; Marker; Integer) {} }
+    keys { key(PK; Id) {} }
+}
+page 50993 "Save Collision Base" {
+    PageType = Card;
+    SourceTable = "Save Collision Row";
+    layout { area(Content) { field(Marker; Rec.Marker) {} } }
+    internal procedure SaveRecord() begin Error('base SaveRecord procedure'); end;
+}
+pageextension 50994 "Save Collision Extension" extends "Save Collision Base" {
+    actions { addlast(Processing) {
+        action(CheckExtension) { ApplicationArea = All; trigger OnAction() begin CurrPage.SaveRecord(); end; }
+    } }
+}
+codeunit 50995 T {
+    Subtype = Test;
+    [Test] procedure ExtensionCall()
+    var P: TestPage "Save Collision Base"; R: Record "Save Collision Row";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenEdit();
+        P.CheckExtension.Invoke();
+        P.Close();
+    end;
+}
+"###,
+    );
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "base SaveRecord procedure"),
+        "{outcomes:?}"
+    );
+}
+
+#[test]
+fn measured_card_new_skips_empty_part_current_record() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/card-new-empty-part.al")));
+}
+
+#[test]
+fn measured_report_extension_items_link_to_named_immediate_parents() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/report-added-item-parent-link.al"),
+    ));
+}
+
+// Issue #7904: the corpus fixture uses a named immediate parent with a DataItemLink.
+#[test]
+fn report_extension_refuses_unmeasured_parent_references() {
+    let fixture = include_str!("../fixtures/report-added-item-parent-link.al");
+    for (shape, source, refusal) in [
+        (
+            "grandparent",
+            fixture.replace(
+                "DataItemLinkReference = AddedHeader;",
+                "DataItemLinkReference = Header;",
+            ),
+            "DataItemLinkReference",
+        ),
+        (
+            "sibling",
+            fixture.replace("DataItemLinkReference = Header;", "DataItemLinkReference = Line;"),
+            "DataItemLinkReference",
+        ),
+        (
+            "top-level",
+            fixture.replace("addbefore(Line)", "addbefore(Header)"),
+            "is a top-level data item",
+        ),
+        (
+            "no link",
+            fixture.replacen("DataItemLink = ParentId = field(Id);", "", 1),
+            "DataItemLinkReference",
+        ),
+    ] {
+        let outcomes = run_with_deps(&[], &source);
+        assert_eq!(outcomes.len(), 1, "{shape}: {outcomes:?}");
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains(refusal)),
+            "{shape}: {outcomes:?}"
+        );
+    }
+}
+
+#[test]
+fn measured_trapped_card_sets_non_key_field_with_blank_part_rows() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/trapped-card-draft-blank-part-rows.al"),
+    ));
+}
+
+#[test]
+fn issue_7879_neighbor_keeps_the_previous_result() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    let changed = format!(
+        r#"{source}
+pageextension 50979 "Draft Card Extension" extends "Draft Probe Card" {{ trigger OnAfterGetCurrRecord() begin end; }}"#
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "SetValueOnNewCardWithBlankLinkedRows")
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::NotRun(reason) if reason.contains("whose part shows rows of the blank key")),
+        "{outcome:?}"
+    );
+}
+
+/// Issue 7879: without the table's OnInsert the new Card is stored under the blank key, so its part keeps showing the
+/// blank-key rows. That state is not measured: the SetValue keeps main's refusal text.
+#[test]
+fn issue_7879_card_stored_under_the_blank_key_keeps_the_refusal() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    let on_insert =
+        "    trigger OnInsert()\n    begin\n        if Code = '' then\n            Code := 'NEW';\n    end;\n";
+    assert!(source.contains(on_insert));
+    let results = run_with_deps(&[], &source.replace(on_insert, ""));
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "SetValueOnNewCardWithBlankLinkedRows")
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::NotRun(reason)
+            if reason.contains("TestField.SetValue on a new, unsaved host whose part shows rows of the blank key (not pinned)")),
+        "{outcome:?}"
+    );
+}
+
+/// Issue 7879: after the measured SetValue only a host field read and Close are measured. Another call on the Card
+/// (Next, a second SetValue) keeps the refusal.
+#[test]
+fn issue_7879_other_calls_after_the_set_value_keep_the_refusal() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    let close = "        Card.Close();\n";
+    assert!(source.contains(close));
+    for (shape, call, refusal) in [
+        (
+            "Next",
+            "        Card.Next();\n",
+            "TestPage.Next on a new, unsaved host whose part shows rows of the blank key",
+        ),
+        (
+            "second SetValue",
+            "        Card.Category.SetValue('OTHER');\n",
+            "TestField.SetValue on a new, unsaved host whose part shows rows of the blank key",
+        ),
+    ] {
+        let results = run_with_deps(&[], &source.replace(close, &format!("{call}{close}")));
+        let (_, outcome) = results
+            .iter()
+            .find(|(name, _)| name == "SetValueOnNewCardWithBlankLinkedRows")
+            .unwrap();
+        assert!(
+            matches!(outcome, Outcome::NotRun(reason) if reason.contains(refusal)),
+            "{shape}: {outcome:?}"
+        );
+    }
+}
+
+#[test]
+fn measured_worksheet_draft_close_does_not_read_empty_part() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/worksheet-draft-close-empty-part.al"),
+    ));
+}
+
+#[test]
+fn issue_7880_neighbor_keeps_the_previous_result() {
+    let source = include_str!("../fixtures/worksheet-draft-close-empty-part.al");
+    let changed = source.replace("area(FactBoxes)", "area(Content)");
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "CloseStoresWorksheetRowWithoutReadingEmptyPart")
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::NotRun(reason) if reason.contains("closing a new host row")),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn measured_next_only_card_refreshes_after_assist_edit_stored_the_row() {
+    let results = run_with_deps(&[], include_str!("../fixtures/next-only-card-assist-edit-refresh.al"));
+    assert_eq!(results.len(), 2, "{results:?}");
+    for (name, result) in results {
+        match name.as_str() {
+            "AssistEditRefreshesAfterSyncStoredTheEditedRow" => assert_eq!(result, Outcome::Pass),
+            "AssistEditUpdateFalseKeepsTheUnsavedEdit" => assert!(
+                matches!(result, Outcome::NotRun(ref why) if why.contains("re-anchoring not pinned")),
+                "{result:?}"
+            ),
+            _ => panic!("unexpected test: {name}"),
+        }
+    }
+}
+
+#[test]
+fn measured_document_action_calculated_field_does_not_save_stale_row() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/rework-flowfield-action.al"),
+    ));
+}
+
+#[test]
+fn dirty_document_action_keeps_main_stale_row_refusal() {
+    let source = include_str!("../fixtures/rework-flowfield-action.al");
+    let edit = source.replace("Document.OpenView();", "Document.OpenEdit();").replace(
+        "        Document.CalculateAndWrite.Invoke();",
+        "        Document.Description.SetValue('Client edit');\n        Document.CalculateAndWrite.Invoke();",
+    );
+    assert_ne!(source, edit);
+    let outcomes = run_with_deps(&[], &edit);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("a page saves a row that code changed after the page read it")),
+        "{outcomes:?}"
+    );
+}
+
+#[test]
+fn measured_assist_edit_uses_the_linked_card_part_primary_key() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/linked-card-part-assist.al"),
+    ));
+}
+
+#[test]
+fn issue_7883_neighbor_keeps_the_previous_result() {
+    let source = include_str!("../fixtures/linked-card-part-assist.al");
+    let changed = source.replacen(
+        "    InsertAllowed = false;",
+        "    InsertAllowed = false;\n    trigger OnAfterGetCurrRecord() begin end;",
+        1,
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "AssistEditUsesTheLinkedPrimaryKey")
+        .unwrap();
+    assert_eq!(
+        outcome,
+        &Outcome::Fail(
+            "Before Assist must be equal to 'DETAIL-A'  in Linked Part Detail Row: Code=DETAIL-A. Current value is ''."
+                .into()
+        )
+    );
+}
+
+#[test]
+fn measured_cardpart_drilldown_rereads_the_header_before_set_value() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/card-part-drilldown-refresh.al"),
+    ));
+}
+
+#[test]
+fn default_update_propagation_keeps_main_scan_result() {
+    let source = include_str!("../fixtures/card-part-drilldown-refresh.al");
+    let default_propagation = source.replace("                UpdatePropagation = Both;\n", "");
+    assert_ne!(source, default_propagation);
+    let outcomes = run_with_deps(&[], &default_propagation);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "Before the next scan the page showed FIRST. The scan used package FIRST."),
+        "{outcomes:?}"
+    );
+}
+
+#[test]
+fn measured_literal_field_caption_reuses_the_resolution_on_repeated_reads() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/literal-field-caption.al")));
+}
+
+#[test]
+fn issue_7884_caption_after_language_or_binding_change_stays_refused() {
+    let source = include_str!("../fixtures/literal-field-caption.al");
+    let needle = "        SecondCaption := Pg.Payload.Caption();";
+    for operation in [
+        "GlobalLanguage(1031);",
+        "UnbindSubscription(Subscriber); BindSubscription(Subscriber);",
+    ] {
+        let changed = source.replace(needle, &format!("        {operation}\n{needle}"));
+        assert_ne!(source, changed);
+        let results = run_with_deps(&[], &changed);
+        assert!(
+            matches!(results.as_slice(), [(_, Outcome::NotRun(reason))]
+            if reason.contains("a second Caption()")),
+            "{results:?}"
+        );
+    }
+}
+
+#[test]
+fn measured_recordref_get_table_updates_the_shared_event_buffer() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/recordref-gettable-shared.al"),
+    ));
+}
+
+#[test]
+fn issue_7885_temporary_source_leaves_the_original_recordref_on_its_row() {
+    let source = r#"
+table 50952 "RecordRef Control" {
+    fields { field(1; Id; Integer) {} field(2; Amount; Integer) {} }
+    keys { key(PK; Id) {} }
+}
+codeunit 50954 T {
+    Subtype = Test;
+    [Test] procedure TemporarySource()
+    var R: Record "RecordRef Control"; Temp: Record "RecordRef Control" temporary;
+        Original: RecordRef; Alias: RecordRef; V: Variant;
+    begin
+        R.Id := 1;
+        Original.GetTable(R);
+        Alias := Original;
+        Temp.Id := 1;
+        Temp.Amount := 7;
+        Alias.GetTable(Temp);
+        V := Original.Field(2).Value;
+        if Format(V) <> '0' then Error('The temporary source rebound the original record.');
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], source));
+}
+
+/// The outcome of test `name` in `results`.
+fn outcome_named(results: &[(String, Outcome)], name: &str) -> Outcome {
+    results
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, o)| o.clone())
+        .unwrap_or_else(|| panic!("no test {name}: {results:?}"))
+}
+
+/// Issue 7880: a Worksheet that shows a primary key field can get the key typed, which is not measured: closing it
+/// keeps main's refusal.
+#[test]
+fn issue_7880_worksheet_with_a_key_field_control_keeps_the_refusal() {
+    let source = include_str!("../fixtures/worksheet-draft-close-empty-part.al");
+    let item = "                field(Item; Rec.Item) { }\n";
+    assert!(source.contains(item));
+    let changed = source.replace(item, &format!("                field(Batch; Rec.Batch) {{ }}\n{item}"));
+    let outcome = outcome_named(
+        &run_with_deps(&[], &changed),
+        "CloseStoresWorksheetRowWithoutReadingEmptyPart",
+    );
+    assert!(
+        matches!(&outcome, Outcome::NotRun(reason) if reason.contains("closing a new host row")),
+        "{outcome:?}"
+    );
+}
+
+/// Issue 7881: a Card that also declares OnAfterGetRecord was not measured; the AssistEdit keeps main's result.
+#[test]
+fn issue_7881_card_with_on_after_get_record_keeps_main_result() {
+    let source = include_str!("../fixtures/next-only-card-assist-edit-refresh.al");
+    let current = "    trigger OnAfterGetCurrRecord()\n";
+    assert_eq!(source.matches(current).count(), 1);
+    let changed = source.replace(
+        current,
+        &format!("    trigger OnAfterGetRecord()\n    begin\n    end;\n\n{current}"),
+    );
+    let outcome = outcome_named(
+        &run_with_deps(&[], &changed),
+        "AssistEditRefreshesAfterSyncStoredTheEditedRow",
+    );
+    assert!(
+        matches!(&outcome, Outcome::NotRun(reason) if reason.contains("re-anchoring not pinned")),
+        "{outcome:?}"
+    );
+}
+
+/// Issue 7882: a Document switched to view mode by the built-in View action, and a Document with a part, were not
+/// measured: the action keeps main's result.
+#[test]
+fn issue_7882_view_action_and_document_with_part_keep_main_result() {
+    let source = include_str!("../fixtures/rework-flowfield-action.al");
+    let goto = "        Document.GoToRecord(Header);\n";
+    let view_action = source
+        .replace("Document.OpenView();", "Document.OpenEdit();")
+        .replace(goto, &format!("{goto}        Document.View().Invoke();\n"));
+    let description = "                field(Description; Rec.Description) { }\n            }\n";
+    assert!(source.contains(description));
+    let with_part = source.replace(
+        description,
+        &format!("{description}            part(Links; \"Action Link Part\") {{ SubPageLink = Id = field(Id); }}\n"),
+    ) + r#"
+page 50925 "Action Link Part"
+{
+    PageType = ListPart;
+    SourceTable = "Action Link Row";
+    ApplicationArea = All;
+    layout { area(Content) { repeater(Rows) { field(Code; Rec.Code) { } } } }
+}
+"#;
+    for (shape, changed) in [("View action", view_action), ("part", with_part)] {
+        let outcome = outcome_named(&run_with_deps(&[], &changed), "CalculatedFieldDoesNotSaveStaleDocument");
+        assert_eq!(
+            outcome,
+            Outcome::NotRun(
+                "Modify(true) of a stale committed-read Action Header Row buffer from a Find (not pinned)".into()
+            ),
+            "{shape}"
+        );
+    }
+}
+
+/// Issue 7886: a second drilldown, or a read of a part field, between the drilldown and the host's SetValue was not
+/// measured: the SetValue keeps main's result (no reread of the header).
+#[test]
+fn issue_7886_part_calls_after_the_drilldown_keep_main_result() {
+    let source = include_str!("../fixtures/card-part-drilldown-refresh.al");
+    let drilldown = "        Document.PackageActions.NewPackage.DrillDown();\n";
+    assert_eq!(source.matches(drilldown).count(), 1);
+    for (shape, call) in [
+        ("second drilldown", drilldown),
+        (
+            "part field read",
+            "        if Document.PackageActions.NewPackage.Value() = '' then;\n",
+        ),
+    ] {
+        let outcomes = run_with_deps(&[], &source.replace(drilldown, &format!("{drilldown}{call}")));
+        assert!(
+            matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))]
+                if reason == "Before the next scan the page showed FIRST. The scan used package FIRST."),
+            "{shape}: {outcomes:?}"
+        );
+    }
+}
+
+/// Issue 7884: only two reads in a row and a read after a SetValue on another control were measured. A SetValue on the
+/// caption's own control, a value read of another control, or Next() between the reads keeps main's refusal.
+#[test]
+fn issue_7884_other_calls_between_the_reads_keep_the_refusal() {
+    let source = include_str!("../fixtures/literal-field-caption.al");
+    let needle = "        SecondCaption := Pg.Payload.Caption();";
+    assert!(source.contains(needle));
+    for call in [
+        "Pg.Payload.SetValue('X');",
+        "if Pg.EditValue.Value() = '' then;",
+        "Pg.Next();",
+    ] {
+        let outcomes = run_with_deps(&[], &source.replace(needle, &format!("        {call}\n{needle}")));
+        assert!(
+            matches!(outcomes.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("a second Caption()")),
+            "{call}: {outcomes:?}"
+        );
+    }
+}
+
+/// Issue 7885: a RecordRef assigned from a Variant that holds a RecordRef was not measured: its GetTable keeps main's
+/// result (the original RecordRef stays on its row).
+#[test]
+fn issue_7885_alias_assigned_from_a_variant_keeps_main_result() {
+    let source = include_str!("../fixtures/recordref-gettable-shared.al");
+    let assign = "        Alias := Original;\n";
+    let vars = "        Alias: RecordRef;\n        Observed: Variant;\n";
+    assert!(source.contains(assign) && source.contains(vars));
+    let changed = source
+        .replace(assign, "        V := Original;\n        Alias := V;\n")
+        .replace(vars, &format!("{vars}        V: Variant;\n"));
+    let outcome = outcome_named(
+        &run_with_deps(&[], &changed),
+        "GetTableUpdatesAnAssignedAliasOfTheSameTable",
+    );
+    assert_eq!(
+        outcome,
+        Outcome::Fail("The assigned alias changed the value to 0.".into())
+    );
+}
+
+/// Issue 7883: the measured CardPart has InsertAllowed = false. With the default the AssistEdit keeps main's result.
+#[test]
+fn issue_7883_card_part_with_insert_allowed_keeps_main_result() {
+    let source = include_str!("../fixtures/linked-card-part-assist.al");
+    let insert = "    InsertAllowed = false;\n";
+    assert_eq!(source.matches(insert).count(), 1);
+    let outcome = outcome_named(
+        &run_with_deps(&[], &source.replace(insert, "")),
+        "AssistEditUsesTheLinkedPrimaryKey",
+    );
+    assert_eq!(
+        outcome,
+        Outcome::Fail(
+            "Before Assist must be equal to 'DETAIL-A'  in Linked Part Detail Row: Code=DETAIL-A. Current value is ''."
+                .into()
+        )
+    );
+}
+
+/// Issue 7879: the measured SetValue's validation runs no AL code that changes Rec. A table field OnValidate that sets the
+/// key, or a control OnValidate, keeps main's refusal.
+#[test]
+fn issue_7879_set_value_whose_validation_runs_code_keeps_the_refusal() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    for (shape, from, to) in [
+        (
+            "table field OnValidate sets the key",
+            "field(2; Category; Code[20]) { }",
+            "field(2; Category; Code[20]) { trigger OnValidate() begin if Code = '' then Code := 'VAL'; end; }",
+        ),
+        (
+            "control OnValidate",
+            "field(Category; Rec.Category) { }",
+            "field(Category; Rec.Category) { trigger OnValidate() begin Rec.Category := 'CATEGORY'; end; }",
+        ),
+    ] {
+        assert_eq!(source.matches(from).count(), 1, "{shape}");
+        let outcome = outcome_named(
+            &run_with_deps(&[], &source.replace(from, to)),
+            "SetValueOnNewCardWithBlankLinkedRows",
+        );
+        assert!(
+            matches!(&outcome, Outcome::NotRun(reason)
+                if reason.contains("TestField.SetValue on a new, unsaved host whose part shows rows of the blank key (not pinned)")),
+            "{shape}: {outcome:?}"
+        );
+    }
+}
+
+/// Issue 7880: the measured Worksheet is opened by the test's own OpenEdit and its line starts on the empty page. A trapped
+/// Page.Run, or a line started by Last and Next on a page with a row, keeps main's refusal.
+#[test]
+fn issue_7880_trapped_or_moved_worksheet_keeps_the_refusal() {
+    let source = include_str!("../fixtures/worksheet-draft-close-empty-part.al");
+    let open = "        Worksheet.OpenEdit();\n";
+    let delete = "        Header.DeleteAll();\n";
+    assert!(source.contains(open) && source.contains(delete));
+    let trapped = source.replace(
+        open,
+        "        Worksheet.Trap();\n        Page.Run(Page::\"Draft Probe Worksheet\");\n",
+    );
+    let moved = source
+        .replace(
+            delete,
+            &format!("{delete}        Header.Batch := 'PLAN'; Header.\"Line No.\" := 5000; Header.Item := 'OLD'; Header.Insert();\n"),
+        )
+        .replace(open, &format!("{open}        Worksheet.Last();\n        Worksheet.Next();\n"));
+    for (shape, changed) in [("trapped Page.Run", trapped), ("Last and Next", moved)] {
+        let outcome = outcome_named(
+            &run_with_deps(&[], &changed),
+            "CloseStoresWorksheetRowWithoutReadingEmptyPart",
+        );
+        assert!(
+            matches!(&outcome, Outcome::NotRun(reason) if reason.contains("closing a new host row")),
+            "{shape}: {outcome:?}"
+        );
+    }
+}
+
+/// Issue 7881: the measured Card is opened by the test's own OpenEdit. The same Card run by Page.Run and caught by Trap
+/// keeps main's refusal.
+#[test]
+fn issue_7881_trapped_card_keeps_the_refusal() {
+    let source = include_str!("../fixtures/next-only-card-assist-edit-refresh.al");
+    let open = "        Card.OpenEdit();\n        Card.GoToKey(1);\n";
+    assert_eq!(source.matches(open).count(), 1);
+    let changed = source.replace(
+        open,
+        "        Card.Trap();\n        Header.Get(1);\n        Page.Run(Page::\"Next Refresh Card\", Header);\n",
+    );
+    let outcome = outcome_named(
+        &run_with_deps(&[], &changed),
+        "AssistEditRefreshesAfterSyncStoredTheEditedRow",
+    );
+    assert!(
+        matches!(&outcome, Outcome::NotRun(reason) if reason.contains("re-anchoring not pinned")),
+        "{outcome:?}"
+    );
+}
+
+/// Issue 7882: the measured action committed the write itself. When the test wrote and committed the row between
+/// GoToRecord and the Invoke, and the action only calculates, the page keeps main's refusal.
+#[test]
+fn issue_7882_row_written_by_the_test_keeps_the_refusal() {
+    let source = include_str!("../fixtures/rework-flowfield-action.al");
+    let action_write = "                    WriteCommittedDescription(Rec.Id);\n";
+    let goto = "        Document.GoToRecord(Header);\n";
+    assert!(source.contains(action_write) && source.contains(goto));
+    let changed = source.replace(action_write, "").replace(
+        goto,
+        &format!(
+            "{goto}        Header.Get(1); Header.Description := 'Written by test'; Header.Modify(true); Commit();\n"
+        ),
+    );
+    let outcomes = run_with_deps(&[], &changed);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("stale committed-read")),
+        "{outcomes:?}"
+    );
+}
+
+/// Issue 7883: the measured trigger returns the inserted row in Rec. A trigger that inserts the row and leaves Rec as it
+/// was keeps main's result: the part keeps the blank key.
+#[test]
+fn issue_7883_trigger_that_does_not_return_the_row_keeps_main_result() {
+    let source = include_str!("../fixtures/linked-card-part-assist.al");
+    let assign = "                        Rec := Detail;\n";
+    assert_eq!(source.matches(assign).count(), 1);
+    let outcome = outcome_named(
+        &run_with_deps(&[], &source.replace(assign, "")),
+        "UpdateAfterAssistEditShowsInsertedDetail",
+    );
+    assert!(
+        matches!(&outcome, Outcome::Fail(reason) if reason.contains("does not exist") && reason.contains("Code=''")),
+        "{outcome:?}"
+    );
+}
+
+/// Issue 7886: only a SetValue takes the pending reread. `Value := x` ends it, so a later SetValue uses the header the
+/// page showed (main's result).
+#[test]
+fn issue_7886_value_assignment_ends_the_pending_reread() {
+    let source = include_str!("../fixtures/card-part-drilldown-refresh.al");
+    let set_value = "        Document.Scan.SetValue('SCAN');\n";
+    assert_eq!(source.matches(set_value).count(), 1);
+    let changed = source.replace(
+        set_value,
+        "        Document.Scan.Value := 'SCAN';\n        Row.Get('ORDER'); if Row.LastScannedPackage <> 'FIRST' then Error('first write used %1', Row.LastScannedPackage);\n        Row.PackageCode := 'THIRD'; Row.Modify();\n        Document.Scan.SetValue('SCAN2');\n        Row.Get('ORDER'); Error('obs second write used %1', Row.LastScannedPackage);\n",
+    );
+    let outcomes = run_with_deps(&[], &changed);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "obs second write used FIRST"),
+        "{outcomes:?}"
+    );
+}
+
+/// Issue 7885: GetTable on the copy of an assigned RecordRef was measured. A RecordRef assigned from a `var` Variant bound to
+/// a RecordRef, and GetTable on the source side of the assignment, keep main's result (own buffers).
+#[test]
+fn issue_7885_var_variant_and_source_side_keep_main_result() {
+    let source = include_str!("../fixtures/recordref-gettable-shared.al");
+    let alias_steps = "        Alias := Original;\n        Row.Category := 7;\n        Alias.GetTable(Row);\n";
+    let subscriber = "    [EventSubscriber(ObjectType::Codeunit, Codeunit::T, 'OnReplace', '', false, false)]\n";
+    assert!(source.contains(alias_steps) && source.contains(subscriber));
+    let var_variant = source.replace(alias_steps, "        AliasFromVarVariant(Original);\n").replace(
+        subscriber,
+        &format!(
+            "    local procedure AliasFromVarVariant(var V: Variant)\n    var\n        Alias: RecordRef;\n        Row: Record \"Probe Ref Row\";\n    begin\n        Alias := V;\n        Row.Id := 1;\n        Row.Category := 7;\n        Alias.GetTable(Row);\n    end;\n\n{subscriber}"
+        ),
+    );
+    let observe = "        Observed := Original.Field(2).Value;\n";
+    assert!(source.contains(observe));
+    let source_side = source
+        .replace("        Alias.GetTable(Row);\n", "        Original.GetTable(Row);\n")
+        .replace(observe, "        Observed := Alias.Field(2).Value;\n");
+    for (shape, changed) in [("var Variant", var_variant), ("source side", source_side)] {
+        let outcome = outcome_named(
+            &run_with_deps(&[], &changed),
+            "GetTableUpdatesAnAssignedAliasOfTheSameTable",
+        );
+        assert_eq!(
+            outcome,
+            Outcome::Fail("The assigned alias changed the value to 0.".into()),
+            "{shape}"
+        );
+    }
+}
+
 #[test]
 fn measured_integer_record_field_in_set_and_boolean() {
     all_pass(run_with_deps(&[], include_str!("../fixtures/record-in-and-boolean.al")));
+}
+
+#[test]
+fn integer_record_field_boolean_neighbors_still_refuse() {
+    let src = include_str!("../fixtures/record-in-and-boolean.al");
+    let measured = "Row.Id in [1, 2] and Row.Approved";
+    for other in [
+        "Row.Id in [1, 2] or Row.Approved",
+        "Row.Id in [1, 2] xor Row.Approved",
+        "N in [1, 2] and Row.Approved",
+        "Row.Id in [1, 2] and false",
+        "Row.Id in [1, 2] and B",
+        "Row.Id in [N, 2] and Row.Approved",
+        "Row.Id in [1..3] and Row.Approved",
+    ] {
+        let result = run_with_deps(
+            &[],
+            &src.replace("N: Integer;", "N: Integer; B: Boolean;")
+                .replace(measured, other),
+        );
+        assert!(
+            matches!(&result[0].1, Outcome::NotRun(why) if why.contains("set followed by")),
+            "{other}: {result:?}"
+        );
+    }
+    for kind in ["BigInteger", "Decimal"] {
+        let result = run_with_deps(&[], &src.replace("Id; Integer", &format!("Id; {kind}")));
+        assert!(
+            matches!(&result[0].1, Outcome::NotRun(why) if why.contains("set followed by")),
+            "{kind}: {result:?}"
+        );
+    }
 }

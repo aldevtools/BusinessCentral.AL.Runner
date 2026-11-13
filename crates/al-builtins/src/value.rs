@@ -455,6 +455,8 @@ pub struct RecordState {
     pub row_origin: Option<RowOrigin>,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
+    /// The state is a declared Record variable's own, and nothing stored, read or replaced its buffer (see [`OwnVariable`]).
+    pub own_variable: OwnVariable,
     /// The table's and its extensions' global variables of this record variable (ADR-021).
     pub globals: TableGlobals,
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
@@ -463,6 +465,24 @@ pub struct RecordState {
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
+}
+
+/// The record state is the one a declared Record variable started with (a local variable of a routine or a global of an
+/// object, al-vm `blob_transfer::new_variable`), and since then only field writes, streams on its Blob fields and the record
+/// methods al-vm `blob_transfer::keeps_own_variable` names ran on it: it was never inserted, modified or read, and no other
+/// record's buffer came into it. These are the source records the Blob copy probe measured for a record passed by value,
+/// `Record.Copy`, `TransferFields` with flags and a Blob moved into a Variant that is not local (corpus PR 1372,
+/// streams/BlobValueCopyShapes.al:590-990). `false` for every other state. It never becomes `true` again.
+///
+/// `Clone` gives `false`: a copy of a record state (`:=`, a record passed by value, a Variant's record, xRec, a RecordRef's
+/// copy) is not that variable.
+#[derive(Debug, Default)]
+pub struct OwnVariable(pub bool);
+
+impl Clone for OwnVariable {
+    fn clone(&self) -> Self {
+        OwnVariable(false)
+    }
 }
 
 /// A record variable inserted a row with `Insert()` and then read it with `Get`, with nothing written to the record's store
@@ -978,10 +998,14 @@ pub struct HttpRequestState {
     /// The uri came from `SetSecretRequestUri`: `GetRequestUri` then reads empty
     /// (xml/xml/P97ReqSecretUri.al:79, :110).
     pub uri_secret: bool,
-    /// The `Content` set on the request: the `HttpContent` handle itself, so the request and the
-    /// variable it was set from share it (nothing pins a copy; no corpus test tells them apart).
+    /// The request's content: a copy of the content it was set from, or the uninitialized one its first read handed out
+    /// (`http::request_content`).
     pub content: Option<Value>,
     pub headers: HttpHeaderList,
+    /// The request was assigned, passed by value, put into a Variant or sent (`http::request_handed_on`). The variables
+    /// share the request; the mark
+    /// only says that no evidence for `ReadAs(SecretText)` covers its content (`http::SecretReadShape`).
+    pub handed_on: bool,
 }
 
 impl Default for HttpRequestState {
@@ -992,6 +1016,7 @@ impl Default for HttpRequestState {
             uri_secret: false,
             content: None,
             headers: new_header_list(HeaderKind::Request),
+            handed_on: false,
         }
     }
 }
@@ -1017,6 +1042,12 @@ pub struct HttpContentState {
     pub from_stream: bool,
     /// The last `WriteFrom` took a `SecretText` (xml/xml/P97ContentSecret.al).
     pub secret: bool,
+    /// The calls made on the content so far, as far as the evidence for `ReadAs(SecretText)` follows them
+    /// (`http::SecretReadShape`).
+    pub secret_read: crate::http::SecretReadShape,
+    /// No method was called on this content yet; it was only assigned, passed by value or handed on otherwise
+    /// (`http::content_handed_on`). It stands for the variable main keeps as `LibraryValue::Empty` (`http::content_unused`).
+    pub untouched: bool,
 }
 
 impl Default for HttpContentState {
@@ -1035,6 +1066,8 @@ impl Default for HttpContentState {
             copied: false,
             from_stream: false,
             secret: false,
+            secret_read: crate::http::SecretReadShape::Other,
+            untouched: false,
         }
     }
 }
@@ -1244,8 +1277,12 @@ pub struct HandlerContext {
     pub procedure: String,
     /// Empty except in the case callbacks.
     pub case: String,
-    /// Whether the test passed, in the After callbacks; `None` in the Before callbacks (not pinned there).
-    pub success: Option<bool>,
+    /// Whether the test passed, in the After callbacks; false in every Before callback
+    /// (BiTestHandlerSuccess.al:116, al-runner issue 7181).
+    pub success: bool,
+    /// A Before callback of a default handler: its `success` (false) rests on assumption
+    /// `test-handler-default-before-success` (the corpus pins it for a `TestHandlers` handler only).
+    pub success_assumed: bool,
     /// The reason of a `Skip` call in this callback.
     pub skip: Option<String>,
 }

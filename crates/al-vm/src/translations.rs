@@ -423,7 +423,7 @@ impl Session {
     }
 
     /// The table extension that declares field `pos` of `t`, when one does (`al_ir::Field::declared_in`).
-    fn declaring_extension(&self, t: &al_data::TableDef, pos: usize) -> Option<usize> {
+    pub(crate) fn declaring_extension(&self, t: &al_data::TableDef, pos: usize) -> Option<usize> {
         let objects = &self.engine.program.objects;
         let declared = objects
             .get(t.object as usize)?

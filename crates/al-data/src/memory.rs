@@ -1530,7 +1530,7 @@ impl Store for MemStore {
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
             let k = Key::of(t, t.primary_key(&row));
-            if v.takes_inserts(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k)) {
+            if v.modifies_stored_rows(t) && self.table(cx, t).is_some_and(|m| m.contains_key(&k)) {
                 self.table_mut(cx, t).insert(k, row);
                 self.touch(cx, t);
                 return Ok(WriteOutcome::Done);

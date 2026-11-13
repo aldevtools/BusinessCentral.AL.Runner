@@ -212,6 +212,9 @@ pub enum Res {
     /// `X` before `::` read as enum type `object` although the implicit Rec has a field `X` of another type
     /// (al-runner issue 6129, assumption `EnumTypeBeforeRecField`; `infer.rs` `enum_type_before_rec_field`).
     EnumTypeBeforeRecField(usize),
+    /// `Ns.Sub."Enum"` as the receiver of `FromInteger`: enum `object` named through its namespace (al-runner issue 7920,
+    /// assumption `NamespacedEnumReceiver`; `infer.rs` `member_receiver`).
+    NamespacedEnumReceiver(usize),
     /// A bare name that the record of a `with` statement supplied (corpus events/binding-senders/
     /// WithStatementAmbiguous.al, WithStatementNested.al): `with` is the offset of the `WithStmt` node in its
     /// file, `inner` what the name resolved to as a member of that record. Lowering reads `inner` through

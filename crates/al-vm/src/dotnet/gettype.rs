@@ -83,6 +83,15 @@ impl Session {
                     };
                     self.type_call(DotNetTarget::Value(wire), clr_type)
                 }
+                // A Dictionary`2 variable that holds the dictionary its own constructor made answers the open definition, as
+                // when it holds nothing (corpus PR 1365, N4GetDotNetTypeGeneric.al:153-161; assumption `dotnet-type-open-generic`).
+                DotNetKind::Internal { type_name, .. }
+                    if type_name == al_builtins::dotnet_sigs::GENERIC_DICTIONARY
+                        && declared == al_builtins::dotnet_sigs::GENERIC_DICTIONARY =>
+                {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeOpenGeneric);
+                    self.type_named(declared)
+                }
                 DotNetKind::Internal { type_name, .. } => {
                     unsupported(format!("GetDotNetType of a runtime-provided {type_name}"))
                 }
@@ -123,6 +132,14 @@ impl Session {
             "System.Security.Cryptography.X509Certificates.X509ContentType" => {
                 // Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet/BbGetDotNetType.al TV_GetDotNetType_UnassignedEnumVariables, TV_EnumParse_GetDotNetTypeOfUnassignedX509ContentType (was assumption `dotnet-type-unassigned-enum`).
                 self.type_named("System.Security.Cryptography.X509Certificates.X509ContentType, netstandard")
+            }
+            // The open generic type definition (corpus PR 1365, N4GetDotNetTypeGeneric.al:119-134, FullName, Name, Format and
+            // IsGenericTypeDefinition of these three; assumption `dotnet-type-open-generic`). Other open generics stay refused below.
+            "System.Collections.Generic.Dictionary`2"
+            | "System.Collections.Generic.List`1"
+            | "System.Collections.Generic.KeyValuePair`2" => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::DotnetTypeOpenGeneric);
+                self.type_named(declared)
             }
             "" => unsupported("GetDotNetType of an unassigned DotNet value whose declared type is not known"),
             other => unsupported(format!(

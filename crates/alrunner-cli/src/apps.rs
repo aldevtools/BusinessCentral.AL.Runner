@@ -67,6 +67,8 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         }),
         runtime: None,
         app_json_keys: Vec::new(),
+        // A workspace app; only the platform package's grants are applied (issue 7853).
+        platform_internals_visible_to: Vec::new(),
     };
     let mut versions = AppVersions::parse(
         None,
