@@ -2669,3 +2669,34 @@ fn measured_report_extension_items_link_to_named_immediate_parents() {
         include_str!("../fixtures/report-added-item-parent-link.al"),
     ));
 }
+
+// Issue #7904: the corpus fixture uses a named immediate parent with a DataItemLink.
+#[test]
+fn report_extension_refuses_unmeasured_parent_references() {
+    let fixture = include_str!("../fixtures/report-added-item-parent-link.al");
+    for (shape, source) in [
+        (
+            "grandparent",
+            fixture.replace(
+                "DataItemLinkReference = AddedHeader;",
+                "DataItemLinkReference = Header;",
+            ),
+        ),
+        (
+            "sibling",
+            fixture.replace("DataItemLinkReference = Header;", "DataItemLinkReference = Line;"),
+        ),
+        ("top-level", fixture.replace("addbefore(Line)", "addbefore(Header)")),
+        (
+            "no link",
+            fixture.replacen("DataItemLink = ParentId = field(Id);", "", 1),
+        ),
+    ] {
+        let outcomes = run_with_deps(&[], &source);
+        assert_eq!(outcomes.len(), 1, "{shape}: {outcomes:?}");
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains("DataItemLinkReference")),
+            "{shape}: {outcomes:?}"
+        );
+    }
+}

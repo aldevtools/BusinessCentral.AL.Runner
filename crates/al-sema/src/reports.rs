@@ -1565,20 +1565,24 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
         } else {
             raw.parent.and_then(|p| added.get(p).and_then(|a| a.item.table))
         };
+        let has_link = raw
+            .section
+            .properties()
+            .any(|p| p.name().eq_ignore_ascii_case("DataItemLink"));
         let enclosing = |name: &str| {
+            // Issue #7904 and corpus PR #1358: reports/extensions/TestReportExtensionParentLink.al:51-57.
             let anchor = base_parent
                 .map(|p| (Some(p), cx.base_items[p].name.as_str()))
                 .or_else(|| parent.map(|p| (None, cx.layout.items[p].name.as_str())));
             anchor
-                .filter(|(_, parent)| parent.eq_ignore_ascii_case(name))
+                .filter(|(_, parent)| has_link && parent.eq_ignore_ascii_case(name))
                 .map(|(index, _)| (index, parent_table))
         };
         let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &enclosing, &mut reasons);
-        let explicit_parent_link = !item.link.is_empty()
-            && raw
-                .section
-                .properties()
-                .any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"));
+        let explicit_parent_link = raw
+            .section
+            .properties()
+            .any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"));
         added.push(ir::AddedItem {
             item,
             base_parent,

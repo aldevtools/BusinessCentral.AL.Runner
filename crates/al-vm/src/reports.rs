@@ -2103,16 +2103,7 @@ impl Session {
         let item = run.item(r);
         let (owner, object) = run.owner(r);
         let mut rec = self.report_item_record(run, r)?;
-        // A `DataItemLinkReference` names another enclosing item than the parent.
-        note_explicit_parent_link(run, r);
-        let parent_rec = match item.link_item {
-            Some(li) => enclosing
-                .iter()
-                .find(|(e, _)| matches!(e, ItemRef::Base(x) if *x == li))
-                .map(|(_, rec)| rec.clone())
-                .or(parent_rec),
-            None => parent_rec,
-        };
+        let parent_rec = explicit_parent_link::linked_parent(run, r, item.link_item, parent_rec, enclosing);
         if let Some(parent) = parent_rec {
             // The link filter is hidden from GetFilters (reports/TestReportRuntimeContracts.al:62-90).
             let table = self.table(&rec)?;
@@ -4474,4 +4465,3 @@ mod running;
 mod word_xml_part;
 
 mod explicit_parent_link;
-use explicit_parent_link::note_explicit_parent_link;
