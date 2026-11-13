@@ -1,5 +1,5 @@
 //! The fact vector of a rendering save (ADR-040 amendment 2026-11-13, part 1, point 1). Each fact is a closed enum; one owner
-//! file computes each group: the call (`fact_call`), the report (`fact_report`), the layout selection (`fact_selection`) and
+//! file computes each group: the call (`mod.rs`, `save_facts`), the report (`fact_report`), the layout selection (`fact_selection`) and
 //! the run (`fact_run`). No other code computes a fact. `describe` gives the words a refusal uses.
 
 use super::Format;
@@ -255,10 +255,10 @@ describe!(Extensions {
 });
 describe!(Triggers { Triggers::None => "none", Triggers::WithoutOnPost => "without OnPostReport", Triggers::OnPost => "with OnPostReport" });
 describe!(Selection {
-    Selection::None => "none",
-    Selection::SameKind => "a built-in layout of the default kind",
-    Selection::OtherKind => "the built-in layout of the other kind",
-    Selection::Unknown => "another selection",
+    Selection::None => "no Report Layout Selection or Tenant Report Layout Selection row",
+    Selection::SameKind => "a Report Layout Selection or Tenant Report Layout Selection row of a built-in layout of the default kind",
+    Selection::OtherKind => "a Report Layout Selection or Tenant Report Layout Selection row of the built-in layout of the other kind",
+    Selection::Unknown => "another Report Layout Selection or Tenant Report Layout Selection row",
     Selection::DesignTimeHeld => "a design-time selection",
     Selection::TempWord => "a temporary selection of a user-defined Word layout",
 });

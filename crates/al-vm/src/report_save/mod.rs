@@ -33,7 +33,7 @@ use al_builtins::native::AlError;
 pub(crate) use cell::Renders;
 use cell::{Answer, Cell, Events};
 pub(crate) use facts::AnswerForm;
-use facts::{Facts, Selection};
+use facts::{Facts, Selection, Target};
 
 /// A save that runs: its facts, to look up again after the run.
 #[derive(Clone, Debug)]
@@ -81,6 +81,14 @@ fn what(facts: &Facts, schema: &Schema) -> String {
     )
 }
 
+/// The save's target as a fact.
+fn target_fact(target: &SaveTarget) -> Target {
+    match target {
+        SaveTarget::Stream(_) => Target::Stream,
+        SaveTarget::File(_) => Target::File,
+    }
+}
+
 impl Session {
     /// The facts of a save of `schema` as `format` to `target`, taken as `answer`, before the run. `custom`: a layout of Type
     /// Custom renders.
@@ -93,7 +101,7 @@ impl Session {
         custom: bool,
     ) -> Result<(Facts, Option<Arc<str>>), Signal> {
         let r = fact_report::report_facts(&self.engine.program, schema);
-        let target = fact_selection::target_fact(target);
+        let target = target_fact(target);
         let what = format!("Report.SaveAs as {}", format.name());
         let entry = fact_selection::TempEntry {
             format,

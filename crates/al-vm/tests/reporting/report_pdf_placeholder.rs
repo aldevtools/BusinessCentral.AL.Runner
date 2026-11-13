@@ -507,7 +507,7 @@ fn report_pdf_placeholder_a_report_layout_selection_of_a_custom_layout_is_refuse
         &src,
         "RPP Selection Tests",
         "CustomSelection",
-        "layout selection another selection",
+        "layout selection another Report Layout Selection or Tenant Report Layout Selection row",
     );
 }
 

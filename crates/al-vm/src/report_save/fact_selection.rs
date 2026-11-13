@@ -22,7 +22,7 @@
 use std::sync::Arc;
 
 use super::facts::{Extensions, Kind, LayoutFile, Selection, Stored, Target};
-use super::{Format, SaveTarget, Schema};
+use super::{Format, Schema};
 use crate::tenant_layouts::{TENANT_REPORT_LAYOUT, WORD};
 use crate::{Session, Signal};
 use al_builtins::value::Value;
@@ -455,13 +455,5 @@ impl Session {
                 "the Tenant Report Layout row named \"{name}\" is not one Word layout for every company without an app id"
             )),
         })
-    }
-}
-
-/// The save's target as a fact.
-pub(super) fn target_fact(target: &SaveTarget) -> Target {
-    match target {
-        SaveTarget::Stream(_) => Target::Stream,
-        SaveTarget::File(_) => Target::File,
     }
 }
