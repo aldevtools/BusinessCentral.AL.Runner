@@ -202,13 +202,14 @@ impl Session {
         };
         let key_field = &schema.fields[k];
         let key_prop = |name: &str| self.field_property(t, k, name);
-        let table_prop = |name: &str| master.properties.iter().any(|(p, _)| p.eq_ignore_ascii_case(name));
-        let child_table_prop = |name: &str| {
-            engine.program.objects[child_index]
+        let declares = |o: usize, name: &str| {
+            engine.program.objects[o]
                 .properties
                 .iter()
                 .any(|(p, _)| p.eq_ignore_ascii_case(name))
         };
+        let table_prop = |name: &str| declares(object, name);
+        let child_table_prop = |name: &str| declares(child_index, name);
         let child_prop = |name: &str| {
             self.field_property(child, pos, name)
                 .map(|v| v.trim().to_ascii_lowercase())
