@@ -217,6 +217,13 @@ pub struct PageState {
     pub seen_visible: bool,
     /// Such a part was visible at its host's last refill (`provider_hidden.rs`).
     pub visible_at_sync: bool,
+    /// The body of the action running on the host turned this part of the journal shape visible: the database store's change
+    /// counter after the part's first read, taken after the host's refresh that follows the action (`hidden_part_journal.rs`).
+    pub journal_turned: Option<u64>,
+    /// The test's last call on this host of the journal shape was the GoToRecord that stayed on its row and read nothing
+    /// (`hidden_part_journal.rs` `journal_part_stays`); the test's next method of the page, the next action's body and an open
+    /// clear it.
+    pub journal_stayed: bool,
     /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
     /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
     /// (record/captions/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).
@@ -553,6 +560,9 @@ pub struct PageState {
     pub tree_calls_unknown: bool,
     /// The store's write mark when the last call on the page or its parts ended; `None` before the first one ended.
     pub tree_calls_mark: Option<(i64, u64)>,
+    /// A ListPart that shows no row on a top-level List host landed in a cell BC was measured at: Rec holds the link values
+    /// only inside a measured read (`empty_part_rec.rs`, `reading_empty_list_rec`).
+    pub empty_list_landing: Option<crate::pages::empty_part_rec::EmptyListLanding>,
     /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
     pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
@@ -928,11 +938,13 @@ impl PageState {
         self.tree_calls = Vec::new();
         self.tree_calls_unknown = false;
         self.tree_calls_mark = None;
+        self.empty_list_landing = None;
         self.typed_key_dropped = false;
         self.pinned_end = None;
         self.empty_selection_given = false;
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
+        self.journal_stayed = false;
     }
 
     /// The page opens: the field captions of its last run are gone.

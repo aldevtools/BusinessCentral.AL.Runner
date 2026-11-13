@@ -3,7 +3,7 @@
 //! testpage/TestPageBlankKeyInsert.al:256 TestPage_OpenNew_VariableControlCanModifyDocument, page 67997; :272
 //! TestPage_OpenNew_VariableControlCanModifyDocumentWithPart, pages 67994 and 67995). `activate` (draft.rs) calls it.
 
-use super::pinned_shape::{PinnedEnd, TestCall, code_stmts, table_code};
+use super::pinned_shape::{NextEnd, PinnedEnd, TestCall, code_stmts, table_code};
 use super::*;
 
 impl Session {
@@ -69,6 +69,8 @@ impl Session {
             reads: false,
             one_action: false,
             first_ends: false,
+            part_visible: false,
+            next: NextEnd::Refused,
         });
         self.inserted_outside_view(st, idx)
     }

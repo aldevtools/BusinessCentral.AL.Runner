@@ -29,6 +29,9 @@ pub enum ExceptionKind {
     DivideByZero,
     /// Set by `ClearLastError`: no error, as opposed to the default of a session where no error has happened yet.
     Cleared,
+    /// A .NET exception of a DotNet call whose text is pinned: NavNCLDotNetInvokeException, the .NET exception as its inner
+    /// exception (al-vm `dotnet/invoke_exception.rs`).
+    DotNetInvoke,
 }
 
 /// How the text of `Error(Text, ...)` or `FieldError(Field, Text)` is written in the code: the text `GetLastErrorText(true)`

@@ -210,6 +210,7 @@ impl Session {
         if reset {
             self.autoinc.insert(slot, 0);
         }
+        self.deletes += 1;
         al_data::Store::delete_all(&mut self.store, &cx, t, &filters).map_err(store_err)?;
         Ok(Value::Boolean(true))
     }

@@ -36,6 +36,22 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a fact kept as session state about a path (how a file was written, whether it is open): list every call that can
     set it and every call that can clear it. The fact must be set only by the measured call and counted for every
     handle, not only for handles that met the shape when they opened.
+  - a step rule that reads only the state after the step: the state before the step is a pinned fact too
+    (hidden to hidden is not shown to hidden). After a new path ran, the steps the pin makes next are facts
+    as well: let only those through (`PinnedEnd`).
+  - the arguments of a call whose failure is now caught: a stream or by-reference argument, or a stream an earlier
+    call handed over, has effects that the failed call's reply does not carry. Require the measured argument kinds.
+  - a body-shape check that accepts any call statement or any condition: Rec and CurrPage methods and procedures of
+    the page pass too. Require the kind of callee and the kind of condition the pin has.
+  - a body with branches (`case`, `if`) checked by its form only: the pin measured one branch. Require the branch that
+    ran (a run-time fact), and the exact branches.
+  - a pinned call checked by its name only: the pin also has its outcome (a `Next` that moved, a `GoToKey` that found its
+    row, a `SetValue` that did not raise). Read the calls from the log that keeps outcomes (`tree_calls`, through
+    `test_calls_all_succeeded`), not from the names (`test_calls`).
+  - facts checked one by one where the pin measured pairs: host type and part kind, or step and host type, are
+    measured cells. List the measured cells and require membership, not each factor alone.
+  - whether the object exists in the database: TableType = Temporary, a Removed table, Enabled = false, FlowField and
+    FlowFilter. A rule about related fields must name which of them count.
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
@@ -55,6 +71,8 @@ refusal on a shape main ran is a regression, often in Base App code that partner
 - PR body claims that the code does not do ("outside shapes keep the old path", "stays refused"), a refused
   cells list that misses cells, file names that changed, "green on 27.5 and 28.5" when that CI failed.
 - Before hand-back, read the PR body and the area table against the final diff and the actual CI result.
+- Run the tests of every crate whose tests call the changed path, not only the crates whose source changed:
+  `grep -rn` the changed member or refusal text under `crates/*/tests` first.
 
 ## 4. More than one owner (10 of 34)
 
@@ -73,6 +91,8 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 
 - A path without a pin runs only through an assumption entry (CLAUDE.md rule 3). The entry text matches what
   the code does (for example "no subscriber" when the code checks none).
+- Do not mark where the assumed change has no reader on that page: a pinned clean pass turns into a flagged
+  pass. Check `--top-assumptions` for corpus passes under the new id.
 - Regenerate `docs/probes-needed.md` (`--assumptions-doc`) when an entry changes. Do not delete a row while
   unprobed shapes remain.
 - The flag must be raised on every pass through the assumed path, at the place the path runs, not at a later
@@ -87,6 +107,24 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 
 A flag set for the pinned shape must be cleared on every move, close, host change and exit. A value tied to
 one run or session must use that run's or session's id, not a shared slot or a per-session counter.
+
+## 7a. A value stamped at a measured landing outlives the landing (al-runner PRs 7929 and 7932)
+
+A value put on a record at a measured landing is read after steps the landing does not include. Tie the value to its landing:
+every later page step that does not make the page read again (a test call on the host or the part, a page-code call such as
+`CurrPage.Update`, a write to the store) must end it, and every other site that writes the same value (a second stamp
+function) must go through the owner's allowlist. End the value where it can be READ from, not only on calls made on the page that
+holds it: code of another page that calls into it (a host calling a part's procedure), a rollback, and a write or an error inside
+a kept call also leave the measured shape. Keep the store state of the landing (writes and rollbacks) with the value and compare
+it at each read. Take the store state from the store's own change counter, not only from the places in the VM that count
+writes: a call that writes another way (Truncate) is missed. A control whose source is an expression is code that reads Rec: a
+value read of it is a read of the stamped value. A value that is on the record only while one call runs is also there for code
+that call lets in: a UI handler of the test that calls the page again. End the window at any test call on the page tree that
+starts inside it.
+
+Prefer the allowlist form of the same rule (round 3 of PR 7932): keep the value off the record (unknown, a read refuses), put
+it on only while the measured read runs and its landing facts still hold, and take it off when that read ends. Then no list of
+"events that end the value" exists that the next reader or the next kind of write can be missing from.
 
 ## 8. Citations (6 of 34)
 

@@ -1054,6 +1054,11 @@ pub struct XmlNode {
     /// OnAfterAssignField before the validation.
     #[serde(default)]
     pub after_assign_layout: bool,
+    /// A field node in the import layout without triggers of al-sema `xmlports/assumed_shapes.rs` `plain_import_layout`
+    /// (corpus PR 1366, XpAfterAssignTableRelation.al): al-vm `xmlports/after_assign.rs` checks the field and the record and
+    /// validates nothing on a temporary table element.
+    #[serde(default)]
+    pub plain_import_layout: bool,
     /// A text element in the export shape of al-sema `xmlports/assumed_shapes.rs` `text_attr_export` (corpus PR 1366,
     /// XpTextElemFieldAttrExport.al): al-vm `xmlports/text_attr_export.rs` writes it.
     #[serde(default)]
@@ -1413,7 +1418,7 @@ pub struct PartLink {
     pub view: Option<String>,
     /// `Provider = <part>`: the control index (on the same page) whose current row the link reads.
     pub provider: Option<usize>,
-    /// The `RunPageLink` entries (indices into `entries`) written `const(...)`; empty for a part's `SubPageLink`.
+    /// The entries (indices into `entries`) written `const(...)`, not `filter(...)` or `field(...)`.
     #[serde(default)]
     pub consts: Vec<usize>,
     /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.
@@ -1615,8 +1620,13 @@ pub struct RelationCond {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum RelationWhere {
-    /// `related = const(text)` / `filter(text)`: `text` is a filter on the related field.
-    Value { related: usize, text: String },
+    /// `related = const(text)` / `filter(text)` (`filter`): `text` is a filter on the related field.
+    Value {
+        related: usize,
+        text: String,
+        #[serde(default)]
+        filter: bool,
+    },
     /// `related = field(own)`: the related field equals the referencing row's field.
     Field { related: usize, own: usize },
 }

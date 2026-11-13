@@ -505,50 +505,9 @@ impl Session {
                     out.attrs.push((c.xml_name.clone(), v));
                 }
                 ir::XmlNodeKind::Field => {
-                    // Break in OnBeforePassField leaves the field element out of the row alone; the row and the export go on
-                    // (xmlports/shapes-properties/AyXmlPortFlowTriggers.al:712 Export_passfield_Break: `<Row><Id>2</Id></Row>`).
-                    if got!(self.xp_site(inst, schema, child, "onbeforepassfield")) == Some(Flow::Break) {
-                        Self::xp_clear_flow(inst);
-                        continue;
+                    if self.xp_export_field_element(inst, schema, child, out)? {
+                        return Ok(());
                     }
-                    let v = got!(self.xp_field_value_text(inst, schema, child));
-                    let empty = v.is_empty();
-                    let mut e = Elem::new(&doc_name(schema, child));
-                    // An empty value writes no text, so the elements below it are indented like any element content
-                    // (streams/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export `<Name>` then
-                    // `<Child>c1</Child>` on its own line; :178 `<Child />`).
-                    let text_below = schema
-                        .children(child)
-                        .iter()
-                        .any(|&g| schema.node(g).kind == ir::XmlNodeKind::Text);
-                    if !(empty && text_below) {
-                        e.children.push(Node::Text(v));
-                    }
-                    // The attributes and elements below a field element follow its value (AfXmlPortAttrChildren.al:255, 285, 313:
-                    // `<Name Lang="en" Kind="K1">Alpha</Name>`, `<Name>Alpha<Child>c1</Child></Name>`).
-                    if !schema.children(child).is_empty() {
-                        // How an empty value is written before an element is pinned for leaf text elements only.
-                        if empty
-                            && schema.children(child).iter().any(|&g| {
-                                let k = schema.node(g).kind;
-                                k == ir::XmlNodeKind::Field
-                                    || (k == ir::XmlNodeKind::Text && !schema.children(g).is_empty())
-                            })
-                        {
-                            return unsupported(format!(
-                                "XmlPort export of the field element {} with an empty value and an element below it (not pinned)",
-                                c.xml_name
-                            ));
-                        }
-                        let r = self.xp_export_content(inst, schema, child, &mut e);
-                        out.children.push(Node::Elem(e));
-                        r?;
-                        if Self::xp_quit(inst) {
-                            return Ok(());
-                        }
-                        continue;
-                    }
-                    out.children.push(Node::Elem(e));
                 }
                 // A `plain_valued_leaf` (plain_tree.rs): its OnBeforePassVariable sets the text, written once where the schema has it
                 // (XpTableRootNestedText.al XNT_NsTblText_Export, XNT_TblText_Export, XNT_TextTbl_Export, XNT_PlainLeaf_Export).
@@ -769,6 +728,69 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// A field element in `xp_export_content`: OnBeforePassField, then its value and what is below it. True when a Quit ended
+    /// the document here.
+    fn xp_export_field_element(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        child: usize,
+        out: &mut Elem,
+    ) -> Result<bool, Signal> {
+        let c = schema.node(child);
+        // A Quit in a trigger of the field element leaves it out and ends the document.
+        macro_rules! got {
+            ($e:expr) => {
+                match $e {
+                    Ok(v) => v,
+                    Err(Signal::Exit(None)) if Self::xp_quit(inst) => return Ok(true),
+                    Err(e) => return Err(e),
+                }
+            };
+        }
+        // Break in OnBeforePassField leaves the field element out of the row alone; the row and the export go on
+        // (xmlports/shapes-properties/AyXmlPortFlowTriggers.al:712 Export_passfield_Break: `<Row><Id>2</Id></Row>`).
+        if got!(self.xp_site(inst, schema, child, "onbeforepassfield")) == Some(Flow::Break) {
+            Self::xp_clear_flow(inst);
+            return Ok(false);
+        }
+        let v = got!(self.xp_field_value_text(inst, schema, child));
+        let empty = v.is_empty();
+        let mut e = Elem::new(&doc_name(schema, child));
+        // An empty value writes no text, so the elements below it are indented like any element content
+        // (streams/AtXmlPortFieldElementEdges.al:162 AT_EmptyFieldElement_ChildText_Export `<Name>` then
+        // `<Child>c1</Child>` on its own line; :178 `<Child />`).
+        let text_below = schema
+            .children(child)
+            .iter()
+            .any(|&g| schema.node(g).kind == ir::XmlNodeKind::Text);
+        if !(empty && text_below) {
+            e.children.push(Node::Text(v));
+        }
+        // The attributes and elements below a field element follow its value (AfXmlPortAttrChildren.al:255, 285, 313:
+        // `<Name Lang="en" Kind="K1">Alpha</Name>`, `<Name>Alpha<Child>c1</Child></Name>`).
+        if !schema.children(child).is_empty() {
+            // How an empty value is written before an element is pinned for leaf text elements only.
+            if empty
+                && schema.children(child).iter().any(|&g| {
+                    let k = schema.node(g).kind;
+                    k == ir::XmlNodeKind::Field || (k == ir::XmlNodeKind::Text && !schema.children(g).is_empty())
+                })
+            {
+                return unsupported(format!(
+                    "XmlPort export of the field element {} with an empty value and an element below it (not pinned)",
+                    c.xml_name
+                ));
+            }
+            let r = self.xp_export_content(inst, schema, child, &mut e);
+            out.children.push(Node::Elem(e));
+            r?;
+            return Ok(Self::xp_quit(inst));
+        }
+        out.children.push(Node::Elem(e));
+        Ok(false)
     }
 
     /// `OnBeforePassVariable`, then the variable's text

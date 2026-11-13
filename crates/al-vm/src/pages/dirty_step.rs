@@ -273,7 +273,12 @@ impl Session {
     /// scenario knows what the test did since the page opened.
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         let call = self.note_test_call(st, method, None, args.len());
+        self.end_read_at_test_call(st, call);
         Self::refuse_after_pinned_end(st, call)?;
+        if call.is_none() {
+            // Page code calls a method of the page (`CurrPage.Update`): no List-host cell does (`empty_part_rec`).
+            self.end_empty_list_landing(st);
+        }
         Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestPage method ends the shape `next_held_row_read` reads in; a `Next` notes its row again.
         st.borrow_mut().next_held_row = None;
@@ -332,7 +337,8 @@ impl Session {
         }
         let card_next = name == PageMethod::Next && self.is_card(st) && st.borrow().host.is_none() && st.borrow().dirty;
         if !card_next {
-            return self.test_page_op(method, st, args);
+            let r = self.test_page_op(method, st, args);
+            return Self::journal_next_after_turn(st, name, r);
         }
         let depth = self.frames.len();
         st.borrow_mut().save_failure_depth = None;
@@ -352,10 +358,18 @@ impl Session {
         c: &ControlRef,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
-        let m = method.method();
         let st = &c.page;
         let call = self.note_test_call(st, method, Some(&c.target), args.len());
+        self.end_read_at_test_call(st, call);
         Self::refuse_after_pinned_end(st, call)?;
+        // An Invoke of an action of a part that shows no row may be a read of its Rec a List-host cell measured.
+        self.reading_empty_list_rec(st, call, |s| s.test_control_op_noted(method, c, args))
+    }
+
+    /// `test_control_op_held` after the call is noted.
+    fn test_control_op_noted(&mut self, method: PageOp, c: &ControlRef, args: &mut [Value]) -> Result<Value, Signal> {
+        let m = method.method();
+        let st = &c.page;
         Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestField or TestAction call but SetValue ends the shape `next_held_row_read` reads in.
         if m != PageMethod::SetValue {

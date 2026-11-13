@@ -22,9 +22,13 @@
 //!
 //! The List host (al-runner issue 6924, comment 6822249976: the reporter's host is a List page) runs through the assumption
 //! `empty-part-rec-list-host` until corpus pull request 1339 (pages/parts/EmptyPartRecLinkList.al) is pinned; its allowlist
-//! is `empty_part_rec_list.rs`.
+//! is `empty_part_rec_list.rs`. There the landing leaves the fields the part's filters name unknown, and Rec holds the values
+//! only while a read the cell measured runs: a test Invoke of an action of the part right after the landing, which ends at
+//! any other test call on the host or its parts that starts inside it (`Session::reading_empty_list_rec`,
+//! `Session::end_read_at_test_call`). Code that the Invoke runs itself (the action body and what it calls) reads the values.
 
 use super::parts::LINK_GROUP;
+use super::pinned_shape::{PartStep, TestCall};
 use super::*;
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::page_op::PageMethod;
@@ -43,26 +47,152 @@ impl Session {
         let table_no = rec.borrow().table as usize;
         let fresh = self.initial_fields(table_no);
         rec.borrow_mut().fields = fresh;
+        st.borrow_mut().empty_list_landing = None;
         let Some(host) = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(());
         };
         match self.empty_part_rec_shape(st, &host)? {
-            None => self.stamp_from_filters(st, false)?,
-            Some(miss) if self.top_list(&host) => {
-                let mut r = rec.borrow_mut();
-                let filtered: Vec<usize> = r.filters.iter().map(|f| f.field).collect();
-                let why: std::sync::Arc<str> = format!(
-                    "a read of Rec of a ListPart that shows no row, on a field its filters name, on a List host outside the \
-                     cells BC was measured in ({miss}): whether BC puts the filter's value on Rec is not pinned"
-                )
-                .into();
-                for f in filtered {
-                    r.fields[f] = Value::Unknown(why.clone());
-                }
+            Shape::Measured => self.stamp_from_filters(st, false)?,
+            Shape::ListCell(reads) => {
+                // The values are on Rec only inside a measured read (`reading_empty_list_rec`).
+                unknown_filtered_fields(&rec, OUTSIDE_READ);
+                st.borrow_mut().empty_list_landing = Self::part_steps(st).map(|steps| EmptyListLanding {
+                    steps: steps.len(),
+                    reads,
+                    store: self.landing_store_state(),
+                    reading: false,
+                });
             }
-            Some(_) => {}
+            Shape::Miss(miss) if self.top_list(&host) => {
+                let why = format!(
+                    "a read of Rec of a part that shows no row, on a field its filters name, on a List host outside the cells \
+                     BC was measured in ({miss}): whether BC puts the filter's value on Rec is not pinned"
+                );
+                unknown_filtered_fields(&rec, &why);
+            }
+            Shape::Miss(_) => {}
         }
         Ok(())
+    }
+
+    /// Runs `f`, the test's call `call` on a control of page `st`. When `st` is a part that landed in a List-host cell
+    /// (`empty_part_rec`) and the call is a read the cells measured (`measured_read`), Rec holds the link's single values
+    /// while `f` runs, through the assumption `empty-part-rec-list-host`; before and after, the fields the part's filters name
+    /// are unknown and a read of one is refused. A test call on the host or its parts that starts while `f` runs (from a UI
+    /// handler) ends the read first (`end_read_at_test_call`). So host code that a test call runs, a control's source
+    /// expression, a trigger outside such a call and any later call cannot read the values; code `f` itself runs can.
+    pub(super) fn reading_empty_list_rec<T>(
+        &mut self,
+        st: &St,
+        call: Option<TestCall>,
+        f: impl FnOnce(&mut Self) -> Result<T, Signal>,
+    ) -> Result<T, Signal> {
+        let Some(landing) = st.borrow().empty_list_landing else {
+            return f(self);
+        };
+        if landing.reading {
+            // A call on the part inside its own read (`end_read_at_test_call` ends the read at every test call first).
+            self.end_empty_list_landing(st);
+            return f(self);
+        }
+        if !self.measured_read(st, &landing, call) {
+            return f(self);
+        }
+        assumptions::assume(Assumption::EmptyPartRecListHost);
+        if let Some(l) = st.borrow_mut().empty_list_landing.as_mut() {
+            l.reading = true;
+        }
+        let r = self.link_values_on_rec(st).and_then(|()| f(self));
+        // A landing inside `f` withheld the values itself and is not `reading`; a part that read a row holds no landing.
+        let still_reading = st.borrow().empty_list_landing.is_some_and(|l| l.reading);
+        if still_reading && st.borrow().cursor == Cursor::Row {
+            st.borrow_mut().empty_list_landing = None;
+        } else if still_reading {
+            if let Some(l) = st.borrow_mut().empty_list_landing.as_mut() {
+                l.reading = false;
+            }
+            unknown_filtered_fields(&self.page_rec(st), OUTSIDE_READ);
+        }
+        r
+    }
+
+    /// Whether the test's call `call` is a read of Rec the List-host cells measured after `landing` of part `st`
+    /// (EmptyPartRecLinkList.al at commit 831ae544). Every fact is required as the cells hold it:
+    /// - the call is an Invoke of an action of the part, and every step on the host and its parts since the landing is such an
+    ///   Invoke, up to the reads the cell measured (:1800-2031 OpenEdit or OpenView, at most one GoToRecord, then
+    ///   `P.Box.ReadRec.Invoke()`; :1370 the same read-only action twice; a read of the part's controls or of its filter is no
+    ///   step, `Session::part_steps`);
+    /// - the store is as the landing found it (`landing_store_state`), and no call on the host or its parts since the host
+    ///   opened has raised (no cell writes, rolls back or fails between the landing and its read; the probe's action only
+    ///   appends to a codeunit's text, :630).
+    fn measured_read(&self, st: &St, landing: &EmptyListLanding, call: Option<TestCall>) -> bool {
+        let read = TestCall::Other(PageMethod::Invoke);
+        let (at, last) = (landing.steps, landing.steps + landing.reads);
+        let measured_steps = call == Some(read)
+            && Self::part_steps(st).is_some_and(|s| {
+                s.len() > at && s.len() <= last && s[at..].iter().all(|step| *step == PartStep::Own(read))
+            });
+        let none_raised = || Self::tree_root(st).0.borrow().tree_calls.iter().all(|c| !c.failed);
+        measured_steps && landing.store == self.landing_store_state() && none_raised()
+    }
+
+    /// The fields the filters of part `st` name hold what a part that shows no row holds on Rec in the measured shape: the
+    /// table's blank value, then the single values of the link (`stamp_from_filters`; see the module).
+    fn link_values_on_rec(&mut self, st: &St) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let table_no = rec.borrow().table as usize;
+        let fresh = self.initial_fields(table_no);
+        {
+            let mut r = rec.borrow_mut();
+            let filtered: Vec<usize> = r.filters.iter().map(|f| f.field).collect();
+            for f in filtered {
+                r.fields[f] = fresh[f].clone();
+            }
+        }
+        self.stamp_from_filters(st, false)
+    }
+
+    /// Part `st` reads its view again, or its page code calls a method of the page: the landing of a List-host cell it held is
+    /// over. Inside a measured read (`reading_empty_list_rec`) the values leave Rec with it.
+    pub(super) fn end_empty_list_landing(&mut self, st: &St) {
+        if st.borrow_mut().empty_list_landing.take().is_some_and(|l| l.reading) {
+            unknown_filtered_fields(&self.page_rec(st), OUTSIDE_READ);
+        }
+    }
+
+    /// The test makes call `call` on page `st` (`None`: page code calls a method of the page). A test call on the host or on
+    /// any of its parts while a part of that page tree runs a measured read (`reading_empty_list_rec`) ends that part's
+    /// landing first: in every List-host cell the read is the only test call running on the page tree (the probe's action
+    /// only appends to a codeunit's text, EmptyPartRecLinkList.al:630), so a UI handler of the test that calls the page
+    /// again inside the read gets the fields unknown.
+    pub(super) fn end_read_at_test_call(&mut self, st: &St, call: Option<TestCall>) {
+        if call.is_none() {
+            return;
+        }
+        let mut top = st.clone();
+        loop {
+            let host = top.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
+            let Some(host) = host else { break };
+            top = host;
+        }
+        let reading: Vec<St> = top
+            .borrow()
+            .parts
+            .iter()
+            .map(|(_, p)| p.clone())
+            .filter(|p| p.borrow().empty_list_landing.is_some_and(|l| l.reading))
+            .collect();
+        for part in reading {
+            self.end_empty_list_landing(&part);
+        }
+    }
+
+    /// What tells that the store is as a landing found it: the store's own change counter (every write that changes a stored
+    /// table moves it, by whatever call) and the count of rollbacks (a rollback takes rows back and does not move the
+    /// counter). A write call between two test calls, also one that changes no row or writes a temporary table, already makes
+    /// `Session::part_steps` unknown (`note_tree_call`, by the write mark).
+    fn landing_store_state(&self) -> (u64, u64) {
+        (self.store.change_counter(), self.rollbacks)
     }
 
     /// Runs `f` (a host's parts reading again) with `host_move_running` set to `m`, and restores it after, on an error too.
@@ -77,25 +207,26 @@ impl Session {
         r
     }
 
-    /// `None` when `st` is a part of the measured shape, or of a List-host cell (`list_host_miss`; see the module); else the
-    /// first fact that leaves the shape.
-    fn empty_part_rec_shape(&self, st: &St, host: &St) -> Result<Option<&'static str>, Signal> {
+    /// The shape of part `st` of `host` (see the module).
+    fn empty_part_rec_shape(&mut self, st: &St, host: &St) -> Result<Shape, Signal> {
         let (host_row, host_view) = {
             let h = host.borrow();
             let row = (h.cursor == Cursor::Row && !h.draft) || (h.draft && !h.draft_stored && h.draft_from_open);
             (row, h.mode == PageMode::View)
         };
         if !host_row {
-            return Ok(Some("the host stands on no stored row"));
+            return Ok(Shape::Miss("the host stands on no stored row"));
         }
         let goto_record = self.host_move_running == Some(HostMove::moved(PageMethod::GoToRecord));
         let card_shape = (self.part_open_running || (goto_record && host_view)) && self.top_card_or_document(host);
-        let list_miss = self.list_host_miss(st, host)?;
-        if !card_shape && list_miss.is_some() {
-            return Ok(list_miss);
+        let list_cell = self.list_host_cell(st, host)?;
+        if !card_shape && let Err(miss) = list_cell {
+            return Ok(Shape::Miss(miss));
         }
         if !(self.has_source(st) && self.has_repeater(st) && self.part_linked(st)) {
-            return Ok(Some("the part has no source table, no repeater or no SubPageLink"));
+            return Ok(Shape::Miss(
+                "the part has no source table, no repeater or no SubPageLink",
+            ));
         }
         let engine = self.engine();
         let object = st.borrow().object as usize;
@@ -103,7 +234,7 @@ impl Session {
             k.eq_ignore_ascii_case("SourceTableView") || (k.eq_ignore_ascii_case("PopulateAllFields") && is_true(v))
         });
         if own_view || self.declares(st, "onnewrecord") || engine.events.is_subscribed(object, "onnewrecordevent") {
-            return Ok(Some(
+            return Ok(Shape::Miss(
                 "the part has a SourceTableView, PopulateAllFields or an OnNewRecord",
             ));
         }
@@ -115,11 +246,54 @@ impl Session {
             .iter()
             .all(|f| f.group == LINK_GROUP && table.keys[0].contains(&f.field));
         if !measured {
-            return Ok(Some("a filter of the part that is not its SubPageLink on a key field"));
+            return Ok(Shape::Miss(
+                "a filter of the part that is not its SubPageLink on a key field",
+            ));
         }
-        if list_miss.is_none() {
-            assumptions::assume(Assumption::EmptyPartRecListHost);
-        }
-        Ok(None)
+        let Ok(reads) = list_cell else {
+            return Ok(Shape::Measured);
+        };
+        // A test whose part landed in a cell is flagged, whether or not it reads the values.
+        assumptions::assume(Assumption::EmptyPartRecListHost);
+        Ok(Shape::ListCell(reads))
+    }
+}
+
+/// The landing of part at a List-host cell (`Session::empty_part_rec`), with what `Session::measured_read` compares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmptyListLanding {
+    /// The number of steps on the host and its parts (`Session::part_steps`) up to the landing.
+    steps: usize,
+    /// The number of reads by an action of the part the landing's cell measured.
+    reads: usize,
+    /// The store's state at the landing (`Session::landing_store_state`).
+    store: (u64, u64),
+    /// A measured read runs: Rec holds the link values (`Session::reading_empty_list_rec`).
+    reading: bool,
+}
+
+/// What `empty_part_rec` puts on Rec of a part that shows no row.
+enum Shape {
+    /// The pinned Card or Document shape: the link's single values.
+    Measured,
+    /// A List-host cell (`empty_part_rec_list.rs`): the link's single values, through the assumption, only inside the reads the
+    /// cell measured, with this many reads by an action of the part (`Session::reading_empty_list_rec`).
+    ListCell(usize),
+    /// Outside both, with the first fact that left them.
+    Miss(&'static str),
+}
+
+/// The refusal of a read of a List-host cell's link fields outside the reads the cells measured (`Session::measured_read`).
+const OUTSIDE_READ: &str = "a read of Rec of a part that shows no row, on a field its filters name, on a List host outside the \
+     reads the List-host cells measured (an action of the part the test invokes right after the landing, with no other call, \
+     write to the store, rollback or error since): whether BC keeps the filter's value on Rec there is not pinned";
+
+/// The fields the filters of `rec` name hold a `Value::Unknown` whose read is refused with `why`.
+fn unknown_filtered_fields(rec: &Rec, why: &str) {
+    let why: std::sync::Arc<str> = why.into();
+    let mut r = rec.borrow_mut();
+    let filtered: Vec<usize> = r.filters.iter().map(|f| f.field).collect();
+    for f in filtered {
+        r.fields[f] = Value::Unknown(why.clone());
     }
 }

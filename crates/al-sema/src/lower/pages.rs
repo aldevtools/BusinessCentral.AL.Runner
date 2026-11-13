@@ -811,6 +811,9 @@ impl Lowerer<'_> {
         };
         let part_table = self.table_of[part_page].ok_or("the part page has no source table to link")?;
         link.entries = self.link_entries("SubPageLink", &text, file, host_table, part_table)?;
+        link.consts = crate::pages::parse_sub_page_link_kinds(&text)
+            .map(|k| k.iter().enumerate().filter(|(_, e)| e.2).map(|(i, _)| i).collect())
+            .unwrap_or_default();
         link.enum_values = crate::pages::parse_sub_page_link(&text)
             .map(|k| {
                 k.iter()
