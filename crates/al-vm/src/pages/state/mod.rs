@@ -177,6 +177,9 @@ pub struct PageState {
     /// The caption each control's CaptionClass resolved to when the page filled: (control index, class text, caption).
     /// `Caption()` reads it without raising OnResolveCaptionClass again (corpus testpage/W2CaptionClass.al:113-116).
     pub control_captions: Vec<(usize, String, String)>,
+    /// The context of each field caption `read_literal_field_caption` resolved or reused: (control index, the session's caption
+    /// context revision, the bound subscriptions, the length of the page tree's call log at that read).
+    pub literal_field_caption_contexts: Vec<(usize, u64, Vec<usize>, usize)>,
     /// Why the caption in `control_captions` of a control is not known: (control index, refusal). `Caption()` refuses with it.
     /// Only read together with a `control_captions` entry of the same control, which an open clears.
     pub caption_refusals: Vec<(usize, String)>,
@@ -434,6 +437,8 @@ pub struct PageState {
     pub trapping: bool,
     /// `CurrPage.Update` was called: the client re-reads the row once the call that made it returns.
     pub refresh: bool,
+    /// The host row to reread before its next SetValue after a CardPart drilldown.
+    pub deferred_part_drilldown_refresh: Option<crate::pages::part_host_update::DeferredReread>,
     /// `CurrPage.SaveRecord` ran in the action being invoked.
     pub save_record_called: bool,
     /// A SetValue on a control of this page is running its validation (CurrPage.SaveRecord inside it keeps xRec).
@@ -656,6 +661,8 @@ pub struct PageState {
     pub test_opened_new: bool,
     /// The last open was the test's own `TestPage.OpenEdit`, `OpenView` or `OpenNew` (not a run by AL code).
     pub opened_by_test: bool,
+    /// The built-in Edit or View action switched the page's mode since it opened (`switch_mode`).
+    pub mode_switched_since_open: bool,
     /// What closed the page the last time (`None` before the first close, reset when the page opens). Decides what the
     /// page's code reaches through a part after the close (`pages/held_page_part.rs`).
     pub closed_by: Option<ClosedBy>,
@@ -733,6 +740,9 @@ pub struct PageState {
     /// and a read of a host field are pinned for it, and a part field read or First that inserts it (pages/
     /// lt-part-line-before-host-key/PartLineBeforeHostKey.al QH_BlankRows_*).
     pub new_host_part_rows: bool,
+    /// The measured SetValue of `trapped_card_blank_part.rs` ran on this host: only a read of a host field and Close may
+    /// follow, and the row Close stores must have a key that is not blank.
+    pub trapped_blank_part_edit: bool,
     /// New() on the request page of a report landed on a blank row that nothing stores (Y80_RX_New_*).
     pub request_new_blank: bool,
     /// A new host card or document that a first part access stored with its blank key (pages/new-host-key-entry/Y80NewHostKey.al

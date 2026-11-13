@@ -312,6 +312,8 @@ pub(crate) struct PageClients {
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
+    /// Successful binding and language changes invalidate literal field caption reuse.
+    pub(crate) caption_context_revision: u64,
     /// Manual bindings whose bound instance the globals of a page reached when they were made (`page_held_bindings.rs`,
     /// al-runner issue 6924).
     pub(crate) page_held: Vec<crate::page_held_bindings::PageHeld>,

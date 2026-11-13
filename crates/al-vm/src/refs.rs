@@ -963,7 +963,7 @@ impl Session {
                     copy.unpinned_buffer = None;
                     copy.run_page_link = None;
                 }
-                *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
+                self.variant_refs.install_get_table_buffer(lib, copy, !from_variant);
                 return Ok(Value::Null);
             }
 

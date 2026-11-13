@@ -346,15 +346,15 @@ impl Session {
             self.first_part_access(st, name, false)?;
         } else if st.borrow().new_host_part_rows
             && st.borrow().host.is_none()
-            && !matches!(
+            && (!matches!(
                 name,
                 PageMethod::Close | PageMethod::New | PageMethod::OK | PageMethod::Next | PageMethod::Last
-            )
+            ) || (st.borrow().trapped_blank_part_edit && name != PageMethod::Close))
         {
             // A new host whose part shows rows of the blank key: Close and New() are pinned (PartLineBeforeHostKey.al:1944
             // QH_BlankRows_OpenNew_CloseOnly, :1909 QH_BlankRows_HostNew_ThenClose), and Next and Last, which answer No, run no
             // trigger and store nothing (pages/activate-field-blank-host-rows/Y17ActivateNewHost.al:573 QH_BlankRows_HostNext, :602
-            // QH_BlankRows_HostLast); nothing else.
+            // QH_BlankRows_HostLast); nothing else. After the SetValue of `trapped_card_blank_part.rs`, only Close.
             return unsupported(format!(
                 "TestPage.{name} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
             ));
