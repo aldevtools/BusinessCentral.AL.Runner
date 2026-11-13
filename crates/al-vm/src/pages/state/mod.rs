@@ -437,7 +437,7 @@ pub struct PageState {
     /// `CurrPage.Update` was called: the client re-reads the row once the call that made it returns.
     pub refresh: bool,
     /// The host row to reread before its next SetValue after a CardPart drilldown.
-    pub deferred_part_drilldown_refresh: Option<Vec<Value>>,
+    pub deferred_part_drilldown_refresh: Option<crate::pages::part_host_update::DeferredReread>,
     /// `CurrPage.SaveRecord` ran in the action being invoked.
     pub save_record_called: bool,
     /// A SetValue on a control of this page is running its validation (CurrPage.SaveRecord inside it keeps xRec).

@@ -318,7 +318,6 @@ impl Session {
     /// Only Close, OK and Cancel are pinned on a request page after New() (`request_new_blank_row`), and only Close and a part's
     /// Visible() and Editable() after a swallowed insert of a new host (`refuse_after_swallowed_part_insert`).
     fn refuse_after_request_new(&mut self, st: &St, name: PageMethod) -> Result<PageMethod, Signal> {
-        st.borrow_mut().deferred_part_drilldown_refresh = None;
         if matches!(
             name,
             PageMethod::First

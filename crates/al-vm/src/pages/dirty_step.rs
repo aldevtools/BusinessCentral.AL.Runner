@@ -274,6 +274,7 @@ impl Session {
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         let call = self.note_test_call(st, method, None, args.len());
         self.end_read_at_test_call(st, call);
+        Self::end_deferred_host_reread(st, call);
         Self::refuse_after_pinned_end(st, call)?;
         if call.is_none() {
             // Page code calls a method of the page (`CurrPage.Update`): no List-host cell does (`empty_part_rec`).
@@ -361,6 +362,7 @@ impl Session {
         let st = &c.page;
         let call = self.note_test_call(st, method, Some(&c.target), args.len());
         self.end_read_at_test_call(st, call);
+        Self::end_deferred_host_reread(st, call);
         Self::refuse_after_pinned_end(st, call)?;
         // An Invoke of an action of a part that shows no row may be a read of its Rec a List-host cell measured.
         self.reading_empty_list_rec(st, call, |s| s.test_control_op_noted(method, c, args))

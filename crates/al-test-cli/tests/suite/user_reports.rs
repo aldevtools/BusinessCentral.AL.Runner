@@ -3158,3 +3158,23 @@ page 50925 "Action Link Part"
         );
     }
 }
+
+/// Issue 7886: a second drilldown, or a read of a part field, between the drilldown and the host's SetValue was not
+/// measured: the SetValue keeps main's result (no reread of the header).
+#[test]
+fn issue_7886_part_calls_after_the_drilldown_keep_main_result() {
+    let source = include_str!("../fixtures/card-part-drilldown-refresh.al");
+    let drilldown = "        Document.PackageActions.NewPackage.DrillDown();\n";
+    assert_eq!(source.matches(drilldown).count(), 1);
+    for (shape, call) in [
+        ("second drilldown", drilldown),
+        ("part field read", "        if Document.PackageActions.NewPackage.Value() = '' then;\n"),
+    ] {
+        let outcomes = run_with_deps(&[], &source.replace(drilldown, &format!("{drilldown}{call}")));
+        assert!(
+            matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))]
+                if reason == "Before the next scan the page showed FIRST. The scan used package FIRST."),
+            "{shape}: {outcomes:?}"
+        );
+    }
+}

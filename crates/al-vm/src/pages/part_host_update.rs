@@ -9,14 +9,27 @@
 //! look into the action, so the Update is refused there (`refuse_update_in_action`).
 
 use super::*;
+use super::pinned_shape::TestCall;
 use al_builtins::page_op::PageMethod;
 
 /// A part's view (up to a window of rows) and the place of its row in it.
 type LaterRow = (Vec<Vec<Value>>, usize);
 
+/// The reread a Document host owes after a CardPart drilldown (`PageState::deferred_part_drilldown_refresh`).
+#[derive(Debug, Clone)]
+pub(crate) enum DeferredReread {
+    /// The measured drilldown changed the stored header of this key: the host's next SetValue rereads it first.
+    Pending(Vec<Value>),
+    /// A second drilldown on the part came while one was pending: no reread, and it sets no new one (not measured).
+    Spent,
+}
+
 impl Session {
-    /// CardPartRefresh.al on real BC. The header control initially still shows
-    /// its prior value. The next SetValue validates against the stored header.
+    /// AL Runner issue 7886, corpus pull request 1348 (pages/parts/TestCardPartDrilldownRefresh.al), assumption
+    /// `card-part-drilldown-deferred-host-refresh`: after a drilldown of a CardPart (UpdatePropagation = Both) that changed the
+    /// stored header and called Update(false), the Document host still shows the old value, and its next SetValue validates
+    /// against the stored header. Measured sequence: the drilldown, reads of host fields, then the host's SetValue; every
+    /// other test call on the page tree ends the pending reread (`end_deferred_host_reread`).
     pub(super) fn defer_host_refresh_after_part_drilldown(&mut self, part: &St) -> Result<(), Signal> {
         let (host, index) = {
             let child = part.borrow();
@@ -63,7 +76,10 @@ impl Session {
                 .stored_row(&hrec)?
                 .is_some_and(|stored| !Self::same_values(&stored, &hrec.borrow().fields))
         {
-            host.borrow_mut().deferred_part_drilldown_refresh = Some(key);
+            let mut h = host.borrow_mut();
+            if h.deferred_part_drilldown_refresh.is_none() {
+                h.deferred_part_drilldown_refresh = Some(DeferredReread::Pending(key));
+            }
         }
         Ok(())
     }
@@ -81,17 +97,26 @@ impl Session {
             && !self.declares(st, "onnextrecord")
     }
 
-    pub(super) fn observe_control_for_deferred_refresh(&self, st: &St, method: PageMethod, no_args: bool) -> bool {
-        let field_read = method == PageMethod::Value && no_args;
-        if method != PageMethod::SetValue && !field_read {
-            st.borrow_mut().deferred_part_drilldown_refresh = None;
+    /// The test makes call `call` on page `st`: a pending reread of its page tree's host stays only for the measured next
+    /// steps, a read of a host field and a value typed into a host control (whose SetValue takes it,
+    /// `refresh_host_before_set_value`). A drilldown on a part leaves it `Spent`; any other call ends it.
+    pub(super) fn end_deferred_host_reread(st: &St, call: Option<TestCall>) {
+        let Some(call) = call else { return };
+        let (root, part) = Self::tree_root(st);
+        let mut r = root.borrow_mut();
+        if r.deferred_part_drilldown_refresh.is_none() {
+            return;
         }
-        field_read
+        r.deferred_part_drilldown_refresh = match (part, call) {
+            (None, TestCall::Read | TestCall::Write(_)) => r.deferred_part_drilldown_refresh.take(),
+            (Some(_), TestCall::Other(PageMethod::DrillDown)) => Some(DeferredReread::Spent),
+            _ => None,
+        };
     }
 
     pub(super) fn refresh_host_before_set_value(&mut self, st: &St) -> Result<(), Signal> {
         let pending = st.borrow_mut().deferred_part_drilldown_refresh.take();
-        let Some(key) = pending else { return Ok(()) };
+        let Some(DeferredReread::Pending(key)) = pending else { return Ok(()) };
         if self.clean_document_refresh_row(st) && Self::same_key(&key, &self.row_key(&self.page_rec(st))?) {
             al_builtins::assumptions::assume(
                 al_builtins::assumptions::Assumption::CardPartDrilldownDeferredHostRefresh,

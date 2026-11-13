@@ -1256,7 +1256,7 @@ impl Session {
         self.refuse_unpinned_control_state(c, method)?;
         let st = &c.page;
         let m = method.method();
-        let field_read = self.observe_control_for_deferred_refresh(st, m, args.is_empty());
+        let field_read = m == PageMethod::Value && args.is_empty();
         self.first_part_access(st, m, field_read)?;
         self.guard_blank_part_host_control(c, m, field_read)?;
         // After a GoToKey that moved a list without OnAfterGetCurrRecord a Value read and SetValue read nothing, and the action
