@@ -130,6 +130,8 @@ fn handle(h: u64, ty: &str) -> DotNetValue {
 
 const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Convert\"; \"Convert\") { }
+    type(\"System.Uri\"; \"Uri\") { }
+    type(\"System.Timers.Timer\"; \"Timer\") { }
     type(\"System.IO.Compression.ZipArchive\"; \"ZipArchive\") { }
     type(\"System.IO.Compression.ZipArchiveEntry\"; \"ZipArchiveEntry\") { }
     type(\"System.IO.MemoryStream\"; \"MemoryStream\") { }
@@ -172,6 +174,8 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.String\"; \"ClrString\") { }
     type(\"System.Collections.Generic.Dictionary`2\"; \"GenDict\") { }
     type(\"System.Collections.Generic.List`1\"; \"GenList\") { }
+    type(\"System.Collections.Generic.KeyValuePair`2\"; \"GenKvp\") { }
+    type(\"System.Collections.Generic.Queue`1\"; \"GenQueue\") { }
     type(\"System.Type\"; \"ClrType\") { }
   }
   assembly(\"Microsoft.Exchange.WebServices\") { type(\"Microsoft.Exchange.WebServices.Data.ExchangeService\"; \"ExchangeService\") { } }
@@ -1052,6 +1056,7 @@ fn a_dotnet_exception_is_unsupported_with_the_clr_type_message_and_inner_excepti
             clr_type: "System.FormatException".into(),
             message: "The input is not a valid Base-64 string".into(),
             inner: vec![("System.ArgumentException".into(), "inner text".into())],
+            ..Default::default()
         }))
     });
     let r = run(
@@ -1076,6 +1081,7 @@ fn get_encoding_failure(clr_type: &'static str, message: &'static str) -> Fake {
             clr_type: clr_type.into(),
             message: message.into(),
             inner: vec![],
+            ..Default::default()
         }))
     })
 }
@@ -1146,6 +1152,7 @@ fn asserterror_around_a_dotnet_exception_is_not_run_until_the_text_is_pinned() {
             clr_type: "System.FormatException".into(),
             message: "bad".into(),
             inner: vec![],
+            ..Default::default()
         }))
     });
     let r = run(
@@ -3153,6 +3160,7 @@ fn xml_exception(message: &'static str) -> Fake {
             clr_type: "System.Xml.XmlException".into(),
             message: message.into(),
             inner: vec![],
+            ..Default::default()
         })),
         other => panic!("unexpected request {other:?}"),
     })
@@ -3197,6 +3205,7 @@ fn zip_host(fail: Option<(&'static str, &'static str, &'static str)>) -> Fake {
                 clr_type: t.into(),
                 message: msg.into(),
                 inner: vec![],
+                ..Default::default()
             }))),
             _ => None,
         };
@@ -3645,9 +3654,10 @@ fn position_follows_al_reads_and_a_set_after_the_end_does_not_restart() {
 }
 
 // GetDotNetType of an unassigned Dictionary`2 is System.Type.GetType of its name, marked as assumed
-// (assumption dotnet-type-unassigned-dictionary); an unassigned List`1 keeps main's refusal.
+// (assumption dotnet-type-open-generic); an unassigned Queue`1 keeps main's refusal. (An unassigned List`1 was the refused
+// neighbor here until corpus PR 1365, N4GetDotNetTypeGeneric.al:119-134, measured it as its open definition.)
 #[test]
-fn get_dotnet_type_of_an_unassigned_dictionary_is_assumed_and_of_a_list_refused() {
+fn get_dotnet_type_of_an_unassigned_dictionary_is_assumed_and_of_a_queue_refused() {
     let host = Fake::new(|r| match r {
         Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == "System.Type" && m == "GetType" => {
             assert!(
@@ -3668,15 +3678,511 @@ fn get_dotnet_type_of_an_unassigned_dictionary_is_assumed_and_of_a_list_refused(
     let hits = al_builtins::assumptions::take_hits();
     assert_eq!(text(r), "ok");
     assert!(
-        hits.contains(&al_builtins::assumptions::Assumption::DotnetTypeUnassignedDictionary),
+        hits.contains(&al_builtins::assumptions::Assumption::DotnetTypeOpenGeneric),
         "{hits:?}"
     );
     let host = Fake::new(|r| panic!("unexpected request {r:?}"));
     let r = run(
         &host,
-        "L: DotNet GenList; T: DotNet ClrType;",
-        "T := GetDotNetType(L); exit('ok');",
+        "Q: DotNet GenQueue; T: DotNet ClrType;",
+        "T := GetDotNetType(Q); exit('ok');",
         ": Text",
     );
-    assert!(unsupported(&r).contains("List`1"), "{}", unsupported(&r));
+    assert!(unsupported(&r).contains("Queue`1"), "{}", unsupported(&r));
+}
+
+// ---- .NET exceptions as AL errors (al-runner issue 7924; corpus PR 1365, DotNetExceptionOutcome.al) ----------------------
+
+/// A host whose `Uri` constructor gives object 3, and whose other requests throw `class` with `message`, the binding `bound`.
+fn throwing(class: &'static str, message: &'static str, bound: &'static str, folded: bool) -> Fake {
+    Fake::new(move |r| match r {
+        Req::Construct(t, a) if t == "System.Uri" && a.len() == 1 => reply(handle(3, "System.Uri")),
+        _ => Err(DotNetFailure::Exception(DotNetException {
+            clr_type: class.into(),
+            message: message.into(),
+            bound: bound.into(),
+            folded,
+            ..Default::default()
+        })),
+    })
+}
+
+const URI_NULL: &str = "Value cannot be null. (Parameter 'uri')";
+
+fn hits() -> Vec<al_builtins::assumptions::Assumption> {
+    al_builtins::assumptions::take_hits()
+}
+
+// An instance method that throws ArgumentNullException: asserterror catches it, the text and code are the measured rule's, and
+// GetLastErrorObject is a NavNCLDotNetInvokeException over the .NET exception (DotNetExceptionOutcome.al:305-323).
+#[test]
+fn a_measured_dotnet_exception_is_an_al_error_with_the_measured_text_code_and_object() {
+    use al_builtins::assumptions::Assumption;
+    let host = throwing("System.ArgumentNullException", URI_NULL, "method", false);
+    hits();
+    let r = run(
+        &host,
+        "Base: DotNet Uri; Other: DotNet Uri; Exc: DotNet ClrObject; Inner: DotNet ClrObject; T: DotNet ClrType; Txt: Text;",
+        "Base := Base.Uri('https://example.com/a/'); asserterror if Base.IsBaseOf(Other) then; \
+         Txt := GetLastErrorText() + '#' + GetLastErrorCode(); Exc := GetLastErrorObject(); T := Exc.GetType(); \
+         Txt += '#' + T.FullName + '#' + Format(Exc.Message = GetLastErrorText()); Inner := Exc.InnerException; T := Inner.GetType(); \
+         exit(Txt + '#' + T.FullName + '#' + Inner.Message);",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Uri.IsBaseOf failed with this message: Value cannot be null. (Parameter 'uri')#DotNetInvoke:ArgumentNull\
+         #Microsoft.Dynamics.Nav.Types.Exceptions.NavNCLDotNetInvokeException#Yes#System.ArgumentNullException\
+         #Value cannot be null. (Parameter 'uri')"
+    );
+    assert!(hits().contains(&Assumption::DotnetExceptionMeasuredText));
+}
+
+// A static method, a property get and a constructor (DotNetExceptionOutcome.al:229-256): a constructor names the type only, and the
+// whole .NET message is kept, its second line too.
+#[test]
+fn a_static_method_a_property_get_and_a_constructor_raise_the_measured_texts() {
+    let host = throwing(
+        "System.FormatException",
+        "The input string 'abc' was not in a correct format.",
+        "method",
+        false,
+    );
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer;",
+        "asserterror N := C.ToInt32('abc'); exit(GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Convert.ToInt32 failed with this message: The input string 'abc' was not in a correct format.#DotNetInvoke:Format"
+    );
+    let host = throwing(
+        "System.InvalidOperationException",
+        "This operation is not supported for a relative URI.",
+        "property",
+        false,
+    );
+    let r = run(
+        &host,
+        "U: DotNet Uri; P: Text;",
+        "U := U.Uri('a'); asserterror P := U.AbsolutePath; exit(GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Uri.AbsolutePath failed with this message: This operation is not supported for a relative URI.#DotNetInvoke:InvalidOperation"
+    );
+    let host = throwing(
+        "System.ArgumentOutOfRangeException",
+        "capacity ('-1') must be a non-negative value. (Parameter 'capacity')\nActual value was -1.",
+        "constructor",
+        false,
+    );
+    let r = run(
+        &host,
+        "B: DotNet StringBuilder;",
+        "asserterror B := B.StringBuilder(-1); exit(GetLastErrorText() + '#' + GetLastErrorCode());",
+        ": Text",
+    );
+    assert_eq!(
+        text(r),
+        "A call to System.Text.StringBuilder failed with this message: capacity ('-1') must be a non-negative value. \
+         (Parameter 'capacity')\nActual value was -1.#DotNetInvoke:ArgumentOutOfRange"
+    );
+}
+
+// An exception of a class whose text is not measured, but that an oracle case shows as an AL error (System.ArgumentException of a
+// constructor, Y58AzureKeyVault.al:317-325), is an error: asserterror catches it and the test goes on, but a read of its text, its
+// code or its object refuses (assumption dotnet-exception-other-class).
+#[test]
+fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
+    use al_builtins::assumptions::Assumption;
+    let host = throwing(
+        "System.ArgumentException",
+        "The value is not valid.",
+        "constructor",
+        false,
+    );
+    hits();
+    let r = run(
+        &host,
+        "B: DotNet StringBuilder;",
+        "asserterror B := B.StringBuilder(-1); exit('caught');",
+        ": Text",
+    );
+    assert_eq!(text(r), "caught");
+    assert!(hits().contains(&Assumption::DotnetExceptionOtherClass));
+    for read in [
+        "GetLastErrorText()",
+        "GetLastErrorCode()",
+        "Format(IsNull(GetLastErrorObject()))",
+    ] {
+        let r = run(
+            &host,
+            "B: DotNet StringBuilder;",
+            &format!("asserterror B := B.StringBuilder(-1); exit({read});"),
+            ": Text",
+        );
+        assert!(unsupported(&r).contains("not pinned"), "{read}: {}", unsupported(&r));
+    }
+    // A plain call ends the routine on the error, as on BC.
+    let r = run(&host, "B: DotNet StringBuilder;", "B := B.StringBuilder(-1);", "");
+    assert!(matches!(r.result, Err(Signal::Error(_))), "{:?}", r.result);
+    // The same class thrown by a method is not shown as an AL error by any case: main's refusal.
+    let host = throwing("System.ArgumentException", "bad", "method", false);
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer;",
+        "asserterror N := C.ToInt32('abc'); exit('caught');",
+        ": Text",
+    );
+    assert!(
+        unsupported(&r).contains("raised the .NET exception"),
+        "{}",
+        unsupported(&r)
+    );
+}
+
+// A measured class with a member written in another letter case, an inner exception or a generic type: its text is not measured,
+// so it is an error whose text is refused.
+#[test]
+fn a_measured_class_outside_the_measured_spelling_has_an_unpinned_text() {
+    let host = throwing("System.FormatException", "bad", "method", true);
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer;",
+        "asserterror N := C.toint32('abc'); exit(GetLastErrorText());",
+        ": Text",
+    );
+    assert!(unsupported(&r).contains("not pinned"), "{}", unsupported(&r));
+    let host = Fake::new(|_| {
+        Err(DotNetFailure::Exception(DotNetException {
+            clr_type: "System.FormatException".into(),
+            message: "outer".into(),
+            inner: vec![("System.Exception".into(), "inner".into())],
+            bound: "method".into(),
+            ..Default::default()
+        }))
+    });
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer;",
+        "asserterror N := C.ToInt32('abc'); exit(GetLastErrorText());",
+        ": Text",
+    );
+    assert!(unsupported(&r).contains("not pinned"), "{}", unsupported(&r));
+}
+
+// Bindings the probe did not measure keep main's refusal: no binding named (an older sidecar, an indexer, a property reached
+// through a call), a setter, and a property get named as a method.
+#[test]
+fn unmeasured_bindings_of_a_dotnet_exception_keep_the_refusal() {
+    for (bound, body) in [
+        ("", "N := C.ToInt32('abc');"),
+        ("method", "U := U.Uri('a'); P := U.AbsolutePath;"),
+        ("property", "N := C.ToInt32('abc');"),
+        ("", "U := U.Uri('a'); U.Port := 1;"),
+    ] {
+        let host = throwing("System.FormatException", "bad", bound, false);
+        let r = run(
+            &host,
+            "C: DotNet Convert; N: Integer; U: DotNet Uri; P: Text;",
+            body,
+            "",
+        );
+        assert!(
+            unsupported(&r).contains("raised the .NET exception"),
+            "{bound} {body}: {}",
+            unsupported(&r)
+        );
+    }
+}
+
+// A class no oracle case or probe shows as an AL error keeps main's refusal: OverflowException of Convert.ToInt32 (not measured).
+#[test]
+fn an_exception_class_without_evidence_keeps_the_refusal() {
+    let host = throwing(
+        "System.OverflowException",
+        "Value was either too large or too small for an Int32.",
+        "method",
+        false,
+    );
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer;",
+        "asserterror N := C.ToInt32('99999999999'); exit('caught');",
+        ": Text",
+    );
+    assert!(
+        unsupported(&r).contains("raised the .NET exception System.OverflowException"),
+        "{}",
+        unsupported(&r)
+    );
+}
+
+// A failed call that sent an InStream or an OutStream keeps main's refusal: .NET may have read or written the stream before it
+// threw, and the reply of a failed call does not carry that (the measured calls send no stream, DotNetExceptionOutcome.al:66,
+// :71, :76, :79). A member with a by-reference parameter is the sidecar's to leave unbound (dotnet_sidecar.rs).
+#[test]
+fn a_failed_call_with_a_stream_argument_keeps_the_refusal() {
+    let host = throwing("System.FormatException", "bad", "method", false);
+    for body in [
+        "B.Data.CreateOutStream(O); O.WriteText('abc'); B.Data.CreateInStream(I); asserterror C.ReadSome(I); exit('caught');",
+        "B.Data.CreateOutStream(O); asserterror C.WriteSome(O); exit('caught');",
+    ] {
+        let r = run(
+            &host,
+            "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream; I: InStream;",
+            body,
+            ": Text",
+        );
+        assert!(
+            unsupported(&r).contains("raised the .NET exception System.FormatException"),
+            "{body}: {}",
+            unsupported(&r)
+        );
+    }
+}
+
+// ---- GetDotNetType of an open generic (al-runner issue 7833; corpus PR 1365, N4GetDotNetTypeGeneric.al) ----------------------
+
+/// A host that answers `System.Type.GetType(name)` with a type object and records the names asked.
+fn type_host(asked: Arc<Mutex<Vec<String>>>) -> Fake {
+    Fake::new(move |r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == "System.Type" && m == "GetType" => {
+            if let DotNetValue::Str(s) = &a[0].value {
+                asked.lock().unwrap().push(s.clone());
+            }
+            reply(handle(7, "System.RuntimeType"))
+        }
+        other => panic!("unexpected request {other:?}"),
+    })
+}
+
+// An unassigned List`1 or KeyValuePair`2, and a Dictionary`2 its own constructor made, give the open generic type definition
+// (N4GetDotNetTypeGeneric.al:119-134, :153-161), marked as assumed; an unassigned Queue`1 stays refused (not measured).
+#[test]
+fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
+    use al_builtins::assumptions::Assumption;
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let host = type_host(asked.clone());
+    for (vars, body) in [
+        (
+            "L: DotNet GenList; T: DotNet ClrType;",
+            "T := GetDotNetType(L); exit('ok');",
+        ),
+        (
+            "K: DotNet GenKvp; T: DotNet ClrType;",
+            "T := GetDotNetType(K); exit('ok');",
+        ),
+        (
+            "D: DotNet GenDict; T: DotNet ClrType;",
+            "D := D.Dictionary(); T := GetDotNetType(D); exit('ok');",
+        ),
+    ] {
+        hits();
+        assert_eq!(text(run(&host, vars, body, ": Text")), "ok", "{vars}");
+        assert!(hits().contains(&Assumption::DotnetTypeOpenGeneric), "{vars}");
+    }
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [
+            "System.Collections.Generic.List`1",
+            "System.Collections.Generic.KeyValuePair`2",
+            "System.Collections.Generic.Dictionary`2"
+        ]
+    );
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    let r = run(
+        &host,
+        "Q: DotNet GenQueue; T: DotNet ClrType;",
+        "T := GetDotNetType(Q); exit('ok');",
+        ": Text",
+    );
+    assert!(unsupported(&r).contains("Queue`1"), "{}", unsupported(&r));
+}
+
+// ---- [WithEvents] Timer with an Elapsed trigger (al-runner issue 7832; corpus PR 1365, N4WithEventsNoRaise.al) --------------
+
+/// Runs `routine` of `object` in `src` (after the shared DotNet declarations) on `host`.
+fn run_src(host: &Fake, src: &str, object: &str, routine: &str) -> Ran {
+    let (ws, l) = al_sema::lower::compile(
+        vec![AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), format!("{DOTNET}{src}"))],
+        }],
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked: Vec<Vec<Option<String>>> = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
+        .collect();
+    let oi = l.program.objects.iter().position(|o| o.name == object).unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == routine)
+        .unwrap();
+    if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
+        return Ran {
+            result: Err(Signal::unsupported(r.clone())),
+            session: None,
+        };
+    }
+    let mut s = Session::new(Engine::with_dotnet(l.program, blocked, cfg(host)));
+    let inst = s.instance(oi);
+    let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+    Ran {
+        result,
+        session: Some(s),
+    }
+}
+
+/// A host for a System.Timers.Timer: each constructor gives a new object, Interval reads back what was set, Enabled is No.
+fn timer_host() -> Fake {
+    let interval = Arc::new(Mutex::new(String::from("100")));
+    let next = Arc::new(Mutex::new(20u64));
+    Fake::new(move |r| match r {
+        Req::Construct(t, a) if t == "System.Timers.Timer" && a.is_empty() => {
+            let mut n = next.lock().unwrap();
+            *n += 1;
+            reply(handle(*n, "System.Timers.Timer"))
+        }
+        Req::Set(_, m, DotNetValue::Int32(v)) if m == "Interval" => {
+            *interval.lock().unwrap() = v.to_string();
+            reply(DotNetValue::Null)
+        }
+        Req::Get(_, m) if m == "Interval" => reply(DotNetValue::Decimal(interval.lock().unwrap().clone())),
+        Req::Get(_, m) if m == "Enabled" => reply(DotNetValue::Bool(false)),
+        other => panic!("unexpected request {other:?}"),
+    })
+}
+
+const TIMER_USES: &str = "procedure F(): Text var S: Text; begin S := Format(IsNull(Tm)); Tm := Tm.Timer(); Tm.Interval := 1000; \
+    S += '|' + Format(IsNull(Tm)) + '|' + Format(Tm.Interval) + '|' + Format(Tm.Enabled); Tm := Tm.Timer(); Tm.Interval := 2000; \
+    S += '|' + Format(Tm.Interval); Clear(Tm); exit(S + '|' + Format(IsNull(Tm)) + '|' + Format(N)); end;";
+
+const ELAPSED: &str = "trigger Tm::Elapsed(sender: Variant; e: DotNet ClrObject) begin N += 1; end;";
+
+// The uses the probe made run on a codeunit, a page, a table and a report, and the Elapsed trigger never runs
+// (N4WithEventsNoRaise.al:291-318, :372-385, :387-403, :405-417).
+#[test]
+fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
+    use al_builtins::assumptions::Assumption;
+    for (kind, head) in [
+        ("codeunit", "codeunit 50100 W"),
+        ("page", "page 50100 W"),
+        (
+            "table",
+            "table 50100 W { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } }",
+        ),
+        ("report", "report 50100 W"),
+    ] {
+        let open = if kind == "table" { "" } else { " {" };
+        let src = format!("{head}{open} var [WithEvents] Tm: DotNet Timer; N: Integer; {ELAPSED} {TIMER_USES} }}");
+        hits();
+        let r = run_src(&timer_host(), &src, "W", "F");
+        assert_eq!(text(r), "Yes|No|1,000|No|2,000|Yes|0", "{kind}");
+        assert!(hits().contains(&Assumption::WithEventsTimerElapsedNotStarted), "{kind}");
+    }
+}
+
+// The report of the probe runs: ProcessingOnly, no request page, OnPreReport assigns the Timer, OnAfterGetRecord of a one-row
+// data item reads it; Run completes, GetShown of the variable after Run is empty and the Elapsed trigger never runs
+// (N4WithEventsNoRaise.al:113-152, :405-415; the probe's data item is the Integer table, outside this test's workspace).
+#[test]
+fn a_report_with_a_with_events_timer_runs_as_the_probe_runs_it() {
+    use al_builtins::assumptions::Assumption;
+    let src = format!(
+        "{TABLE} report 50101 R {{ ProcessingOnly = true; UsageCategory = None; \
+         dataset {{ dataitem(One; \"ALT Blob\") {{ \
+         trigger OnAfterGetRecord() begin Shown += '|row:' + Format(Tm.Interval); end; }} }} \
+         var [WithEvents] Tm: DotNet Timer; N: Integer; Shown: Text; \
+         trigger OnPreReport() begin Shown := Format(IsNull(Tm)); Tm := Tm.Timer(); Tm.Interval := 3500; \
+         Shown += '|' + Format(IsNull(Tm)) + '|' + Format(Tm.Interval) + '|' + Format(Tm.Enabled); end; \
+         procedure GetShown(): Text begin exit(Shown + Format(N)); end; {ELAPSED} }} \
+         codeunit 50100 W {{ procedure F(): Text var R: Report R; B: Record \"ALT Blob\"; begin B.Code := 'A'; B.Insert(); \
+         R.UseRequestPage(false); R.Run(); exit(R.GetShown()); end; }}"
+    );
+    hits();
+    let r = run_src(&timer_host(), &src, "W", "F");
+    assert_eq!(text(r), "0");
+    assert!(hits().contains(&Assumption::WithEventsTimerElapsedNotStarted));
+}
+
+// ClearAll nulls the WithEvents Timer, which the probe does not measure (it measures Clear): refused in the object that holds
+// the Timer and in an extension of it. ClearAll in an object whose WithEvents variable has no trigger keeps main's result.
+#[test]
+fn clear_all_where_it_reaches_a_with_events_timer_is_refused() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(..) => reply(handle(21, "System.Timers.Timer")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let src = format!(
+        "codeunit 50100 W {{ var [WithEvents] Tm: DotNet Timer; N: Integer; {ELAPSED} \
+         procedure F(): Boolean begin Tm := Tm.Timer(); ClearAll(); exit(IsNull(Tm)); end; }}"
+    );
+    let r = run_src(&host, &src, "W", "F");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
+    let src = format!(
+        "page 50100 P {{ var [WithEvents] Tm: DotNet Timer; N: Integer; {ELAPSED} }} \
+         pageextension 50101 X extends P {{ procedure F() begin ClearAll(); end; }}"
+    );
+    let r = run_src(&host, &src, "X", "F");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
+    let src = "codeunit 50100 W { var [WithEvents] Tm: DotNet Timer; N: Integer; \
+         procedure F(): Text begin N := 5; ClearAll(); exit(Format(N) + Format(IsNull(Tm))); end; }";
+    assert_eq!(text(run_src(&host, src, "W", "F")), "0Yes");
+}
+
+// Every other use, member, trigger set or type keeps the refusal.
+#[test]
+fn a_with_events_timer_outside_the_measured_uses_stays_refused() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(..) => reply(handle(21, "System.Timers.Timer")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    for (decl, triggers, body) in [
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Tm.Start();"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Tm.Enabled := true;"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Other := Tm;"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Keep(Tm);"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Other;"),
+        ("Tm: DotNet Timer", ELAPSED, "Tm := Tm.Timer(); Tm.Interval(5);"),
+        (
+            "Tm: DotNet Timer",
+            "trigger Tm::Elapsed(sender: Variant; e: DotNet ClrObject) begin end; trigger Tm::Disposed(sender: Variant; e: DotNet ClrObject) begin end;",
+            "Tm := Tm.Timer();",
+        ),
+        (
+            "Tm: DotNet Timer",
+            "trigger Tm::Disposed(sender: Variant; e: DotNet ClrObject) begin end;",
+            "Tm := Tm.Timer();",
+        ),
+        ("Tm: DotNet StringBuilder", ELAPSED, "Tm := Tm.StringBuilder();"),
+    ] {
+        let src = format!(
+            "codeunit 50100 W {{ var [WithEvents] {decl}; Other: DotNet Timer; N: Integer; {triggers} \
+             procedure F() begin {body} end; procedure Keep(T: DotNet Timer) begin end; }}"
+        );
+        let r = run_src(&host, &src, "W", "F");
+        assert!(
+            unsupported(&r).contains("WithEvents"),
+            "{decl} {body}: {}",
+            unsupported(&r)
+        );
+    }
+    // An xmlport is not measured.
+    let src = format!(
+        "xmlport 50100 W {{ schema {{ textelement(Root) {{ }} }} var [WithEvents] Tm: DotNet Timer; N: Integer; {ELAPSED} \
+         procedure F(): Boolean begin exit(IsNull(Tm)); end; }}"
+    );
+    let r = run_src(&host, &src, "W", "F");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
 }

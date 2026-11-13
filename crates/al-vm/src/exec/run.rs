@@ -165,7 +165,8 @@ impl Session {
                 }
                 Op::StoreLocal { i, a, p } => {
                     let v = take(f, a, nl);
-                    if matches!(v, Value::Record(_) | Value::Library(..)) {
+                    // A Blob goes through `write` too: a Variant takes a copy (`blob_transfer::moved`).
+                    if matches!(v, Value::Record(_) | Value::Library(..) | Value::Blob(_)) {
                         self.write(&chunk.places[p as usize], v, f)?;
                     } else {
                         set(&mut f.locals[i as usize], v);

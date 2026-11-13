@@ -1,4 +1,5 @@
 use super::*;
+use crate::blob_transfer::BlobMove;
 
 /// The start of the refusal of an index with fewer positions than the array has dimensions.
 const ROW_REFUSAL: &str = "a row of a ";
@@ -1481,7 +1482,7 @@ impl Session {
     }
 
     /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
-    /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `field_blob`).
+    /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `blob_transfer::moved`).
     fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
         self.write_as(p, v, f, false)
     }
@@ -1655,7 +1656,8 @@ impl Session {
                     if let Some(why) = r.unpinned_buffer {
                         crate::records::held_part_field_write(why)?;
                     }
-                    let v = field_blob(&r.fields[*pos], v, assign);
+                    let how = if assign { BlobMove::Assign } else { BlobMove::WriteBack };
+                    let v = crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, || true)?;
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;
@@ -1684,6 +1686,12 @@ impl Session {
                 } =>
             {
                 crate::recordref_variant::own_copy(h)
+            }
+            // A Blob assigned to a local Variant: the Variant holds a copy (`blob_transfer::moved`).
+            Value::Blob(_)
+                if assign && matches!(p, ir::Place::Local(_)) && matches!(self.place_type(p, f), RtType::Variant) =>
+            {
+                crate::blob_transfer::moved(None, v, BlobMove::Variant, || true)?
             }
             _ => v,
         };
@@ -2201,29 +2209,4 @@ pub(crate) fn date_key(v: &Value) -> i64 {
 /// The Date a [`date_key`] stands for.
 pub(crate) fn date_of_key(k: i64) -> Value {
     Value::Date((k.div_euclid(2)) as i32, k.rem_euclid(2) == 1)
-}
-
-/// The Blob value a field write stores. A Blob of a record read from the database without CalcFields holds none of its
-/// content: assigned to another field it gives an empty Blob (record/flowfields/BlobCalcFieldsLength.al:404, 'target after
-/// assign' has=No|len=0, and the Modify after it stores nothing). A temporary row read back (Get, FindFirst, FindSet) without
-/// CalcFields gives the same empty copy (record/temporary/TemporaryBlobAutoCalc.al:174-310, al-runner issue 6434). Any other
-/// Blob that another holder still has (the source field, a Variant) is copied: the field gets a value of its own, which a later
-/// Clear of the source or a new write to it does not change, nor the reverse (al-runner issue 7128). The field's own buffer
-/// written back, and a builtin's write-back (`assign` false, `Session::write_native_back`: Clear, CreateOutStream), keep the buffer.
-fn field_blob(cur: &Value, v: Value, assign: bool) -> Value {
-    let Value::Blob(b) = &v else { return v };
-    if matches!(cur, Value::Blob(c) if std::sync::Arc::ptr_eq(c, b)) {
-        return v;
-    }
-    let unloaded = {
-        let buf = b.borrow();
-        (buf.db_row || buf.temp_row) && !buf.loaded
-    };
-    if unloaded {
-        Value::Blob(al_builtins::stream::new_blob())
-    } else if assign && std::sync::Arc::strong_count(b) > 1 {
-        Value::Blob(al_builtins::stream::copy_for_assignment(b))
-    } else {
-        v
-    }
 }

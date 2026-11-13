@@ -983,9 +983,6 @@
 74200 WriteReadTypes
 74201 PositionPerEncoding
 74201 ReadTextLengthMultiByte
-74202 Base64InvalidInput
-74202 Base64UrlAlphabetRoundTrip
-74202 Base64UrlAlphabetToStandardDecode
 74202 CopyCountAgainstWhatIsLeft
 74202 CopyNegativeCount
 74202 CopyWithLength
@@ -1520,7 +1517,6 @@
 85780 Item50_YamlRoundTrip_NestedList
 85841 Item63_MediaAfterChangeCompany
 85841 Item64_OutStreamWriteInStream
-85841 Item72_Base64OddInput
 85905 Get_WithoutBoolean_EmptyList
 85905 Get_WithoutBoolean_Indexes
 85907 WriteToOutStream_EncodingNameCasing
@@ -2054,8 +2050,6 @@
 96630 REV_Execute_WithRecordRef_SubstituteArgsAndEvents
 96630 REV_SaveAs_VariableWithParameters_AndWordLayoutXml
 96643 QMN_SetRangeAfterRead_ValueThatDoesNotConvert
-96652 SepG_FieldDelimiterAndSeparatorTokens
-96652 SepG_RecordAndTableSeparatorTokens
 96660 OneRow_DelayedInsertList_ReportWithRequestPage_GoToKey
 96660 OneRow_DelayedInsertList_ReportWithRequestPage_Last
 96660 OneRow_DelayedInsertList_ReportWithRequestPage_Next
