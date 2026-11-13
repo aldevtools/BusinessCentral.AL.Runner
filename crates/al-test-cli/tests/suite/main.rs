@@ -166,6 +166,7 @@ mod refusal_keys;
 mod refusal_reason_texts;
 mod relation_lookup_close_places;
 mod relation_lookup_close_shape;
+mod rename_blank_key_page_close;
 mod report_global_blob_column;
 mod report_handler;
 mod report_request_page_save_as_pdf;

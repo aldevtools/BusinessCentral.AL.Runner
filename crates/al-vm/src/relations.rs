@@ -289,7 +289,7 @@ impl Session {
                 continue;
             }
             target.push(match w {
-                ir::RelationWhere::Value { related: p, text } => FieldFilter {
+                ir::RelationWhere::Value { related: p, text, .. } => FieldFilter {
                     lang: al_builtins::filter::filter_language(),
                     field: *p,
                     expr: self
