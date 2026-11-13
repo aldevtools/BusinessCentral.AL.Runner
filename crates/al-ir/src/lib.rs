@@ -106,11 +106,9 @@ pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
     "SetupPrinters",
 ];
 
-/// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, for a save
-/// while a temporary layout selection is held (ADR-040 amendment 2026-11-12, A7). SelectedBuiltinLayoutType is not raised once
-/// SelectReportLayoutCode answered a selected layout (corpus probe pull request 1362,
-/// reports/layouts-html-text/HtRenderedTextTests.al:494, :530).
-pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 1] = ["SelectReportLayoutCode"];
+/// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, so that
+/// Microsoft's layout selection runs as AL (ADR-040 amendment 2026-11-13, part 1, point 3; al-vm `report_save::fact_selection`).
+pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 2] = ["SelectReportLayoutCode", "SelectedBuiltinLayoutType"];
 
 /// Base Application's app id.
 pub const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
@@ -642,6 +640,9 @@ pub struct Report {
     /// one. Empty when it cannot be told.
     #[serde(default)]
     pub default_layout_kind: String,
+    /// The kinds the `RDLCLayout`, `WordLayout` and `ExcelLayout` properties declare (`rdlc`, `word`, `excel`), in that order.
+    #[serde(default)]
+    pub layout_properties: Vec<String>,
 }
 
 /// One `layout(Name) { ... }` of a report's `rendering` section.

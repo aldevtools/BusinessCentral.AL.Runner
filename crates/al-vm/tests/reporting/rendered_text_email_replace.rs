@@ -8,7 +8,6 @@ use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_builtins::rendered_text::{self, RgbaReplace};
 use al_builtins::value::Value;
-use al_testkit::Built;
 
 use super::rendered_text::FIXTURE;
 
@@ -19,17 +18,7 @@ dotnet
     assembly("Microsoft.Dynamics.Nav.Ncl") { type("Microsoft.Dynamics.Nav.Runtime.AppHtmlSanitizer"; "AppHtmlSanitizer") { } }
 }
 
-// Stand-ins of Base Application's table 9651 and the platform's Tenant Report Layout Selection.
-table 9651 "Report Layout Selection"
-{
-    fields
-    {
-        field(1; "Report ID"; Integer) { } field(3; "Company Name"; Text[30]) { }
-        field(4; Type; Option) { OptionMembers = "RDLC (built-in)","Word (built-in)","Custom Layout","Excel Layout","External Layout"; }
-    }
-    keys { key(PK; "Report ID", "Company Name") { } }
-}
-
+// A stand-in of the platform's Tenant Report Layout Selection (Base Application's objects: `report_management_stand_in`).
 table 2000000233 "Tenant Report Layout Selection"
 {
     fields { field(1; "Report ID"; Integer) { } field(2; "Company Name"; Text[30]) { } field(3; "Layout Name"; Text[250]) { } }
@@ -203,7 +192,7 @@ codeunit 50984 "RE Tests"
 "#;
 
 fn run(proc: &str) -> Result<Value, Signal> {
-    Built::from_source(&format!("{FIXTURE}{REPLACE}")).run_in("RE Tests", proc)
+    super::report_management_stand_in::built(&format!("{FIXTURE}{REPLACE}")).run_in("RE Tests", proc)
 }
 
 #[track_caller]
