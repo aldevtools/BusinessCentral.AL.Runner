@@ -64,7 +64,7 @@ fn empty_or_side(text: &str, args: &[Value], ty: &RtType) -> Option<(Side, Evide
         },
         [arg] => {
             let filled = match arg {
-                Value::Text(s) | Value::Code(s) => !int_field && !s.is_empty() && fits(s),
+                Value::Text(s) => !int_field && !s.is_empty() && fits(s),
                 Value::Integer(_) => int_field,
                 _ => false,
             };
@@ -190,6 +190,8 @@ mod tests {
         assert_eq!(empty_or_side("A|", &[], &RtType::Integer), None);
         assert_eq!(empty_or_side("1|", &[], &RtType::Decimal), None);
         assert_eq!(empty_or_side("%1|", &[Value::Text("".into())], &text_ty()), None);
+        // A Code value is not measured (the probe passed Text values only).
+        assert_eq!(empty_or_side("%1|", &[Value::Code("A".into())], &text_ty()), None);
         assert_eq!(empty_or_side("2147483648|", &[], &RtType::Integer), None);
         assert_eq!(
             empty_or_side("2147483647|", &[], &RtType::Integer),
