@@ -42,6 +42,8 @@ pub(super) fn get_last_error_code(ctx: &mut dyn Ctx, _: Option<&mut Value>, _: &
 /// text (`GetLastErrorCallStack` form without the trailing backslashes, `\n` between frames; may be empty).
 pub const EXC_MESSAGE: usize = 0;
 pub const EXC_CALL_STACK: usize = 1;
+/// The error code, kept only for a NavNCLDotNetInvokeException: its inner exception follows from it.
+pub const EXC_CODE: usize = 2;
 
 /// `GetLastErrorObject()`: the last error as the .NET exception BC holds, or null when there is none.
 /// Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al for `Error('literal', args)`
@@ -53,7 +55,8 @@ pub(super) fn get_last_error_object(
     _: &mut [Value],
 ) -> Result<Value, Signal> {
     use crate::dotnet_sigs::{
-        AL_EXCEPTION, NCL_DIALOG_EXCEPTION, NCL_EVALUATE_EXCEPTION, RECORD_NOT_FOUND_EXCEPTION, TEST_FIELD_EXCEPTION,
+        AL_EXCEPTION, NCL_DIALOG_EXCEPTION, NCL_DOTNET_INVOKE_EXCEPTION, NCL_EVALUATE_EXCEPTION,
+        RECORD_NOT_FOUND_EXCEPTION, TEST_FIELD_EXCEPTION,
     };
     let e = ctx.last_error();
     refuse_unpinned(&e, "GetLastErrorObject")?;
@@ -77,6 +80,9 @@ pub(super) fn get_last_error_object(
         ExceptionKind::DialogComputed => NCL_DIALOG_EXCEPTION,
         ExceptionKind::RecordNotFound => RECORD_NOT_FOUND_EXCEPTION,
         ExceptionKind::DivideByZero => AL_EXCEPTION,
+        // Corpus PR 1365 (open), onprem-dotnet dotnet/dotnet/DotNetExceptionOutcome.al:305-386; set only by al-vm
+        // `dotnet/invoke_exception.rs` under its assumption.
+        ExceptionKind::DotNetInvoke => NCL_DOTNET_INVOKE_EXCEPTION,
         // The class follows the error code for these (GetLastErrorObjectKinds.al:Kind_FailingTestFieldWithValue, _WithoutValue,
         // _ModifyOfMissingRow, _DeleteOfMissingRow, _EvaluateWithoutReturnValue).
         ExceptionKind::Unknown if e.code == "Dialog" => NCL_DIALOG_EXCEPTION,
@@ -94,10 +100,14 @@ pub(super) fn get_last_error_object(
             ));
         }
     };
+    let mut state = vec![Value::Text(e.message.into()), Value::Text(e.call_stack.into())];
+    if e.exception == ExceptionKind::DotNetInvoke {
+        state.push(Value::Text(e.code.into()));
+    }
     Ok(Value::DotNet(Rc::new(crate::value::DotNetObject::new(
         crate::value::DotNetKind::Internal {
             type_name: type_name.into(),
-            state: std::cell::RefCell::new(vec![Value::Text(e.message.into()), Value::Text(e.call_stack.into())]),
+            state: std::cell::RefCell::new(state),
         },
     ))))
 }
