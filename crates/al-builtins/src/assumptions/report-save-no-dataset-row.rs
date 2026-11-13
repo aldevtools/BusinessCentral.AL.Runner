@@ -1,0 +1,15 @@
+ReportSaveNoDatasetRow => {
+    id: "report-save-no-dataset-row",
+    assumed: "Report.SaveAs to a stream of a report with one data item and no report extension, whose run wrote no dataset row: (1) a Word default layout DefaultRenderingLayout names, as Pdf, Word or Html: with the answer used it answers false, writes nothing and leaves the error ReportResultEmpty ('The report couldn\u{2019}t be generated, because it was empty. Adjust your filters and try again.') for GetLastErrorText and GetLastErrorCode; as a statement it raises that error; BC runs OnPreReport and OnPreRendering and not OnPostReport, so a report that declares OnPostReport refuses; (2) a report declared with DefaultLayout = Word that declares no report trigger, as Html or Pdf: the same answer and error; (3) an RDLC default layout DefaultRenderingLayout names, of a report that declares no report trigger, as Pdf or Word: it answers true and writes nothing, in both forms. Kept from before the error was measured: the Html save with its answer used of a DefaultLayout = Word report that declares a report trigger answers false and leaves the last error as it was. Not checked: the triggers of the data item, OnInitReport and a request page (they run as in a save with rows), a RecordRef argument and request parameters. Every other save with no dataset row of a Word layout report refuses (a file, more data items, a report extension, a temporary or stored layout selection, Word of a DefaultLayout = Word report); an RDLC report outside (3) writes its placeholder as with rows.",
+    tests: "al-runner issue 6924: the reporter's tests save a Word layout report with no dataset row as Pdf. Corpus pull request 1371 (branch al-runtime-rs-staging-reports-regex, commit d53584e1, open) and corpus pull request 1362 (branch al-runtime-rs-staging-opaque-text, commit 98d1a059, open), measured the same on the three BC majors the corpus runs.",
+    probe: "Corpus pull request 1371, reports/html-email-body/RxLayoutSelectionTests.al: NoRow_WordLayout_Pdf :852, NoRow_WordLayout_Word :873, NoRow_WordLayout_Html :915, NoRow_RdlcLayout_Pdf :937, NoRow_RdlcLayout_Word :958, NoRow_LegacyWordLayout_Html :979, NoRow_LegacyWordLayout_Pdf :1001 (each with the answer used and as a statement); reports/html-email-body/RxEmailBodyTests.al:134-143 WordDefault_NoRow_EmailBody. Corpus pull request 1362, reports/layouts-html-text/HtRenderedTextTests.al:320-335 Html_SaveAs_NoDatasetRow. Not measured, each needs a probe: a save to a file, two data items with a parent row and no child row, a report extension, report triggers of a DefaultLayout = Word report and of an RDLC report (the measured reports declare none), Word of a DefaultLayout = Word report, Excel and Html of an RDLC report, a layout selection.",
+    awaiting: Awaiting {
+        issues: &[6924],
+        files: &[
+            "tests/al-language/reports/html-email-body/RxLayoutSelectionTests.al",
+            "tests/al-language/reports/html-email-body/RxEmailBodyTests.al",
+            "tests/al-language/reports/layouts-html-text/HtRenderedTextTests.al",
+        ],
+        since: "2026-11-12",
+    },
+}

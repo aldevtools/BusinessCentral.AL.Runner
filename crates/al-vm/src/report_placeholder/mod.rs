@@ -20,8 +20,10 @@
 
 mod files;
 mod grid;
+mod no_row;
 mod run;
 mod selection;
+mod stored;
 
 pub use files::{Format, placeholder_pdf};
 pub(crate) use grid::{Rendered, format_refused_by_layout};
@@ -30,12 +32,37 @@ use crate::reports::{SaveTarget, Schema};
 use crate::{Session, Signal};
 use al_builtins::value::Value;
 
-/// What `report` declares of the facts the measured Html cells share (`al_builtins::rendered_text::ReportShape`): read by
-/// the save with no dataset row (`Session::no_row_save`) and by the rgba replace (`Session::html_render_mark`).
-fn report_shape(report: &al_ir::Report) -> al_builtins::rendered_text::ReportShape {
-    al_builtins::rendered_text::ReportShape {
-        one_data_item: report.items.len() == 1,
-        no_extension: report.extensions.is_empty(),
+/// What the report of `schema` declares of the facts the measured Html cells tell apart
+/// (`al_builtins::rendered_text::ReportShape`): read by the save with no dataset row (`no_row`) and by the rgba replace
+/// (`Session::html_render_mark`).
+fn report_shape(program: &al_ir::Program, schema: &Schema) -> al_builtins::rendered_text::ReportShape {
+    use al_builtins::rendered_text::{DataItems, Extensions, ReportShape};
+    let report = schema.report();
+    let data_items = match report.items.as_slice() {
+        [_] => DataItems::One,
+        [top, inner] if top.parent.is_none() && inner.parent == Some(0) => DataItems::ParentAndChild,
+        _ => DataItems::Unmeasured,
+    };
+    let extensions = match report.extensions.as_slice() {
+        [] => Extensions::None,
+        [e] => match program.objects[*e].report_ext.as_ref() {
+            Some(x)
+                if x.on_pre.is_none()
+                    && x.on_post.is_none()
+                    && x.modifies.is_empty()
+                    && x.added.is_empty()
+                    && x.labels.is_empty()
+                    && !x.adds.is_empty() =>
+            {
+                Extensions::OneAddingColumns
+            }
+            _ => Extensions::Unmeasured,
+        },
+        _ => Extensions::Unmeasured,
+    };
+    ReportShape {
+        data_items,
+        extensions,
         rendering_layout_declared: report.default_rendering_layout.is_some(),
     }
 }
@@ -51,6 +78,8 @@ pub(crate) enum SaveOutput {
     Placeholder(Format),
     /// The Html placeholder of the Word layout a temporary layout selection named (`selection`): the layout's name.
     SelectedHtml(std::sync::Arc<str>),
+    /// The placeholder file of the format, rendered by the RDLC layout a stored selection row names (`stored`).
+    StoredRdlc(Format),
 }
 
 /// The events of codeunit "Reporting Triggers" BC raises around a render (reports/layouts-saveas, events/platform-
@@ -109,9 +138,11 @@ impl Session {
         {
             return Ok(saved);
         }
-        let (output, selected) = match output {
-            SaveOutput::SelectedHtml(layout) => (SaveOutput::Placeholder(Format::Html), Some(layout)),
-            other => (other, None),
+        let default_kind = schema.report().default_layout_kind.as_str();
+        let (output, selected, layout_kind) = match output {
+            SaveOutput::SelectedHtml(layout) => (SaveOutput::Placeholder(Format::Html), Some(layout), default_kind),
+            SaveOutput::StoredRdlc(format) => (SaveOutput::Placeholder(format), None, "rdlc"),
+            other => (other, None, default_kind),
         };
         match (output, target) {
             (SaveOutput::Dataset, SaveTarget::Stream(blob)) => al_builtins::stream::write_bytes(&blob, dataset),
@@ -124,8 +155,7 @@ impl Session {
                     Format::Html => self.html_render_mark(schema, dataset, rows, selected.as_deref())?,
                     _ => al_builtins::placeholder_output::mark(format.name(), schema.name()),
                 };
-                self.placeholder_files
-                    .saved(&mark, &schema.report().default_layout_kind);
+                self.placeholder_files.saved(&mark, layout_kind);
                 match target {
                     SaveTarget::Stream(blob) => {
                         al_builtins::stream::write_bytes(&blob, &format.bytes());
@@ -154,66 +184,14 @@ impl Session {
                     .insert(crate::ctx::pending_key(&name), schema.name().into());
                 assume(Assumption::ReportRenderDiscarded);
             }
-            (SaveOutput::SelectedHtml(_), _) => unreachable!("taken apart above"),
+            (SaveOutput::SelectedHtml(_) | SaveOutput::StoredRdlc(_), _) => unreachable!("taken apart above"),
         }
         Ok(true)
     }
 
-    /// The answer of a placeholder save of a Word layout report whose run wrote no dataset row, `None` for any other save (it
-    /// writes as before). BC writes no Html then and answers false without raising: one data item, a stream, the answer used
-    /// (corpus probe pull request 1362, reports/layouts-html-text/HtRenderedTextTests.al:320-335 Html_SaveAs_NoDatasetRow,
-    /// `saved` No, `length > 0` No; BC 27.5 and 28.5). When `DefaultRenderingLayout` names the layout it leaves the error
-    /// `ReportResultEmpty` for GetLastErrorText (corpus probe pull request 1371, reports/html-email-body/RxEmailBodyTests.al:
-    /// 134-143 WordDefault_NoRow_EmailBody; all three BC majors). Both under the assumption `report-html-no-dataset-row` until they are pinned. Every other placeholder save of a
-    /// Word layout report with no dataset row refuses.
-    fn no_row_save(
-        &mut self,
-        output: &SaveOutput,
-        target: &SaveTarget,
-        schema: &Schema,
-        answer_used: bool,
-    ) -> Result<Option<bool>, Signal> {
-        let report = schema.report();
-        let format = match output {
-            SaveOutput::Placeholder(f) => f.name(),
-            SaveOutput::SelectedHtml(_) => "Html with a temporary layout selection",
-            SaveOutput::Dataset | SaveOutput::Discard => return Ok(None),
-        };
-        if report.default_layout_kind != "word" {
-            return Ok(None);
-        }
-        let shape = report_shape(report);
-        let pinned = *output == SaveOutput::Placeholder(Format::Html)
-            && matches!(target, SaveTarget::Stream(_))
-            && answer_used
-            && shape.one_data_item
-            && shape.no_extension;
-        if !pinned {
-            return Err(Signal::unsupported(format!(
-                "Report.SaveAs as {format} of report \"{}\", a Word layout report whose run wrote no dataset row (only an Html \
-                 save to a stream of one data item, with its answer used, is measured)",
-                schema.name()
-            )));
-        }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportHtmlNoDatasetRow);
-        // The error left behind is measured only for a layout `DefaultRenderingLayout` names (RxHtmlBodyFixtures.al:28-45);
-        // `DefaultLayout = Word` keeps the answer without it.
-        if shape.rendering_layout_declared {
-            self.last_error = al_builtins::native::AlError {
-                message:
-                    "The report couldn\u{2019}t be generated, because it was empty. Adjust your filters and try again."
-                        .into(),
-                code: "ReportResultEmpty".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            };
-        }
-        Ok(Some(false))
-    }
-
     /// The mark of the Html placeholder a save of `schema` writes, with the number of its render: a whole text read of it gives
     /// the rendered content's mark (`al_builtins::rendered_text`, ADR-040 amendment 2026-11-12, A1 and A2). A run that wrote no
-    /// dataset row writes nothing (`no_row_save`); the render number is taken only for a run with rows. `selected` is the layout a
+    /// dataset row writes nothing (`no_row`); the render number is taken only for a run with rows. `selected` is the layout a
     /// temporary layout selection named (A7), else the report's default layout renders. `dataset` is the Xml the run wrote; the
     /// render keeps what `rendered_text::RenderFacts` asks of it.
     fn html_render_mark(
@@ -234,9 +212,15 @@ impl Session {
         if rows == 0 {
             return Ok(al_builtins::rendered_text::html_mark(schema.name(), None));
         }
+        use al_builtins::rendered_text::RenderLayout;
         let facts = al_builtins::rendered_text::RenderFacts {
-            shape: report_shape(report),
-            default_word_layout: selected.is_none() && report.default_layout_kind == "word",
+            shape: report_shape(&self.engine.program, schema),
+            layout: match selected {
+                // `selection::temp_selected_layout` gives a name only for the one user-defined Word layout of the report.
+                Some(_) => RenderLayout::TempSelectedTenantWord,
+                None if report.default_layout_kind == "word" => RenderLayout::DefaultWord,
+                None => RenderLayout::Unmeasured,
+            },
             // Behind a stored selection row, even one `layout_selection` lets the placeholder through for, which layout
             // renders is not measured.
             no_selection_row: self.selection_row_of_report(schema)?.is_none(),

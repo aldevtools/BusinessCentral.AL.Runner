@@ -1,6 +1,7 @@
-//! An Html save of a Word layout report whose run wrote no dataset row, and the saves ended by CurrReport.Quit (corpus probe
-//! pull request 1362, reports/layouts-html-text/HtRenderedTextTests.al Html_SaveAs_NoDatasetRow and Html_SaveAs_Quit*,
-//! measured on BC 27.5 and 28.5): BC answers false and writes nothing; every shape the probe did not measure refuses.
+//! A rendering save whose run wrote no dataset row (`report_placeholder::no_row`; corpus pull request 1371,
+//! reports/html-email-body/RxLayoutSelectionTests.al:852-1001, and 1362, reports/layouts-html-text/HtRenderedTextTests.al
+//! Html_SaveAs_NoDatasetRow), and the saves ended by CurrReport.Quit (HtRenderedTextTests.al Html_SaveAs_Quit*). A Word layout
+//! report outside the measured cells refuses; an RDLC report outside them writes its placeholder as before.
 
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
@@ -57,8 +58,97 @@ report 51045 "RN Legacy"
     dataset { dataitem(T; "RT Row") { column(Id; Id) { } } }
 }
 
+report 51046 "RN Word Post"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = W;
+    dataset { dataitem(T; "RT Row") { column(Id; Id) { } } }
+    rendering { layout(W) { Type = Word; LayoutFile = 'RnWordPost.docx'; } }
+    trigger OnPostReport() begin end;
+}
+
+report 51047 "RN Word Pre"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = W;
+    dataset { dataitem(T; "RT Row") { column(Id; Id) { } } }
+    rendering { layout(W) { Type = Word; LayoutFile = 'RnWordPre.docx'; } }
+    trigger OnPreReport() var Q: Codeunit "RN Quit At"; begin Q.Set('pre ran'); end;
+}
+
+report 51048 "RN Legacy Pre"
+{
+    UsageCategory = None;
+    DefaultLayout = Word;
+    WordLayout = 'RnLegacyPre.docx';
+    dataset { dataitem(T; "RT Row") { column(Id; Id) { } } }
+    trigger OnPreReport() begin end;
+}
+
+report 51049 "RN Rdlc Pre"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = R;
+    dataset { dataitem(T; "RT Row") { column(Id; Id) { } } }
+    rendering { layout(R) { Type = RDLC; LayoutFile = 'RnRdlcPre.rdl'; } }
+    trigger OnPreReport() begin end;
+}
+
 codeunit 51044 "RN Tests"
 {
+    // The answer, whether the stream holds anything, and the error the save left.
+    procedure Used(ReportId: Integer; Fmt: ReportFormat): Text
+    begin
+        Rows(0);
+        ClearLastError();
+        exit(Saved(ReportId, Fmt) + '|' + GetLastErrorCode());
+    end;
+
+    [TryFunction]
+    local procedure TryStatement(ReportId: Integer; Fmt: ReportFormat; var Tmp: Record "RT Row" temporary)
+    var Out: OutStream;
+    begin
+        Tmp.Data.CreateOutStream(Out, TextEncoding::UTF8);
+        Report.SaveAs(ReportId, '', Fmt, Out);
+    end;
+
+    // Whether the statement form completed, whether the stream holds anything, and the error it raised.
+    procedure Statement(ReportId: Integer; Fmt: ReportFormat): Text
+    var Tmp: Record "RT Row" temporary; Done: Boolean;
+    begin
+        Rows(0);
+        ClearLastError();
+        Done := TryStatement(ReportId, Fmt, Tmp);
+        exit(Format(Done) + '|' + Format(Tmp.Data.HasValue()) + '|' + GetLastErrorCode() + '|' + GetLastErrorText());
+    end;
+
+    procedure WordPdf(): Text begin exit(Used(Report::"RT Word", ReportFormat::Pdf)); end;
+    procedure WordWord(): Text begin exit(Used(Report::"RT Word", ReportFormat::Word)); end;
+    procedure WordHtml(): Text begin exit(Used(Report::"RT Word", ReportFormat::Html)); end;
+    procedure WordPdfStatement(): Text begin exit(Statement(Report::"RT Word", ReportFormat::Pdf)); end;
+    procedure WordWordStatement(): Text begin exit(Statement(Report::"RT Word", ReportFormat::Word)); end;
+    procedure WordHtmlStatement(): Text begin exit(Statement(Report::"RT Word", ReportFormat::Html)); end;
+    procedure WordPrePdf(): Text
+    var Q: Codeunit "RN Quit At";
+    begin
+        Q.Set('');
+        exit(Used(Report::"RN Word Pre", ReportFormat::Pdf) + '|' + Format(Q.Is('pre ran')));
+    end;
+    procedure WordPostPdf(): Text begin exit(Used(Report::"RN Word Post", ReportFormat::Pdf)); end;
+    procedure WordPostHtml(): Text begin exit(Used(Report::"RN Word Post", ReportFormat::Html)); end;
+    procedure LegacyHtml(): Text begin exit(Used(Report::"RN Legacy", ReportFormat::Html)); end;
+    procedure LegacyPdf(): Text begin exit(Used(Report::"RN Legacy", ReportFormat::Pdf)); end;
+    procedure LegacyPdfStatement(): Text begin exit(Statement(Report::"RN Legacy", ReportFormat::Pdf)); end;
+    procedure LegacyWord(): Text begin exit(Used(Report::"RN Legacy", ReportFormat::Word)); end;
+    procedure LegacyPreHtml(): Text begin exit(Used(Report::"RN Legacy Pre", ReportFormat::Html)); end;
+    procedure LegacyPrePdf(): Text begin exit(Used(Report::"RN Legacy Pre", ReportFormat::Pdf)); end;
+    procedure RdlcPdf(): Text begin exit(Used(Report::"RN Rdlc", ReportFormat::Pdf)); end;
+    procedure RdlcWord(): Text begin exit(Used(Report::"RN Rdlc", ReportFormat::Word)); end;
+    procedure RdlcPdfStatement(): Text begin exit(Statement(Report::"RN Rdlc", ReportFormat::Pdf)); end;
+    procedure RdlcExcel(): Text begin exit(Used(Report::"RN Rdlc", ReportFormat::Excel)); end;
+    procedure RdlcPrePdf(): Text begin exit(Used(Report::"RN Rdlc Pre", ReportFormat::Pdf)); end;
+    procedure TwoItemsPdf(): Text begin exit(Used(Report::"RN Two", ReportFormat::Pdf)); end;
+
     local procedure Rows(N: Integer)
     var R: Record "RT Row"; I: Integer;
     begin
@@ -100,13 +190,6 @@ codeunit 51044 "RN Tests"
         exit(GetLastErrorCode() + '|' + GetLastErrorText());
     end;
     procedure NoRowLegacy(): Text begin Rows(0); exit(Saved(Report::"RN Legacy", ReportFormat::Html)); end;
-    procedure NoRowLegacyError(): Text
-    begin
-        Rows(0);
-        ClearLastError();
-        Saved(Report::"RN Legacy", ReportFormat::Html);
-        exit(GetLastErrorCode() + '|' + GetLastErrorText());
-    end;
     procedure NoRowPdf(): Text begin Rows(0); exit(Saved(Report::"RT Word", ReportFormat::Pdf)); end;
     procedure NoRowTwoItems(): Text begin Rows(0); exit(Saved(Report::"RN Two", ReportFormat::Html)); end;
     procedure NoRowRdlcPdf(): Text begin Rows(0); exit(Saved(Report::"RN Rdlc", ReportFormat::Pdf)); end;
@@ -142,7 +225,7 @@ fn refused(proc: &str, want: &str) {
 fn an_html_save_with_no_dataset_row_answers_false_and_writes_nothing() {
     assumptions::clear_hits();
     assert_eq!(text("NoRowHtml"), "No|No");
-    assert!(assumptions::take_hits().contains(&Assumption::ReportHtmlNoDatasetRow));
+    assert!(assumptions::take_hits().contains(&Assumption::ReportSaveNoDatasetRow));
     // With a row the placeholder is written, as before.
     assert_eq!(text("OneRowHtml"), "Yes|Yes");
 }
@@ -157,21 +240,71 @@ fn an_html_save_with_no_dataset_row_leaves_the_empty_report_error() {
     );
 }
 
-/// `DefaultLayout = Word` with `WordLayout`: the probe measured the error only for a layout `DefaultRenderingLayout` names
-/// (RxHtmlBodyFixtures.al:28-45). The save keeps main's answer, false with no error left behind.
+const EMPTY: &str = "The report couldn\u{2019}t be generated, because it was empty. Adjust your filters and try again.";
+
+/// A Word layout `DefaultRenderingLayout` names: Pdf, Word and Html answer false and leave ReportResultEmpty; the statement
+/// form raises it (RxLayoutSelectionTests.al:852, :873, :915). OnPreReport has run (`used log` `OnPreReport;OnPreRendering;`).
 #[test]
-fn a_legacy_declared_report_with_no_dataset_row_leaves_no_error() {
+fn a_word_layout_save_with_no_dataset_row_answers_or_raises_the_empty_report_error() {
+    for p in ["WordPdf", "WordWord", "WordHtml"] {
+        assumptions::clear_hits();
+        assert_eq!(text(p), "No|No|ReportResultEmpty", "{p}");
+        assert!(
+            assumptions::take_hits().contains(&Assumption::ReportSaveNoDatasetRow),
+            "{p}"
+        );
+    }
+    for p in ["WordPdfStatement", "WordWordStatement", "WordHtmlStatement"] {
+        assert_eq!(text(p), format!("No|No|ReportResultEmpty|{EMPTY}"), "{p}");
+    }
+    assert_eq!(text("WordPrePdf"), "No|No|ReportResultEmpty|Yes");
+}
+
+/// BC does not run OnPostReport then (RxLayoutSelectionTests.al:852 `used log`); this runtime has run it, so such a report
+/// refuses. Main answered false for its Html save.
+#[test]
+fn a_word_layout_report_with_onpostreport_and_no_dataset_row_refuses() {
+    for p in ["WordPostPdf", "WordPostHtml"] {
+        refused(p, "declares OnPostReport");
+    }
+}
+
+/// `DefaultLayout = Word` with `WordLayout`, no report trigger: Html and Pdf as above (RxLayoutSelectionTests.al:979, :1001).
+/// Word is not measured. With a report trigger the Html save keeps main's answer (false, no error left) and Pdf refuses.
+#[test]
+fn a_legacy_declared_report_with_no_dataset_row() {
+    assert_eq!(text("LegacyHtml"), "No|No|ReportResultEmpty");
+    assert_eq!(text("LegacyPdf"), "No|No|ReportResultEmpty");
+    assert_eq!(text("LegacyPdfStatement"), format!("No|No|ReportResultEmpty|{EMPTY}"));
     assert_eq!(text("NoRowLegacy"), "No|No");
-    assert_eq!(text("NoRowLegacyError"), "|");
+    assert_eq!(text("LegacyPreHtml"), "No|No|");
+    for p in ["LegacyWord", "LegacyPrePdf"] {
+        refused(p, "no dataset row");
+    }
+}
+
+/// An RDLC layout `DefaultRenderingLayout` names, no report trigger: Pdf and Word answer true and write nothing, in both
+/// forms (RxLayoutSelectionTests.al:937, :958). Outside the cell the placeholder is written, as on main.
+#[test]
+fn an_rdlc_save_with_no_dataset_row_answers_true_and_writes_nothing() {
+    for p in ["RdlcPdf", "RdlcWord"] {
+        assumptions::clear_hits();
+        assert_eq!(text(p), "Yes|No|", "{p}");
+        assert!(
+            assumptions::take_hits().contains(&Assumption::ReportSaveNoDatasetRow),
+            "{p}"
+        );
+    }
+    assert_eq!(text("RdlcPdfStatement"), "Yes|No||");
+    assert_eq!(text("RdlcExcel"), "Yes|Yes|");
+    assert_eq!(text("RdlcPrePdf"), "Yes|Yes|");
 }
 
 #[test]
 fn the_shapes_with_no_dataset_row_the_probe_did_not_measure_refuse() {
-    for p in ["NoRowHtmlStatement", "NoRowPdf", "NoRowTwoItems", "NoRowFile"] {
+    for p in ["NoRowTwoItems", "TwoItemsPdf", "NoRowFile"] {
         refused(p, "no dataset row");
     }
-    // A report whose default layout is not Word keeps main's answer.
-    assert_eq!(text("NoRowRdlcPdf"), "Yes|Yes");
 }
 
 #[test]

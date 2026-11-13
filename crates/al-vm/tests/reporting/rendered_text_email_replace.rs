@@ -6,7 +6,7 @@
 
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
-use al_builtins::rendered_text::{self, RenderFacts, ReportShape};
+use al_builtins::rendered_text::{self, DataItems, Extensions, RenderFacts, ReportShape};
 use al_builtins::value::Value;
 use al_testkit::Built;
 
@@ -82,6 +82,50 @@ reportextension 50987 "RE Ext" extends "RE Extended"
     dataset { add(T) { column(Short; Short) { } } }
 }
 
+report 50988 "RE Nested"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = WordOne;
+    dataset
+    {
+        dataitem(T; "RT Row")
+        {
+            column(Id; Id) { }
+            dataitem(U; "RT Row") { DataItemLink = Id = field(Id); column(Id2; Id) { } }
+        }
+    }
+    rendering { layout(WordOne) { Type = Word; LayoutFile = 'ReNested.docx'; } }
+}
+
+report 50989 "RE Ext Trigger Base"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = WordOne;
+    dataset { dataitem(T; "RT Row") { column(Id; Id) { } } }
+    rendering { layout(WordOne) { Type = Word; LayoutFile = 'ReExtTrigger.docx'; } }
+}
+
+reportextension 50990 "RE Ext Trigger" extends "RE Ext Trigger Base"
+{
+    dataset { add(T) { column(Short; Short) { } } }
+    trigger OnPreReport() begin end;
+}
+
+report 50996 "RE Legacy Nested"
+{
+    UsageCategory = None;
+    DefaultLayout = Word;
+    WordLayout = 'ReLegacyNested.docx';
+    dataset
+    {
+        dataitem(T; "RT Row")
+        {
+            column(Id; Id) { }
+            dataitem(U; "RT Row") { DataItemLink = Id = field(Id); column(Id2; Id) { } }
+        }
+    }
+}
+
 codeunit 50984 "RE Tests"
 {
     var
@@ -113,6 +157,12 @@ codeunit 50984 "RE Tests"
     procedure LegacyBody(): Text begin exit(Body(Report::"RE Legacy", '')); end;
     procedure TwoItemsBody(): Text begin exit(Body(Report::"RE Two", '')); end;
     procedure ExtendedBody(): Text begin exit(Body(Report::"RE Extended", 'plain')); end;
+    procedure NestedBody(): Text begin exit(Body(Report::"RE Nested", '')); end;
+    procedure ExtTriggerBody(): Text begin exit(Body(Report::"RE Ext Trigger Base", 'plain')); end;
+    procedure LegacyNestedBody(): Text begin exit(Body(Report::"RE Legacy Nested", '')); end;
+    procedure ReplaceNested(): Text var T: Text; begin T := NestedBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
+    procedure ReplaceExtTrigger(): Text var T: Text; begin T := ExtTriggerBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
+    procedure ReplaceLegacyNested(): Text var T: Text; begin T := LegacyNestedBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
 
     // A stored selection row that names the report's own Word layout: the save writes the placeholder, as before.
     procedure TenantRowBody(): Text
@@ -177,18 +227,19 @@ fn refusal(proc: &str) -> String {
 
 const USE: &str = "a use of the rendered content of report";
 
-/// The facts of the measured render: corpus pull request 1371 (RxHtmlBodyFixtures.al:28-45 report 80013): one data item, no
-/// report extension, `DefaultRenderingLayout` naming a Word layout, no layout selection, no `rgba(` in the dataset.
-const MEASURED: RenderFacts = RenderFacts {
-    shape: ReportShape {
-        one_data_item: true,
-        no_extension: true,
-        rendering_layout_declared: true,
-    },
-    default_word_layout: true,
-    no_selection_row: true,
-    dataset_holds_rgba: false,
-};
+/// The first measured render (`rendered_text::RGBA_REPLACE_BASE`).
+const MEASURED: RenderFacts = rendered_text::RGBA_REPLACE_BASE;
+
+fn shape(data_items: DataItems, extensions: Extensions, rendering_layout_declared: bool) -> RenderFacts {
+    RenderFacts {
+        shape: ReportShape {
+            data_items,
+            extensions,
+            rendering_layout_declared,
+        },
+        ..MEASURED
+    }
+}
 
 #[test]
 fn rendered_text_email_replace_the_save_keeps_the_facts_of_its_render() {
@@ -199,31 +250,60 @@ fn rendered_text_email_replace_the_save_keeps_the_facts_of_its_render() {
     };
     assert_eq!(facts("RgbaBody"), rgba, "a column value");
     assert_eq!(facts("LabelBody"), rgba, "a label");
-    let shape = |one_data_item, no_extension, rendering_layout_declared| RenderFacts {
-        shape: ReportShape {
-            one_data_item,
-            no_extension,
-            rendering_layout_declared,
-        },
-        ..MEASURED
-    };
-    // `DefaultLayout = Word` with `WordLayout`: the default Word layout, but not the declaration the probe measured.
-    assert_eq!(facts("LegacyBody"), shape(true, true, false));
-    assert_eq!(facts("TwoItemsBody"), shape(false, true, true));
-    assert_eq!(facts("ExtendedBody"), shape(true, false, true));
+    assert_eq!(facts("LegacyBody"), shape(DataItems::One, Extensions::None, false));
+    assert_eq!(
+        facts("NestedBody"),
+        shape(DataItems::ParentAndChild, Extensions::None, true)
+    );
+    assert_eq!(
+        facts("ExtendedBody"),
+        shape(DataItems::One, Extensions::OneAddingColumns, true)
+    );
+    // Two items side by side and an extension with a trigger are no measured form.
+    assert_eq!(
+        facts("TwoItemsBody"),
+        shape(DataItems::Unmeasured, Extensions::None, true)
+    );
+    assert_eq!(
+        facts("ExtTriggerBody"),
+        shape(DataItems::One, Extensions::Unmeasured, true)
+    );
 }
 
-/// One refusal reason per fact the probe measured and the render lacks; none of them marks the assumption.
+/// The forms measured with one fact changed pass the guard (corpus pull request 1371,
+/// reports/html-email-body/RxTenantLayoutBodyTests.al:319, :346, :373): the call stops at the .NET host this test has none
+/// of, not at the rendered content, and marks the assumption.
+#[test]
+fn rendered_text_email_replace_takes_each_form_measured_alone() {
+    for proc in ["ReplaceLegacy", "ReplaceNested", "ReplaceExtended"] {
+        assumptions::clear_hits();
+        let why = refusal(proc);
+        assert!(!why.contains(USE), "{proc}: {why}");
+        assert!(
+            assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent),
+            "{proc}"
+        );
+    }
+}
+
+/// One refusal reason per fact no cell measured, and one for two measured forms together; none marks the assumption.
 #[test]
 fn rendered_text_email_replace_refuses_each_unmeasured_report_shape() {
     assumptions::clear_hits();
     for (proc, want) in [
         (
-            "ReplaceLegacy",
-            "its default layout is not declared with DefaultRenderingLayout",
+            "ReplaceTwoItems",
+            "its data items are not one item or one item with one item inside it",
         ),
-        ("ReplaceTwoItems", "it does not have exactly one data item"),
-        ("ReplaceExtended", "a report extension extends it"),
+        (
+            "ReplaceExtTrigger",
+            "its report extensions are not one extension that only adds columns",
+        ),
+        (
+            "ReplaceLegacyNested",
+            "it combines forms that are measured only one at a time: a default layout not declared with \
+             DefaultRenderingLayout and two data items",
+        ),
         ("ReplaceTwoRenders", "the body joins 2 renders"),
     ] {
         let why = refusal(proc);

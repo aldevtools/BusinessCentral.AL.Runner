@@ -103,6 +103,9 @@ impl Session {
         if custom {
             return go(SaveOutput::Dataset);
         }
+        if let Some(stored) = self.stored_selection(schema, target, result_used)? {
+            return self.stored_selection_save(schema, format, stored);
+        }
         if format_refused_by_layout(schema, format) {
             return self.answer_unsupported_format(schema, format, target, result_used);
         }
@@ -131,6 +134,41 @@ impl Session {
              are produced (any other output needs a layout renderer)",
             schema.name()
         ))
+    }
+
+    /// What a save does under a measured stored selection (`stored`): the grid's RDLC column, or the false answer of a
+    /// selection that names no layout (reports/html-email-body/RxLayoutSelectionTests.al:452, :477, :746, :771, corpus pull
+    /// request 1371). The layout events BC raises around it are not raised, so a subscriber the test can see refuses.
+    fn stored_selection_save(
+        &mut self,
+        schema: &Schema,
+        format: &str,
+        stored: super::stored::Stored,
+    ) -> Result<Rendered, Signal> {
+        use super::stored::Stored;
+        let Some(f) = Format::from_name(format) else {
+            return unsupported(format!(
+                "Report.SaveAs as {format} of report \"{}\" while a stored Report Layout Selection row selects a layout \
+                 for it (measured for Pdf, Word, Excel and Html)",
+                schema.name()
+            ));
+        };
+        self.refuse_layout_event_subscribers(schema, &format!("Report.SaveAs as {format}"), &[], None)?;
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportStoredLayoutSelection);
+        Ok(match (stored, f) {
+            // RxLayoutSelectionTests.al:746-796: the text and the code ReportNoLayout, for each of the four formats.
+            (Stored::NoLayout, _) => Rendered::False(AlError {
+                message: format!(
+                    "Report {} does not have a valid layout. Valid layout types are: Word, RDLC, Excel, and Custom.",
+                    self.object_id_of(schema.object as u32)
+                ),
+                code: "ReportNoLayout".into(),
+                call_stack: String::new(),
+                ..Default::default()
+            }),
+            (Stored::Rdlc, Format::Html) => Rendered::False(unsupported_format(format)),
+            (Stored::Rdlc, Format::Pdf | Format::Word | Format::Excel) => Rendered::Write(SaveOutput::StoredRdlc(f)),
+        })
     }
 
     /// The false answer of a format the default layout cannot give (`format_refused_by_layout`).
