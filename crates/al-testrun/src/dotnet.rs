@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 /// The protocol version the sidecar must speak.
-pub const PROTOCOL: u64 = 5;
+pub const PROTOCOL: u64 = 6;
 
 /// Where the sidecar and .NET are found and how a call is bounded.
 #[derive(Debug, Clone)]
@@ -87,13 +87,13 @@ impl Default for SidecarConfig {
 
 /// What `availability` found out, once.
 #[derive(Debug, Clone)]
-struct Resolved {
+pub(crate) struct Resolved {
     dotnet: PathBuf,
     sidecar: PathBuf,
     /// The `Microsoft.NETCore.App` versions `dotnet` reported.
     versions: Vec<String>,
     /// The one of them the sidecar runs on (`--fx-version`).
-    runtime: crate::dotnet_runtime::RuntimeChoice,
+    pub(crate) runtime: crate::dotnet_runtime::RuntimeChoice,
 }
 
 /// What the sidecars of one host cost, so start-up is reported apart from the calls
@@ -292,7 +292,7 @@ pub fn default_probe_dir(sandbox: &Path, build: Option<&str>, major: u32) -> Opt
 /// The probe folders as the sidecar takes them. A service-tier folder is followed by its `Add-ins` folder, searched
 /// recursively, when there is one (ADR-014 section 3, step 1): BC's own add-ins, such as the QR code provider in
 /// `Add-ins/ElectronicInvoice`, load from there. The top level comes first, so it wins for a name in both.
-fn wire_probe_dirs(dirs: &[PathBuf]) -> Vec<Value> {
+pub(crate) fn wire_probe_dirs(dirs: &[PathBuf]) -> Vec<Value> {
     let mut out = Vec::new();
     for d in dirs {
         let abs = |p: &Path| {
@@ -628,11 +628,11 @@ fn runtimes(dotnet: &Path) -> Vec<String> {
         .collect()
 }
 
-fn major(v: &str) -> Option<u32> {
+pub(crate) fn major(v: &str) -> Option<u32> {
     v.split('.').next()?.parse().ok()
 }
 
-fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
+pub(crate) fn resolve(cfg: &SidecarConfig) -> Result<Resolved, String> {
     if let Some(p) = &cfg.dotnet {
         if !p.is_file() {
             return Err(format!(
@@ -679,6 +679,7 @@ const EMBEDDED: &[(&str, &str)] = &[
     ("Dispatch.cs", include_str!("../../../tools/dotnet-sidecar/Dispatch.cs")),
     ("Marshal.cs", include_str!("../../../tools/dotnet-sidecar/Marshal.cs")),
     ("Program.cs", include_str!("../../../tools/dotnet-sidecar/Program.cs")),
+    ("Render.cs", include_str!("../../../tools/dotnet-sidecar/Render.cs")),
     ("Resolver.cs", include_str!("../../../tools/dotnet-sidecar/Resolver.cs")),
     ("Reuse.cs", include_str!("../../../tools/dotnet-sidecar/Reuse.cs")),
     ("global.json", include_str!("../../../tools/dotnet-sidecar/global.json")),
@@ -899,6 +900,73 @@ fn publish(dotnet: &Path, src: &Path, out: &Path, ready_to_run: bool) -> std::io
         .output()
 }
 
+/// Starts the helper in `r` with `args`, in a cleared environment and a working folder `folder` of its own under the
+/// work root (ADR-014 section 9). Used by the session sidecar and by the render process (`crate::report_render`).
+pub(crate) fn spawn_helper(cfg: &SidecarConfig, r: &Resolved, folder: &str, args: &[&str]) -> Result<Proc, String> {
+    let env_cache = (cfg.work_root.is_none() && cfg.cache_dir.is_none()).then(|| sidecar_cache_dir_from_env(None));
+    let workdir = work_root(cfg, env_cache.flatten()).join(folder);
+    let (cwd, home, tmp) = (workdir.join("cwd"), workdir.join("home"), workdir.join("tmp"));
+    for d in [&cwd, &home, &tmp] {
+        std::fs::create_dir_all(d).map_err(|e| format!("cannot create {}: {e}", d.display()))?;
+    }
+    // A cleared environment, UTC, an empty working directory (ADR-014 section 9).
+    let mut cmd = Command::new(&r.dotnet);
+    // The runtime the BC version needs (crate::dotnet_runtime): the sidecar is built for net8.0, and its
+    // runtimeconfig alone would keep it on .NET 8 whenever .NET 8 is installed.
+    cmd.arg("exec")
+        .arg("--fx-version")
+        .arg(&r.runtime.version)
+        .arg(&r.sidecar)
+        .args(args)
+        .env_clear();
+    for (k, v) in crate::dotnet_env::fixed(&home, &tmp) {
+        cmd.env(k, v);
+    }
+    cmd.current_dir(&cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Windows only: the OS variables the .NET runtime needs (crate::dotnet_env).
+    for (k, v) in crate::dotnet_env::host_passthrough() {
+        cmd.env(k, v);
+    }
+    if let Some(root) = r.dotnet.parent() {
+        cmd.env("DOTNET_ROOT", root);
+    }
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("cannot start {}: {e}", r.dotnet.display()))?;
+    let stdin = child.stdin.take().expect("piped");
+    let mut stdout = child.stdout.take().expect("piped");
+    let stderr = child.stderr.take().expect("piped");
+    let last_stderr = Arc::new(Mutex::new(String::new()));
+    let sink = last_stderr.clone();
+    let stderr_thread = std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if !line.trim().is_empty() {
+                *sink.lock().unwrap() = line;
+            }
+        }
+    });
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        while let Some(frame) = read_frame(&mut stdout) {
+            if tx.send(Some(frame)).is_err() {
+                return;
+            }
+        }
+        let _ = tx.send(None);
+    });
+    Ok(Proc {
+        child,
+        stdin,
+        replies: rx,
+        last_stderr,
+        stderr_thread: Some(stderr_thread),
+        workdir,
+    })
+}
+
 // ---- one sidecar process per VM session ---------------------------------------------------
 
 impl Drop for Proc {
@@ -909,15 +977,15 @@ impl Drop for Proc {
     }
 }
 
-struct Proc {
-    child: Child,
-    stdin: ChildStdin,
-    replies: Receiver<Option<Vec<u8>>>,
-    last_stderr: Arc<Mutex<String>>,
+pub(crate) struct Proc {
+    pub(crate) child: Child,
+    pub(crate) stdin: ChildStdin,
+    pub(crate) replies: Receiver<Option<Vec<u8>>>,
+    pub(crate) last_stderr: Arc<Mutex<String>>,
     /// Drains stderr into `last_stderr`; ends when the process does.
-    stderr_thread: Option<std::thread::JoinHandle<()>>,
+    pub(crate) stderr_thread: Option<std::thread::JoinHandle<()>>,
     /// Holds `cwd` (the working directory, empty), `home` and `tmp`; removed with the session.
-    workdir: PathBuf,
+    pub(crate) workdir: PathBuf,
 }
 
 struct SidecarSession {
@@ -1008,72 +1076,8 @@ impl SidecarSession {
     fn start_process(&mut self) -> Result<(), String> {
         let began = std::time::Instant::now();
         let r = self.resolved.clone()?;
-        let cfg = &self.shared.cfg;
-        let env_cache = (cfg.work_root.is_none() && cfg.cache_dir.is_none()).then(|| sidecar_cache_dir_from_env(None));
-        let workdir = work_root(cfg, env_cache.flatten()).join(format!(
-            "al-runtime-dotnet-{}-{}",
-            std::process::id(),
-            self.number
-        ));
-        let (cwd, home, tmp) = (workdir.join("cwd"), workdir.join("home"), workdir.join("tmp"));
-        for d in [&cwd, &home, &tmp] {
-            std::fs::create_dir_all(d).map_err(|e| format!("cannot create {}: {e}", d.display()))?;
-        }
-        // A cleared environment, UTC, an empty working directory (ADR-014 section 9).
-        let mut cmd = Command::new(&r.dotnet);
-        // The runtime the BC version needs (crate::dotnet_runtime): the sidecar is built for net8.0, and its
-        // runtimeconfig alone would keep it on .NET 8 whenever .NET 8 is installed.
-        cmd.arg("exec")
-            .arg("--fx-version")
-            .arg(&r.runtime.version)
-            .arg(&r.sidecar)
-            .env_clear();
-        for (k, v) in crate::dotnet_env::fixed(&home, &tmp) {
-            cmd.env(k, v);
-        }
-        cmd.current_dir(&cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        // Windows only: the OS variables the .NET runtime needs (crate::dotnet_env).
-        for (k, v) in crate::dotnet_env::host_passthrough() {
-            cmd.env(k, v);
-        }
-        if let Some(root) = r.dotnet.parent() {
-            cmd.env("DOTNET_ROOT", root);
-        }
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("cannot start {}: {e}", r.dotnet.display()))?;
-        let stdin = child.stdin.take().expect("piped");
-        let mut stdout = child.stdout.take().expect("piped");
-        let stderr = child.stderr.take().expect("piped");
-        let last_stderr = Arc::new(Mutex::new(String::new()));
-        let sink = last_stderr.clone();
-        let stderr_thread = std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if !line.trim().is_empty() {
-                    *sink.lock().unwrap() = line;
-                }
-            }
-        });
-        let (tx, rx) = channel();
-        std::thread::spawn(move || {
-            while let Some(frame) = read_frame(&mut stdout) {
-                if tx.send(Some(frame)).is_err() {
-                    return;
-                }
-            }
-            let _ = tx.send(None);
-        });
-        self.proc = Some(Proc {
-            child,
-            stdin,
-            replies: rx,
-            last_stderr,
-            stderr_thread: Some(stderr_thread),
-            workdir,
-        });
+        let folder = format!("al-runtime-dotnet-{}-{}", std::process::id(), self.number);
+        self.proc = Some(spawn_helper(&self.shared.cfg, &r, &folder, &[])?);
         // The first message checks the protocol version and the runtime.
         // Starting a process is not a call: it gets at least 30 s however short the call deadline.
         let start_deadline = self.shared.cfg.timeout.max(Duration::from_secs(30));

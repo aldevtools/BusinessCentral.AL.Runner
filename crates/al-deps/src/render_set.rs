@@ -250,7 +250,10 @@ mod tests {
         assert_eq!(skia_for([4, 152, 0, 0]).unwrap().version, "4.152.1");
         assert_eq!(skia_for([4, 153, 0, 0]), None);
         assert_eq!(linux_pieces(RenderSet::Convert, None), vec![]);
-        assert_eq!(linux_pieces(RenderSet::Merge, None), vec![DRAWING_COMMON, SYSTEM_EVENTS]);
+        assert_eq!(
+            linux_pieces(RenderSet::Merge, None),
+            vec![DRAWING_COMMON, SYSTEM_EVENTS]
+        );
         assert_eq!(
             DRAWING_COMMON.url(),
             "https://api.nuget.org/v3-flatcontainer/system.drawing.common/6.0.0/system.drawing.common.6.0.0.nupkg"
