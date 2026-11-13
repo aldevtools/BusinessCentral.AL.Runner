@@ -4,9 +4,9 @@
 
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::builtin_id::{BuiltinId, ids};
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
-use al_builtins::builtin_id::{BuiltinId, ids};
 use al_builtins::stream::{copy_blob_db_row_of, copy_for_assignment, new_blob};
 use al_builtins::value::{ProbedSource, RecordState, RtType, Value};
 use std::cell::RefCell;
@@ -35,8 +35,8 @@ pub(crate) enum BlobMove {
     /// that is stored in an element of a local array, or handed to a by-value Variant parameter ([`FieldRead`]). A record
     /// stored in a Variant is [`BlobMove::RecordByValue`].
     Variant { local: bool },
-    /// A Blob field read stored in a global Variant of the running object ([`FieldRead`]).
-    GlobalVariant,
+    /// A Blob field read stored in a global Variant of the running object ([`FieldRead`]), of a `temporary` record or not.
+    GlobalVariant { temporary: bool },
     /// `Dst.Copy(Src [, ShareTable])`.
     RecordCopy,
     /// A record handed by value to a parameter of a procedure, or assigned to a Variant ([`Session::blobs_by_value`]).
@@ -133,7 +133,10 @@ pub(crate) fn new_variable(v: &Value) {
 /// declared local variable of a procedure of a codeunit. A parameter, a named return value, a local of a trigger and a
 /// local of a routine of a page, a table, a report or any other object are not measured.
 pub(crate) fn measured_local(object: al_ir::ObjKind, routine: &al_ir::Routine, slot: usize) -> bool {
-    object == al_ir::ObjKind::Codeunit && !routine.is_trigger && slot >= routine.params && routine.ret_local != Some(slot)
+    object == al_ir::ObjKind::Codeunit
+        && !routine.is_trigger
+        && slot >= routine.params
+        && routine.ret_local != Some(slot)
 }
 
 /// Whether record method `method`, called with `args`, leaves a record a measured source ([`Holder::Probed`]): the methods
@@ -333,9 +336,11 @@ pub(crate) enum FieldKind {
     /// A normal field the table itself declares, without the `Compressed` property (corpus PR 1369, FieldRefValueBlobCopy.al:
     /// 23-73; PR 1372, streams/BlobValueCopyShapes.al:38-39 Data and Other, :41 Memo, :64 the second table).
     Plain,
-    /// A normal field the table declares with `Compressed = false` (PR 1372 :40), or one a table extension declares without
-    /// the property (:53).
+    /// A normal field the table declares with `Compressed = false` (PR 1372 :40).
     Variation,
+    /// A normal field a table extension declares without the `Compressed` property (PR 1372 :53). It takes what a
+    /// [`FieldKind::Variation`] field takes, except in the moves only that kind was measured in ([`other_kind_move`]).
+    Extension,
     /// A normal field the table declares with `Compressed = true` (corpus PR 1375, streams/BlobCopyStates.al:52). Measured
     /// only in the moves [`other_kind_move`] names; refused as [`FieldKind::Other`] in the others.
     Compressed,
@@ -361,15 +366,23 @@ impl FieldKind {
             .map(|(_, v)| v.trim().to_ascii_lowercase());
         match (own, extension, uncompressed_declared.as_deref()) {
             (true, false, None) => FieldKind::Plain,
-            (true, false, Some("false")) | (false, true, None) => FieldKind::Variation,
+            (true, false, Some("false")) => FieldKind::Variation,
+            (false, true, None) => FieldKind::Extension,
             (true, false, Some("true")) => FieldKind::Compressed,
             _ => FieldKind::Other,
         }
     }
 
-    /// The kind of a move between a field of kind `self` and one of kind `other`: theirs when they are the same.
+    /// The kind of a move between a field of kind `self` and one of kind `other`: theirs when they are the same, and
+    /// [`FieldKind::Variation`] between it and [`FieldKind::Extension`] (one kind before they were told apart).
     pub(crate) fn with(self, other: FieldKind) -> FieldKind {
-        if self == other { self } else { FieldKind::Other }
+        match (self, other) {
+            (a, b) if a == b => a,
+            (FieldKind::Variation, FieldKind::Extension) | (FieldKind::Extension, FieldKind::Variation) => {
+                FieldKind::Variation
+            }
+            _ => FieldKind::Other,
+        }
     }
 }
 
@@ -447,9 +460,13 @@ pub(crate) fn moved(
     };
     let cell = match kind {
         FieldKind::Plain => plain,
-        FieldKind::Variation if first_probe_move(how) => plain,
-        FieldKind::Variation | FieldKind::Compressed if other_kind_move(how, kind, &s, holder) => plain,
-        FieldKind::Variation => None,
+        FieldKind::Variation | FieldKind::Extension if first_probe_move(how) => plain,
+        FieldKind::Variation | FieldKind::Extension | FieldKind::Compressed
+            if other_kind_move(how, kind, &s, holder) =>
+        {
+            plain
+        }
+        FieldKind::Variation | FieldKind::Extension => None,
         _ if refused => {
             return Err(Signal::unsupported(format!(
                 "a Blob with content moved by {} into or from a FlowField or a field with a Compressed property other than Compressed = false in a table (whether it is copied is not pinned)",
@@ -476,7 +493,7 @@ impl BlobMove {
             BlobMove::GetTable => "RecordRef.GetTable",
             BlobMove::SetTable | BlobMove::SetTableShared => "RecordRef.SetTable",
             BlobMove::TransferFields(_) => "TransferFields",
-            BlobMove::Variant { .. } | BlobMove::GlobalVariant => "an assignment to a Variant",
+            BlobMove::Variant { .. } | BlobMove::GlobalVariant { .. } => "an assignment to a Variant",
             BlobMove::Assign => "an assignment",
             BlobMove::WriteBack => "a write-back",
             BlobMove::RecordCopy => "Record.Copy",
@@ -596,7 +613,14 @@ fn measured(how: BlobMove, s: &Source, holder: Holder) -> Option<Cell> {
         }
         BlobMove::RecordByValue if probed && get_only && s.written => Some(Cell::Copy),
         BlobMove::Variant { local: false } if probed && s.in_memory && s.content && s.written => Some(Cell::Copy),
-        BlobMove::GlobalVariant if probed && s.loaded && s.content && s.written && s.unsaved_since_insert => {
+        // A temporary source written in memory (P2 :672 GV) or written again after its Insert (P3 :2825); a source that is
+        // not temporary written again after its Insert (P3 :2852).
+        BlobMove::GlobalVariant { temporary: true } if probed && s.content && s.written && s.unsaved_since_insert => {
+            Some(Cell::Copy)
+        }
+        BlobMove::GlobalVariant { temporary: false }
+            if probed && s.content && s.written && s.unsaved_since_insert && !s.in_memory =>
+        {
             Some(Cell::Copy)
         }
         BlobMove::FieldRefValidate | BlobMove::Variant { local: true } if s.unread_row => Some(Cell::Unread),
@@ -624,7 +648,7 @@ fn first_probe_move(how: BlobMove) -> bool {
     )
 }
 
-/// Whether a move of a field of kind `kind` ([`FieldKind::Variation`] or [`FieldKind::Compressed`]) by `how` takes what a
+/// Whether a move of a field of kind `kind` (not [`FieldKind::Plain`] nor [`FieldKind::Other`]) by `how` takes what a
 /// plain field takes in the cells corpus PR 1375 measured (streams/BlobCopyStates.al): content a stream wrote in memory in a
 /// measured source, moved by a record by value (:3108 C6, every kind), as a field read handed to a by-value Variant parameter
 /// (:3017 C1-C3), stored in a global Variant or an array element (:3087 C4, C5), and by Record.Copy for a `Compressed =
@@ -632,7 +656,7 @@ fn first_probe_move(how: BlobMove) -> bool {
 fn other_kind_move(how: BlobMove, kind: FieldKind, s: &Source, holder: Holder) -> bool {
     let written = holder == Holder::Probed && s.plain_buffer && s.in_memory && s.content && s.written;
     match how {
-        BlobMove::RecordByValue | BlobMove::Variant { local: false } | BlobMove::GlobalVariant => written,
+        BlobMove::RecordByValue | BlobMove::Variant { local: false } | BlobMove::GlobalVariant { .. } => written,
         BlobMove::RecordCopy => written && kind == FieldKind::Variation,
         _ => false,
     }
@@ -759,7 +783,11 @@ impl Session {
             return Ok(v);
         }
         let kind = || self.blob_field_kind(table, read.pos as usize);
-        let how = if read.global { BlobMove::GlobalVariant } else { BlobMove::Variant { local: false } };
+        let how = if read.global {
+            BlobMove::GlobalVariant { temporary }
+        } else {
+            BlobMove::Variant { local: false }
+        };
         moved(None, v, how, holder, kind)
     }
 

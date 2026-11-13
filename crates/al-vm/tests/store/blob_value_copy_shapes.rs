@@ -1226,36 +1226,40 @@ fn an_open_outstream_keeps_writing_to_the_blob_it_was_created_on() {
 }
 
 #[test]
-fn a_record_by_value_in_a_state_or_pair_that_is_not_measured_shares_as_before() {
-    assert_eq!(unflagged("NeighborByValueAfterInsert"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborByValueAfterCalcFields"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborByValueEmpty"), "hv:zz");
-    assert_eq!(unflagged("NeighborByValueTemporaryToRecordParameter"), "hv:zzpha");
+// Measured since the third probe: corpus PR 1375, streams/BlobCopyStates.al:1180-1239 (ins, calc, empty), :1767 and :1788 (temporary pairs).
+fn a_record_by_value_in_the_third_probes_states_and_pairs_copies() {
+    assert_eq!(flagged("NeighborByValueAfterInsert"), "hv:alpha");
+    assert_eq!(flagged("NeighborByValueAfterCalcFields"), "hv:alpha");
+    assert_eq!(flagged("NeighborByValueEmpty"), "nohv:");
+    assert_eq!(flagged("NeighborByValueTemporaryToRecordParameter"), "hv:alpha");
     // The SetTable of the read helper copies (flagged).
-    assert_eq!(run("NeighborByValueStoredToOtherParameters").0, "hv:zzpha|hv:betaa");
+    assert_eq!(run("NeighborByValueStoredToOtherParameters").0, "hv:alpha|hv:betaa");
 }
 
 #[test]
-fn a_record_by_value_in_a_call_that_is_not_measured_shares_as_before() {
-    assert_eq!(unflagged("NeighborByValueTryFunction"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborByValueEvent"), "hv:zzpha");
+// Measured since the third probe: corpus PR 1375, streams/BlobCopyStates.al:2200 and :2327 (TryFunction), :2300 and :2568 (event, kind 1).
+fn a_record_by_value_to_a_tryfunction_or_an_event_subscriber_copies() {
+    assert_eq!(flagged("NeighborByValueTryFunction"), "hv:alpha");
+    assert_eq!(flagged("NeighborByValueEvent"), "hv:alpha");
 }
 
 #[test]
-fn record_copy_outside_the_measured_cells_shares_as_before() {
+// Measured since the third probe: corpus PR 1375, streams/BlobCopyStates.al:3108 C6, :3274 E2 (Compressed = false only), :1299, :1341, :1837; an extension field through Record.Copy is not measured and shares.
+fn record_copy_copies_in_the_third_probes_states_but_not_an_extension_field() {
     assert_eq!(
-        unflagged("NeighborVariationFieldsByValueAndCopy"),
-        "hv:zzpha|hv:zzpha|hv:yypha|hv:yypha"
+        flagged("NeighborVariationFieldsByValueAndCopy"),
+        "hv:alpha|hv:alpha|hv:yypha|hv:alpha"
     );
-    assert_eq!(unflagged("NeighborCopyTemporaryToStored"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborCopyAfterInsertAndEmpty"), "hv:zzpha|hv:x");
+    assert_eq!(flagged("NeighborCopyTemporaryToStored"), "hv:alpha");
+    assert_eq!(flagged("NeighborCopyAfterInsertAndEmpty"), "hv:alpha|nohv:");
 }
 
 #[test]
-fn arguments_and_states_that_are_not_measured_share_as_before() {
+// Measured since the third probe: corpus PR 1375, streams/BlobCopyStates.al:1425 (TransferFields(Rec, true) of an empty Blob).
+fn other_arguments_share_and_transferfields_of_an_empty_blob_copies() {
     // GetTable copies on the way (flagged); TransferFields(Rec, true, false) and SetTable(Rec, false) share.
     assert_eq!(run("NeighborOtherArguments").0, "hv:betaa|hv:zzpha");
-    assert_eq!(unflagged("NeighborOtherStates"), "hv:betaa|hv:x");
+    assert_eq!(flagged("NeighborOtherStates"), "hv:betaa|nohv:");
 }
 
 /// These were refused after al-runner PR 7936 and shared the buffer before it (issue 6924: three tests of an outside reporter
@@ -1279,52 +1283,56 @@ fn content_in_a_field_kind_that_is_not_measured_stays_refused() {
 /// A Blob an Insert or a Modify saved and a stream wrote again (A1 to A5 of the review of al-runner PR 7951): the probe measured
 /// the new moves only on a buffer that held nothing when its unsaved write began. They share, as before.
 #[test]
-fn a_saved_blob_written_again_shares_as_before() {
-    assert_eq!(unflagged("NeighborInsertWriteAgainByValue"), "hv:zztaa");
-    assert_eq!(unflagged("NeighborTempInsertWriteAgainByValue"), "hv:zztaa");
-    assert_eq!(unflagged("NeighborInsertWriteAgainCopyModify"), "hv:zztaa|hv:zztaa");
-    assert_eq!(unflagged("NeighborModifyWriteAgainByValue"), "hv:zztaa");
+// Measured since the third probe: corpus PR 1375, streams/BlobCopyStates.al:2728, :2752, :2775, :2800, :2825, :2852.
+fn a_saved_blob_written_again_copies() {
+    assert_eq!(flagged("NeighborInsertWriteAgainByValue"), "hv:betaa");
+    assert_eq!(flagged("NeighborTempInsertWriteAgainByValue"), "hv:betaa");
+    assert_eq!(flagged("NeighborInsertWriteAgainCopyModify"), "hv:betaa|hv:betaa");
+    assert_eq!(flagged("NeighborModifyWriteAgainByValue"), "hv:betaa");
     assert_eq!(
-        unflagged("NeighborInsertWriteAgainGlobalVariantTransferFlags"),
-        "hv:zztaa|hv:zztaa"
+        flagged("NeighborInsertWriteAgainGlobalVariantTransferFlags"),
+        "hv:betaa|hv:betaa"
     );
 }
 
 /// A Blob whose unsaved write came over with a copy (B1 and B3 of the review of al-runner PR 7951) shares when its record is
 /// passed by value, as before. FieldRef.Value and SetTable copy on the way of B3 (flagged).
 #[test]
-fn a_blob_written_by_a_copy_shares_by_value_as_before() {
-    assert_eq!(unflagged("NeighborAssignedBlobByValue"), "hv:zzpha");
-    assert_eq!(run("NeighborFieldRefValueBlobByValue").0, "hv:zzpha");
+// Measured since the third probe: corpus PR 1375, streams/BlobCopyStates.al:2880 (field assignment), :2923 (FieldRef.Value and SetTable).
+fn a_blob_written_by_a_copy_copies_by_value() {
+    assert_eq!(flagged("NeighborAssignedBlobByValue"), "hv:alpha");
+    assert_eq!(run("NeighborFieldRefValueBlobByValue").0, "hv:alpha");
 }
 
 /// A Blob of a table extension, Compressed = false or Compressed = true field moved into a by-value Variant parameter, a global
 /// Variant or an array element (C1 to C5 of the review of al-runner PR 7951) is shared, as before. A local Variant copies it,
 /// as before (flagged).
 #[test]
-fn a_field_that_is_not_plain_into_a_variant_that_is_not_local_shares_as_before() {
+// Measured since the third probe: corpus PR 1375, streams/BlobCopyStates.al:3017 C1-C3, :3087 C4-C5.
+fn other_field_kinds_into_a_variant_that_is_not_local_copy() {
     assert_eq!(
-        unflagged("NeighborVariationFieldsToVariantParameter"),
-        "hv:betaa|hv:betaa|hv:betaa"
+        flagged("NeighborVariationFieldsToVariantParameter"),
+        "hv:alpha|hv:alpha|hv:alpha"
     );
-    assert_eq!(unflagged("NeighborExtensionFieldToGlobalAndArray"), "hv:betaa|hv:betaa");
-    assert_eq!(flagged("NeighborCompressedFieldToGlobalAndLocal"), "hv:betaa|hv:alpha");
+    assert_eq!(flagged("NeighborExtensionFieldToGlobalAndArray"), "hv:alpha|hv:alpha");
+    assert_eq!(flagged("NeighborCompressedFieldToGlobalAndLocal"), "hv:alpha|hv:alpha");
 }
 
 /// A record that was inserted or modified before its Blob was written, or whose field was cleared or that was set back with
 /// Init after an Insert (S1, S2, S4, S5, S12, S13, S14 of the round-2 review of al-runner PR 7951), is not the record the
 /// probe measured (one never inserted, modified or read). Its Blobs share, as before.
 #[test]
-fn a_record_that_was_stored_before_the_write_shares_as_before() {
-    assert_eq!(unflagged("NeighborInsertEmptyWriteByValue"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborTempInsertEmptyWriteByValue"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborInsertClearFieldWriteByValue"), "hv:zzta");
-    assert_eq!(unflagged("NeighborInsertEmptyModifyWriteByValue"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborInsertInitWriteByValue"), "hv:zzta");
-    assert_eq!(unflagged("NeighborTempInsertEmptyWriteCopy"), "hv:betaa");
+// Measured since the third probe: the loaded buffer of a measured source, corpus PR 1375, streams/BlobCopyStates.al:1180 (ins), :2728-2852 (written again).
+fn a_record_stored_before_the_write_copies() {
+    assert_eq!(flagged("NeighborInsertEmptyWriteByValue"), "hv:alpha");
+    assert_eq!(flagged("NeighborTempInsertEmptyWriteByValue"), "hv:alpha");
+    assert_eq!(flagged("NeighborInsertClearFieldWriteByValue"), "hv:beta");
+    assert_eq!(flagged("NeighborInsertEmptyModifyWriteByValue"), "hv:alpha");
+    assert_eq!(flagged("NeighborInsertInitWriteByValue"), "hv:beta");
+    assert_eq!(flagged("NeighborTempInsertEmptyWriteCopy"), "hv:alpha");
     assert_eq!(
-        unflagged("NeighborTempInsertEmptyWriteGlobalVariantTransferFlags"),
-        "hv:betaa|hv:betaa"
+        flagged("NeighborTempInsertEmptyWriteGlobalVariantTransferFlags"),
+        "hv:alpha|hv:alpha"
     );
 }
 
