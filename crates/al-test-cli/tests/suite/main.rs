@@ -156,6 +156,7 @@ mod prepush_script;
 mod printer_table;
 mod provider_chain_outside_factboxes;
 mod provider_factbox_edit;
+mod provider_no_row_7392;
 mod query_close_error_last_error;
 mod query_outer_flow;
 mod quoted_ident;

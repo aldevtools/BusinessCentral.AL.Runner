@@ -181,6 +181,7 @@ fn every_registered_id_is_in_the_catalog() {
         "Media.ToVariant#1",
         "Interface.AssertAssigned#1",
         "Variant.FromTextConstant#1",
+        "Variant.FromTransactionType#1",
         "Variant.IntoInteger#1",
         "Variant.IntoOption#1",
         "Variant.Into#1",

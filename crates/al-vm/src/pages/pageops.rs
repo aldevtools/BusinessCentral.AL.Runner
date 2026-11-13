@@ -157,10 +157,7 @@ impl Session {
                         al_builtins::value::LibraryValue::FieldRef(..)
                             | al_builtins::value::LibraryValue::KeyFieldRef(..)
                     ) {
-                        return Err(error_code(
-                            "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.",
-                            "NotInitialized",
-                        ));
+                        return Err(crate::refs::fieldref_not_initialized());
                     }
                 }
                 // Id 0 with a record resolves the page from the record's table LookupPageId; a

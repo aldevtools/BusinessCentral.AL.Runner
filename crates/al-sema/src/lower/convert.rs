@@ -349,6 +349,22 @@ impl<'a> Lowerer<'a> {
             let ch = self.convert_to(&Ty::Char, src, value)?;
             return self.convert_to(target, &Ty::Char, ch);
         }
+        // A value whose declared type is TransactionType (a variable, `TransactionType::X`, `CurrentTransactionType()`) carries
+        // its type into a Variant, where IsTransactionType is true and IsOption false (types/variant/VariantIsMatrix.al:126-152,
+        // not pinned yet, assumption `variant-is-matrix`; :238 of types/TestVariantExtended.al pins the default value). An
+        // Option with the same members stays an Option.
+        let value = if matches!(src, Ty::Builtin(n) if n.eq_ignore_ascii_case("TransactionType"))
+            && matches!(self.rt(target), Ok(RtType::Variant))
+        {
+            ir::Expr::Builtin {
+                id: super::call::builtin_id("Variant.FromTransactionType#1")?,
+                receiver: None,
+                args: vec![ir::Arg::Value(value)],
+                ret_used: true,
+            }
+        } else {
+            value
+        };
         // The literal of an option member (`O::B`) is an Integer in a Variant; a platform enum's member keeps its type
         // (types/variant/LTP89IsMisc.al:NearTypes `option_literal`, LTP89IsEnumsA.al `literal`).
         if matches!(self.rt(target), Ok(RtType::Variant)) {

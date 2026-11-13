@@ -988,6 +988,8 @@ pub struct Session {
     pub(crate) shadow_lower_bound: bool,
     /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
     pub(crate) permission_from_al: bool,
+    /// Set by AL code's `Record.SetFilter` right before `record_op_from_al`, taken by the SetFilter of `record_op_inner`.
+    pub(crate) setfilter_from_al: bool,
     /// True while the fields of `SetAutoCalcFields` are calculated after a read: that read is allowed (Y24PermReads.al
     /// Y24_P15_FlowFieldsNothingOnSource, `autocalc_findfirst`).
     pub(crate) permission_autocalc: bool,
@@ -1374,6 +1376,7 @@ impl Session {
             shadow_active: false,
             shadow_lower_bound: false,
             permission_from_al: false,
+            setfilter_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
             permission_opening_source: None,
@@ -1992,10 +1995,10 @@ impl Session {
                 self.engine.program.objects[object].name, r.name
             )));
         }
-        let fresh = Rc::new(RefCell::new(Instance {
+        let fresh = al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             ..Default::default()
-        }));
+        });
         let inst = self.shared_instance(fresh);
         self.call(object, routine, inst, Vec::new()).map(|_| ())
     }
@@ -2075,7 +2078,7 @@ impl Session {
                 .iter()
                 .for_each(|v| blob_transfer::new_variable(v, self.commits, &mut self.blob_sources));
         }
-        Rc::new(RefCell::new(Instance {
+        al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             globals,
             initialized: true,
@@ -2085,7 +2088,8 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
-        }))
+            live: Default::default(),
+        })
     }
 
     /// A fresh instance of page or report extension `object` that is linked to `base`, the
@@ -2117,7 +2121,7 @@ impl Session {
                 }
             })
             .collect();
-        Rc::new(RefCell::new(Instance {
+        al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             globals,
             initialized: true,
@@ -2127,7 +2131,8 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
-        }))
+            live: Default::default(),
+        })
     }
 
     /// A record type whose default value has no state of its own (no temporary table): a record of a stored table.

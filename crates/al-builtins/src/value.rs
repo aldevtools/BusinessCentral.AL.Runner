@@ -799,6 +799,20 @@ impl TableGlobals {
         let d = data.borrow();
         d.xrec.share()
     }
+
+    /// Calls `f` for every instance of the set, and of `xRec`'s set, when no other handle shares them
+    /// (`instance_cycles`).
+    pub(crate) fn owned_instances(&self, f: &mut dyn FnMut(&Rc<RefCell<Instance>>)) {
+        let Ok(data) = self.data.try_borrow() else { return };
+        let Some(d) = data.as_ref().filter(|d| Rc::strong_count(d) == 1) else {
+            return;
+        };
+        let Ok(d) = d.try_borrow() else { return };
+        for (_, i) in &d.instances {
+            f(i);
+        }
+        d.xrec.owned_instances(f);
+    }
 }
 
 /// A set of field positions.
@@ -1244,6 +1258,8 @@ pub struct Instance {
     pub born: Born,
     /// The session watches this single instance's globals (al-vm `single_track.rs`).
     pub single: bool,
+    /// Counts the instance as live while it exists (`instance_cycles::live`).
+    pub live: crate::instance_cycles::LiveCount,
 }
 
 thread_local! {
@@ -1531,10 +1547,10 @@ impl Value {
                 let n = dims.iter().map(|d| *d as usize).product();
                 Value::Array(Rc::new(RefCell::new((0..n).map(|_| Value::default_for(el)).collect())))
             }
-            RtType::Codeunit(id) => Value::Codeunit(Rc::new(RefCell::new(Instance {
+            RtType::Codeunit(id) => Value::Codeunit(crate::instance_cycles::shared(Instance {
                 object: *id,
                 ..Default::default()
-            }))),
+            })),
             // An unassigned interface holds nothing.
             RtType::Interface(_) => Value::Null,
             RtType::TestPage(id) | RtType::Page(id) => Value::TestPage(PageHandle::closed(*id)),

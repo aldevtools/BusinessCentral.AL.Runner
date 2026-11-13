@@ -216,7 +216,11 @@ impl al_builtins::native::Ctx for Session {
                     // `Record.Validate` in AL code (registry `Record.Validate#1`).
                     return self.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
                 }
-                self.record_op_from_al(method, &rc, args)
+                // Taken by the SetFilter of `record_op_inner` (`setfilter_empty_or_side`).
+                self.setfilter_from_al = method == al_builtins::record_op::RecordOp::SetFilter;
+                let r = self.record_op_from_al(method, &rc, args);
+                self.setfilter_from_al = false;
+                r
             }
             other => Err(Signal::unsupported(format!(
                 "record method {method} on {}",
