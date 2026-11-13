@@ -1611,8 +1611,13 @@ pub struct RelationCond {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum RelationWhere {
-    /// `related = const(text)` / `filter(text)`: `text` is a filter on the related field.
-    Value { related: usize, text: String },
+    /// `related = const(text)` / `filter(text)` (`filter`): `text` is a filter on the related field.
+    Value {
+        related: usize,
+        text: String,
+        #[serde(default)]
+        filter: bool,
+    },
     /// `related = field(own)`: the related field equals the referencing row's field.
     Field { related: usize, own: usize },
 }

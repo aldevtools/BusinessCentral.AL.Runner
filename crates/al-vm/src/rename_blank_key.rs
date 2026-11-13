@@ -7,7 +7,8 @@
 //! rename-blank-key-with-relation). The `:line` citations in this file are lines of that file.
 //!
 //! The error is raised only in the cells that file measures: the base cell (`:1239` from blank, `:1279` to blank) and each
-//! cell that differs from the base cell in one fact (`Session::measured_blank_rename`). Any other such rename is refused.
+//! cell that differs from the base cell in one of the facts `Session::measured_blank_rename` checks. Any other value of
+//! those facts, or two of them at once, is refused.
 //! These keep main's rename and main's errors: a temporary record, a rename in which no key field that a counting relation
 //! targets changes to or from blank, a row that is not stored and a new key that is stored.
 
@@ -160,8 +161,9 @@ impl Session {
     /// calls the statement form of Rename on a Record variable that read the committed row by Get and has no filter; the
     /// table is per company, without a table extension, a Caption, an OnRename trigger or a subscriber, its database rename
     /// trigger known to be off, its primary key one plain Code[20] field; one relation in the program targets the table: a
-    /// plain `TableRelation = <table>` of a validated Normal Code[20] field outside the primary key of another per-company
-    /// table without extensions, triggers or subscribers. Each `Ok(true)` below is one other cell.
+    /// plain `TableRelation = <table>` of a validated Normal Code[20] field without Enabled, outside the primary key of
+    /// another per-company table without extensions, triggers, subscribers, TableType or ObsoleteState. Each `Ok(true)`
+    /// below is one other cell.
     #[allow(clippy::too_many_arguments)]
     fn measured_blank_rename(
         &self,
@@ -193,21 +195,27 @@ impl Session {
             return Err("a relation with more than one arm");
         }
         let from_blank = is_blank(t, k, &old[k]);
-        let (value, text) = if from_blank {
-            (&new[k], &texts[1])
+        let (value, text, blank_text) = if from_blank {
+            (&new[k], &texts[1], &texts[0])
         } else {
-            (&old[k], &texts[0])
+            (&old[k], &texts[0], &texts[1])
         };
         let key_field = &schema.fields[k];
         let key_prop = |name: &str| self.field_property(t, k, name);
         let table_prop = |name: &str| master.properties.iter().any(|(p, _)| p.eq_ignore_ascii_case(name));
+        let child_table_prop = |name: &str| {
+            engine.program.objects[child_index]
+                .properties
+                .iter()
+                .any(|(p, _)| p.eq_ignore_ascii_case(name))
+        };
         let child_prop = |name: &str| {
             self.field_property(child, pos, name)
                 .map(|v| v.trim().to_ascii_lowercase())
         };
         let child_trigger = |name: &str| self.table_trigger(child, name).is_some();
         let [key, arm_form] = key_and_arm(t, child, k, arm, old, new, from_blank);
-        let facts: [Fact; 16] = [
+        let facts: [Fact; 17] = [
             // The call: the return-value form (:2281, :2295) and RecordRef.Rename (:2321, :2334) raise the same error.
             match (from_al, self.ret_used, self.through_recordref) {
                 (true, false, false) => Ok(false),
@@ -227,7 +235,7 @@ impl Session {
             },
             key,
             arm_form,
-            value_fact(value, text),
+            value_fact(value, text, blank_text),
             if !key_field.auto_increment
                 && t.fields[k].code_storage == CodeStorage::Text
                 && key_field.caption_class.is_none()
@@ -279,6 +287,16 @@ impl Session {
                 None => Ok(false),
                 Some("pending") => Ok(true),
                 _ => Err("a related field with an ObsoleteState other than Pending"),
+            },
+            // In every measured cell the related table declares no TableType and no ObsoleteState, and the related field no
+            // Enabled (the base cell's related table :58 and field :64).
+            match (
+                child_table_prop("TableType"),
+                child_table_prop("ObsoleteState"),
+                child_prop("Enabled"),
+            ) {
+                (false, false, None) => Ok(false),
+                _ => Err("a related table with TableType or ObsoleteState, or a related field with Enabled"),
             },
             // TestTableRelation = false on the related field (:2793, :2806).
             match child_prop("TestTableRelation").as_deref() {
@@ -360,6 +378,7 @@ fn key_and_arm(
 ) -> [Fact; 2] {
     let code10 = RtType::Code(Some(10));
     let wheres = arm.wheres.as_deref().unwrap_or_default();
+    let const_where = matches!(wheres, [RelationWhere::Value { related, filter: false, .. }] if *related != k);
     match t.keys[0].as_slice() {
         [_] => [
             match &t.fields[k].ty {
@@ -370,7 +389,7 @@ fn key_and_arm(
             match (arm.conditions.as_slice(), wheres, arm.field) {
                 ([], [], None) => Ok(false),
                 ([c], [], None) if !c.filter => Ok(true),
-                ([], [RelationWhere::Value { related, .. }], None) if *related != k => Ok(true),
+                ([], [_], None) if const_where => Ok(true),
                 ([], [], Some(field)) if field == k => Ok(true),
                 _ => Err("a relation arm of a form that is not measured"),
             },
@@ -395,13 +414,15 @@ fn key_and_arm(
     }
 }
 
-/// The non-blank value of the changed key field, with its text in the error. Measured: a Code value as stored (:1239,
-/// :2968, :2987), the Integer 5 (:1333), a Guid of digits (:1441), an Option member without an OptionCaption (:1489) and a
-/// Date (:1533). An Integer of four or more digits or below zero and a Guid with letters are not measured: their text is
-/// not known.
-fn value_fact(value: &Value, text: &str) -> Fact {
+/// The non-blank value of the changed key field, with its text in the error (`blank_text`: the blank value's text).
+/// Measured: a Code value as stored (:1239, :2968, :2987), the Integer 5 (:1333), a Guid of digits (:1441), an Option
+/// member without an OptionCaption whose zero member is named `" "` (:1489, members :131) and a Date (:1533). An Integer
+/// of four or more digits or below zero, a Guid with letters and an Option whose zero member has another name are not
+/// measured: their text is not known.
+fn value_fact(value: &Value, text: &str, blank_text: &str) -> Fact {
     match value {
-        Value::Code(_) | Value::Option(..) | Value::Date(_, false) => Ok(false),
+        Value::Code(_) | Value::Date(_, false) => Ok(false),
+        Value::Option(..) if blank_text == " " => Ok(false),
         Value::Integer(n) if (1..=999).contains(n) => Ok(false),
         Value::Guid(_) if !text.contains(|c: char| c.is_ascii_alphabetic()) => Ok(false),
         _ => Err("a key value whose text in the error is not measured"),

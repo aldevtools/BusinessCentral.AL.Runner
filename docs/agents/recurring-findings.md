@@ -38,6 +38,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
     handle, not only for handles that met the shape when they opened.
   - the arguments of a call whose failure is now caught: a stream or by-reference argument, or a stream an earlier
     call handed over, has effects that the failed call's reply does not carry. Require the measured argument kinds.
+  - whether the object exists in the database: TableType = Temporary, a Removed table, Enabled = false, FlowField and
+    FlowFilter. A rule about related fields must name which of them count.
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

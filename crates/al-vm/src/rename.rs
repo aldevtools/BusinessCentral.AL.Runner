@@ -159,7 +159,7 @@ impl Session {
             let wheres = r.arm.wheres.clone().unwrap_or_default();
             let mut parent_ok = true;
             for w in &wheres {
-                if let ir::RelationWhere::Value { related, text } = w {
+                if let ir::RelationWhere::Value { related, text, .. } = w {
                     let expr = self
                         .parse_filter_text(text, &t.fields[*related].ty)
                         .map_err(|e| Signal::unsupported(format!("where() of a relation: {e}")))?;

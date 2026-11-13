@@ -254,12 +254,22 @@ fn a_rename_outside_the_measured_cells_is_refused() {
         ("two relations", MASTER.into(), plain.clone(), "table 50123 \"S Other\" { fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = \"S Master\"; } } keys { key(PK; Id) { } } }", "", "'X'"),
         ("OnDelete on the related table", MASTER.into(), child_with("Code[20]", PLAIN, "trigger OnDelete() begin end;"), "", "", "'X'"),
         ("OnModify on the related table, to blank", MASTER.into(), child_with("Code[20]", PLAIN, "trigger OnModify() begin end;"), "", "M.Code := 'A';", "''"),
+        ("related table TableType = Temporary", MASTER.into(), child_with("Code[20]", PLAIN, "").replace("\"S Child\" {", "\"S Child\" { TableType = Temporary;"), "", "", "'X'"),
+        ("related table ObsoleteState = Removed", MASTER.into(), child_with("Code[20]", PLAIN, "").replace("\"S Child\" {", "\"S Child\" { ObsoleteState = Removed;"), "", "", "'X'"),
+        ("related field Enabled = false", MASTER.into(), child_with("Code[20]", "TableRelation = \"S Master\"; Enabled = false;", ""), "", "", "'X'"),
+        ("related table ObsoleteState = Pending", MASTER.into(), child_with("Code[20]", PLAIN, "").replace("\"S Child\" {", "\"S Child\" { ObsoleteState = Pending;"), "", "", "'X'"),
+        ("filter where()", MASTER.into(), child_with("Code[20]", "TableRelation = \"S Master\" where(Name = filter('N'));", ""), "", "", "'X'"),
+        ("Option key with a named zero member", master_with("", "OptionMembers = Zero,Alpha,Beta;", "Option"), child_with("Option", "TableRelation = \"S Master\"; OptionMembers = Zero,Alpha,Beta;", ""), "", "", "1"),
         ("a trigger that writes", master_with("trigger OnRename() var C: Record \"S Child\"; begin C.Id := 9; C.Insert(); end;", "", "Code[20]"), plain.clone(), "", "", "'X'"),
     ];
+    let mut wrong = Vec::new();
     for (name, master, child, extra, setup, new) in cases {
-        let why = refused(cell(&master, &child, extra, setup, new));
-        assert!(why.contains("blank or zero key value"), "{name}: {why}");
+        match cell(&master, &child, extra, setup, new) {
+            Err(Signal::Unsupported(why)) if why.contains("blank or zero key value") => {}
+            other => wrong.push(format!("{name}: {other:?}")),
+        }
     }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 // The record's own state outside the measured cells: refused.
