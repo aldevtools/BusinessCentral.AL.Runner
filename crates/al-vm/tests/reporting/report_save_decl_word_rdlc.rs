@@ -273,9 +273,10 @@ fn decl_word_rdlc_neighbors_keep_mains_answer() {
 
 /// A test that binds a subscriber to SubstituteReport, OnDocumentReady or SelectedBuiltinLayoutType: BC raises
 /// SubstituteReport first for a static SaveAs (events/platform-triggers/PeVTests.al:721) and this runtime raises none of them
-/// to a test's subscriber, and pull request 1381 measured no subscriber. Every save keeps main's refusal.
+/// to a test's subscriber, and pull request 1381 measured no subscriber. Every save refuses. Main refused these shapes too,
+/// except a temporary Word selection saved as Html with a SelectedBuiltinLayoutType subscriber, which main answered (flagged).
 #[test]
-fn decl_word_rdlc_a_subscriber_to_a_layout_event_keeps_mains_refusal() {
+fn decl_word_rdlc_a_subscriber_to_a_layout_event_refuses() {
     const PROCS: [&str; 6] = [
         "RdlcHtml",
         "RdlcHtmlStatement",

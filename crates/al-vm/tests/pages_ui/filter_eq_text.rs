@@ -50,6 +50,12 @@ codeunit 69993 C
         Seed(); P.OpenView(); P.Filter.SetFilter(Kind, '=Quote');
         exit('[' + P.Filter.GetFilter(Kind) + ']' + Walk(P));
     end;
+    procedure ViewOptionSecond(): Text
+    var P: TestPage "EQ List";
+    begin
+        Seed(); P.OpenView(); P.Filter.SetFilter(Kind, '=Order');
+        exit(Walk(P));
+    end;
     procedure EditBoolean(): Text
     var P: TestPage "EQ List";
     begin
@@ -100,7 +106,8 @@ fn an_eq_text_on_a_viewed_list_sets_no_filter() {
     assert_eq!(run("ViewOption"), "[]1,2,3,4,");
 }
 
-// Not measured: OpenEdit, a Code or Integer field, another text after the `=`, a field the test already filtered, a Card.
+// Not measured: OpenEdit, a Code or Integer field, another text after the `=` (also a second Option member), a field the test
+// already filtered, a Card.
 // Each keeps main's filter.
 #[test]
 fn shapes_outside_the_cell_keep_the_filter() {
@@ -110,4 +117,5 @@ fn shapes_outside_the_cell_keep_the_filter() {
     assert_eq!(run("ViewBooleanOtherWord"), "1,2,3,4,");
     assert_eq!(run("ViewBooleanAfterOwnFilter"), "2,4,");
     assert_eq!(run("CardBoolean"), "2");
+    assert_eq!(run("ViewOptionSecond"), "2,4,");
 }

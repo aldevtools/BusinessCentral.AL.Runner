@@ -15,8 +15,9 @@ impl Session {
     /// required as the corpus measured it (TempListOffPageBooleanFilter.al):
     /// - the page: PageType = List (:47, :142), opened by the test's own `OpenView` (:273, :293, :435, :461), at the top level
     ///   (not a part, not a page AL code ran);
-    /// - the field: a Boolean with one of `BOOLEAN_WORDS` after the `=`, or an Option with one of its member names after the
-    ///   `=` (:440 `'=Quote'`, read back `''` at :447 and every row at :449, :466-475);
+    /// - the field: a Boolean with one of `BOOLEAN_WORDS` after the `=`, or an Option with its first member's name after the
+    ///   `=` (:440 `'=Quote'`, the first of `Quote,"Order"` at :35; read back `''` at :447 and every row at :449, :466-475).
+    ///   Another member after the `=` is not measured and keeps the filter;
     /// - the page holds no test filter (filter group 0) on the field yet (each measured call is the first one on the field
     ///   that set a filter; :469 follows a dropped `'=1'`).
     pub(super) fn eq_text_sets_no_filter(&self, st: &St, rec: &Rec, pos: usize, ty: &RtType, text: &str) -> bool {
@@ -25,7 +26,7 @@ impl Session {
         };
         let value_measured = match ty {
             RtType::Boolean => BOOLEAN_WORDS.contains(&rest),
-            RtType::Option(members) => members.iter().any(|m| m.as_str() == rest),
+            RtType::Option(members) => members.first().is_some_and(|m| m.as_str() == rest),
             _ => false,
         };
         value_measured

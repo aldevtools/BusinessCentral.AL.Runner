@@ -177,5 +177,5 @@ with a run-time id, dynamic object ids), unless the owner named that kind of unk
 
 A stand-in of a Base Application object in a Rust fixture is written from the pinned behavior, never from the object's
 source (CLAUDE.md hard rule 7). Only object ids and names, field ids and names, and procedure and event signatures may
-match. Before hand-back, compare the fixture's lines with the files in the artifact cache; only signatures and one-word
-lines may match.
+match. Before hand-back, compare the fixture's lines with the files in the artifact cache; only signatures, one-word
+lines and one-statement assignments of an answer value (`Success := true;`) may match.
