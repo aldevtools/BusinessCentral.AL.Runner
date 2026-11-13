@@ -177,9 +177,8 @@ impl Holder {
     pub(crate) fn of(r: &RecordState, commits: u64) -> Holder {
         match r.probed_source {
             ProbedSource(FRESH, _) => Holder::Fresh,
-            ProbedSource(_, at) if at != commits => Holder::Other,
-            ProbedSource(MEASURED, _) => Holder::Measured,
-            ProbedSource(TABLE_COPY, _) => Holder::TableCopy,
+            ProbedSource(MEASURED, at) if at == commits => Holder::Measured,
+            ProbedSource(TABLE_COPY, at) if at == commits => Holder::TableCopy,
             _ => Holder::Other,
         }
     }
@@ -282,22 +281,23 @@ pub(crate) fn measured_publisher(object: al_ir::ObjKind, r: &al_ir::Routine) -> 
 /// not temporary (corpus PR 1387, streams/BlobCopyNeighbors.al:2078, :3205 `SeqStoredModifySubscriber`), and OnAfterModifyEvent
 /// of a temporary record (:3243 `SeqTempModifySubscriber`). The other table events are not measured.
 pub(crate) fn measured_table_event(event: &str, temporary: bool) -> Option<BlobEvent> {
-    let measured = match event {
-        "onbeforeinsertevent" | "onafterinsertevent" | "onbeforemodifyevent" => !temporary,
-        "onaftermodifyevent" => true,
-        _ => false,
-    };
+    let measured = matches!(
+        (event, temporary),
+        (
+            "onbeforeinsertevent" | "onafterinsertevent" | "onbeforemodifyevent",
+            false
+        ) | ("onaftermodifyevent", _)
+    );
     measured.then_some(BlobEvent::TableEvent)
 }
 
 /// Whether a subscriber, `manual` or not, of an event `event` names is called in a measured call ([`Call::Subscriber`]): a
 /// manual subscriber only of a publisher (PR 1387 :1948).
 pub(crate) fn measured_subscriber(event: Option<BlobEvent>, manual: bool) -> bool {
-    match event {
-        Some(BlobEvent::Publisher) => true,
-        Some(BlobEvent::TableEvent) => !manual,
-        None => false,
-    }
+    matches!(
+        (event, manual),
+        (Some(BlobEvent::Publisher), _) | (Some(BlobEvent::TableEvent), false)
+    )
 }
 
 /// The by-value copy `copy` the publisher made of record `source` for its subscribers: a source prepared as `source` when
@@ -326,7 +326,10 @@ pub(crate) fn assigned(target: &RecordState, source: &RecordState, commits: u64)
 /// streams/BlobCopyNeighbors.al:2424: after GetTable of the same or another record, `SetTable(Src, false)`, Open and
 /// FindFirst, CalcField, `FieldRef.Value :=` and `RecordRef.Modify`).
 pub(crate) fn set_table_target(target: &RecordState, share: bool, commits: u64) -> ProbedSource {
-    let kept = !share && Holder::of(target, commits).variable();
+    let kept = matches!(
+        (share, Holder::of(target, commits)),
+        (false, Holder::Fresh | Holder::Measured)
+    );
     ProbedSource(if kept { MEASURED } else { 0 }, commits)
 }
 
@@ -774,11 +777,15 @@ fn record_cell(how: BlobMove, s: &Source, holder: Holder) -> bool {
 ///
 /// Every other pair and call keeps the shared buffer, as before.
 fn by_value_measured(source_temporary: bool, taker: Taker, call: Call) -> bool {
-    match (call, source_temporary, taker) {
-        (Call::Plain, _, _) => true,
-        (Call::TableProcedure | Call::TryFunction | Call::Subscriber, false, Taker::RecordParam) => true,
-        _ => false,
-    }
+    matches!(
+        (call, source_temporary, taker),
+        (Call::Plain, _, _)
+            | (
+                Call::TableProcedure | Call::TryFunction | Call::Subscriber,
+                false,
+                Taker::RecordParam
+            )
+    )
 }
 
 /// The moves in which a [`FieldKind::Variation`] field gives what a plain field gives ([`measured`]). Corpus PR 1372
