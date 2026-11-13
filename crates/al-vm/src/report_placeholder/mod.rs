@@ -111,7 +111,7 @@ impl Session {
                 // owner decision 2026-11-12: only a read inside the bytes the corpus pins at its start answers,
                 // `al_builtins::placeholder_output::pdf_read`).
                 let mark = match format {
-                    Format::Html => self.html_render_mark(schema, rows, selected.as_deref()),
+                    Format::Html => self.html_render_mark(schema, dataset, rows, selected.as_deref()),
                     _ => al_builtins::placeholder_output::mark(format.name(), schema.name()),
                 };
                 self.placeholder_files
@@ -189,8 +189,16 @@ impl Session {
     /// The mark of the Html placeholder a save of `schema` writes, with the number of its render: a whole text read of it gives
     /// the rendered content's mark (`al_builtins::rendered_text`, ADR-040 amendment 2026-11-12, A1 and A2). A run that wrote no
     /// dataset row writes nothing (`no_row_save`); the render number is taken only for a run with rows. `selected` is the layout a
-    /// temporary layout selection named (A7), else the report's default layout renders.
-    fn html_render_mark(&self, schema: &Schema, rows: usize, selected: Option<&str>) -> std::sync::Arc<str> {
+    /// temporary layout selection named (A7), else the report's default layout renders. `dataset` is the Xml the run wrote; the
+    /// render keeps what `rendered_text::RenderFacts` asks of it.
+    fn html_render_mark(
+        &self,
+        schema: &Schema,
+        dataset: &[u8],
+        rows: usize,
+        selected: Option<&str>,
+    ) -> std::sync::Arc<str> {
+        const RGBA: &[u8] = b"rgba(";
         let report = schema.report();
         let layout = selected.map(str::to_string).unwrap_or_else(|| {
             report
@@ -198,8 +206,14 @@ impl Session {
                 .clone()
                 .unwrap_or_else(|| report.default_layout_kind.clone())
         });
+        let facts = al_builtins::rendered_text::RenderFacts {
+            default_word_layout: selected.is_none() && report.default_layout_kind == "word",
+            // The Xml (UTF-8) holds every column value and name and the labels (`dataset::Dataset::finish`); `rgba(` has no
+            // character Xml escapes.
+            dataset_holds_rgba: dataset.windows(RGBA.len()).any(|w| w == RGBA),
+        };
         let render = (rows > 0)
-            .then(|| al_builtins::rendered_text::register(schema.name(), "Html", &layout))
+            .then(|| al_builtins::rendered_text::register_with(schema.name(), "Html", &layout, facts))
             .flatten();
         al_builtins::rendered_text::html_mark(schema.name(), render)
     }

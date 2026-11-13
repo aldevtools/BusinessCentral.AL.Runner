@@ -1754,7 +1754,9 @@ fn a_text_that_is_no_guid_or_an_overload_set_that_is_not_one_guid_stays_refused(
 
 /// P12 of the ADR-040 amendment of 2026-11-12 (`al_builtins::rendered_text::DOTNET_ALLOWED`): the real `Regex.Replace` with the
 /// pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb` hands a text that holds rendered content back
-/// with every mark, so `dotnet_result` takes the answer (in the changed form); a text the pattern matches keeps its marks too.
+/// with every mark, so `dotnet_result` takes the answer (in the changed form). The known text beside a mark is rewritten as BC
+/// does (corpus pull request 1371, reports/html-email-body/RxEmailBodyTests.al:250 alpha 1 becomes `rgb(r, g, b)`, :227 another
+/// alpha stays).
 #[test]
 fn the_rgba_replace_keeps_every_mark_of_rendered_content() {
     use al_builtins::rendered_text::{self, DOTNET_ALLOWED, Form};
@@ -1767,10 +1769,18 @@ fn the_rgba_replace_keeps_every_mark_of_rendered_content() {
     });
     let n = rendered_text::register("Sidecar Report", "Html", "WordOne").expect("a render");
     let mark = rendered_text::mark_text(n, Form::Whole);
+    let changed = rendered_text::to_changed(&mark);
     let mut sess = h.open_session(&DotNetSessionConfig::default());
-    for input in [
-        mark.clone(),
-        format!("<p style=\"color: rgba(1, 2, 3, 0)\">{mark}</p>{mark}"),
+    for (input, want) in [
+        (mark.clone(), changed.clone()),
+        (
+            format!("<p style=\"color: rgba(1, 2, 3, 0.5)\">{mark}</p>{mark}"),
+            format!("<p style=\"color: rgba(1, 2, 3, 0.5)\">{changed}</p>{changed}"),
+        ),
+        (
+            format!("{mark}<p style=\"color: rgba(1,2,3,1)\">sig</p>"),
+            format!("{changed}<p style=\"color: rgb(1, 2, 3)\">sig</p>"),
+        ),
     ] {
         let r = sess
             .invoke(
@@ -1780,10 +1790,7 @@ fn the_rgba_replace_keeps_every_mark_of_rendered_content() {
             )
             .unwrap();
         let out = rendered_text::dotnet_result(&input, text_of(&r)).expect("every mark kept");
-        assert_eq!(
-            rendered_text::marks(&out).map(|m| m.len()),
-            rendered_text::marks(&input).map(|m| m.len())
-        );
+        assert_eq!(out, want);
     }
     sess.close();
 }

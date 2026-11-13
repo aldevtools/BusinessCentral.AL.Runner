@@ -330,6 +330,7 @@ codeunit 51003 "RC Selection Tests"
         exit(Format(Body <> '') + Format(D.GetSelectedLayout() = ''));
     end;
     procedure AssertNotEmpty() var Body: Text; begin Body := SendWord(); if Body = '' then Error('empty body'); end;
+    procedure RawBody(): Text begin exit(SendWord()); end;
     procedure BodyContains(): Boolean begin exit(SendWord().Contains('NLB')); end;
     procedure BodyCompared(): Boolean begin exit(SendWord() = '<html>'); end;
     procedure BodyLength(): Integer begin exit(StrLen(SendWord())); end;
@@ -406,6 +407,19 @@ fn rendered_text_chain_a_temporary_selection_of_a_user_defined_word_layout_passe
     assert!(hits.contains(&Assumption::ReportLayoutTempSelection), "{hits:?}");
     assert!(hits.contains(&Assumption::ReportHtmlRenderedText), "{hits:?}");
     selected_run("AssertNotEmpty").expect("AreNotEqual('', Body) passes");
+}
+
+/// The Html of a layout a temporary selection named is not the report's default layout: the rgba replace of `Email Message
+/// Impl.` is not measured on it (`rendered_text::RenderFacts`).
+#[test]
+fn rendered_text_chain_a_selected_layouts_render_is_not_the_default_word_layout() {
+    let body = match selected_run("RawBody") {
+        Ok(Value::Text(t)) => t.as_str().to_string(),
+        other => panic!("expected a text, got {other:?}"),
+    };
+    let marks = al_builtins::rendered_text::marks(&body).expect("whole marks");
+    let facts = al_builtins::rendered_text::render(marks[0].0).expect("registered").facts;
+    assert!(!facts.default_word_layout);
 }
 
 #[test]

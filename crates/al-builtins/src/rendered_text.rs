@@ -45,6 +45,17 @@ pub struct Render {
     pub report: String,
     pub format: String,
     pub layout: String,
+    pub facts: RenderFacts,
+}
+
+/// What the save knew about a render, for the entries that ask more than "it is rendered content" ([`DOTNET_ALLOWED`]).
+/// The default is a render nothing is known of: no entry takes it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RenderFacts {
+    /// The report's own default layout rendered, and it is a Word layout (no layout selection named another one).
+    pub default_word_layout: bool,
+    /// The dataset of the run, or a label of the report, holds the text `rgba(`.
+    pub dataset_holds_rgba: bool,
 }
 
 /// The renders of the process. A marked text can outlive the session that read it (a SingleInstance global, a stored row, the
@@ -60,14 +71,20 @@ pub fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-/// Registers a render and gives its number, `None` once the numbers are used up (the read then refuses).
+/// Registers a render nothing more is known of ([`register_with`]).
 pub fn register(report: &str, format: &str, layout: &str) -> Option<u32> {
+    register_with(report, format, layout, RenderFacts::default())
+}
+
+/// Registers a render and gives its number, `None` once the numbers are used up (the read then refuses).
+pub fn register_with(report: &str, format: &str, layout: &str, facts: RenderFacts) -> Option<u32> {
     let mut list = RENDERS.lock().unwrap_or_else(|e| e.into_inner());
     let n = u32::try_from(list.len()).ok().filter(|n| *n < MAX_RENDERS)?;
     list.push(Render {
         report: report.to_string(),
         format: format.to_string(),
         layout: layout.to_string(),
+        facts,
     });
     Some(n)
 }
@@ -699,8 +716,10 @@ fn percent_only(args: &[Value], i: usize) -> bool {
 }
 
 /// The .NET calls a marked argument may reach (A5): (type, member). One entry, P12: `Email Message Impl.`
-/// `ReplaceRgbaColorsWithRgb` (System Application) calls `Regex.Replace(Body, Pattern, Replacement)` on every body
-/// `Email Message.Create` is given, with exactly this pattern and replacement.
+/// `ReplaceRgbaColorsWithRgb` (System Application) calls `Regex.Replace(Body, Pattern, Replacement)` on a `DotNet` variable
+/// that holds no object, with exactly this pattern and replacement, for every body that is not empty: `Email Message.Create`
+/// and `CreateReply` (through `UpdateMessage`), `SetBody` and `AppendToBody` (corpus pull request 1371,
+/// reports/html-email-body/RxEmailBodyTests.al:5-8).
 pub static DOTNET_ALLOWED: &[DotNetEntry] = &[DotNetEntry {
     ty: "System.Text.RegularExpressions.Regex",
     member: "Replace",
@@ -716,13 +735,37 @@ pub struct DotNetEntry {
     pub replacement: &'static str,
 }
 
-/// The pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb`. The replacement is never empty, so a text
-/// that is not empty stays not empty.
-const RGBA_PATTERN: &str = r"rgba\((\d+), ?(\d+), ?(\d+), ?\d+\)";
+/// The pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb`, the same text in System Application
+/// 27.5, 28.1 and 29.0 (RxEmailBodyTests.al:5-6).
+const RGBA_PATTERN: &str = r"rgba\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3}),\s*1(\.0{0,2})?\)";
 const RGBA_REPLACEMENT: &str = "rgb($1, $2, $3)";
 
-/// Refuses a .NET call given a marked argument unless it is an entry of [`DOTNET_ALLOWED`]; `Ok(true)` when it is one (the
-/// caller then runs it with [`dotnet_result`] on the answer).
+impl RenderFacts {
+    /// Whether the render is one the rgba replace was measured on: the Html of a report's default Word layout holds no
+    /// `rgba(` and no `rgb(`, and `Email Message.GetBody` gives it back unchanged (RxEmailBodyTests.al:86 and :110 a generated
+    /// layout, :158 a layout with transparent colors; corpus pull request 1371, open). A dataset that holds `rgba(` is not
+    /// measured: its text can reach the Html.
+    fn rgba_replace_measured(&self) -> bool {
+        *self
+            == RenderFacts {
+                default_word_layout: true,
+                dataset_holds_rgba: false,
+            }
+    }
+
+    /// Why the rgba replace does not take the render, for the refusal.
+    fn rgba_replace_unmeasured(&self) -> &'static str {
+        if !self.default_word_layout {
+            "the render is not the default Word layout of its report"
+        } else {
+            "the dataset holds 'rgba(' or a label does"
+        }
+    }
+}
+
+/// Refuses a .NET call given a marked argument unless it is an entry of [`DOTNET_ALLOWED`] on renders the entry is measured
+/// for; `Ok(true)` when it is one (the caller then runs it with [`dotnet_result`] on the answer). `Ok(false)`: no argument holds
+/// rendered content.
 pub fn dotnet_guard(ty: &str, member: &str, args: &[Value]) -> Result<bool, Signal> {
     let Some(s) = held(args) else {
         return Ok(false);
@@ -735,12 +778,29 @@ pub fn dotnet_guard(ty: &str, member: &str, args: &[Value]) -> Result<bool, Sign
         e.ty.eq_ignore_ascii_case(ty)
             && e.member.eq_ignore_ascii_case(member)
             && args.len() == 3
-            && value_text(&args[0]).is_some()
+            && matches!(&args[0], Value::Text(_))
             && known(1).as_deref() == Some(e.pattern)
             && known(2).as_deref() == Some(e.replacement)
     });
+    let call = format!("the DotNet member {ty}.{member} given the value");
     if !entry {
-        return Err(refusal(&s, &format!("the DotNet member {ty}.{member} given the value")));
+        return Err(refusal(&s, &call));
+    }
+    // Every render the body holds is asked: a body can join two (a signature report after the body report).
+    let renders = marks(&s).map(|m| m.into_iter().map(|(n, _)| render(n)).collect::<Option<Vec<_>>>());
+    let Some(Some(renders)) = renders else {
+        return Err(refusal(&s, &format!("{call}, with a mark that names no render")));
+    };
+    if let Some(r) = renders.iter().find(|r| !r.facts.rgba_replace_measured()) {
+        return Err(refusal(
+            &s,
+            &format!(
+                "{call} with the pattern of Email Message Impl. ReplaceRgbaColorsWithRgb: {} (report {}), and what the replace \
+                 does is measured only for the default Word layout of a report whose dataset holds no 'rgba('",
+                r.facts.rgba_replace_unmeasured(),
+                r.report
+            ),
+        ));
     }
     crate::assumptions::assume(crate::assumptions::Assumption::EmailBodyRgbaReplaceKeepsContent);
     Ok(true)

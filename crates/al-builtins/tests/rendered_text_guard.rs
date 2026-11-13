@@ -2,12 +2,23 @@
 
 use al_builtins::builtin_id::BuiltinId;
 use al_builtins::native::Signal;
-use al_builtins::rendered_text::{self, Form};
+use al_builtins::rendered_text::{self, Form, RenderFacts};
 use al_builtins::value::Value;
 
 fn marked() -> Value {
     let n = rendered_text::register("Guard Report", "Html", "WordOne").expect("a render");
     Value::Text(rendered_text::mark_text(n, Form::Whole).into())
+}
+
+/// The facts of a render the rgba replace is measured for: the report's default Word layout, no `rgba(` in its dataset.
+const MEASURED: RenderFacts = RenderFacts {
+    default_word_layout: true,
+    dataset_holds_rgba: false,
+};
+
+fn marked_with(facts: RenderFacts, form: Form) -> Value {
+    let n = rendered_text::register_with("Guard Report", "Html", "WordOne", facts).expect("a render");
+    Value::Text(rendered_text::mark_text(n, form).into())
 }
 
 /// The builtins table A3 allows a marked argument or receiver for (one name per row, with its row's position). Every other
@@ -164,15 +175,86 @@ fn a_dotnet_call_with_a_marked_argument_refuses_unless_it_is_the_rgba_replace() 
     let t = |s: &str| Value::Text(s.to_string().into());
     let regex = "System.Text.RegularExpressions.Regex";
     let entry = &rendered_text::DOTNET_ALLOWED[0];
-    let args = [marked(), t(entry.pattern), t(entry.replacement)];
+    let measured = || marked_with(MEASURED, Form::Whole);
+    let args = [measured(), t(entry.pattern), t(entry.replacement)];
     assert!(matches!(rendered_text::dotnet_guard(regex, "Replace", &args), Ok(true)));
-    assert!(rendered_text::dotnet_guard(regex, "Replace", &[marked(), t("x"), t(entry.replacement)]).is_err());
+    assert!(rendered_text::dotnet_guard(regex, "Replace", &[measured(), t("x"), t(entry.replacement)]).is_err());
+    assert!(rendered_text::dotnet_guard(regex, "Replace", &[measured(), t(entry.pattern), t("rgb($1,$2,$3)")]).is_err());
     assert!(rendered_text::dotnet_guard(regex, "Match", &args).is_err());
-    assert!(rendered_text::dotnet_guard("System.String", "Concat", &[marked()]).is_err());
+    assert!(rendered_text::dotnet_guard("System.String", "Concat", &[measured()]).is_err());
     assert!(matches!(
         rendered_text::dotnet_guard(regex, "Replace", &[t("a"), t("b"), t("c")]),
         Ok(false)
     ));
+}
+
+/// The pattern and replacement are System Application's, character for character (corpus pull request 1371,
+/// reports/html-email-body/RxEmailBodyTests.al:5-6).
+#[test]
+fn the_rgba_entry_holds_the_pattern_and_replacement_of_email_message_impl() {
+    let entry = &rendered_text::DOTNET_ALLOWED[0];
+    assert_eq!(entry.pattern, r"rgba\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3}),\s*1(\.0{0,2})?\)");
+    assert_eq!(entry.replacement, "rgb($1, $2, $3)");
+}
+
+#[track_caller]
+fn replace_refused(input: Value, want: &str) {
+    let t = |s: &str| Value::Text(s.to_string().into());
+    let entry = &rendered_text::DOTNET_ALLOWED[0];
+    let regex = "System.Text.RegularExpressions.Regex";
+    match rendered_text::dotnet_guard(regex, "Replace", &[input, t(entry.pattern), t(entry.replacement)]) {
+        Err(Signal::Unsupported(why)) => assert!(why.contains(want), "{why}"),
+        other => panic!("expected a refusal naming {want:?}, got {other:?}"),
+    }
+}
+
+/// The replace takes only a body whose every render is of the measured shape, and marks its assumption each time.
+#[test]
+fn the_rgba_replace_takes_only_renders_of_the_measured_shape() {
+    use al_builtins::assumptions::{self, Assumption};
+    let t = |s: &str| Value::Text(s.to_string().into());
+    let entry = &rendered_text::DOTNET_ALLOWED[0];
+    let regex = "System.Text.RegularExpressions.Regex";
+    let call = |input: Value| rendered_text::dotnet_guard(regex, "Replace", &[input, t(entry.pattern), t(entry.replacement)]);
+    // The body after one pass (the changed form) goes through again: AppendToBody and a second Create.
+    for form in [Form::Whole, Form::Changed] {
+        assumptions::clear_hits();
+        assert!(matches!(call(marked_with(MEASURED, form)), Ok(true)));
+        assert!(assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
+    }
+    // A layout a temporary selection named, or a report whose default layout is not Word.
+    let other_layout = RenderFacts {
+        default_word_layout: false,
+        ..MEASURED
+    };
+    // A dataset that holds `rgba(`: BC's Html may then hold a color the replace rewrites.
+    let rgba_data = RenderFacts {
+        dataset_holds_rgba: true,
+        ..MEASURED
+    };
+    assumptions::clear_hits();
+    replace_refused(marked_with(other_layout, Form::Whole), "is not the default Word layout");
+    replace_refused(marked_with(rgba_data, Form::Whole), "the dataset holds 'rgba('");
+    replace_refused(marked(), "is not the default Word layout");
+    // Two bodies in one text: each render is asked.
+    let (Value::Text(a), Value::Text(b)) = (marked_with(MEASURED, Form::Whole), marked_with(rgba_data, Form::Whole)) else {
+        unreachable!()
+    };
+    replace_refused(t(&format!("{}{}", a.audited_str(), b.audited_str())), "the dataset holds 'rgba('");
+    assert!(!assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
+}
+
+/// The first argument is a Text: a collection or TextBuilder that holds a marked text is no entry.
+#[test]
+fn the_rgba_replace_takes_the_body_only_as_a_text() {
+    let Value::Text(body) = marked_with(MEASURED, Form::Whole) else {
+        unreachable!()
+    };
+    let list = al_builtins::value::ListVec::from(vec![Value::Text(body)]);
+    replace_refused(
+        Value::List(std::rc::Rc::new(std::cell::RefCell::new(list))),
+        "Regex.Replace given the value",
+    );
 }
 
 #[test]
