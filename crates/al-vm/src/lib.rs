@@ -140,6 +140,7 @@ mod sqlcount;
 mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
+mod stale_rename;
 mod state_stamp;
 mod tasks;
 mod tenant_layout_cfg;
