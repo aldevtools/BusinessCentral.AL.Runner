@@ -258,7 +258,7 @@ impl Session {
                 } else {
                     v.trim()
                 };
-                let (pos, flow) = self.xp_assign_field_flow(inst, schema, f, v)?;
+                let (pos, flow) = self.xp_assign_field_flow(inst, schema, f, v, quoted.get(k) == Some(&true))?;
                 assigned.push(pos);
                 // A Break after a field is assigned leaves the other fields of the record unassigned (P112XpCsv.al:
                 // P112_Import_Break, idAfter2: `2=/0`); the record is still stored.

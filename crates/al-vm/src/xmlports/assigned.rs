@@ -21,6 +21,16 @@ pub(super) fn separator(inst: &Inst, kind: u8, declared: Option<&str>, default: 
     }
 }
 
+/// The port declares no FieldDelimiter, FieldSeparator, RecordSeparator or TableSeparator and the program set none of them
+/// (`Instance::xp_text` kinds 0 to 3), as port 75182 of corpus pull request 1340 (xmlports/import/XpLegacyGuidImport.al:53-71).
+pub(super) fn default_separators(inst: &Inst, xp: &ir::XmlPort) -> bool {
+    xp.field_delimiter.is_none()
+        && xp.field_separator.is_none()
+        && xp.record_separator.is_none()
+        && xp.table_separator.is_none()
+        && inst.borrow().xp_text.iter().all(|(k, _)| *k > 3)
+}
+
 impl Session {
     /// `FieldDelimiter`, `FieldSeparator`, `RecordSeparator` and `TableSeparator` of a text xmlport. The setter stores the text
     /// as given; the getter reads the separator as an export uses it (`separator`): a value the program set as it was given

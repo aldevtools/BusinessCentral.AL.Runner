@@ -328,18 +328,21 @@ impl Session {
         }
     }
 
-    /// The Guid an import without FormatEvaluate reads from `raw`, the text of node kind `kind` before the trim. The cells corpus
-    /// pull request 1340 measures (`legacy_guid`) run under the assumption `xmlport-guid-legacy-import` (al-runner issue 7854):
-    /// the Guid, or the InvalidGuidFormat error (XpLegacyGuidImport.al:226-227). Every other text and FixedText keep main's
-    /// result (`xp_value`).
+    /// The Guid an import without FormatEvaluate reads from `raw`, the text of node kind `kind` before the trim, `written` in
+    /// the source. The cells corpus pull request 1340 measures (`LegacyGuidSite::of`, `legacy_guid`) run under the assumption
+    /// `xmlport-guid-legacy-import` (al-runner issue 7854): the Guid, or the InvalidGuidFormat error
+    /// (XpLegacyGuidImport.al:226-227). Every other site and text keep main's result (`xp_value`).
     pub(super) fn xp_legacy_guid(
         &mut self,
+        inst: &Inst,
         schema: &Schema,
         kind: ir::XmlNodeKind,
+        written: Written,
         raw: &str,
     ) -> Result<Value, Signal> {
         use super::legacy_guid::{LegacyGuidSite, legacy_guid};
-        if let Some(site) = LegacyGuidSite::of(schema.xp().format, kind) {
+        let xp = schema.xp();
+        if let Some(site) = LegacyGuidSite::of(xp.format, assigned::default_separators(inst, xp), kind, written) {
             match legacy_guid(site, raw) {
                 XmlGuid::Value(g) => {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportGuidLegacyImport);

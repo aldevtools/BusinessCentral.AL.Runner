@@ -18,6 +18,7 @@ use al_builtins::value::{Instance, LibraryValue, RtType, Value};
 use al_builtins::xmlport::{Elem, Node, ReadFailure};
 use al_data::{Store, position};
 use al_ir as ir;
+use legacy_guid::Written;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;

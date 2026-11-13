@@ -7,6 +7,17 @@
 use super::shape::{XmlGuid, xml_guid};
 use super::*;
 
+/// How the text of a field node stood in the source.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(in crate::xmlports) enum Written {
+    /// The value of an attribute.
+    Attribute,
+    /// The text of an element; `self_closed`: the element was written `<x />`.
+    Element { self_closed: bool },
+    /// A value of a line of a text format; `quoted`: it stood in the field delimiter.
+    Value { quoted: bool },
+}
+
 /// Where the Guid text stands: the three places the probe measures.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum LegacyGuidSite {
@@ -19,12 +30,31 @@ pub(super) enum LegacyGuidSite {
 }
 
 impl LegacyGuidSite {
-    /// The site of node kind `kind` in a port of format `format`; `None` for a FixedText port and other kinds (not measured).
-    pub(super) fn of(format: ir::XmlFormat, kind: ir::XmlNodeKind) -> Option<Self> {
-        match (format, kind) {
-            (ir::XmlFormat::Xml, ir::XmlNodeKind::FieldAttr) => Some(Self::XmlAttribute),
-            (ir::XmlFormat::Xml, ir::XmlNodeKind::Field) => Some(Self::XmlElement),
-            (ir::XmlFormat::VariableText, ir::XmlNodeKind::Field) => Some(Self::VariableText),
+    /// The site of a text `written` for a node of kind `kind` in a port of format `format`, each fact as the probe's ports
+    /// have it (XpLegacyGuidImport.al):
+    /// - a field attribute of a Format = Xml port (port 75181, :32-51);
+    /// - a field element of that port written with a start and an end tag (:174 `<Ref2></Ref2>`);
+    /// - a field of a Format = VariableText port with the default delimiter and separators (`default_separators`, from
+    ///   `assigned::default_separators`; port 75182, :53-71), the value standing in the field delimiter (:263-267).
+    ///
+    /// `None` for everything else: a self-closed element, a value outside the delimiter, other delimiters and separators,
+    /// FixedText and other node kinds are not measured.
+    pub(super) fn of(
+        format: ir::XmlFormat,
+        default_separators: bool,
+        kind: ir::XmlNodeKind,
+        written: Written,
+    ) -> Option<Self> {
+        match (format, kind, written) {
+            (ir::XmlFormat::Xml, ir::XmlNodeKind::FieldAttr, Written::Attribute) => Some(Self::XmlAttribute),
+            (ir::XmlFormat::Xml, ir::XmlNodeKind::Field, Written::Element { self_closed: false }) => {
+                Some(Self::XmlElement)
+            }
+            (ir::XmlFormat::VariableText, ir::XmlNodeKind::Field, Written::Value { quoted: true })
+                if default_separators =>
+            {
+                Some(Self::VariableText)
+            }
             _ => None,
         }
     }
@@ -76,12 +106,16 @@ pub(super) fn legacy_guid(site: LegacyGuidSite, raw: &str) -> XmlGuid {
             XmlGuid::Invalid
         };
     }
+    // The one failing text measured at every site is `not-a-guid` (:213, :244, :267). A text with each of its facts fails.
+    if like_the_invalid_sample(raw) {
+        return XmlGuid::Invalid;
+    }
     let t = raw.trim_matches(' ');
-    // A text with a character that is no hex digit, dash or bracket fails at every site (:213, :244, :267 `not-a-guid`).
+    // Any other text with a character that is no hex digit, dash or bracket is not measured.
     if t.chars()
         .any(|c| !(c.is_ascii_hexdigit() || matches!(c, '-' | '{' | '}' | '(' | ')')))
     {
-        return XmlGuid::Invalid;
+        return XmlGuid::Unpinned;
     }
     let Some(form) = form_of(raw, t) else {
         return XmlGuid::Unpinned;
@@ -126,6 +160,14 @@ pub(super) fn legacy_guid(site: LegacyGuidSite, raw: &str) -> XmlGuid {
         return XmlGuid::Invalid;
     }
     XmlGuid::Unpinned
+}
+
+/// `raw` has the facts of `not-a-guid` (XpLegacyGuidImport.al:213, :244, :267): only ASCII lower-case letters and dashes (so
+/// no white space, bracket, digit or upper-case letter), at least one dash and at least one letter outside a-f.
+fn like_the_invalid_sample(raw: &str) -> bool {
+    raw.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+        && raw.contains('-')
+        && raw.chars().any(|c| ('g'..='z').contains(&c))
 }
 
 /// The form of `t` (`raw` without the spaces around), or `None` for brackets that do not pair, digits in other groups and
@@ -242,14 +284,56 @@ mod tests {
     }
 
     #[test]
-    fn only_xml_and_variable_text_fields_have_a_site() {
-        assert_eq!(
-            LegacyGuidSite::of(ir::XmlFormat::FixedText, ir::XmlNodeKind::Field),
-            None
+    fn a_text_unlike_the_invalid_sample_is_unpinned() {
+        for site in [XmlAttribute, XmlElement, VariableText] {
+            for t in [
+                "\t{6F9619FF-8B86-D011-B42D-00C04FC964FF}\t",
+                "\n  {6F9619FF-8B86-D011-B42D-00C04FC964FF}\n",
+                "\u{a0}{6F9619FF-8B86-D011-B42D-00C04FC964FF}",
+                "{6F9619FF-8B86-D011-B42D-00C04FC964FF}x",
+                "6F9619FF-8B86-D011-B42D-00C04FC964FG",
+                "{6F9619FF-8B86-D011-B42D-00C04FC964FF }",
+                "NOT-A-GUID",
+                "Not-a-guid",
+                "x",
+                "g",
+                "-",
+                "abc-def",
+                "not-a-guid-1",
+                " not-a-guid",
+                "not-a-guid ",
+                "not a guid",
+                "(not-a-guid)",
+            ] {
+                assert_eq!(kind(legacy_guid(site, t)), "unpinned", "{site:?} {t:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_site_needs_every_fact_of_the_measured_ports() {
+        use ir::XmlFormat as F;
+        use ir::XmlNodeKind as K;
+        let (attr, open_close, quoted) = (
+            Written::Attribute,
+            Written::Element { self_closed: false },
+            Written::Value { quoted: true },
         );
+        assert_eq!(LegacyGuidSite::of(F::Xml, true, K::FieldAttr, attr), Some(XmlAttribute));
+        assert_eq!(LegacyGuidSite::of(F::Xml, true, K::Field, open_close), Some(XmlElement));
         assert_eq!(
-            LegacyGuidSite::of(ir::XmlFormat::VariableText, ir::XmlNodeKind::FieldAttr),
-            None
+            LegacyGuidSite::of(F::VariableText, true, K::Field, quoted),
+            Some(VariableText)
         );
+        // One fact flipped at a time.
+        let self_closed = Written::Element { self_closed: true };
+        let unquoted = Written::Value { quoted: false };
+        assert_eq!(LegacyGuidSite::of(F::Xml, true, K::Field, self_closed), None);
+        assert_eq!(LegacyGuidSite::of(F::VariableText, true, K::Field, unquoted), None);
+        assert_eq!(LegacyGuidSite::of(F::VariableText, false, K::Field, quoted), None);
+        assert_eq!(LegacyGuidSite::of(F::FixedText, true, K::Field, quoted), None);
+        assert_eq!(LegacyGuidSite::of(F::VariableText, true, K::FieldAttr, quoted), None);
+        assert_eq!(LegacyGuidSite::of(F::Xml, true, K::Field, attr), None);
+        assert_eq!(LegacyGuidSite::of(F::Xml, true, K::FieldAttr, open_close), None);
     }
 }
