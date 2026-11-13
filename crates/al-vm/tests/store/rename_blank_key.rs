@@ -272,13 +272,14 @@ fn a_rename_outside_the_measured_cells_is_refused() {
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
-// The record's own state outside the measured cells: refused.
+// The record's own state outside the measured cells: refused. A stale record gets DB:RecordChanged first (:2894; tests in
+// stale_rename.rs).
 #[test]
 fn a_record_outside_the_measured_states_is_refused() {
     let objects = format!("{MASTER}\n{CHILD}");
     let body = |steps: &str| {
         format!(
-            "var M: Record \"S Master\"; M2: Record \"S Master\"; M3: Record \"S Master\"; C: Record \"S Child\"; RR: RecordRef; Ok: Boolean; begin
+            "var M: Record \"S Master\"; M2: Record \"S Master\"; C: Record \"S Child\"; RR: RecordRef; Ok: Boolean; begin
                 {steps}
                 exit('renamed');
             end;"
@@ -293,10 +294,6 @@ fn a_record_outside_the_measured_states_is_refused() {
         (
             "a changed buffer",
             "M.Insert(); Commit(); M2.Get(''); M2.Name := 'n'; M2.Rename('X');",
-        ),
-        (
-            "a stale record",
-            "M.Insert(); Commit(); M2.Get(''); M3.Get(''); M3.Name := 'n'; M3.Modify(); M2.Rename('X');",
         ),
         (
             "a filter",

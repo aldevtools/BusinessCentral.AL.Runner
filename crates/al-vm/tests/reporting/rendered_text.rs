@@ -400,7 +400,13 @@ fn rendered_text_every_other_read_of_the_html_refuses() {
     }
     refused("ReadCountUsed", "return value used");
     refused("ReadAfterAWriteOverIt", "after AL wrote over it");
-    refused("ReadWithNoRows", "no dataset row");
+    // The statement form of a save with no dataset row raises ReportResultEmpty before the read (corpus pull request 1371,
+    // reports/html-email-body/RxLayoutSelectionTests.al:915 NoRow_WordLayout_Html `statement err|code`); it refused before
+    // that was measured.
+    match run("ReadWithNoRows") {
+        Err(Signal::Error(e)) => assert_eq!(e.code.as_str(), "ReportResultEmpty"),
+        other => panic!("ReadWithNoRows: expected ReportResultEmpty, got {other:?}"),
+    }
 }
 
 #[test]

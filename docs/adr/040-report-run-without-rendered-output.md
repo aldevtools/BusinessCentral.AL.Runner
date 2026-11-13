@@ -464,8 +464,26 @@ ended by `CurrReport.Quit` or produced no dataset row, until probe group P (B5) 
 Measured since (corpus pull request 1362, `reports/layouts-html-text/HtRenderedTextTests.al`, BC 27.5 and 28.5): a run with no
 dataset row writes no Html and `SaveAs` answers false without an error (:320-335); `CurrReport.Quit` in OnPreReport or
 OnAfterGetRecord gives the same (:364-393), in OnPostReport the output is written and the answer is true (:396-409). The
-runtime answers the first for one data item saved to a stream with the answer used (`report-html-no-dataset-row`); the
-other shapes with no row refuse, a Quit before OnPostReport refuses, and a Quit in OnPostReport writes the placeholder as before.
+runtime answers the first for one data item saved to a stream with the answer used; a Quit before OnPostReport refuses,
+and a Quit in OnPostReport writes the placeholder as before.
+
+Measured 2026-11-13 (corpus pull request 1371, `reports/html-email-body/RxLayoutSelectionTests.al`, the same on the three BC
+majors the corpus runs), and what the runtime does with it (`report_placeholder/no_row.rs`, `report_placeholder/stored.rs`):
+
+- No dataset row. A Word layout `DefaultRenderingLayout` names: Pdf, Word and Html answer false with `ReportResultEmpty`, the
+  statement form raises it, OnPreReport and OnPreRendering ran and OnPostReport did not (:852, :873, :915). A `DefaultLayout =
+  Word` report without report triggers: the same for Html and Pdf (:979, :1001). An RDLC layout report without report
+  triggers: Pdf and Word answer true and write nothing (:937, :958). The runtime answers these cells for one data item, no
+  report extension and a stream (`report-save-no-dataset-row`); a Word layout report that declares OnPostReport refuses (the
+  runtime has run it by then), every other Word layout shape with no row refuses, and an RDLC report outside the cell writes
+  its placeholder as before.
+- A stored Report Layout Selection row of the company. Type RDLC (built-in): Html answers false with
+  `ReportUnsupportedFormat` and no trigger, Pdf, Word and Excel render (:452, :477, :1082, :1116). Type Custom Layout with a
+  code that names no layout: every format answers false with `ReportNoLayout` (:746, :771). A row of another company or with
+  an empty Company Name is not read (:795, :1022). The runtime answers the first two for a stream with the answer used, of a
+  report whose default Word layout `DefaultRenderingLayout` names (`report-stored-layout-selection`); the third it did
+  already. Measured and not built yet: a Tenant Report Layout Selection row (it wins over the type, :501-:648) and Custom
+  Layout with the code of a Tenant Report Layout row (:697); they keep the refusal.
 
 ### A3. What is allowed
 
@@ -485,7 +503,7 @@ right on BC whatever the rendering holds.
 | P9 | `Variant.IsText`, `IsCode` and the other `Is*` | the pinned answer for a Text | The type is known. |
 | P10 | `Session.LogMessage` with the text as message or dimension value | nothing AL can read | Telemetry is not readable by the test (SqlCounters.al:516 P6924_Counters_FormattedInTelemetryDimension_NoError). |
 | P11 | A page field whose source is a Text variable or an unbounded expression, read by `TestField.Value()` when the control shows a Text unchanged (no `OptionCaption`, no format property, not `ExtendedDatatype = RichContent` until measured) | the same text | The control shows the text as it is. |
-| P12 | `DotNet` `Regex.Replace(T, Pattern, Replacement)`, static, only with the exact pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb` (System Application) | the sidecar's result on the known parts; every mark in the result gets the **changed** form | `Email Message`.`Create` calls it on every body. The replacement text is never empty, so a not-empty text stays not empty. See A5. |
+| P12 | `DotNet` `Regex.Replace(T, Pattern, Replacement)`, static, only with the exact pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb` (System Application) | the sidecar's result on the known parts; every mark in the result gets the **changed** form | `Email Message`.`Create` calls it on every body. The replacement text is never empty, so a not-empty text stays not empty. See A5. Narrowed 2026-11-13 to what corpus pull request 1371 measured (`RxEmailBodyTests.al`, `RxTenantLayoutBodyTests.al`): only a body that holds one render, saved with no stored selection row of the report and with no `rgba(` in its dataset, in one of five forms (`rendered_text::RGBA_REPLACE_MEASURED`): the Html of the Word layout `DefaultRenderingLayout` names, of a report with one data item and no report extension, with no temporary selection; or that with exactly one fact changed: `DefaultLayout = Word` (:319), a data item inside the data item (:346), one report extension that only adds columns (:373), the user-defined Word layout a temporary selection named (A7; :121, :154, :225). Each other shape refuses with its own reason until a probe measures it: two of the changed facts together, other data item trees or extensions, a stored selection row of the report, a body that joins two renders. A layout whose static text holds `rgba(r,g,b,1)` is changed by `Create` (corpus pull request 1362, `HtStaticTextTests.al`:522); the changed form covers it. |
 
 `Email Message`.`Create`, `GetBody`, `Email Item`.`SetBody`, `GetBodyText` and the editor page are AL compiled from
 Microsoft's source. They need no rule of their own: they use P1, P2, P5, P7, P12, A2 and the Blob rules of A4.
@@ -651,12 +669,14 @@ and refuses.
   and a body that only moves through Text values and UTF-8 streams never changes what the test can see. Source: the
   reporter's tests (al-runner issue 6924). A test through it is a flagged pass.
 - `email-body-rgba-replace-keeps-content`: marked when P12 runs. Text: `Regex.Replace` with that pattern and replacement
-  maps a not-empty text to a not-empty text.
+  maps the Html of one render in a measured form (P12), with no `rgba(` in its dataset, to a not-empty text.
 - `report-layout-temp-selection`: marked on every save A7 resolves (the selected layout is a Tenant Report Layout row, never the
   report's default).
-- `report-html-no-dataset-row`: marked when an Html save of a Word layout report whose run wrote no dataset row answers false
-  and writes nothing (corpus pull request 1362, `HtRenderedTextTests.al`:320-335).
-- All four get a row in `docs/probes-needed.md` and a file under `al-builtins/src/assumptions/`.
+- `report-save-no-dataset-row`: marked when a save whose run wrote no dataset row takes a measured answer (corpus pull
+  request 1371, `RxLayoutSelectionTests.al`:852-1001; corpus pull request 1362, `HtRenderedTextTests.al`:320-335).
+- `report-stored-layout-selection`: marked when a save answers by a stored Report Layout Selection row (corpus pull request
+  1371, `RxLayoutSelectionTests.al`:452, :477, :746, :771).
+- Each gets a row in `docs/probes-needed.md` and a file under `al-builtins/src/assumptions/`.
 - Probes to queue on the corpus (Windows tier, it renders): (1) a Word layout report saved as Html to a Temp Blob,
   `InStream.Read(Text)`, then `T <> ''`, `Format(T) = T`, `TB.Append(T); TB.ToText() = T`, a UTF-8 stream round trip
   `= T`, a Blob field stored and read back `= T`. (2) `Email Message`.`Create(.., T, true)` then `GetBody() <> ''`.
@@ -678,7 +698,7 @@ and refuses.
 | The e-mail path (`Email Item`, `Email Message`, the editor page) with a rendered body | no corpus case | **not measured**; reporter's 188 tests pass on BC |
 | A save with a temporary layout selection | no corpus case | **not measured** (A7) |
 | `TestField.Value()` of the editor's body controls | no corpus case; `RichContent` appears only in must-not-compile | **not measured** |
-| `Regex.Replace` keeps a not-empty text not empty | reasoning on the pattern only | **not measured** |
+| `Regex.Replace` keeps a not-empty text not empty | corpus pull request 1371 (open), `RxEmailBodyTests.al`:86, :110, :158: the Html of a default Word layout holds no `rgba(`, and `GetBody` gives the body back; BC 27.5, 28.5, 29.0 | measured for the Word layout `DefaultRenderingLayout` names, one data item, no report extension, and with one fact changed: `DefaultLayout = Word`, a data item inside the data item, a report extension that adds a column, a user-defined layout a temporary selection named (`RxTenantLayoutBodyTests.al`:319, :346, :373, :121, :154, :225); **not measured** for two of them together, other data item trees or extensions, two renders in one body. Layout text that holds `rgba(r,g,b,1)` is changed (corpus pull request 1362, `HtStaticTextTests.al`:522) |
 | Which of the 188 tests meet a refused use after the body is read | the reporter's `--explain` after the build | **not known** |
 
 ### A11. What it unlocks, and what stays
