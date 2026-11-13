@@ -3,6 +3,7 @@
 //! `TableCaption`, `TableName`.
 
 use crate::Session;
+use crate::blob_transfer::BlobMove;
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
@@ -1620,18 +1621,19 @@ impl Session {
                 return Err(self.transfer_too_small(rec, t, &from, (dp, sp), updates));
             }
             tdd_fits(&schema.fields[dp], &src_fields[sp])?;
-            // A Blob of a row read without CalcFields moves as an empty one: the target has no value, and inserting it stores
-            // none (record/crud/RcBTransfer.al:486-493, Transfer_Blob_Field_BQ `withoutCalcFields`); a written or
-            // calculated one moves its content (`fromInsertedVariable`, `withCalcFields`).
-            if let Value::Blob(b) = &src_fields[sp] {
-                let unread = {
-                    let b = b.borrow();
-                    !b.loaded && !b.written
-                };
-                if unread {
-                    updates.push((dp, Value::Blob(al_builtins::stream::new_blob())));
-                    continue;
-                }
+            // A Blob moves as `blob_transfer::moved` says.
+            if let Value::Blob(_) = &src_fields[sp] {
+                let cur = rec.borrow().fields[dp].clone();
+                let measured =
+                    || self.blob_field_measured(src_table, sp) && self.blob_field_measured(t.object as usize, dp);
+                let v = crate::blob_transfer::moved(
+                    Some(&cur),
+                    src_fields[sp].clone(),
+                    BlobMove::TransferFields { plain: args.len() == 1 },
+                    measured,
+                )?;
+                updates.push((dp, ops::convert(v, &df.ty)?));
+                continue;
             }
             updates.push((dp, ops::convert(src_fields[sp].clone(), &df.ty)?));
         }
