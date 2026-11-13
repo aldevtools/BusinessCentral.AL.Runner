@@ -2559,7 +2559,9 @@ impl Session {
                         RtType::Variant | RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef)
                     ) =>
                 {
-                    if is_subscriber && !matches!(r.locals[i].ty, RtType::Variant) {
+                    if matches!(r.locals[i].ty, RtType::Variant) {
+                        self.variant_refs.variant_copy(&h)
+                    } else if is_subscriber {
                         self.variant_refs.copy_typed_alias(&h)
                     } else {
                         crate::recordref_variant::own_copy(&h)

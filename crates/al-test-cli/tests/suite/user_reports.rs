@@ -3194,3 +3194,18 @@ fn issue_7884_other_calls_between_the_reads_keep_the_refusal() {
         );
     }
 }
+
+/// Issue 7885: a RecordRef assigned from a Variant that holds a RecordRef was not measured: its GetTable keeps main's
+/// result (the original RecordRef stays on its row).
+#[test]
+fn issue_7885_alias_assigned_from_a_variant_keeps_main_result() {
+    let source = include_str!("../fixtures/recordref-gettable-shared.al");
+    let assign = "        Alias := Original;\n";
+    let vars = "        Alias: RecordRef;\n        Observed: Variant;\n";
+    assert!(source.contains(assign) && source.contains(vars));
+    let changed = source
+        .replace(assign, "        V := Original;\n        Alias := V;\n")
+        .replace(vars, &format!("{vars}        V: Variant;\n"));
+    let outcome = outcome_named(&run_with_deps(&[], &changed), "GetTableUpdatesAnAssignedAliasOfTheSameTable");
+    assert_eq!(outcome, Outcome::Fail("The assigned alias changed the value to 0.".into()));
+}

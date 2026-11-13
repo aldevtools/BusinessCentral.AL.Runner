@@ -26,6 +26,8 @@ pub(crate) struct VariantRefs {
     pub(crate) get_table: bool,
     /// Live typed RecordRef handles copied by assignment or by an event argument.
     typed_aliases: Vec<(WeakLib, WeakLib)>,
+    /// RecordRef handles a Variant holds (`variant_copy`): a RecordRef assigned from one makes no typed alias.
+    variant_held: Vec<WeakLib>,
 }
 
 /// The value a copy of the RecordRef `h` holds: for an open one, a RecordRef of its own on the same buffer. A RecordRef that is
@@ -40,7 +42,27 @@ pub(crate) fn own_copy(h: &Lib) -> Value {
 }
 
 impl VariantRefs {
+    /// The copy of RecordRef `source` that a Variant gets (`own_copy`); its handle is noted as held by a Variant.
+    pub(crate) fn variant_copy(&mut self, source: &Lib) -> Value {
+        let copy = own_copy(source);
+        if let Value::Library(_, handle) = &copy {
+            self.variant_held.retain(|h| h.strong_count() > 0);
+            self.variant_held.push(Rc::downgrade(handle));
+        }
+        copy
+    }
+
+    /// The copy of RecordRef `source` that a RecordRef variable or a RecordRef parameter of a subscriber gets. The pair is
+    /// kept as a typed alias (AL Runner issue 7885, corpus pull request 1357: an assigned RecordRef, a by-value event
+    /// argument) only when `source` is not a handle a Variant holds; a RecordRef assigned from a Variant was not measured.
     pub(crate) fn copy_typed_alias(&mut self, source: &Lib) -> Value {
+        if self
+            .variant_held
+            .iter()
+            .any(|h| h.upgrade().is_some_and(|h| Rc::ptr_eq(&h, source)))
+        {
+            return own_copy(source);
+        }
         let copy = own_copy(source);
         if let Value::Library(_, handle) = &copy
             && !Rc::ptr_eq(source, handle)
