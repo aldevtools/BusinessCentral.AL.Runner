@@ -212,6 +212,7 @@ mod choice_entry;
 mod document_handler_error;
 mod filter;
 mod filter_enum;
+mod filter_eq_text;
 mod filter_link_numbers;
 mod modal_handler_error;
 mod page_run_close;

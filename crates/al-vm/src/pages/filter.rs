@@ -154,8 +154,11 @@ impl Session {
                 }
                 // An empty text or one of spaces takes the user's filter off the field: GetFilter reads empty and every row shows
                 // (testpage/AoTests.al:673-695 TestFilter_SetFilterSpace, _SetFilterEmpty, :930-940
-                // SF_TestFilter_SetFilterTwoSpaces).
-                if text.trim().is_empty() {
+                // SF_TestFilter_SetFilterTwoSpaces). A text that starts with `=` sets no filter in the cell `eq_text_sets_no_filter` measured
+                // (testpage/filters/TempListOffPageBooleanFilter.al:343-348, :447): the field has no test filter there, so this takes nothing
+                // off. Where the page stands right after it is not measured (each pinned case moves with First() next); it takes the
+                // empty text's path.
+                if text.trim().is_empty() || self.eq_text_sets_no_filter(st, &rec, pos, &ty, &text) {
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
                     self.filter_changed(st, true)?;
                     return Ok(Value::Null);
