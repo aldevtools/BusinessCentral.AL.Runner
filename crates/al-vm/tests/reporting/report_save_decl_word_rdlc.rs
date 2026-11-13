@@ -1,7 +1,8 @@
 //! A rendering save of a report whose `WordLayout` and `RDLCLayout` properties declare its layouts (`DefaultLayout = Word`,
-//! no rendering section, one data item, no trigger, no extension), saved to a stream with dataset rows: the two cells of
-//! corpus pull request 1381 (reports/html-email-body/RxdDeclLayoutTests.al, RxdDeclEmailBodyTests.al), which mark
-//! `report-save-decl-word-rdlc` (`report_save::cells_decl`). Every neighbor keeps main's refusal.
+//! no rendering section, one data item, no trigger, no extension), saved to a stream: the two cells of corpus pull request
+//! 1381 (reports/html-email-body/RxdDeclLayoutTests.al, RxdDeclEmailBodyTests.al), which mark `report-save-decl-word-rdlc`
+//! (`report_save::cells_decl`). The false answers come before the run, so they hold with no dataset row too (flagged); every
+//! other neighbor, and every save while the test can see a subscriber to a layout event, keeps main's refusal.
 
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
@@ -120,6 +121,83 @@ codeunit 51404 "RD Tests"
     procedure ExcelTempHtml(): Text begin Rows(2); TempWord(Report::"RD Decl Excel"); exit(Saved(Report::"RD Decl Excel", ReportFormat::Html)); end;
     procedure NoRowsRdlcPdf(): Text begin Rows(0); RdlcRow(Report::"RD Decl Word"); exit(Saved(Report::"RD Decl Word", ReportFormat::Pdf)); end;
     procedure NoRowsTempHtml(): Text begin Rows(0); TempWord(Report::"RD Decl Word"); exit(Saved(Report::"RD Decl Word", ReportFormat::Html)); end;
+    procedure NoRowsRdlcHtml(): Text begin Rows(0); RdlcRow(Report::"RD Decl Word"); exit(Saved(Report::"RD Decl Word", ReportFormat::Html)); end;
+    procedure NoRowsRdlcHtmlStatement() begin Rows(0); RdlcRow(Report::"RD Decl Word"); Statement(Report::"RD Decl Word", ReportFormat::Html); end;
+    procedure NoRowsTempExcel(): Text begin Rows(0); TempWord(Report::"RD Decl Word"); exit(Saved(Report::"RD Decl Word", ReportFormat::Excel)); end;
+
+    procedure RdlcRowOf(Id: Integer) begin RdlcRow(Id); end;
+    procedure TempWordOf(Id: Integer) begin TempWord(Id); end;
+    procedure RowsOf(N: Integer) begin Rows(N); end;
+}
+"#;
+
+/// A manual subscriber of one layout event each: no cell of pull request 1381 has one.
+const SUBSTITUTE: &str = r#"
+codeunit 51405 "RD Substitute"
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'SubstituteReport', '', false, false)]
+    local procedure Substitute(ReportId: Integer; RunMode: Option Normal,ParametersOnly,Execute,Print,SaveAs,RunModal; RequestPageXml: Text; RecordRef: RecordRef; var NewReportId: Integer)
+    begin
+    end;
+}
+"#;
+const READY: &str = r#"
+codeunit 51405 "RD Ready"
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'OnDocumentReady', '', false, false)]
+    local procedure Ready(ObjectId: Integer; ObjectPayload: JsonObject; DocumentStream: InStream; var TargetStream: OutStream; var Success: Boolean)
+    begin
+    end;
+}
+"#;
+const BUILTIN: &str = r#"
+codeunit 51405 "RD Builtin"
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'SelectedBuiltinLayoutType', '', false, false)]
+    local procedure Builtin(ObjectID: Integer; var LayoutType: Option "None",RDLC,Word,Excel,Custom)
+    begin
+    end;
+}
+"#;
+
+/// A test codeunit that names one subscriber codeunit (`SUB`) and binds it before each save.
+const SUBSCRIBER_TESTS: &str = r#"
+codeunit 51406 "RD Tests SUB"
+{
+    var
+        T: Codeunit "RD Tests";
+        Sub: Codeunit "RD SUB";
+
+    local procedure Used(Fmt: ReportFormat): Text
+    var Tmp: Record "RD Row" temporary; Out: OutStream;
+    begin
+        BindSubscription(Sub);
+        Tmp.Data.CreateOutStream(Out);
+        exit(Format(Report.SaveAs(Report::"RD Decl Word", '', Fmt, Out)));
+    end;
+
+    procedure RdlcHtml(): Text begin T.RowsOf(2); T.RdlcRowOf(Report::"RD Decl Word"); exit(Used(ReportFormat::Html)); end;
+    procedure RdlcHtmlStatement()
+    var Tmp: Record "RD Row" temporary; Out: OutStream;
+    begin
+        T.RowsOf(2); T.RdlcRowOf(Report::"RD Decl Word"); BindSubscription(Sub);
+        Tmp.Data.CreateOutStream(Out);
+        Report.SaveAs(Report::"RD Decl Word", '', ReportFormat::Html, Out);
+    end;
+    procedure RdlcHtmlRecordRef(): Text
+    var Tmp: Record "RD Row" temporary; R: Record "RD Row"; Ref: RecordRef; Out: OutStream;
+    begin
+        T.RowsOf(2); T.RdlcRowOf(Report::"RD Decl Word"); BindSubscription(Sub);
+        Ref.GetTable(R);
+        Tmp.Data.CreateOutStream(Out);
+        exit(Format(Report.SaveAs(Report::"RD Decl Word", '', ReportFormat::Html, Out, Ref)));
+    end;
+    procedure RdlcPdf(): Text begin T.RowsOf(2); T.RdlcRowOf(Report::"RD Decl Word"); exit(Used(ReportFormat::Pdf)); end;
+    procedure TempExcel(): Text begin T.RowsOf(2); T.TempWordOf(Report::"RD Decl Word"); exit(Used(ReportFormat::Excel)); end;
+    procedure TempHtml(): Text begin T.RowsOf(2); T.TempWordOf(Report::"RD Decl Word"); exit(Used(ReportFormat::Html)); end;
 }
 "#;
 
@@ -168,7 +246,7 @@ fn decl_word_rdlc_a_temporary_selection_renders_the_selected_word_layout() {
 
 /// A report trigger, an `ExcelLayout` property, or no dataset row: not a cell of pull request 1381. A stored RDLC row
 /// refuses as on main; an Html save under the temporary selection keeps main's row (HtRenderedTextTests.al:494, which reads
-/// neither the trigger nor the layout properties), and a save with no dataset row refuses as on main.
+/// neither the trigger nor the layout properties), and a save that writes with no dataset row refuses as on main.
 #[test]
 fn decl_word_rdlc_neighbors_keep_mains_answer() {
     for (p, want) in [
@@ -191,4 +269,45 @@ fn decl_word_rdlc_neighbors_keep_mains_answer() {
             (other, _) => panic!("{p}: got {other:?}"),
         }
     }
+}
+
+/// A test that binds a subscriber to SubstituteReport, OnDocumentReady or SelectedBuiltinLayoutType: BC raises
+/// SubstituteReport first for a static SaveAs (events/platform-triggers/PeVTests.al:721) and this runtime raises none of them
+/// to a test's subscriber, and pull request 1381 measured no subscriber. Every save keeps main's refusal.
+#[test]
+fn decl_word_rdlc_a_subscriber_to_a_layout_event_keeps_mains_refusal() {
+    const PROCS: [&str; 6] = [
+        "RdlcHtml",
+        "RdlcHtmlStatement",
+        "RdlcHtmlRecordRef",
+        "RdlcPdf",
+        "TempExcel",
+        "TempHtml",
+    ];
+    let mut answered = Vec::new();
+    for (sub, subscriber) in [("Substitute", SUBSTITUTE), ("Ready", READY), ("Builtin", BUILTIN)] {
+        let src = format!("{OBJECTS}{subscriber}{}", SUBSCRIBER_TESTS.replace("SUB", sub));
+        for p in PROCS {
+            match super::report_management_stand_in::built(&src).run_in(&format!("RD Tests {sub}"), p) {
+                Err(Signal::Unsupported(why)) if why.contains(&format!("\"RD {sub}\"")) => {}
+                other => answered.push(format!("{sub} {p}: {other:?}")),
+            }
+        }
+    }
+    assert!(answered.is_empty(), "expected refusals: {answered:#?}");
+}
+
+/// With no dataset row, Html of the company's RDLC row and Excel of the temporary selection answer before the run, as with
+/// two rows; pull request 1381 measured them with two rows only, so the answer stays flagged.
+#[test]
+fn decl_word_rdlc_false_answers_come_before_the_run() {
+    marked("NoRowsRdlcHtml", &format!("No|No|{UNSUPPORTED}"));
+    let excel = "The Excel output format is not supported by the current report layout format.";
+    marked("NoRowsTempExcel", &format!("No|No|{excel}"));
+    assumptions::clear_hits();
+    match run("NoRowsRdlcHtmlStatement") {
+        Err(Signal::Error(e)) => assert_eq!(e.message, UNSUPPORTED),
+        other => panic!("expected the error, got {other:?}"),
+    }
+    assert!(assumptions::take_hits().contains(&Assumption::ReportSaveDeclWordRdlc));
 }

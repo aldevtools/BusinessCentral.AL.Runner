@@ -1,13 +1,17 @@
 //! The rows of the save table for a report declared as report 80040 "RXD Decl Word" is (corpus pull request 1381, branch
-//! al-runtime-rs-staging-reports-decl, open; reports/html-email-body/RxdDeclFixtures.al): `WordLayout` and `RDLCLayout`
-//! properties with `DefaultLayout = Word`, no rendering section, one data item, no report trigger, no report extension, saved to
-//! a stream with dataset rows. Measured the same on the three BC majors the corpus runs. Every row marks
-//! `report-save-decl-word-rdlc` until a corpus bump pins the file.
+//! al-runtime-rs-staging-reports-decl, merged, not in the runtime's pin yet; reports/html-email-body/RxdDeclFixtures.al):
+//! `WordLayout` and `RDLCLayout` properties with `DefaultLayout = Word`, no rendering section, one data item, no report
+//! trigger, no report extension, saved to a stream, no subscriber to a layout event. The probe saved with two dataset rows:
+//! the rows that write read the run's rows; Html of the stored RDLC row and Excel of the temporary selection answer false
+//! before the run, so they answer the same with no row, which is not measured. The probe binds no subscriber, so every row
+//! refuses a subscriber the test can see to any layout event (SubstituteReport, OnDocumentReady, SelectedBuiltinLayoutType,
+//! ...). Measured the same on the three BC majors the corpus runs. Every row marks `report-save-decl-word-rdlc` until a
+//! corpus bump pins the file.
 
 use super::Format;
 use super::cell::K::Is;
 use super::cell::*;
-use super::cells::{SAVE_FORMS, UNSUPPORTED_EVENTS, cell, pin};
+use super::cells::{SAVE_FORMS, cell, pin};
 use super::facts::*;
 use al_builtins::assumptions::Assumption;
 
@@ -48,15 +52,6 @@ const RGBA_TEMP: &[Pin] = &[
     pin(RXD_BODY, 251),
     pin(RXD_BODY, 329),
     pin(RXD_BODY, 407),
-];
-
-/// BC raises no SelectedBuiltinLayoutType once SelectReportLayoutCode answered a selected layout (HtRenderedTextTests.al:494).
-const TEMP_EVENTS: &[&str] = &["selectedbuiltinlayouttype"];
-const TEMP_UNSUPPORTED_EVENTS: &[&str] = &[
-    "substitutereport",
-    "ondocumentready",
-    "onafterdocumentready",
-    "selectedbuiltinlayouttype",
 ];
 
 /// The facts every row here requires, as the probe measured them.
@@ -101,7 +96,7 @@ pub(super) fn decl_rows(t: &mut Vec<Cell>) {
         ..cell(
             key,
             Answer::Placeholder(Renders::Selected),
-            Events::NotRaised(TEMP_EVENTS),
+            Events::NotRaised(&[]),
             marks(RGBA_TEMP),
         )
     });
@@ -124,7 +119,7 @@ fn stored_rdlc_rows(t: &mut Vec<Cell>, answer: AnswerForm) {
     t.push(cell(
         key,
         Answer::False(ErrorId::UnsupportedFormat),
-        Events::NotRaised(UNSUPPORTED_EVENTS),
+        Events::NotRaised(&[]),
         marks(STORED_RDLC),
     ));
 }
@@ -138,7 +133,7 @@ fn temp_rows(t: &mut Vec<Cell>, answer: AnswerForm) {
         t.push(cell(
             key,
             Answer::Placeholder(Renders::Selected),
-            Events::NotRaised(TEMP_EVENTS),
+            Events::NotRaised(&[]),
             marks(TEMP),
         ));
     }
@@ -146,7 +141,7 @@ fn temp_rows(t: &mut Vec<Cell>, answer: AnswerForm) {
     t.push(cell(
         key,
         Answer::False(ErrorId::UnsupportedFormat),
-        Events::NotRaised(TEMP_UNSUPPORTED_EVENTS),
+        Events::NotRaised(&[]),
         marks(TEMP),
     ));
 }

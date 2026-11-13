@@ -187,62 +187,6 @@ fn rendered_text_chain_a_multiline_page_field_over_the_body_refuses_until_measur
     }
 }
 
-/// Stand-ins, in an app with Base Application's id, for the parts of Base Application the selection of a user-defined layout
-/// takes: "Design-time Report Selection" holds the name, ReportManagement's SelectReportLayoutCode subscriber hands it to the
-/// platform when no Custom Report Layout row has it (none exists here) and clears it, and its SelectedBuiltinLayoutType
-/// subscriber fails the test when it is raised.
-const BASE: &str = r#"
-table 9651 "Report Layout Selection"
-{
-    fields
-    {
-        field(1; "Report ID"; Integer) { }
-        field(3; "Company Name"; Text[30]) { }
-        field(4; Type; Option) { OptionMembers = "RDLC (built-in)","Word (built-in)","Custom Layout","Excel Layout","External Layout"; }
-    }
-    keys { key(PK; "Report ID", "Company Name") { } }
-}
-
-codeunit 9654 "Design-time Report Selection"
-{
-    SingleInstance = true;
-    var SelectedCustomLayoutCode: Code[20]; SelectedPlatformLayoutName: Text[250]; SelectedPlatformLayoutAppID: Guid; EmptyGuid: Guid;
-    procedure SetSelectedLayout(LayoutName: Text[250]; AppID: Guid) begin SelectedPlatformLayoutName := LayoutName; SelectedPlatformLayoutAppID := AppID; end;
-    procedure GetSelectedLayout(): Text[250] begin if SelectedPlatformLayoutName = '' then exit(SelectedCustomLayoutCode); exit(SelectedPlatformLayoutName); end;
-    procedure GetSelectedAppID(): Guid begin exit(SelectedPlatformLayoutAppID); end;
-    procedure SetSelectedCustomLayout(Code: Code[20]) begin SelectedCustomLayoutCode := Code; end;
-    procedure ClearLayoutSelection() begin SelectedPlatformLayoutName := ''; SelectedCustomLayoutCode := ''; SelectedPlatformLayoutAppID := EmptyGuid; end;
-}
-
-codeunit 44 "ReportManagement"
-{
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'SelectReportLayoutCode', '', false, false)]
-    local procedure SelectReportLayoutCode(ObjectId: Integer; var LayoutCode: Text; var LayoutType: Option "None",RDLC,Word,Excel,Custom; var Success: Boolean)
-    var D: Codeunit "Design-time Report Selection"; Name: Text[250]; AppId: Guid;
-    begin
-        LayoutType := LayoutType::None;
-        Name := D.GetSelectedLayout();
-        AppId := D.GetSelectedAppID();
-        if Name <> '' then begin
-            if IsNullGuid(AppId) then
-                LayoutCode := Name
-            else
-                LayoutCode := Name + '::' + Format(AppId);
-            Success := true;
-        end;
-        D.ClearLayoutSelection();
-    end;
-
-    // BC does not raise SelectedBuiltinLayoutType after SelectReportLayoutCode answered a selected layout (corpus probe pull
-    // request 1362, reports/layouts-html-text/HtRenderedTextTests.al:494, :530): a raise fails the test.
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Reporting Triggers", 'SelectedBuiltinLayoutType', '', false, false)]
-    local procedure SelectedBuiltinLayoutType(ObjectID: Integer; var LayoutType: Option "None",RDLC,Word,Excel,Custom)
-    begin
-        Error('SelectedBuiltinLayoutType raised');
-    end;
-}
-"#;
-
 /// The test app: the platform table Tenant Report Layout (a table of its number and name stands in), a stand-in for
 /// `Report Selections`.`SaveReportAsHTMLImpl` (select the layout by name, save as Html, clear), and the chain over it.
 const SELECTED: &str = r#"
@@ -382,21 +326,10 @@ codeunit 51003 "RC Selection Tests"
 "#;
 
 fn selected_run(proc: &str) -> Result<Value, Signal> {
-    use al_testkit::AppSource;
-    const BASE_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
-    let base = AppSource {
-        id: BASE_ID.into(),
-        name: "Base Application".into(),
-        dependencies: vec![],
-        files: vec![("base.al".into(), BASE.into())],
-    };
-    let test = AppSource {
-        id: "a".into(),
-        name: "a".into(),
-        dependencies: vec![BASE_ID.into()],
-        files: vec![("f.al".into(), format!("{}{SELECTED}", src()))],
-    };
-    Built::new(al_testkit::compile_apps(vec![base, test])).run_in("RC Selection Tests", proc)
+    // Base Application's objects: `report_management_stand_in`; its SelectedBuiltinLayoutType subscriber fails the test when
+    // it is raised.
+    super::report_management_stand_in::built_failing_on_builtin_type(&format!("{}{SELECTED}", src()))
+        .run_in("RC Selection Tests", proc)
 }
 
 #[test]
@@ -409,7 +342,7 @@ fn rendered_text_chain_a_temporary_selection_of_a_user_defined_word_layout_passe
     selected_run("AssertNotEmpty").expect("AreNotEqual('', Body) passes");
     // Over a Report Layout Selection row of the company: BC raises no SelectedBuiltinLayoutType once a selected layout was
     // answered (HtRenderedTextTests.al:494), so the row is not read (RxdDeclLayoutTests.al:811, :1336, corpus pull request
-    // 1381; this BASE's subscriber fails the test when it is raised).
+    // 1381; the stand-in's subscriber fails the test when it is raised).
     match selected_run("WithBuiltinSelection") {
         Ok(Value::Text(t)) => assert!(t.as_str().ends_with("<p>Signature</p>"), "{t:?}"),
         other => panic!("expected the selected layout's body, got {other:?}"),
