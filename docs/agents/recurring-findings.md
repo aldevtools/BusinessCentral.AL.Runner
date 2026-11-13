@@ -36,6 +36,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a fact kept as session state about a path (how a file was written, whether it is open): list every call that can
     set it and every call that can clear it. The fact must be set only by the measured call and counted for every
     handle, not only for handles that met the shape when they opened.
+  - a step rule that reads only the state after the step: the state before the step is a pinned fact too
+    (hidden to hidden is not shown to hidden). After a new path ran, the steps the pin makes next are facts
+    as well: let only those through (`PinnedEnd`).
   - the arguments of a call whose failure is now caught: a stream or by-reference argument, or a stream an earlier
     call handed over, has effects that the failed call's reply does not carry. Require the measured argument kinds.
   - a body-shape check that accepts any call statement or any condition: Rec and CurrPage methods and procedures of
@@ -45,6 +48,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a pinned call checked by its name only: the pin also has its outcome (a `Next` that moved, a `GoToKey` that found its
     row, a `SetValue` that did not raise). Read the calls from the log that keeps outcomes (`tree_calls`, through
     `test_calls_all_succeeded`), not from the names (`test_calls`).
+  - facts checked one by one where the pin measured pairs: host type and part kind, or step and host type, are
+    measured cells. List the measured cells and require membership, not each factor alone.
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
@@ -84,6 +89,8 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 
 - A path without a pin runs only through an assumption entry (CLAUDE.md rule 3). The entry text matches what
   the code does (for example "no subscriber" when the code checks none).
+- Do not mark where the assumed change has no reader on that page: a pinned clean pass turns into a flagged
+  pass. Check `--top-assumptions` for corpus passes under the new id.
 - Regenerate `docs/probes-needed.md` (`--assumptions-doc`) when an entry changes. Do not delete a row while
   unprobed shapes remain.
 - The flag must be raised on every pass through the assumed path, at the place the path runs, not at a later

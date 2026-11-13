@@ -18,7 +18,8 @@ const CODE: PinnedCode = PinnedCode {
     triggers: &["onopenpage", "onaftergetcurrrecord", "onclosepage"],
     control_triggers: &["onaction"],
     properties: &["editable", "sourcetabletemporary"],
-    action_props: &["applicationarea"],
+    action_props: Some(&["applicationarea"]),
+    part_props: None,
     table_triggers: &["onmodify"],
 };
 

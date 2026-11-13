@@ -824,6 +824,7 @@ impl Session {
             Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
         };
+        let r = self.journal_part_after_action_refresh(st, r);
         let held = {
             let mut s = st.borrow_mut();
             s.in_action = was_in_action;
@@ -981,8 +982,7 @@ impl Session {
         // its re-read above).
         // A list that serves its rows from OnFindRecord and OnNextRecord does the same (testpage/W2FindRecordUpdate.al: during_action
         // `AGR(20);ActionBegin;ActionEnd;`).
-        // (testpage/W2FindRecordUpdate.al for a list; pages/currpage/UpdateOnFindRecord.al for a card and a list that
-        // declare OnAfterGetCurrRecord: `AGR:2;act:Update(false)` first.)
+        // A card and a list that declare OnAfterGetCurrRecord: pages/currpage/UpdateOnFindRecord.al `AGR:2;act:Update(false)` first.
         let find_list =
             self.declares(st, "onfindrecord") && (self.is_list(st) || self.declares(st, "onaftergetcurrrecord"));
         // A card with OnFindRecord and no OnNextRecord reads its row before the action, again after it, then asks `=` and reads

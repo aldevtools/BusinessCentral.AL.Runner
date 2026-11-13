@@ -27,7 +27,8 @@ const CODE: PinnedCode = PinnedCode {
     triggers: &["oninsertrecord", "onmodifyrecord", "ondeleterecord"],
     control_triggers: &[],
     properties: &[],
-    action_props: &[],
+    action_props: None,
+    part_props: None,
     table_triggers: &["oninsert", "onmodify"],
 };
 
@@ -158,7 +159,8 @@ impl Session {
             triggers: &["onmodifyrecord"],
             control_triggers: &[],
             properties: &[],
-            action_props: &[],
+            action_props: None,
+            part_props: None,
             table_triggers: &[],
         };
         if name != "onmodifyrecord" || st.borrow().mode != PageMode::Edit || !self.top_card_of_test(st) {

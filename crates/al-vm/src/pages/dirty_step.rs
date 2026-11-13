@@ -337,7 +337,8 @@ impl Session {
         }
         let card_next = name == PageMethod::Next && self.is_card(st) && st.borrow().host.is_none() && st.borrow().dirty;
         if !card_next {
-            return self.test_page_op(method, st, args);
+            let r = self.test_page_op(method, st, args);
+            return Self::journal_next_after_turn(st, name, r);
         }
         let depth = self.frames.len();
         st.borrow_mut().save_failure_depth = None;

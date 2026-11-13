@@ -122,7 +122,8 @@ impl Session {
                     triggers: &["onqueryclosepage", "onclosepage"],
                     control_triggers: &[],
                     properties: &["editable"],
-                    action_props: &[],
+                    action_props: None,
+                    part_props: None,
                     table_triggers: &[],
                 },
             )?;

@@ -107,7 +107,8 @@ impl Session {
             triggers: &["onaftergetrecord"],
             control_triggers: &[],
             properties: &[],
-            action_props: &[],
+            action_props: None,
+            part_props: None,
             table_triggers: &[],
         };
         let rec = self.page_rec(st);
@@ -226,7 +227,8 @@ impl Session {
             triggers: &["onopenpage", "onaftergetrecord"],
             control_triggers: &[],
             properties: &["sourcetabletemporary", "editable"],
-            action_props: &[],
+            action_props: None,
+            part_props: None,
             table_triggers: &[],
         };
         const ROWS: usize = 60;

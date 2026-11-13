@@ -54,8 +54,9 @@ pub enum PartStep {
 }
 
 /// What a page lets through after a rule pinned for one scenario ran (`PageState::pinned_end`): Close of the page, with
-/// `reads` a read of a control's value or an `AssertEquals`, with `one_action` one action's Invoke, and with `first_ends` a
-/// `First`, which ends the limit, as the scenario makes them.
+/// `reads` a read of a control's value or an `AssertEquals`, with `one_action` one action's Invoke, with `first_ends` a
+/// `First`, which ends the limit, with `part_visible` the `Visible` of a part and with `next` one `Next`, as the scenario makes
+/// them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PinnedEnd {
     /// The refusal of any other call.
@@ -65,6 +66,19 @@ pub struct PinnedEnd {
     pub one_action: bool,
     /// `First` is let through and ends the limit: the page then reads its view again, as on main's path.
     pub first_ends: bool,
+    /// `Visible` of a part of the page (`P.Part.Visible()`) is let through.
+    pub part_visible: bool,
+    pub next: NextEnd,
+}
+
+/// Whether a [`PinnedEnd`] lets a `Next` of the page through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NextEnd {
+    Refused,
+    /// One `Next` is let through; a second one is refused.
+    Once,
+    /// That `Next` was let through: the rule that set the end checks what it did.
+    Taken,
 }
 
 /// More calls on a page and its parts than this are not kept; no pinned scenario of a part has that many.
@@ -113,8 +127,10 @@ pub(super) struct PinnedCode<'a> {
     /// Caption (which run nothing and change no read). The predicate checks the value of each one it lists.
     pub properties: &'a [&'a str],
     /// The properties an Action control of the page may set to an expression, lower case; its other properties are
-    /// literal. Empty: the page has no Action control.
-    pub action_props: &'a [&'a str],
+    /// literal. `None`: the page has no Action control.
+    pub action_props: Option<&'a [&'a str]>,
+    /// The same for a Part control. `None`: the page has no Part control.
+    pub part_props: Option<&'a [&'a str]>,
     /// The source table's own triggers, lower case: exactly these, and no procedure or field trigger.
     pub table_triggers: &'a [&'a str],
 }
@@ -135,6 +151,14 @@ impl Session {
                 root.borrow_mut().pinned_end = None;
                 true
             }
+            Some(TestCall::Page(PageMethod::Next)) if end.next == NextEnd::Once && part.is_none() => {
+                root.borrow_mut().pinned_end = Some(PinnedEnd {
+                    next: NextEnd::Taken,
+                    ..end
+                });
+                true
+            }
+            Some(TestCall::Page(PageMethod::Visible)) => end.part_visible && part.is_some(),
             Some(TestCall::Read) => end.reads,
             Some(TestCall::Other(PageMethod::Invoke)) if end.one_action && part.is_none() => {
                 root.borrow_mut().pinned_end = Some(PinnedEnd {
@@ -414,9 +438,9 @@ impl Session {
     /// Whether the only code the page and its source table can run is what `pin` lists, and the page declares no property
     /// outside `pin.properties`:
     /// - the page's own triggers are exactly `pin.triggers`; no page extension extends it; nothing subscribes to an event of it;
-    /// - every control is the repeater, a group or a field bound to a field of Rec (no part, no action, no variable or
-    ///   expression source), declared by the page itself, with literal properties only; the control triggers are exactly
-    ///   `pin.control_triggers`; no extension adds one;
+    /// - every control is the repeater, a group or a field bound to a field of Rec (no variable or expression source; an action
+    ///   only with `pin.action_props`, a part only with `pin.part_props`), declared by the page itself, with literal properties
+    ///   but the ones those two list; the control triggers are exactly `pin.control_triggers`; no extension adds one;
     /// - the source table's triggers are exactly `pin.table_triggers`; it has no procedure, no field trigger, no table extension
     ///   and no subscriber.
     pub(super) fn page_code_is(&self, st: &St, pin: &PinnedCode) -> Result<bool, Signal> {
@@ -443,15 +467,20 @@ impl Session {
             let kind = match c.kind {
                 ir::ControlKind::Repeater | ir::ControlKind::Group => c.binding == ir::Binding::None,
                 ir::ControlKind::Field => matches!(c.binding, ir::Binding::Field(_)),
-                ir::ControlKind::Action => !pin.action_props.is_empty() && c.binding == ir::Binding::None,
+                ir::ControlKind::Action => pin.action_props.is_some() && c.binding == ir::Binding::None,
+                ir::ControlKind::Part => pin.part_props.is_some() && c.binding == ir::Binding::None,
                 _ => false,
             };
-            let action = c.kind == ir::ControlKind::Action;
+            let expressions = match c.kind {
+                ir::ControlKind::Action => pin.action_props,
+                ir::ControlKind::Part => pin.part_props,
+                _ => None,
+            };
             kind && c.owner.is_none()
                 && c.ext_triggers.is_empty()
                 && c.props.iter().all(|(k, v)| {
                     matches!(v, ir::PropVal::Lit(_))
-                        || (action && pin.action_props.contains(&k.to_ascii_lowercase().as_str()))
+                        || expressions.is_some_and(|e| e.contains(&k.to_ascii_lowercase().as_str()))
                 })
         }) && same_names(
             page.controls
