@@ -5,27 +5,8 @@
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
-use al_testkit::Built;
 
 const OBJECTS: &str = r#"
-table 9651 "Report Layout Selection"
-{
-    fields
-    {
-        field(1; "Report ID"; Integer) { }
-        field(3; "Company Name"; Text[30]) { }
-        field(4; Type; Option) { OptionMembers = "RDLC (built-in)","Word (built-in)","Custom Layout","Excel Layout","External Layout"; }
-        field(6; "Custom Report Layout Code"; Code[20]) { }
-    }
-    keys { key(PK; "Report ID", "Company Name") { } }
-}
-
-table 9650 "Custom Report Layout"
-{
-    fields { field(1; "Code"; Code[20]) { } field(2; "Report ID"; Integer) { } }
-    keys { key(PK; "Code") { } }
-}
-
 table 2000000233 "Tenant Report Layout Selection"
 {
     fields { field(1; "Report ID"; Integer) { } field(2; "Company Name"; Text[30]) { } field(3; "Layout Name"; Text[250]) { } }
@@ -229,7 +210,7 @@ codeunit 51064 "RS Tests"
 "#;
 
 fn run(proc: &str) -> Result<Value, Signal> {
-    Built::from_source(OBJECTS).run_in("RS Tests", proc)
+    super::report_management_stand_in::built(OBJECTS).run_in("RS Tests", proc)
 }
 
 fn text(proc: &str) -> String {
@@ -250,8 +231,6 @@ fn stored_selection_the_companys_rdlc_row_renders_the_rdlc_layout() {
     assumptions::clear_hits();
     assert_eq!(text("RdlcHtml"), "No|No|ReportUnsupportedFormat|");
     assert!(assumptions::take_hits().contains(&Assumption::ReportStoredLayoutSelection));
-    // The Company Name is compared as `report_save::fact_selection` compares it, ignoring case.
-    assert_eq!(text("CaseCompanyHtml"), "No|No|ReportUnsupportedFormat|");
     assert_eq!(
         text("RdlcHtmlText"),
         "The Html output format is not supported by the current report layout format."
@@ -300,7 +279,7 @@ fn stored_selection_a_custom_layout_code_that_names_nothing_answers_no_layout() 
 /// Neighbors of the two cells keep main's refusal of a selection.
 #[test]
 fn stored_selection_neighbors_keep_mains_refusal() {
-    for p in ["KnownCode", "EmptyCode", "RdlcRowWordOnly"] {
+    for p in ["KnownCode", "RdlcRowWordOnly"] {
         refused(p, "not measured on BC");
     }
     refused(
@@ -312,7 +291,7 @@ fn stored_selection_neighbors_keep_mains_refusal() {
 const OTHER_KIND: &str = "layout selection";
 
 /// A selected built-in or tenant layout of another kind than the default layout renders that layout (RxLayoutSelectionTests.al
-/// :452 the company's RDLC row, :648 a tenant row). Outside the measured cells (the statement form, a file, two rows, a tenant
+/// :452 the company's RDLC row, :648 a tenant row). Outside the measured cells (the statement form, a file, a tenant
 /// row naming the RDLC layout, an RDLC default report with a Word row) a save as Html or Excel, where the grid differs between
 /// the two kinds, refuses. Main wrote the default layout's answer there.
 #[test]
@@ -320,8 +299,6 @@ fn a_selected_layout_of_another_kind_refuses_html_and_excel() {
     for p in [
         "RdlcHtmlStatement",
         "RdlcHtmlFile",
-        "TwoRowsHtml",
-        "TwoRowsExcel",
         "TenantRdlcHtml",
         "RdlcDefaultWordRowHtml",
         "RdlcDefaultWordRowExcel",
@@ -347,7 +324,6 @@ fn no_dataset_row_behind_a_stored_selection_row() {
     for (p, want) in [
         ("NoRowWordRowPdf", "not measured on BC"),
         ("NoRowWordRowHtml", "not measured on BC"),
-        ("NoRowOtherCompanyPdf", "not measured on BC"),
         ("NoRowTenantRdlcPdf", "not measured on BC"),
     ] {
         refused(p, want);
@@ -360,4 +336,20 @@ fn no_dataset_row_behind_a_stored_selection_row() {
             "{p}"
         );
     }
+}
+
+/// Base Application's ReportManagement decides which rows count (the runtime raises its subscribers and reads no Report
+/// Layout Selection row): `SelectedBuiltinLayoutType` reads only `Get(ReportID, CompanyName)` and answers 0 for a Custom
+/// Layout row, and `SelectReportLayoutCode` answers nothing for a Custom Layout row with an empty code. So a row of another
+/// company is not read, two rows answer as the company's row alone, and a Custom Layout row with an empty code answers as no
+/// row. Main read the table itself and refused these.
+#[test]
+fn stored_selection_report_management_decides_which_rows_count() {
+    assert_eq!(text("TwoRowsHtml"), text("RdlcHtml"));
+    assert_eq!(text("TwoRowsExcel"), text("RdlcExcel"));
+    assert_eq!(text("EmptyCode"), "Yes|Yes||OnPreReport;");
+    assert_eq!(text("NoRowOtherCompanyPdf"), "No|No|ReportResultEmpty|OnPreReport;");
+    // A row whose Company Name differs from the company only in case: the runtime's `Get` on a Text key treats a case tie as
+    // two keys (`al_builtins::collation::compare_key`), so ReportManagement finds no row; BC's answer is not measured.
+    assert_eq!(text("CaseCompanyHtml"), text("OtherCompanyHtml"));
 }

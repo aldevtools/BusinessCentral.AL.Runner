@@ -12,6 +12,7 @@
 
 mod cell;
 mod cells;
+mod cells_decl;
 mod errors;
 mod events;
 mod fact_report;
@@ -110,18 +111,9 @@ impl Session {
     ) -> Result<(Facts, Option<Arc<str>>), Signal> {
         let r = fact_report::report_facts(&self.engine.program, schema);
         let target = target_fact(target);
-        let what = format!("Report.SaveAs as {}", format.name());
-        let entry = fact_selection::TempEntry {
-            format,
-            target,
-            kind: r.kind,
-            extensions: r.extensions,
-            processing_only: r.processing_only,
-            file: r.file,
-            custom,
-            what: &what,
-        };
-        let (selection, selected) = self.selection_fact(schema, Some(&entry))?;
+        // A save that reaches the layout selection raises SelectReportLayoutCode (`fact_selection`).
+        let reaches = !r.processing_only && !custom && !self.company_build;
+        let sel = self.selection_fact(schema, reaches.then_some(r.declares))?;
         let facts = Facts {
             format,
             target,
@@ -129,6 +121,7 @@ impl Session {
             kind: r.kind,
             layout: r.layout,
             decl: r.decl,
+            declares: r.declares,
             file: r.file,
             processing_only: r.processing_only,
             data_items: r.data_items,
@@ -137,13 +130,13 @@ impl Session {
             custom,
             company_build: self.company_build,
             listed: self.output_is_ignored(schema),
-            selection,
-            stored: self.stored_fact(schema)?,
+            selection: sel.selection,
+            stored: sel.stored,
             named: None,
             rows: None,
             dataset_rgba: None,
         };
-        Ok((facts, selected))
+        Ok((facts, sel.selected))
     }
 
     /// What a save as `format` (not Xml) does before the report runs.
@@ -220,6 +213,8 @@ impl Session {
                 BeforeRun::Run(plan) => SaveOutput::Rendered(Box::new(plan)),
                 BeforeRun::Dataset => SaveOutput::Dataset,
                 BeforeRun::Discard => SaveOutput::Discard,
+                // A statement raises the error (reports/html-email-body/RxdDeclLayoutTests.al:284, :409).
+                BeforeRun::False(e) if answer == AnswerForm::Statement => return Err(Signal::Error(Box::new(e))),
                 BeforeRun::False(e) => return Ok(Err(e)),
             },
         ))
@@ -267,9 +262,9 @@ impl Session {
                 schema,
                 &format!("Report.SaveAs as {}", facts.format.name()),
                 except,
-                None,
+                self.report_management_object(),
             ),
-            Events::NotChecked | Events::AtFact => Ok(()),
+            Events::NotChecked => Ok(()),
         }
     }
 
@@ -298,7 +293,7 @@ impl Session {
     /// the report (`report_placeholder::run`; it joins the table in round 3).
     pub(crate) fn refuse_run_layout_events(&mut self, schema: &Schema) -> Result<(), Signal> {
         self.refuse_layout_event_subscribers(schema, "a run", &["substitutereport"], None)?;
-        let (selection, _) = self.selection_fact(schema, None)?;
+        let selection = self.selection_fact(schema, None)?.selection;
         if matches!(selection, Selection::None | Selection::SameKind | Selection::OtherKind) {
             return Ok(());
         }
