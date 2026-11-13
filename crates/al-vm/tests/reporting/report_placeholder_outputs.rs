@@ -673,15 +673,15 @@ fn report_placeholder_a_layout_selection_refuses_the_save_and_the_run() {
     let src = format!("{SRC}{SELECTION}");
     refused(
         run_in(&src, "RPO Selection Tests", "HtmlWithSelection"),
-        "Report Layout Selection",
+        "layout selection",
     );
     refused(
         run_in(&src, "RPO Selection Tests", "RunWithSelection"),
-        "Report Layout Selection",
+        "layout selection",
     );
     refused(
         run_in(&src, "RPO Selection Tests", "RunExcelWithSelection"),
-        "Report Layout Selection",
+        "layout selection",
     );
 }
 

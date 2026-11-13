@@ -1,12 +1,12 @@
 //! The rgba replace of `Email Message Impl.` on rendered content (ADR-040 amendment 2026-11-12, P12; al-runner issue 6924):
-//! which renders `rendered_text::DOTNET_ALLOWED` takes, from what the Html save knew (`rendered_text::RenderFacts`). The
+//! which renders `rendered_text::DOTNET_ALLOWED` takes, from the rgba column of the save's row (al-vm `report_save`). The
 //! stand-ins below make the calls `Email Message Impl.` makes: `ReplaceRgbaColorsWithRgb` (a `Regex.Replace` on a `DotNet`
 //! variable that holds no object) and `SanitizeBody`. No .NET host runs here, so a call the guard lets through stops at the
 //! host; the answer of the real `Regex.Replace` is checked in al-test-cli `suite/dotnet_sidecar.rs`.
 
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
-use al_builtins::rendered_text::{self, DataItems, Extensions, RenderFacts, ReportShape};
+use al_builtins::rendered_text::{self, RgbaReplace};
 use al_builtins::value::Value;
 use al_testkit::Built;
 
@@ -207,14 +207,23 @@ fn run(proc: &str) -> Result<Value, Signal> {
 }
 
 #[track_caller]
-fn facts(proc: &str) -> RenderFacts {
+fn facts(proc: &str) -> RgbaReplace {
     let body = match run(proc) {
         Ok(Value::Text(t)) => t.as_str().to_string(),
         other => panic!("{proc}: expected a text, got {other:?}"),
     };
     let marks = rendered_text::marks(&body).expect("whole marks");
     assert_eq!(marks.len(), 1, "{proc}");
-    rendered_text::render(marks[0].0).expect("registered").facts
+    rendered_text::render(marks[0].0).expect("registered").rgba_replace
+}
+
+/// The reason a render is not measured, or a panic.
+#[track_caller]
+fn not_measured(proc: &str) -> String {
+    match facts(proc) {
+        RgbaReplace::NotMeasured(why) => why,
+        RgbaReplace::Measured => panic!("{proc}: measured"),
+    }
 }
 
 #[track_caller]
@@ -227,47 +236,22 @@ fn refusal(proc: &str) -> String {
 
 const USE: &str = "a use of the rendered content of report";
 
-/// The first measured render (`rendered_text::RGBA_REPLACE_BASE`).
-const MEASURED: RenderFacts = rendered_text::RGBA_REPLACE_BASE;
-
-fn shape(data_items: DataItems, extensions: Extensions, rendering_layout_declared: bool) -> RenderFacts {
-    RenderFacts {
-        shape: ReportShape {
-            data_items,
-            extensions,
-            rendering_layout_declared,
-        },
-        ..MEASURED
-    }
-}
-
 #[test]
-fn rendered_text_email_replace_the_save_keeps_the_facts_of_its_render() {
-    assert_eq!(facts("PlainBody"), MEASURED);
-    let rgba = RenderFacts {
-        dataset_holds_rgba: true,
-        ..MEASURED
-    };
-    assert_eq!(facts("RgbaBody"), rgba, "a column value");
-    assert_eq!(facts("LabelBody"), rgba, "a label");
-    assert_eq!(facts("LegacyBody"), shape(DataItems::One, Extensions::None, false));
-    assert_eq!(
-        facts("NestedBody"),
-        shape(DataItems::ParentAndChild, Extensions::None, true)
-    );
-    assert_eq!(
-        facts("ExtendedBody"),
-        shape(DataItems::One, Extensions::OneAddingColumns, true)
-    );
-    // Two items side by side and an extension with a trigger are no measured form.
-    assert_eq!(
-        facts("TwoItemsBody"),
-        shape(DataItems::Unmeasured, Extensions::None, true)
-    );
-    assert_eq!(
-        facts("ExtTriggerBody"),
-        shape(DataItems::One, Extensions::Unmeasured, true)
-    );
+fn rendered_text_email_replace_the_save_keeps_the_rgba_column_of_its_row() {
+    // The measured base and the forms with one fact changed (RxTenantLayoutBodyTests.al:319, :346, :373).
+    for proc in ["PlainBody", "LegacyBody", "NestedBody", "ExtendedBody"] {
+        assert_eq!(facts(proc), RgbaReplace::Measured, "{proc}");
+    }
+    for (proc, want) in [
+        ("RgbaBody", "dataset holds rgba( yes (row: no)"),
+        ("LabelBody", "dataset holds rgba( yes (row: no)"),
+        // Two items side by side and an extension with a trigger are no measured form.
+        ("TwoItemsBody", "data items another tree (row: one)"),
+        ("ExtTriggerBody", "report extensions another set (row: none)"),
+    ] {
+        let why = not_measured(proc);
+        assert!(why.contains(want), "{proc}: {why}");
+    }
 }
 
 /// The forms measured with one fact changed pass the guard (corpus pull request 1371,
@@ -291,19 +275,10 @@ fn rendered_text_email_replace_takes_each_form_measured_alone() {
 fn rendered_text_email_replace_refuses_each_unmeasured_report_shape() {
     assumptions::clear_hits();
     for (proc, want) in [
-        (
-            "ReplaceTwoItems",
-            "its data items are not one item or one item with one item inside it",
-        ),
-        (
-            "ReplaceExtTrigger",
-            "its report extensions are not one extension that only adds columns",
-        ),
-        (
-            "ReplaceLegacyNested",
-            "it combines forms that are measured only one at a time: a default layout not declared with \
-             DefaultRenderingLayout and two data items",
-        ),
+        ("ReplaceTwoItems", "data items another tree (row: one)"),
+        ("ReplaceExtTrigger", "report extensions another set (row: none)"),
+        // Two forms measured one at a time.
+        ("ReplaceLegacyNested", "the nearest measured renders differ in: "),
         ("ReplaceTwoRenders", "the body joins 2 renders"),
     ] {
         let why = refusal(proc);
@@ -317,19 +292,15 @@ fn rendered_text_email_replace_refuses_each_unmeasured_report_shape() {
 #[test]
 fn rendered_text_email_replace_a_render_behind_a_selection_row_is_not_measured() {
     for proc in ["TenantRowBody", "BuiltinRowBody"] {
-        let f = facts(proc);
-        assert_eq!(
-            f,
-            RenderFacts {
-                no_selection_row: false,
-                ..MEASURED
-            },
-            "{proc}"
+        let why = not_measured(proc);
+        assert!(
+            why.contains("a selection row names the report yes (row: no)"),
+            "{proc}: {why}"
         );
     }
     let why = refusal("ReplaceTenantRow");
     assert!(
-        why.contains(USE) && why.contains("a stored layout selection row names the report"),
+        why.contains(USE) && why.contains("a selection row names the report yes (row: no)"),
         "{why}"
     );
 }
@@ -352,7 +323,7 @@ fn rendered_text_email_replace_refuses_a_dataset_that_holds_rgba() {
     for proc in ["ReplaceRgbaData", "ReplaceRgbaLabel"] {
         let why = refusal(proc);
         assert!(
-            why.contains(USE) && why.contains("its dataset holds the text rgba("),
+            why.contains(USE) && why.contains("dataset holds rgba( yes (row: no)"),
             "{proc}: {why}"
         );
     }

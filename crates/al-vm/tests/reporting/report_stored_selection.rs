@@ -301,12 +301,15 @@ fn stored_selection_a_custom_layout_code_that_names_nothing_answers_no_layout() 
 #[test]
 fn stored_selection_neighbors_keep_mains_refusal() {
     for p in ["KnownCode", "EmptyCode", "RdlcRowWordOnly"] {
-        refused(p, "a Report Layout Selection row selects a layout for it");
+        refused(p, "not measured on BC");
     }
-    refused("RdlcPdfNoRow", "selects its RDLC layout (not measured)");
+    refused(
+        "RdlcPdfNoRow",
+        "dataset rows none (row: some) [reports/html-email-body/RxLayoutSelectionTests.al:452]",
+    );
 }
 
-const OTHER_KIND: &str = "of another kind than the default layout";
+const OTHER_KIND: &str = "layout selection";
 
 /// A selected built-in or tenant layout of another kind than the default layout renders that layout (RxLayoutSelectionTests.al
 /// :452 the company's RDLC row, :648 a tenant row). Outside the measured cells (the statement form, a file, two rows, a tenant
@@ -342,13 +345,10 @@ fn a_selected_layout_keeps_mains_answer_where_both_kinds_give_the_format() {
 #[test]
 fn no_dataset_row_behind_a_stored_selection_row() {
     for (p, want) in [
-        ("NoRowWordRowPdf", "a Report Layout Selection row names the report"),
-        ("NoRowWordRowHtml", "a Report Layout Selection row names the report"),
-        ("NoRowOtherCompanyPdf", "a Report Layout Selection row names the report"),
-        (
-            "NoRowTenantRdlcPdf",
-            "a Tenant Report Layout Selection row names the report",
-        ),
+        ("NoRowWordRowPdf", "not measured on BC"),
+        ("NoRowWordRowHtml", "not measured on BC"),
+        ("NoRowOtherCompanyPdf", "not measured on BC"),
+        ("NoRowTenantRdlcPdf", "not measured on BC"),
     ] {
         refused(p, want);
     }

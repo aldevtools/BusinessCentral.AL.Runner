@@ -279,7 +279,7 @@ fn a_legacy_declared_report_with_no_dataset_row() {
     assert_eq!(text("NoRowLegacy"), "No|No");
     assert_eq!(text("LegacyPreHtml"), "No|No|");
     for p in ["LegacyWord", "LegacyPrePdf"] {
-        refused(p, "no dataset row");
+        refused(p, "not measured on BC");
     }
 }
 
@@ -303,7 +303,7 @@ fn an_rdlc_save_with_no_dataset_row_answers_true_and_writes_nothing() {
 #[test]
 fn the_shapes_with_no_dataset_row_the_probe_did_not_measure_refuse() {
     for p in ["NoRowTwoItems", "TwoItemsPdf", "NoRowFile"] {
-        refused(p, "no dataset row");
+        refused(p, "not measured on BC");
     }
 }
 

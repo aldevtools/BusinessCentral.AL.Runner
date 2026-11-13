@@ -45,68 +45,24 @@ pub struct Render {
     pub report: String,
     pub format: String,
     pub layout: String,
-    pub facts: RenderFacts,
+    /// Whether the rgba replace of [`DOTNET_ALLOWED`] is measured on this render: the `rgba` column of the row of al-vm's
+    /// save table (`report_save`) that wrote it.
+    pub rgba_replace: RgbaReplace,
 }
 
-/// What the save knew about a render, for the entries that ask more than "it is rendered content" ([`DOTNET_ALLOWED`]).
-/// The default is a render nothing is known of: no entry takes it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct RenderFacts {
-    /// What the report declares (al-vm `report_placeholder::report_shape`).
-    pub shape: ReportShape,
-    /// Which layout rendered.
-    pub layout: RenderLayout,
-    /// No stored layout selection row (Report Layout Selection, Tenant Report Layout Selection) names the report.
-    pub no_selection_row: bool,
-    /// The dataset of the run, or a label of the report, holds the text `rgba(`.
-    pub dataset_holds_rgba: bool,
+/// The rgba column of the save's row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RgbaReplace {
+    Measured,
+    /// Not measured, with the reason for the refusal (the facts that differ from the nearest measured rows).
+    NotMeasured(String),
 }
 
-/// The layout a render used, as far as an entry asks.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum RenderLayout {
-    /// Any other layout, or not known.
-    #[default]
-    Unmeasured,
-    /// The report's default layout, a Word layout, with no temporary layout selection in force.
-    DefaultWord,
-    /// The one user-defined Word layout of the report (a Tenant Report Layout row for every company, without an app id) that a
-    /// temporary layout selection named (al-vm `report_placeholder::selection`).
-    TempSelectedTenantWord,
-}
-
-/// The data items of a report, as far as the measured cells tell them apart.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum DataItems {
-    /// Any other tree.
-    #[default]
-    Unmeasured,
-    /// Exactly one data item.
-    One,
-    /// Exactly two: a top-level item and one item inside it.
-    ParentAndChild,
-}
-
-/// The report extensions of a report, as far as the measured cells tell them apart.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Extensions {
-    /// Any other set.
-    #[default]
-    Unmeasured,
-    /// No report extension changes the report.
-    None,
-    /// Exactly one, which only adds columns to data items of the report (no trigger, data item, label or `modify`).
-    OneAddingColumns,
-}
-
-/// The declarations of a report the measured Html cells tell apart. Filled by al-vm `report_placeholder::report_shape`, the
-/// one place both of its users (the rgba replace here, the save with no dataset row there) read it from.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ReportShape {
-    pub data_items: DataItems,
-    pub extensions: Extensions,
-    /// The default layout is the one `DefaultRenderingLayout` names (not `DefaultLayout` with `WordLayout`).
-    pub rendering_layout_declared: bool,
+impl Default for RgbaReplace {
+    /// A render nothing is known of.
+    fn default() -> Self {
+        RgbaReplace::NotMeasured("nothing is known of the render".into())
+    }
 }
 
 /// The renders of the process. A marked text can outlive the session that read it (a SingleInstance global, a stored row, the
@@ -124,18 +80,18 @@ pub fn active() -> bool {
 
 /// Registers a render nothing more is known of ([`register_with`]).
 pub fn register(report: &str, format: &str, layout: &str) -> Option<u32> {
-    register_with(report, format, layout, RenderFacts::default())
+    register_with(report, format, layout, RgbaReplace::default())
 }
 
 /// Registers a render and gives its number, `None` once the numbers are used up (the read then refuses).
-pub fn register_with(report: &str, format: &str, layout: &str, facts: RenderFacts) -> Option<u32> {
+pub fn register_with(report: &str, format: &str, layout: &str, rgba_replace: RgbaReplace) -> Option<u32> {
     let mut list = RENDERS.lock().unwrap_or_else(|e| e.into_inner());
     let n = u32::try_from(list.len()).ok().filter(|n| *n < MAX_RENDERS)?;
     list.push(Render {
         report: report.to_string(),
         format: format.to_string(),
         layout: layout.to_string(),
-        facts,
+        rgba_replace,
     });
     Some(n)
 }
@@ -791,115 +747,6 @@ pub struct DotNetEntry {
 const RGBA_PATTERN: &str = r"rgba\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3}),\s*1(\.0{0,2})?\)";
 const RGBA_REPLACEMENT: &str = "rgb($1, $2, $3)";
 
-/// The first render the rgba replace was measured on (corpus pull request 1371, open; reports/html-email-body/
-/// RxHtmlBodyFixtures.al:28-45 report 80013 and :53-70 report 80014: one data item, no report extension, a Word layout
-/// `DefaultRenderingLayout` names): the Html of that default layout, saved with no layout selection, goes through
-/// `Email Message.Create` and comes back from `GetBody` as a text (RxEmailBodyTests.al:86 and :110 a generated layout, :158 a
-/// layout with transparent colors). A dataset that holds `rgba(` is not measured: its text can reach the Html.
-pub const RGBA_REPLACE_BASE: RenderFacts = RenderFacts {
-    shape: ReportShape {
-        data_items: DataItems::One,
-        extensions: Extensions::None,
-        rendering_layout_declared: true,
-    },
-    layout: RenderLayout::DefaultWord,
-    no_selection_row: true,
-    dataset_holds_rgba: false,
-};
-
-/// Every render the rgba replace takes: [`RGBA_REPLACE_BASE`] and the four forms measured with one fact changed each (corpus
-/// pull request 1371, open, reports/html-email-body/RxTenantLayoutBodyTests.al, the same on the three BC majors the corpus
-/// runs). In each `GetBody` is a text that is not empty; where the layout's static text holds `rgba(r,g,b,1)` it differs from
-/// the body (:154, :187), so the result keeps the changed mark. Two changed facts together are not measured.
-const RGBA_REPLACE_MEASURED: [RenderFacts; 5] = [
-    RGBA_REPLACE_BASE,
-    // :319 LegacyDefaultLayoutWord_EmailBody (RxLayoutSelFixtures.al:129-144 report 80025, `DefaultLayout = Word`).
-    RenderFacts {
-        shape: ReportShape {
-            rendering_layout_declared: false,
-            ..RGBA_REPLACE_BASE.shape
-        },
-        ..RGBA_REPLACE_BASE
-    },
-    // :346 ParentChildDataItems_EmailBody (RxLayoutSelFixtures.al:146-176 report 80026).
-    RenderFacts {
-        shape: ReportShape {
-            data_items: DataItems::ParentAndChild,
-            ..RGBA_REPLACE_BASE.shape
-        },
-        ..RGBA_REPLACE_BASE
-    },
-    // :373 ReportExtensionColumn_EmailBody (RxLayoutSelFixtures.al:178-212 report 80027 and reportextension 80028).
-    RenderFacts {
-        shape: ReportShape {
-            extensions: Extensions::OneAddingColumns,
-            ..RGBA_REPLACE_BASE.shape
-        },
-        ..RGBA_REPLACE_BASE
-    },
-    // :121 TenantGuid_WordAlpha_EmailBody, :154 TenantGuid_WordRgba_EmailBody (a Tenant Report Layout row named by a GUID,
-    // selected with SetTempLayoutSelectedName), :225 the same with a plain name.
-    RenderFacts {
-        layout: RenderLayout::TempSelectedTenantWord,
-        ..RGBA_REPLACE_BASE
-    },
-];
-
-impl RenderFacts {
-    /// Why the rgba replace does not take a render that is not in [`RGBA_REPLACE_MEASURED`], for the refusal: the first fact
-    /// no cell measured, else the two measured forms the render combines. The pattern names every field, so a new fact does
-    /// not compile without its reason.
-    fn rgba_replace_unmeasured(&self) -> String {
-        let RenderFacts {
-            shape:
-                ReportShape {
-                    data_items,
-                    extensions,
-                    rendering_layout_declared,
-                },
-            layout,
-            no_selection_row,
-            dataset_holds_rgba,
-        } = *self;
-        let never = [
-            (
-                layout == RenderLayout::Unmeasured,
-                "it is not the default Word layout of its report or a user-defined Word layout a temporary selection named",
-            ),
-            (!no_selection_row, "a stored layout selection row names the report"),
-            (
-                data_items == DataItems::Unmeasured,
-                "its data items are not one item or one item with one item inside it",
-            ),
-            (
-                extensions == Extensions::Unmeasured,
-                "its report extensions are not one extension that only adds columns",
-            ),
-            (dataset_holds_rgba, "its dataset holds the text rgba("),
-        ];
-        if let Some((_, why)) = never.into_iter().find(|(is, _)| *is) {
-            return why.to_string();
-        }
-        let alone = [
-            (
-                layout == RenderLayout::TempSelectedTenantWord,
-                "a user-defined Word layout a temporary selection named",
-            ),
-            (
-                !rendering_layout_declared,
-                "a default layout not declared with DefaultRenderingLayout",
-            ),
-            (data_items == DataItems::ParentAndChild, "two data items"),
-            (extensions == Extensions::OneAddingColumns, "a report extension"),
-        ];
-        let forms: Vec<&str> = alone.into_iter().filter_map(|(is, what)| is.then_some(what)).collect();
-        format!(
-            "it combines forms that are measured only one at a time: {}",
-            forms.join(" and ")
-        )
-    }
-}
-
 /// Refuses a .NET call given a marked argument unless it is an entry of [`DOTNET_ALLOWED`] on renders the entry is measured
 /// for; `Ok(true)` when it is one (the caller then runs it with [`dotnet_result`] on the answer). `Ok(false)`: no argument holds
 /// rendered content.
@@ -932,20 +779,19 @@ pub fn dotnet_guard(ty: &str, member: &str, args: &[Value]) -> Result<bool, Sign
         [r] => r,
         more => return Err(refusal(&s, &format!("{call}: the body joins {} renders", more.len()))),
     };
-    if RGBA_REPLACE_MEASURED.contains(&r.facts) {
-        crate::assumptions::assume(crate::assumptions::Assumption::EmailBodyRgbaReplaceKeepsContent);
-        return Ok(true);
+    match &r.rgba_replace {
+        RgbaReplace::Measured => {
+            crate::assumptions::assume(crate::assumptions::Assumption::EmailBodyRgbaReplaceKeepsContent);
+            Ok(true)
+        }
+        RgbaReplace::NotMeasured(why) => Err(refusal(
+            &s,
+            &format!(
+                "{call}: the rgba replace of Email Message Impl. is not measured on the Html of report {}: {why}",
+                r.report
+            ),
+        )),
     }
-    Err(refusal(
-        &s,
-        &format!(
-            "{call}: the rgba replace of Email Message Impl. is measured only on the Html of a Word layout (the default \
-             layout, or a user-defined one a temporary selection named) of a report with no stored layout selection row, \
-             whose dataset holds no rgba( text, and for report {} {}",
-            r.report,
-            r.facts.rgba_replace_unmeasured()
-        ),
-    ))
 }
 
 /// The text a [`DOTNET_ALLOWED`] call answered for `input`: every mark in the changed form; refused when the answer lost or
