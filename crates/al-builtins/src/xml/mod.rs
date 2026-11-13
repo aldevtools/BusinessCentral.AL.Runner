@@ -18,6 +18,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 mod attrs;
+mod create_names;
 mod dom;
 mod edit;
 mod lists;

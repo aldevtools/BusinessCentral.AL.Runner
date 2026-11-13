@@ -247,6 +247,7 @@ mod version_gates;
 mod xml_attribute_collection_get_missing;
 mod xml_attribute_collection_set;
 mod xml_clear_ref;
+mod xml_create_names;
 mod xml_doctype;
 mod xml_nametable_assign;
 mod xml_node_list_clear;

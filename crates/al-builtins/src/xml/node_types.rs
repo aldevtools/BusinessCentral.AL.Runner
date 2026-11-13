@@ -65,6 +65,9 @@ pub(super) fn check_name(n: &str) -> Result<(), Signal> {
 
 pub(super) fn element_create_name(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let name = arg_text(a, 0)?;
+    if a.len() == 1 {
+        create_names::check_create_name(&name, create_names::Site::Element)?;
+    }
     check_name(&name)?;
     let el = new_node(XData::Element {
         prefix: String::new(),
@@ -80,6 +83,9 @@ pub(super) fn element_create_name(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mu
 
 pub(super) fn element_create_ns(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let (local, ns) = (arg_text(a, 0)?, arg_text(a, 1)?);
+    if a.len() == 2 {
+        create_names::check_create_name(&local, create_names::Site::ElementNs(&ns))?;
+    }
     check_name(&local)?;
     let el = new_node(XData::Element {
         prefix: String::new(),
@@ -107,11 +113,14 @@ pub(super) fn plain_attribute(name: String, value: String) -> NResult {
 }
 
 pub(super) fn attribute_create(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    plain_attribute(arg_text(a, 0)?, arg_text(a, 1)?)
+    let name = arg_text(a, 0)?;
+    create_names::check_create_name(&name, create_names::Site::Attribute)?;
+    plain_attribute(name, arg_text(a, 1)?)
 }
 
 pub(super) fn attribute_create_ns(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let (local, ns, value) = (arg_text(a, 0)?, arg_text(a, 1)?, arg_text(a, 2)?);
+    create_names::check_create_name(&local, create_names::Site::AttributeNs(&ns))?;
     if ns.is_empty() {
         return plain_attribute(local, value);
     }

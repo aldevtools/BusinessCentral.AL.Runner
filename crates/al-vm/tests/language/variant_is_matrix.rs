@@ -2,8 +2,7 @@
 //! types/variant/VariantIsMatrix.al:135-493, the probe's codeunit with its Observer calls turned into a returned text). The
 //! methods the registry did not have (IsTransactionType, IsDataClassificationType, IsSecurityFiltering) and IsOption of a
 //! TransactionType mark `variant-is-matrix`; kinds outside the probe refuse in the three new methods. The probe's Label
-//! and TextConst cells (:186, both IsTextConstant only) are left out: a TextConst into a Variant stays refused, and a Label in a
-//! Variant is still a Text (not changed here).
+//! and TextConst cells (:224-243, both IsTextConstant only) are in label_into_variant.rs.
 
 use al_builtins::assumptions::{Assumption, take_hits};
 
