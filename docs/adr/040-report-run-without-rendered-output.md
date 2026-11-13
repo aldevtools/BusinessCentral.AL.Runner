@@ -485,7 +485,7 @@ right on BC whatever the rendering holds.
 | P9 | `Variant.IsText`, `IsCode` and the other `Is*` | the pinned answer for a Text | The type is known. |
 | P10 | `Session.LogMessage` with the text as message or dimension value | nothing AL can read | Telemetry is not readable by the test (SqlCounters.al:516 P6924_Counters_FormattedInTelemetryDimension_NoError). |
 | P11 | A page field whose source is a Text variable or an unbounded expression, read by `TestField.Value()` when the control shows a Text unchanged (no `OptionCaption`, no format property, not `ExtendedDatatype = RichContent` until measured) | the same text | The control shows the text as it is. |
-| P12 | `DotNet` `Regex.Replace(T, Pattern, Replacement)`, static, only with the exact pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb` (System Application) | the sidecar's result on the known parts; every mark in the result gets the **changed** form | `Email Message`.`Create` calls it on every body. The replacement text is never empty, so a not-empty text stays not empty. See A5. Narrowed 2026-11-13 to what corpus pull request 1371 measured (`RxEmailBodyTests.al`): only a body whose every render is the default Word layout of its report, saved with no layout selection, with no `rgba(` in its dataset (`rendered_text::RenderFacts`); the Html of a layout a temporary selection named (A7), or saved while a stored selection row names the report, refuses until a probe measures it. |
+| P12 | `DotNet` `Regex.Replace(T, Pattern, Replacement)`, static, only with the exact pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb` (System Application) | the sidecar's result on the known parts; every mark in the result gets the **changed** form | `Email Message`.`Create` calls it on every body. The replacement text is never empty, so a not-empty text stays not empty. See A5. Narrowed 2026-11-13 to what corpus pull request 1371 measured (`RxEmailBodyTests.al`): only a body that holds one render: the Html of the Word layout `DefaultRenderingLayout` names, of a report with one data item and no report extension, saved with no layout selection, with no `rgba(` in its dataset (`rendered_text::RenderFacts`, `ReportShape`). Each other shape refuses with its own reason until a probe measures it: a layout a temporary selection named (A7), a stored selection row of the report, `DefaultLayout = Word` with `WordLayout`, more data items, a report extension, a body that joins two renders. A layout whose static text holds `rgba(r,g,b,1)` is changed by `Create` (corpus pull request 1362, `HtStaticTextTests.al`:522); the changed form covers it. |
 
 `Email Message`.`Create`, `GetBody`, `Email Item`.`SetBody`, `GetBodyText` and the editor page are AL compiled from
 Microsoft's source. They need no rule of their own: they use P1, P2, P5, P7, P12, A2 and the Blob rules of A4.
@@ -651,7 +651,8 @@ and refuses.
   and a body that only moves through Text values and UTF-8 streams never changes what the test can see. Source: the
   reporter's tests (al-runner issue 6924). A test through it is a flagged pass.
 - `email-body-rgba-replace-keeps-content`: marked when P12 runs. Text: `Regex.Replace` with that pattern and replacement
-  maps the Html of a report's default Word layout, with no `rgba(` in its dataset, to a not-empty text.
+  maps the Html of the Word layout `DefaultRenderingLayout` names (one data item, no report extension, one render in the
+  body), with no `rgba(` in its dataset, to a not-empty text.
 - `report-layout-temp-selection`: marked on every save A7 resolves (the selected layout is a Tenant Report Layout row, never the
   report's default).
 - `report-html-no-dataset-row`: marked when an Html save of a Word layout report whose run wrote no dataset row answers false
@@ -678,7 +679,7 @@ and refuses.
 | The e-mail path (`Email Item`, `Email Message`, the editor page) with a rendered body | no corpus case | **not measured**; reporter's 188 tests pass on BC |
 | A save with a temporary layout selection | no corpus case | **not measured** (A7) |
 | `TestField.Value()` of the editor's body controls | no corpus case; `RichContent` appears only in must-not-compile | **not measured** |
-| `Regex.Replace` keeps a not-empty text not empty | corpus pull request 1371 (open), `RxEmailBodyTests.al`:86, :110, :158: the Html of a default Word layout holds no `rgba(`, and `GetBody` gives the body back; BC 27.5, 28.5, 29.0 | measured for a default Word layout; **not measured** for a user-defined layout (A7) and for layout text that holds `rgba(r,g,b,1)` |
+| `Regex.Replace` keeps a not-empty text not empty | corpus pull request 1371 (open), `RxEmailBodyTests.al`:86, :110, :158: the Html of a default Word layout holds no `rgba(`, and `GetBody` gives the body back; BC 27.5, 28.5, 29.0 | measured for the Word layout `DefaultRenderingLayout` names, one data item, no report extension; **not measured** for a user-defined layout (A7), `DefaultLayout = Word`, more data items, a report extension, two renders in one body. Layout text that holds `rgba(r,g,b,1)` is changed (corpus pull request 1362, `HtStaticTextTests.al`:522) |
 | Which of the 188 tests meet a refused use after the body is read | the reporter's `--explain` after the build | **not known** |
 
 ### A11. What it unlocks, and what stays

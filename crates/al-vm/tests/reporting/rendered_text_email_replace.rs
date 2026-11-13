@@ -6,7 +6,7 @@
 
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
-use al_builtins::rendered_text::{self, RenderFacts};
+use al_builtins::rendered_text::{self, RenderFacts, ReportShape};
 use al_builtins::value::Value;
 use al_testkit::Built;
 
@@ -61,6 +61,27 @@ report 50983 "RE Legacy"
     dataset { dataitem(T; "RT Row") { column(Id; Id) { } } }
 }
 
+report 50985 "RE Two"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = WordOne;
+    dataset { dataitem(T; "RT Row") { column(Id; Id) { } } dataitem(U; "RT Row") { column(Id2; Id) { } } }
+    rendering { layout(WordOne) { Type = Word; LayoutFile = 'ReTwo.docx'; } }
+}
+
+report 50986 "RE Extended"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = WordOne;
+    dataset { dataitem(T; "RT Row") { column(Id; Id) { } } }
+    rendering { layout(WordOne) { Type = Word; LayoutFile = 'ReExtended.docx'; } }
+}
+
+reportextension 50987 "RE Ext" extends "RE Extended"
+{
+    dataset { add(T) { column(Short; Short) { } } }
+}
+
 codeunit 50984 "RE Tests"
 {
     var
@@ -90,6 +111,8 @@ codeunit 50984 "RE Tests"
     procedure RgbaBody(): Text begin exit(Body(Report::"RE Text", 'x rgba(1,2,3,1)')); end;
     procedure LabelBody(): Text begin exit(Body(Report::"RE Label", '')); end;
     procedure LegacyBody(): Text begin exit(Body(Report::"RE Legacy", '')); end;
+    procedure TwoItemsBody(): Text begin exit(Body(Report::"RE Two", '')); end;
+    procedure ExtendedBody(): Text begin exit(Body(Report::"RE Extended", 'plain')); end;
 
     // A stored selection row that names the report's own Word layout: the save writes the placeholder, as before.
     procedure TenantRowBody(): Text
@@ -107,6 +130,11 @@ codeunit 50984 "RE Tests"
     procedure ReplaceTenantRow(): Text var T: Text; begin T := TenantRowBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
 
     procedure ReplacePlain(): Text var T: Text; begin T := PlainBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
+    procedure ReplaceLegacy(): Text var T: Text; begin T := LegacyBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
+    procedure ReplaceTwoItems(): Text var T: Text; begin T := TwoItemsBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
+    procedure ReplaceExtended(): Text var T: Text; begin T := ExtendedBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
+    // A body that joins two renders of the measured shape (a signature report after the body report).
+    procedure ReplaceTwoRenders(): Text var T: Text; begin T := PlainBody() + PlainBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
     procedure ReplaceRgbaData(): Text var T: Text; begin T := RgbaBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
     procedure ReplaceRgbaLabel(): Text var T: Text; begin T := LabelBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
     procedure ReplaceOtherPattern(): Text
@@ -149,34 +177,79 @@ fn refusal(proc: &str) -> String {
 
 const USE: &str = "a use of the rendered content of report";
 
+/// The facts of the measured render: corpus pull request 1371 (RxHtmlBodyFixtures.al:28-45 report 80013): one data item, no
+/// report extension, `DefaultRenderingLayout` naming a Word layout, no layout selection, no `rgba(` in the dataset.
+const MEASURED: RenderFacts = RenderFacts {
+    shape: ReportShape {
+        one_data_item: true,
+        no_extension: true,
+        rendering_layout_declared: true,
+    },
+    default_word_layout: true,
+    no_selection_row: true,
+    dataset_holds_rgba: false,
+};
+
 #[test]
 fn rendered_text_email_replace_the_save_keeps_the_facts_of_its_render() {
-    let measured = RenderFacts {
-        default_word_layout: true,
-        dataset_holds_rgba: false,
-    };
-    assert_eq!(facts("PlainBody"), measured);
-    // `DefaultLayout = Word` with `WordLayout` is the report's default Word layout too.
-    assert_eq!(facts("LegacyBody"), measured);
+    assert_eq!(facts("PlainBody"), MEASURED);
     let rgba = RenderFacts {
         dataset_holds_rgba: true,
-        ..measured
+        ..MEASURED
     };
     assert_eq!(facts("RgbaBody"), rgba, "a column value");
     assert_eq!(facts("LabelBody"), rgba, "a label");
+    let shape = |one_data_item, no_extension, rendering_layout_declared| RenderFacts {
+        shape: ReportShape {
+            one_data_item,
+            no_extension,
+            rendering_layout_declared,
+        },
+        ..MEASURED
+    };
+    // `DefaultLayout = Word` with `WordLayout`: the default Word layout, but not the declaration the probe measured.
+    assert_eq!(facts("LegacyBody"), shape(true, true, false));
+    assert_eq!(facts("TwoItemsBody"), shape(false, true, true));
+    assert_eq!(facts("ExtendedBody"), shape(true, false, true));
+}
+
+/// One refusal reason per fact the probe measured and the render lacks; none of them marks the assumption.
+#[test]
+fn rendered_text_email_replace_refuses_each_unmeasured_report_shape() {
+    assumptions::clear_hits();
+    for (proc, want) in [
+        (
+            "ReplaceLegacy",
+            "its default layout is not declared with DefaultRenderingLayout",
+        ),
+        ("ReplaceTwoItems", "it does not have exactly one data item"),
+        ("ReplaceExtended", "a report extension extends it"),
+        ("ReplaceTwoRenders", "the body joins 2 renders"),
+    ] {
+        let why = refusal(proc);
+        assert!(why.contains(USE) && why.contains(want), "{proc}: {why}");
+    }
+    assert!(!assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
 }
 
 /// An Html saved while a stored selection row names the report, even its own Word layout, is not the measured render: which
-/// layout BC renders behind a row is not measured.
+/// layout BC renders behind a row is not measured. The refusal names the row.
 #[test]
-fn rendered_text_email_replace_a_render_behind_a_selection_row_is_not_the_default_word_layout() {
+fn rendered_text_email_replace_a_render_behind_a_selection_row_is_not_measured() {
     for proc in ["TenantRowBody", "BuiltinRowBody"] {
         let f = facts(proc);
-        assert!(!f.default_word_layout && !f.dataset_holds_rgba, "{proc}: {f:?}");
+        assert_eq!(
+            f,
+            RenderFacts {
+                no_selection_row: false,
+                ..MEASURED
+            },
+            "{proc}"
+        );
     }
     let why = refusal("ReplaceTenantRow");
     assert!(
-        why.contains(USE) && why.contains("it is not the default Word layout"),
+        why.contains(USE) && why.contains("a stored layout selection row names the report"),
         "{why}"
     );
 }

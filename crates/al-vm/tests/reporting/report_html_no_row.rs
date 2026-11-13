@@ -49,6 +49,14 @@ report 51043 "RN Rdlc"
     rendering { layout(R) { Type = RDLC; LayoutFile = 'RnRdlc.rdl'; } }
 }
 
+report 51045 "RN Legacy"
+{
+    UsageCategory = None;
+    DefaultLayout = Word;
+    WordLayout = 'RnLegacy.docx';
+    dataset { dataitem(T; "RT Row") { column(Id; Id) { } } }
+}
+
 codeunit 51044 "RN Tests"
 {
     local procedure Rows(N: Integer)
@@ -89,6 +97,14 @@ codeunit 51044 "RN Tests"
         Rows(0);
         ClearLastError();
         Saved(Report::"RT Word", ReportFormat::Html);
+        exit(GetLastErrorCode() + '|' + GetLastErrorText());
+    end;
+    procedure NoRowLegacy(): Text begin Rows(0); exit(Saved(Report::"RN Legacy", ReportFormat::Html)); end;
+    procedure NoRowLegacyError(): Text
+    begin
+        Rows(0);
+        ClearLastError();
+        Saved(Report::"RN Legacy", ReportFormat::Html);
         exit(GetLastErrorCode() + '|' + GetLastErrorText());
     end;
     procedure NoRowPdf(): Text begin Rows(0); exit(Saved(Report::"RT Word", ReportFormat::Pdf)); end;
@@ -139,6 +155,14 @@ fn an_html_save_with_no_dataset_row_leaves_the_empty_report_error() {
         text("NoRowHtmlError"),
         "ReportResultEmpty|The report couldn\u{2019}t be generated, because it was empty. Adjust your filters and try again."
     );
+}
+
+/// `DefaultLayout = Word` with `WordLayout`: the probe measured the error only for a layout `DefaultRenderingLayout` names
+/// (RxHtmlBodyFixtures.al:28-45). The save keeps main's answer, false with no error left behind.
+#[test]
+fn a_legacy_declared_report_with_no_dataset_row_leaves_no_error() {
+    assert_eq!(text("NoRowLegacy"), "No|No");
+    assert_eq!(text("NoRowLegacyError"), "|");
 }
 
 #[test]

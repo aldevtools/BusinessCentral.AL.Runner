@@ -30,6 +30,16 @@ use crate::reports::{SaveTarget, Schema};
 use crate::{Session, Signal};
 use al_builtins::value::Value;
 
+/// What `report` declares of the facts the measured Html cells share (`al_builtins::rendered_text::ReportShape`): read by
+/// the save with no dataset row (`Session::no_row_save`) and by the rgba replace (`Session::html_render_mark`).
+fn report_shape(report: &al_ir::Report) -> al_builtins::rendered_text::ReportShape {
+    al_builtins::rendered_text::ReportShape {
+        one_data_item: report.items.len() == 1,
+        no_extension: report.extensions.is_empty(),
+        rendering_layout_declared: report.default_rendering_layout.is_some(),
+    }
+}
+
 /// What a rendering save writes.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum SaveOutput {
@@ -152,9 +162,9 @@ impl Session {
     /// The answer of a placeholder save of a Word layout report whose run wrote no dataset row, `None` for any other save (it
     /// writes as before). BC writes no Html then and answers false without raising: one data item, a stream, the answer used
     /// (corpus probe pull request 1362, reports/layouts-html-text/HtRenderedTextTests.al:320-335 Html_SaveAs_NoDatasetRow,
-    /// `saved` No, `length > 0` No; BC 27.5 and 28.5). It leaves the error `ReportResultEmpty` for GetLastErrorText (corpus probe
-    /// pull request 1371, reports/html-email-body/RxEmailBodyTests.al:134-143 WordDefault_NoRow_EmailBody; all three BC
-    /// majors). Both under the assumption `report-html-no-dataset-row` until they are pinned. Every other placeholder save of a
+    /// `saved` No, `length > 0` No; BC 27.5 and 28.5). When `DefaultRenderingLayout` names the layout it leaves the error
+    /// `ReportResultEmpty` for GetLastErrorText (corpus probe pull request 1371, reports/html-email-body/RxEmailBodyTests.al:
+    /// 134-143 WordDefault_NoRow_EmailBody; all three BC majors). Both under the assumption `report-html-no-dataset-row` until they are pinned. Every other placeholder save of a
     /// Word layout report with no dataset row refuses.
     fn no_row_save(
         &mut self,
@@ -172,11 +182,12 @@ impl Session {
         if report.default_layout_kind != "word" {
             return Ok(None);
         }
+        let shape = report_shape(report);
         let pinned = *output == SaveOutput::Placeholder(Format::Html)
             && matches!(target, SaveTarget::Stream(_))
             && answer_used
-            && report.items.len() == 1
-            && report.extensions.is_empty();
+            && shape.one_data_item
+            && shape.no_extension;
         if !pinned {
             return Err(Signal::unsupported(format!(
                 "Report.SaveAs as {format} of report \"{}\", a Word layout report whose run wrote no dataset row (only an Html \
@@ -185,14 +196,18 @@ impl Session {
             )));
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportHtmlNoDatasetRow);
-        self.last_error = al_builtins::native::AlError {
-            message:
-                "The report couldn\u{2019}t be generated, because it was empty. Adjust your filters and try again."
-                    .into(),
-            code: "ReportResultEmpty".into(),
-            call_stack: String::new(),
-            ..Default::default()
-        };
+        // The error left behind is measured only for a layout `DefaultRenderingLayout` names (RxHtmlBodyFixtures.al:28-45);
+        // `DefaultLayout = Word` keeps the answer without it.
+        if shape.rendering_layout_declared {
+            self.last_error = al_builtins::native::AlError {
+                message:
+                    "The report couldn\u{2019}t be generated, because it was empty. Adjust your filters and try again."
+                        .into(),
+                code: "ReportResultEmpty".into(),
+                call_stack: String::new(),
+                ..Default::default()
+            };
+        }
         Ok(Some(false))
     }
 
@@ -220,11 +235,11 @@ impl Session {
             return Ok(al_builtins::rendered_text::html_mark(schema.name(), None));
         }
         let facts = al_builtins::rendered_text::RenderFacts {
-            // No temporary selection and no stored selection row: BC renders the report's own default layout. Behind a row,
-            // even one `layout_selection` lets the placeholder through for, which layout renders is not measured.
-            default_word_layout: selected.is_none()
-                && report.default_layout_kind == "word"
-                && self.selection_row_of_report(schema)?.is_none(),
+            shape: report_shape(report),
+            default_word_layout: selected.is_none() && report.default_layout_kind == "word",
+            // Behind a stored selection row, even one `layout_selection` lets the placeholder through for, which layout
+            // renders is not measured.
+            no_selection_row: self.selection_row_of_report(schema)?.is_none(),
             // The Xml (UTF-8) holds every column value and name and the labels (`dataset::Dataset::finish`); `rgba(` has no
             // character Xml escapes.
             dataset_holds_rgba: dataset.windows(RGBA.len()).any(|w| w == RGBA),

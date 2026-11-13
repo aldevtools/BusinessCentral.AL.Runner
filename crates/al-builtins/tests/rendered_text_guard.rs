@@ -2,7 +2,7 @@
 
 use al_builtins::builtin_id::BuiltinId;
 use al_builtins::native::Signal;
-use al_builtins::rendered_text::{self, Form, RenderFacts};
+use al_builtins::rendered_text::{self, Form, RenderFacts, ReportShape};
 use al_builtins::value::Value;
 
 fn marked() -> Value {
@@ -10,9 +10,16 @@ fn marked() -> Value {
     Value::Text(rendered_text::mark_text(n, Form::Whole).into())
 }
 
-/// The facts of a render the rgba replace is measured for: the report's default Word layout, no `rgba(` in its dataset.
+/// The facts of a render the rgba replace is measured for (corpus pull request 1371, RxHtmlBodyFixtures.al:28-45): one data
+/// item, no report extension, a Word layout `DefaultRenderingLayout` names, no layout selection, no `rgba(` in its dataset.
 const MEASURED: RenderFacts = RenderFacts {
+    shape: ReportShape {
+        one_data_item: true,
+        no_extension: true,
+        rendering_layout_declared: true,
+    },
     default_word_layout: true,
+    no_selection_row: true,
     dataset_holds_rgba: false,
 };
 
@@ -228,31 +235,59 @@ fn the_rgba_replace_takes_only_renders_of_the_measured_shape() {
         assert!(matches!(call(marked_with(MEASURED, form)), Ok(true)));
         assert!(assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
     }
-    // A layout a temporary selection named, or a report whose default layout is not Word.
-    let other_layout = RenderFacts {
-        default_word_layout: false,
+    let shape = |one_data_item, no_extension, rendering_layout_declared| RenderFacts {
+        shape: ReportShape {
+            one_data_item,
+            no_extension,
+            rendering_layout_declared,
+        },
         ..MEASURED
     };
-    // A dataset that holds `rgba(`: BC's Html may then hold a color the replace rewrites.
-    let rgba_data = RenderFacts {
-        dataset_holds_rgba: true,
-        ..MEASURED
-    };
+    // One refusal reason per fact the render lacks.
+    let unmeasured = [
+        // A layout a temporary selection named, or a report whose default layout is not Word.
+        (
+            RenderFacts {
+                default_word_layout: false,
+                ..MEASURED
+            },
+            "it is not the default Word layout of its report",
+        ),
+        (
+            RenderFacts {
+                no_selection_row: false,
+                ..MEASURED
+            },
+            "a stored layout selection row names the report",
+        ),
+        (
+            shape(true, true, false),
+            "its default layout is not declared with DefaultRenderingLayout",
+        ),
+        (shape(false, true, true), "it does not have exactly one data item"),
+        (shape(true, false, true), "a report extension extends it"),
+        // A dataset that holds `rgba(`: BC's Html may then hold a color the replace rewrites.
+        (
+            RenderFacts {
+                dataset_holds_rgba: true,
+                ..MEASURED
+            },
+            "its dataset holds the text rgba(",
+        ),
+    ];
     assumptions::clear_hits();
-    replace_refused(
-        marked_with(other_layout, Form::Whole),
-        "it is not the default Word layout",
-    );
-    replace_refused(marked_with(rgba_data, Form::Whole), "its dataset holds the text rgba(");
+    for (facts, want) in unmeasured {
+        replace_refused(marked_with(facts, Form::Whole), want);
+    }
     replace_refused(marked(), "it is not the default Word layout");
-    // Two bodies in one text: each render is asked.
-    let (Value::Text(a), Value::Text(b)) = (marked_with(MEASURED, Form::Whole), marked_with(rgba_data, Form::Whole))
+    // A body that joins two renders, even two of the measured shape: one render per body was measured.
+    let (Value::Text(a), Value::Text(b)) = (marked_with(MEASURED, Form::Whole), marked_with(MEASURED, Form::Whole))
     else {
         unreachable!()
     };
     replace_refused(
         t(&format!("{}{}", a.audited_str(), b.audited_str())),
-        "its dataset holds the text rgba(",
+        "the body joins 2 renders",
     );
     assert!(!assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
 }
