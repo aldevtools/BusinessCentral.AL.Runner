@@ -60,7 +60,10 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a value that does not carry its origin (a Blob handed to a Variant or a parameter): a gate on the field kind cannot be
     checked there. Pass the kind from the read site, or do not claim it in the entry (al-runner PR 7951).
   - a name-resolution shortcut checked against variables only: check every kind of declaration that can own the name
-    (local, parameter, return value, global, procedure of the object), each measured (al-runner PR 7973).
+    (local, parameter, return value, global, procedure of the object), each measured (al-runner PR 7973), and every
+    implicit record that can supply the name: OnRun, a page, a table, a data item, the request page SourceTable of a
+    report or xmlport, a `with`. A diagnostic for a name the lookup did not resolve is emitted only in the object kind
+    and routine kind alc measured, by equality (al-runner PR 7980).
   - an events exception list copied from a sibling row: the exception is true only where the caller raises the event
     (`format_unsupported_by_layout`). Check who raises each excepted event for the new row's shape (al-runner PR 7979).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
@@ -179,3 +182,9 @@ A stand-in of a Base Application object in a Rust fixture is written from the pi
 source (CLAUDE.md hard rule 7). Only object ids and names, field ids and names, and procedure and event signatures may
 match. Before hand-back, compare the fixture's lines with the files in the artifact cache; only signatures, one-word
 lines and one-statement assignments of an answer value (`Success := true;`) may match.
+
+## 14. A shape the checker now lets compile, followed only to the checker (al-runner PR 7980)
+
+A checker change that lets a new shape compile: follow the name into lowering. Two declarations the checker tells apart
+may share one slot there (a declared global `Rec` and the implicit Rec of a codeunit with TableNo). Run the shape and
+read a value that tells them apart.
