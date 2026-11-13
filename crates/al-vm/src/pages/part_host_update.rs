@@ -8,8 +8,8 @@
 //! reads of the row at the end. After a host action that calls Update, BC reads the part before the action runs; that needs a
 //! look into the action, so the Update is refused there (`refuse_update_in_action`).
 
-use super::*;
 use super::pinned_shape::TestCall;
+use super::*;
 use al_builtins::page_op::PageMethod;
 
 /// A part's view (up to a window of rows) and the place of its row in it.
@@ -116,7 +116,9 @@ impl Session {
 
     pub(super) fn refresh_host_before_set_value(&mut self, st: &St) -> Result<(), Signal> {
         let pending = st.borrow_mut().deferred_part_drilldown_refresh.take();
-        let Some(DeferredReread::Pending(key)) = pending else { return Ok(()) };
+        let Some(DeferredReread::Pending(key)) = pending else {
+            return Ok(());
+        };
         if self.clean_document_refresh_row(st) && Self::same_key(&key, &self.row_key(&self.page_rec(st))?) {
             al_builtins::assumptions::assume(
                 al_builtins::assumptions::Assumption::CardPartDrilldownDeferredHostRefresh,

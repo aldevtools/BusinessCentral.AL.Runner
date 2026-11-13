@@ -1,7 +1,7 @@
 //! The caption a CaptionClass text stands for (moved out of rows.rs).
 
-use super::*;
 use super::pinned_shape::TestCall;
+use super::*;
 use al_builtins::page_op::PageMethod;
 
 const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
@@ -37,7 +37,12 @@ impl Session {
         let revision = self.events.caption_context_revision;
         let subscriptions = self.bound_subscriptions();
         let calls = Self::tree_root(st).0.borrow().tree_calls.len();
-        let prior = st.borrow().control_captions.iter().find(|(i, _, _)| *i == index).cloned();
+        let prior = st
+            .borrow()
+            .control_captions
+            .iter()
+            .find(|(i, _, _)| *i == index)
+            .cloned();
         if let Some((_, prior_class, caption)) = prior {
             let context = st
                 .borrow()
@@ -57,7 +62,12 @@ impl Session {
                 );
             }
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LiteralFieldCaptionResolutionReused);
-            if let Some(c) = st.borrow_mut().literal_field_caption_contexts.iter_mut().find(|c| c.0 == index) {
+            if let Some(c) = st
+                .borrow_mut()
+                .literal_field_caption_contexts
+                .iter_mut()
+                .find(|c| c.0 == index)
+            {
                 c.3 = calls;
             }
             return Ok(caption);
@@ -65,7 +75,9 @@ impl Session {
         let caption = self.caption_class_text(st, &class)?;
         let mut state = st.borrow_mut();
         state.control_captions.push((index, class, caption.clone()));
-        state.literal_field_caption_contexts.push((index, revision, subscriptions, calls));
+        state
+            .literal_field_caption_contexts
+            .push((index, revision, subscriptions, calls));
         Ok(caption)
     }
 
