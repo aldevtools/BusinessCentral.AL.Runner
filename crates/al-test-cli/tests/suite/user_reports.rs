@@ -2661,3 +2661,189 @@ codeunit 69502 T {{ Subtype = Test;
         );
     }
 }
+
+#[test]
+fn measured_group_two_enum_flowfilter_constrains_relation() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/group-two-enum-flowfilter-relation.al"),
+    ));
+}
+
+#[test]
+fn issue_7877_other_group_two_flowfilter_shapes_keep_their_refusals() {
+    let source = include_str!("../fixtures/group-two-enum-flowfilter-relation.al");
+    let narrow = r#"Source.SetRange("Kind Filter", Source."Kind Filter"::Selected);"#;
+    let other_type = source.replace(
+        r#"Enum "Group Relation Kind") {"#,
+        "Option) { OptionMembers = Other,Selected;",
+    );
+    let variants = [
+        ("Option", other_type),
+        (
+            "group 3",
+            source.replace("Source.FilterGroup(2);", "Source.FilterGroup(3);"),
+        ),
+        (
+            "multiple filters",
+            source.replace(
+                narrow,
+                &format!("{narrow}\n        Source.FilterGroup(0);\n        {narrow}"),
+            ),
+        ),
+        (
+            "range",
+            source.replace(
+                narrow,
+                r#"Source.SetRange("Kind Filter", Source."Kind Filter"::Other, Source."Kind Filter"::Selected);"#,
+            ),
+        ),
+        (
+            "assigned buffer",
+            source.replace(
+                narrow,
+                &format!(
+                    r#"{narrow}
+            Source."Kind Filter" := Source."Kind Filter"::Selected;"#
+                ),
+            ),
+        ),
+    ];
+    for (label, variant) in variants {
+        assert_ne!(source, variant, "{label}");
+        let results = run_with_deps(&[], &variant);
+        let (_, result) = results
+            .iter()
+            .find(|(name, _)| name == "GroupTwoFlowFilterConstrainsDirectValidation")
+            .unwrap();
+        assert!(
+            matches!(result, Outcome::NotRun(reason) if reason.contains("source FlowFilter")),
+            "{label}: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn measured_currpage_save_record_prefers_the_platform_method() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/curr-page-save-record-collision.al"),
+    ));
+}
+
+#[test]
+fn issue_7887_bare_save_record_still_calls_the_internal_procedure() {
+    let source = r#"
+page 50992 "Save Collision Control" {
+    PageType = Card;
+    layout { area(Content) { field(Observed; Called) {} } }
+    actions { area(Processing) {
+        action(Check) { trigger OnAction() begin SaveRecord(); end; }
+    } }
+    var Called: Boolean;
+    internal procedure SaveRecord() begin Called := true; end;
+}
+codeunit 50993 T {
+    Subtype = Test;
+    [Test] procedure BareCall() var P: TestPage "Save Collision Control";
+    begin
+        P.OpenView();
+        P.Check.Invoke();
+        if not P.Observed.AsBoolean() then Error('Bare SaveRecord did not invoke the page procedure.');
+        P.Close();
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], source));
+}
+
+#[test]
+fn extension_save_record_still_calls_the_base_procedure() {
+    let outcomes = run_with_deps(
+        &[],
+        r###"
+table 50992 "Save Collision Row" {
+    fields { field(1; Id; Integer) {} field(2; Marker; Integer) {} }
+    keys { key(PK; Id) {} }
+}
+page 50993 "Save Collision Base" {
+    PageType = Card;
+    SourceTable = "Save Collision Row";
+    layout { area(Content) { field(Marker; Rec.Marker) {} } }
+    internal procedure SaveRecord() begin Error('base SaveRecord procedure'); end;
+}
+pageextension 50994 "Save Collision Extension" extends "Save Collision Base" {
+    actions { addlast(Processing) {
+        action(CheckExtension) { ApplicationArea = All; trigger OnAction() begin CurrPage.SaveRecord(); end; }
+    } }
+}
+codeunit 50995 T {
+    Subtype = Test;
+    [Test] procedure ExtensionCall()
+    var P: TestPage "Save Collision Base"; R: Record "Save Collision Row";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenEdit();
+        P.CheckExtension.Invoke();
+        P.Close();
+    end;
+}
+"###,
+    );
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "base SaveRecord procedure"),
+        "{outcomes:?}"
+    );
+}
+
+#[test]
+fn measured_card_new_skips_empty_part_current_record() {
+    all_pass(run_with_deps(&[], include_str!("../fixtures/card-new-empty-part.al")));
+}
+
+#[test]
+fn measured_report_extension_items_link_to_named_immediate_parents() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/report-added-item-parent-link.al"),
+    ));
+}
+
+// Issue #7904: the corpus fixture uses a named immediate parent with a DataItemLink.
+#[test]
+fn report_extension_refuses_unmeasured_parent_references() {
+    let fixture = include_str!("../fixtures/report-added-item-parent-link.al");
+    for (shape, source, refusal) in [
+        (
+            "grandparent",
+            fixture.replace(
+                "DataItemLinkReference = AddedHeader;",
+                "DataItemLinkReference = Header;",
+            ),
+            "DataItemLinkReference",
+        ),
+        (
+            "sibling",
+            fixture.replace("DataItemLinkReference = Header;", "DataItemLinkReference = Line;"),
+            "DataItemLinkReference",
+        ),
+        (
+            "top-level",
+            fixture.replace("addbefore(Line)", "addbefore(Header)"),
+            "is a top-level data item",
+        ),
+        (
+            "no link",
+            fixture.replacen("DataItemLink = ParentId = field(Id);", "", 1),
+            "DataItemLinkReference",
+        ),
+    ] {
+        let outcomes = run_with_deps(&[], &source);
+        assert_eq!(outcomes.len(), 1, "{shape}: {outcomes:?}");
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains(refusal)),
+            "{shape}: {outcomes:?}"
+        );
+    }
+}
