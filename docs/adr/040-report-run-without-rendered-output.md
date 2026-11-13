@@ -929,3 +929,70 @@ test that never reads the field again is not run.
 1. Accept points 1 to 4, for stored and temporary rows alike?
 2. Point 4 lists the platform reads known today. A read path not listed falls to the row store compare or `format`, which
    refuse. Is that the guard the owner wants, or must each path get its own test before the change is built?
+
+## Amendment 2026-11-13: the save answer as a table of measured cells, and merged Word text (Accepted, owner 2026-11-13)
+
+Status: Accepted by the owner on 2026-11-13, with the answers recorded under "Owner decisions" below. Replaces the
+hand-written predicates of the amendments of 2026-11-08, 2026-11-11 and 2026-11-12 (A7) by one table; replaces Part B of the
+amendment of 2026-11-12. Built in rounds: step 1 round 1 is the table with today's cells (no change of any answer), round 2
+takes the selection facts from Microsoft's code, round 3 adds the probe's rows and the drop records.
+
+### The problem
+
+A rendering save is answered by hand-written predicates in seven places. Each reads a subset of the facts (how the layouts
+are declared, which layout a selection picks, the data items, the triggers, the extensions, the format, the call form).
+Every review round found a neighbor shape one predicate let through. An outside suite (al-runner issue 6924) has 188 tests
+that only ask whether the save answered and wrote something; they refuse because their combination of facts is in no
+predicate, and the refusal does not say which fact is missing.
+
+### Decision, part 1: the table
+
+1. A save computes one fact vector (al-vm `report_save/facts.rs`). Each fact has one owner that computes it.
+2. The answer is the row of the table whose key matches the vector: saved or not, the error text and code, the kind of the
+   output, whether anything is written, whether the rgba replace of `Email Message.Create` is measured on the render, and
+   which events BC raises that this runtime does not. Each row cites its corpus lines. No row: the save refuses and names
+   every fact that is not measured, with the nearest measured rows.
+3. The facts about layout selection are the answers of the platform events SelectReportLayoutCode,
+   SelectedBuiltinLayoutType and HasCustomLayout. The runtime raises them and Microsoft's ReportManagement answers as AL. The
+   runtime no longer reads table 9651 "Report Layout Selection" itself (round 2; the work ratchet is measured there).
+4. A row that lists measured events raises them to every subscriber. A row without measured events refuses when a
+   subscriber the test can see listens, as before.
+5. A fact may be left out of the match only through a drop record: the fact, the scope it holds in, at least two measured
+   values of the fact that give the same answer, the corner cells where two dropped facts differ together, and one sentence
+   why. One record per lookup. A test checks every record against every row; a new cell that contradicts a record fails the
+   build. An answer through a record marks `report-save-dropped-fact` and stays a flagged pass. This is the one place where
+   the runtime answers a shape no cell measured; it applies to report saves only.
+6. Answers main gives today without a measurement are ordinary rows of the table. They run through an entry of the
+   assumption registry that cites the open probe pull request, as any behavior that waits for its pin, and their cells are
+   part of the step-1 probe plan, so that they become measured. There is no separate row kind and no separate ratchet file.
+7. The content stays a placeholder. Reads of it refuse as in the amendments of 2026-11-11 and 2026-11-12, Part A.
+
+### Decision, part 2: merged Word text (replaces Part B)
+
+1. For a save that a Word layout renders, the runtime merges the layout's `word/document.xml` (and header, footer and
+   footnote parts) with the dataset of the run into known text pieces: static text, values of controls bound to columns,
+   labels, and the content of repeating sections once per row.
+2. `T.Contains(X)` answers true when `T` holds the mark of that render and `X` lies inside one piece. False is never
+   answered. Positions, lengths, equality and parsing refuse as in Part A.
+3. A piece ends wherever BC's output has markup or another character: between two runs, at two spaces, a tab, a no-break
+   space, a line break, and at every element the merge does not understand. The rules are a table of measured cells.
+4. A layout the parser does not understand completely gives no pieces; the render is then opaque as in Part A.
+5. After `Email Message.Create` (the rgba replace) a piece answers only under the rule of the design note (rgba next to a
+   cut).
+6. The text of a Word output (`word/document.xml` read through a zip archive) is built only when a reported test needs it.
+7. No new dependency. `flate2` and `quick-xml` are in the workspace already.
+
+### What stays refused
+
+A Pdf's content, an RDLC render in any format, an Excel workbook's cells, styling, images, pagination, field results, a
+`Contains` that would answer false, and every save whose fact vector is in no row.
+
+### Owner decisions (2026-11-13)
+
+1. Drop records (part 1, point 5): accepted, with evidence. Each record names the fact, the scope, at least two measured
+   values that show the answer does not change, and the corner cells; a test checks every record against every row.
+2. Selection from Microsoft's ReportManagement compiled from source, the events raised to all subscribers, no native read of
+   table 9651 (part 1, point 3): accepted. Built in round 2, with the work ratchet measured there.
+3. No new ratchet file and no separate row kind for the answers main gives without a measurement (part 1, point 6): they are
+   ordinary rows through the assumption registry, and their cells join the step-1 probe plan.
+4. Word output text (part 2, point 6): on demand, not built in step 2 now.
