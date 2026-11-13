@@ -1105,8 +1105,9 @@ impl Session {
                         s.set_record.is_none() && !s.set_view
                     };
                     let held = blank_rec && (st.borrow().host.is_some() || unopened_var || self.on_open_new_row(st));
-                    empty_modal_worksheet =
-                        plain_dst && self.empty_modal_worksheet_selection(st, &src, dst, &initial)?;
+                    empty_modal_worksheet = plain_dst
+                        && (self.empty_modal_worksheet_selection(st, &src, dst, &initial)?
+                            || self.filtered_modal_worksheet_blank_code(st, &src, dst, &initial)?);
                     if empty_modal_worksheet {
                         st.borrow_mut().empty_selection_given = true;
                     }

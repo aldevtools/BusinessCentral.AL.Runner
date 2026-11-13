@@ -3432,3 +3432,65 @@ fn issue_7885_var_variant_and_source_side_keep_main_result() {
         );
     }
 }
+
+#[test]
+fn measured_static_modal_worksheet_selects_blank_code_on_empty_view() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/modal-worksheet-blank-code-selection.al"),
+    ));
+}
+
+#[test]
+fn filtered_modal_worksheet_selection_refuses_neighbor_shapes() {
+    let src = include_str!("../fixtures/modal-worksheet-blank-code-selection.al");
+    let src = src.replace(
+        "field(3; VisibleKind; Boolean) { }",
+        "field(3; VisibleKind; Boolean) { } field(4; OtherFilter; Boolean) { }",
+    );
+    let src = src.replace(
+        "Row.VisibleKind := true;
+        Row.Insert();",
+        "Row.VisibleKind := false;
+        Row.Insert();",
+    );
+    for (from, to) in [
+        ("SourceTableView = where(VisibleKind = const(true));", ""),
+        ("SaveValues = true;", ""),
+        (
+            "CurrPage.SetSelectionFilter(Selected);",
+            "Selected.Reset(); CurrPage.SetSelectionFilter(Selected);",
+        ),
+        ("Rec.SetRange(Batch, 'SELECTED');", ""),
+        (
+            "Rec.SetRange(Batch, 'SELECTED');",
+            "Rec.SetRange(Batch, 'SELECTED'); Rec.SetRange(OtherFilter, false);",
+        ),
+        ("Rec.SetRange(Batch, 'SELECTED');", "Rec.SetRange(Id, 'SELECTED');"),
+    ] {
+        let result = run_with_deps(&[], &src.replace(from, to));
+        assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{from}: {result:?}");
+    }
+}
+
+#[test]
+fn filtered_modal_worksheet_selection_refuses_modeless_and_extension() {
+    let src = include_str!("../fixtures/modal-worksheet-blank-code-selection.al");
+    let modeless = src
+        .replace("Page.RunModal(", "Page.Run(")
+        .replace("[ModalPageHandler]", "[PageHandler]");
+    let extension = format!(
+        r#"{src}
+pageextension 50998 UnmeasuredWorksheet extends "Refresh Probe Worksheet" {{
+    trigger OnOpenPage() begin end;
+}}
+"#
+    );
+    for (shape, fixture) in [("modeless", modeless), ("extension", extension)] {
+        let result = run_with_deps(&[], &fixture);
+        assert!(
+            matches!(&result[0].1, Outcome::NotRun(why) if why.contains("SetSelectionFilter")),
+            "{shape}: {result:?}"
+        );
+    }
+}
