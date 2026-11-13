@@ -293,6 +293,62 @@ fn an_exception_of_a_member_with_a_by_reference_parameter_names_no_binding() {
     sess.close();
 }
 
+// A call that writes into the OutStream bridge of an earlier call and then throws names no binding: the bytes it wrote reach
+// the host only with a later reply, so the host keeps the refusal. A CryptoStream with a FromBase64Transform over text that
+// turns invalid after 64 characters writes 48 bytes into the bridge, then throws FormatException.
+#[test]
+fn an_exception_of_a_call_that_wrote_into_an_earlier_bridge_names_no_binding() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let handle = |r: &DotNetReply| arg(r.value.clone());
+    let w = sess
+        .construct(&ty("System.IO.StreamWriter"), vec![arg(DotNetValue::OutStream)])
+        .unwrap();
+    let base = sess
+        .get_property(DotNetTarget::Instance(handle_of(&w)), "BaseStream")
+        .unwrap();
+    let ascii = sess.get_property(st("System.Text.Encoding"), "ASCII").unwrap();
+    let text = format!("{}!!!!!!!!QUJD", "QUJD".repeat(16));
+    let bytes = sess
+        .invoke(DotNetTarget::Instance(handle_of(&ascii)), "GetBytes", vec![s(&text)])
+        .unwrap();
+    // A fresh CryptoStream over the bytes, copied into `to` with a buffer of 12 bytes: it throws after 48 bytes.
+    let failing_copy = |sess: &mut Box<dyn DotNetSession>, to: DotNetArg| {
+        let src = sess
+            .construct(&ty("System.IO.MemoryStream"), vec![handle(&bytes)])
+            .unwrap();
+        let transform = sess
+            .construct(&ty("System.Security.Cryptography.FromBase64Transform"), vec![])
+            .unwrap();
+        let read = arg(DotNetValue::Enum {
+            ty: "System.Security.Cryptography.CryptoStreamMode".into(),
+            name: "Read".into(),
+            ordinal: 0,
+        });
+        let crypto = sess
+            .construct(
+                &ty("System.Security.Cryptography.CryptoStream"),
+                vec![handle(&src), handle(&transform), read],
+            )
+            .unwrap();
+        exception(sess.invoke(
+            DotNetTarget::Instance(handle_of(&crypto)),
+            "CopyTo",
+            vec![to, arg(DotNetValue::Int32(12))],
+        ))
+    };
+    // Control: the same failed call into a stream that is no bridge names its binding.
+    let dst = sess.construct(&ty("System.IO.MemoryStream"), vec![]).unwrap();
+    let e = failing_copy(&mut sess, handle(&dst));
+    assert_eq!(
+        (e.clr_type.as_str(), e.bound.as_str()),
+        ("System.FormatException", "method")
+    );
+    let e = failing_copy(&mut sess, handle(&base));
+    assert_eq!((e.clr_type.as_str(), e.bound.as_str()), ("System.FormatException", ""));
+    sess.close();
+}
+
 #[test]
 fn a_missing_type_or_member_is_a_refusal_not_an_exception() {
     let Some(h) = host() else { return };

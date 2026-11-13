@@ -302,13 +302,14 @@ public sealed class Server
     static bool PlainParameters(MethodBase m) => m.GetParameters().All(p => p.ParameterType.IsByRef == false);
 
     /// The reply for an exception the request raised: [Failure], with the binding that threw and whether the member name
-    /// was folded to its .NET letter case, which the host needs for the error text AL sees.
+    /// was folded to its .NET letter case, which the host needs for the error text AL sees. No binding when the request
+    /// wrote into an OutStream bridge ([Marshaller.BridgesUnwritten]): the host keeps that call refused.
     public JsonObject FailureOf(Exception ex)
     {
         var reply = Failure(ex);
         if ((string?)reply["kind"] == "exception")
         {
-            if (bound != null) reply["bound"] = bound;
+            if (bound != null && marshal.BridgesUnwritten()) reply["bound"] = bound;
             if (foldedCase) reply["folded"] = true;
         }
         return reply;
