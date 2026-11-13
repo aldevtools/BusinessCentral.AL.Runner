@@ -824,6 +824,7 @@ impl Session {
             Ok(v) => self.settle_rows_after_action(st, view_before).map(|()| v),
             e => e,
         };
+        let r = self.journal_part_after_action_refresh(st, r);
         let held = {
             let mut s = st.borrow_mut();
             s.in_action = was_in_action;
@@ -981,8 +982,7 @@ impl Session {
         // its re-read above).
         // A list that serves its rows from OnFindRecord and OnNextRecord does the same (testpage/W2FindRecordUpdate.al: during_action
         // `AGR(20);ActionBegin;ActionEnd;`).
-        // (testpage/W2FindRecordUpdate.al for a list; pages/currpage/UpdateOnFindRecord.al for a card and a list that
-        // declare OnAfterGetCurrRecord: `AGR:2;act:Update(false)` first.)
+        // A card and a list that declare OnAfterGetCurrRecord: pages/currpage/UpdateOnFindRecord.al `AGR:2;act:Update(false)` first.
         let find_list =
             self.declares(st, "onfindrecord") && (self.is_list(st) || self.declares(st, "onaftergetcurrrecord"));
         // A card with OnFindRecord and no OnNextRecord reads its row before the action, again after it, then asks `=` and reads
@@ -1650,17 +1650,6 @@ impl Session {
         drop_draft(st, None);
         self.page_first_row(st)?;
         Ok(true)
-    }
-
-    /// The rows of the page's view, counted on a copy of its record.
-    pub(super) fn view_row_count(&mut self, st: &St) -> Result<i32, Signal> {
-        let rec = self.page_rec(st);
-        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        self.ret_used = true;
-        Ok(match self.record_op(RecordOp::Count, &probe, &mut [])? {
-            Value::Integer(n) => n,
-            _ => 0,
-        })
     }
 
     /// Before the action's trigger. A list opened for view over an empty table reads its blank record once when the test stored
@@ -3035,6 +3024,9 @@ impl Session {
         }
         if self.declares(st, "onfindrecord") {
             return self.settle_gone_row_with_find(st, &rec);
+        }
+        if self.settle_gone_row_of_temp_list(st, &rec)? {
+            return Ok(());
         }
         self.ret_used = true;
         let moved = matches!(

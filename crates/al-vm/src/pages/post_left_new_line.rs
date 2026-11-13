@@ -3,7 +3,7 @@
 //! with and without the new-row line (al-runner issues 6027, 6292, 7197, 7821).
 
 use super::pinned_body::{Callees, callees_are, page_is, table_is};
-use super::pinned_shape::{PinnedEnd, TestCall};
+use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
 use super::*;
 use al_builtins::page_op::PageMethod;
 
@@ -82,6 +82,8 @@ impl Session {
             reads: false,
             one_action: false,
             first_ends: false,
+            part_visible: false,
+            next: NextEnd::Refused,
         });
         Ok(true)
     }

@@ -2,7 +2,7 @@
 //! reads the page as when it opens and the first row of the new view becomes current. `action_invoke_body` (actions.rs)
 //! asks `empty_list_view` before the action's trigger and `update_on_empty_list_view` after it.
 
-use super::pinned_shape::{PinnedEnd, capital_word, open_page_filters_then_find, own_table_code};
+use super::pinned_shape::{NextEnd, PinnedEnd, capital_word, open_page_filters_then_find, own_table_code};
 use super::*;
 
 impl Session {
@@ -93,6 +93,8 @@ impl Session {
                 reads: true,
                 one_action: true,
                 first_ends: true,
+                part_visible: false,
+                next: NextEnd::Refused,
             });
         }
         Ok(true)
