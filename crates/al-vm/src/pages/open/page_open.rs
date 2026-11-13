@@ -1576,6 +1576,7 @@ fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.draft_start = None;
     s.part_accessed = false;
     s.new_host_part_rows = false;
+    s.trapped_blank_part_edit = false;
     s.host_stored_blank_key = false;
     s.part_insert_swallowed = false;
     s.blank_key_edit_reread = false;

@@ -733,6 +733,9 @@ pub struct PageState {
     /// and a read of a host field are pinned for it, and a part field read or First that inserts it (pages/
     /// lt-part-line-before-host-key/PartLineBeforeHostKey.al QH_BlankRows_*).
     pub new_host_part_rows: bool,
+    /// The measured SetValue of `trapped_card_blank_part.rs` ran on this host: only a read of a host field and Close may
+    /// follow, and the row Close stores must have a key that is not blank.
+    pub trapped_blank_part_edit: bool,
     /// New() on the request page of a report landed on a blank row that nothing stores (Y80_RX_New_*).
     pub request_new_blank: bool,
     /// A new host card or document that a first part access stored with its blank key (pages/new-host-key-entry/Y80NewHostKey.al

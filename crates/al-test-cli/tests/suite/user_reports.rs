@@ -2874,3 +2874,50 @@ pageextension 50979 "Draft Card Extension" extends "Draft Probe Card" {{ trigger
         "{outcome:?}"
     );
 }
+
+/// Issue 7879: without the table's OnInsert the new Card is stored under the blank key, so its part keeps showing the
+/// blank-key rows. That state is not measured: the SetValue keeps main's refusal text.
+#[test]
+fn issue_7879_card_stored_under_the_blank_key_keeps_the_refusal() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    let on_insert =
+        "    trigger OnInsert()\n    begin\n        if Code = '' then\n            Code := 'NEW';\n    end;\n";
+    assert!(source.contains(on_insert));
+    let results = run_with_deps(&[], &source.replace(on_insert, ""));
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "SetValueOnNewCardWithBlankLinkedRows")
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::NotRun(reason)
+            if reason.contains("TestField.SetValue on a new, unsaved host whose part shows rows of the blank key (not pinned)")),
+        "{outcome:?}"
+    );
+}
+
+/// Issue 7879: after the measured SetValue only a host field read and Close are measured. Another call on the Card
+/// (Next, a second SetValue) keeps the refusal.
+#[test]
+fn issue_7879_other_calls_after_the_set_value_keep_the_refusal() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    let close = "        Card.Close();\n";
+    assert!(source.contains(close));
+    for (shape, call, refusal) in [
+        ("Next", "        Card.Next();\n", "TestPage.Next on a new, unsaved host whose part shows rows of the blank key"),
+        (
+            "second SetValue",
+            "        Card.Category.SetValue('OTHER');\n",
+            "TestField.SetValue on a new, unsaved host whose part shows rows of the blank key",
+        ),
+    ] {
+        let results = run_with_deps(&[], &source.replace(close, &format!("{call}{close}")));
+        let (_, outcome) = results
+            .iter()
+            .find(|(name, _)| name == "SetValueOnNewCardWithBlankLinkedRows")
+            .unwrap();
+        assert!(
+            matches!(outcome, Outcome::NotRun(reason) if reason.contains(refusal)),
+            "{shape}: {outcome:?}"
+        );
+    }
+}

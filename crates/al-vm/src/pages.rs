@@ -271,6 +271,7 @@ use no_source_events::NoSourceNew;
 mod open;
 pub(crate) mod pinned_shape;
 mod trapped_card_blank_part;
+use trapped_card_blank_part::blank_part_host_refusal;
 mod ui_caption_translate;
 mod update_refresh_card;
 pub(crate) mod validate_xrec;

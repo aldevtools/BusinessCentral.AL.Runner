@@ -1215,6 +1215,11 @@ impl Session {
         if st.borrow().new_host_part_rows && st.borrow().host.is_none() {
             let ok = matches!(&c.target, ControlTarget::BuiltIn(n) if n == "OK") && m == PageMethod::Invoke;
             let activate = m == PageMethod::Activate && matches!(c.target, ControlTarget::Control(_));
+            let host_field_read = field_read && matches!(c.target, ControlTarget::Control(_));
+            // After the measured SetValue only a read of a host field follows (`trapped_card_blank_part.rs`).
+            if st.borrow().trapped_blank_part_edit && !host_field_read {
+                return blank_part_host_refusal(m);
+            }
             let trapped_card_edit = if m == PageMethod::SetValue
                 && let ControlTarget::Control(index) = c.target
             {
@@ -1222,11 +1227,8 @@ impl Session {
             } else {
                 false
             };
-            if !(field_read && matches!(c.target, ControlTarget::Control(_))) && !ok && !activate && !trapped_card_edit
-            {
-                return unsupported(format!(
-                    "TestField.{m} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
-                ));
+            if !host_field_read && !ok && !activate && !trapped_card_edit {
+                return blank_part_host_refusal(m);
             }
         }
         Ok(())
@@ -1763,9 +1765,6 @@ impl Session {
                 let before = self.has_source(st).then(|| self.page_rec(st).borrow().fields.clone());
                 let r = self.set_value_reading_held_row(st, idx, args)?;
                 self.resync_parts_linked_by(st, idx, before.as_deref())?;
-                if st.borrow().new_host_part_rows && !st.borrow().draft {
-                    st.borrow_mut().new_host_part_rows = false;
-                }
                 self.refresh_host_after_part_edit(st)?;
                 Ok(r)
             }
