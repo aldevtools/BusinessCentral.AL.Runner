@@ -1037,11 +1037,9 @@ impl Session {
         // The row version the buffer got comes over with the fields, and where it came from (record/crud/
         // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
         (d.fields, d.row_origin) = (s.fields, s.row_origin);
-        // The Blobs move as `BlobMove::record_copy` says.
-        if let Some(how) = BlobMove::record_copy(s.temporary, d.temporary) {
-            let table = d.table as usize;
-            self.move_blobs(table, &mut d.fields, None, how, holder)?;
-        }
+        // The Blobs move as `BlobMove::RecordCopy` says.
+        let table = d.table as usize;
+        self.move_blobs(table, &mut d.fields, None, BlobMove::RecordCopy, holder)?;
         d.filters = s.filters;
         d.filter_group = s.filter_group;
         d.key = s.key;
@@ -2049,7 +2047,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
-                    own_variable: Default::default(),
+                    probed_source: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
                     load: Default::default(),

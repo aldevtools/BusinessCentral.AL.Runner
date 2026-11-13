@@ -1678,7 +1678,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
-                    own_variable: Default::default(),
+                    probed_source: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
                     run_page_link: None,
@@ -2448,16 +2448,15 @@ impl Session {
                 locals.push(Value::Null);
             } else {
                 let v = self.slot_default(s);
-                if i >= r.params {
+                if blob_transfer::measured_local(engine.program.objects[object].kind, r, i) {
                     blob_transfer::new_variable(&v);
                 }
                 locals.push(v);
             }
         }
         let mut args = args;
-        // A procedure without attributes, called as a procedure: the call whose by-value arguments `blob_transfer::Argument`
-        // measures.
-        let measured_call = !subscriber && !r.is_trigger && r.attributes.is_empty();
+        // The call whose by-value arguments `blob_transfer::Argument` measures.
+        let measured_call = blob_transfer::Argument::measured_call(engine.program.objects[object].kind, r, subscriber);
         for (i, a) in args.drain(..).enumerate().take(r.params) {
             // No arm below is for these pairs, and the last one hands them back unchanged.
             if passed_unchanged(&a, &r.locals[i].ty) {

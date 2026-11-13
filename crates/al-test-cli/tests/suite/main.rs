@@ -17,6 +17,7 @@ mod bare_name_control_named_like_field;
 mod bare_quoted_ext_control;
 mod bg_task_part_moves;
 mod bigtext_write;
+mod blob_copy_platform_fills;
 mod blocked_set_2;
 mod blocked_set_3;
 mod bucket_lowering;

@@ -1595,7 +1595,6 @@ impl Session {
                                             // (`Session::load_blobs`, al-runner issue 7360).
                                             written: b.written,
                                             written_base: b.written_base.clone(),
-                                            write_origin: al_builtins::stream::WriteOrigin::Copy,
                                             render_pending: b.render_pending.clone(),
                                             inserted: b.inserted,
                                             temp_inserted: false,
@@ -1624,7 +1623,7 @@ impl Session {
                         d.fields = fields;
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
-                        crate::blob_transfer::buffer_replaced(&mut d);
+                        d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow());
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
@@ -1679,13 +1678,13 @@ impl Session {
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
                 let copy = self.record_by_value_unmeasured(rc);
-                // An assignment to a local Variant moves the copy's Blobs as `Session::blobs_by_value` says.
-                if assign && matches!(p, ir::Place::Local(_)) {
+                // An assignment to a Variant the probes measured moves the copy's Blobs as `Session::blobs_by_value` says.
+                if let (true, Some(taker)) = (assign, crate::blob_transfer::Taker::variant_at(p)) {
                     let (temporary, holder) = {
                         let r = rc.borrow();
                         (r.temporary, Holder::of(&r))
                     };
-                    self.blobs_by_value(copy, temporary, holder, crate::blob_transfer::Taker::LocalVariant)?
+                    self.blobs_by_value(copy, temporary, holder, taker)?
                 } else {
                     copy
                 }

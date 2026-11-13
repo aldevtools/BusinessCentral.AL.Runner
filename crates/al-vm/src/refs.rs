@@ -1417,9 +1417,8 @@ impl Session {
             let before = std::mem::replace(&mut d.fields, s.fields.clone());
             // The Blobs move as `BlobMove::set_table` says.
             if let Some(how) = BlobMove::set_table(args.len(), share) {
-                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, Holder::Other)?;
+                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, Holder::of(&s))?;
             }
-            crate::blob_transfer::buffer_replaced(&mut d);
             d.filters = s.filters.clone();
             d.key = s.key;
             d.adhoc = s.adhoc.clone();
