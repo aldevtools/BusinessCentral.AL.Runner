@@ -105,8 +105,8 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 /// The result `r` (the rounded steps times the precision as written) keeps the decimals of the precision, zeros included:
 /// `Round(2.5, 0.01)` is `2.50`, `Round(3, 0.25)` is `3.00`, `Round(2, 0.01)` is `2.00`, `Round(1.200001, 0.00001)` is
-/// `1.20000`, `Round(1.4, 0.50)` is `1.50`. Measured on BC 27.5, 28.5 and 29.0 by the open corpus pull requests 1337
-/// (reports/dataset/DatasetDecimalRoundScale.al) and 1377 (reports/dataset/DatasetDecimalRoundScaleSources.al) and by al-runner
+/// `1.20000`, `Round(1.4, 0.50)` is `1.50`. Measured on BC 27.5, 28.5 and 29.0 by corpus pull requests 1380
+/// (reports/dataset/DatasetDecimalRoundScale.al, open) and 1377 (reports/dataset/DatasetDecimalRoundScaleSources.al) and by al-runner
 /// issue 7958, and not pinned yet (assumption `round-keeps-the-precision-decimals`). A result of zero, one or minus one shows no
 /// decimals where a scale is seen (the report dataset, al-vm `decimal_column.rs`: `Round(1, 0.00001)` is `1`,
 /// reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450), so its zeros are not marked.
@@ -327,7 +327,7 @@ mod tests {
         assert!(!marked("1.234567", "0.00001"));
         assert!(!marked("1", "0.00001"));
         assert!(!marked("0.001", "0.01"));
-        // Zeros of the precision kept, measured by corpus pull requests 1337 and 1377, not pinned yet.
+        // Zeros of the precision kept, measured by corpus pull requests 1380 and 1377, not pinned yet.
         assert!(marked("2.5", "0.01"));
         assert!(marked("2.50", "0.01"));
         assert!(marked("3", "0.25"));
@@ -344,7 +344,7 @@ mod tests {
         // Pinned: a result that needs every digit keeps them (reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450).
         assert_eq!(text("1.234567", d("0.00001")), "1.23457");
         assert_eq!(text("2.5", Value::Integer(1)), "3");
-        // Measured on BC 27.5, 28.5 and 29.0 by corpus pull requests 1337 (run 43173667684) and 1377, and al-runner issue 7958.
+        // Measured on BC 27.5, 28.5 and 29.0 by corpus pull requests 1380 (run 43173667684) and 1377, and al-runner issue 7958.
         assert_eq!(text("2.5", d("0.01")), "2.50");
         assert_eq!(text("2.50", d("0.01")), "2.50");
         assert_eq!(text("2.500", d("0.01")), "2.50");

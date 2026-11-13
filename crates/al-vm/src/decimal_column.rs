@@ -10,7 +10,7 @@
 //! `18.5185170`; DatasetDecimalPlacesValueOrigins.al:505-510 `G.D * 2` over the stored 1.50 read by Get is `3.0`). A row
 //! read from the database carries no trailing zeros (al-data `MemStore::as_database`).
 //!
-//! Measured on BC 27.5, 28.5 and 29.0, not pinned yet (assumption `dataset-decimal-keeps-its-zeros`; corpus pull requests 1337,
+//! Measured on BC 27.5, 28.5 and 29.0, not pinned yet (assumption `dataset-decimal-keeps-its-zeros`; corpus pull requests 1380,
 //! reports/dataset/DatasetDecimalRoundScale.al, and 1377, reports/dataset/DatasetDecimalRoundScaleSources.al): a variable or a
 //! field by name keeps the zeros of any other value, with or without the column's own DecimalPlaces (`Round(3, 0.25)` is
 //! `3.00`, the literal 2.50 is `2.50`), and zero is `0` (the literal 0.00, `Round(0.001, 0.01)`). One keeps its decimals in
