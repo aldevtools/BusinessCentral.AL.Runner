@@ -19,6 +19,23 @@ dotnet
     assembly("Microsoft.Dynamics.Nav.Ncl") { type("Microsoft.Dynamics.Nav.Runtime.AppHtmlSanitizer"; "AppHtmlSanitizer") { } }
 }
 
+// Stand-ins of Base Application's table 9651 and the platform's Tenant Report Layout Selection.
+table 9651 "Report Layout Selection"
+{
+    fields
+    {
+        field(1; "Report ID"; Integer) { } field(3; "Company Name"; Text[30]) { }
+        field(4; Type; Option) { OptionMembers = "RDLC (built-in)","Word (built-in)","Custom Layout","Excel Layout","External Layout"; }
+    }
+    keys { key(PK; "Report ID", "Company Name") { } }
+}
+
+table 2000000233 "Tenant Report Layout Selection"
+{
+    fields { field(1; "Report ID"; Integer) { } field(2; "Company Name"; Text[30]) { } field(3; "Layout Name"; Text[250]) { } }
+    keys { key(PK; "Report ID", "Company Name") { } }
+}
+
 report 50981 "RE Text"
 {
     UsageCategory = None;
@@ -73,6 +90,21 @@ codeunit 50984 "RE Tests"
     procedure RgbaBody(): Text begin exit(Body(Report::"RE Text", 'x rgba(1,2,3,1)')); end;
     procedure LabelBody(): Text begin exit(Body(Report::"RE Label", '')); end;
     procedure LegacyBody(): Text begin exit(Body(Report::"RE Legacy", '')); end;
+
+    // A stored selection row that names the report's own Word layout: the save writes the placeholder, as before.
+    procedure TenantRowBody(): Text
+    var S: Record "Tenant Report Layout Selection";
+    begin
+        S."Report ID" := Report::"RE Text"; S."Layout Name" := 'WordOne'; S.Insert();
+        exit(PlainBody());
+    end;
+    procedure BuiltinRowBody(): Text
+    var S: Record "Report Layout Selection";
+    begin
+        S."Report ID" := Report::"RE Text"; S."Company Name" := CompanyName(); S.Type := S.Type::"Word (built-in)"; S.Insert();
+        exit(PlainBody());
+    end;
+    procedure ReplaceTenantRow(): Text var T: Text; begin T := TenantRowBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
 
     procedure ReplacePlain(): Text var T: Text; begin T := PlainBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
     procedure ReplaceRgbaData(): Text var T: Text; begin T := RgbaBody(); ReplaceRgba(T); exit(Format(T <> '')); end;
@@ -134,6 +166,21 @@ fn rendered_text_email_replace_the_save_keeps_the_facts_of_its_render() {
     assert_eq!(facts("LabelBody"), rgba, "a label");
 }
 
+/// An Html saved while a stored selection row names the report, even its own Word layout, is not the measured render: which
+/// layout BC renders behind a row is not measured.
+#[test]
+fn rendered_text_email_replace_a_render_behind_a_selection_row_is_not_the_default_word_layout() {
+    for proc in ["TenantRowBody", "BuiltinRowBody"] {
+        let f = facts(proc);
+        assert!(!f.default_word_layout && !f.dataset_holds_rgba, "{proc}: {f:?}");
+    }
+    let why = refusal("ReplaceTenantRow");
+    assert!(
+        why.contains(USE) && why.contains("it is not the default Word layout"),
+        "{why}"
+    );
+}
+
 #[test]
 fn rendered_text_email_replace_takes_the_default_word_layout_and_marks_its_assumption() {
     assumptions::clear_hits();
@@ -151,7 +198,10 @@ fn rendered_text_email_replace_refuses_a_dataset_that_holds_rgba() {
     assumptions::clear_hits();
     for proc in ["ReplaceRgbaData", "ReplaceRgbaLabel"] {
         let why = refusal(proc);
-        assert!(why.contains(USE) && why.contains("the dataset holds 'rgba('"), "{proc}: {why}");
+        assert!(
+            why.contains(USE) && why.contains("its dataset holds the text rgba("),
+            "{proc}: {why}"
+        );
     }
     assert!(!assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
 }
@@ -164,5 +214,8 @@ fn rendered_text_email_replace_another_pattern_and_the_sanitizer_stay_refused() 
         "{why}"
     );
     let why = refusal("Sanitize");
-    assert!(why.contains(USE) && why.contains("SanitizeEmail given the value"), "{why}");
+    assert!(
+        why.contains(USE) && why.contains("SanitizeEmail given the value"),
+        "{why}"
+    );
 }

@@ -52,7 +52,8 @@ pub struct Render {
 /// The default is a render nothing is known of: no entry takes it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RenderFacts {
-    /// The report's own default layout rendered, and it is a Word layout (no layout selection named another one).
+    /// The report's own default layout rendered, and it is a Word layout: no temporary layout selection was in force and no
+    /// stored selection row names the report.
     pub default_word_layout: bool,
     /// The dataset of the run, or a label of the report, holds the text `rgba(`.
     pub dataset_holds_rgba: bool,
@@ -741,10 +742,10 @@ const RGBA_PATTERN: &str = r"rgba\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3}),\s*1(\.0{
 const RGBA_REPLACEMENT: &str = "rgb($1, $2, $3)";
 
 impl RenderFacts {
-    /// Whether the render is one the rgba replace was measured on: the Html of a report's default Word layout holds no
-    /// `rgba(` and no `rgb(`, and `Email Message.GetBody` gives it back unchanged (RxEmailBodyTests.al:86 and :110 a generated
-    /// layout, :158 a layout with transparent colors; corpus pull request 1371, open). A dataset that holds `rgba(` is not
-    /// measured: its text can reach the Html.
+    /// Whether the render is one the rgba replace was measured on: the Html of a report's default Word layout, saved with no
+    /// layout selection, holds no `rgba(` and no `rgb(`, and `Email Message.GetBody` gives it back unchanged
+    /// (RxEmailBodyTests.al:86 and :110 a generated layout, :158 a layout with transparent colors; corpus pull request 1371,
+    /// open). A dataset that holds `rgba(` is not measured: its text can reach the Html.
     fn rgba_replace_measured(&self) -> bool {
         *self
             == RenderFacts {
@@ -755,10 +756,10 @@ impl RenderFacts {
 
     /// Why the rgba replace does not take the render, for the refusal.
     fn rgba_replace_unmeasured(&self) -> &'static str {
-        if !self.default_word_layout {
-            "the render is not the default Word layout of its report"
+        if self.default_word_layout {
+            "its dataset holds the text rgba("
         } else {
-            "the dataset holds 'rgba(' or a label does"
+            "it is not the default Word layout of its report"
         }
     }
 }
@@ -795,10 +796,10 @@ pub fn dotnet_guard(ty: &str, member: &str, args: &[Value]) -> Result<bool, Sign
         return Err(refusal(
             &s,
             &format!(
-                "{call} with the pattern of Email Message Impl. ReplaceRgbaColorsWithRgb: {} (report {}), and what the replace \
-                 does is measured only for the default Word layout of a report whose dataset holds no 'rgba('",
-                r.facts.rgba_replace_unmeasured(),
-                r.report
+                "{call}: the rgba replace of Email Message Impl. is measured only on the Html of a report's default Word \
+                 layout whose dataset holds no rgba( text, and for report {} {}",
+                r.report,
+                r.facts.rgba_replace_unmeasured()
             ),
         ));
     }

@@ -418,7 +418,9 @@ fn rendered_text_chain_a_selected_layouts_render_is_not_the_default_word_layout(
         other => panic!("expected a text, got {other:?}"),
     };
     let marks = al_builtins::rendered_text::marks(&body).expect("whole marks");
-    let facts = al_builtins::rendered_text::render(marks[0].0).expect("registered").facts;
+    let facts = al_builtins::rendered_text::render(marks[0].0)
+        .expect("registered")
+        .facts;
     assert!(!facts.default_word_layout);
 }
 

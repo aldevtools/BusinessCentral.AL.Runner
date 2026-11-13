@@ -84,6 +84,13 @@ codeunit 51044 "RN Tests"
         Report.SaveAs(Report::"RT Word", '', ReportFormat::Html, Out);
         exit(Format(Tmp.Data.HasValue()));
     end;
+    procedure NoRowHtmlError(): Text
+    begin
+        Rows(0);
+        ClearLastError();
+        Saved(Report::"RT Word", ReportFormat::Html);
+        exit(GetLastErrorCode() + '|' + GetLastErrorText());
+    end;
     procedure NoRowPdf(): Text begin Rows(0); exit(Saved(Report::"RT Word", ReportFormat::Pdf)); end;
     procedure NoRowTwoItems(): Text begin Rows(0); exit(Saved(Report::"RN Two", ReportFormat::Html)); end;
     procedure NoRowRdlcPdf(): Text begin Rows(0); exit(Saved(Report::"RN Rdlc", ReportFormat::Pdf)); end;
@@ -122,6 +129,16 @@ fn an_html_save_with_no_dataset_row_answers_false_and_writes_nothing() {
     assert!(assumptions::take_hits().contains(&Assumption::ReportHtmlNoDatasetRow));
     // With a row the placeholder is written, as before.
     assert_eq!(text("OneRowHtml"), "Yes|Yes");
+}
+
+/// The false answer leaves BC's error behind without raising it (corpus probe pull request 1371, reports/html-email-body/
+/// RxEmailBodyTests.al:134-143 WordDefault_NoRow_EmailBody, BC 27.5, 28.5 and 29.0).
+#[test]
+fn an_html_save_with_no_dataset_row_leaves_the_empty_report_error() {
+    assert_eq!(
+        text("NoRowHtmlError"),
+        "ReportResultEmpty|The report couldn\u{2019}t be generated, because it was empty. Adjust your filters and try again."
+    );
 }
 
 #[test]

@@ -111,7 +111,7 @@ impl Session {
                 // owner decision 2026-11-12: only a read inside the bytes the corpus pins at its start answers,
                 // `al_builtins::placeholder_output::pdf_read`).
                 let mark = match format {
-                    Format::Html => self.html_render_mark(schema, dataset, rows, selected.as_deref()),
+                    Format::Html => self.html_render_mark(schema, dataset, rows, selected.as_deref())?,
                     _ => al_builtins::placeholder_output::mark(format.name(), schema.name()),
                 };
                 self.placeholder_files
@@ -150,12 +150,14 @@ impl Session {
     }
 
     /// The answer of a placeholder save of a Word layout report whose run wrote no dataset row, `None` for any other save (it
-    /// writes as before). BC writes no Html then and answers false without an error: one data item, a stream, the answer used
+    /// writes as before). BC writes no Html then and answers false without raising: one data item, a stream, the answer used
     /// (corpus probe pull request 1362, reports/layouts-html-text/HtRenderedTextTests.al:320-335 Html_SaveAs_NoDatasetRow,
-    /// `saved` No, `length > 0` No; BC 27.5 and 28.5), under the assumption `report-html-no-dataset-row` until it is pinned.
-    /// Every other placeholder save of a Word layout report with no dataset row refuses.
+    /// `saved` No, `length > 0` No; BC 27.5 and 28.5). It leaves the error `ReportResultEmpty` for GetLastErrorText (corpus probe
+    /// pull request 1371, reports/html-email-body/RxEmailBodyTests.al:134-143 WordDefault_NoRow_EmailBody; BC 27.5, 28.5 and
+    /// 29.0). Both under the assumption `report-html-no-dataset-row` until they are pinned. Every other placeholder save of a
+    /// Word layout report with no dataset row refuses.
     fn no_row_save(
-        &self,
+        &mut self,
         output: &SaveOutput,
         target: &SaveTarget,
         schema: &Schema,
@@ -183,6 +185,14 @@ impl Session {
             )));
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportHtmlNoDatasetRow);
+        self.last_error = al_builtins::native::AlError {
+            message:
+                "The report couldn\u{2019}t be generated, because it was empty. Adjust your filters and try again."
+                    .into(),
+            code: "ReportResultEmpty".into(),
+            call_stack: String::new(),
+            ..Default::default()
+        };
         Ok(Some(false))
     }
 
@@ -197,7 +207,7 @@ impl Session {
         dataset: &[u8],
         rows: usize,
         selected: Option<&str>,
-    ) -> std::sync::Arc<str> {
+    ) -> Result<std::sync::Arc<str>, Signal> {
         const RGBA: &[u8] = b"rgba(";
         let report = schema.report();
         let layout = selected.map(str::to_string).unwrap_or_else(|| {
@@ -206,16 +216,21 @@ impl Session {
                 .clone()
                 .unwrap_or_else(|| report.default_layout_kind.clone())
         });
+        if rows == 0 {
+            return Ok(al_builtins::rendered_text::html_mark(schema.name(), None));
+        }
         let facts = al_builtins::rendered_text::RenderFacts {
-            default_word_layout: selected.is_none() && report.default_layout_kind == "word",
+            // No temporary selection and no stored selection row: BC renders the report's own default layout. Behind a row,
+            // even one `layout_selection` lets the placeholder through for, which layout renders is not measured.
+            default_word_layout: selected.is_none()
+                && report.default_layout_kind == "word"
+                && self.selection_row_of_report(schema)?.is_none(),
             // The Xml (UTF-8) holds every column value and name and the labels (`dataset::Dataset::finish`); `rgba(` has no
             // character Xml escapes.
             dataset_holds_rgba: dataset.windows(RGBA.len()).any(|w| w == RGBA),
         };
-        let render = (rows > 0)
-            .then(|| al_builtins::rendered_text::register_with(schema.name(), "Html", &layout, facts))
-            .flatten();
-        al_builtins::rendered_text::html_mark(schema.name(), render)
+        let render = al_builtins::rendered_text::register_with(schema.name(), "Html", &layout, facts);
+        Ok(al_builtins::rendered_text::html_mark(schema.name(), render))
     }
 
     /// Writes a file a save produced; a write over a path that was pending ends the mark, as a write by AL does.

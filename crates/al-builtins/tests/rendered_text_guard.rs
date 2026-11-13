@@ -179,7 +179,9 @@ fn a_dotnet_call_with_a_marked_argument_refuses_unless_it_is_the_rgba_replace() 
     let args = [measured(), t(entry.pattern), t(entry.replacement)];
     assert!(matches!(rendered_text::dotnet_guard(regex, "Replace", &args), Ok(true)));
     assert!(rendered_text::dotnet_guard(regex, "Replace", &[measured(), t("x"), t(entry.replacement)]).is_err());
-    assert!(rendered_text::dotnet_guard(regex, "Replace", &[measured(), t(entry.pattern), t("rgb($1,$2,$3)")]).is_err());
+    assert!(
+        rendered_text::dotnet_guard(regex, "Replace", &[measured(), t(entry.pattern), t("rgb($1,$2,$3)")]).is_err()
+    );
     assert!(rendered_text::dotnet_guard(regex, "Match", &args).is_err());
     assert!(rendered_text::dotnet_guard("System.String", "Concat", &[measured()]).is_err());
     assert!(matches!(
@@ -193,7 +195,10 @@ fn a_dotnet_call_with_a_marked_argument_refuses_unless_it_is_the_rgba_replace() 
 #[test]
 fn the_rgba_entry_holds_the_pattern_and_replacement_of_email_message_impl() {
     let entry = &rendered_text::DOTNET_ALLOWED[0];
-    assert_eq!(entry.pattern, r"rgba\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3}),\s*1(\.0{0,2})?\)");
+    assert_eq!(
+        entry.pattern,
+        r"rgba\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3}),\s*1(\.0{0,2})?\)"
+    );
     assert_eq!(entry.replacement, "rgb($1, $2, $3)");
 }
 
@@ -215,7 +220,8 @@ fn the_rgba_replace_takes_only_renders_of_the_measured_shape() {
     let t = |s: &str| Value::Text(s.to_string().into());
     let entry = &rendered_text::DOTNET_ALLOWED[0];
     let regex = "System.Text.RegularExpressions.Regex";
-    let call = |input: Value| rendered_text::dotnet_guard(regex, "Replace", &[input, t(entry.pattern), t(entry.replacement)]);
+    let call =
+        |input: Value| rendered_text::dotnet_guard(regex, "Replace", &[input, t(entry.pattern), t(entry.replacement)]);
     // The body after one pass (the changed form) goes through again: AppendToBody and a second Create.
     for form in [Form::Whole, Form::Changed] {
         assumptions::clear_hits();
@@ -233,14 +239,21 @@ fn the_rgba_replace_takes_only_renders_of_the_measured_shape() {
         ..MEASURED
     };
     assumptions::clear_hits();
-    replace_refused(marked_with(other_layout, Form::Whole), "is not the default Word layout");
-    replace_refused(marked_with(rgba_data, Form::Whole), "the dataset holds 'rgba('");
-    replace_refused(marked(), "is not the default Word layout");
+    replace_refused(
+        marked_with(other_layout, Form::Whole),
+        "it is not the default Word layout",
+    );
+    replace_refused(marked_with(rgba_data, Form::Whole), "its dataset holds the text rgba(");
+    replace_refused(marked(), "it is not the default Word layout");
     // Two bodies in one text: each render is asked.
-    let (Value::Text(a), Value::Text(b)) = (marked_with(MEASURED, Form::Whole), marked_with(rgba_data, Form::Whole)) else {
+    let (Value::Text(a), Value::Text(b)) = (marked_with(MEASURED, Form::Whole), marked_with(rgba_data, Form::Whole))
+    else {
         unreachable!()
     };
-    replace_refused(t(&format!("{}{}", a.audited_str(), b.audited_str())), "the dataset holds 'rgba('");
+    replace_refused(
+        t(&format!("{}{}", a.audited_str(), b.audited_str())),
+        "its dataset holds the text rgba(",
+    );
     assert!(!assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
 }
 
