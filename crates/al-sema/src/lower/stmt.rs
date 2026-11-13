@@ -83,6 +83,7 @@ impl Lowerer<'_> {
             ret_local = Some(locals.len());
             add(self, n, t.clone(), &mut locals);
         }
+        self.declared_locals_from = locals.len();
         for v in r.local_var_decls() {
             let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
             let label = v.type_ref().as_ref().and_then(label_text);
@@ -1538,6 +1539,11 @@ impl Lowerer<'_> {
         }
         let place = self.place(&kids[0])?;
         let target_ty = self.ty_of(&kids[0]);
+        if !super::is_compound_assign(n) {
+            if let Some(v) = self.text_constant_into_variant(&kids[1], super::label_variant::Site::Assign(&kids[0]))? {
+                return Ok(ir::Stmt::Assign(place, v));
+            }
+        }
         self.refuse_label_ternary_into_variant(&target_ty, &kids[1])?;
         let rhs = self.run_on_client_assigned(n, &target_ty, &kids[1]);
         let rhs = rhs.map_or_else(|| self.expr_into(&target_ty, &kids[1]), Ok)?;

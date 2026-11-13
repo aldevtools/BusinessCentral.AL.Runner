@@ -253,25 +253,6 @@ impl<'a> Lowerer<'a> {
         )
     }
 
-    /// A variable declared `TextConst` going into a Variant: in BC the Variant then answers no Is... test while Format and a
-    /// Text read its text (types/variant/VaTTextConst.al:144-151, TextConst_In_Variant). That value kind is not built, so the
-    /// conversion is refused. A Label is a Text in a Variant (Base App hands labels to Variant parameters). Probe wanted for the
-    /// other operations on such a Variant (docs/probes-needed.md).
-    pub(crate) fn refuse_textconst_into_variant(&self, target: &Ty, node: &SyntaxNode) -> L<()> {
-        if !matches!(target, Ty::Variant) {
-            return Ok(());
-        }
-        let textconst = match self.res(node) {
-            Some(Res::Local(n)) => self.local_textconsts.contains(n),
-            Some(Res::Global(n)) => self.global_textconsts.contains(n),
-            _ => false,
-        };
-        if textconst {
-            return Err("a TextConst in a Variant (the Variant answers no Is... test; not built)".into());
-        }
-        Ok(())
-    }
-
     /// `value` (of type `src`) converted for a slot of type `target`. An interface slot takes a
     /// codeunit that implements it (corpus codeunits/TestCodeunitInterface.al:14-26) or an enum
     /// that implements it (types/TestEnumDefaultImplTests.Codeunit.al:30-42); everything else

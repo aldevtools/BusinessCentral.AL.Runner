@@ -148,6 +148,7 @@ mod json_typed_reads;
 mod json_used_return;
 mod json_write_with_secrets;
 mod keyword_variable_names;
+mod label_into_variant;
 mod lane_bump28;
 mod lane_captions;
 mod lane_format_numbers;

@@ -324,6 +324,9 @@ pub(crate) struct Lowerer<'a> {
     loops: Vec<bool>,
     /// `by_var` of the parameters of the routine being lowered.
     var_params: Vec<bool>,
+    /// The first local slot of the routine being lowered that its `var` section declares (after its parameters and named
+    /// return value); `usize::MAX` outside a routine.
+    declared_locals_from: usize,
     /// The routine being lowered reads MaxStrLen of a `var` parameter, or hands one on to a `var` parameter
     /// (`ir::Routine::reads_var_max_len`).
     reads_var_max_len: bool,
@@ -609,6 +612,7 @@ mod compile;
 mod conv_matrix;
 mod convert;
 mod copy_array;
+mod label_variant;
 mod coverage_ids;
 mod dotnet;
 mod dotnet_arg;
