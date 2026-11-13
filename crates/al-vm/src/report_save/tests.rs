@@ -179,3 +179,128 @@ fn report_save_the_request_page_form_answers_only_after_a_run() {
         }
     }
 }
+
+#[test]
+fn report_save_the_kept_rows_that_answer_without_a_flag_are_these_seven() {
+    // Round 1 keeps main's unflagged answers as `Evidence::Kept` rows (ADR-040 amendment 2026-11-13, "State after round
+    // 1"). A new row of this kind fails here; it moves to an assumption entry that cites the step-1 probe instead.
+    use super::cell::K::{self, Is, Unread};
+    type Row = (K<Kind>, K<Layout>, K<Format>, K<Selection>, Answer);
+    let mut got: Vec<Row> = CELLS
+        .iter()
+        .filter(|c| matches!(c.evidence, Evidence::Kept(_)))
+        .filter(|c| !matches!(c.answer, Answer::Refuse(_) | Answer::Placeholder(_)))
+        .map(|c| (c.key.kind, c.key.layout, c.key.format, c.key.selection, c.answer))
+        .collect();
+    let unsupported = Answer::False(super::cell::ErrorId::UnsupportedFormat);
+    let mut want = vec![
+        (
+            Is(Kind::Word),
+            Unread,
+            Is(Format::Excel),
+            Is(Selection::SameKind),
+            unsupported,
+        ),
+        (
+            Is(Kind::Excel),
+            Unread,
+            Is(Format::Pdf),
+            Is(Selection::SameKind),
+            unsupported,
+        ),
+        (
+            Is(Kind::Excel),
+            Unread,
+            Is(Format::Pdf),
+            Is(Selection::OtherKind),
+            unsupported,
+        ),
+        (
+            Is(Kind::Excel),
+            Unread,
+            Is(Format::Word),
+            Is(Selection::SameKind),
+            unsupported,
+        ),
+        (
+            Is(Kind::Excel),
+            Unread,
+            Is(Format::Word),
+            Is(Selection::OtherKind),
+            unsupported,
+        ),
+        (
+            Is(Kind::Excel),
+            Is(Layout::NotRdlc),
+            Is(Format::Html),
+            Is(Selection::SameKind),
+            unsupported,
+        ),
+        (
+            Unread,
+            Is(Layout::Rdlc),
+            Is(Format::Html),
+            Is(Selection::SameKind),
+            unsupported,
+        ),
+    ];
+    let order = |v: &mut Vec<Row>| v.sort_by_key(|r| format!("{r:?}"));
+    order(&mut got);
+    order(&mut want);
+    assert_eq!(got, want);
+}
+
+#[test]
+fn report_save_every_fact_of_the_vector_is_in_fact_all() {
+    // The destructuring lists every field of `Facts`: a new field does not compile until it is paired with its `Fact` here,
+    // and a `Fact` missing from `ALL` is never compared by the lookup.
+    let Facts {
+        format: _,
+        target: _,
+        answer: _,
+        kind: _,
+        layout: _,
+        decl: _,
+        file: _,
+        processing_only: _,
+        data_items: _,
+        extensions: _,
+        triggers: _,
+        custom: _,
+        company_build: _,
+        listed: _,
+        selection: _,
+        stored: _,
+        named: _,
+        rows: _,
+        dataset_rgba: _,
+    } = base();
+    let fields = [
+        Fact::Format,
+        Fact::Target,
+        Fact::Answer,
+        Fact::Kind,
+        Fact::Layout,
+        Fact::Decl,
+        Fact::File,
+        Fact::ProcessingOnly,
+        Fact::DataItems,
+        Fact::Extensions,
+        Fact::Triggers,
+        Fact::Custom,
+        Fact::CompanyBuild,
+        Fact::Listed,
+        Fact::Selection,
+        Fact::Stored,
+        Fact::Named,
+        Fact::Rows,
+        Fact::DatasetRgba,
+    ];
+    assert_eq!(fields.len(), Fact::ALL.len());
+    for f in fields {
+        assert!(Fact::ALL.contains(&f), "{f:?} is not in Fact::ALL");
+    }
+    for (i, f) in Fact::ALL.iter().enumerate() {
+        assert_eq!(*f as usize, i, "Fact::ALL lists {f:?} out of the enum's order");
+    }
+}

@@ -996,3 +996,25 @@ A Pdf's content, an RDLC render in any format, an Excel workbook's cells, stylin
 3. No new ratchet file and no separate row kind for the answers main gives without a measurement (part 1, point 6): they are
    ordinary rows through the assumption registry, and their cells join the step-1 probe plan.
 4. Word output text (part 2, point 6): on demand, not built in step 2 now.
+
+### State after step 1 round 1 (2026-11-13)
+
+Round 1 does not yet do what part 1, point 6 and owner decision 3 describe. It keeps main's answers and main's flags, so
+the rows main answers without a measurement carry `Evidence::Kept` (al-vm `report_save/cell.rs`), a separate row kind
+that marks no assumption:
+
+- Kept rows that refuse (the statement and file forms of `ReportUnsupportedFormat`, OnPostReport after a run with no
+  dataset row) answer nothing; they need no entry.
+- Kept rows that write a placeholder (a same-kind or other-kind selection row under the default layout) are flagged by the
+  placeholder's own assumption entry, not by an entry that cites a probe.
+- Seven Kept rows answer false with `ReportUnsupportedFormat` and no flag, as on main: under a same-kind selection row,
+  a Word layout to Excel, an Excel layout to Pdf, Word and Html, an RDLC layout to Html; under an other-kind selection row,
+  an Excel layout to Pdf and to Word. The table test
+  `report_save_the_kept_rows_that_answer_without_a_flag_are_these_seven` pins this exact set, so a new unflagged Kept row
+  fails the build.
+
+These seven cells join the step-1 probe plan (`docs/probes-needed.md`, row "Report save table, kept cells"). The corpus
+branch `al-runtime-rs-staging-reports-decl` (pull request not open yet) measures one of them: a Word (built-in) selection
+row of the company, Word layout to Excel, answers false with `ReportUnsupportedFormat`. The six cells of Excel and RDLC
+default layouts still need a probe. In the round that opens the step-1 probe pull request, the Kept rows move to an
+assumption entry that cites it, and `Evidence::Kept` is deleted.
