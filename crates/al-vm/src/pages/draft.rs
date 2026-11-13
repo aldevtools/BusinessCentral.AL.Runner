@@ -799,6 +799,27 @@ impl Session {
 
     /// Whether a SetValue typed the key of the new row: its key differs from the one it started with (`PageState::draft_start`,
     /// after the filters stamped it and OnNewRecord ran). False for a row `start_draft` did not start.
+    fn worksheet_draft_factbox(&self, host: &St, part: &St) -> bool {
+        let engine = self.engine();
+        let host_state = host.borrow();
+        let [(control, linked)] = host_state.parts.as_slice() else {
+            return false;
+        };
+        let control = *control;
+        let linked = Rc::ptr_eq(linked, part);
+        drop(host_state);
+        let ctl = &page_of(&engine, host).controls[control];
+        linked
+            && ctl.factbox
+            && self.unextended_unsubscribed(part)
+            && engine.object_facts[part.borrow().object as usize].page_type_lower() == "listpart"
+            && ctl.part_link.as_ref().is_some_and(|link| {
+                link.provider.is_none()
+                    && link.view.is_none()
+                    && matches!(link.entries.as_slice(), [ir::LinkEntry::Field(_, _)])
+            })
+    }
+
     pub(super) fn key_typed_since_draft_start(&mut self, st: &St) -> Result<bool, Signal> {
         let Some(start) = st.borrow().draft_start.clone() else {
             return Ok(false);
@@ -845,8 +866,28 @@ impl Session {
         }
         let pinned =
             st.borrow().draft_from_open && self.top_card_or_document(st) && self.key_typed_since_draft_start(st)?;
+        let worksheet = {
+            let page = st.borrow();
+            let engine = self.engine();
+            let object = page.object as usize;
+            page.mode == PageMode::Edit
+                && !page.draft_from_open
+                && page.draft_start.is_none()
+                && engine.object_facts[object].page_type == Some(ir::PageType::Worksheet)
+                && ["AutoSplitKey", "DelayedInsert", "MultipleNewLines"]
+                    .iter()
+                    .all(|name| {
+                        effective_prop(&engine, object, name)
+                            .is_ok_and(|value| value.is_some_and(|value| value.trim().eq_ignore_ascii_case("true")))
+                    })
+        };
+        let worksheet = worksheet
+            && self.unextended_unsubscribed(st)
+            && self.declares(st, "onnewrecord")
+            && !self.key_typed_since_draft_start(st)?;
         let mut quiet = Vec::new();
         for c in parts {
+            let worksheet = worksheet && self.worksheet_draft_factbox(st, &c);
             if c.borrow().part_accessed || (c.borrow().draft && c.borrow().dirty) {
                 continue;
             }
@@ -858,9 +899,14 @@ impl Session {
                     .iter()
                     .any(|t| self.engine().events.is_subscribed(object, t));
             if observes && c.borrow().cursor != Cursor::Row && self.has_source(&c) {
-                if !pinned {
+                if !pinned && !worksheet {
                     return unsupported(
                         "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
+                    );
+                }
+                if worksheet {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::WorksheetDraftCloseEmptyPart,
                     );
                 }
                 c.borrow_mut().quiet_at_close = true;
