@@ -1,5 +1,6 @@
 use super::*;
 
+/// The measured explicit parent links are in corpus PR #1358, reports/extensions/TestReportExtensionParentLink.al:47-61.
 pub(super) fn linked_parent(
     run: &Run,
     r: ItemRef,
