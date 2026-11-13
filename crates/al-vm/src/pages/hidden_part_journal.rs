@@ -421,13 +421,29 @@ impl Session {
     }
 
     /// The action's body on host `st` turned the journal part `child` (control `i`) visible, and `first_turn_as_pinned` found
-    /// host and part as measured. `commits`: the session's commits before the body. The turn is the measured one only when the
-    /// body did not commit (`AddRequest` inserts one request, :457-470) and the part shows one row (`send` `st-fill(H1,1)`,
-    /// :540): then the part reads its row before the host's refresh, and the host lets through only [`TURN_END`].
-    pub(super) fn journal_turn(&mut self, st: &St, i: usize, child: &St, commits: u64) -> Result<(), Signal> {
+    /// host and part as measured. `commits` and `writes`: the session's commits and the store's change counter before the
+    /// body. The turn is the measured one only when the body did not commit, changed rows of exactly one stored table and
+    /// left the host's source table as it was (`AddRequest` inserts one request and nothing else, :457-470), and the part
+    /// shows one row (`send` `st-fill(H1,1)`, :540): then the part reads its row before the host's refresh, and the host lets
+    /// through only [`TURN_END`].
+    pub(super) fn journal_turn(
+        &mut self,
+        st: &St,
+        i: usize,
+        child: &St,
+        commits: u64,
+        writes: u64,
+    ) -> Result<(), Signal> {
         if self.commits != commits {
             return unsupported(
                 "an action that commits and turns the hidden part of the journal shape visible (not pinned)",
+            );
+        }
+        let host_table = self.table(&self.page_rec(st))?.object;
+        let changed = self.store.tables_changed_since(writes);
+        if !(changed.len() == 1 && !changed.contains(&host_table)) {
+            return unsupported(
+                "an action that writes to the host's table or to other than one table and turns the hidden part of the journal shape visible (not pinned)",
             );
         }
         if self.view_row_count(child)? != 1 {

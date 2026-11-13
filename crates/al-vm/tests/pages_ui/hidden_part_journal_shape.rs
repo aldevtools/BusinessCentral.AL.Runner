@@ -454,6 +454,38 @@ codeunit 75318 "PG6 HJ Send"
         Request.DeleteAll();
     end;
 
+    // Not in HiddenPartJournalShape.al: the send also changes the stored row the host stands on, inserts a host row, or
+    // inserts a row of a third table.
+    procedure SendAndModifyDoc(Doc: Record "PG6 HJ Doc")
+    var
+        Stored: Record "PG6 HJ Doc";
+    begin
+        AddRequest(Doc."No.");
+        Stored.Get(Doc."No.");
+        Stored.Name := 'X';
+        Stored.Modify();
+    end;
+
+    procedure SendAndInsertDoc(Doc: Record "PG6 HJ Doc")
+    var
+        Stored: Record "PG6 HJ Doc";
+    begin
+        AddRequest(Doc."No.");
+        Stored.Init();
+        Stored."No." := Doc."No." + 'A';
+        Stored.Insert();
+    end;
+
+    procedure SendAndInsertStatus(Doc: Record "PG6 HJ Doc")
+    var
+        Status: Record "PG6 HJ Status";
+    begin
+        AddRequest(Doc."No.");
+        Status.Init();
+        Status."Entry No." := 1;
+        Status.Insert();
+    end;
+
     local procedure AddRequest(DocNo: Code[10])
     var
         Request: Record "PG6 HJ Request";
@@ -581,6 +613,42 @@ page 75322 "PG6 HJ Worksheet More"
 
                 trigger OnAction()
                 begin
+                    RefreshStatus();
+                end;
+            }
+            action(SendModHost)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                var
+                    Send: Codeunit "PG6 HJ Send";
+                begin
+                    Send.SendAndModifyDoc(Rec);
+                    RefreshStatus();
+                end;
+            }
+            action(SendInsHost)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                var
+                    Send: Codeunit "PG6 HJ Send";
+                begin
+                    Send.SendAndInsertDoc(Rec);
+                    RefreshStatus();
+                end;
+            }
+            action(SendInsStatus)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                var
+                    Send: Codeunit "PG6 HJ Send";
+                begin
+                    Send.SendAndInsertStatus(Rec);
                     RefreshStatus();
                 end;
             }
@@ -1000,6 +1068,45 @@ codeunit 75321 "PG6 HJ Driver"
         Doc.Get('H1');
         P.GoToRecord(Doc);
         P.SendCommit.Invoke();
+        exit(Seen);
+    end;
+
+    procedure TurnCuModifiesHostRow(): Text
+    var
+        Doc: Record "PG6 HJ Doc";
+        P: TestPage "PG6 HJ Worksheet More";
+    begin
+        Initialize();
+        P.OpenView();
+        Doc.Get('H1');
+        P.GoToRecord(Doc);
+        P.SendModHost.Invoke();
+        exit(Seen);
+    end;
+
+    procedure TurnCuInsertsHostRow(): Text
+    var
+        Doc: Record "PG6 HJ Doc";
+        P: TestPage "PG6 HJ Worksheet More";
+    begin
+        Initialize();
+        P.OpenView();
+        Doc.Get('H1');
+        P.GoToRecord(Doc);
+        P.SendInsHost.Invoke();
+        exit(Seen);
+    end;
+
+    procedure TurnCuInsertsThirdTable(): Text
+    var
+        Doc: Record "PG6 HJ Doc";
+        P: TestPage "PG6 HJ Worksheet More";
+    begin
+        Initialize();
+        P.OpenView();
+        Doc.Get('H1');
+        P.GoToRecord(Doc);
+        P.SendInsStatus.Invoke();
         exit(Seen);
     end;
 
@@ -1687,6 +1794,7 @@ fn other_turns_are_refused() {
     let calls =
         "the test's calls since the open are not one GoToRecord that stayed on the host's row, then this action";
     let rows = "turns the hidden part of the journal shape visible with other than one row";
+    const WRITES: &str = "an action that writes to the host's table or to other than one table and turns the hidden part of the journal shape visible (not pinned)";
     for (routine, reason) in [
         ("TurnWithoutGoToRecord", calls),
         ("TurnAfterTwoGoToRecords", calls),
@@ -1699,6 +1807,11 @@ fn other_turns_are_refused() {
             "TurnThenRefreshHides",
             "the page left the journal shape of its hidden part during an action",
         ),
+        // The codeunit the action calls also changes the host's table (review of al-runner PR 7939, round 3, X00 and X01),
+        // or a third table.
+        ("TurnCuModifiesHostRow", WRITES),
+        ("TurnCuInsertsHostRow", WRITES),
+        ("TurnCuInsertsThirdTable", WRITES),
     ] {
         for bc in ["28.5", "29.0"] {
             let (out, _) = run_on(bc, routine);

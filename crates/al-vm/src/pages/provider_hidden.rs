@@ -15,8 +15,8 @@ pub(super) struct BeforeActionBody {
     /// the pinned Document host it does not have; `None` when no part was hidden.
     pinned_host_rec: Option<Result<Vec<Value>, &'static str>>,
     /// The host is the one of the journal shape before its measured turn (`Session::journal_turn_host_miss`), not the pinned
-    /// Document: the session's commits before the action's body.
-    journal: Option<u64>,
+    /// Document: the session's commits and the store's change counter before the action's body.
+    journal: Option<(u64, u64)>,
 }
 
 impl Session {
@@ -290,7 +290,8 @@ impl Session {
                 Some(_) => self.journal_turn_host_miss(st)?,
                 None => None,
             };
-            before.journal = (mismatch.is_some() && journal_miss.is_none()).then_some(self.commits);
+            before.journal =
+                (mismatch.is_some() && journal_miss.is_none()).then_some((self.commits, self.store.change_counter()));
             before.pinned_host_rec = Some(match (mismatch, journal_miss) {
                 (Some(_), Some(journal)) if self.journal_host_type(st).is_some() => Err(journal),
                 (Some(reason), Some(_)) => Err(reason),
@@ -328,7 +329,7 @@ impl Session {
                 c.visible_at_sync = true;
             }
             match before.journal {
-                Some(commits) => self.journal_turn(st, i, &child, commits)?,
+                Some((commits, writes)) => self.journal_turn(st, i, &child, commits, writes)?,
                 None => self.sync_part(st, i, &child)?,
             }
         }
@@ -346,7 +347,7 @@ impl Session {
     ///
     /// On the journal shape's host (`BeforeActionBody::journal`) the host facts are `journal_turn_host_miss`, and the part is
     /// `journal_part_miss`'s (unlinked, with a repeater) instead of the linked part without one (HiddenPartJournalShape.al:540);
-    /// `journal_turn` then checks the part's rows and the body's commits.
+    /// `journal_turn` then checks the part's rows, the body's commits and the tables the body changed.
     ///
     /// `Err` names the first condition that does not hold, for the refusal.
     fn first_turn_as_pinned(&self, st: &St, i: usize, before: &BeforeActionBody) -> Result<St, &'static str> {
