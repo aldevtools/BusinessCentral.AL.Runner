@@ -191,7 +191,7 @@ impl Session {
         }
         if rdlc_html {
             // The false answer is the report's own RDLC layout's; a layout selection may pick a Word layout, which renders Html.
-            self.refuse_layout_selection(schema, &format!("Report.SaveAs as {format}"))?;
+            self.refuse_layout_selection(schema, &format!("Report.SaveAs as {format}"), Some(Format::Html))?;
         } else {
             // Only the stream form is pinned for the cells of the 2026-11-11 grid.
             if matches!(target, SaveTarget::File(_)) {
@@ -206,6 +206,7 @@ impl Session {
                 schema,
                 &format!("Report.SaveAs as {format}"),
                 &["substitutereport", "ondocumentready", "onafterdocumentready"],
+                Format::from_name(format),
             )?;
         }
         Ok(Rendered::False(unsupported_format(format)))

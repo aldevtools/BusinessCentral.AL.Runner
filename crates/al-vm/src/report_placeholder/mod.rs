@@ -257,7 +257,7 @@ impl Session {
         if selected.is_none() {
             self.refuse_layout_event_subscribers(schema, &what, &[], None)?;
         }
-        self.refuse_layout_selection(schema, &what)?;
+        self.refuse_layout_selection(schema, &what, Some(format))?;
         Ok(Some(match selected {
             Some(layout) => SaveOutput::SelectedHtml(layout),
             None => SaveOutput::Placeholder(format),
@@ -266,15 +266,16 @@ impl Session {
 
     /// Refuses `what` (a save as a format, a run) while a subscriber the test can see listens to a layout event this runtime
     /// does not raise (`except` names the events BC does not raise on the path, or that the caller raised), or while a layout
-    /// selection may pick another layout than the report's own.
+    /// selection may pick another layout than the report's own (`format`: the format saved, `None` for a run).
     pub(crate) fn refuse_unraised_layout_events(
         &self,
         schema: &Schema,
         what: &str,
         except: &[&str],
+        format: Option<Format>,
     ) -> Result<(), Signal> {
         self.refuse_layout_event_subscribers(schema, what, except, None)?;
-        self.refuse_layout_selection(schema, what)
+        self.refuse_layout_selection(schema, what, format)
     }
 
     /// Refuses `what` while a subscriber the test can see listens to a layout event this runtime does not raise (`except`, and
@@ -297,8 +298,13 @@ impl Session {
     }
 
     /// Refuses `what` while a layout selection may pick another layout than the report's own ([`Session::layout_selection`]).
-    pub(super) fn refuse_layout_selection(&self, schema: &Schema, what: &str) -> Result<(), Signal> {
-        if let Some(why) = self.layout_selection(schema)? {
+    pub(super) fn refuse_layout_selection(
+        &self,
+        schema: &Schema,
+        what: &str,
+        format: Option<Format>,
+    ) -> Result<(), Signal> {
+        if let Some(why) = self.layout_selection(schema, format)? {
             return Err(Signal::unsupported(format!(
                 "{what} of report \"{}\" while {why} (BC may render another layout, and an Excel one writes no \
                  output; this runtime answers only for the report's own layout)",
@@ -312,16 +318,37 @@ impl Session {
     /// as text for a refusal. Base Application's ReportManagement answers SelectedBuiltinLayoutType and SelectReportLayoutCode
     /// from table 9651 "Report Layout Selection" and from the SingleInstance codeunit 9654 "Design-time Report Selection"
     /// (ReportManagement.Codeunit.al, Base Application 29); the platform reads Tenant Report Layout Selection. What BC does
-    /// with each selection is not probed, so any selection but a built-in RDLC or Word one, or a tenant row naming an RDLC or
+    /// with the other selections is not probed, so any selection but a built-in RDLC or Word one, or a tenant row naming an RDLC or
     /// Word layout the report declares, refuses (reports/layouts-saveas/AMReportOutputTests.al:257: a Pdf of an Excel layout
     /// writes nothing).
-    fn layout_selection(&self, schema: &Schema) -> Result<Option<String>, Signal> {
+    ///
+    /// The selected layout renders, not the default one (reports/html-email-body/RxLayoutSelectionTests.al:452 the company's
+    /// RDLC row of a Word default report, :648 a tenant row; corpus pull request 1371, open). A selection of the default
+    /// layout's kind answers as the default layout (:403, :428 a Word row of a Word default report, :501 a tenant row naming
+    /// another Word layout). One of the other kind answers as the default layout only for a save as Pdf or Word, which both
+    /// kinds give as a placeholder, and for a run (`format` `None`), as before; for Html and Excel the grid differs between
+    /// the kinds, so it refuses. `stored` answers the measured cells of the other kind before this check.
+    fn layout_selection(&self, schema: &Schema, format: Option<Format>) -> Result<Option<String>, Signal> {
         let report = schema.report();
         let Some(id) = self.engine.program.objects[schema.object()].id else {
             return Ok(None);
         };
         let has_kind =
             |kind: &str| report.default_layout_kind == kind || report.rendering_layouts.iter().any(|l| l.kind == kind);
+        let both_kinds_give = matches!(format, None | Some(Format::Pdf | Format::Word));
+        // Whether a selected built-in layout of `kind` answers as the default layout; `None` when it is not an RDLC or Word
+        // layout of the report.
+        let answers_as_default = |kind: &str| match kind {
+            "rdlc" | "word" if report.default_layout_kind == kind => Some(true),
+            "rdlc" | "word" if has_kind(kind) => Some(both_kinds_give),
+            _ => None,
+        };
+        let other_kind = |what: String| {
+            format!(
+                "{what}, of another kind than the default layout (the two kinds answer a save as {} differently)",
+                format.map_or("", Format::name)
+            )
+        };
         let field = |t: &al_data::TableDef, name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
         let text = |v: &Value| match v {
             Value::Text(s) | Value::Code(s) => s.to_string(),
@@ -342,12 +369,19 @@ impl Session {
                     }
                     // Option 0 "RDLC (built-in)", 1 "Word (built-in)".
                     let builtin = match &row[k] {
-                        Value::Integer(0) | Value::Option(0, _) => has_kind("rdlc"),
-                        Value::Integer(1) | Value::Option(1, _) => has_kind("word"),
-                        _ => false,
+                        Value::Integer(0) | Value::Option(0, _) => Some(("rdlc", "RDLC")),
+                        Value::Integer(1) | Value::Option(1, _) => Some(("word", "Word")),
+                        _ => None,
                     };
-                    if !builtin {
-                        return Ok(Some("a Report Layout Selection row selects a layout for it".into()));
+                    let name = builtin.map_or("", |(_, name)| name);
+                    match builtin.and_then(|(kind, _)| answers_as_default(kind)) {
+                        Some(true) => {}
+                        Some(false) => {
+                            return Ok(Some(other_kind(format!(
+                                "a Report Layout Selection row selects its built-in {name} layout"
+                            ))));
+                        }
+                        None => return Ok(Some("a Report Layout Selection row selects a layout for it".into())),
                     }
                 }
             }
@@ -359,14 +393,22 @@ impl Session {
                         continue;
                     }
                     let name = text(&row[n]);
-                    let known = report
+                    let named = report
                         .rendering_layouts
                         .iter()
-                        .any(|l| l.name.eq_ignore_ascii_case(&name) && matches!(l.kind.as_str(), "rdlc" | "word"));
-                    if !known {
-                        return Ok(Some(format!(
-                            "Tenant Report Layout Selection selects layout \"{name}\", not an RDLC or Word layout of it"
-                        )));
+                        .find(|l| l.name.eq_ignore_ascii_case(&name));
+                    match named.and_then(|l| answers_as_default(&l.kind)) {
+                        Some(true) => {}
+                        Some(false) => {
+                            return Ok(Some(other_kind(format!(
+                                "Tenant Report Layout Selection selects layout \"{name}\""
+                            ))));
+                        }
+                        None => {
+                            return Ok(Some(format!(
+                                "Tenant Report Layout Selection selects layout \"{name}\", not an RDLC or Word layout of it"
+                            )));
+                        }
                     }
                 }
             }

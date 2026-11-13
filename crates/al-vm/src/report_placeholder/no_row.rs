@@ -7,10 +7,15 @@
 //! | Word, `DefaultLayout = Word` | Html :979, Pdf :1001 | false, `ReportResultEmpty` | raises it |
 //! | RDLC, named by `DefaultRenderingLayout` | Pdf :937, Word :958 | true, nothing written | nothing written |
 //!
-//! Every cell: one data item, no report extension, a stream target, no layout selection. The Word layout report of the first
+//! Every cell: one data item, no report extension, a stream target, no layout selection (no stored row of the report in
+//! Report Layout Selection or Tenant Report Layout Selection, of any company). The Word layout report of the first
 //! row declares OnPreReport, OnPreRendering and OnPostReport, and BC runs the first two and not OnPostReport (`used log`
 //! `OnPreReport;OnPreRendering;`); this runtime has run OnPostReport by the time it counts the rows, so a report that declares
-//! it refuses. The reports of the other two rows declare no report trigger, so only such reports take those rows.
+//! it refuses: the three cells of that row themselves (report 80020) refuse. The shape of that row that runs here, a report
+//! without OnPostReport, has reports/html-email-body/RxEmailBodyTests.al:134-143 (Html, answer used, report 80013, no report
+//! trigger) as its direct cell; Pdf, Word, the statement form and the run of OnPreReport and OnPreRendering follow from the
+//! first row's cells, where BC ran those two triggers and skipped OnPostReport. The reports of the other two rows declare no
+//! report trigger, so only such reports take those rows.
 //! The paths run under the assumption `report-save-no-dataset-row` until the probes are pinned. A Word layout report outside
 //! the cells refuses; an RDLC report outside them writes its placeholder as with rows, as before.
 
@@ -24,9 +29,9 @@ use al_builtins::rendered_text::{DataItems, Extensions, ReportShape};
 enum Answer {
     /// False with `ReportResultEmpty` left as the last error; the statement form raises it.
     Empty,
-    /// False, the last error untouched: the Html save of a `DefaultLayout = Word` report that declares a report trigger, with
-    /// its answer used, as before the error was measured (corpus pull request 1362,
-    /// reports/layouts-html-text/HtRenderedTextTests.al:320-335 `saved` No).
+    /// False, the last error untouched: main's answer kept for the Html save, with its answer used, of a `DefaultLayout = Word`
+    /// report that declares a report trigger. No cell measures that shape (a legacy declared report with a report trigger);
+    /// every measured Word cell leaves `ReportResultEmpty`, so the untouched error is probably not BC's answer.
     FalseOnly,
     /// True, nothing written.
     TrueNothing,
@@ -74,8 +79,12 @@ impl Session {
             && report.on_pre.is_none()
             && report.on_post.is_none()
             && report.on_pre_rendering.is_none();
+        // No stored layout selection row of the report, in either table and of any company: every cell was measured
+        // without one, and with one the selected layout may render (RxLayoutSelectionTests.al:452, :501-:648).
+        let row = self.selection_row_of_report(schema)?;
         // What every cell shares.
-        let base = matches!(target, SaveTarget::Stream(_))
+        let base = row.is_none()
+            && matches!(target, SaveTarget::Stream(_))
             && shape
                 == ReportShape {
                     data_items: DataItems::One,
@@ -101,6 +110,13 @@ impl Session {
         let Some(answer) = answer else {
             if kind != "word" {
                 return Ok(None);
+            }
+            if let Some(what) = row {
+                return Err(Signal::unsupported(format!(
+                    "Report.SaveAs as {name} of report \"{}\", a Word layout report whose run wrote no dataset row, while \
+                     {what} (measured only without a stored layout selection row)",
+                    schema.name()
+                )));
             }
             return Err(Signal::unsupported(format!(
                 "Report.SaveAs as {name} of report \"{}\", a Word layout report whose run wrote no dataset row (measured only for \

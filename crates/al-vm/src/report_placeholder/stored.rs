@@ -122,7 +122,8 @@ impl Session {
         let [row] = rows.as_slice() else {
             return Ok(None);
         };
-        if text(&row[company]) != Some(&*self.cx.company) {
+        // The company's row, its name compared ignoring case as `Session::layout_selection` compares it.
+        if !text(&row[company]).is_some_and(|c| c.eq_ignore_ascii_case(&self.cx.company)) {
             return Ok(None);
         }
         let kind = match &row[kind] {

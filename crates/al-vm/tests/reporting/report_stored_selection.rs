@@ -26,6 +26,12 @@ table 9650 "Custom Report Layout"
     keys { key(PK; "Code") { } }
 }
 
+table 2000000233 "Tenant Report Layout Selection"
+{
+    fields { field(1; "Report ID"; Integer) { } field(2; "Company Name"; Text[30]) { } field(3; "Layout Name"; Text[250]) { } }
+    keys { key(PK; "Report ID", "Company Name") { } }
+}
+
 table 51060 "RS Row"
 {
     fields { field(1; Id; Integer) { } field(2; Data; Blob) { } }
@@ -59,6 +65,18 @@ report 51063 "RS Word Only"
     DefaultRenderingLayout = W;
     dataset { dataitem(T; "RS Row") { column(Id; Id) { } } }
     rendering { layout(W) { Type = Word; LayoutFile = 'RsWordOnly.docx'; } }
+}
+
+report 51065 "RS Rdlc Word"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = R;
+    dataset { dataitem(T; "RS Row") { column(Id; Id) { } } }
+    rendering
+    {
+        layout(R) { Type = RDLC; LayoutFile = 'RsRdlcDefault.rdl'; }
+        layout(W) { Type = Word; LayoutFile = 'RsWordSecond.docx'; }
+    }
 }
 
 codeunit 51064 "RS Tests"
@@ -113,6 +131,15 @@ codeunit 51064 "RS Tests"
     // Rows BC does not read: the default Word layout renders.
     procedure EmptyCompanyHtml(): Text begin Rdlc(''); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Html)); end;
     procedure EmptyCompanyExcel(): Text begin Rdlc(''); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Excel)); end;
+    // The company's name in another case (main's `layout_selection` compares it ignoring case).
+    procedure CaseCompanyHtml(): Text
+    var Name: Text[30];
+    begin
+        Name := UpperCase(CompanyName());
+        if Name = CompanyName() then Name := LowerCase(CompanyName());
+        Rdlc(Name);
+        exit(Saved(Report::"RS Word Rdlc", ReportFormat::Html));
+    end;
     procedure OtherCompanyHtml(): Text begin Rdlc('RS Other'); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Html)); end;
 
     // Two rows (the company's and another): not measured, main's answer.
@@ -154,6 +181,50 @@ codeunit 51064 "RS Tests"
         exit(Saved(Report::"RS Word Rdlc", ReportFormat::Pdf));
     end;
     procedure EmptyCode(): Text begin Custom(''); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Pdf)); end;
+
+    procedure TwoRowsExcel(): Text
+    var S: Record "Report Layout Selection";
+    begin
+        Rdlc(CompanyName());
+        Select(Report::"RS Word Rdlc", 'RS Other', S.Type::"RDLC (built-in)", '');
+        exit(Saved(Report::"RS Word Rdlc", ReportFormat::Excel));
+    end;
+    procedure TwoRowsPdf(): Text
+    var S: Record "Report Layout Selection";
+    begin
+        Rdlc(CompanyName());
+        Select(Report::"RS Word Rdlc", 'RS Other', S.Type::"RDLC (built-in)", '');
+        exit(Saved(Report::"RS Word Rdlc", ReportFormat::Pdf));
+    end;
+
+    local procedure Tenant(Id: Integer; LayoutName: Text[250])
+    var T: Record "Tenant Report Layout Selection";
+    begin
+        T."Report ID" := Id; T."Company Name" := CompanyName(); T."Layout Name" := LayoutName; T.Insert();
+    end;
+
+    local procedure WordRow(Id: Integer; Company: Text[30])
+    var S: Record "Report Layout Selection";
+    begin
+        Select(Id, Company, S.Type::"Word (built-in)", '');
+    end;
+
+    // A built-in row or a tenant row of the default layout's kind: the report's own kind renders, main's answer.
+    procedure WordRowHtml(): Text begin Rows(2); WordRow(Report::"RS Word Rdlc", CompanyName()); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Html)); end;
+    procedure TenantWordHtml(): Text begin Rows(2); Tenant(Report::"RS Word Rdlc", 'W'); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Html)); end;
+    // A row of the other kind: the grid differs for Html and Excel.
+    procedure TenantRdlcHtml(): Text begin Rows(2); Tenant(Report::"RS Word Rdlc", 'R'); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Html)); end;
+    procedure RdlcDefaultWordRowHtml(): Text begin Rows(2); WordRow(Report::"RS Rdlc Word", CompanyName()); exit(Saved(Report::"RS Rdlc Word", ReportFormat::Html)); end;
+    procedure RdlcDefaultWordRowExcel(): Text begin Rows(2); WordRow(Report::"RS Rdlc Word", CompanyName()); exit(Saved(Report::"RS Rdlc Word", ReportFormat::Excel)); end;
+    procedure RdlcDefaultWordRowPdf(): Text begin Rows(2); WordRow(Report::"RS Rdlc Word", CompanyName()); exit(Saved(Report::"RS Rdlc Word", ReportFormat::Pdf)); end;
+
+    // No dataset row behind a stored row.
+    procedure NoRowWordRowPdf(): Text begin Rows(0); WordRow(Report::"RS Word Rdlc", CompanyName()); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Pdf)); end;
+    procedure NoRowWordRowHtml(): Text begin Rows(0); WordRow(Report::"RS Word Rdlc", CompanyName()); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Html)); end;
+    procedure NoRowOtherCompanyPdf(): Text begin Rdlc('RS Other'); Rows(0); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Pdf)); end;
+    procedure NoRowTenantRdlcPdf(): Text begin Rows(0); Tenant(Report::"RS Word Rdlc", 'R'); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Pdf)); end;
+    procedure NoRowRdlcDefaultWordRowPdf(): Text begin Rows(0); WordRow(Report::"RS Rdlc Word", CompanyName()); exit(Saved(Report::"RS Rdlc Word", ReportFormat::Pdf)); end;
+    procedure NoRowRdlcDefaultTenantWordPdf(): Text begin Rows(0); Tenant(Report::"RS Rdlc Word", 'W'); exit(Saved(Report::"RS Rdlc Word", ReportFormat::Pdf)); end;
 }
 "#;
 
@@ -179,6 +250,8 @@ fn stored_selection_the_companys_rdlc_row_renders_the_rdlc_layout() {
     assumptions::clear_hits();
     assert_eq!(text("RdlcHtml"), "No|No|ReportUnsupportedFormat|");
     assert!(assumptions::take_hits().contains(&Assumption::ReportStoredLayoutSelection));
+    // The Company Name is compared as `Session::layout_selection` compares it, ignoring case.
+    assert_eq!(text("CaseCompanyHtml"), "No|No|ReportUnsupportedFormat|");
     assert_eq!(
         text("RdlcHtmlText"),
         "The Html output format is not supported by the current report layout format."
@@ -224,16 +297,67 @@ fn stored_selection_a_custom_layout_code_that_names_nothing_answers_no_layout() 
     );
 }
 
-/// Neighbors of the two cells keep main's outcome: its refusal of a selection, or its answer for the report's own layout.
+/// Neighbors of the two cells keep main's refusal of a selection.
 #[test]
-fn stored_selection_neighbors_keep_mains_outcome() {
+fn stored_selection_neighbors_keep_mains_refusal() {
     for p in ["KnownCode", "EmptyCode", "RdlcRowWordOnly"] {
         refused(p, "a Report Layout Selection row selects a layout for it");
     }
-    // The statement form, two rows of the report, a save to a file: not measured; main takes the company's built-in row for
-    // the report's own layout and writes the Word layout's placeholder.
-    run("RdlcHtmlStatement").expect("main's answer");
-    assert_eq!(text("TwoRowsHtml"), "Yes|Yes||OnPreReport;");
-    assert!(matches!(run("RdlcHtmlFile"), Ok(Value::Boolean(true))));
     refused("RdlcPdfNoRow", "selects its RDLC layout (not measured)");
+}
+
+const OTHER_KIND: &str = "of another kind than the default layout";
+
+/// A selected built-in or tenant layout of another kind than the default layout renders that layout (RxLayoutSelectionTests.al
+/// :452 the company's RDLC row, :648 a tenant row). Outside the measured cells (the statement form, a file, two rows, a tenant
+/// row naming the RDLC layout, an RDLC default report with a Word row) a save as Html or Excel, where the grid differs between
+/// the two kinds, refuses. Main wrote the default layout's answer there.
+#[test]
+fn a_selected_layout_of_another_kind_refuses_html_and_excel() {
+    for p in [
+        "RdlcHtmlStatement",
+        "RdlcHtmlFile",
+        "TwoRowsHtml",
+        "TwoRowsExcel",
+        "TenantRdlcHtml",
+        "RdlcDefaultWordRowHtml",
+        "RdlcDefaultWordRowExcel",
+    ] {
+        refused(p, OTHER_KIND);
+    }
+}
+
+/// Pdf and Word give a placeholder under both kinds, and a selection of the default layout's kind renders that kind: main's
+/// answer.
+#[test]
+fn a_selected_layout_keeps_mains_answer_where_both_kinds_give_the_format() {
+    assert_eq!(text("TwoRowsPdf"), "Yes|Yes||OnPreReport;");
+    assert_eq!(text("RdlcDefaultWordRowPdf"), "Yes|Yes||");
+    assert_eq!(text("WordRowHtml"), "Yes|Yes||OnPreReport;");
+    assert_eq!(text("TenantWordHtml"), "Yes|Yes||OnPreReport;");
+}
+
+/// No dataset row behind a stored layout selection row (any company, either table): not measured. A Word layout report
+/// refuses; an RDLC report writes its placeholder as on main.
+#[test]
+fn no_dataset_row_behind_a_stored_selection_row() {
+    for (p, want) in [
+        ("NoRowWordRowPdf", "a Report Layout Selection row names the report"),
+        ("NoRowWordRowHtml", "a Report Layout Selection row names the report"),
+        ("NoRowOtherCompanyPdf", "a Report Layout Selection row names the report"),
+        (
+            "NoRowTenantRdlcPdf",
+            "a Tenant Report Layout Selection row names the report",
+        ),
+    ] {
+        refused(p, want);
+    }
+    for p in ["NoRowRdlcDefaultWordRowPdf", "NoRowRdlcDefaultTenantWordPdf"] {
+        assumptions::clear_hits();
+        assert_eq!(text(p), "Yes|Yes||", "{p}");
+        assert!(
+            !assumptions::take_hits().contains(&Assumption::ReportSaveNoDatasetRow),
+            "{p}"
+        );
+    }
 }
