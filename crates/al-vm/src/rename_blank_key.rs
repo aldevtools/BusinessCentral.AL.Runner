@@ -81,11 +81,11 @@ impl Session {
             Ok([text(&old[k])?, text(&new[k])?])
         };
         let measured = match changes.as_slice() {
-            &[k] => texts(k).map(|texts| (k, texts)).and_then(|(k, texts)| {
-                Ok(self
-                    .measured_blank_rename(rec, t, refs, k, &stored, old, new, &texts, from_al)
-                    .map(|()| (k, texts)))
-            })?,
+            &[k] => {
+                let texts = texts(k)?;
+                self.measured_blank_rename(rec, t, refs, k, &stored, old, new, &texts, from_al)
+                    .map(|()| (k, texts))
+            }
             _ => Err("more than one key field changes to or from blank"),
         };
         match measured {

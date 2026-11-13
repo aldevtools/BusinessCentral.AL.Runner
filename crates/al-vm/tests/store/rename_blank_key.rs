@@ -225,6 +225,14 @@ fn the_two_field_cell_raises() {
     );
     // Both key fields change: not the measured cell.
     assert!(refused(run(objects, &body("'A2', 'X'"))).contains("two-field key"));
+    // Both key fields change from blank.
+    let both = "var M: Record \"S Master\"; M2: Record \"S Master\"; begin
+        M.Insert(); Commit();
+        M2.Get('', '');
+        M2.Rename('A2', 'X');
+        exit('renamed');
+    end;";
+    assert!(refused(run(objects, both)).contains("more than one key field changes"));
 }
 
 // One fact outside the measured cells, or two measured facts at once: refused.
