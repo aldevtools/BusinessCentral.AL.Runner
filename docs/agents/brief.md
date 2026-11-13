@@ -92,8 +92,8 @@ depend on.
    run the check that `docs/agents/checks.md` names for it.
 7. `cargo fmt --all` LAST, after every edit. Then `tools/prepush.sh`.
 8. Push your branch. `gh pr create --draft`. No auto-merge. CI runs only the `test` job on a draft (owner, 2026-11-10). Do not wait for CI. Do not mark it ready.
-   The orchestrator reviews it. A single reviewed PR is marked ready with auto-merge and lands on
-   its own. Merge trains are only for two or more ready PRs.
+   The orchestrator reviews it. Every reviewed PR lands through a merge train, never on its own
+   (owner, 2026-11-13).
 9. Stop every monitor and background process you started.
 
 ## Pull request body and final report (the same content)
