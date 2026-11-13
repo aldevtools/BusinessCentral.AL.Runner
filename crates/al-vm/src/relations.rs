@@ -7,6 +7,7 @@
 //! related table lacks is refused with "... cannot be found in the related table".
 
 use crate::Session;
+use crate::records::ValidateSite;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
@@ -23,6 +24,17 @@ type Rec = Rc<RefCell<RecordState>>;
 const USER_TABLE: i32 = 2_000_000_120;
 const SYSTEM_CREATED_BY: u32 = 2_000_000_002;
 const SYSTEM_MODIFIED_BY: u32 = 2_000_000_004;
+
+struct RelationErrorText<'a> {
+    table: &'a TableDef,
+    field: usize,
+    value: &'a Value,
+    related: &'a TableDef,
+    related_field: usize,
+    wheres: &'a [ir::RelationWhere],
+    site: Option<ValidateSite>,
+    code: &'a str,
+}
 
 impl Session {
     fn is_flow_field(&self, table: u32, pos: usize) -> bool {
@@ -212,6 +224,18 @@ impl Session {
         pos: usize,
         value: Value,
     ) -> Result<(), Signal> {
+        self.validate_relation_at(rec, t, pos, value, None)
+    }
+
+    /// `Validate` with the call site for the one page-error text the corpus measures.
+    pub(crate) fn validate_relation_at(
+        &mut self,
+        rec: &Rec,
+        t: &TableDef,
+        pos: usize,
+        value: Value,
+        site: Option<ValidateSite>,
+    ) -> Result<(), Signal> {
         // Typed field facts, worked out once (a scan of the field's properties on each Validate showed in the Tests-ERM profile).
         if !self.engine.field_facts[t.object as usize][pos].validate_relation {
             return Ok(());
@@ -336,55 +360,171 @@ impl Session {
         }
         // A related table the baseline could not fill may hold the row in BC.
         self.unseeded_read(&related, false, "the TableRelation check")?;
+        let code = if used_source_flowfilter {
+            al_builtins::native::UNPINNED_ERROR.into()
+        } else {
+            self.relation_error_code(t, pos, &related, rel_pos, wheres)
+        };
+        let (message, dutch) = self.relation_error_text(RelationErrorText {
+            table: t,
+            field: pos,
+            value: &value,
+            related: &related,
+            related_field: rel_pos,
+            wheres,
+            site,
+            code: &code,
+        })?;
         Err(Signal::Error(Box::new(AlError {
-            message: self.relation_error_text(t, pos, &value, &related)?,
-            code: if used_source_flowfilter {
-                al_builtins::native::UNPINNED_ERROR.into()
+            message,
+            code,
+            kind: if dutch {
+                al_builtins::native::AlErrorKind::DutchTableRelation
             } else {
-                self.relation_error_code(t, pos, &related, rel_pos, wheres)
+                al_builtins::native::AlErrorKind::TableRelation
             },
             call_stack: String::new(),
             ..Default::default()
         })))
     }
 
-    /// The text of the TableRelation error of a Validate of `value` in field `pos` of `t`, missing from table `related`. Under
-    /// 1043 and 2067 the platform's words are Dutch (format-evaluate/EnumCaptionReaders.al:980-982 ECR_Relations_2067;
-    /// localization/app-xliff/BaseAppPageExtCaption.al:276 under 1043, al-runner issue 7327). There a caption a translation
-    /// file could change is the unpinned-error mark: the pinned cases name only captions no file translates. Other languages
-    /// keep the English text.
-    fn relation_error_text(
+    /// The TableRelation text is Dutch only for the 1043 TestPage case in BaseAppPageExtCaption.al:271-276. The 2067 case
+    /// (EnumCaptionReaders.al:980-982) remains on the not-passing lists, so it keeps main's English text.
+    fn relation_error_text(&self, context: RelationErrorText<'_>) -> Result<(String, bool), Signal> {
+        let RelationErrorText {
+            table: t,
+            field: pos,
+            value,
+            related,
+            related_field: rel_pos,
+            wheres,
+            site,
+            code,
+        } = context;
+        let shown = self.message_value(value)?;
+        let english = || {
+            format!(
+                "The field {} of table {} contains a value ({shown}) that cannot be found in the related table ({}).",
+                self.field_caption(t, pos),
+                self.caption(t),
+                self.relation_error_caption(related)
+            )
+        };
+        let dutch_test_page = al_builtins::format::FormatCtx::language(self) == 1043
+            && matches!(site, Some(ValidateSite::TestPageControl { .. }));
+        if dutch_test_page {
+            let field = self.field_caption(t, pos);
+            let table = self.caption(t);
+            let other = self.relation_error_caption(related);
+            // BaseAppPageExtCaption.al:22-35, :271-276 pins this Dutch sentence on the extended Payment Methods field only.
+            if self.dutch_page_relation_pinned(t, pos, related, rel_pos, wheres, site)
+                && shown == "ABC"
+                && field == "Bal. Account No."
+                && table == "Payment Method"
+                && other == "G/L Account"
+            {
+                return Ok((
+                    format!(
+                        "Het veld {field} van tabel {table} bevat een waarde ({shown}) die niet is gevonden in de gerelateerde tabel ({other})."
+                    ),
+                    true,
+                ));
+            }
+            // A TestPage relation text whose caption can translate stays refused; its pinned code remains readable.
+            let unpinned_caption = !matches!(self.field_caption_translation(t, pos), Ok(None))
+                || self.translated_read_refusal(t.object as usize, String::new).is_some()
+                || self
+                    .translated_read_refusal(related.object as usize, String::new)
+                    .is_some();
+            if unpinned_caption {
+                let probe = "TableRelation Dutch text with a translated caption";
+                let mut error = if code == al_builtins::native::UNPINNED_ERROR {
+                    al_builtins::native::unpinned_error_for(probe)
+                } else {
+                    al_builtins::native::unpinned_text_error(code, probe)
+                };
+                error.kind = al_builtins::native::AlErrorKind::DutchTableRelation;
+                return Err(Signal::Error(Box::new(error)));
+            }
+        }
+        Ok((english(), false))
+    }
+
+    /// The Dutch TableRelation shape in BaseAppPageExtCaption.al:22-35, :271-276.
+    fn dutch_page_relation_pinned(
         &self,
         t: &TableDef,
         pos: usize,
-        value: &Value,
         related: &TableDef,
-    ) -> Result<String, Signal> {
-        let mut field = self.field_caption(t, pos);
-        let mut table = self.caption(t);
-        let shown = self.message_value(value)?;
-        let mut other = self.relation_error_caption(related);
-        if !matches!(al_builtins::format::FormatCtx::language(self), 1043 | 2067) {
-            return Ok(format!(
-                "The field {field} of table {table} contains a value ({shown}) that cannot be found in the related table ({other})."
-            ));
-        }
-        let mark = || al_builtins::native::UNPINNED_ERROR.to_string();
-        if !matches!(self.field_caption_translation(t, pos), Ok(None)) {
-            field = mark();
-        }
-        if self.translated_read_refusal(t.object as usize, String::new).is_some() {
-            table = mark();
-        }
-        if self
-            .translated_read_refusal(related.object as usize, String::new)
-            .is_some()
-        {
-            other = mark();
-        }
-        Ok(format!(
-            "Het veld {field} van tabel {table} bevat een waarde ({shown}) die niet is gevonden in de gerelateerde tabel ({other})."
-        ))
+        rel_pos: usize,
+        wheres: &[ir::RelationWhere],
+        site: Option<ValidateSite>,
+    ) -> bool {
+        let Some(ValidateSite::TestPageControl { page, control }) = site else {
+            return false;
+        };
+        let Some(page_object) = self.engine.program.objects.get(page) else {
+            return false;
+        };
+        let Some(page_ir) = page_object.page.as_ref() else {
+            return false;
+        };
+        let Some(control_ir) = page_ir.controls.get(control) else {
+            return false;
+        };
+        let [(extension_index, modified_name)] = control_ir.caption_modifies.as_slice() else {
+            return false;
+        };
+        let extension = &self.engine.program.objects[*extension_index];
+        let extension_has_nl_file = self
+            .engine
+            .program
+            .apps
+            .get(extension.app as usize)
+            .is_some_and(|app| app.translations);
+        let caption_unit = format!(
+            "{} - {} - {}",
+            ir::xliff_part("PageExtension", &extension.name),
+            ir::xliff_part("Change", modified_name),
+            ir::xliff_part("Property", "Caption")
+        );
+        let caption_unit_is_absent = self
+            .app_translation(extension.app as usize, &caption_unit, &|| {
+                format!(
+                    "the caption of control {} of page {}",
+                    control_ir.name, page_object.name
+                )
+            })
+            .is_ok_and(|translation| translation.is_none());
+        page_object.id == Some(427)
+            && matches!(self.engine.object_facts[page].page_type, Some(ir::PageType::List))
+            && matches!(control_ir.binding, ir::Binding::Field(field) if field == pos)
+            && control_ir.name == "Bal. Account No."
+            && *modified_name == "Bal. Account No."
+            && control_ir.ext_triggers.is_empty()
+            && matches!(
+                control_ir.prop("caption"),
+                Some(ir::PropVal::Lit(caption)) if caption == "'LPX No Modified'"
+            )
+            && extension.kind == ir::ObjKind::PageExtension
+            && extension.id == Some(62440)
+            && extension.name == "LPX Payment Methods Ext"
+            && extension.extends_id == Some(427)
+            && extension_has_nl_file
+            && caption_unit_is_absent
+            && matches!(self.field_caption_translation(t, pos), Ok(None))
+            && self.translated_read_refusal(t.object as usize, String::new).is_none()
+            && self
+                .translated_read_refusal(related.object as usize, String::new)
+                .is_none()
+            && self.engine.program.objects[t.object as usize].id == Some(289)
+            && t.fields[pos].id == 4
+            && matches!(t.fields[pos].ty, al_builtins::value::RtType::Code(Some(20)))
+            && self.engine.program.objects[related.object as usize].id == Some(15)
+            && rel_pos == 0
+            && related.fields[rel_pos].id == 1
+            && matches!(related.fields[rel_pos].ty, al_builtins::value::RtType::Code(Some(20)))
+            && wheres.is_empty()
     }
 
     /// A source FlowFilter with a default buffer contributes no condition when unset
@@ -488,15 +628,6 @@ fn const_cond_holds(value: &Value, c: &ir::Const, relation: impl Fn() -> String)
         // An error of the comparison itself (a Text that reads as no Guid) is not pinned for a relation either.
         Err(e) => cond_refusal(e, &relation()),
     }
-}
-
-/// Whether `msg` is the Dutch text of a TableRelation error (`Session::relation_error_text`).
-pub(crate) fn is_dutch_relation_text(msg: &str) -> bool {
-    msg.strip_prefix("Het veld ")
-        .and_then(|rest| rest.split_once(" van tabel "))
-        .and_then(|(_, rest)| rest.split_once(" bevat een waarde ("))
-        .and_then(|(_, rest)| rest.split_once(") die niet is gevonden in de gerelateerde tabel ("))
-        .is_some_and(|(_, rest)| rest.ends_with(")."))
 }
 
 /// The refusal of a TableRelation condition of `relation` (table.field) whose comparison failed with `e`.

@@ -31,7 +31,7 @@ impl Session {
     /// app with an nl-NL file, al-runner issue 7327): its field controls keep the Base Application captions, a `modify`
     /// caption with a unit reads it (`LPX type gewijzigd`) and one without keeps its source (`LPX No Modified`), an added
     /// control's caption likewise (`LPX toegevoegd`, `LPX Added No Unit`), an added field control without one takes the
-    /// field's (`Direct Debit`); :233-243, a page an extension extends with an action only keeps its captions.
+    /// field's (`Direct Debit`); :240-251, a page an extension extends with an action only keeps its captions.
     /// Any other control stays `Legacy`: a control with no caption, a `CaptionClass` or a `CaptionML`, the own caption of a
     /// page an extension extends, a caption two extensions set or one extension sets on another one's control.
     pub(super) fn control_caption_translation(&mut self, st: &St, idx: usize) -> Result<ControlCaption, Signal> {

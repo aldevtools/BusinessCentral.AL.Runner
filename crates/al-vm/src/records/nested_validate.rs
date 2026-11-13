@@ -24,7 +24,7 @@ pub(crate) enum ValidateSite {
     /// `FieldRef.Validate`.
     FieldRef,
     /// The write of a TestPage control (SetValue and the like).
-    TestPageControl,
+    TestPageControl { page: usize, control: usize },
     /// The field element or attribute of an XmlPort import.
     XmlPortField,
     /// A part's link value stamped on its new line.

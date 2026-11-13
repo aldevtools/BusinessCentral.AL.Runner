@@ -559,12 +559,18 @@ impl Session {
         let no_row = self.shows_no_row(st, idx);
         // A list shows no Refresh hint (testpage/PnC07TestPage.al:GetValidationError_AfterFailedValidation, ValueAssign_Number_FromText_And_Decimal);
         // a card does (testpage/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210).
-        let suffix = self.validation_suffix(st, idx, rec_bound);
-        let frame = self.validation_frame(st, idx, &caption);
+        let (suffix, frame) = self.set_value_validation_context(st, idx, &caption, rec_bound);
         let refuse_code = |msg: String, code: &str| -> Signal {
             super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, frame)
         };
-        let refuse = |_: &mut Session, msg: String| -> Signal { refuse_code(msg, "") };
+        let refuse_entry_parse =
+            |msg: String, code: &str| -> Signal {
+                let mut entry_frame = frame;
+                entry_frame.error_kind = super::validation_text::ValidationErrorKind::Entry(
+                    self.entry_validation_facts(st, idx, &ty, rec_bound, allowed.is_some()),
+                );
+                super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, entry_frame)
+            };
         // The bounds and the length of a Text variable raise a TestValidation error
         // (errors/TestPageVariableMinMaxContracts.al:15-16, :119).
         let refuse_bound = |msg: String| -> Signal { refuse_code(msg, "TestValidation") };
@@ -768,22 +774,21 @@ impl Session {
                 }
                 // A control bound to a variable raises TestValidation (pages/controls/W2ValueControls.al:Date_IsoSpellings,
                 // Enum_VariableControl_*); one bound to a table field keeps the empty code.
-                return Err(
-                    // An Enum control raises TestValidation on a card with a row too (pages/controls/
-                    // PageEnumControlCaptionless.al:P161_EnumControl_SetValueSpellings_Captionless `spaceOrdinal`).
-                    // A refused text on an Option control is a TestValidation error on a card with a row: the empty text (testpage/
-                    // TestPageAssertEqualsOption.al:SetValue_BlankOption_AsEmptyText) and `Nope`, `5`, `2`, `Tw` (testpage/N582TestPageEdges.al:156-186).
-                    if rec_bound
-                        && !no_row
-                        && !matches!(ty, RtType::DateTime | RtType::Enum(_))
-                        && !matches!(ty, RtType::Option(_))
-                        && !self.is_list(st)
-                    {
-                        refuse(self, msg)
-                    } else {
-                        refuse_bound(msg)
-                    },
-                );
+                // An Enum control raises TestValidation on a card with a row too (pages/controls/
+                // PageEnumControlCaptionless.al:P161_EnumControl_SetValueSpellings_Captionless `spaceOrdinal`).
+                // A refused text on an Option control is a TestValidation error on a card with a row: the empty text (testpage/
+                // TestPageAssertEqualsOption.al:SetValue_BlankOption_AsEmptyText) and `Nope`, `5`, `2`, `Tw` (testpage/N582TestPageEdges.al:156-186).
+                let error = if rec_bound
+                    && !no_row
+                    && !matches!(ty, RtType::DateTime | RtType::Enum(_))
+                    && !matches!(ty, RtType::Option(_))
+                    && !self.is_list(st)
+                {
+                    refuse_entry_parse(msg, "")
+                } else {
+                    refuse_entry_parse(msg, "TestValidation")
+                };
+                return Err(error);
             }
             Err(al_builtins::pagefmt::ParseError::Unsupported) => {
                 return unsupported(format!(
@@ -953,7 +958,11 @@ impl Session {
                     // globals, and leaves the page's record with fresh globals (ADR-021 decision 8;
                     // corpus probes TableGlobals_PageFieldValidate_*, TableGlobals_PageRec_ActionGlobalsAreLostAfterPageFieldValidation).
                     self.reset_table_globals(&rec);
-                    let validated = self.platform_validate(ValidateSite::TestPageControl, &rec, pos, parsed.clone());
+                    let site = ValidateSite::TestPageControl {
+                        page: st.borrow().object as usize,
+                        control: idx,
+                    };
+                    let validated = self.platform_validate(site, &rec, pos, parsed.clone());
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
@@ -1113,22 +1122,17 @@ impl Session {
                     return Err(Signal::Error(e));
                 }
                 if e.message.is_empty() {
-                    return unsupported(
-                        "an error with an empty text out of a table field's OnValidate during TestPage SetValue (what the test client does with it is not pinned)",
-                    );
+                    return self.empty_page_validation_error();
+                }
+                if let Some(relation_error) = self.page_relation_error_signal(&engine, st, idx, suffix, frame, &e)? {
+                    return Err(relation_error);
+                }
+                if let Some(relation_error) = self.table_relation_error_signal(&engine, st, idx, &e)? {
+                    return Err(relation_error);
                 }
                 al_builtins::native::refuse_unpinned_text(&e, "A page validation error built from an error")?;
-                // A control add-in call in a card control's own OnValidate (the add-in is never created in a test session) raises
-                // the add-in's error with NSValidationFailed: in front of its code (testpage/ACControlAddIn.al:99
-                // AC_ControlAddIn_ProcedureCallFromFieldTrigger, BC28PLUS). On another page type, or out of the table's OnValidate,
-                // it is not pinned.
-                if e.code == crate::control_add_in::NOT_CREATED {
-                    if !(from_page_trigger.get() && self.is_card(st)) {
-                        return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
-                    }
-                    let mut e = e;
-                    e.code = format!("NSValidationFailed:{}", e.code);
-                    return Err(Signal::Error(e));
+                if let Some(addin_error) = self.page_control_addin_error(st, from_page_trigger.get(), &e) {
+                    return Err(addin_error);
                 }
                 if matches!(ctl.binding, ir::Binding::Expr(_)) {
                     return Err(refuse_bound(e.message));
@@ -1137,29 +1141,163 @@ impl Session {
                 // PnC07TestPage.al:GetValidationError_AfterFailedValidation and ValueAssign_ValidationError); on a card it carries it
                 // (testpage/TestPageErrTeardown_Tests.al, codeunit 60836). Whether the list or something else in that page decides is
                 // not probed (docs/probes-needed.md).
-                if from_page_trigger.get() && self.is_list(st) {
-                    note_refusal(st, idx, e.message.clone())?;
-                    st.borrow_mut().trigger_errors.push((idx, e.message.clone()));
-                    return Err(error_code(
-                        format!(
-                            "Validation error for Field: {},  Message = '{}'",
-                            page_of(&engine, st).controls[idx].name,
-                            e.message
-                        ),
-                        "TestValidation",
-                    ));
+                if let Some(page_trigger_error) =
+                    self.page_trigger_list_error_signal(&engine, st, idx, from_page_trigger.get(), &e)?
+                {
+                    return Err(page_trigger_error);
                 }
                 // An error of the table's validation (its trigger, the length of the text) carries TestValidation
                 // (record/load-fields/P81PageValidateEvents.al:TestPage_SetValue_NegativeQty_TableTriggerRaises,
                 // TestPage_SetValue_NameTooLong).
                 let refusal = refuse_bound(e.message.clone());
-                if matches!(refusal, Signal::Error(_)) {
-                    st.borrow_mut().trigger_errors.push((idx, e.message));
-                }
+                record_trigger_error(st, idx, &refusal, e.message);
                 Err(refusal)
             }
             Err(other) => Err(other),
         }
+    }
+
+    fn entry_validation_facts(
+        &self,
+        st: &St,
+        idx: usize,
+        ty: &RtType,
+        rec_bound: bool,
+        values_allowed: bool,
+    ) -> super::validation_text::EntryFacts {
+        let kind = match ty {
+            RtType::Boolean => super::validation_text::EntryKind::Boolean,
+            RtType::Enum(_) => super::validation_text::EntryKind::Enum,
+            _ => super::validation_text::EntryKind::Other,
+        };
+        super::validation_text::EntryFacts {
+            parse_failure: true,
+            kind,
+            table_field: rec_bound && self.control_field(st, idx).is_some(),
+            list: self.is_list(st),
+            values_allowed: if values_allowed {
+                super::validation_text::ValuesAllowedFact::Present
+            } else {
+                super::validation_text::ValuesAllowedFact::Absent
+            },
+        }
+    }
+
+    fn set_value_validation_context<'c>(
+        &self,
+        st: &St,
+        idx: usize,
+        caption: &'c str,
+        rec_bound: bool,
+    ) -> (&'static str, super::validation_text::ValidationFrame<'c>) {
+        (
+            self.validation_suffix(st, idx, rec_bound),
+            self.validation_frame(st, idx, caption),
+        )
+    }
+
+    fn empty_page_validation_error(&self) -> Result<Value, Signal> {
+        unsupported(
+            "an error with an empty text out of a table field's OnValidate during TestPage SetValue (what the test client does with it is not pinned)",
+        )
+    }
+
+    fn page_relation_error_signal(
+        &mut self,
+        engine: &Engine,
+        st: &St,
+        idx: usize,
+        suffix: &str,
+        mut frame: super::validation_text::ValidationFrame<'_>,
+        error: &AlError,
+    ) -> Result<Option<Signal>, Signal> {
+        if error.kind != al_builtins::native::AlErrorKind::DutchTableRelation {
+            return Ok(None);
+        }
+        if al_builtins::native::text_unpinned(error) {
+            if error.code != al_builtins::native::UNPINNED_ERROR {
+                return Ok(Some(Signal::Error(Box::new(error.clone()))));
+            }
+            al_builtins::native::refuse_unpinned_text(
+                error,
+                "A page validation error built from a TableRelation error",
+            )?;
+        }
+        frame.error_kind = super::validation_text::ValidationErrorKind::DutchTableRelation;
+        let refusal = super::validation_text::validation_signal(
+            engine,
+            st,
+            idx,
+            error.message.clone(),
+            suffix,
+            "TestValidation",
+            frame,
+        );
+        if matches!(refusal, Signal::Error(_)) {
+            st.borrow_mut().trigger_errors.push((idx, error.message.clone()));
+        }
+        Ok(Some(refusal))
+    }
+
+    fn table_relation_error_signal(
+        &mut self,
+        engine: &Engine,
+        st: &St,
+        idx: usize,
+        error: &AlError,
+    ) -> Result<Option<Signal>, Signal> {
+        if error.kind != al_builtins::native::AlErrorKind::TableRelation
+            || al_builtins::format::FormatCtx::language(self) != 1043
+        {
+            return Ok(None);
+        }
+        note_refusal(st, idx, error.message.clone())?;
+        st.borrow_mut().trigger_errors.push((idx, error.message.clone()));
+        Ok(Some(error_code(
+            format!(
+                "Validation error for Field: {},  Message = '{}'",
+                page_of(engine, st).controls[idx].name,
+                error.message
+            ),
+            "TestValidation",
+        )))
+    }
+
+    fn page_trigger_list_error_signal(
+        &mut self,
+        engine: &Engine,
+        st: &St,
+        idx: usize,
+        from_page_trigger: bool,
+        error: &AlError,
+    ) -> Result<Option<Signal>, Signal> {
+        if !(from_page_trigger && self.is_list(st)) {
+            return Ok(None);
+        }
+        note_refusal(st, idx, error.message.clone())?;
+        st.borrow_mut().trigger_errors.push((idx, error.message.clone()));
+        Ok(Some(error_code(
+            format!(
+                "Validation error for Field: {},  Message = '{}'",
+                page_of(engine, st).controls[idx].name,
+                error.message
+            ),
+            "TestValidation",
+        )))
+    }
+
+    fn page_control_addin_error(&self, st: &St, from_page_trigger: bool, error: &AlError) -> Option<Signal> {
+        if error.code != crate::control_add_in::NOT_CREATED {
+            return None;
+        }
+        // A control add-in call in a card control's own OnValidate raises NSValidationFailed: before the code
+        // (testpage/ACControlAddIn.al:99 AC_ControlAddIn_ProcedureCallFromFieldTrigger, BC28PLUS).
+        if !(from_page_trigger && self.is_card(st)) {
+            return Some(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
+        }
+        let mut error = error.clone();
+        error.code = format!("NSValidationFailed:{}", error.code);
+        Some(Signal::Error(Box::new(error)))
     }
 
     // ---- controls -----------------------------------------------------------------------
@@ -1877,6 +2015,12 @@ fn clear_refused_entries(st: &St, idx: usize) {
     s.trigger_errors.retain(|(i, _)| *i != idx);
     if s.values_allowed_refused_row.as_ref().is_some_and(|(i, _)| *i == idx) {
         s.values_allowed_refused_row = None;
+    }
+}
+
+fn record_trigger_error(st: &St, idx: usize, refusal: &Signal, message: String) {
+    if matches!(refusal, Signal::Error(_)) {
+        st.borrow_mut().trigger_errors.push((idx, message));
     }
 }
 

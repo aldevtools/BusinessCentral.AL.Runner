@@ -370,7 +370,7 @@ impl Session {
     /// R7184BaseAppCaption.al:91-122, :145-165 and Sales Line in R7187PageCaption.al, al-runner issue 7184). For a page it
     /// decides the controls the extensions leave alone (`control_caption_translation`, which reads the extensions' own units
     /// for the captions they set): Base Application's Payment Methods and Territories, extended by an app with an nl-NL file
-    /// under 1043 (localization/app-xliff/BaseAppPageExtCaption.al:205-219, :233-243, al-runner issue 7327). Not decided here
+    /// under 1043 (localization/app-xliff/BaseAppPageExtCaption.al:205-219, :240-251, al-runner issue 7327). Not decided here
     /// (stays refused): an extension app whose files are not read (a package, a file that could not be read) or are of the
     /// same language for another culture.
     pub(crate) fn only_foreign_translating_extensions(&self, object: usize) -> bool {
