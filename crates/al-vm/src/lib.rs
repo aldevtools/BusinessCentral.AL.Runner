@@ -2452,7 +2452,7 @@ impl Session {
         facts: RoutineFacts,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
-        self.events.next_is_subscriber = false;
+        let is_subscriber = std::mem::take(&mut self.events.next_is_subscriber);
         self.note_routine(object, routine);
         if self.coverage.cells.is_some() {
             self.tap_cells(object, routine, &instance);
@@ -2559,7 +2559,11 @@ impl Session {
                         RtType::Variant | RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef)
                     ) =>
                 {
-                    crate::recordref_variant::own_copy(&h)
+                    if is_subscriber && !matches!(r.locals[i].ty, RtType::Variant) {
+                        self.variant_refs.copy_typed_alias(&h)
+                    } else {
+                        crate::recordref_variant::own_copy(&h)
+                    }
                 }
                 // A Variant holding a RecordRef handed by value to a Record parameter: see `record_ref_into_record_param`.
                 (Value::Library(name, h), false)

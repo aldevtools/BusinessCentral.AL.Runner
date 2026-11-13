@@ -3053,3 +3053,38 @@ fn issue_7884_caption_after_language_or_binding_change_stays_refused() {
         );
     }
 }
+
+#[test]
+fn measured_recordref_get_table_updates_the_shared_event_buffer() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/recordref-gettable-shared.al"),
+    ));
+}
+
+#[test]
+fn issue_7885_temporary_source_leaves_the_original_recordref_on_its_row() {
+    let source = r#"
+table 50952 "RecordRef Control" {
+    fields { field(1; Id; Integer) {} field(2; Amount; Integer) {} }
+    keys { key(PK; Id) {} }
+}
+codeunit 50954 T {
+    Subtype = Test;
+    [Test] procedure TemporarySource()
+    var R: Record "RecordRef Control"; Temp: Record "RecordRef Control" temporary;
+        Original: RecordRef; Alias: RecordRef; V: Variant;
+    begin
+        R.Id := 1;
+        Original.GetTable(R);
+        Alias := Original;
+        Temp.Id := 1;
+        Temp.Amount := 7;
+        Alias.GetTable(Temp);
+        V := Original.Field(2).Value;
+        if Format(V) <> '0' then Error('The temporary source rebound the original record.');
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], source));
+}
