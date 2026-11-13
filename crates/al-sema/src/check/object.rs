@@ -331,24 +331,7 @@ impl<'a> Checker<'a> {
             }
             _ => {}
         }
-        // The procedures of a codeunit with TableNo see the object's own variables only: no `Rec`, no `xRec`, no
-        // unqualified field or method of the implicit record (al-runner issue 7974; alc 18.0.39.10160 gives AL0118
-        // for each, in global, local and internal procedures, event subscribers and test procedures, also next to a
-        // parameter named `Rec`; probe apps in lower/tests/type_before_rec_field.rs). A global `Rec` or `xRec` the
-        // codeunit declares stays that variable there. Only the OnRun trigger has the implicit Rec.
-        let table_no_procedure_globals =
-            (o.kind == ObjKind::Codeunit && rec.is_some()).then(|| std::rc::Rc::new(globals.clone()));
-        if let Some(r) = &rec {
-            globals.insert("rec".into(), r.clone());
-            // The OnRun trigger of a codeunit with TableNo has `Rec` but no implicit `xRec` (AL0161, `al_unresolved_name`);
-            // a global `xRec` the codeunit declares stays.
-            match o.kind {
-                ObjKind::Codeunit => {}
-                _ => {
-                    globals.insert("xrec".into(), r.clone());
-                }
-            }
-        }
+        let table_no_procedure_globals = implicit_rec_globals(o.kind, rec.as_ref(), &mut globals);
         // Report extensions see the base report's data items; `modify(X)` blocks
         // run with data item X as their record.
         let mut base_items: HashMap<String, String> = HashMap::default();
@@ -1038,4 +1021,27 @@ fn request_page_source_table(obj: &ast::Object) -> Option<String> {
                 .find(|p| p.name().eq_ignore_ascii_case("SourceTable"))
                 .map(|p| crate::types::property_object_name(&p.value_text()))
         })
+}
+
+/// Puts the implicit `Rec` (and, outside a codeunit, `xRec`) of `rec` into `globals`. For a codeunit with TableNo it returns
+/// the globals its procedures see: the object's own variables only, no `Rec`, no `xRec`, no unqualified field or method of
+/// the implicit record (al-runner issue 7974; alc 18.0.39.10160 gives AL0118 for each, in global, local and internal
+/// procedures, event subscribers and test procedures, also next to a parameter named `Rec`; probe apps in
+/// lower/tests/type_before_rec_field.rs). A global `Rec` or `xRec` the codeunit declares stays that variable there. Only the
+/// OnRun trigger has the implicit Rec, and no implicit `xRec` (AL0161, `al_unresolved_name`).
+fn implicit_rec_globals(
+    kind: ObjKind,
+    rec: Option<&Ty>,
+    globals: &mut super::posmap::FxMap<String, Ty>,
+) -> Option<std::rc::Rc<super::posmap::FxMap<String, Ty>>> {
+    let r = rec?;
+    let table_no_procedure_globals = (kind == ObjKind::Codeunit).then(|| std::rc::Rc::new(globals.clone()));
+    globals.insert("rec".into(), r.clone());
+    match kind {
+        ObjKind::Codeunit => {}
+        _ => {
+            globals.insert("xrec".into(), r.clone());
+        }
+    }
+    table_no_procedure_globals
 }

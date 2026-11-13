@@ -1148,12 +1148,24 @@ impl<'a> Checker<'a> {
     /// AL0107: the keyword `in`, unquoted, after `::` (`R.Direction::In`, `D::In` on an option variable,
     /// `"Some Enum"::In`): al-runner issue 7803; alc 18.0.39.10160 gives AL0107 at `In`, then syntax errors this parser
     /// does not reproduce; `::"In"` compiles. Only the word `in` is measured.
-    fn al_unquoted_in_after_scope(&mut self, sc: &Scope, member: &SyntaxNode) {
+    fn al_unquoted_in_after_scope(&mut self, sc: &Scope, member: Option<&SyntaxNode>) {
+        let Some(member) = member else { return };
         let unquoted_in = ast::significant_green_tokens(member)
             .next()
             .is_some_and(|t| t.kind == SyntaxKind::Ident && t.text.eq_ignore_ascii_case("in"));
         if unquoted_in && !self.ws.is_dependency(sc.oi) {
             self.diag(sc, member, "AL0107", crate::alcodes::IDENTIFIER_EXPECTED.to_string());
+        }
+    }
+
+    /// Member `name` of type `t` named as a type: its static methods, else unknown.
+    fn type_name_member(&mut self, sc: &Scope, node: &SyntaxNode, t: &Ty, name: &str) -> E {
+        match self.static_members(t, name) {
+            Some(c) => E::Callable(c),
+            None => {
+                self.al_unknown_type_name_member(sc, node, t, name);
+                E::Val(Ty::Unknown)
+            }
         }
     }
 
@@ -1633,13 +1645,7 @@ impl<'a> Checker<'a> {
                         let r = kids[0].text_range();
                         self.types
                             .insert((sc.file, r.start().into(), r.end().into()), t.clone());
-                        return match self.static_members(&t, &mname) {
-                            Some(c) => E::Callable(c),
-                            None => {
-                                self.al_unknown_type_name_member(sc, node, &t, &mname);
-                                E::Val(Ty::Unknown)
-                            }
-                        };
+                        return self.type_name_member(sc, node, &t, &mname);
                     }
                     E::ObjKeyword(k) => {
                         // `Codeunit.Run(...)`, `Page.RunModal(...)`, `Database.Commit()`.
@@ -1693,9 +1699,7 @@ impl<'a> Checker<'a> {
             }
             ScopeExpr => {
                 let rhs = kids.get(1).map(name_of).unwrap_or_default();
-                if let Some(m) = kids.get(1) {
-                    self.al_unquoted_in_after_scope(sc, m);
-                }
+                self.al_unquoted_in_after_scope(sc, kids.get(1));
                 let base = if kids[0].kind() == NameRef {
                     match self.lookup_name(sc, &kids[0]) {
                         Some(e) => e,

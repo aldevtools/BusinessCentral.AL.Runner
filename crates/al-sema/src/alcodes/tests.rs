@@ -2686,3 +2686,20 @@ fn al0107_unquoted_in_after_the_scope_operator() {
     );
     assert!(messages(&quoted).is_empty(), "{:?}", messages(&quoted));
 }
+
+// al-runner issue 7974, alc 18.0.39.10160: the AL0118 text shows a quoted name as written, in a table and a page trigger.
+#[test]
+fn al0118_shows_a_quoted_name_as_written() {
+    let src = "table 50110 \"Probe Q\" { fields { field(1; \"Entry No.\"; Integer) { } } \
+        trigger OnInsert() begin \"Missing X\" := 1; end; } \
+        page 50111 \"Probe QP\" { SourceTable = \"Probe Q\"; trigger OnOpenPage() begin \"Missing Y\" := 1; end; }";
+    let mut got = messages(src);
+    got.sort();
+    assert_eq!(
+        got,
+        vec![
+            "AL0118 The name '\"Missing X\"' does not exist in the current context.".to_string(),
+            "AL0118 The name '\"Missing Y\"' does not exist in the current context.".to_string(),
+        ]
+    );
+}

@@ -259,3 +259,17 @@ fn x_rec_in_on_run_of_a_codeunit_with_table_no_is_inaccessible() {
         ["AL0161 'xRec' is inaccessible due to its protection level"]
     );
 }
+
+#[test]
+fn a_member_the_version_type_has_keeps_main_result() {
+    // Only a member `Version` lacks in every form is AL0132; `Version.Major()` (an instance method) and another type keep
+    // main's result: no AL diagnostic.
+    for p in [
+        "procedure P(): Integer begin exit(Version.Major()); end;",
+        "procedure P(): Text begin exit(Guid.ToUpper()); end;",
+    ] {
+        let src = codeunit("begin\n    end;", &format!("    {p}"));
+        let (_, l) = lower_files(&[("t.al", TABLE), ("c.al", &src)], false);
+        assert!(al_messages(&l).is_empty(), "{p}: {:?}", al_messages(&l));
+    }
+}
