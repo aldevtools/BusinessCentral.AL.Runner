@@ -952,7 +952,7 @@ impl Session {
                     },
                     other => return unsupported(format!("RecordRef.GetTable of {}", other.describe())),
                 };
-                let mut copy = self.gettable_copy(&src, matches!(args.first(), Some(Value::Record(_))));
+                let mut copy = self.gettable_copy(&src, matches!(args.first(), Some(Value::Record(_))))?;
                 // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
                 // as any RecordRef: GetView, SetView, SetFilter, FindFirst (corpus
                 // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
@@ -1423,7 +1423,7 @@ impl Session {
                 _ => None,
             };
             if let Some(how) = how {
-                crate::blob_transfer::move_blobs(&mut d.fields, Some(&before), how);
+                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how)?;
             }
             d.filters = s.filters.clone();
             d.key = s.key;
@@ -1601,7 +1601,8 @@ impl Session {
                     }
                     let v = self.fieldref_value_into(&t, pos, &field.ty, v)?;
                     let mut r = rec.borrow_mut();
-                    let v = crate::blob_transfer::moved(Some(&r.fields[pos]), v, BlobMove::FieldRefValue);
+                    let kind = || self.blob_field_kind(t.object as usize, pos);
+                    let v = crate::blob_transfer::moved(Some(&r.fields[pos]), v, BlobMove::FieldRefValue, kind)?;
                     r.fields[pos] = v;
                     if r.load.partial {
                         r.load.written(pos);

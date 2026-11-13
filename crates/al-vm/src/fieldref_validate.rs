@@ -25,7 +25,8 @@ impl Session {
         // A Blob is validated as a copy (`blob_transfer::moved`).
         if let Some(v @ Value::Blob(_)) = a.get_mut(1) {
             let cur = rec.borrow().fields[pos].clone();
-            *v = crate::blob_transfer::moved(Some(&cur), v.clone(), BlobMove::FieldRefValidate);
+            let kind = || self.blob_field_kind(t.object as usize, pos);
+            *v = crate::blob_transfer::moved(Some(&cur), v.clone(), BlobMove::FieldRefValidate, kind)?;
         }
         self.validate_at(crate::records::ValidateSite::FieldRef, rec, &mut a)
     }

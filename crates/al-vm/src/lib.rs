@@ -2468,6 +2468,9 @@ impl Session {
             }
         }
         let mut args = args;
+        // A procedure without attributes, called as a procedure: the call whose by-value arguments `blob_transfer::Argument`
+        // measures.
+        let measured_call = !subscriber && !r.is_trigger && r.attributes.is_empty();
         for (i, a) in args.drain(..).enumerate().take(r.params) {
             // No arm below is for these pairs, and the last one hands them back unchanged.
             if passed_unchanged(&a, &r.locals[i].ty) {
@@ -2475,8 +2478,8 @@ impl Session {
                 continue;
             }
             let by_var = r.by_var.get(i).copied().unwrap_or(false);
-            let argument = blob_transfer::Argument::of(&a, by_var || subscriber, &r.locals[i].ty);
-            locals[i] = argument.bind(match (a, by_var) {
+            let argument = blob_transfer::Argument::of(&a, measured_call && !by_var, &r.locals[i].ty);
+            let bound = match (a, by_var) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer
                 // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_PassedToVariantParameter_ByValue, record/TestTempTableContracts.al:141-148).
@@ -2603,7 +2606,8 @@ impl Session {
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
-            });
+            };
+            locals[i] = self.bind_blobs(argument, bound)?;
         }
         self.return_vec(args);
         let var_lens = if facts.var_lens {

@@ -995,7 +995,7 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::CopyFilters => Self::copy_filters(rec, args),
-            RecordOp::Copy => Self::record_copy(rec, args),
+            RecordOp::Copy => self.record_copy(rec, args),
             RecordOp::TestField => self.test_field(rec, t, args),
             RecordOp::FieldError => self.field_error(rec, t, args),
             other => unsupported(format!("Record.{other}")),
@@ -1004,7 +1004,7 @@ impl Session {
 
     /// `Record.Copy(Source [, ShareTable])`. Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the
     /// buffer, filters, key and direction come over; a temporary target keeps its own rows and stays temporary.
-    fn record_copy(rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+    fn record_copy(&self, rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
         let Some(Value::Record(src)) = args.first() else {
             return unsupported(format!("Copy from {}", args.first().describe()));
         };
@@ -1037,7 +1037,8 @@ impl Session {
         // Between two temporary records or two that are not, the Blobs move as `blob_transfer::moved` says; between
         // one of each they come as before.
         if s.temporary == d.temporary {
-            crate::blob_transfer::move_blobs(&mut d.fields, None, BlobMove::RecordCopy);
+            let table = d.table as usize;
+            self.move_blobs(table, &mut d.fields, None, BlobMove::RecordCopy)?;
         }
         d.filters = s.filters;
         d.filter_group = s.filter_group;
@@ -1633,7 +1634,8 @@ impl Session {
             if let Value::Blob(_) = &src_fields[sp] {
                 let cur = rec.borrow().fields[dp].clone();
                 let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(args));
-                let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how);
+                let kind = || self.blob_field_kind(src_table, sp).with(self.blob_field_kind(t.object as usize, dp));
+                let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how, kind)?;
                 updates.push((dp, ops::convert(v, &df.ty)?));
                 continue;
             }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::blob_transfer::BlobMove;
+use crate::blob_transfer::{BlobMove, FieldKind};
 
 /// The start of the refusal of an index with fewer positions than the array has dimensions.
 const ROW_REFUSAL: &str = "a row of a ";
@@ -1657,7 +1657,7 @@ impl Session {
                         crate::records::held_part_field_write(why)?;
                     }
                     let how = if assign { BlobMove::Assign } else { BlobMove::WriteBack };
-                    let v = crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how);
+                    let v = crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, || FieldKind::Plain)?;
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;
@@ -1675,8 +1675,9 @@ impl Session {
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
                 let copy = self.record_by_value_unmeasured(rc);
-                if matches!(p, ir::Place::Local(_)) {
-                    crate::blob_transfer::by_value(copy, rc.borrow().temporary, crate::blob_transfer::Taker::LocalVariant)
+                // An assignment to a local Variant moves the copy's Blobs as `Session::blobs_by_value` says.
+                if assign && matches!(p, ir::Place::Local(_)) {
+                    self.blobs_by_value(copy, rc.borrow().temporary, crate::blob_transfer::Taker::LocalVariant)?
                 } else {
                     copy
                 }
@@ -1695,7 +1696,7 @@ impl Session {
             // A Blob assigned to a Variant: the Variant holds a copy where `BlobMove::into_variant` names the place.
             Value::Blob(_) if assign && matches!(self.place_type(p, f), RtType::Variant) => {
                 match BlobMove::into_variant(p) {
-                    Some(how) => crate::blob_transfer::moved(None, v, how),
+                    Some(how) => crate::blob_transfer::moved(None, v, how, || FieldKind::Plain)?,
                     None => v,
                 }
             }
