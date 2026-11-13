@@ -2471,8 +2471,7 @@ impl<'a> ItemTree<'a> {
 
 // ---------------------------------------------------------------------- Report.SaveAs
 
-use crate::report_placeholder::{Format, SaveOutput};
-use crate::report_save::{AnswerForm, BeforeRun};
+use crate::report_placeholder::SaveOutput;
 
 /// Where a rendering save puts its output.
 pub(crate) enum SaveTarget {
@@ -2720,19 +2719,9 @@ impl Session {
         }
         // ADR-040 and its amendments: the save table (`report_save`).
         if format != "Xml" {
-            let Some(f) = Format::from_name(&format) else {
-                return unsupported(format!("Report.SaveAs of \"{}\" as {format}", schema.name()));
-            };
-            let answer = if result_used {
-                AnswerForm::Used
-            } else {
-                AnswerForm::Statement
-            };
-            match self.save_before_run(&schema, f, &target, answer, custom.is_some())? {
-                BeforeRun::Run(plan) => output = SaveOutput::Rendered(Box::new(plan)),
-                BeforeRun::Dataset => output = SaveOutput::Dataset,
-                BeforeRun::Discard => output = SaveOutput::Discard,
-                BeforeRun::False(e) => {
+            match self.static_or_variable_save(&schema, &format, &target, result_used, custom.is_some())? {
+                Ok(o) => output = o,
+                Err(e) => {
                     self.last_error = e;
                     return Ok(Value::Boolean(false));
                 }

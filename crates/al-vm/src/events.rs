@@ -404,7 +404,7 @@ impl Registry {
                                     });
                             }
                             // The layout selection events go to Base Application's ReportManagement only (ADR-040 amendment
-                            // 2026-11-12, A7; `report_placeholder::selection`).
+                            // 2026-11-12, A7; `report_save::fact_selection`).
                             if kind == ObjKind::Codeunit
                                 && target.eq_ignore_ascii_case("Reporting Triggers")
                                 && raised_reporting_event(program, o, &event)
@@ -604,7 +604,7 @@ impl Registry {
 
 /// Whether the runtime raises `event` of Reporting Triggers to subscriber object `o`: the events of
 /// `al_ir::RAISED_REPORTING_EVENTS` to every subscriber, the layout selection events to Base Application's ReportManagement only
-/// (ADR-040 amendment 2026-11-12, A7; `report_placeholder::selection`).
+/// (ADR-040 amendment 2026-11-12, A7; `report_save::fact_selection`).
 fn raised_reporting_event(program: &ir::Program, o: &ir::ObjectHead, event: &str) -> bool {
     let named = |list: &[&str]| list.iter().any(|e| e.eq_ignore_ascii_case(event));
     named(&al_ir::RAISED_REPORTING_EVENTS)

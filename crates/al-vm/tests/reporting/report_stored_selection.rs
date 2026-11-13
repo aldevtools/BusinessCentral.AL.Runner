@@ -1,5 +1,5 @@
 //! A rendering save while a stored Report Layout Selection row of the company names the report
-//! (`report_placeholder::stored`; corpus pull request 1371, reports/html-email-body/RxLayoutSelectionTests.al): the two
+//! (`report_save::fact_selection` stored row; corpus pull request 1371, reports/html-email-body/RxLayoutSelectionTests.al): the two
 //! measured selections answer, and every neighbor keeps main's answer or refusal.
 
 use al_builtins::assumptions::{self, Assumption};
@@ -131,7 +131,7 @@ codeunit 51064 "RS Tests"
     // Rows BC does not read: the default Word layout renders.
     procedure EmptyCompanyHtml(): Text begin Rdlc(''); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Html)); end;
     procedure EmptyCompanyExcel(): Text begin Rdlc(''); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Excel)); end;
-    // The company's name in another case (main's `layout_selection` compares it ignoring case).
+    // The company's name in another case (`report_save::fact_selection` compares it ignoring case).
     procedure CaseCompanyHtml(): Text
     var Name: Text[30];
     begin
@@ -250,7 +250,7 @@ fn stored_selection_the_companys_rdlc_row_renders_the_rdlc_layout() {
     assumptions::clear_hits();
     assert_eq!(text("RdlcHtml"), "No|No|ReportUnsupportedFormat|");
     assert!(assumptions::take_hits().contains(&Assumption::ReportStoredLayoutSelection));
-    // The Company Name is compared as `Session::layout_selection` compares it, ignoring case.
+    // The Company Name is compared as `report_save::fact_selection` compares it, ignoring case.
     assert_eq!(text("CaseCompanyHtml"), "No|No|ReportUnsupportedFormat|");
     assert_eq!(
         text("RdlcHtmlText"),

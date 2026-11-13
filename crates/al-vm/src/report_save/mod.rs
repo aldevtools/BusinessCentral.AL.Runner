@@ -28,6 +28,7 @@ mod tests;
 use std::sync::Arc;
 
 pub(crate) use crate::report_placeholder::Format;
+use crate::report_placeholder::SaveOutput;
 use crate::reports::{SaveTarget, Schema};
 use crate::{Session, Signal};
 use al_builtins::native::AlError;
@@ -177,6 +178,37 @@ impl Session {
                 Err(Signal::unsupported(miss.reason(&what(&facts, schema))))
             }
         }
+    }
+
+    /// What a `Report.SaveAs` (static or on a variable) as `format` (not Xml) writes once it runs, or the error of a false
+    /// answer without a run.
+    pub(crate) fn static_or_variable_save(
+        &mut self,
+        schema: &Schema,
+        format: &str,
+        target: &SaveTarget,
+        result_used: bool,
+        custom: bool,
+    ) -> Result<Result<SaveOutput, AlError>, Signal> {
+        let Some(format) = Format::from_name(format) else {
+            return Err(Signal::unsupported(format!(
+                "Report.SaveAs of \"{}\" as {format}",
+                schema.name()
+            )));
+        };
+        let answer = if result_used {
+            AnswerForm::Used
+        } else {
+            AnswerForm::Statement
+        };
+        Ok(Ok(
+            match self.save_before_run(schema, format, target, answer, custom)? {
+                BeforeRun::Run(plan) => SaveOutput::Rendered(Box::new(plan)),
+                BeforeRun::Dataset => SaveOutput::Dataset,
+                BeforeRun::Discard => SaveOutput::Discard,
+                BeforeRun::False(e) => return Ok(Err(e)),
+            },
+        ))
     }
 
     /// What a save that ran writes or answers: the row of its facts with the run's (`rows` dataset rows, the Xml `dataset`).

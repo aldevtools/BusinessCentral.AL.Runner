@@ -590,7 +590,7 @@ fn report_pdf_placeholder_an_excel_layout_keeps_the_refusal() {
 }
 
 // An RDLC layout saved as Word writes the Word placeholder (CiReportRunLeads.al:674-692 SaveAs_RdlcOnly_WordExcel; ADR-040
-// amendment 2026-11-11, `report_placeholder::grid`).
+// amendment 2026-11-11, `report_save`).
 #[test]
 fn report_pdf_placeholder_an_rdlc_layout_saved_as_word_writes_the_word_placeholder() {
     assert!(run(SRC, "WordFormat").is_ok());
