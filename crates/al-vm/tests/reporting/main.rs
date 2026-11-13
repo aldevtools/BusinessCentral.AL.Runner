@@ -2,6 +2,7 @@
 
 mod lane_report_pages;
 mod multi_reportext;
+mod report_quit_oninit;
 mod queries;
 mod query_get_filters_elements;
 mod query_outer_link;
