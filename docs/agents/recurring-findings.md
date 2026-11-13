@@ -59,6 +59,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
     FlowFilter. A rule about related fields must name which of them count.
   - a value that does not carry its origin (a Blob handed to a Variant or a parameter): a gate on the field kind cannot be
     checked there. Pass the kind from the read site, or do not claim it in the entry (al-runner PR 7951).
+  - a name-resolution shortcut checked against variables only: check every kind of declaration that can own the name
+    (local, parameter, return value, global, procedure of the object), each measured (al-runner PR 7973).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

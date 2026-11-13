@@ -134,18 +134,19 @@ pub(crate) fn compile_with_cache(
         match lazy_index(cc, &apps, manifests, lazy, identities) {
             Ok(deps) => {
                 report.source_index = Some("read");
-                al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, deps)
+                super::internals_grant::load_workspace(apps, kinds, symbols, &dep_symbols, deps, manifests)
             }
             Err(key) => {
                 fill(&mut apps);
-                let ws = al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, Vec::new());
+                let ws =
+                    super::internals_grant::load_workspace(apps, kinds, symbols, &dep_symbols, Vec::new(), manifests);
                 save_index(cc, &ws, lazy, &key);
                 report.source_index = Some("built");
                 ws
             }
         }
     } else {
-        al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, Vec::new())
+        super::internals_grant::load_workspace(apps, kinds, symbols, &dep_symbols, Vec::new(), manifests)
     };
     let load = started.elapsed();
     match al_sema::lower::compile_loaded_cached(ws, load, &catalog, roots.clone(), stack) {

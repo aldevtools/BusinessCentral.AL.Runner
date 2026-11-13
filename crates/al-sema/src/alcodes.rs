@@ -875,6 +875,12 @@ fn event_subscriptions(ws: &Workspace, out: &mut Vec<Diagnostic>) {
         if ws.kinds[f.app] == AppKind::Dependency {
             continue;
         }
+        // An app the System package's `InternalsVisibleTo` grants may subscribe: alc 18.0.39.10160 with System.app
+        // 28.0.54946.56657 compiles the reporter's subscriber in the granted app and gives AL0161 in any other (issue
+        // 7853; the probe apps are the tests in alcodes/tests/internals_grant.rs).
+        if ws.internals_granted_to(f.app) {
+            continue;
+        }
         let text = ws.text(fi);
         // The objects of a parsed file carry no scanned subscribers; read the attributes with the scanner, for the files that name
         // one of the events at all.
