@@ -169,7 +169,10 @@ fn pinned_cells_hold_a_text_constant_unflagged() {
     for routine in ["LocalLabel", "LocalTextConst", "GlobalTextConst", "GlobalTextConstArg"] {
         let (r, hits) = run(routine);
         assert_eq!(al_testkit::text(r), TEXT_CONSTANT, "{routine}");
-        assert!(!hits.contains(&Assumption::LabelGlobalIntoVariant), "{routine} is pinned");
+        assert!(
+            !hits.contains(&Assumption::LabelGlobalIntoVariant),
+            "{routine} is pinned"
+        );
         assert!(!hits.contains(&Assumption::VariantIsMatrix), "{routine} is pinned");
     }
 }
@@ -183,7 +186,15 @@ fn a_global_label_holds_a_text_constant_flagged() {
 
 #[test]
 fn other_label_shapes_keep_the_text_conversion() {
-    for routine in ["LabelArg", "LockedLabel", "CommentLabel", "GlobalCommentLabel", "GlobalTarget", "ParamTarget", "ArrayTarget"] {
+    for routine in [
+        "LabelArg",
+        "LockedLabel",
+        "CommentLabel",
+        "GlobalCommentLabel",
+        "GlobalTarget",
+        "ParamTarget",
+        "ArrayTarget",
+    ] {
         let (r, hits) = run(routine);
         assert_eq!(al_testkit::text(r), TEXT, "{routine}");
         assert!(!hits.contains(&Assumption::LabelGlobalIntoVariant), "{routine}");

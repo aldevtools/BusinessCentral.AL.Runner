@@ -616,13 +616,13 @@ mod compile;
 mod conv_matrix;
 mod convert;
 mod copy_array;
-mod label_variant;
 mod coverage_ids;
 mod dotnet;
 mod dotnet_arg;
 mod expr;
 mod ext_order;
 mod extend;
+mod label_variant;
 
 #[cfg(test)]
 mod abp_refusal_tests;

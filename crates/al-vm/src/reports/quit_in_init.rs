@@ -47,7 +47,9 @@ impl Session {
     pub(super) fn defer_quit(&mut self, inst: &Inst) -> Result<(), Signal> {
         let schema = self.report_schema(inst)?;
         if !self.quit_in_init_measured(&schema) {
-            return unsupported("CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)");
+            return unsupported(
+                "CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)",
+            );
         }
         assume(Assumption::ReportQuitInOninitRequestPage);
         self.report.report_quit_deferred.retain(|w| w.strong_count() > 0);
@@ -79,7 +81,12 @@ impl Session {
 
     /// An Xml SaveAs to a stream with its answer used after a quit in OnInitReport (:325 variable, :335 static): false and
     /// nothing written, for the measured report; any other refuses.
-    pub(super) fn save_as_after_quit(&mut self, schema: &Schema, stream: bool, result_used: bool) -> Result<Value, Signal> {
+    pub(super) fn save_as_after_quit(
+        &mut self,
+        schema: &Schema,
+        stream: bool,
+        result_used: bool,
+    ) -> Result<Value, Signal> {
         if !(stream && result_used && self.quit_in_init_measured(schema)) {
             return unsupported("CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)");
         }

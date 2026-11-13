@@ -219,7 +219,9 @@ impl Session {
             }
             (1, self.report_by_number(id, args.first())?.1)
         } else {
-            let inst = self.report_instance(receiver, super::quit_in_init::InitQuit::Refuses)?.0;
+            let inst = self
+                .report_instance(receiver, super::quit_in_init::InitQuit::Refuses)?
+                .0;
             (0, self.report_schema(&inst)?)
         };
         let extended = match args.get(flag_at) {

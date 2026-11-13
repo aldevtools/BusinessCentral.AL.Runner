@@ -470,7 +470,9 @@ impl Session {
                 // UseRequestPage(false) on a variable as its first use (ReportQuitInOnInit.al:265, `quit_in_init`).
                 let defers = receiver.is_some() && matches!(args.first(), Some(Value::Boolean(false)));
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, if defers { InitQuit::Defers } else { InitQuit::Refuses })?.0;
+                let inst = self
+                    .report_instance(receiver, if defers { InitQuit::Defers } else { InitQuit::Refuses })?
+                    .0;
                 let schema = self.report_schema(&inst)?;
                 let slot = schema.report().request_flag_slot;
                 // The getter answers what the next Run does; the setter overrides the report's own
@@ -812,7 +814,9 @@ impl Session {
                     if how == InitQuit::StopsTakingDeferred {
                         return Ok((rc.clone(), self.take_deferred_quit(&rc)));
                     }
-                    return unsupported("a Report method after CurrReport.Quit in OnInitReport of UseRequestPage(false) (not pinned)");
+                    return unsupported(
+                        "a Report method after CurrReport.Quit in OnInitReport of UseRequestPage(false) (not pinned)",
+                    );
                 }
                 // Used again after a Run, it is a new instance: OnInitReport runs.
                 // A second Run on one variable runs OnInitReport again (reports/request-page/RptTriggerOrder.al:353
@@ -823,9 +827,9 @@ impl Session {
                 let quit = !rc.borrow().initialized && self.report_init(&rc)?;
                 match how {
                     InitQuit::Defers if quit => self.defer_quit(&rc).map(|()| (rc, false)),
-                    InitQuit::Refuses if quit => {
-                        unsupported("CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)")
-                    }
+                    InitQuit::Refuses if quit => unsupported(
+                        "CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)",
+                    ),
                     _ => Ok((rc, quit)),
                 }
             }
@@ -4469,9 +4473,9 @@ pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod html_record;
+mod quit_in_init;
 mod request_caption;
 mod request_unshown;
-mod quit_in_init;
 mod running;
 mod word_xml_part;
 

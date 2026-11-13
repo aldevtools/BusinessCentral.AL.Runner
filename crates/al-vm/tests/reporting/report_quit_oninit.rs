@@ -260,7 +260,10 @@ fn the_forms_that_refused_now_run_only_oninitreport_flagged() {
     ] {
         take_hits();
         assert_eq!(form(&mut b, mode), expected, "mode {mode}");
-        assert!(take_hits().contains(&Assumption::ReportQuitInOninitRequestPage), "mode {mode} must mark");
+        assert!(
+            take_hits().contains(&Assumption::ReportQuitInOninitRequestPage),
+            "mode {mode} must mark"
+        );
     }
 }
 
@@ -272,7 +275,10 @@ fn the_forms_main_ran_keep_their_result_unflagged() {
     for mode in [4, 5, 6, 8, 11] {
         take_hits();
         assert_eq!(form(&mut b, mode), "Yes||OnInitReport;", "mode {mode}");
-        assert!(!take_hits().contains(&Assumption::ReportQuitInOninitRequestPage), "mode {mode}");
+        assert!(
+            !take_hits().contains(&Assumption::ReportQuitInOninitRequestPage),
+            "mode {mode}"
+        );
     }
 }
 
@@ -280,7 +286,10 @@ fn the_forms_main_ran_keep_their_result_unflagged() {
 fn shapes_outside_the_probe_keep_mains_refusal() {
     let refused = |b: &mut al_testkit::Built, mode: i32| {
         let r = form(b, mode);
-        assert!(r.contains("Unsupported") && r.contains("CurrReport.Quit"), "mode {mode}: {r}");
+        assert!(
+            r.contains("Unsupported") && r.contains("CurrReport.Quit"),
+            "mode {mode}: {r}"
+        );
     };
     // A report that is not processing-only.
     let mut b = al_testkit::Built::from_source(&not_processing_only());

@@ -14,7 +14,6 @@
 60136 NavApp_IsEntitled_IsCallable
 60186 BN_ForLoop_BoundConvertedToControlType
 60193 QW_Ternary_EnumOptionPairs
-60193 QW_Ternary_LabelIntoVariant
 60199 SetFilter_UnquotedParenthesis_Throws
 60205 Query_SaveAsJson_StaticOutStream_ExportsDataset
 60233 AfterHostGotoKey_FirstNextLandsOnTheGLLine
@@ -683,8 +682,6 @@
 71033 Param_Variant_Into_Integer_Text
 71033 TextVariant_To_Record_RecordRef_Codeunit_List
 71035 Evaluate_Into_Variant_Is_Rejected_Or_Typed
-71037 PW_TextConst_In_Variant_OtherIsTests
-71037 TextConst_In_Variant
 71043 BN3_EnumAgainstIntegers
 71100 ValuesNeedingQuotes_Numbers
 71100 ValuesNeedingQuotes_Range
@@ -877,13 +874,11 @@
 73401 Add_Basic
 73401 Add_Multiple
 73401 Add_Self_Error
-73401 Create_InvalidNames
 73401 IsEmpty_States
 73401 Navigation_Parent_Document
 73401 RemoveNodes
 73401 Remove_Root_Lone
 73401 ReplaceWith_Root_Unparented
-73402 Attribute_Create_InvalidName
 73402 Attribute_Create_Namespace_Prefixes
 73402 Attribute_Parent_Remove
 73402 Attribute_ReplaceWith

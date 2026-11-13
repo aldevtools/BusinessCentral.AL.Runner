@@ -42,8 +42,14 @@ fn fault_of(name: &str) -> Option<Fault> {
 /// 'xml:lang' (xml/XmlAttributes.al:104-131).
 fn pinned(fault: Fault, site: Site<'_>) -> bool {
     match site {
-        Site::Element => matches!(fault, Fault::Empty | Fault::Begins('1' | '-') | Fault::Includes(' ' | '<' | ':' | '/' | '&')),
-        Site::Attribute => matches!(fault, Fault::Empty | Fault::Begins('1') | Fault::Includes(' ' | '=' | ':')),
+        Site::Element => matches!(
+            fault,
+            Fault::Empty | Fault::Begins('1' | '-') | Fault::Includes(' ' | '<' | ':' | '/' | '&')
+        ),
+        Site::Attribute => matches!(
+            fault,
+            Fault::Empty | Fault::Begins('1') | Fault::Includes(' ' | '=' | ':')
+        ),
         Site::ElementNs(_) | Site::AttributeNs(_) => false,
     }
 }
@@ -70,7 +76,11 @@ pub(super) fn check_create_name(name: &str, site: Site<'_>) -> Result<(), Signal
     if is_ncname(name) {
         return Ok(());
     }
-    let fault = if name.is_empty() { Some(Fault::Empty) } else { fault_of(name) };
+    let fault = if name.is_empty() {
+        Some(Fault::Empty)
+    } else {
+        fault_of(name)
+    };
     match fault.map(|f| (pinned(f, site), measured(f, site))) {
         Some((true, _)) => {}
         Some((false, true)) => assume(Assumption::XmlCreateInvalidName),

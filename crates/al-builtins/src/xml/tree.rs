@@ -71,6 +71,11 @@ pub(super) fn add_first(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value])
     reject_unassigned_element_content(&h, a, "AddFirst")?;
     let nodes = content_nodes(a)?;
     reject_declaration_in_document(&h, &nodes)?;
+    // AddFirst of one attribute to an element raises an Argument error and leaves the element as it was
+    // (xml/XmlElement.al:384-386 Add_Basic `af296`, `addfirstattr`).
+    if kind(&h) == "XmlElement" && matches!(nodes.as_slice(), [n] if kind(n) == "XmlAttribute") {
+        return Err(nav_argument());
+    }
     insert(&h, Some(0), nodes)?;
     Ok(Value::Boolean(true))
 }
@@ -393,6 +398,14 @@ pub(super) fn get_document_type(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 pub(super) fn get_document(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv_or_uninit(r, "XmlNode")?;
     let root = root_of(&h);
+    // A node whose document was held only by a variable that went out of scope still has that document on BC
+    // (xml/XmlElement.al:349 Navigation_Parent_Document `c_doc`: Yes, after the helper Load's local XmlDocument is gone); the
+    // runtime holds parents weakly and cannot answer for it.
+    if parent_dropped(&root) {
+        return unsupported(
+            "GetDocument of a node whose document is no longer referenced (the runtime does not keep it)",
+        );
+    }
     // A declaration belongs to no document as far as GetDocument goes (xml/xml/P104TreeBDecl.al:
     // P104_Remove_InDoc `document1`).
     if with(&h, |d| !matches!(d, XData::Declaration { .. })) && with(&root, |d| matches!(d, XData::Document { .. })) {

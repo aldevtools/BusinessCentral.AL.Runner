@@ -244,6 +244,7 @@ mod variant_char_literal_argument;
 mod variant_defined_temporal;
 mod variant_is_matrix;
 mod version_gates;
+mod xml_attr_get_ns;
 mod xml_attribute_collection_get_missing;
 mod xml_attribute_collection_set;
 mod xml_clear_ref;

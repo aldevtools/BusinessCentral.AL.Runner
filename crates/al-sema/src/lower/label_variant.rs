@@ -34,10 +34,12 @@ impl Lowerer<'_> {
                 true => Source::LocalTextConst,
                 false => Source::LocalLabel,
             }),
-            Res::Global(n) if self.global_plain_text_decls.contains(n) => Some(match self.global_textconsts.contains(n) {
-                true => Source::GlobalTextConst,
-                false => Source::GlobalLabel,
-            }),
+            Res::Global(n) if self.global_plain_text_decls.contains(n) => {
+                Some(match self.global_textconsts.contains(n) {
+                    true => Source::GlobalTextConst,
+                    false => Source::GlobalLabel,
+                })
+            }
             _ => None,
         }
     }
