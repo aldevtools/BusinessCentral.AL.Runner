@@ -136,6 +136,7 @@ mod stale_buffer_6028;
 mod stale_buffer_y76;
 mod stale_buffer_y89;
 mod stale_delete_event;
+mod stale_rename;
 mod stale_rename_related;
 mod stale_rule_unknown_inputs;
 mod stale_two_commits_insert;
