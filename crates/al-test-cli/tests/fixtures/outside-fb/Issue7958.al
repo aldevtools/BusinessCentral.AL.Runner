@@ -1,13 +1,14 @@
-// al-runner issue 7958, the reporter's repro (2/2 green on BC 29.1). A temporary Blob field stands in for Microsoft's Temp Blob.
+// al-runner issue 7958, the reporter's repro (2/2 green on a real BC container). A temporary Blob field stands in for Microsoft's
+// Temp Blob, and a temporary data item with the rows 1 to 4 for the Integer table, which the test kit does not have.
 report 50140 "Repro Round Dataset"
 {
     UsageCategory = None;
 
     dataset
     {
-        dataitem(PriceItem; Integer)
+        dataitem(PriceItem; "Repro Price Row")
         {
-            DataItemTableView = where(Number = filter(1 .. 4));
+            UseTemporary = true;
             column(Number; Number) { }
             column(Price; PriceValue) { DecimalPlaces = 0 : 5; }
 
@@ -27,8 +28,27 @@ report 50140 "Repro Round Dataset"
         }
     }
 
+    trigger OnPreReport()
+    var
+        N: Integer;
+    begin
+        for N := 1 to 4 do begin
+            PriceItem.Number := N;
+            PriceItem.Insert();
+        end;
+    end;
+
     var
         PriceValue: Decimal;
+}
+
+table 50147 "Repro Price Row"
+{
+    fields
+    {
+        field(1; Number; Integer) { }
+    }
+    keys { key(PK; Number) { Clustered = true; } }
 }
 
 table 50148 "Repro Blob Holder"
