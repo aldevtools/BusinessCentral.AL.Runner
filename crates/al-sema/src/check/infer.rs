@@ -1144,6 +1144,7 @@ impl<'a> Checker<'a> {
 
     /// A call `X.Name()` is the platform's method `Name` even when the object has a member of that name that cannot be
     /// called: a page action or control, a query column, or a table field. The bare `X.Name` stays the member.
+    /// The measured argumentless CurrPage.SaveRecord call also takes precedence over an internal parameterless procedure.
     fn called_builtin_over_member(&mut self, sc: &Scope, node: &SyntaxNode, base_ty: &Ty, mname: &str) -> Option<E> {
         if !(node.parent().is_some_and(|p| p.kind() == SyntaxKind::CallExpr) && node.prev_sibling().is_none()) {
             return None;
@@ -1152,9 +1153,24 @@ impl<'a> Checker<'a> {
             // `CurrPage.Update(true)` is the page's method even when the page has an action or control of
             // that name (System Application's "Schedule Feature Data Update" has an action `Update`): a
             // control is not called. Real BC compiles that code; no corpus test names a control like a method.
-            Ty::Object(ObjKind::Page, page) => self
-                .resolve(sc, ObjKind::Page, page)
-                .is_some_and(|oi| self.named_section(oi, mname).is_some()),
+            Ty::Object(ObjKind::Page, page) => self.resolve(sc, ObjKind::Page, page).is_some_and(|oi| {
+                self.named_section(oi, mname).is_some()
+                        // AutoSplitSaveRecord.al: an explicit CurrPage.SaveRecord() calls
+                        // the platform method. A call through CurrPage.Part.Page calls
+                        // the internal procedure with that name.
+                        || (oi == sc.oi
+                            && mname.eq_ignore_ascii_case("SaveRecord")
+                            && node.children().next().is_some_and(|receiver| {
+                                receiver.kind() == SyntaxKind::NameRef
+                                    && name_of(&receiver).eq_ignore_ascii_case("CurrPage")
+                            })
+                            && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
+                            && node.parent().is_some_and(|call| {
+                                call.children().find(|n| n.kind() == SyntaxKind::ArgList)
+                                    .is_none_or(|args| args.children().next().is_none())
+                            })
+                            && crate::members::has_internal_parameterless_save_record(self.ws, oi))
+            }),
             // `Q.Open()` is the query's method even when the query has a column named Open (Base
             // Application's "Summarized Stock By Item Trkg." has one): a column is not called.
             // Compiles in real BC; no corpus test names a column like a method (docs/probes-needed.md).

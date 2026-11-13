@@ -92,14 +92,15 @@ depend on.
    run the check that `docs/agents/checks.md` names for it.
 7. `cargo fmt --all` LAST, after every edit. Then `tools/prepush.sh`.
 8. Push your branch. `gh pr create --draft`. No auto-merge. CI runs only the `test` job on a draft (owner, 2026-11-10). Do not wait for CI. Do not mark it ready.
-   The orchestrator reviews it. A single reviewed PR is marked ready with auto-merge and lands on
-   its own. Merge trains are only for two or more ready PRs.
+   The orchestrator reviews it. Every reviewed PR lands through a merge train, never on its own
+   (owner, 2026-11-13).
 9. Stop every monitor and background process you started.
 
 ## Pull request body and final report (the same content)
 - Line 1: `[al-runtime-rs / <task> / DONE | WAITING | HANDOFF | BLOCKED]`
-- `Fixes #N`, one per line, only when the reporter's repro passes with no flagged assumption on its
-  path. Otherwise `Refs #N` and what is still refused.
+- `Fixes #N`, one per line, when the reporter's repro passes, also when the pass is flagged (it runs through
+  an assumption entry; owner, 2026-11-13, as in `docs/agents/assumptions.md`). `Refs #N` and what is still
+  refused only while cases of the issue are still refused.
 - The area table.
 - Red run and green run of the repro or the new tests.
 - The numbers of step 2 for 27, 28 and 29, and the lines you pruned.
