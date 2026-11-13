@@ -2660,4 +2660,5 @@ fn a_table_field_of_type_char_or_byte_is_al0156() {
     assert!(codes(&[&t("BigInteger")]).is_empty());
 }
 
+mod internals_grant;
 mod scope;

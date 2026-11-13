@@ -1809,7 +1809,53 @@ impl<'a> Checker<'a> {
                 return E::TypeName(Ty::Enum(self.ws.objects[ei].name.as_str().into()));
             }
         }
+        if called && let Some(e) = self.builtin_type_before_rec_field(sc, node, recv) {
+            return e;
+        }
         self.infer(sc, recv)
+    }
+
+    /// The receiver `recv` (a plain or quoted name) of the method call `node` in a procedure (global, local or internal)
+    /// of a codeunit with `TableNo`, where the implicit Rec has a field of that name: `Version`, `Guid`, `Text`,
+    /// `Database` or `Session` is the built-in type when the type has a static method of the called name, as alc
+    /// compiles it (al-runner issue 7962; alc 18.0.39.10160, probe apps in lower/tests/type_before_rec_field.rs). OnRun,
+    /// a `with`, a variable of the name, a procedure of the codeunit with the name, another name, another object kind or a method the type does not have keep the
+    /// field (main's result).
+    fn builtin_type_before_rec_field(&mut self, sc: &mut Scope, node: &SyntaxNode, recv: &SyntaxNode) -> Option<E> {
+        const MEASURED: &[&str] = &["Version", "Guid", "Text", "Database", "Session"];
+        // A codeunit has one trigger, OnRun; every other routine of it is a procedure.
+        let in_procedure_of_table_no_codeunit = sc.rec_unqualified
+            && self.ws.objects[sc.oi].kind == ObjKind::Codeunit
+            && sc.self_obj == sc.oi
+            && sc.withs.is_empty()
+            && !sc.codeunit_on_run;
+        if !(in_procedure_of_table_no_codeunit && recv.kind() == SyntaxKind::NameRef) {
+            return None;
+        }
+        let written = name_of(recv);
+        let ty_name = *MEASURED.iter().find(|m| m.eq_ignore_ascii_case(&written))?;
+        let key = ty_name.to_ascii_lowercase();
+        if sc.vars.iter().any(|frame| frame.contains_key(&key)) || sc.globals.contains_key(&key) {
+            return None;
+        }
+        // A procedure of the codeunit with the name wins over the type (alc: AL0132 on its `Text` result).
+        if !self.members[sc.oi].procedures_named(ty_name).is_empty() {
+            return None;
+        }
+        let rec = sc.rec.clone().filter(|r| matches!(r, Ty::Record { .. }))?;
+        self.field_res(sc, &rec, ty_name)?;
+        let method = node.children().nth(1).map(|m| name_of(&m))?;
+        let (e, receiver) = match ty_name {
+            "Database" => (E::ObjKeyword(ObjKind::Table), "Database"),
+            _ => (E::TypeName(Ty::Builtin(ty_name.into())), ty_name),
+        };
+        let has_static = self
+            .catalog
+            .overloads(receiver, &method)
+            .into_iter()
+            .chain(self.catalog.hidden(receiver, &method))
+            .any(|s| !s.instance);
+        has_static.then_some(e)
     }
 
     /// `Ns.Sub."Enum"` before `::`: a chain of names that resolves to an enum through its namespace.
