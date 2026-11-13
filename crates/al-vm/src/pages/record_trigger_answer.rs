@@ -14,7 +14,9 @@
 //!   measured with such an exit).
 //! - A named return value that is never assigned keeps the earlier answer (no veto): not measured either way.
 
-use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call, text_log_routine, unconverted};
+use super::pinned_shape::{
+    PinnedCode, TestCall, code_stmts, rec_text_log_call, text_log_routine, unconverted, without_pos,
+};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
@@ -89,7 +91,10 @@ impl Session {
     ///   (:258-261: the second SetValue inserts);
     /// - OnModifyRecord on OpenNew after those two calls and `Next` or `Close` (:283-287, :259-262), or on OpenEdit after
     ///   `GoToKey`, `SetValue` of a field outside the key and `Next` or `Close` (:308-312, :333-336);
-    /// - at a `Next`, a row follows Rec's key in the view, so the Next moves as the measured ones do.
+    /// - at a `Next`, a row follows Rec's key in the view, so the Next moves as the measured ones do;
+    /// - every call before the one that saves ended as the measured ones do (`test_calls_all_succeeded`): the GoToKey found
+    ///   its row (:308, :333, :404, :428 call it as a statement for R1), no SetValue raised, and test code wrote nothing to the
+    ///   store between two calls.
     fn probe_cell(&mut self, st: &St, name: &str, form: ProbeForm) -> Result<bool, Signal> {
         let mode = st.borrow().mode;
         if !self.top_card_of_test(st) {
@@ -113,7 +118,7 @@ impl Session {
         if !bodies {
             return Ok(false);
         }
-        let Some(calls) = Self::test_calls(st) else {
+        let Some(calls) = Self::test_calls_all_succeeded(st) else {
             return Ok(false);
         };
         let key = |c: &TestCall| matches!(c, TestCall::Write(i) if !self.control_outside_key(st, *i));
@@ -145,7 +150,8 @@ impl Session {
 impl Session {
     /// Whether the page is corpus testpage/CcFixtures.al:244 "LT CC Mod Mode" (a Card over a stored table, OnModifyRecord its
     /// only trigger, fields of Rec, no table code), at the top level, opened by the test with OpenEdit, after the calls
-    /// `GoToKey`, `SetValue` of a field outside the key and `Close` (CcPageLeads.al:318-321), and the trigger ran its branch
+    /// `GoToKey`, `SetValue` of a field outside the key and `Close` (CcPageLeads.al:318-321), the first two ended as measured
+    /// (`test_calls_all_succeeded`: the GoToKey found its row, the SetValue did not raise), and the trigger ran its branch
     /// that sets Rec to another stored row (`assign_branch_ran`), the one run CcPageLeads.al:341 measures.
     fn mod_mode_cell(&mut self, st: &St, name: &str) -> Result<bool, Signal> {
         const MOD_MODE: PinnedCode = PinnedCode {
@@ -161,7 +167,7 @@ impl Session {
         if !self.page_code_is(st, &MOD_MODE)? || !self.mod_mode_body(st) {
             return Ok(false);
         }
-        let calls = match Self::test_calls(st).as_deref() {
+        let calls = match Self::test_calls_all_succeeded(st).as_deref() {
             Some(
                 [
                     TestCall::Page(PageMethod::GoToKey),
@@ -176,7 +182,7 @@ impl Session {
 
     /// The branch `Other.Get(..); Rec := Other;` of the fixture's `case` ran (CcFixtures.al:268-272; the two other branches run
     /// an exit, and with no branch run Rec stays the edited row): Rec has another primary key than xRec, the row the page read
-    /// at the GoToKey, and Rec is the stored row of its own key.
+    /// at the GoToKey (the cell requires that the GoToKey found its row), and Rec is the stored row of its own key.
     fn assign_branch_ran(&mut self, st: &St) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
@@ -235,7 +241,7 @@ fn probe_form(program: &ir::Program, object: usize, r: usize) -> Option<ProbeFor
         (ir::Stmt::If(cond, then, otherwise), None) => {
             let flag = matches!(cond, ir::Expr::Load(ir::Place::Global(g))
                 if program.objects[object].globals.get(*g).is_some_and(|s| s.ty == RtType::Boolean));
-            let exit_false = matches!(plain(then).as_slice(), [ir::Stmt::Exit(Some(e))] if false_const(e));
+            let exit_false = matches!(without_pos(then).as_slice(), [ir::Stmt::Exit(Some(e))] if false_const(e));
             (flag && exit_false && otherwise.is_empty()).then_some(ProbeForm::Cond)
         }
         (ir::Stmt::Assign(ir::Place::Local(l), e), Some(local)) => {
@@ -299,11 +305,11 @@ fn mod_mode_form(program: &ir::Program, object: usize, r: usize) -> bool {
         && matches!(args.as_slice(), [ir::Arg::Value(v)] if text(rec, scrutinee, v));
     let selects = |set: &[ir::SetElem], n: i32| matches!(set, [ir::SetElem::One(ir::Expr::Const(ir::Const::Integer(i)))] if *i == n);
     let exits = |body: &[ir::Stmt], value: bool| {
-        matches!(plain(body).as_slice(), [ir::Stmt::Exit(Some(e))]
+        matches!(without_pos(body).as_slice(), [ir::Stmt::Exit(Some(e))]
             if matches!(unconverted(e), ir::Expr::Const(ir::Const::Boolean(b)) if *b == value))
     };
     // `Other.Get(<constant>); Rec := Other;` with `Other` a local record.
-    let assigns_other = |body: &[ir::Stmt]| match plain(body).as_slice() {
+    let assigns_other = |body: &[ir::Stmt]| match without_pos(body).as_slice() {
         [
             ir::Stmt::Expr(ir::Expr::Builtin {
                 id,
@@ -338,11 +344,6 @@ fn exits_one_global(program: &ir::Program, callee: usize, routine: usize) -> boo
             .is_some_and(|r| !r.is_trigger && r.locals.is_empty())
         && matches!(code_stmts(program, callee, routine).as_slice(), [ir::Stmt::Exit(Some(e))]
             if matches!(e, ir::Expr::Load(ir::Place::Global(g)) if o.globals.get(*g).is_some()))
-}
-
-/// The statements of `body` without the position marks.
-fn plain(body: &[ir::Stmt]) -> Vec<&ir::Stmt> {
-    body.iter().filter(|s| !matches!(s, ir::Stmt::Pos(_))).collect()
 }
 
 /// Whether a statement of `body`, at any depth, assigns local `local`.

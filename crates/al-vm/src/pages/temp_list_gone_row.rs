@@ -5,7 +5,7 @@
 //! second open). Only that cell runs, under an assumption; every other such list is refused, because the landing main gives
 //! it (the row after) is the one the probe showed wrong.
 
-use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call};
+use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call, without_pos};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::ids;
@@ -62,7 +62,8 @@ impl Session {
     /// - the view is the primary key without filters or marks (`rec_view_is`), and the client held the whole view of three rows
     ///   from its start, Rec's key the middle one;
     /// - the test's calls since the open: `GoToKey`, then the action's `Invoke`, with one control read before the `GoToKey` on the
-    ///   second open (:474-477, :488-492).
+    ///   second open (:474-477, :488-492); the calls before the `Invoke` ended as measured (`test_calls_all_succeeded`: the
+    ///   GoToKey found its row, test code wrote nothing to the store between two calls).
     fn gone_middle_cell(&mut self, st: &St, rec: &Rec) -> Result<bool, Signal> {
         let object = st.borrow().object as usize;
         let opened = {
@@ -85,7 +86,7 @@ impl Session {
             return Ok(false);
         }
         let calls = matches!(
-            Self::test_calls(st).as_deref(),
+            Self::test_calls_all_succeeded(st).as_deref(),
             Some(
                 [TestCall::Page(PageMethod::GoToKey), TestCall::Other(PageMethod::Invoke)]
                     | [
@@ -174,11 +175,11 @@ fn fill_loop(program: &ir::Program, object: usize, r: usize, rec: usize, find: &
     let Some(row) = builtin(find, ids::RECORD_FINDSET_1).and_then(local_of) else {
         return false;
     };
-    let stmts: Vec<&ir::Stmt> = then.iter().filter(|s| !matches!(s, ir::Stmt::Pos(_))).collect();
+    let stmts = without_pos(then);
     let [ir::Stmt::Repeat(body, until)] = stmts.as_slice() else {
         return false;
     };
-    let body: Vec<&ir::Stmt> = body.iter().filter(|s| !matches!(s, ir::Stmt::Pos(_))).collect();
+    let body = without_pos(body);
     let copy = |s: &ir::Stmt| {
         matches!(s, ir::Stmt::Assign(ir::Place::Global(g), e) if *g == rec
             && matches!(strip(e), ir::Expr::Load(ir::Place::Local(l)) if *l == row))

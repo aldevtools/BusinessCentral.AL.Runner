@@ -607,6 +607,48 @@ codeunit 75355 T
     begin
         Setup(); P.OpenEdit(); P.GoToKey('R2'); P.Name.SetValue('edited'); P.Close(); exit(Done());
     end;
+    procedure CondGoToKeyMissClose(): Text
+    var P: TestPage "RT Cond Card";
+    begin
+        Setup(); P.OpenEdit(); if P.GoToKey('ZZ') then; P.Name.SetValue('edited'); P.Close(); exit(Done());
+    end;
+    procedure CondGoToKeyMissNext(): Text
+    var P: TestPage "RT Cond Card";
+    begin
+        Setup(); P.OpenEdit(); if P.GoToKey('ZZ') then; P.Name.SetValue('edited'); P.Next(); P.Close(); exit(Done());
+    end;
+    procedure FalseGoToKeyMissClose(): Text
+    var P: TestPage "RT False Card";
+    begin
+        Setup(); P.OpenEdit(); if P.GoToKey('ZZ') then; P.Name.SetValue('edited'); P.Close(); exit(Done());
+    end;
+    procedure CondKeyFailedNew(): Text
+    var P: TestPage "RT Cond Card";
+    begin
+        Setup(); P.OpenNew(); asserterror P."Code".SetValue('TOOLONGVALUE12345');
+        P.Name.SetValue('new'); P.Close(); exit(Done());
+    end;
+    procedure CondStoredRowChangedEdit(): Text
+    var P: TestPage "RT Cond Card"; Row: Record "RT Row";
+    begin
+        Setup(); P.OpenEdit(); P.GoToKey('R1');
+        Row.Get('R1'); Row.Name := 'other'; Row.Modify(false);
+        P.Name.SetValue('edited'); P.Close(); exit(Done());
+    end;
+    procedure MMFixGoToKeyMiss(): Text
+    var P: TestPage "RT MM Fix"; Mode: Codeunit "RT Mode";
+    begin
+        PlainRows(); Mode.SetMode(2);
+        P.OpenEdit(); if P.GoToKey('ZZ') then; P.Name.SetValue('edited'); P.Close(); exit(PlainDone());
+    end;
+    procedure MMFixOtherRowChanged(): Text
+    var P: TestPage "RT MM Fix"; Mode: Codeunit "RT Mode"; Row: Record "RT Plain Row";
+    begin
+        PlainRows(); Mode.SetMode(2);
+        P.OpenEdit(); P.GoToKey('R1'); P.Name.SetValue('edited');
+        Row.Get('R2'); Row.Name := 'other'; Row.Modify();
+        P.Close(); exit(PlainDone());
+    end;
     local procedure PlainRows()
     var Row: Record "RT Plain Row";
     begin
@@ -774,6 +816,16 @@ fn unmeasured_neighbors_are_refused() {
         ("MMTrigAssign", exit),
         ("MMOneNoBranch", exit),
         ("MMArgAssign", exit),
+        // round 3 of the review: an earlier call that ended another way than the measured one: a GoToKey that found no row, on
+        // the Cond card (B2, B3), the False card (B5) and the fixture page (A4), and a key SetValue that raised (F1)
+        ("CondGoToKeyMissClose", exit),
+        ("CondGoToKeyMissNext", exit),
+        ("FalseGoToKeyMissClose", named),
+        ("CondKeyFailedNew", exit),
+        ("MMFixGoToKeyMiss", exit),
+        // test code that writes a stored row between two calls (K5, A5)
+        ("CondStoredRowChangedEdit", exit),
+        ("MMFixOtherRowChanged", exit),
     ] {
         refused(proc, why);
     }

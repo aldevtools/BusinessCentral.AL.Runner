@@ -277,6 +277,13 @@ codeunit 75375 T
     begin
         Rows(3); P.OpenView(); P.GoToKey('R2'); P.DelCur.Invoke();
     end;
+    procedure StoredRowChangedBetween()
+    var P: TestPage "FL Temp List"; Plain: Record "FL Plain Row";
+    begin
+        Rows(3); P.OpenView(); P.GoToKey('R2');
+        Plain.Get('R1'); Plain.Name := 'test'; Plain.Modify();
+        P.DelCur.Invoke();
+    end;
     procedure StoredList(): Text
     var P: TestPage "FL Stored List";
     begin
@@ -317,6 +324,8 @@ fn unmeasured_neighbors_are_refused() {
         "ArgCallInAction",
         "SecondAction",
         "CalleeWrites",
+        // Round 3: test code that writes a stored row between the GoToKey and the Invoke.
+        "StoredRowChangedBetween",
     ] {
         let r = run_in(SRC, "T", proc);
         assert!(

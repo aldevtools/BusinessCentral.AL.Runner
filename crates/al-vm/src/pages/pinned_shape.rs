@@ -397,6 +397,20 @@ impl Session {
         (!s.test_calls_overflow).then(|| s.test_calls.clone())
     }
 
+    /// The calls the test made on the top-level page `st` since it opened, the running one last, when every call before the
+    /// running one ended as a pinned call does: it answered Yes or nothing and raised no error (`TreeCall::no`,
+    /// `TreeCall::failed`). `None` for a part, after a call on a part, and when the calls do not tell what the page shows
+    /// (`PageState::tree_calls_unknown`: test code wrote to the store between two calls, or too many calls to keep).
+    pub(super) fn test_calls_all_succeeded(st: &St) -> Option<Vec<TestCall>> {
+        let s = st.borrow();
+        if s.host.is_some() || s.tree_calls_unknown {
+            return None;
+        }
+        let (_, earlier) = s.tree_calls.split_last()?;
+        let pinned = s.tree_calls.iter().all(|c| c.part.is_none()) && earlier.iter().all(|c| !c.no && !c.failed);
+        pinned.then(|| s.tree_calls.iter().map(|c| c.call).collect())
+    }
+
     /// Whether the only code the page and its source table can run is what `pin` lists, and the page declares no property
     /// outside `pin.properties`:
     /// - the page's own triggers are exactly `pin.triggers`; no page extension extends it; nothing subscribes to an event of it;
@@ -551,6 +565,11 @@ pub(super) fn code_stmts(program: &ir::Program, object: usize, r: usize) -> Vec<
         })
 }
 
+/// The statements of the nested `body` (a branch, a loop body) without the position marks.
+pub(super) fn without_pos(body: &[ir::Stmt]) -> Vec<&ir::Stmt> {
+    body.iter().filter(|s| !matches!(s, ir::Stmt::Pos(_))).collect()
+}
+
 /// `e` calls a procedure of a codeunit that a global variable of `object` holds (`Cfg.Query('doc', CloseAction)`), not
 /// as a try call.
 pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Expr) -> bool {
@@ -651,7 +670,7 @@ pub(super) fn text_log_routine(program: &ir::Program, callee: usize, routine: us
         && !stmts.is_empty()
         && stmts.iter().all(|s| match s {
             ir::Stmt::If(ir::Expr::Binary(ir::BinOp::Ne, a, b), then, otherwise) => {
-                let then: Vec<&ir::Stmt> = then.iter().filter(|s| !matches!(s, ir::Stmt::Pos(_))).collect();
+                let then = without_pos(then);
                 let tested = match (unconverted(a), unconverted(b)) {
                     (ir::Expr::Load(ir::Place::Global(g)), ir::Expr::Const(ir::Const::Text(_))) => Some(*g),
                     _ => None,

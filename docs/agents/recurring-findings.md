@@ -42,7 +42,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
     the page pass too. Require the kind of callee and the kind of condition the pin has.
   - a body with branches (`case`, `if`) checked by its form only: the pin measured one branch. Require the branch that
     ran (a run-time fact), and the exact branches.
-  - a pinned call checked by its name only (`Next`): the pin also has its outcome (it moved). Require the outcome.
+  - a pinned call checked by its name only: the pin also has its outcome (a `Next` that moved, a `GoToKey` that found its
+    row, a `SetValue` that did not raise). Read the calls from the log that keeps outcomes (`tree_calls`, through
+    `test_calls_all_succeeded`), not from the names (`test_calls`).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
