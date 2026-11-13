@@ -257,6 +257,13 @@ fn the_rgba_replace_takes_only_renders_of_the_measured_shape() {
     assert!(!assumptions::take_hits().contains(&Assumption::EmailBodyRgbaReplaceKeepsContent));
 }
 
+/// A mark whose number names no render of this process (a text from a stored row of another run) is no entry.
+#[test]
+fn the_rgba_replace_refuses_a_mark_that_names_no_render() {
+    let unknown = rendered_text::mark_text(0xFFF0, Form::Whole);
+    replace_refused(Value::Text(unknown.into()), "a mark that names no render");
+}
+
 /// The first argument is a Text: a collection or TextBuilder that holds a marked text is no entry.
 #[test]
 fn the_rgba_replace_takes_the_body_only_as_a_text() {
