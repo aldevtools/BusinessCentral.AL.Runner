@@ -10,8 +10,8 @@
 //! the facts all its cells share (`form_cell_facts`). A shape with any other fact gets the part's filtered fields unknown, and
 //! their read is refused with the first such fact (`empty_part_rec.rs`; `suite/empty_part_rec_list.rs`
 //! `empty_list_part_rec_list_host_unmeasured_shapes_refuse`, `empty_list_part_rec_list_host_neighbors_refuse`,
-//! `empty_list_part_rec_widened_cells_neighbors_refuse`, `empty_list_part_rec_tied_to_its_landing`). The values of a cell last
-//! only up to the reads it measured (`Session::tie_empty_list_stamp`). The facts no probe object varies are named in the entry's
+//! `empty_list_part_rec_widened_cells_neighbors_refuse`, `empty_list_part_rec_tied_to_its_landing`). The values of a cell can
+//! be read only inside the reads it measured (`Session::tie_empty_list_stamp`). The facts no probe object varies are named in the entry's
 //! text.
 
 use super::pinned_shape::{PartStep, TestCall};

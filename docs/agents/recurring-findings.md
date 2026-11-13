@@ -90,7 +90,10 @@ one run or session must use that run's or session's id, not a shared slot or a p
 A value put on a record at a measured landing is read after steps the landing does not include. Tie the value to its landing:
 every later page step that does not make the page read again (a test call on the host or the part, a page-code call such as
 `CurrPage.Update`, a write to the store) must end it, and every other site that writes the same value (a second stamp
-function) must go through the owner's allowlist.
+function) must go through the owner's allowlist. End the value where it can be READ from, not only on calls made on the page that
+holds it: code of another page that calls into it (a host calling a part's procedure), a rollback, and a write or an error inside
+a kept call also leave the measured shape. Keep the store state of the landing (writes and rollbacks) with the value and compare
+it at each read.
 
 ## 8. Citations (6 of 34)
 
