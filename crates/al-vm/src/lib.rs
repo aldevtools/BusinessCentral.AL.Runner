@@ -1424,7 +1424,7 @@ impl Session {
                 var_origins: Vec::new(),
                 next_aliases: Vec::new(),
                 next_is_subscriber: false,
-                blob_publisher: false,
+                blob_publisher: None,
                 next_blob_event: false,
                 subscriber_stack: Vec::new(),
                 next_var_lens: Vec::new(),
@@ -2068,7 +2068,9 @@ impl Session {
         let engine = self.engine.clone();
         let globals = self.slot_defaults(&engine.program.objects[object].globals);
         if engine.program.objects[object].kind == ir::ObjKind::Codeunit {
-            globals.iter().for_each(blob_transfer::new_variable);
+            globals
+                .iter()
+                .for_each(|v| blob_transfer::new_variable(v, self.commits));
         }
         Rc::new(RefCell::new(Instance {
             object: object as u32,
@@ -2452,7 +2454,7 @@ impl Session {
             } else {
                 let v = self.slot_default(s);
                 if blob_transfer::measured_local(engine.program.objects[object].kind, r, i) {
-                    blob_transfer::new_variable(&v);
+                    blob_transfer::new_variable(&v, self.commits);
                 }
                 locals.push(v);
             }
@@ -2468,7 +2470,8 @@ impl Session {
                 continue;
             }
             let by_var = r.by_var.get(i).copied().unwrap_or(false);
-            let argument = blob_transfer::Argument::of(&a, measured_call.filter(|_| !by_var), &r.locals[i].ty);
+            let argument =
+                blob_transfer::Argument::of(&a, measured_call.filter(|_| !by_var), &r.locals[i].ty, self.commits);
             let bound = match (a, by_var) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer

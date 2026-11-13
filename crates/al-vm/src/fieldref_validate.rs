@@ -22,7 +22,7 @@ impl Session {
         args: &[Value],
     ) -> Result<Value, Signal> {
         let mut a = self.variant_validate_args(t, pos, args)?;
-        crate::blob_transfer::written_through_fieldref(&mut rec.borrow_mut(), &Value::Null, true);
+        crate::blob_transfer::validated_through_fieldref(&mut rec.borrow_mut());
         // A Blob is validated as a copy (`blob_transfer::moved`).
         if let Some(v @ Value::Blob(_)) = a.get_mut(1) {
             let cur = rec.borrow().fields[pos].clone();

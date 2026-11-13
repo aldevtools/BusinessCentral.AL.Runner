@@ -83,7 +83,7 @@ impl Session {
             values.push(match (a, r.by_var.get(i).copied().unwrap_or(false)) {
                 (Value::Record(rc), false) => {
                     let copy = self.record_by_value_unmeasured(&rc);
-                    crate::blob_transfer::publisher_copy(blob_publisher, &rc, &copy);
+                    crate::blob_transfer::publisher_copy(blob_publisher.is_some(), &rc, &copy);
                     copy
                 }
                 // A Notification handed by value to an event is the caller's own notification: a subscriber's SetData and Message
@@ -348,7 +348,7 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
-            self.events.next_blob_event = blob_publisher && !s.manual;
+            self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
             let manual_inst = s.manual.then(|| inst.clone());
             // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the
             // pinned shapes only (an event a codeunit publishes, a table's OnAfterModifyEvent).

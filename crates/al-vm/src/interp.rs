@@ -1623,7 +1623,7 @@ impl Session {
                         d.fields = fields;
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
-                        d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow());
+                        d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow(), self.commits);
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
@@ -1682,7 +1682,7 @@ impl Session {
                 if let (true, Some(taker)) = (assign, crate::blob_transfer::Taker::variant_at(p)) {
                     let (temporary, holder) = {
                         let r = rc.borrow();
-                        (r.temporary, Holder::of(&r))
+                        (r.temporary, self.holder(&r))
                     };
                     self.blobs_by_value(copy, temporary, holder, taker, crate::blob_transfer::Call::Plain)?
                 } else {
@@ -1710,7 +1710,7 @@ impl Session {
             Value::Blob(_)
                 if assign && matches!(p, ir::Place::Local(_)) && matches!(self.place_type(p, f), RtType::Variant) =>
             {
-                let how = BlobMove::Variant { local: true };
+                let how = BlobMove::Variant;
                 crate::blob_transfer::moved(None, v, how, Holder::Other, || FieldKind::Plain)?
             }
             _ => v,

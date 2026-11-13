@@ -337,10 +337,11 @@ pub(crate) struct EventState {
     pub(crate) next_aliases: Vec<(usize, Rc<RefCell<crate::Instance>>, usize)>,
     /// Set just before a subscriber is called, taken by its frame: the call is an event subscriber dispatch.
     pub(crate) next_is_subscriber: bool,
-    /// Set by `publish` for a publisher `blob_transfer::measured_publisher` names, taken by `raise_to_subscribers`.
-    pub(crate) blob_publisher: bool,
-    /// Set just before a subscriber is called, taken by its frame: the raise of a `blob_publisher` event to a subscriber
-    /// codeunit that is not manual (`blob_transfer::Argument::measured_call`).
+    /// Set by `publish` for a publisher `blob_transfer::measured_publisher` names and by `table_event` for an event
+    /// `blob_transfer::measured_table_event` names, just before the raise; taken by `raise_to_subscribers`.
+    pub(crate) blob_publisher: Option<crate::blob_transfer::BlobEvent>,
+    /// Set just before a subscriber is called, taken by its frame, cleared after the call: the raise of a `blob_publisher`
+    /// event to a subscriber `blob_transfer::measured_subscriber` names (`blob_transfer::Argument::measured_call`).
     pub(crate) next_blob_event: bool,
     /// The event subscriber calls on the stack, innermost last: (publisher object, subscriber object, subscriber routine) for
     /// the shapes whose event recursion error text is pinned, `None` for another (the call-depth error names event

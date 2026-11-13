@@ -1020,7 +1020,7 @@ impl Session {
         }
         let (s, holder) = {
             let src = src.borrow();
-            (src.clone(), crate::blob_transfer::Holder::of(&src))
+            (src.clone(), self.holder(&src))
         };
         // Copy takes the fields, filters and key but does not move the target to the source's company
         // (record/TestChangeCompanyFiltersCopyDeleteContracts.al:117-121).
@@ -1475,7 +1475,7 @@ impl Session {
         }
         let (src_table, src_fields, holder) = {
             let s = src.borrow();
-            (s.table as usize, s.fields.clone(), crate::blob_transfer::Holder::of(&s))
+            (s.table as usize, s.fields.clone(), self.holder(&s))
         };
         let from = self.engine.tables[src_table]
             .clone()

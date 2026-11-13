@@ -470,16 +470,17 @@ pub struct RecordState {
 /// The record is one whose Blobs the Blob copy probes measured as the source of a record-wide move (a record passed by
 /// value, `Record.Copy`, `TransferFields` with flags, `SetTable(Rec, true)`, a Blob moved into a Variant that is not local):
 /// al-vm `blob_transfer` sets it on a declared variable, keeps it through the record methods and builtins the probes ran, and
-/// ends it at every other one (`blob_transfer::Holder`). The byte says how the record was prepared, in al-vm
-/// `blob_transfer`'s encoding (`blob_transfer::Prep`); 0 for every other record.
+/// ends it at every other one (`blob_transfer::Holder`). The byte is the kind of measured record in al-vm `blob_transfer`'s
+/// encoding, 0 for every other record; the number is the session's commit count when the byte was set (a Commit since ends
+/// it).
 ///
 /// `Clone` gives 0: a copy of a record state (a record passed by value, a Variant's record, xRec) is not that variable.
 #[derive(Debug, Default)]
-pub struct ProbedSource(pub u8);
+pub struct ProbedSource(pub u8, pub u64);
 
 impl Clone for ProbedSource {
     fn clone(&self) -> Self {
-        ProbedSource(0)
+        ProbedSource(0, 0)
     }
 }
 
