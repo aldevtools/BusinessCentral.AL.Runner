@@ -1,93 +1,40 @@
-//! The text of a Decimal in the report dataset: which columns write it without trailing zeros (al-runner issue 7440). A row
-//! read from the database carries no trailing zeros (al-data `MemStore::as_database`), and `Round` adds none beyond its
-//! input (al-builtins `mathfns.rs`); every other column writes the value with its scale.
+//! The text of a Decimal in the report dataset (al-runner issues 7440 and 7958): the value with the decimals it holds, zeros
+//! included, except zero, one and minus one, which are written without decimals.
 //!
-//! Pinned (reports/dataset/DatasetDecimalPlacesValueOrigins.al, every value origin of :9-10 gives the same text):
-//! - a stored field of a data item over a table, by name (:47 `D05`) or with the item's name (:52 `Row.D05`): `1`, not
-//!   `1.00000` (:241-247);
-//! - a stored field of a global Record variable (:71 `RecLiteral.D05`, never stored): `1` (:364);
-//! - a global Decimal variable (:79 `VarLiteral`): `1` (:397);
-//! - an expression over a stored field of the data item's row (:53 `D05 * 1`): `1`, because the row is read without trailing
-//!   zeros (:241-247); the arithmetic keeps its scale (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309
-//!   `Dec * 1.5` over the stored 12.345678 is `18.5185170`; DatasetDecimalPlacesValueOrigins.al:505-510 `G.D * 2` over the
-//!   stored 1.50 read by Get is `3.0`).
+//! Pinned (reports/dataset/DatasetDecimalPlacesValueOrigins.al): one is `1` whatever made it and whatever the column's
+//! source: a stored field by name or with the item's name (:241-247), a field of a global Record variable set to the literal
+//! 1.00000, to `0.5 * 2` or by Evaluate of `1.00000` (:364), a global Decimal variable set the same ways (:397), a variable
+//! times one, an array element, parentheses, calls and a temporary data item's field over `Round(1, 0.00001)` (:425-570);
+//! minus one is `-1` (`-V`, :525-530). Every other value keeps its decimals: an expression column keeps the scale of the
+//! calculation (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309 `Dec * 1.5` over the stored 12.345678 is
+//! `18.5185170`; DatasetDecimalPlacesValueOrigins.al:505-510 `G.D * 2` over the stored 1.50 read by Get is `3.0`). A row
+//! read from the database carries no trailing zeros (al-data `MemStore::as_database`).
 //!
-//! Every other shape writes the value with its scale (:425-570: a variable times one, an array element, unary minus,
-//! parentheses, procedure and codeunit calls, a field set in a trigger, a FlowField and a temporary data item's field all
-//! write what the value holds).
+//! Measured on BC 27.5, 28.5 and 29.0, not pinned yet (assumption `dataset-decimal-keeps-its-zeros`; corpus pull requests 1337,
+//! reports/dataset/DatasetDecimalRoundScale.al, and 1377, reports/dataset/DatasetDecimalRoundScaleSources.al): a variable or a
+//! field by name keeps the zeros of any other value, with or without the column's own DecimalPlaces (`Round(3, 0.25)` is
+//! `3.00`, the literal 2.50 is `2.50`), and zero is `0` (the literal 0.00, `Round(0.001, 0.01)`). One keeps its decimals in
+//! the value itself: `0.50 * 2` times 2.50 is `2.5000`.
 
-use al_builtins::value::RtType;
-use al_ir::{Expr, Place, Program, ReportColumn, SourceSyntax, Stmt};
+use al_builtins::assumptions::{Assumption, assume};
+use al_ir::{ReportColumn, SourceSyntax};
 use rust_decimal::Decimal;
 
-/// The dataset text of Decimal `d` in column `c` of report `object`.
-pub(crate) fn text(program: &Program, object: usize, c: &ReportColumn, d: Decimal) -> String {
-    if trims(program, object, c) {
-        d.normalize().to_string()
-    } else {
-        d.to_string()
+/// The dataset text of Decimal `d` in column `c`.
+pub(crate) fn text(c: &ReportColumn, d: Decimal) -> String {
+    let trimmed = d.normalize();
+    if trimmed.scale() == d.scale() {
+        return d.to_string();
     }
-}
-
-/// Whether column `c` has one of the pinned source shapes that write a Decimal without trailing zeros: the syntax (one name,
-/// or two joined by a dot) and the lowered routine (`exit` of a load of that place) both say so.
-fn trims(program: &Program, object: usize, c: &ReportColumn) -> bool {
-    let Some(o) = program.objects.get(object) else {
-        return false;
-    };
-    let (Some(report), Some(routine)) = (o.report.as_ref(), c.routine.and_then(|r| o.routines.get(r))) else {
-        return false;
-    };
-    let item_slots: Vec<usize> = report.items.iter().filter_map(|i| i.slot).collect();
-    let own = report
-        .items
-        .iter()
-        .find(|i| i.columns.iter().any(|x| x.routine == c.routine))
-        .and_then(|i| i.slot);
-    let slot_ty = |g: usize| o.globals.get(g).map(|s| &s.ty);
-    routine.body.read(|stmts| {
-        let [Stmt::Exit(Some(e))] = stmts else {
-            return false;
-        };
-        let Expr::Load(place) = peel(e) else {
-            return false;
-        };
-        match (c.source_syntax, place) {
-            // A global Decimal variable (:79).
-            (SourceSyntax::Name, Place::Global(g)) => {
-                !item_slots.contains(g) && matches!(slot_ty(*g), Some(RtType::Decimal))
-            }
-            (SourceSyntax::Name | SourceSyntax::Member, Place::Field(rec, pos)) => {
-                let Place::Global(g) = rec.as_ref() else {
-                    return false;
-                };
-                // By name only the own item's field (:47); with a dot the own item (:52) or a global Record variable (:71),
-                // not another data item.
-                let whose = Some(*g) == own || (c.source_syntax == SourceSyntax::Member && !item_slots.contains(g));
-                let Some(RtType::Record(table, false)) = slot_ty(*g) else {
-                    return false;
-                };
-                whose && stored_decimal(program, *table as usize, *pos)
-            }
-            _ => false,
-        }
-    })
-}
-
-/// A conversion to the routine's Variant result is not part of the source.
-fn peel(e: &Expr) -> &Expr {
-    match e {
-        Expr::Convert(_, inner) => peel(inner),
-        e => e,
+    if d.is_zero() {
+        assume(Assumption::DatasetDecimalKeepsItsZeros);
+        return trimmed.to_string();
     }
-}
-
-/// Field `pos` of table object `table` is a stored (Normal) Decimal field.
-fn stored_decimal(program: &Program, table: usize, pos: usize) -> bool {
-    program
-        .objects
-        .get(table)
-        .and_then(|o| o.table.as_ref())
-        .and_then(|t| t.fields.get(pos))
-        .is_some_and(|f| f.stored && f.ty == RtType::Decimal)
+    if d.abs() == Decimal::ONE {
+        return trimmed.to_string();
+    }
+    if matches!(c.source_syntax, SourceSyntax::Name | SourceSyntax::Member) {
+        assume(Assumption::DatasetDecimalKeepsItsZeros);
+    }
+    d.to_string()
 }
