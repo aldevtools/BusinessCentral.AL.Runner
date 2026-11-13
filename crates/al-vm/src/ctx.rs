@@ -216,6 +216,11 @@ impl al_builtins::native::Ctx for Session {
                     // `Record.Validate` in AL code (registry `Record.Validate#1`).
                     return self.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
                 }
+                if method == al_builtins::record_op::RecordOp::SetFilter {
+                    if let Some(e) = self.setfilter_empty_or_side(&rc, args)? {
+                        return Err(e);
+                    }
+                }
                 self.record_op_from_al(method, &rc, args)
             }
             other => Err(Signal::unsupported(format!(

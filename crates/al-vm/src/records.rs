@@ -24,6 +24,7 @@ mod delete_all_flow;
 mod empty_find_origin;
 mod flowfield_key;
 mod insert_buffer;
+mod setfilter_empty_or_side;
 mod setrange_filter;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 mod nested_validate;
