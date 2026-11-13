@@ -3112,3 +3112,17 @@ fn issue_7880_worksheet_with_a_key_field_control_keeps_the_refusal() {
         "{outcome:?}"
     );
 }
+
+/// Issue 7881: a Card that also declares OnAfterGetRecord was not measured; the AssistEdit keeps main's result.
+#[test]
+fn issue_7881_card_with_on_after_get_record_keeps_main_result() {
+    let source = include_str!("../fixtures/next-only-card-assist-edit-refresh.al");
+    let current = "    trigger OnAfterGetCurrRecord()\n";
+    assert_eq!(source.matches(current).count(), 1);
+    let changed = source.replace(current, &format!("    trigger OnAfterGetRecord()\n    begin\n    end;\n\n{current}"));
+    let outcome = outcome_named(&run_with_deps(&[], &changed), "AssistEditRefreshesAfterSyncStoredTheEditedRow");
+    assert!(
+        matches!(&outcome, Outcome::NotRun(reason) if reason.contains("re-anchoring not pinned")),
+        "{outcome:?}"
+    );
+}

@@ -28,9 +28,11 @@ impl Session {
         self.run_refresh(st)
     }
 
-    /// NextOnlyCardRefresh.al: AssistEdit stores and reloads the edited row before Update(false).
-    /// The old client edit is no longer pending. BC shows the returned Rec and refreshes the linked
-    /// part without raising the card's current-record trigger.
+    /// AL Runner issue 7881, corpus pull request 1345 (pages/currpage/TestCardAssistEditSavedRefresh.al), assumption
+    /// `next-only-card-assist-edit-refresh`: AssistEdit stores and reloads the edited row before Update(false). The old client
+    /// edit is no longer pending. BC shows the returned Rec and refreshes the linked part without raising the card's
+    /// current-record trigger. Measured: an OpenEdit Card whose own triggers are exactly OnNextRecord and
+    /// OnAfterGetCurrRecord, without extension or subscriber, with one linked ListPart.
     pub(super) fn settle_next_only_card_assist_edit(&mut self, st: &St, before: &[Value]) -> Result<(), Signal> {
         {
             let s = st.borrow();
@@ -51,9 +53,7 @@ impl Session {
         }
         if !self.unextended_unsubscribed(st)
             || !self.assist_edit_has_linked_list_part(st)
-            || self.declares(st, "onfindrecord")
-            || !self.declares(st, "onnextrecord")
-            || !self.declares(st, "onaftergetcurrrecord")
+            || !self.next_only_card_triggers(st)
         {
             return Ok(());
         }
@@ -88,6 +88,14 @@ impl Session {
             self.sync_parts(st)?;
         }
         Ok(())
+    }
+
+    /// The Card's own triggers are exactly OnAfterGetCurrRecord and OnNextRecord, as in the measured repro.
+    fn next_only_card_triggers(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let mut names: Vec<&str> = page_of(&engine, st).triggers.iter().map(|(n, _)| n.as_str()).collect();
+        names.sort_unstable();
+        names == ["onaftergetcurrrecord", "onnextrecord"]
     }
 
     fn assist_edit_has_linked_list_part(&self, st: &St) -> bool {
