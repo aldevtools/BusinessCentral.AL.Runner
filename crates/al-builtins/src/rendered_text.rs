@@ -737,7 +737,7 @@ pub struct DotNetEntry {
 }
 
 /// The pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb`, the same text in System Application
-/// 27.5, 28.1 and 29.0 (RxEmailBodyTests.al:5-6).
+/// of the three BC majors the corpus runs (RxEmailBodyTests.al:5-6).
 const RGBA_PATTERN: &str = r"rgba\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3}),\s*1(\.0{0,2})?\)";
 const RGBA_REPLACEMENT: &str = "rgb($1, $2, $3)";
 

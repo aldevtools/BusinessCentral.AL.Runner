@@ -153,8 +153,8 @@ impl Session {
     /// writes as before). BC writes no Html then and answers false without raising: one data item, a stream, the answer used
     /// (corpus probe pull request 1362, reports/layouts-html-text/HtRenderedTextTests.al:320-335 Html_SaveAs_NoDatasetRow,
     /// `saved` No, `length > 0` No; BC 27.5 and 28.5). It leaves the error `ReportResultEmpty` for GetLastErrorText (corpus probe
-    /// pull request 1371, reports/html-email-body/RxEmailBodyTests.al:134-143 WordDefault_NoRow_EmailBody; BC 27.5, 28.5 and
-    /// 29.0). Both under the assumption `report-html-no-dataset-row` until they are pinned. Every other placeholder save of a
+    /// pull request 1371, reports/html-email-body/RxEmailBodyTests.al:134-143 WordDefault_NoRow_EmailBody; all three BC
+    /// majors). Both under the assumption `report-html-no-dataset-row` until they are pinned. Every other placeholder save of a
     /// Word layout report with no dataset row refuses.
     fn no_row_save(
         &mut self,
