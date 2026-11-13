@@ -54,14 +54,18 @@ pub enum PartStep {
 }
 
 /// What a page lets through after a rule pinned for one scenario ran (`PageState::pinned_end`): Close of the page, with
-/// `reads` a read of a control's value or an `AssertEquals`, with `one_action` one action's Invoke, with `first_ends` a
-/// `First`, which ends the limit, with `part_visible` the `Visible` of a part, with `part_moves` the moves of a part and with
-/// `next` one `Next`, as the scenario makes them.
+/// `reads` a read of a control's value or an `AssertEquals`, with `part_reads` a value read of a part's control, with
+/// `one_action` one action's Invoke, with `first_ends` a `First`, which ends the limit, with `part_visible` the `Visible` of a
+/// part, with `part_moves` the moves of a part and with `next` one `Next`, as the scenario makes them. With `no_writes` every
+/// call is refused once the calls no longer tell what the page shows (`PageState::tree_calls_unknown`: the test wrote to the
+/// store between two calls, or made more calls than are kept).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PinnedEnd {
     /// The refusal of any other call.
     pub reason: &'static str,
     pub reads: bool,
+    /// `P.Part.Control.Value()` is let through.
+    pub part_reads: bool,
     /// One `Invoke` of an action is let through; a second one is refused.
     pub one_action: bool,
     /// `First` is let through and ends the limit: the page then reads its view again, as on main's path.
@@ -70,6 +74,7 @@ pub struct PinnedEnd {
     pub part_visible: bool,
     /// `First`, `Last` and `Next` of a part of the page are let through.
     pub part_moves: bool,
+    pub no_writes: bool,
     pub next: NextEnd,
 }
 
@@ -145,6 +150,9 @@ impl Session {
         let Some(end) = root.borrow().pinned_end else {
             return Ok(());
         };
+        if end.no_writes && call.is_some() && root.borrow().tree_calls_unknown {
+            return unsupported(end.reason);
+        }
         let let_through = match call {
             // Not a call of the test client (`note_test_call`).
             None => true,
@@ -164,7 +172,7 @@ impl Session {
             Some(TestCall::Page(PageMethod::First | PageMethod::Last | PageMethod::Next)) if end.part_moves => {
                 part.is_some()
             }
-            Some(TestCall::Read) => end.reads,
+            Some(TestCall::Read) => end.reads || (end.part_reads && part.is_some()),
             Some(TestCall::Other(PageMethod::Invoke)) if end.one_action && part.is_none() => {
                 root.borrow_mut().pinned_end = Some(PinnedEnd {
                     one_action: false,
