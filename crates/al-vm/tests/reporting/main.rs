@@ -45,6 +45,7 @@ mod report_placeholder_size_uses;
 mod report_properties;
 mod report_region_after_language;
 mod report_request_rec_in_init;
+mod report_save_decl_word_rdlc;
 mod report_save_html_record;
 mod report_saveas;
 mod report_saveas_events;
