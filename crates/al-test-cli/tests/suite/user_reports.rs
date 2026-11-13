@@ -3432,3 +3432,42 @@ fn issue_7885_var_variant_and_source_side_keep_main_result() {
         );
     }
 }
+
+#[test]
+fn report_xml_column_line_breaks_are_limited_to_static_save_as() {
+    let fixture = r#"
+table 52010 LineBreakRow {
+    fields { field(1; Id; Integer) { } field(2; Payload; Text[100]) { } field(3; Bytes; Blob) { } }
+    keys { key(PK; Id) { } }
+}
+report 52011 LineBreakReport {
+    dataset { dataitem(Row; LineBreakRow) { column(Payload; Payload) { } } }
+}
+codeunit 52013 T {
+    Subtype = Test;
+    [Test] procedure LineBreaks()
+    var Row: Record LineBreakRow; Buffer: Record LineBreakRow temporary; R: Report LineBreakReport;
+        OutS: OutStream; InS: InStream; Raw: Text; Ch: Text[1]; B: Byte; Cr: Char; Lf: Char;
+    begin
+        Cr := 13;
+        Lf := 10;
+        Row.Payload := 'A' + Format(Cr) + 'B' + Format(Lf) + 'C' + Format(Cr) + Format(Lf) + 'D';
+        Row.Insert();
+        Buffer.Bytes.CreateOutStream(OutS);
+        Report.SaveAs(Report::LineBreakReport, '', ReportFormat::Xml, OutS);
+        Buffer.Bytes.CreateInStream(InS);
+        while not InS.EOS() do begin
+            InS.Read(B);
+            Ch[1] := B;
+            Raw += Ch;
+        end;
+        if not Raw.Contains('A' + Format(Cr) + Format(Lf) + 'B' + Format(Cr) + Format(Lf) + 'C' + Format(Cr) + Format(Lf) + 'D') then
+            Error('The XML did not contain all three CRLF pairs.');
+    end;
+}
+"#;
+    all_pass(run_with_deps(&[], fixture));
+    let variable = fixture.replace("Report.SaveAs(Report::LineBreakReport, ", "R.SaveAs(");
+    let result = run_with_deps(&[], &variable);
+    assert!(matches!(&result[0].1, Outcome::NotRun(_)), "{result:?}");
+}
