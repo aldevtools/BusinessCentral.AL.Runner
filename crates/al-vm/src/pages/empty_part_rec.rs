@@ -64,6 +64,13 @@ impl Session {
                     store: self.landing_store_state(),
                     reading: false,
                 });
+                // A part in edit mode (its host opened for edit with CurrPage.Editable true) lands here without running
+                // OnAfterGetCurrRecord on its way; a part in view mode ran it already (`land`). On a host with the page triggers of
+                // probe 1378 BC runs it once, with the link values on Rec (EmptyPartRecListHostTriggers.al:608 `open | hcur |
+                // pcur=76860/A/0 | act=...`, the host opened for edit and editable; :2038 the reporter's form).
+                if cell.triggers && st.borrow().mode == PageMode::Edit {
+                    self.trigger_cell_curr_record(st)?;
+                }
             }
             Shape::Miss(miss) if self.top_list(&host) => {
                 let why = format!(
@@ -104,9 +111,14 @@ impl Session {
         if let Some(l) = st.borrow_mut().empty_list_landing.as_mut() {
             l.reading = true;
         }
-        let r = self.link_values_on_rec(st).and_then(|()| f(self));
+        let mut r = self.link_values_on_rec(st).and_then(|()| f(self));
         // A landing inside `f` withheld the values itself and is not `reading`; a part that read a row holds no landing.
         let still_reading = st.borrow().empty_list_landing.is_some_and(|l| l.reading);
+        // On a host with the page triggers of probe 1378 the part runs its OnAfterGetCurrRecord once more after the action, with
+        // the link values still on Rec (EmptyPartRecListHostTriggers.al:608 `... | act=76860/A/0/ | pcur=76860/A/0`, :2038).
+        if landing.triggers && still_reading && st.borrow().cursor == Cursor::None && r.is_ok() {
+            r = self.curr_record_trigger(st).and(r);
+        }
         if still_reading && st.borrow().cursor == Cursor::Row {
             st.borrow_mut().empty_list_landing = None;
         } else if still_reading {
@@ -152,6 +164,20 @@ impl Session {
             }
         }
         self.stamp_from_filters(st, false)
+    }
+
+    /// The part's OnAfterGetCurrRecord and its subscribers run with the link values on Rec (`link_values_on_rec`); after, the
+    /// fields its filters name are unknown again, as outside every measured read.
+    fn trigger_cell_curr_record(&mut self, st: &St) -> Result<(), Signal> {
+        let r = self.link_values_on_rec(st).and_then(|()| self.curr_record_trigger(st));
+        unknown_filtered_fields(&self.page_rec(st), OUTSIDE_READ);
+        r
+    }
+
+    /// The part's OnAfterGetCurrRecord and its subscribers.
+    fn curr_record_trigger(&mut self, st: &St) -> Result<(), Signal> {
+        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+        self.page_event(st, "onaftergetcurrrecordevent", None, None).map(|_| ())
     }
 
     /// Part `st` reads its view again, or its page code calls a method of the page: the landing of a List-host cell it held is
@@ -274,6 +300,13 @@ pub struct EmptyListLanding {
     store: (u64, u64),
     /// A measured read runs: Rec holds the link values (`Session::reading_empty_list_rec`).
     reading: bool,
+}
+
+impl EmptyListLanding {
+    /// The host has the page triggers of probe 1378.
+    pub(super) fn triggers(&self) -> bool {
+        self.triggers
+    }
 }
 
 /// What `empty_part_rec` puts on Rec of a part that shows no row.

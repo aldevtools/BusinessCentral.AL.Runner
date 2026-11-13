@@ -79,6 +79,8 @@ enum Landing {
     GoToOnlyRow,
     /// After a Next that moved the host to the last of its rows.
     NextToLastRow,
+    /// At a row a GoToRecord passes on its way to the row it finds (`walk_parts.rs`).
+    PassedRow,
 }
 
 /// The rows of the host's view before and after the row it stands on, each counted up to 3 (`Session::host_rows`).
@@ -100,10 +102,13 @@ const FIRST_FORM_TRIGGER_LANDINGS: &[TriggerLanding] = &[
 ];
 
 /// The landings of the reporter's form with the triggers of probe 1378 (EmptyPartRecListHostTriggers.al pages 76868-76870, heads
-/// RA, RB and RC): as opened on RA and after GoToRecord to RC, opened for edit and for view (:1659-:2363).
+/// RA, RB and RC): as opened on RA, at RB which a GoToRecord to RC passes, and at RC, opened for edit and for view (:1659-:2363;
+/// :2080 `open | pcur=76860/RA/0 | pcur=76860/RB/0 | pcur=76860/RC/0 | act=76860/RC/0/ | pcur=76860/RC/0`).
 const REPORTER_TRIGGER_LANDINGS: &[TriggerLanding] = &[
     (PageMode::Edit, Landing::Open, (0, 2)),
     (PageMode::View, Landing::Open, (0, 2)),
+    (PageMode::Edit, Landing::PassedRow, (1, 1)),
+    (PageMode::View, Landing::PassedRow, (1, 1)),
     (PageMode::Edit, Landing::GoToLastRow, (2, 0)),
     (PageMode::View, Landing::GoToLastRow, (2, 0)),
 ];
@@ -258,14 +263,14 @@ impl Session {
                 "the part control has a set of properties, or the List host a page property, no probe cell has",
             ));
         };
-        if triggers {
-            return self.trigger_landing_cell(st, host, cell.trigger_landings);
-        }
-        if !self.form_cell_facts(st, host, control, &HOST_TRIGGERS[..1]) {
+        if !self.form_cell_facts(st, host, control) || !(triggers || self.host_without_triggers(host)) {
             return Ok(Err(
                 "the part page, the part control's area or triggers, the link or the host's triggers differ from the cells of its \
                  host form",
             ));
+        }
+        if triggers {
+            return self.trigger_landing_cell(st, host, cell.trigger_landings);
         }
         let mode = host.borrow().mode;
         let landing = self.form_landing(st, host)?;
@@ -334,6 +339,11 @@ impl Session {
                 Some(m) if m == HostMove::moved(PageMethod::Next) && self.first_host_step(st, host, m.method) => {
                     Some(Landing::NextToLastRow)
                 }
+                Some(m)
+                    if m == HostMove::passing(PageMethod::GoToRecord) && self.first_host_step(st, host, m.method) =>
+                {
+                    Some(Landing::PassedRow)
+                }
                 _ => None,
             }
         };
@@ -349,6 +359,34 @@ impl Session {
             reads: 1,
             triggers: true,
         }))
+    }
+
+    /// The walk of `host` to the row a GoToRecord finds passes rows for its one part (`walk_parts.rs`): the part showed no row and
+    /// landed in a cell of a host with the page triggers of probe 1378, the GoToRecord is the test's first call since the open on
+    /// a host without a filter, and the row it wants is one the host holds (EmptyPartRecListHostTriggers.al:2080, GoToRecord to
+    /// the last of three rows).
+    pub(super) fn trigger_cell_walk(&self, host: &St) -> bool {
+        let part = match host.borrow().parts.as_slice() {
+            [(_, part)] => part.clone(),
+            _ => return false,
+        };
+        let landed = part.borrow().empty_list_landing.is_some_and(|l| l.triggers());
+        let held = {
+            let h = host.borrow();
+            h.go_to_want
+                .as_ref()
+                .is_some_and(|want| h.window.iter().any(|w| Self::same_key(&w.key, want)))
+        };
+        self.top_list(host) && landed && held && self.first_host_step(&part, host, PageMethod::GoToRecord)
+    }
+
+    /// The one part of `host` lands in a cell at the row the walk passes (`REPORTER_TRIGGER_LANDINGS`, `Landing::PassedRow`).
+    pub(super) fn passed_row_cell(&mut self, host: &St) -> Result<bool, Signal> {
+        let part = match host.borrow().parts.as_slice() {
+            [(_, part)] => part.clone(),
+            _ => return Ok(false),
+        };
+        Ok(self.list_host_cell(&part, host)?.is_ok())
     }
 
     /// The rows of the host's view before and after the row it stands on, each counted up to 3.
@@ -418,6 +456,7 @@ impl Session {
             _ if self.part_open_running => true,
             Some(HostMove {
                 method: method @ (PageMethod::GoToRecord | PageMethod::Next),
+                passing: false,
                 ..
             }) => self.first_host_step(st, host, method),
             _ => false,
@@ -443,6 +482,7 @@ impl Session {
         let Some(HostMove {
             method: PageMethod::GoToRecord,
             stayed,
+            passing: false,
         }) = self.host_move_running
         else {
             return Ok(None);
@@ -500,22 +540,26 @@ impl Session {
         wanted.iter().all(|(name, _)| props.iter().any(|(k, _)| k == name))
     }
 
-    /// The facts every `FORM_CELLS` cell holds besides its host form's (EmptyPartRecLinkList.al pages 76854-76859 at commit
-    /// 831ae544): the part is page 76851 "PG EPL Part Doc" (page 1178's triggers, DeleteAllowed = true and DelayedInsert = true,
-    /// an action's OnAction and a field's OnDrillDown), its control sits in area(FactBoxes), the host has no trigger, and the link
-    /// is a `const(..)` on an Integer field then a field link (page 76854 `"Table ID" = const(..), "No." = field("No.")`,
-    /// page 76855 `"Table ID" = const(..), "No." = field("Ref Code")`). A `filter(..)` in place of the `const(..)` is no cell.
-    fn form_cell_facts(&self, st: &St, host: &St, control: usize, host_triggers: &[&[&str]]) -> bool {
+    /// The facts every `FORM_CELLS` cell holds besides its host form's, with or without the triggers of probe 1378
+    /// (EmptyPartRecLinkList.al pages 76854-76859 at commit 831ae544, EmptyPartRecListHostTriggers.al pages 76868-76870): the part
+    /// is page 76851 "PG EPL Part Doc" (page 1178's triggers, DeleteAllowed = true and DelayedInsert = true, an action's OnAction
+    /// and a field's OnDrillDown), its control sits in area(FactBoxes), and the link is a `const(..)` on an Integer field then a
+    /// field link (page 76854 `"Table ID" = const(..), "No." = field("No.")`, page 76855 `"Table ID" = const(..), "No." =
+    /// field("Ref Code")`). A `filter(..)` in place of the `const(..)` is no cell.
+    fn form_cell_facts(&self, st: &St, host: &St, control: usize) -> bool {
         let engine = self.engine();
         let page = page_of(&engine, st);
-        let host_page = page_of(&engine, host);
         let props = &engine.program.objects[st.borrow().object as usize].properties;
         let doc_props = props_set(props, &PART_DOC_REQUIRED);
         let doc_triggers = trigger_set_measured(&page.triggers, &PART_TRIGGERS[1..]);
         let doc_control_triggers = control_trigger_set(page) == PART_CONTROL_TRIGGERS[1];
-        let c = &host_page.controls[control];
-        let host_triggers = host_triggers.is_empty() || trigger_set_measured(&host_page.triggers, host_triggers);
-        doc_props && doc_triggers && doc_control_triggers && c.factbox && host_triggers && const_then_field(c)
+        let c = &page_of(&engine, host).controls[control];
+        doc_props && doc_triggers && doc_control_triggers && c.factbox && const_then_field(c)
+    }
+
+    /// The host has no trigger: every `FORM_CELLS` host of EmptyPartRecLinkList.al (pages 76854-76859 at commit 831ae544).
+    fn host_without_triggers(&self, host: &St) -> bool {
+        trigger_set_measured(&page_of(&self.engine(), host).triggers, &HOST_TRIGGERS[..1])
     }
 
     /// The part control: the List page's own (no page extension), with no Provider and the Provider of no other part, and a

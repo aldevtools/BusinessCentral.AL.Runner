@@ -2387,18 +2387,10 @@ impl Session {
         let mut found = false;
         // The last block this scan read: whether it was full and the key of its last row.
         let mut block: Option<(bool, Vec<Value>)> = None;
-        // A Document host walks its rows from the first one, and its parts read their rows for each host row it passes whose
-        // lines they do not already show (pages/parts/QjPartPropagation.al:1183 QL_Both_GoToKey_Counts
-        // `log-gotokey-h2-again` = H1 with the part's reads, then H2 with them; :1210 QL_Default_GoToKey_Counts). Pinned for a
-        // Document page; another host keeps the earlier reads.
-        let doc_host = {
-            let object = st.borrow().object as usize;
-            self.engine.object_facts[object].page_type == Some(al_ir::PageType::Document)
-        } && !self.is_list(st)
-            && st.borrow().host.is_none()
-            && !st.borrow().parts.is_empty();
-        let mut parts_show =
-            (doc_host && before_cursor == Cursor::Row && !before_draft).then(|| table.primary_key(&before_fields));
+        // The parts read their rows for each host row the walk passes (`walk_parts.rs`).
+        let walk = self.walk_reads_parts(st);
+        let mut parts_show = (walk.is_some() && before_cursor == Cursor::Row && !before_draft)
+            .then(|| table.primary_key(&before_fields));
         st.borrow_mut().walk_synced_parts = false;
         while at {
             st.borrow_mut().cursor = Cursor::Row;
@@ -2423,9 +2415,8 @@ impl Session {
             }
             if let Some(shown) = &parts_show {
                 if !Self::same_key(shown, &here) {
-                    self.sync_parts(st)?;
+                    self.sync_parts_passed(st, walk)?;
                     parts_show = Some(here.clone());
-                    st.borrow_mut().walk_synced_parts = true;
                 }
             }
             at = self.nav_next(st, 1)?;

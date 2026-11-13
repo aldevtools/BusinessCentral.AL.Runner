@@ -2427,21 +2427,16 @@ codeunit 76872 "PG EPT Tests"
 }
 "##;
 
-/// The action of the part reads BC's Rec in every cell (observation 1), TestPage.Editable is BC's (observation 2), and every
-/// cell goes through the assumption. The cells whose test then fails do so on the trigger order alone (observation 3, `seq`): the
-/// runner does not run the part's OnAfterGetCurrRecord on an empty part of a host opened for edit, again after the part's action,
-/// or for the row a GoToRecord passes. That gap is the runner's on the hosts without triggers too (`empty_part_rec_list.rs`
-/// `GAPS`); it is not a value of Rec.
+/// Every cell passes through the assumption: the action of the part reads BC's Rec (observation 1), TestPage.Editable is BC's
+/// (observation 2), and the trigger order is BC's (observation 3, `seq`), the part's OnAfterGetCurrRecord included: on a part
+/// in edit mode, at the row a GoToRecord passes on the reporter's form, and again after the part's action.
 #[test]
 fn empty_list_part_rec_trigger_hosts_cells() {
     let o = run(PROBE, "PG EPT Tests", Assumption::EmptyPartRecListHostTriggers);
     assert_eq!(o.len(), 85, "{o:?}");
     let wrong: Vec<_> = o
         .iter()
-        .filter(|(_, outcome, flagged)| {
-            let seq_only = matches!(outcome, Outcome::Fail(m) if m.starts_with("observation 3: expected [seq = "));
-            !(*outcome == Outcome::Pass || seq_only) || !flagged
-        })
+        .filter(|(_, outcome, flagged)| *outcome != Outcome::Pass || !flagged)
         .collect();
     assert!(wrong.is_empty(), "{} wrong: {wrong:#?}", wrong.len());
 }
@@ -2449,8 +2444,9 @@ fn empty_list_part_rec_trigger_hosts_cells() {
 /// Neighbors of the probe's hosts, each one fact away from a cell: a trigger body the probe does not have (CurrPage.Editable from
 /// a constant, a log that reads Rec, a notification with GlobalScope, a page procedure that sets CurrPage.Editable as the
 /// reporter's license check does), another trigger set, a handler that answers false, Next on the reporter's form, other numbers
-/// of host rows, a GoToRecord that stays on the row, page 1178's part shape on the first host form. The read of the part's Rec
-/// is refused there, as before this change, each with the fact that left the cells.
+/// of host rows, a GoToRecord that stays on the row, page 1178's part shape on the first host form, the reporter's form with
+/// another part, area or link, the first form with another area or link. The read of the part's Rec is refused there, as before
+/// this change, each with the fact that left the cells.
 const NEIGHBORS: &str = r##"
 table 76880 "PG EPTN Setup2"
 {
@@ -2589,6 +2585,106 @@ page 76887 "PG EPTN DocPart"
         CurrPage.Editable := Setup.IsLicensed();
     end;
 }
+page 76888 "PG EPTN RepPlainPart"
+{
+    PageType = List; SourceTable = "PG EPT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPT Part") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(Database::"PG EPT Head"), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    trigger OnOpenPage()
+    var
+        Setup: Record "PG EPT Setup";
+        Log: Codeunit "PG EPT Log";
+    begin
+        Log.AddSeq('open');
+        CurrPage.Editable := Setup.IsLicensed();
+    end;
+}
+page 76889 "PG EPTN RepContent"
+{
+    PageType = List; SourceTable = "PG EPT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } part(Box; "PG EPT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(Database::"PG EPT Head"), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    trigger OnOpenPage()
+    var
+        Setup: Record "PG EPT Setup";
+        Log: Codeunit "PG EPT Log";
+    begin
+        Log.AddSeq('open');
+        CurrPage.Editable := Setup.IsLicensed();
+    end;
+}
+page 76890 "PG EPTN RepFilterLink"
+{
+    PageType = List; SourceTable = "PG EPT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = filter(76860), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    trigger OnOpenPage()
+    var
+        Setup: Record "PG EPT Setup";
+        Log: Codeunit "PG EPT Log";
+    begin
+        Log.AddSeq('open');
+        CurrPage.Editable := Setup.IsLicensed();
+    end;
+}
+page 76891 "PG EPTN RepSwapLink"
+{
+    PageType = List; SourceTable = "PG EPT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "No." = field("Ref Code"), "Table ID" = const(76860); UpdatePropagation = Both; } }
+    }
+    trigger OnOpenPage()
+    var
+        Setup: Record "PG EPT Setup";
+        Log: Codeunit "PG EPT Log";
+    begin
+        Log.AddSeq('open');
+        CurrPage.Editable := Setup.IsLicensed();
+    end;
+}
+page 76892 "PG EPTN FirstContent"
+{
+    PageType = List; SourceTable = "PG EPT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } part(Box; "PG EPT Part") { ApplicationArea = All; SubPageLink = "Table ID" = const(76860), "No." = field("No."); } }
+    }
+    trigger OnOpenPage()
+    var
+        Setup: Record "PG EPT Setup";
+        Log: Codeunit "PG EPT Log";
+    begin
+        Log.AddSeq('open');
+        CurrPage.Editable := Setup.IsLicensed();
+    end;
+}
+page 76893 "PG EPTN FirstFilterLink"
+{
+    PageType = List; SourceTable = "PG EPT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPT Part") { ApplicationArea = All; SubPageLink = "Table ID" = filter(76860), "No." = field("No."); } }
+    }
+    trigger OnOpenPage()
+    var
+        Setup: Record "PG EPT Setup";
+        Log: Codeunit "PG EPT Log";
+    begin
+        Log.AddSeq('open');
+        CurrPage.Editable := Setup.IsLicensed();
+    end;
+}
 codeunit 76886 "PG EPTN Tests"
 {
     Subtype = Test;
@@ -2618,6 +2714,12 @@ codeunit 76886 "PG EPTN Tests"
     [Test] [HandlerFunctions('Handler')] procedure GoToSameRow() var P: TestPage "PG EPT List Both"; H: Record "PG EPT Head"; begin Init(2); P.OpenEdit(); H.Get('A'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
     [Test] procedure DocPart() var P: TestPage "PG EPTN DocPart"; begin Init(2); P.OpenEdit(); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
     [Test] [HandlerFunctions('Handler')] procedure ReporterTwoRows() var P: TestPage "PG EPT Rep Both"; begin Init(2); P.OpenEdit(); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
+    [Test] procedure RepPlainPart() var P: TestPage "PG EPTN RepPlainPart"; H: Record "PG EPT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
+    [Test] procedure RepContent() var P: TestPage "PG EPTN RepContent"; H: Record "PG EPT Head"; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
+    [Test] procedure RepFilterLink() var P: TestPage "PG EPTN RepFilterLink"; H: Record "PG EPT Head"; begin Init(3); P.OpenView(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
+    [Test] procedure RepSwapLink() var P: TestPage "PG EPTN RepSwapLink"; H: Record "PG EPT Head"; begin Init(3); P.OpenEdit(); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
+    [Test] procedure FirstContent() var P: TestPage "PG EPTN FirstContent"; begin Init(2); P.OpenEdit(); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
+    [Test] procedure FirstFilterLink() var P: TestPage "PG EPTN FirstFilterLink"; begin Init(2); P.OpenView(); P.Box.ReadRec.Invoke(); Error(Log.ActionLog()); end;
 }
 "##;
 
@@ -2626,7 +2728,9 @@ fn empty_list_part_rec_trigger_hosts_neighbors_refuse() {
     // The fact each neighbor is refused with.
     let triggers = "the List host has a set of triggers no probe host has";
     let landing = "with a number of host rows no probe cell of a List host with page triggers has";
-    let want: [(&str, &str); 12] = [
+    let rep_form = "differ from the cells of its host form";
+    let first_form = "differ from the cells of a List host with page triggers";
+    let want: [(&str, &str); 18] = [
         ("ConstEditable", triggers),
         ("ReadsRec", triggers),
         ("GlobalScope", triggers),
@@ -2643,6 +2747,14 @@ fn empty_list_part_rec_trigger_hosts_neighbors_refuse() {
         ("GoToSameRow", landing),
         ("DocPart", "differ from the cells of a List host with page triggers"),
         ("ReporterTwoRows", landing),
+        // The reporter's form with the part of the first form, in area(Content), with a filter(..) link or the link's entries
+        // swapped; the first form with its part in area(Content) or with a filter(..) link.
+        ("RepPlainPart", rep_form),
+        ("RepContent", rep_form),
+        ("RepFilterLink", rep_form),
+        ("RepSwapLink", rep_form),
+        ("FirstContent", first_form),
+        ("FirstFilterLink", first_form),
     ];
     let o = run(
         &format!("{PROBE}\n{NEIGHBORS}"),
@@ -2655,6 +2767,53 @@ fn empty_list_part_rec_trigger_hosts_neighbors_refuse() {
         .filter(|(name, outcome, _)| {
             let fact = want.iter().find(|(n, _)| n == name).map_or("?", |(_, f)| *f);
             !matches!(outcome, Outcome::NotRun(m) if m.contains("a read of Rec of a part that shows no row") && m.contains(fact))
+        })
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// Neighbors of the rows a GoToRecord passes on the reporter's form (`walk_parts.rs`): a GoToKey in place of the GoToRecord, a
+/// GoToRecord to a row the host does not have, and a host of four rows (the passed rows have other rows around them than RB of
+/// three). The part reads nothing at a passed row there, as before this change; with three rows and GoToRecord it does
+/// (EmptyPartRecListHostTriggers.al:2080). Each test fails with the trigger order it logged.
+const WALK_NEIGHBORS: &str = r##"
+codeunit 76894 "PG EPTW Tests"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPT Log";
+    local procedure Init(Rows: Integer)
+    var H: Record "PG EPT Head"; L: Record "PG EPT Line"; S: Record "PG EPT Setup"; I: Integer;
+    begin
+        H.DeleteAll(); L.DeleteAll(); S.DeleteAll();
+        for I := 1 to Rows do begin H."No." := CopyStr('ABCD', I, 1); H."Ref Code" := 'R' + H."No."; H.Insert(); end;
+        S.Licensed := true; S.Enabled := true; S.Insert();
+        Log.Reset();
+    end;
+    [Test] procedure ThreeRowsGoToRecordBoth() var P: TestPage "PG EPT Rep Both"; H: Record "PG EPT Head"; begin Init(3); P.OpenView(); H.Get('C'); P.GoToRecord(H); Error(Log.SeqLog()); end;
+    [Test] procedure ThreeRowsGoToRecordOpenOnly() var P: TestPage "PG EPT Rep OpenOnly"; H: Record "PG EPT Head"; begin Init(3); P.OpenView(); H.Get('C'); P.GoToRecord(H); Error(Log.SeqLog()); end;
+    [Test] procedure GoToKeyBoth() var P: TestPage "PG EPT Rep Both"; begin Init(3); P.OpenView(); P.GoToKey('C'); Error(Log.SeqLog()); end;
+    [Test] procedure GoToKeyOpenOnly() var P: TestPage "PG EPT Rep OpenOnly"; begin Init(3); P.OpenView(); P.GoToKey('C'); Error(Log.SeqLog()); end;
+    [Test] procedure MissBoth() var P: TestPage "PG EPT Rep Both"; H: Record "PG EPT Head"; begin Init(3); P.OpenView(); H."No." := 'Z'; if P.GoToRecord(H) then; Error(Log.SeqLog()); end;
+    [Test] procedure MissOpenOnly() var P: TestPage "PG EPT Rep OpenOnly"; H: Record "PG EPT Head"; begin Init(3); P.OpenView(); H."No." := 'Z'; if P.GoToRecord(H) then; Error(Log.SeqLog()); end;
+    [Test] procedure FourRowsBoth() var P: TestPage "PG EPT Rep Both"; H: Record "PG EPT Head"; begin Init(4); P.OpenView(); H.Get('D'); P.GoToRecord(H); Error(Log.SeqLog()); end;
+    [Test] procedure FourRowsOpenOnly() var P: TestPage "PG EPT Rep OpenOnly"; H: Record "PG EPT Head"; begin Init(4); P.OpenView(); H.Get('D'); P.GoToRecord(H); Error(Log.SeqLog()); end;
+}
+"##;
+
+#[test]
+fn empty_list_part_rec_trigger_hosts_walk_neighbors() {
+    let o = run(
+        &format!("{PROBE}\n{WALK_NEIGHBORS}"),
+        "PG EPTW Tests",
+        Assumption::EmptyPartRecListHostTriggers,
+    );
+    assert_eq!(o.len(), 8, "{o:?}");
+    let passed_rb = |outcome: &Outcome| matches!(outcome, Outcome::Fail(m) if m.contains("pcur=76860/RB/0"));
+    let wrong: Vec<_> = o
+        .iter()
+        .filter(|(name, outcome, _)| {
+            let three_rows = name.starts_with("ThreeRowsGoToRecord");
+            !matches!(outcome, Outcome::Fail(_)) || passed_rb(outcome) != three_rows
         })
         .collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
