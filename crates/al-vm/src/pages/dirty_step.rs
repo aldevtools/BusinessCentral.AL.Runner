@@ -274,7 +274,10 @@ impl Session {
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
         let call = self.note_test_call(st, method, None, args.len());
         Self::refuse_after_pinned_end(st, call)?;
-        self.tie_empty_list_stamp(st, call);
+        if call.is_none() {
+            // Page code calls a method of the page (`CurrPage.Update`): no List-host cell does (`empty_part_rec`).
+            self.end_empty_list_landing(st);
+        }
         Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestPage method ends the shape `next_held_row_read` reads in; a `Next` notes its row again.
         st.borrow_mut().next_held_row = None;
@@ -353,11 +356,17 @@ impl Session {
         c: &ControlRef,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
-        let m = method.method();
         let st = &c.page;
         let call = self.note_test_call(st, method, Some(&c.target), args.len());
         Self::refuse_after_pinned_end(st, call)?;
-        self.tie_empty_list_stamp(st, call);
+        // An Invoke of an action of a part that shows no row may be a read of its Rec a List-host cell measured.
+        self.reading_empty_list_rec(st, call, |s| s.test_control_op_noted(method, c, args))
+    }
+
+    /// `test_control_op_held` after the call is noted.
+    fn test_control_op_noted(&mut self, method: PageOp, c: &ControlRef, args: &mut [Value]) -> Result<Value, Signal> {
+        let m = method.method();
+        let st = &c.page;
         Self::refuse_call_after_typed_key_drop(st)?;
         // Any TestField or TestAction call but SetValue ends the shape `next_held_row_read` reads in.
         if m != PageMethod::SetValue {

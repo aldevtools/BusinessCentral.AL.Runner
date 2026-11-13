@@ -10,9 +10,9 @@
 //! the facts all its cells share (`form_cell_facts`). A shape with any other fact gets the part's filtered fields unknown, and
 //! their read is refused with the first such fact (`empty_part_rec.rs`; `suite/empty_part_rec_list.rs`
 //! `empty_list_part_rec_list_host_unmeasured_shapes_refuse`, `empty_list_part_rec_list_host_neighbors_refuse`,
-//! `empty_list_part_rec_widened_cells_neighbors_refuse`, `empty_list_part_rec_tied_to_its_landing`). The values of a cell can
-//! be read only inside the reads it measured (`Session::tie_empty_list_stamp`). The facts no probe object varies are named in the entry's
-//! text.
+//! `empty_list_part_rec_widened_cells_neighbors_refuse`, `empty_list_part_rec_tied_to_its_landing`). Rec holds the values of a
+//! cell only while a read the cell measured runs (`Session::reading_empty_list_rec`). The facts no probe object varies are named
+//! in the entry's text.
 
 use super::pinned_shape::{PartStep, TestCall};
 use super::*;
@@ -165,7 +165,7 @@ impl Session {
 
     /// `Ok` when part `st` of `host` is a List-host cell the probe measured (see the module): the host, the part control on
     /// it, the link and the part page each hold only facts a probe cell holds; with the number of reads by an action of the part
-    /// the cell measured after its landing (`Session::tie_empty_list_stamp`). Else the first fact no probe cell holds.
+    /// the cell measured after its landing (`Session::measured_read`). Else the first fact no probe cell holds.
     pub(super) fn list_host_cell(&mut self, st: &St, host: &St) -> Result<Result<usize, &'static str>, Signal> {
         let Some(control) = st.borrow().host.as_ref().map(|(_, c)| *c) else {
             return Ok(Err("the part has no host"));
@@ -176,7 +176,8 @@ impl Session {
         };
         if !self.list_part_page_measured(st) {
             return Ok(Err(
-                "the part page has a property, a trigger, a page extension or an event subscriber no probe part has",
+                "the part page has a property, a trigger, a field control's source, a page extension or an event subscriber no \
+                 probe part has",
             ));
         }
         let host_table = self.table(&self.page_rec(host))?;
@@ -224,7 +225,8 @@ impl Session {
     }
 
     /// The host: a top-level List page the test opened with TestPage.OpenEdit or OpenView, standing on a stored row, with the
-    /// properties and triggers of a probe host, no page extension and no event subscriber. `Ok` with the one property of a
+    /// properties and triggers of a probe host, every field control bound to a field of Rec, no page extension and no event
+    /// subscriber. `Ok` with the one property of a
     /// `FORM_CELLS` host it has besides `HOST_PROPS`, if any; else the fact.
     fn list_host_measured(&self, host: &St) -> Result<Option<(&'static str, Option<&'static str>)>, &'static str> {
         let engine = self.engine();
@@ -265,6 +267,9 @@ impl Session {
         }
         if !self.unextended_unsubscribed(host) {
             return Err("the List host has a page extension or an event subscriber");
+        }
+        if !field_controls_bound_to_rec(page_of(&engine, host)) {
+            return Err("the List host has a field control whose source is not a field of Rec");
         }
         Ok(host_extra)
     }
@@ -425,8 +430,8 @@ impl Session {
         None
     }
 
-    /// The part page: a ListPart on a stored table with the properties and triggers of a probe part, no page extension and no
-    /// event subscriber.
+    /// The part page: a ListPart on a stored table with the properties and triggers of a probe part, every field control
+    /// bound to a field of Rec, no page extension and no event subscriber.
     fn list_part_page_measured(&self, st: &St) -> bool {
         let engine = self.engine();
         let object = st.borrow().object as usize;
@@ -436,6 +441,7 @@ impl Session {
             && props_set(props, &PART_REQUIRED)
             && trigger_set_measured(&page.triggers, &PART_TRIGGERS)
             && PART_CONTROL_TRIGGERS.contains(&control_trigger_set(page).as_slice())
+            && field_controls_bound_to_rec(page)
             && self.unextended_unsubscribed(st)
     }
 }
@@ -456,6 +462,15 @@ fn props_set(props: &[(String, String)], required: &[(&str, &str)]) -> bool {
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case(name) && v.trim().eq_ignore_ascii_case(want))
     })
+}
+
+/// Every field control of the page has a field of Rec as its source: the probe's pages have no other (EmptyPartRecLinkList.al at
+/// commit 831ae544, the parts :75-76 and :300-309 `field(LineNoCtl; Rec."Line No.")`, `field(KindCtl; Rec.Kind)`, every host
+/// as :120-121 `field(NoCtl; Rec."No.")`, `field(RefCtl; Rec."Ref Code")`). A source expression is code that reads Rec, and when
+/// BC runs it is not measured.
+fn field_controls_bound_to_rec(page: &ir::Page) -> bool {
+    let mut fields = page.controls.iter().filter(|c| c.kind == ir::ControlKind::Field);
+    fields.all(|c| matches!(c.binding, ir::Binding::Field(_)))
 }
 
 /// The trigger names of the page's controls, sorted, each once.

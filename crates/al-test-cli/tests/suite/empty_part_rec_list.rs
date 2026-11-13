@@ -3301,6 +3301,55 @@ page 76953 "PG EPLT Base Act"
     }
     actions { area(Processing) { action(CallPart) { ApplicationArea = All; trigger OnAction() begin CurrPage.Box.Page.ReadProc(); end; } } }
 }
+page 76954 "PG EPLT Part Expr"
+{
+    PageType = ListPart; SourceTable = "PG EPLT Line"; DeleteAllowed = true; DelayedInsert = true; InsertAllowed = false;
+    ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; trigger OnDrillDown() begin end; } field(ExprCtl; GetTid()) { ApplicationArea = All; } } } }
+    actions { area(Processing) { action(ReadRec) { ApplicationArea = All; trigger OnAction() var Log: Codeunit "PG EPLT Log"; begin Log.Add('act=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end; } } }
+    trigger OnInit() begin end;
+    trigger OnDeleteRecord(): Boolean begin exit(true); end;
+    trigger OnAfterGetCurrRecord() begin end;
+    local procedure GetTid(): Text var Log: Codeunit "PG EPLT Log"; begin Log.Add('expr'); exit(Format(Rec."Table ID") + '/' + Rec."No."); end;
+}
+page 76955 "PG EPLT Rep Expr"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Expr") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+}
+page 76956 "PG EPLT Base Expr"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Expr") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+}
+page 76957 "PG EPLT Rep HX"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } field(ExprH; HostExpr()) { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(76930), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    local procedure HostExpr(): Text begin CurrPage.Box.Page.ReadProc(); exit('x'); end;
+}
+page 76958 "PG EPLT Base HX"
+{
+    PageType = List; SourceTable = "PG EPLT Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } field(ExprH; HostExpr()) { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLT Part Doc") { ApplicationArea = All; SubPageLink = "Table ID" = const(76930), "No." = field("No."); } }
+    }
+    local procedure HostExpr(): Text begin CurrPage.Box.Page.ReadProc(); exit('x'); end;
+}
 codeunit 76945 "PG EPL Tests"
 {
     Subtype = Test;
@@ -3370,6 +3419,29 @@ codeunit 76945 "PG EPL Tests"
     [Test] procedure Base_GoTo_FailThenRead() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); asserterror P.Box.Fail.Invoke(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
     [Test] procedure Base_GoTo_TryFailThenRead() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; begin Init(3); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); if TryFail(P) then; P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
     [TryFunction] local procedure TryFail(var P: TestPage "PG EPLT Base") begin P.Box.Fail.Invoke(); end;
+    [Test] procedure Rep_GoToLast_TruncateHost() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_TruncateFiltered() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.SetRange("No.", 'C'); H.Truncate(); H.Reset(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_RecRefTruncate() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); RR.Open(76930); RR.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_TruncateLine() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); L.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_AsOpened_TruncateHost() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_Expr_GoToLast_CtlValue() var P: TestPage "PG EPLT Rep Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); Log.Add('val=' + P.Box.ExprCtl.Value); Error(Log.Get()); end;
+    [Test] procedure Rep_Expr_AsOpened_CtlValue() var P: TestPage "PG EPLT Rep Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); Log.Add('val=' + P.Box.ExprCtl.Value); Error(Log.Get()); end;
+    [Test] procedure Rep_Expr_GoToLast_Read() var P: TestPage "PG EPLT Rep Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_HX_GoToLast_Read() var P: TestPage "PG EPLT Rep HX"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_HX_View_AsOpened_Read() var P: TestPage "PG EPLT Rep HX"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenView(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TruncateHost() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TruncateFiltered() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); H.SetRange("No.", 'C'); H.Truncate(); H.Reset(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_RecRefTruncate() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); RR.Open(76930); RR.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TruncateLine() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); L.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_AsOpened_TruncateHost() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_Expr_GoToLast_CtlValue() var P: TestPage "PG EPLT Base Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); Log.Add('val=' + P.Box.ExprCtl.Value); Error(Log.Get()); end;
+    [Test] procedure Base_Expr_AsOpened_CtlValue() var P: TestPage "PG EPLT Base Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); Log.Add('val=' + P.Box.ExprCtl.Value); Error(Log.Get()); end;
+    [Test] procedure Base_Expr_GoToLast_Read() var P: TestPage "PG EPLT Base Expr"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_HX_GoToLast_Read() var P: TestPage "PG EPLT Base HX"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_HX_View_AsOpened_Read() var P: TestPage "PG EPLT Base HX"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenView(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Rep_GoToLast_TempWrite() var P: TestPage "PG EPLT Rep"; H: Record "PG EPLT Head"; T: Record "PG EPLT Line" temporary; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); T."Line No." := 1; T.Insert(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoToLast_TempWrite() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; T: Record "PG EPLT Line" temporary; begin Init(3); P.OpenEdit(); H.Get('C'); P.GoToRecord(H); T."Line No." := 1; T.Insert(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
+    [Test] procedure Base_GoTo_TruncateBetweenReads() var P: TestPage "PG EPLT Base"; H: Record "PG EPLT Head"; L: Record "PG EPLT Line"; RR: RecordRef; begin Init(3); P.OpenEdit(); H.Get('B'); P.GoToRecord(H); P.Box.ReadRec.Invoke(); H.Truncate(); P.Box.ReadRec.Invoke(); Error(Log.Get()); end;
 }
 "#;
 
@@ -3378,7 +3450,7 @@ codeunit 76945 "PG EPL Tests"
 #[test]
 fn empty_list_part_rec_tied_to_its_landing() {
     let o = run(TIED_SRC);
-    assert_eq!(o.len(), 54, "{o:?}");
+    assert_eq!(o.len(), 77, "{o:?}");
     let kept: &[(&str, &str, bool)] = &[
         ("Rep_GoToLast", "act=76930/RC/0", true),
         ("Rep_View_GoToLast", "act=76930/RC/0", true),

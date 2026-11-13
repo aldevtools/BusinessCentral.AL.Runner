@@ -96,7 +96,13 @@ every later page step that does not make the page read again (a test call on the
 function) must go through the owner's allowlist. End the value where it can be READ from, not only on calls made on the page that
 holds it: code of another page that calls into it (a host calling a part's procedure), a rollback, and a write or an error inside
 a kept call also leave the measured shape. Keep the store state of the landing (writes and rollbacks) with the value and compare
-it at each read.
+it at each read. Take the store state from the store's own change counter, not only from the places in the VM that count
+writes: a call that writes another way (Truncate) is missed. A control whose source is an expression is code that reads Rec: a
+value read of it is a read of the stamped value.
+
+Prefer the allowlist form of the same rule (round 3 of PR 7932): keep the value off the record (unknown, a read refuses), put
+it on only while the measured read runs and its landing facts still hold, and take it off when that read ends. Then no list of
+"events that end the value" exists that the next reader or the next kind of write can be missing from.
 
 ## 8. Citations (6 of 34)
 
