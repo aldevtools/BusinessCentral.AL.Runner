@@ -1987,10 +1987,10 @@ impl Session {
                 self.engine.program.objects[object].name, r.name
             )));
         }
-        let fresh = Rc::new(RefCell::new(Instance {
+        let fresh = al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             ..Default::default()
-        }));
+        });
         let inst = self.shared_instance(fresh);
         self.call(object, routine, inst, Vec::new()).map(|_| ())
     }
@@ -2068,7 +2068,7 @@ impl Session {
         if engine.program.objects[object].kind == ir::ObjKind::Codeunit {
             globals.iter().for_each(blob_transfer::new_variable);
         }
-        Rc::new(RefCell::new(Instance {
+        al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             globals,
             initialized: true,
@@ -2078,7 +2078,8 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
-        }))
+            live: Default::default(),
+        })
     }
 
     /// A fresh instance of page or report extension `object` that is linked to `base`, the
@@ -2110,7 +2111,7 @@ impl Session {
                 }
             })
             .collect();
-        Rc::new(RefCell::new(Instance {
+        al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             globals,
             initialized: true,
@@ -2120,7 +2121,8 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
-        }))
+            live: Default::default(),
+        })
     }
 
     /// A record type whose default value has no state of its own (no temporary table): a record of a stored table.

@@ -667,10 +667,10 @@ impl Session {
     /// every time (corpus record/TestTableEventSequenceContracts.al:Insert_EventsAndTrigger_WithAndWithoutRunTrigger,
     /// where the After event sees `hits=0` after the Before event counted 1).
     fn static_instance(&mut self, object: usize) -> Result<Inst, Signal> {
-        let fresh = Rc::new(RefCell::new(Instance {
+        let fresh = al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             ..Default::default()
-        }));
+        });
         Ok(self.shared_instance(fresh))
     }
 

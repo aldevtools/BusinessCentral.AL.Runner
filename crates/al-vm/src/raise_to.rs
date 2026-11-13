@@ -5,8 +5,6 @@
 use crate::Session;
 use al_builtins::native::Signal;
 use al_builtins::value::Instance;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 impl Session {
     /// Calls the parameterless publisher routine `routine` of `object`, its event reaching only `subscribers`
@@ -16,10 +14,10 @@ impl Session {
         if r.params != 0 {
             return Err(Signal::unsupported(format!("event {} declares parameters", r.name)));
         }
-        let fresh = Rc::new(RefCell::new(Instance {
+        let fresh = al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             ..Default::default()
-        }));
+        });
         let inst = self.shared_instance(fresh);
         self.events.only_targets = Some(subscribers.to_vec());
         let raised = self.call(object, routine, inst, Vec::new()).map(|_| ());
