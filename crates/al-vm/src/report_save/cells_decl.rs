@@ -1,7 +1,7 @@
 //! The rows of the save table for a report declared as report 80040 "RXD Decl Word" is (corpus pull request 1381, branch
 //! al-runtime-rs-staging-reports-decl, open; reports/html-email-body/RxdDeclFixtures.al): `WordLayout` and `RDLCLayout`
 //! properties with `DefaultLayout = Word`, no rendering section, one data item, no report trigger, no report extension, saved to
-//! a stream with dataset rows. Measured on BC 27.5, 28.5 and 29.0 with the same values. Every row marks
+//! a stream with dataset rows. Measured the same on the three BC majors the corpus runs. Every row marks
 //! `report-save-decl-word-rdlc` until a corpus bump pins the file.
 
 use super::Format;
