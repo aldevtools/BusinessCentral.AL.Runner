@@ -1636,7 +1636,11 @@ impl Session {
             // A Blob moves as `blob_transfer::moved` says.
             if let Value::Blob(_) = &src_fields[sp] {
                 let cur = rec.borrow().fields[dp].clone();
-                let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(args));
+                let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(
+                    args,
+                    src.borrow().temporary,
+                    rec.borrow().temporary,
+                ));
                 let kind = || {
                     self.blob_field_kind(src_table, sp)
                         .with(self.blob_field_kind(t.object as usize, dp))

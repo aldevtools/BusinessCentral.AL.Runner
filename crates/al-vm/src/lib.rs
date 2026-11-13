@@ -1424,6 +1424,8 @@ impl Session {
                 var_origins: Vec::new(),
                 next_aliases: Vec::new(),
                 next_is_subscriber: false,
+                blob_publisher: false,
+                next_blob_event: false,
                 subscriber_stack: Vec::new(),
                 next_var_lens: Vec::new(),
                 publisher_var_lens: Vec::new(),
@@ -2425,6 +2427,7 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
         let subscriber = std::mem::take(&mut self.events.next_is_subscriber);
+        let measured_event = std::mem::take(&mut self.events.next_blob_event);
         self.note_routine(object, routine);
         if self.coverage.cells.is_some() {
             self.tap_cells(object, routine, &instance);
@@ -2456,7 +2459,8 @@ impl Session {
         }
         let mut args = args;
         // The call whose by-value arguments `blob_transfer::Argument` measures.
-        let measured_call = blob_transfer::Argument::measured_call(engine.program.objects[object].kind, r, subscriber);
+        let measured_call =
+            blob_transfer::Argument::measured_call(engine.program.objects[object].kind, r, measured_event);
         for (i, a) in args.drain(..).enumerate().take(r.params) {
             // No arm below is for these pairs, and the last one hands them back unchanged.
             if passed_unchanged(&a, &r.locals[i].ty) {
@@ -2464,7 +2468,7 @@ impl Session {
                 continue;
             }
             let by_var = r.by_var.get(i).copied().unwrap_or(false);
-            let argument = blob_transfer::Argument::of(&a, measured_call && !by_var, &r.locals[i].ty);
+            let argument = blob_transfer::Argument::of(&a, measured_call.filter(|_| !by_var), &r.locals[i].ty);
             let bound = match (a, by_var) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer

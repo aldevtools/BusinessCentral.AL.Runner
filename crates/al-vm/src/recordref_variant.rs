@@ -35,7 +35,10 @@ pub(crate) struct VariantRefs {
 /// (RecordRefInVariantAfterClose.al:12-17), so nothing pins another answer.
 pub(crate) fn own_copy(h: &Lib) -> Value {
     let copy = match &*h.borrow() {
-        LibraryValue::RecordRef(rec) => Rc::new(RefCell::new(LibraryValue::RecordRef(rec.clone()))),
+        LibraryValue::RecordRef(rec) => {
+            crate::blob_transfer::recordref_aliased(rec);
+            Rc::new(RefCell::new(LibraryValue::RecordRef(rec.clone())))
+        }
         _ => h.clone(),
     };
     Value::Library(LibraryKind::RecordRef, copy)

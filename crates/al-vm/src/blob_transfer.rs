@@ -9,6 +9,7 @@ use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
 use al_builtins::stream::{copy_blob_db_row_of, copy_for_assignment, new_blob};
 use al_builtins::value::{ProbedSource, RecordState, RtType, Value};
+use al_ir::{Attribute, Const};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -35,16 +36,20 @@ pub(crate) enum BlobMove {
     /// that is stored in an element of a local array, or handed to a by-value Variant parameter ([`FieldRead`]). A record
     /// stored in a Variant is [`BlobMove::RecordByValue`].
     Variant { local: bool },
-    /// A Blob field read stored in a global Variant of the running object ([`FieldRead`]), of a `temporary` record or not,
-    /// that `inserted` its row since its last Init or Clear or not (`RecordState::inserted`).
-    GlobalVariant { temporary: bool, inserted: bool },
+    /// A Blob field read stored in a global Variant of the running object ([`FieldRead`]), of a `temporary` record or not.
+    GlobalVariant { temporary: bool },
     /// `Dst.Copy(Src [, ShareTable])`, from a `temporary` source record or not into a `temporary` target record or not.
     RecordCopy {
         source_temporary: bool,
         target_temporary: bool,
     },
-    /// A record handed by value to a parameter of a procedure, or assigned to a Variant ([`Session::blobs_by_value`]).
-    RecordByValue,
+    /// A record handed by value to a parameter of a procedure, or assigned to a Variant ([`Session::blobs_by_value`]): from a
+    /// `temporary` record or not, what takes it, and by which kind of call.
+    RecordByValue {
+        source_temporary: bool,
+        taker: Taker,
+        call: Call,
+    },
 }
 
 /// The arguments of a `TransferFields` call.
@@ -52,21 +57,37 @@ pub(crate) enum BlobMove {
 pub(crate) enum TransferCall {
     /// `TransferFields(Source)`.
     Plain,
-    /// `TransferFields(Source, InitPrimaryKeyFields)` with either value, or `TransferFields(Source, true, true)`.
-    Flags,
+    /// `TransferFields(Source, InitPrimaryKeyFields)` with either value, or `TransferFields(Source, true, true)`; `temporary`
+    /// is whether both records are `temporary` (`None`: one is and the other is not).
+    Flags { temporary: Option<bool> },
     /// Three arguments with other values.
     Other,
 }
 
 impl TransferCall {
-    /// The call with arguments `args` (the source first).
-    pub(crate) fn of(args: &[Value]) -> TransferCall {
+    /// The call with arguments `args` (the source first), from a `temporary` record or not into one that is or is not.
+    pub(crate) fn of(args: &[Value], source_temporary: bool, target_temporary: bool) -> TransferCall {
         match args {
             [_] => TransferCall::Plain,
-            [_, Value::Boolean(_)] | [_, Value::Boolean(true), Value::Boolean(true)] => TransferCall::Flags,
+            [_, Value::Boolean(_)] | [_, Value::Boolean(true), Value::Boolean(true)] => TransferCall::Flags {
+                temporary: (source_temporary == target_temporary).then_some(source_temporary),
+            },
             _ => TransferCall::Other,
         }
     }
+}
+
+/// The kind of call or assignment that makes the by-value copy of a record ([`Argument::measured_call`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Call {
+    /// A procedure of a codeunit without attributes, or an assignment to a Variant.
+    Plain,
+    /// A procedure of a table without attributes.
+    TableProcedure,
+    /// A procedure of a codeunit with exactly the `[TryFunction]` attribute.
+    TryFunction,
+    /// An event subscriber of a codeunit that is not manual, run for a publisher [`measured_publisher`] names.
+    Subscriber,
 }
 
 /// What takes the by-value copy of a record.
@@ -101,35 +122,100 @@ impl Taker {
     }
 }
 
+/// How a record the probes measured as a source ([`Holder::Probed`]) was prepared: the record methods it went through since
+/// it was declared, as the sources of corpus PR 1375 (streams/BlobCopyStates.al) went through them. Kept in
+/// `RecordState::probed_source` (0: no measured source), set by [`new_variable`] and moved on by
+/// [`Session::probed_source_before`], [`assigned`], [`set_table_target`] and [`Session::gettable_copy`]. A call none of
+/// them names ends it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Prep {
+    /// Declared, then only Init, Clear(Rec), IsTemporary and field writes (`PrepareF` :312-316 states mem and empty).
+    Fresh = 1,
+    /// Fresh, then one `Insert()` that inserted the row (`RecordState::inserted`; `PrepareF` :318-322 state ins; :2728 A1,
+    /// :2752 A2, :2775 A3, :2825, :2852).
+    Inserted = 2,
+    /// Inserted, a Blob written, then `Modify()` (:2800 A4).
+    Modified = 3,
+    /// Inserted, then Init or Clear(Rec) (`PrepareF` :323-328; :2970 B4, :2994 B5).
+    Emptied = 4,
+    /// Emptied, then Get, and CalcFields or not (`PrepareF` :329-331 states calc and get; B4, B5).
+    Read = 5,
+    /// Fresh, then a record assignment from a Fresh record (`PrepareF` :333-347 state asg; :2901 B2).
+    Assigned = 6,
+    /// Fresh, then `RecordRef.SetTable(Rec)` from a RecordRef that `GetTable` filled from a Fresh record (:2923 B3).
+    SetTable = 7,
+}
+
+/// The bits of `RecordState::probed_source` that hold a [`Prep`].
+const PREP: u8 = 0x0f;
+/// The record of a RecordRef that `RecordRef.GetTable` made of a measured source, with no RecordRef method, other handle or
+/// `FieldRef.Validate` since (:1709). The [`Prep`] bits are the source's.
+const TABLE_COPY: u8 = 0x10;
+/// A [`TABLE_COPY`] record a `FieldRef.Value :=` of a Blob wrote since (:2923 B3): only `SetTable(Rec)` reads it.
+const VALUED: u8 = 0x20;
+
+impl Prep {
+    fn of(b: u8) -> Option<Prep> {
+        Some(match b & PREP {
+            1 => Prep::Fresh,
+            2 => Prep::Inserted,
+            3 => Prep::Modified,
+            4 => Prep::Emptied,
+            5 => Prep::Read,
+            6 => Prep::Assigned,
+            7 => Prep::SetTable,
+            _ => return None,
+        })
+    }
+
+    /// What a record of `self` is after record method `method` with `args`, if still measured; `written` says whether a
+    /// Blob of the record holds an unsaved write.
+    fn after(self, method: RecordOp, args: &[Value], written: impl FnOnce() -> bool) -> Option<Prep> {
+        match (self, method) {
+            (p, RecordOp::IsTemporary) => Some(p),
+            (Prep::Fresh, RecordOp::Init | RecordOp::Clear) => Some(Prep::Fresh),
+            (Prep::Fresh, RecordOp::Insert) if args.is_empty() => Some(Prep::Inserted),
+            (Prep::Inserted, RecordOp::Modify) if args.is_empty() && written() => Some(Prep::Modified),
+            (Prep::Inserted, RecordOp::Init | RecordOp::Clear) => Some(Prep::Emptied),
+            (Prep::Emptied, RecordOp::Get) => Some(Prep::Read),
+            (Prep::Read, RecordOp::CalcFields) => Some(Prep::Read),
+            _ => None,
+        }
+    }
+}
+
 /// What a move knows of the record whose field the source Blob is.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Holder {
-    /// A record the probes measured as a source (`RecordState::probed_source`): a declared variable ([`new_variable`]) on
-    /// which, since it was made, only field writes, streams on its Blob fields, the record methods [`keeps_probed`] names
+    /// A record the probes measured as a source, prepared as the [`Prep`] says: a declared variable ([`new_variable`]) on
+    /// which, since it was made, only field writes, streams on its Blob fields, the record methods [`Prep::after`] names
     /// and the builtins [`builtin_keeps_probed`] names ran; or the record `RecordRef.GetTable` made of such a record.
-    Probed,
+    Probed(Prep),
     /// Any other record, or one the move does not ask about.
     Other,
 }
 
 impl Holder {
-    /// What record state `r` is as the source of a move.
+    /// What record state `r` is as the source of a move. An `Insert()` that answered false leaves `RecordState::inserted`
+    /// unset: the record is no [`Prep::Inserted`] one. A [`VALUED`] RecordRef record is none.
     pub(crate) fn of(r: &RecordState) -> Holder {
-        if r.probed_source.0 {
-            Holder::Probed
-        } else {
-            Holder::Other
+        let b = r.probed_source.0;
+        match Prep::of(b) {
+            _ if b & VALUED != 0 => Holder::Other,
+            Some(Prep::Inserted) if !r.inserted && b & TABLE_COPY == 0 => Holder::Other,
+            Some(p) => Holder::Probed(p),
+            None => Holder::Other,
         }
     }
 }
 
-/// Marks the value a declared variable starts with as a source the probes measured ([`Holder::Probed`]). The callers hand in
+/// Marks the value a declared variable starts with as a source the probes measured ([`Prep::Fresh`]). The callers hand in
 /// a local variable of a codeunit's procedure and a global of a codeunit, as the sources of corpus PR 1372
 /// (streams/BlobValueCopyShapes.al:590 `Src`, :847 `GRow`) and PR 1375 (streams/BlobCopyStates.al:1048 `Src`, :3208 a global
 /// record) are. A record in an array is not marked (not measured).
 pub(crate) fn new_variable(v: &Value) {
     if let Value::Record(rc) = v {
-        rc.borrow_mut().probed_source = ProbedSource(true);
+        rc.borrow_mut().probed_source = ProbedSource(Prep::Fresh as u8);
     }
 }
 
@@ -143,24 +229,12 @@ pub(crate) fn measured_local(object: al_ir::ObjKind, routine: &al_ir::Routine, s
         && routine.ret_local != Some(slot)
 }
 
-/// Whether record method `method`, called with `args`, leaves a record a measured source ([`Holder::Probed`]): the methods
-/// the sources of corpus PR 1375 ran before their move (streams/BlobCopyStates.al, `PrepareF` :312-350 Init, Insert(),
-/// Clear, Get, CalcFields, IsTemporary; `Persist` :358 Modify(); :2800 Modify() before a new write) and `Clear` of corpus
-/// PR 1372 (streams/BlobValueCopyShapes.al:847). Insert and Modify with an argument, every find, filter and every other
-/// method end it.
-pub(crate) fn keeps_probed(method: RecordOp, args: &[Value]) -> bool {
-    match method {
-        RecordOp::Clear | RecordOp::Init | RecordOp::Get | RecordOp::CalcFields | RecordOp::IsTemporary => true,
-        RecordOp::Insert | RecordOp::Modify => args.is_empty(),
-        _ => false,
-    }
-}
-
-/// Whether builtin `id` leaves the records among its operands measured sources ([`Holder::Probed`]). Only the calls the
-/// measured sources went through, by name: `Clear(Rec)` (corpus PR 1372, streams/BlobValueCopyShapes.al:847; PR 1375,
-/// streams/BlobCopyStates.al:334), `RecordRef.GetTable(Rec)` (PR 1372 :712; PR 1375 :1709), `RecordRef.SetTable(Rec)` with
-/// one argument (PR 1375 :2923), and the record as the source of `Record.Copy` and `TransferFields` (PR 1372 :741-:781,
-/// :906-:952; PR 1375 :1073, :1093). A record method's own record is [`keeps_probed`]'s.
+/// Whether builtin `id` leaves the records among its operands measured sources ([`Holder::Probed`]) as they are. Only the
+/// calls the measured sources went through, by name: `Clear(Rec)` (it reaches `RecordOp::Clear`, [`Prep::after`]; corpus
+/// PR 1372, streams/BlobValueCopyShapes.al:847; PR 1375, streams/BlobCopyStates.al:334), the record of
+/// `RecordRef.GetTable(Rec)` (PR 1372 :712; PR 1375 :1709), the target of `RecordRef.SetTable(Rec)` with one argument
+/// ([`set_table_target`] says what it is after), and the record as the source of `Record.Copy` and `TransferFields` (PR 1372
+/// :741-:781, :906-:952; PR 1375 :1073, :1093). A record method's own record is [`Prep::after`]'s.
 fn builtin_keeps_probed(id: BuiltinId) -> bool {
     matches!(
         id,
@@ -177,43 +251,89 @@ fn builtin_keeps_probed(id: BuiltinId) -> bool {
 /// platform code. A record among them is a measured source ([`Holder::Probed`]) no longer, whatever the builtin does with
 /// it (a page that hands back the picked row, `SetSelectionFilter`, `Codeunit.Run`, `Page.GetRecord`), unless
 /// [`builtin_keeps_probed`] names the builtin. A Record receiver is the record of a record method, which reaches
-/// `Session::record_op` and is [`keeps_probed`]'s.
+/// `Session::record_op` and is [`Prep::after`]'s.
 #[inline]
 pub(crate) fn records_into_builtin(id: BuiltinId, recv: Option<&Value>, operands: &[Value]) {
     let own = recv.filter(|v| !matches!(v, Value::Record(_)));
     for v in own.into_iter().chain(operands) {
         if let Value::Record(rc) = v
-            && rc.borrow().probed_source.0
+            && rc.borrow().probed_source.0 != 0
             && !builtin_keeps_probed(id)
         {
-            rc.borrow_mut().probed_source = ProbedSource(false);
+            rc.borrow_mut().probed_source = ProbedSource(0);
         }
     }
 }
 
-/// The by-value copy `copy` an event publisher of an object of kind `object` made of record `source` for its subscribers:
-/// a measured source ([`Holder::Probed`]) when `source` is one and the publisher is a codeunit's, so that a by-value
-/// subscriber takes the copy [`Argument::measured_call`] measures (corpus PR 1375, streams/BlobCopyStates.al:391 a codeunit's
-/// IntegrationEvent with a by-value record, :412 its by-value subscriber, :2300 kind 1, :2568-2606).
-pub(crate) fn publisher_copy(object: al_ir::ObjKind, source: &Rc<RefCell<RecordState>>, copy: &Value) {
-    if let (al_ir::ObjKind::Codeunit, Value::Record(c)) = (object, copy)
-        && source.borrow().probed_source.0
-    {
-        c.borrow_mut().probed_source = ProbedSource(true);
+/// Whether publisher routine `r` of an object of kind `object` raises the event whose subscribers the probes measured: a
+/// procedure of a codeunit with exactly `[IntegrationEvent(false, false)]` (corpus PR 1375, streams/BlobCopyStates.al:
+/// 388-403). Table events, a `[BusinessEvent]`, an IncludeSender event and every other publisher are not measured.
+pub(crate) fn measured_publisher(object: al_ir::ObjKind, r: &al_ir::Routine) -> bool {
+    object == al_ir::ObjKind::Codeunit
+        && matches!(&r.attributes[..], [Attribute { name, args, .. }]
+            if name.eq_ignore_ascii_case("IntegrationEvent")
+                && args[..] == [Const::Boolean(false), Const::Boolean(false)])
+}
+
+/// The by-value copy `copy` the publisher made of record `source` for its subscribers: a measured source prepared as `source`
+/// when `source` is one and the publisher is one [`measured_publisher`] names (`measured`), so that a by-value subscriber
+/// takes the copy [`Argument::measured_call`] measures (:391 a codeunit's IntegrationEvent with a by-value record, :412 its
+/// by-value subscriber, :2300 kind 1, :2568-2606).
+pub(crate) fn publisher_copy(measured: bool, source: &Rc<RefCell<RecordState>>, copy: &Value) {
+    if let (true, Value::Record(c)) = (measured, copy) {
+        let b = source.borrow().probed_source.0;
+        if Prep::of(b).is_some() && b & !PREP == 0 {
+            c.borrow_mut().probed_source = ProbedSource(b);
+        }
     }
 }
 
-/// What the target of the record assignment `Target := Source` is afterwards, from what both were: a measured source when
-/// both are (corpus PR 1375, streams/BlobCopyStates.al:340-347 state `asg`, :2901 `Mid := Src`).
+/// What the target of the record assignment `Target := Source` is afterwards, from what both were: [`Prep::Assigned`] when
+/// both are [`Prep::Fresh`] (corpus PR 1375, streams/BlobCopyStates.al:340-347 state `asg`, :2901 `Mid := Src`).
 pub(crate) fn assigned(target: &RecordState, source: &RecordState) -> ProbedSource {
-    ProbedSource(target.probed_source.0 && source.probed_source.0)
+    let fresh = |r: &RecordState| r.probed_source.0 == Prep::Fresh as u8;
+    ProbedSource(if fresh(target) && fresh(source) {
+        Prep::Assigned as u8
+    } else {
+        0
+    })
+}
+
+/// What the target of `RecordRef.SetTable(Target)` with one argument is afterwards, from what it was and what the
+/// RecordRef's record `rr` is: [`Prep::SetTable`] when the target is [`Prep::Fresh`] and `rr` is what `GetTable` made of
+/// a Fresh record, with a `FieldRef.Value :=` since or not (corpus PR 1375, streams/BlobCopyStates.al:2923 B3).
+pub(crate) fn set_table_target(target: &RecordState, rr: &RecordState) -> ProbedSource {
+    let fresh_copy = matches!(rr.probed_source.0 & !VALUED, b if b == TABLE_COPY | Prep::Fresh as u8);
+    ProbedSource(if target.probed_source.0 == Prep::Fresh as u8 && fresh_copy {
+        Prep::SetTable as u8
+    } else {
+        0
+    })
+}
+
+/// A `FieldRef.Value :=` (`validate` false) or a `FieldRef.Validate` of value `v` wrote the record `r` of a RecordRef: a
+/// [`TABLE_COPY`] record a Blob was assigned to is [`VALUED`]; every other write ends the fact.
+pub(crate) fn written_through_fieldref(r: &mut RecordState, v: &Value, validate: bool) {
+    let b = r.probed_source.0;
+    if b != 0 {
+        let valued = b & TABLE_COPY != 0 && !validate && matches!(v, Value::Blob(_));
+        r.probed_source = ProbedSource(if valued { b | VALUED } else { 0 });
+    }
+}
+
+/// A second RecordRef handle on record `r` was made (an assignment, a Variant, a parameter): a [`TABLE_COPY`] record is a
+/// measured source no longer.
+pub(crate) fn recordref_aliased(r: &Rc<RefCell<RecordState>>) {
+    if r.borrow().probed_source.0 & TABLE_COPY != 0 {
+        r.borrow_mut().probed_source = ProbedSource(0);
+    }
 }
 
 /// What an argument of a procedure call is for the Blob rule, read before the call binds it to its parameter.
 #[derive(Clone, Copy)]
 pub(crate) enum Argument {
-    /// A record handed by value: whether it is temporary, what it is as a source, and what takes it.
-    Record(bool, Holder, Taker),
+    /// A record handed by value: whether it is temporary, what it is as a source, what takes it, and by which call.
+    Record(bool, Holder, Taker, Call),
     /// Anything else: bound as before.
     Other,
 }
@@ -279,40 +399,41 @@ impl FieldRead {
 }
 
 impl Argument {
-    /// Whether a by-value parameter of `callee`, a routine of an object of kind `object`, takes its argument in a call the
-    /// probes measured. A procedure of a codeunit or a table (corpus PR 1375, streams/BlobCopyStates.al:3135 another
-    /// codeunit, :3153 an interface method, :3173 a table procedure) that is called as a procedure and has no attribute
-    /// (PR 1372, streams/BlobValueCopyShapes.al:562-582) or is a `[TryFunction]` (PR 1375 :2200); and an event subscriber
-    /// in a codeunit that its publisher runs (`subscriber`; PR 1375 :2300, :411-:428). The arguments of a `var` parameter, a
-    /// trigger, a procedure of a page or a report and a procedure with any other attribute are bound as before (an event
-    /// publisher too: its by-value parameter is the copy its subscribers get, :2300 kind 1).
-    pub(crate) fn measured_call(object: al_ir::ObjKind, callee: &al_ir::Routine, subscriber: bool) -> bool {
-        let attribute = |name: &str| matches!(&callee.attributes[..], [a] if a.name.eq_ignore_ascii_case(name));
+    /// The kind of call in which a by-value parameter of `callee`, a routine of an object of kind `object`, takes its argument,
+    /// if the probes measured it: a procedure of a codeunit without attributes (corpus PR 1372, streams/
+    /// BlobValueCopyShapes.al:562-582; PR 1375, streams/BlobCopyStates.al:3135 another codeunit, :3153 an interface method),
+    /// a procedure of a table without attributes (PR 1375 :3173), a codeunit's `[TryFunction]` (:2200), and a codeunit's
+    /// event subscriber when the call is the raise of an event [`measured_publisher`] names to a subscriber codeunit that is
+    /// not manual (`measured_event`; :2300, :406-:428). The arguments of a `var` parameter, a trigger, a procedure of a page
+    /// or a report, a table's `[TryFunction]`, a procedure with any other attribute and every other subscriber are bound as
+    /// before (an event publisher too: its by-value parameter is the copy its subscribers get, :2300 kind 1).
+    pub(crate) fn measured_call(object: al_ir::ObjKind, callee: &al_ir::Routine, measured_event: bool) -> Option<Call> {
+        let only = |name: &str| matches!(&callee.attributes[..], [a] if a.name.eq_ignore_ascii_case(name));
         if callee.is_trigger {
-            return false;
+            return None;
         }
         match object {
-            al_ir::ObjKind::Codeunit if subscriber => attribute("EventSubscriber"),
-            al_ir::ObjKind::Codeunit | al_ir::ObjKind::Table => {
-                !subscriber && (callee.attributes.is_empty() || attribute("TryFunction"))
-            }
-            _ => false,
+            al_ir::ObjKind::Codeunit if callee.attributes.is_empty() => Some(Call::Plain),
+            al_ir::ObjKind::Codeunit if only("TryFunction") => Some(Call::TryFunction),
+            al_ir::ObjKind::Codeunit if measured_event && only("EventSubscriber") => Some(Call::Subscriber),
+            al_ir::ObjKind::Table if callee.attributes.is_empty() => Some(Call::TableProcedure),
+            _ => None,
         }
     }
 
-    /// The argument `a` of a call for its parameter of type `param`. `measured_call` is [`Argument::measured_call`] for a
-    /// by-value parameter.
-    pub(crate) fn of(a: &Value, measured_call: bool, param: &RtType) -> Argument {
+    /// The argument `a` of a call for its parameter of type `param`. `call` is [`Argument::measured_call`] for a by-value
+    /// parameter.
+    pub(crate) fn of(a: &Value, call: Option<Call>, param: &RtType) -> Argument {
         let taker = match param {
             RtType::Record(_, false) => Taker::RecordParam,
             RtType::Record(_, true) => Taker::TemporaryParam,
             RtType::Variant => Taker::VariantParam,
             _ => return Argument::Other,
         };
-        match a {
-            Value::Record(rc) if measured_call => {
+        match (a, call) {
+            (Value::Record(rc), Some(call)) => {
                 let r = rc.borrow();
-                Argument::Record(r.temporary, Holder::of(&r), taker)
+                Argument::Record(r.temporary, Holder::of(&r), taker, call)
             }
             _ => Argument::Other,
         }
@@ -405,7 +526,8 @@ impl FieldKind {
 /// value, and inserting it stores none (record/crud/RcBTransfer.al:486-493, Transfer_Blob_Field_BQ `withoutCalcFields`).
 ///
 /// Every other copy runs through assumption `blob-transfer-copies` (corpus PR 1369, recordref-fieldref/fieldref/
-/// FieldRefValueBlobCopy.al, and PR 1372, streams/BlobValueCopyShapes.al; the lines are in the entry), for the cells
+/// FieldRefValueBlobCopy.al; PR 1372, streams/BlobValueCopyShapes.al; PR 1375, streams/BlobCopyStates.al; the lines are in
+/// the entry), for the cells
 /// [`measured`] names. `holder` is the record the source Blob is a field of. `kind` says of which kind the fields are the Blob
 /// moves between; it is asked only for a Blob in such a cell or in one [`refused_before`] names. A Blob outside the measured
 /// cells is stored as it comes, as before, or refused where it was refused before.
@@ -436,6 +558,7 @@ pub(crate) fn moved(
             in_memory: buf.loaded && !row_copy && !buf.inserted && !buf.persisted && !buf.refetch,
             unsaved_since_insert: buf.loaded && !row_copy && !buf.persisted && !buf.refetch,
             inserted: buf.inserted,
+            base_content: buf.written_base.as_ref().is_some_and(|b| !b.is_empty()),
             plain_buffer: !buf.file
                 && buf.dotnet_view == 0
                 && buf.render_pending.is_none()
@@ -502,7 +625,7 @@ impl BlobMove {
             BlobMove::Assign => "an assignment",
             BlobMove::WriteBack => "a write-back",
             BlobMove::RecordCopy { .. } => "Record.Copy",
-            BlobMove::RecordByValue => "a record passed by value",
+            BlobMove::RecordByValue { .. } => "a record passed by value",
         }
     }
 }
@@ -543,6 +666,8 @@ struct Source {
     unsaved_since_insert: bool,
     /// An Insert stored the content, and no Modify or stream write came after (`BlobBuf::inserted`).
     inserted: bool,
+    /// The buffer held content when the first stream write since its last save or fetch started (`BlobBuf::written_base`).
+    base_content: bool,
     /// No mark of another rule: not the content of a `File`, not handed to a .NET stream, no rendered report pending, not
     /// the empty Blob `FieldRef.Value` hands out for unread content, no first write that truncates, no unsaved assignment
     /// (assumption `blob-assign-counts-as-write`). The buffers the probes measured carry none of them.
@@ -567,16 +692,15 @@ enum Cell {
 /// A loaded source with content (written in memory, or read with CalcFields): a copy. P1 for FieldRef.Value,
 /// FieldRef.Validate, GetTable, SetTable, TransferFields(Source) and a local Variant.
 ///
-/// A source in a record the probes measured as a source ([`Holder::Probed`]) whose buffer carries no mark of another rule
-/// (`Source::plain_buffer`): a copy. P3 is corpus PR 1375 (streams/BlobCopyStates.al), whose states are the source written in
-/// memory, written and inserted, read with Get and CalcFields, emptied with Init, and filled by a record assignment
-/// (`PrepareF` :312-350). A loaded buffer moved by a record by value (:1048 `ByValue`, :1165-1284), Record.Copy (:1073,
-/// :1285-1368; :1814 stored to temporary, :1837 back), TransferFields with two arguments (:1093, :1369-1542; P2 :741 TF2,
-/// :762 TF2f, :781 TF3) and SetTable(Rec, true) between temporary records (:1709, :1859-1939); also after a Modify() or an
-/// Insert() and a new write (:2728-2852) and a field assignment before (:2880, :2949). A row read with Get only, not loaded
-/// and not written, moved by a record by value, Record.Copy or SetTable(Rec, true) (:1210, :1327, :1900): the copy keeps the
-/// row (HasValue true, nothing read before CalcFields); written after the Get, by a record by value (:2994). A field read of
-/// content written in memory stored in a Variant that is not local (P2 :590 V3, :652 V5, :672 GV; P3 :3087).
+/// A source in a record the probes measured as a source ([`Holder::Probed`]), in a [`State`] the probes measured for the
+/// move: a copy. P3 is corpus PR 1375 (streams/BlobCopyStates.al): a record by value ([`by_value_measured`]), Record.Copy
+/// ([`copy_measured`]), TransferFields with two arguments between two records that are not temporary in the six `PrepareF`
+/// states (:1093, :1369-1542) and between two temporary records written in memory (P2 :741 TF2, :762 TF2f, :781 TF3) or
+/// written again after their Insert (P3 :2825), SetTable(Rec, true) between temporary records in the six states (:1709,
+/// :1859-1939). A field read stored in a global Variant: of a temporary record written in memory (P2 :672 GV) or written
+/// again after its Insert (P3 :2825), of a record that is not temporary written again after its Insert (P3 :2852). A field
+/// read of a temporary record written in memory stored in an element of a local array or handed to a by-value Variant
+/// parameter (P2 :590 V3, :652 V5; P3 :3017, :3087).
 ///
 /// A loaded source without content, in memory (never written, or emptied with Clear): a copy, which stays empty. P1 for
 /// FieldRef.Value, whatever the buffer was before (:1807 S5, :1918 Life_EmptySource); P2 for GetTable (:169 E1, :188 E2,
@@ -591,8 +715,7 @@ enum Cell {
 fn measured(how: BlobMove, s: &Source, holder: Holder) -> Option<Cell> {
     let content = s.loaded && s.content;
     let empty = s.in_memory && !s.content;
-    let probed = holder == Holder::Probed && s.plain_buffer;
-    let get_only = s.row_copy && !s.loaded;
+    let st = state(s, holder);
     match how {
         BlobMove::FieldRefValue if s.loaded => Some(Cell::Copy),
         BlobMove::FieldRefValue if s.row_copy => Some(Cell::Unread),
@@ -605,55 +728,159 @@ fn measured(how: BlobMove, s: &Source, holder: Holder) -> Option<Cell> {
         {
             Some(Cell::Copy)
         }
-        BlobMove::RecordByValue | BlobMove::SetTableShared | BlobMove::TransferFields(TransferCall::Flags)
-            if probed && s.loaded =>
-        {
-            Some(Cell::Copy)
-        }
-        BlobMove::RecordCopy {
-            source_temporary,
-            target_temporary,
-        } if probed && copy_measured(source_temporary, target_temporary, s) => Some(Cell::Copy),
-        BlobMove::RecordByValue | BlobMove::SetTableShared if probed && get_only && !s.written => Some(Cell::Copy),
-        BlobMove::RecordByValue if probed && get_only && s.written => Some(Cell::Copy),
-        BlobMove::Variant { local: false } if probed && s.in_memory && s.content && s.written => Some(Cell::Copy),
-        // A temporary source written in memory (P2 :672 GV) or written again after its Insert (P3 :2825); a source that is
-        // not temporary written again after its Insert (P3 :2852).
-        BlobMove::GlobalVariant { temporary: true, .. }
-            if probed && s.content && s.written && s.unsaved_since_insert =>
-        {
-            Some(Cell::Copy)
-        }
-        BlobMove::GlobalVariant {
-            temporary: false,
-            inserted: true,
-        } if probed && s.content && s.written && s.unsaved_since_insert => Some(Cell::Copy),
+        _ if st.is_some_and(|st| state_measured(how, st)) => Some(Cell::Copy),
         BlobMove::FieldRefValidate | BlobMove::Variant { local: true } if s.unread_row => Some(Cell::Unread),
         BlobMove::SetTable if s.unread_row => Some(Cell::UnreadRow),
         _ => None,
     }
 }
 
+/// The state of the source of a move in a measured source record ([`Holder::Probed`]) whose buffer carries no mark of
+/// another rule (`Source::plain_buffer`): how the record was prepared ([`Prep`]) and what its buffer holds. The six states
+/// of `PrepareF` (corpus PR 1375, streams/BlobCopyStates.al:306-350) and the sequences of :2728-3016.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum State {
+    /// `mem`: written in memory, not stored (:314).
+    Mem,
+    /// `ins`: written, then inserted (:318-322).
+    Ins,
+    /// `calc`: stored, read again with Get and CalcFields (:323-331).
+    Calc,
+    /// `get`: stored, read again with Get only, not loaded (:323-331).
+    Get,
+    /// `empty`: Init only, not stored (:312).
+    Empty,
+    /// `asg`: filled by a record assignment from a record that holds content (:333-347).
+    Asg,
+    /// Written, inserted, then written again (:2728 A1, :2752 A2, :2775 A3, :2825 A5, :2852).
+    InsW,
+    /// Inserted, written, modified, then written again (:2800 A4).
+    ModW,
+    /// Fresh, filled by a Blob field assignment, not written (:2880 B1, :2949 B1c).
+    FieldAsg,
+    /// Filled by a record assignment, then written (:2901 B2).
+    AsgW,
+    /// Filled by `RecordRef.SetTable(Rec)` (:2923 B3).
+    SetTable,
+    /// Read with Get and CalcFields, then written (:2970 B4).
+    CalcW,
+    /// Read with Get only, then written (:2994 B5).
+    GetW,
+}
+
+/// The [`State`] of source `s` in a record `holder`, if the probes measured it.
+fn state(s: &Source, holder: Holder) -> Option<State> {
+    let Holder::Probed(prep) = holder else { return None };
+    if !s.plain_buffer {
+        return None;
+    }
+    let get_only = s.row_copy && !s.loaded;
+    let loaded = s.loaded && s.content;
+    Some(match (prep, s.written) {
+        (Prep::Fresh, true) if s.in_memory && s.content => State::Mem,
+        (Prep::Fresh, false) if s.in_memory && s.content => State::FieldAsg,
+        (Prep::Fresh, false) if s.in_memory => State::Empty,
+        (Prep::Inserted, false) if s.inserted && s.content => State::Ins,
+        (Prep::Inserted, true) if s.content && s.base_content && s.unsaved_since_insert => State::InsW,
+        (Prep::Modified, true) if s.content && s.unsaved_since_insert => State::ModW,
+        (Prep::Read, false) if loaded => State::Calc,
+        (Prep::Read, true) if loaded => State::CalcW,
+        (Prep::Read, false) if get_only => State::Get,
+        (Prep::Read, true) if get_only => State::GetW,
+        (Prep::Assigned, false) if loaded => State::Asg,
+        (Prep::Assigned, true) if loaded => State::AsgW,
+        (Prep::SetTable, false) if loaded => State::SetTable,
+        _ => return None,
+    })
+}
+
+/// The six states of `PrepareF`.
+fn prepare_f(st: State) -> bool {
+    matches!(
+        st,
+        State::Mem | State::Ins | State::Calc | State::Get | State::Empty | State::Asg
+    )
+}
+
+/// Whether move `how` was measured from a source in state `st` (see [`measured`]).
+fn state_measured(how: BlobMove, st: State) -> bool {
+    match how {
+        BlobMove::RecordByValue {
+            source_temporary,
+            taker,
+            call,
+        } => by_value_measured(source_temporary, taker, call, st),
+        BlobMove::RecordCopy {
+            source_temporary,
+            target_temporary,
+        } => copy_measured(source_temporary, target_temporary, st),
+        BlobMove::TransferFields(TransferCall::Flags { temporary: Some(false) }) | BlobMove::SetTableShared => {
+            prepare_f(st)
+        }
+        BlobMove::TransferFields(TransferCall::Flags { temporary: Some(true) }) => {
+            matches!(st, State::Mem | State::InsW)
+        }
+        BlobMove::GlobalVariant { temporary: true } => matches!(st, State::Mem | State::InsW),
+        BlobMove::GlobalVariant { temporary: false } => st == State::InsW,
+        BlobMove::Variant { local: false } => st == State::Mem,
+        _ => false,
+    }
+}
+
+/// Whether a record from a source record that is `temporary` or not (`source_temporary`), taken by `taker` in a call or
+/// assignment of kind `call`, was measured in state `st`.
+/// - A procedure of a codeunit, not temporary into a Record parameter: the six states (:1048 `ByValue`, :1165-1284), A1
+///   (:2728), A4 (:2800), B1 to B5 (:2880-3016).
+/// - Temporary into a Record parameter, and not temporary into a `temporary` parameter: `mem`, `ins`, `get` (:2018-2045,
+///   :2059-2087).
+/// - Temporary into a `temporary` parameter: `mem` (corpus PR 1372, streams/BlobValueCopyShapes.al:975 P5t), A2 (:2752).
+/// - Temporary into a by-value Variant parameter or a local Variant: `mem` (PR 1372 :847 P2, :824 P1).
+/// - Not temporary into a global Variant or an element of a local array of Variant: the six states (:1119, :1141,
+///   :1543-1699).
+/// - Not temporary into a Record parameter of a table procedure: `mem` (:3173); of a codeunit's `[TryFunction]` and of an
+///   event subscriber: `mem`, `ins`, `get` (:2200, :2331-2359; :2300, :2568-2606).
+///
+/// Every other pair, call and state keeps the shared buffer, as before.
+fn by_value_measured(source_temporary: bool, taker: Taker, call: Call, st: State) -> bool {
+    let mem_ins_get = matches!(st, State::Mem | State::Ins | State::Get);
+    match (call, source_temporary, taker) {
+        (Call::Plain, false, Taker::RecordParam) => {
+            prepare_f(st)
+                || matches!(
+                    st,
+                    State::InsW
+                        | State::ModW
+                        | State::FieldAsg
+                        | State::AsgW
+                        | State::SetTable
+                        | State::CalcW
+                        | State::GetW
+                )
+        }
+        (Call::Plain, true, Taker::RecordParam) | (Call::Plain, false, Taker::TemporaryParam) => mem_ins_get,
+        (Call::Plain, true, Taker::TemporaryParam) => matches!(st, State::Mem | State::InsW),
+        (Call::Plain, true, Taker::VariantParam | Taker::LocalVariant) => st == State::Mem,
+        (Call::Plain, false, Taker::GlobalVariant | Taker::ArrayVariant) => prepare_f(st),
+        (Call::TableProcedure, false, Taker::RecordParam) => st == State::Mem,
+        (Call::TryFunction | Call::Subscriber, false, Taker::RecordParam) => mem_ins_get,
+        _ => false,
+    }
+}
+
 /// Whether Record.Copy from a source record that is `temporary` or not (`source_temporary`) into a target that is or is not
-/// (`target_temporary`) was measured with a source Blob in state `s`, in a measured source ([`Holder::Probed`]). The states
-/// are those of `PrepareF` in corpus PR 1375 (streams/BlobCopyStates.al:306-350): `mem` written in memory, `ins` written and
-/// inserted, `get` read with Get only.
-/// - Two records that are not temporary: every state the probe has, loaded or read with Get only and not written (:1285-1368
-///   `Copy_*`, :2775 A3, :2949 B1, :3274 E2).
+/// (`target_temporary`) was measured in state `st`.
+/// - Two records that are not temporary: the six states (:1285-1368 `Copy_*`), A3 (:2775), B1c (:2949), E2 (:3274).
 /// - Not temporary into temporary: `mem`, `ins`, `get` (:2101, :2116, :2131).
 /// - Temporary into not temporary: `mem`, `ins` (:2146, :2160).
 /// - Two temporary records: `mem` (corpus PR 1372, streams/BlobValueCopyShapes.al:906 X2, :929 X2s, :952 X2r).
 ///
 /// Every other pair of records and state keeps the shared buffer, as before.
-fn copy_measured(source_temporary: bool, target_temporary: bool, s: &Source) -> bool {
-    let mem = s.in_memory && s.content && s.written;
-    let ins = s.unsaved_since_insert && s.inserted && s.content;
-    let get = s.row_copy && !s.loaded && !s.written;
+fn copy_measured(source_temporary: bool, target_temporary: bool, st: State) -> bool {
     match (source_temporary, target_temporary) {
-        (false, false) => s.loaded || get,
-        (false, true) => mem || ins || get,
-        (true, false) => mem || ins,
-        (true, true) => mem,
+        (false, false) => prepare_f(st) || matches!(st, State::InsW | State::FieldAsg),
+        (false, true) => matches!(st, State::Mem | State::Ins | State::Get),
+        (true, false) => matches!(st, State::Mem | State::Ins),
+        (true, true) => st == State::Mem,
     }
 }
 
@@ -662,7 +889,7 @@ fn copy_measured(source_temporary: bool, target_temporary: bool, s: &Source) -> 
 /// Compressed = false, :1190 and :1206 a table extension field), and such a field as the source of FieldRef.Value and of a
 /// local Variant (:1174, :1190). Such a field as the target of FieldRef.Value and FieldRef.Validate copies in every source
 /// state, and a source read with Get only gives an empty target (corpus PR 1375, streams/BlobCopyStates.al, procedure Into,
-/// :536-1002 at d96306a8). Its empty and not-loaded states in the other moves are taken to follow: these moves were refused
+/// :454, :557-1010). Its empty and not-loaded states in the other moves are taken to follow: these moves were refused
 /// for these fields between al-runner PR 7936 and this rule, which cost tests of an outside reporter (al-runner issue 6924).
 fn first_probe_move(how: BlobMove) -> bool {
     matches!(
@@ -678,19 +905,24 @@ fn first_probe_move(how: BlobMove) -> bool {
 
 /// Whether a move of a field of kind `kind` (not [`FieldKind::Plain`] nor [`FieldKind::Other`]) by `how` takes what a
 /// plain field takes in the cells corpus PR 1375 measured (streams/BlobCopyStates.al): content a stream wrote in memory in a
-/// measured source, moved by a record by value (:3108 C6, every kind), as a field read handed to a by-value Variant parameter
+/// measured source, moved by a record that is not temporary by value to a Record parameter of a codeunit procedure (:3108 C6,
+/// every kind), as a field read handed to a by-value Variant parameter
 /// (:3017 C1-C3), read from a temporary record and stored in a global Variant or an array element (:3087 C4, C5), and by
 /// Record.Copy between two records that are not temporary for a `Compressed = false` field (:3274 E2).
 fn other_kind_move(how: BlobMove, kind: FieldKind, s: &Source, holder: Holder) -> bool {
-    let written = holder == Holder::Probed && s.plain_buffer && s.in_memory && s.content && s.written;
+    let mem = state(s, holder) == Some(State::Mem);
     match how {
-        BlobMove::RecordByValue
+        BlobMove::RecordByValue {
+            source_temporary: false,
+            taker: Taker::RecordParam,
+            call: Call::Plain,
+        }
         | BlobMove::Variant { local: false }
-        | BlobMove::GlobalVariant { temporary: true, .. } => written,
+        | BlobMove::GlobalVariant { temporary: true } => mem,
         BlobMove::RecordCopy {
             source_temporary: false,
             target_temporary: false,
-        } => written && kind == FieldKind::Variation,
+        } => mem && kind == FieldKind::Variation,
         _ => false,
     }
 }
@@ -752,10 +984,10 @@ impl Session {
                 Holder::of(&src),
             )
         };
-        // The RecordRef's record is a measured source when the record is one: SetTable(Rec, true) moves its Blobs on
-        // (corpus PR 1375, streams/BlobCopyStates.al:1709, :1859-1939).
-        if from_record && holder == Holder::Probed {
-            copy.probed_source = ProbedSource(true);
+        // The RecordRef's record is a measured source prepared as the record when the record is one: SetTable(Rec, true)
+        // moves its Blobs on (corpus PR 1375, streams/BlobCopyStates.al:1709, :1859-1939).
+        if let (true, Holder::Probed(p)) = (from_record, holder) {
+            copy.probed_source = ProbedSource(p as u8 | TABLE_COPY);
         }
         if from_record {
             self.move_blobs(copy.table as usize, &mut copy.fields, None, BlobMove::GetTable, holder)?;
@@ -763,30 +995,25 @@ impl Session {
         Ok(copy)
     }
 
-    /// The by-value copy `copy` of a record: its Blobs are moved as [`moved`] says in the pairs of source and taker the probes
-    /// measured. Corpus PR 1372 (streams/BlobValueCopyShapes.al): a record that is not temporary into a Record parameter
-    /// (:990 P5), a temporary record into a `temporary` parameter (:975 P5t), a Variant parameter (:847 P2) or a local
-    /// Variant (:824 P1). Corpus PR 1375 (streams/BlobCopyStates.al): a temporary record into a Record parameter (:1767) and
-    /// a record that is not temporary into a `temporary` parameter (:1788), a record that is not temporary into a global
-    /// Variant (:1119) and an element of a local array of Variant (:1141), a temporary record into a global Variant (:2825).
-    /// In every other pair the copy shares the Blobs with the source, as before. `holder` is the source record.
+    /// The by-value copy `copy` of a record, from a `temporary` record or not, taken by `taker` in a call or assignment of
+    /// kind `call`: its Blobs are moved as [`moved`] says ([`by_value_measured`]). `holder` is the source record.
     pub(crate) fn blobs_by_value(
         &self,
         copy: Value,
         source_temporary: bool,
         holder: Holder,
         taker: Taker,
+        call: Call,
     ) -> Result<Value, Signal> {
-        let measured = matches!(
-            (source_temporary, taker),
-            (_, Taker::RecordParam | Taker::TemporaryParam | Taker::GlobalVariant)
-                | (true, Taker::VariantParam | Taker::LocalVariant)
-                | (false, Taker::ArrayVariant)
-        );
-        if let (Value::Record(rc), true) = (&copy, measured) {
+        if let Value::Record(rc) = &copy {
             let mut r = rc.borrow_mut();
             let table = r.table as usize;
-            self.move_blobs(table, &mut r.fields, None, BlobMove::RecordByValue, holder)?;
+            let how = BlobMove::RecordByValue {
+                source_temporary,
+                taker,
+                call,
+            };
+            self.move_blobs(table, &mut r.fields, None, how, holder)?;
         }
         Ok(copy)
     }
@@ -794,7 +1021,9 @@ impl Session {
     /// The value `bound` a call made of its argument `argument`, with its Blobs moved as [`Session::blobs_by_value`] says.
     pub(crate) fn bind_blobs(&self, argument: Argument, bound: Value) -> Result<Value, Signal> {
         match argument {
-            Argument::Record(temporary, holder, taker) => self.blobs_by_value(bound, temporary, holder, taker),
+            Argument::Record(temporary, holder, taker, call) => {
+                self.blobs_by_value(bound, temporary, holder, taker, call)
+            }
             Argument::Other => Ok(bound),
         }
     }
@@ -808,28 +1037,42 @@ impl Session {
         let (Value::Blob(_), Some(Value::Record(rc))) = (&v, locals.get(usize::from(read.record))) else {
             return Ok(v);
         };
-        let (temporary, inserted, holder, table) = {
+        let (temporary, holder, table) = {
             let r = rc.borrow();
-            (r.temporary, r.inserted, Holder::of(&r), r.table as usize)
+            (r.temporary, Holder::of(&r), r.table as usize)
         };
         if !(temporary || read.global) {
             return Ok(v);
         }
         let kind = || self.blob_field_kind(table, read.pos as usize);
         let how = if read.global {
-            BlobMove::GlobalVariant { temporary, inserted }
+            BlobMove::GlobalVariant { temporary }
         } else {
             BlobMove::Variant { local: false }
         };
         moved(None, v, how, holder, kind)
     }
 
-    /// Record method `method` starts on `rec` with arguments `args`: a call [`keeps_probed`] does not name ends
-    /// [`Holder::Probed`].
+    /// Record method `method` starts on `rec` with arguments `args`: the record is prepared as [`Prep::after`] says, or a
+    /// measured source no longer. Every method of a RecordRef on a [`TABLE_COPY`] record ends the fact.
     #[inline]
     pub(crate) fn probed_source_before(method: RecordOp, rec: &Rc<RefCell<RecordState>>, args: &[Value]) {
-        if rec.borrow().probed_source.0 && !keeps_probed(method, args) {
-            rec.borrow_mut().probed_source = ProbedSource(false);
+        let b = rec.borrow().probed_source.0;
+        if b == 0 {
+            return;
+        }
+        let written = || {
+            rec.borrow()
+                .fields
+                .iter()
+                .any(|v| matches!(v, Value::Blob(x) if x.borrow().written))
+        };
+        let next = match Prep::of(b) {
+            Some(p) if b & !PREP == 0 => p.after(method, args, written).map_or(0, |p| p as u8),
+            _ => 0,
+        };
+        if next != b {
+            rec.borrow_mut().probed_source = ProbedSource(next);
         }
     }
 }

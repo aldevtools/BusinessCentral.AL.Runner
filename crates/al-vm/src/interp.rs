@@ -1684,7 +1684,7 @@ impl Session {
                         let r = rc.borrow();
                         (r.temporary, Holder::of(&r))
                     };
-                    self.blobs_by_value(copy, temporary, holder, taker)?
+                    self.blobs_by_value(copy, temporary, holder, taker, crate::blob_transfer::Call::Plain)?
                 } else {
                     copy
                 }

@@ -1419,6 +1419,9 @@ impl Session {
             if let Some(how) = BlobMove::set_table(args.len(), share) {
                 self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, Holder::of(&s))?;
             }
+            if args.len() == 1 {
+                d.probed_source = crate::blob_transfer::set_table_target(&d, &s);
+            }
             d.filters = s.filters.clone();
             d.key = s.key;
             d.adhoc = s.adhoc.clone();
@@ -1603,6 +1606,7 @@ impl Session {
                         Holder::Other,
                         kind,
                     )?;
+                    crate::blob_transfer::written_through_fieldref(&mut r, &v, false);
                     r.fields[pos] = v;
                     if r.load.partial {
                         r.load.written(pos);
