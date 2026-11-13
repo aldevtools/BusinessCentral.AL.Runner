@@ -485,7 +485,7 @@ fn no_builtin_id_is_registered_twice_in_the_registry_lists() {
 }
 
 // `Clear` of a WithEvents Timer (al-runner issue 7832): an unassigned variable stays null; anything that is not a Timer the host
-// holds is refused (only the Timer is measured, N4WithEventsNoRaise.al:197-198).
+// holds is refused (only the Timer is measured, N4WithEventsNoRaise.al:209-212).
 #[test]
 fn clear_of_a_with_events_timer_unassigns_only_a_timer() {
     let mut ctx = TestCtx::default();

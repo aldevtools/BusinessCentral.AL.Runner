@@ -2,13 +2,14 @@
 //! (open; onprem-dotnet dotnet/dotnet/DotNetExceptionOutcome.al, every major its CI runs) for four calls: an instance method
 //! (`Uri.IsBaseOf` of an unassigned Uri, :66, :194), a static method (`Convert.ToInt32('abc')`, :71, :205), a property get on an
 //! object (`AbsolutePath` of a relative Uri, :76, :216) and a constructor (`StringBuilder(-1)`, :79, :224). For each: Codeunit.Run
-//! answers No (:229-256), asserterror catches it (:258-282), a TryFunction answers No (:285-302, :388-430), the text is
+//! answers No (:229-256), asserterror catches it (:258-282), a TryFunction answers No (:285-302, :388-426), the text is
 //! `A call to <Type>.<Member> failed with this message: <.NET message>` (a constructor names the type only, :251) with code
 //! `DotNetInvoke:<class without Exception>`, and GetLastErrorObject is a NavNCLDotNetInvokeException whose Message is the text and
 //! whose InnerException is the .NET exception (:305-386).
 //!
 //! The exceptions whose text an older pin covers are raised by `pinned_exceptions::signal` first; this module answers what is
-//! left, and only for the four bindings above (`shape`). Everything else keeps the refusal of the caller.
+//! left, only for the four bindings above (`shape`), a call that sent no stream, and the classes `shown_as_al_error` lists.
+//! Everything else keeps the refusal of the caller.
 
 use super::Target;
 use super::last_error::{get_type, member, message};
@@ -66,18 +67,22 @@ fn plain_type_name(name: &str) -> bool {
 }
 
 /// The AL error of the exception `e` thrown by `clr_type.member`, or `None` when the binding is not one of the measured four
-/// (the caller then refuses). The text and code are the measured rule's for a measured class, a type spelled plainly, a member
-/// written in its .NET letter case and an exception without an inner one (assumption `dotnet-exception-measured-text`); any other
-/// exception of these bindings is an error whose text and code are not pinned, so a read of them refuses (assumption
-/// `dotnet-exception-other-class`).
+/// (the caller then refuses). The call must have sent no InStream or OutStream. The text and code are the measured rule's for a
+/// measured class, a type spelled plainly, a member written in its .NET letter case and an exception without an inner one
+/// (assumption `dotnet-exception-measured-text`); another exception that [`shown_as_al_error`] accepts is an error whose text
+/// and code are not pinned, so a read of them refuses (assumption `dotnet-exception-other-class`).
 pub(super) fn signal(
     kind: MemberKind,
     target: &Target,
     clr_type: &str,
     member: &str,
+    streams: usize,
     e: &DotNetException,
 ) -> Option<Signal> {
-    let shape = shape(kind, target, &e.bound)?;
+    // The measured calls send no InStream or OutStream: an object, a Text, nothing, an Integer (DotNetExceptionOutcome.al:66,
+    // :71, :76, :79). What .NET read from or wrote to a stream before it threw is not in the reply of a failed call. A member
+    // with a ref or out parameter has no `bound` (the sidecar's `PlainParameters`), so `shape` answers `None` for it.
+    let shape = (streams == 0).then(|| shape(kind, target, &e.bound)).flatten()?;
     let code = MEASURED
         .iter()
         .find(|(class, _)| *class == e.clr_type)
@@ -97,13 +102,22 @@ pub(super) fn signal(
                 ..Default::default()
             })))
         }
-        _ => {
+        _ if shown_as_al_error(&e.clr_type, shape) => {
             assume(Assumption::DotnetExceptionOtherClass);
             Some(Signal::Error(Box::new(unpinned_error_for(
                 "dotnet-exception-other-class",
             ))))
         }
+        _ => None,
     }
+}
+
+/// An exception of class `class` thrown through the binding `shape` is an AL error by an oracle case or the probe: a measured
+/// class through any of the four bindings (DotNetExceptionOutcome.al:229-386), or System.ArgumentException thrown by a
+/// constructor (new X509Certificate2 in System Application's TryInitializeCertificate, a TryFunction that answers false:
+/// key-vault/Y58AzureKeyVault.al:317-325). Any other class keeps the refusal of the caller.
+fn shown_as_al_error(class: &str, shape: Shape) -> bool {
+    MEASURED.iter().any(|(c, _)| *c == class) || (class == "System.ArgumentException" && shape == Shape::Constructor)
 }
 
 /// The text before the .NET message in the error text (DotNetExceptionOutcome.al:234).

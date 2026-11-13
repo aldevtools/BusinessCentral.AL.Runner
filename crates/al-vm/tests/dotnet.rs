@@ -3793,22 +3793,23 @@ fn a_static_method_a_property_get_and_a_constructor_raise_the_measured_texts() {
     );
 }
 
-// An exception of a class whose text is not measured is an error all the same: asserterror catches it and the test goes on, but a
-// read of its text, its code or its object refuses (assumption dotnet-exception-other-class).
+// An exception of a class whose text is not measured, but that an oracle case shows as an AL error (System.ArgumentException of a
+// constructor, Y58AzureKeyVault.al:317-325), is an error: asserterror catches it and the test goes on, but a read of its text, its
+// code or its object refuses (assumption dotnet-exception-other-class).
 #[test]
 fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
     use al_builtins::assumptions::Assumption;
     let host = throwing(
-        "System.OverflowException",
-        "Value was either too large or too small.",
-        "method",
+        "System.ArgumentException",
+        "The value is not valid.",
+        "constructor",
         false,
     );
     hits();
     let r = run(
         &host,
-        "C: DotNet Convert; N: Integer;",
-        "asserterror N := C.ToInt32('99999999999'); exit('caught');",
+        "B: DotNet StringBuilder;",
+        "asserterror B := B.StringBuilder(-1); exit('caught');",
         ": Text",
     );
     assert_eq!(text(r), "caught");
@@ -3820,20 +3821,28 @@ fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
     ] {
         let r = run(
             &host,
-            "C: DotNet Convert; N: Integer;",
-            &format!("asserterror N := C.ToInt32('99999999999'); exit({read});"),
+            "B: DotNet StringBuilder;",
+            &format!("asserterror B := B.StringBuilder(-1); exit({read});"),
             ": Text",
         );
         assert!(unsupported(&r).contains("not pinned"), "{read}: {}", unsupported(&r));
     }
     // A plain call ends the routine on the error, as on BC.
+    let r = run(&host, "B: DotNet StringBuilder;", "B := B.StringBuilder(-1);", "");
+    assert!(matches!(r.result, Err(Signal::Error(_))), "{:?}", r.result);
+    // The same class thrown by a method is not shown as an AL error by any case: main's refusal.
+    let host = throwing("System.ArgumentException", "bad", "method", false);
     let r = run(
         &host,
         "C: DotNet Convert; N: Integer;",
-        "N := C.ToInt32('99999999999');",
-        "",
+        "asserterror N := C.ToInt32('abc'); exit('caught');",
+        ": Text",
     );
-    assert!(matches!(r.result, Err(Signal::Error(_))), "{:?}", r.result);
+    assert!(
+        unsupported(&r).contains("raised the .NET exception"),
+        "{}",
+        unsupported(&r)
+    );
 }
 
 // A measured class with a member written in another letter case, an inner exception or a generic type: its text is not measured,
@@ -3886,6 +3895,52 @@ fn unmeasured_bindings_of_a_dotnet_exception_keep_the_refusal() {
         assert!(
             unsupported(&r).contains("raised the .NET exception"),
             "{bound} {body}: {}",
+            unsupported(&r)
+        );
+    }
+}
+
+// A class no oracle case or probe shows as an AL error keeps main's refusal: OverflowException of Convert.ToInt32 (not measured).
+#[test]
+fn an_exception_class_without_evidence_keeps_the_refusal() {
+    let host = throwing(
+        "System.OverflowException",
+        "Value was either too large or too small for an Int32.",
+        "method",
+        false,
+    );
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer;",
+        "asserterror N := C.ToInt32('99999999999'); exit('caught');",
+        ": Text",
+    );
+    assert!(
+        unsupported(&r).contains("raised the .NET exception System.OverflowException"),
+        "{}",
+        unsupported(&r)
+    );
+}
+
+// A failed call that sent an InStream or an OutStream keeps main's refusal: .NET may have read or written the stream before it
+// threw, and the reply of a failed call does not carry that (the measured calls send no stream, DotNetExceptionOutcome.al:66,
+// :71, :76, :79). A member with a by-reference parameter is the sidecar's to leave unbound (dotnet_sidecar.rs).
+#[test]
+fn a_failed_call_with_a_stream_argument_keeps_the_refusal() {
+    let host = throwing("System.FormatException", "bad", "method", false);
+    for body in [
+        "B.Data.CreateOutStream(O); O.WriteText('abc'); B.Data.CreateInStream(I); asserterror C.ReadSome(I); exit('caught');",
+        "B.Data.CreateOutStream(O); asserterror C.WriteSome(O); exit('caught');",
+    ] {
+        let r = run(
+            &host,
+            "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream; I: InStream;",
+            body,
+            ": Text",
+        );
+        assert!(
+            unsupported(&r).contains("raised the .NET exception System.FormatException"),
+            "{body}: {}",
             unsupported(&r)
         );
     }
@@ -4036,6 +4091,54 @@ fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
         assert_eq!(text(r), "Yes|No|1,000|No|2,000|Yes|0", "{kind}");
         assert!(hits().contains(&Assumption::WithEventsTimerElapsedNotStarted), "{kind}");
     }
+}
+
+// The report of the probe runs: ProcessingOnly, no request page, OnPreReport assigns the Timer, OnAfterGetRecord of a one-row
+// data item reads it; Run completes, GetShown of the variable after Run is empty and the Elapsed trigger never runs
+// (N4WithEventsNoRaise.al:113-152, :405-415; the probe's data item is the Integer table, outside this test's workspace).
+#[test]
+fn a_report_with_a_with_events_timer_runs_as_the_probe_runs_it() {
+    use al_builtins::assumptions::Assumption;
+    let src = format!(
+        "{TABLE} report 50101 R {{ ProcessingOnly = true; UsageCategory = None; \
+         dataset {{ dataitem(One; \"ALT Blob\") {{ \
+         trigger OnAfterGetRecord() begin Shown += '|row:' + Format(Tm.Interval); end; }} }} \
+         var [WithEvents] Tm: DotNet Timer; N: Integer; Shown: Text; \
+         trigger OnPreReport() begin Shown := Format(IsNull(Tm)); Tm := Tm.Timer(); Tm.Interval := 3500; \
+         Shown += '|' + Format(IsNull(Tm)) + '|' + Format(Tm.Interval) + '|' + Format(Tm.Enabled); end; \
+         procedure GetShown(): Text begin exit(Shown + Format(N)); end; {ELAPSED} }} \
+         codeunit 50100 W {{ procedure F(): Text var R: Report R; B: Record \"ALT Blob\"; begin B.Code := 'A'; B.Insert(); \
+         R.UseRequestPage(false); R.Run(); exit(R.GetShown()); end; }}"
+    );
+    hits();
+    let r = run_src(&timer_host(), &src, "W", "F");
+    assert_eq!(text(r), "0");
+    assert!(hits().contains(&Assumption::WithEventsTimerElapsedNotStarted));
+}
+
+// ClearAll nulls the WithEvents Timer, which the probe does not measure (it measures Clear): refused in the object that holds
+// the Timer and in an extension of it. ClearAll in an object whose WithEvents variable has no trigger keeps main's result.
+#[test]
+fn clear_all_where_it_reaches_a_with_events_timer_is_refused() {
+    let host = Fake::new(|r| match r {
+        Req::Construct(..) => reply(handle(21, "System.Timers.Timer")),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let src = format!(
+        "codeunit 50100 W {{ var [WithEvents] Tm: DotNet Timer; N: Integer; {ELAPSED} \
+         procedure F(): Boolean begin Tm := Tm.Timer(); ClearAll(); exit(IsNull(Tm)); end; }}"
+    );
+    let r = run_src(&host, &src, "W", "F");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
+    let src = format!(
+        "page 50100 P {{ var [WithEvents] Tm: DotNet Timer; N: Integer; {ELAPSED} }} \
+         pageextension 50101 X extends P {{ procedure F() begin ClearAll(); end; }}"
+    );
+    let r = run_src(&host, &src, "X", "F");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
+    let src = "codeunit 50100 W { var [WithEvents] Tm: DotNet Timer; N: Integer; \
+         procedure F(): Text begin N := 5; ClearAll(); exit(Format(N) + Format(IsNull(Tm))); end; }";
+    assert_eq!(text(run_src(&host, src, "W", "F")), "0Yes");
 }
 
 // Every other use, member, trigger set or type keeps the refusal.

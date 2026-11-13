@@ -271,6 +271,28 @@ fn an_exception_reply_names_the_binding_that_threw_and_a_folded_name() {
     sess.close();
 }
 
+// A method with a ref or out parameter names no binding: what it wrote before it threw does not reach the host, which then
+// keeps the refusal (Math.DivRem(1, 0, out r) throws DivideByZeroException).
+#[test]
+fn an_exception_of_a_member_with_a_by_reference_parameter_names_no_binding() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let by_ref = DotNetArg {
+        by_ref: true,
+        ..arg(DotNetValue::Int32(0))
+    };
+    let e = exception(sess.invoke(
+        st("System.Math"),
+        "DivRem",
+        vec![arg(DotNetValue::Int32(1)), arg(DotNetValue::Int32(0)), by_ref],
+    ));
+    assert_eq!(
+        (e.clr_type.as_str(), e.bound.as_str()),
+        ("System.DivideByZeroException", "")
+    );
+    sess.close();
+}
+
 #[test]
 fn a_missing_type_or_member_is_a_refusal_not_an_exception() {
     let Some(h) = host() else { return };

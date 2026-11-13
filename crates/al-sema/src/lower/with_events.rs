@@ -14,7 +14,14 @@ use al_syntax::ast::NodeText;
 ///   is `name::Elapsed` (N4WithEventsNoRaise.al:291 codeunit, :372 page, :387 table, :405 report). The timer never starts, so the
 ///   trigger never runs; the uses that may run are those the probe made (`Lowerer::with_events_timer_use`, `Lowerer::with_events_timer_member`), marked with
 ///   assumption `with-events-timer-elapsed-not-started`.
-pub(super) fn marker(lw: &Lowerer<'_>, kind: ObjKind, ty: &Ty, obj: &ast::Object, name: &str) -> Option<&'static str> {
+pub(super) fn marker(
+    ws: &Workspace,
+    file: usize,
+    kind: ObjKind,
+    ty: &Ty,
+    obj: &ast::Object,
+    name: &str,
+) -> Option<&'static str> {
     let Ty::DotNet(alias) = ty else { return None };
     let prefix = format!("{}::", name.to_lowercase());
     let events: Vec<String> = obj
@@ -24,15 +31,37 @@ pub(super) fn marker(lw: &Lowerer<'_>, kind: ObjKind, ty: &Ty, obj: &ast::Object
     if events.is_empty() && kind == ObjKind::Codeunit {
         return Some(WITH_EVENTS_NO_TRIGGER);
     }
-    let timer = lw
-        .ws
-        .resolve_dotnet(lw.file, alias)
-        .is_some_and(|i| lw.ws.dotnet[i].decl.type_name == "System.Timers.Timer");
+    let timer = ws
+        .resolve_dotnet(file, alias)
+        .is_some_and(|i| ws.dotnet[i].decl.type_name == "System.Timers.Timer");
     let measured_kind = matches!(
         kind,
         ObjKind::Codeunit | ObjKind::Page | ObjKind::Table | ObjKind::Report
     );
     (timer && measured_kind && events == ["elapsed"]).then_some(WITH_EVENTS_TIMER_ELAPSED)
+}
+
+/// The name of a global of object `oi` that [`marker`] accepts as a [`WITH_EVENTS_TIMER_ELAPSED`] Timer, if it has one.
+fn timer_global(ws: &Workspace, oi: usize) -> Option<String> {
+    let obj = ws.object_ast(oi);
+    let (kind, file) = (ws.objects[oi].kind, ws.objects[oi].file);
+    obj.var_decls()
+        .filter(|v| super::shared::var_attribute_names(v).iter().any(|a| a == "withevents"))
+        .find_map(|v| {
+            let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
+            v.names()
+                .into_iter()
+                .find(|n| marker(ws, file, kind, &ty, &obj, n) == Some(WITH_EVENTS_TIMER_ELAPSED))
+        })
+}
+
+/// The lowercase name of the Elapsed trigger of report `oi`'s WithEvents Timer ([`WITH_EVENTS_TIMER_ELAPSED`]): the report runs
+/// with that trigger, which never runs (N4WithEventsNoRaise.al:405).
+pub(super) fn timer_elapsed_trigger(ws: &Workspace, oi: usize) -> Option<String> {
+    (ws.objects[oi].kind == ObjKind::Report)
+        .then(|| timer_global(ws, oi))
+        .flatten()
+        .map(|n| format!("{}::elapsed", n.to_lowercase()))
 }
 
 /// The name a `[WithEvents]` attribute gets for a variable [`marker`] accepts with no trigger.
@@ -47,7 +76,7 @@ const CLEAR_WITH_EVENTS_TIMER: &str = "System.ClearWithEventsTimer#1";
 impl Lowerer<'_> {
     /// A use of the WithEvents Timer `name` ([`WITH_EVENTS_TIMER_ELAPSED`]) at `n`: the receiver of a member
     /// ([`Self::with_events_timer_member`] checks which), the target of `name := name.<constructor>()`, or the one argument of
-    /// `IsNull` or `Clear` (N4WithEventsNoRaise.al:178-201, :61-65, :93-97, :140-144). Any other use is refused: the object could
+    /// `IsNull` or `Clear` (N4WithEventsNoRaise.al:184-223, :62-68, :95-103, :135-141). Any other use is refused: the object could
     /// reach code that starts it.
     pub(crate) fn with_events_timer_use(&mut self, n: &SyntaxNode, name: &str) -> L<()> {
         let parent = n.parent();
@@ -86,7 +115,7 @@ impl Lowerer<'_> {
     }
 
     /// A member of the WithEvents Timer `name` ([`WITH_EVENTS_TIMER_ELAPSED`]): the constructor without arguments, a read or an
-    /// assignment of `Interval` and a read of `Enabled` (N4WithEventsNoRaise.al:178-201). Any other member is refused: `Start`,
+    /// assignment of `Interval` and a read of `Enabled` (N4WithEventsNoRaise.al:184-223). Any other member is refused: `Start`,
     /// `Enabled := true` and the rest could start the timer, and the runtime raises no event.
     pub(crate) fn with_events_timer_member(&mut self, name: &str, op: &ir::DotNetOp, ctor: bool, args: usize) -> L<()> {
         let measured = match op {
@@ -101,13 +130,30 @@ impl Lowerer<'_> {
         self.timer_refusal(name)
     }
 
-    /// `Clear(name)` of the WithEvents Timer `name`: the variable becomes null (N4WithEventsNoRaise.al:197-198, :313-314
+    /// `Clear(name)` of the WithEvents Timer `name`: the variable becomes null (N4WithEventsNoRaise.al:209-212, :312
     /// `null_cleared` Yes). The object it held is disposed then (a Disposed trigger runs, :347), which nothing can see here: the
     /// variable has no Disposed trigger and the object never left it ([`Self::with_events_timer_use`]).
     pub(crate) fn with_events_timer_clear_id(&self, id: &str, args: &[SyntaxNode]) -> Option<&'static str> {
         match args {
             [a] if id == "System.Clear#1" && self.with_events_timer(a).is_some() => Some(CLEAR_WITH_EVENTS_TIMER),
             _ => None,
+        }
+    }
+
+    /// `ClearAll` (`id`) in a routine of an object that holds a WithEvents Timer ([`WITH_EVENTS_TIMER_ELAPSED`]), or of an
+    /// extension of one (in a page extension ClearAll resets the base page's globals too, CyClearAllExtensions.al:166-193): the
+    /// probe measures `Clear` of the Timer only (N4WithEventsNoRaise.al:209-212), so ClearAll is refused.
+    pub(crate) fn with_events_clear_all(&mut self, id: &str) -> L<()> {
+        if id != "System.ClearAll#1" {
+            return Ok(());
+        }
+        let holder = [Some(self.oi), self.ws.extension_target(self.oi)]
+            .into_iter()
+            .flatten()
+            .find_map(|o| timer_global(self.ws, o));
+        match holder {
+            Some(name) => self.timer_refusal(&name),
+            None => Ok(()),
         }
     }
 

@@ -584,7 +584,8 @@ impl Session {
                     &values,
                     &e,
                 )?;
-                if let Some(error) = invoke_exception::signal(kind, &target, &clr_type, &member, &e) {
+                let streams = book.ins.len() + book.outs.len();
+                if let Some(error) = invoke_exception::signal(kind, &target, &clr_type, &member, streams, &e) {
                     return Err(error);
                 }
                 let inner: String = e.inner.iter().map(|(t, m)| format!(" <- {t}: {m}")).collect();

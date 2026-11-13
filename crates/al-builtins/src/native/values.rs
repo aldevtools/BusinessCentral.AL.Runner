@@ -60,7 +60,7 @@ pub(super) fn variant_2_time(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut 
 }
 
 /// `Clear(var X)` of a global `[WithEvents]` System.Timers.Timer with an Elapsed trigger (al-sema `lower/with_events.rs` picks
-/// it): the variable becomes null (corpus PR 1365, onprem-dotnet dotnet/ac/N4WithEventsNoRaise.al:197-198, :313-314; assumption
+/// it): the variable becomes null (corpus PR 1365, onprem-dotnet dotnet/ac/N4WithEventsNoRaise.al:209-212, :312; assumption
 /// with-events-timer-elapsed-not-started, marked where the lowering accepted the use).
 pub(super) fn clear_with_events_timer(
     _: &mut dyn Ctx,

@@ -330,8 +330,9 @@ fn bool_prop(value: &str) -> Option<bool> {
     }
 }
 
-/// Walks the `dataset` section of report `obj` and checks the object's own properties.
-pub fn layout(obj: &ast::Object) -> Layout {
+/// Walks the `dataset` section of report `obj` and checks the object's own properties. `timer_trigger` is the lowercase name of
+/// the Elapsed trigger of the report's WithEvents Timer (`lower::with_events::timer_elapsed_trigger`), which never runs.
+pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
     let mut out = Layout {
         items: Vec::new(),
         processing_only: false,
@@ -416,7 +417,9 @@ pub fn layout(obj: &ast::Object) -> Layout {
     }
     for t in obj.triggers() {
         let n = t.name().to_ascii_lowercase();
-        if !["oninitreport", "onprereport", "onpostreport", "onprerendering"].contains(&n.as_str()) {
+        if !["oninitreport", "onprereport", "onpostreport", "onprerendering"].contains(&n.as_str())
+            && timer_trigger != Some(n.as_str())
+        {
             out.reasons.push(format!("report trigger {n} is not supported yet"));
         }
     }
@@ -1619,7 +1622,7 @@ mod tests {
     fn layout_of(src: &str) -> Layout {
         let parse = al_syntax::parse(src, &Default::default());
         let root = ast::SourceFile::cast(parse.syntax()).unwrap();
-        layout(&root.objects().next().unwrap())
+        layout(&root.objects().next().unwrap(), None)
     }
 
     #[test]

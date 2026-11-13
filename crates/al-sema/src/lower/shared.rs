@@ -157,8 +157,10 @@ impl<'a> Seq<'a> {
     pub(crate) fn report(&self, oi: usize) -> Option<&crate::reports::Layout> {
         self.report[oi]
             .get_or_init(|| {
-                (self.ws.objects[oi].kind == ObjKind::Report && self.active[oi])
-                    .then(|| crate::reports::layout(&self.ws.object_ast(oi)))
+                (self.ws.objects[oi].kind == ObjKind::Report && self.active[oi]).then(|| {
+                    let timer_trigger = super::with_events::timer_elapsed_trigger(self.ws, oi);
+                    crate::reports::layout(&self.ws.object_ast(oi), timer_trigger.as_deref())
+                })
             })
             .as_ref()
     }
@@ -495,7 +497,7 @@ pub(crate) fn lower_object<'a>(
         for n in v.names() {
             if !attrs.is_empty() {
                 let mut left = attrs_left(&attrs, &declared);
-                if let Some(marker) = super::with_events::marker(&lw, o.kind, &ty, &obj, &n) {
+                if let Some(marker) = super::with_events::marker(lw.ws, lw.file, o.kind, &ty, &obj, &n) {
                     for a in left.iter_mut().filter(|a| *a == "withevents") {
                         *a = marker.into();
                     }

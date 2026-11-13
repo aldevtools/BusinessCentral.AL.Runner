@@ -131,7 +131,8 @@ pub struct DotNetException {
     pub message: String,
     pub inner: Vec<(String, String)>,
     /// What the request called when the code threw: `constructor`, `method` (a method called as one) or `property` (a
-    /// property read by a get). Empty for any other binding (an indexer, a setter, a property reached through a call).
+    /// property read by a get). Empty for any other binding (an indexer, a setter, a property reached through a call, a member
+    /// with a ref or out parameter).
     pub bound: String,
     /// The member was written in another letter case than its .NET name.
     pub folded: bool,

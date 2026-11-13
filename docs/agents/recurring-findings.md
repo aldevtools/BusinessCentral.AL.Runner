@@ -36,6 +36,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a fact kept as session state about a path (how a file was written, whether it is open): list every call that can
     set it and every call that can clear it. The fact must be set only by the measured call and counted for every
     handle, not only for handles that met the shape when they opened.
+  - the arguments of a call whose failure is now caught: a stream or by-reference argument has effects that the
+    failed call's reply does not carry. Require the measured argument kinds.
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

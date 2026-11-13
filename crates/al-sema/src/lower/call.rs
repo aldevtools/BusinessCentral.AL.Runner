@@ -588,6 +588,7 @@ impl Lowerer<'_> {
                 } else {
                     None
                 };
+                self.with_events_clear_all(&id)?;
                 let option_captions = if id == "System.Evaluate#1" {
                     if let Some(a) = args.first() {
                         self.refuse_evaluate_option_caption_ml(a)?;
