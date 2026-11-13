@@ -46,17 +46,6 @@ impl RenameRef {
 impl Session {
     /// Every relation arm that points at table `t`, or why the rename cannot be done faithfully.
     pub(crate) fn rename_references(&self, t: &TableDef) -> Result<Vec<RenameRef>, Signal> {
-        self.relation_refs(t, true)
-    }
-
-    /// [`Session::rename_references`] without taking the assumptions a rename that follows the arms takes: for a rename
-    /// that only asks which fields relate to `t` and follows none of them (a temporary record, `rename_blank_key.rs`).
-    pub(crate) fn relation_refs_unfollowed(&self, t: &TableDef) -> Result<Vec<RenameRef>, Signal> {
-        self.relation_refs(t, false)
-    }
-
-    /// The arms of [`Session::rename_references`]; `follows`: the rename follows them and takes their assumptions.
-    fn relation_refs(&self, t: &TableDef, follows: bool) -> Result<Vec<RenameRef>, Signal> {
         let name = t.name.to_lowercase();
         let mut refs = Vec::new();
         for (oi, o) in self.engine.program.objects.heads().iter().enumerate() {
@@ -90,7 +79,7 @@ impl Session {
                             // A `Field = filter(<> X)` arm is pinned (record/table-relation/TableRelationArms.al:192
                             // Rename_FollowsOnlyTheArmsThatApply: the rows the filter takes follow the rename, the others
                             // stay); any other filter form is the assumption.
-                            if follows && arm.conditions.iter().any(|c| c.filter && !single_not_equal(&c.value)) {
+                            if arm.conditions.iter().any(|c| c.filter && !single_not_equal(&c.value)) {
                                 al_builtins::assumptions::assume(
                                     al_builtins::assumptions::Assumption::RenameFollowsFilterConditionArms,
                                 );
@@ -101,10 +90,8 @@ impl Session {
                                     t.name, o.name, f.name
                                 ));
                             }
-                            if follows {
-                                for a in &arm.assumes {
-                                    al_builtins::assumptions::assume(*a);
-                                }
+                            for a in &arm.assumes {
+                                al_builtins::assumptions::assume(*a);
                             }
                             refs.push(RenameRef {
                                 table: oi,

@@ -1,77 +1,21 @@
-//! A Rename from a blank primary key of a table another table relates to (al-runner issue 7937, assumption
-//! rename-blank-key-with-relation): only the reporter's shape raises BC's error; every other blank or zero key value of a
-//! renamed table that other tables relate to is refused; a table nothing relates to keeps its rename.
+//! A Rename that changes a primary key field to or from its blank or zero value while a validated relation targets that key
+//! field (al-runner issue 7937, assumption rename-blank-key-with-relation). Business Central raises an error after the
+//! triggers; the values are those of corpus pull request 1370, record/table-relation/RenameBlankKeyRelation.al (the `:line`
+//! citations). Only the measured cells raise it: the base cell and each cell one fact away from it. Any other such rename is
+//! refused, and a rename outside the rule keeps main's result.
 
 use al_builtins::assumptions::{Assumption, take_hits};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
-/// The reporter's tables (issue 7937, `app/Repro.al`) and the test body as AL source, plus a codeunit of procedures.
-const TABLES: &str = r#"
-table 50100 "RB Master"
-{
-    fields { field(1; Code; Code[20]) { } }
-    keys { key(PK; Code) { Clustered = true; } }
-}
-table 50101 "RB Child"
-{
-    fields
-    {
-        field(1; "Entry No."; Integer) { }
-        field(2; "Master Code"; Code[20]) { TableRelation = "RB Master"; }
-    }
-    keys { key(PK; "Entry No.") { Clustered = true; } }
-}
-table 50103 "RB Int Master"
-{
-    fields { field(1; No; Integer) { } }
-    keys { key(PK; No) { } }
-}
-table 50104 "RB Int Child"
-{
-    fields { field(1; Id; Integer) { } field(2; MasterNo; Integer) { TableRelation = "RB Int Master"; } }
-    keys { key(PK; Id) { } }
-}
-table 50105 "RB Soft Master"
-{
-    fields { field(1; Code; Code[20]) { } }
-    keys { key(PK; Code) { } }
-}
-table 50106 "RB Soft Child"
-{
-    fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = "RB Soft Master"; ValidateTableRelation = false; } }
-    keys { key(PK; Id) { } }
-}
-table 50102 "RB Lone"
-{
-    fields { field(1; Code; Code[20]) { } }
-    keys { key(PK; Code) { } }
-}
-table 50110 "RB Inv"
-{
-    fields { field(1; No; Code[20]) { } field(2; Posted; Boolean) { } field(3; Id; Guid) { } }
-    keys { key(PK; No, Posted) { } }
-}
-table 50111 "RB Inv Ref"
-{
-    fields { field(1; Id; Integer) { } field(2; InvId; Guid) { TableRelation = "RB Inv".Id; } }
-    keys { key(PK; Id) { } }
-}
-table 50112 "RB Two"
-{
-    fields { field(1; A; Code[20]) { } field(2; B; Code[20]) { } }
-    keys { key(PK; A, B) { } }
-}
-table 50113 "RB Two Ref"
-{
-    fields { field(1; Id; Integer) { } field(2; RefA; Code[20]) { TableRelation = "RB Two".A; } }
-    keys { key(PK; Id) { } }
-}
-"#;
+const MASTER: &str = "table 50120 \"S Master\" { fields { field(1; Code; Code[20]) { } field(2; Name; Text[20]) { } } keys { key(PK; Code) { } } }";
+const CHILD: &str = "table 50121 \"S Child\" { fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = \"S Master\"; } } keys { key(PK; Id) { } } }";
+const SECOND: &str = "The Code field on the S Master table cannot be renamed from \"\" to \"X\".\\\\When a field has a relation defined, the field cannot be renamed to and from zero or an empty value.";
 
-fn run_on(bc: &str, body: &str) -> Result<String, Signal> {
+/// Runs `procedure F(): Text {body}` of a codeunit beside the objects `objects`, on BC `bc`.
+fn run_on(bc: &str, objects: &str, body: &str) -> Result<String, Signal> {
     let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
-    let src = format!("{TABLES}\ncodeunit 50150 C {{ procedure F(): Text {body} }}");
+    let src = format!("{objects}\ncodeunit 50150 C {{ procedure F(): Text {body} }}");
     let l = al_testkit::compile(&src);
     let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
     let engine = al_vm::Engine::with_target(l.program.clone(), al_testkit::blocked(&l), Some(target));
@@ -83,24 +27,24 @@ fn run_on(bc: &str, body: &str) -> Result<String, Signal> {
     }
 }
 
-/// The reporter's test body (issue 7937, `test/ReproTest.Codeunit.al`), reading the error text instead of Library Assert.
-const REPRO: &str = "var Master: Record \"RB Master\"; Child: Record \"RB Child\"; begin
-    Master.Code := ''; Master.Insert();
-    Child.\"Entry No.\" := 2; Child.\"Master Code\" := ''; Child.Insert();
-    asserterror Master.Rename('X');
-    exit(GetLastErrorText());
-end;";
+fn run(objects: &str, body: &str) -> Result<String, Signal> {
+    run_on("29.0", objects, body)
+}
 
-#[test]
-fn the_reporters_rename_from_a_blank_key_raises_bcs_error() {
-    take_hits();
-    let r = run_on("29.0", REPRO).unwrap();
-    assert_eq!(
-        r,
-        "The Code field on the RB Master table cannot be renamed from \"\" to \"X\".\n\nWhen a field has a relation defined, \
-         the field cannot be renamed to and from zero or an empty value."
-    );
-    assert!(take_hits().contains(&Assumption::RenameBlankKeyWithRelation));
+/// The probe's form (:1239): the setup is committed, another variable reads the row by Get and renames it to `new`. Gives
+/// the error text and code.
+fn cell(master: &str, child: &str, extra: &str, setup: &str, new: &str) -> Result<String, Signal> {
+    run(
+        &format!("{master}\n{child}\n{extra}"),
+        &format!(
+            "var M: Record \"S Master\"; M2: Record \"S Master\"; C: Record \"S Child\"; RR: RecordRef; Ok: Boolean; begin
+                {setup} M.Insert(); C.Id := 1; C.Insert(); Commit();
+                M2.Get(M.Code);
+                asserterror M2.Rename({new});
+                exit(GetLastErrorText() + '|' + GetLastErrorCode());
+            end;"
+        ),
+    )
 }
 
 fn refused(r: Result<String, Signal>) -> String {
@@ -110,434 +54,339 @@ fn refused(r: Result<String, Signal>) -> String {
     }
 }
 
-// The reporter measured BC 29.1; the assumption takes BC 27 and 28 alike (no version gate has corpus evidence).
+/// The reporter's test body (issue 7937, `test/ReproTest.Codeunit.al`; the probe's :3007), reading the error instead of
+/// Library Assert.
+const REPRO: &str = "var Master: Record \"S Master\"; Child: Record \"S Child\"; begin
+    Master.Code := ''; Master.Insert();
+    Child.Id := 2; Child.Ref := ''; Child.Insert();
+    asserterror Master.Rename('X');
+    exit(GetLastErrorText() + '|' + GetLastErrorCode());
+end;";
+
+// The values are the same on BC 27.5, 28.5 and 29.0 (:1239, :3007): two backslash characters, no CR or LF, code DB:Ok.
 #[test]
-fn the_same_rename_on_bc_27_and_28_takes_the_assumption() {
-    for bc in ["27.0", "28.0"] {
+fn the_reporters_rename_from_a_blank_key_raises_bcs_error_on_every_major() {
+    for bc in ["27.0", "28.0", "29.0"] {
         take_hits();
-        assert!(
-            run_on(bc, REPRO)
-                .unwrap()
-                .starts_with("The Code field on the RB Master table cannot be renamed")
-        );
+        let r = run_on(bc, &format!("{MASTER}\n{CHILD}"), REPRO).unwrap();
+        assert_eq!(r, format!("{SECOND}|DB:Ok"), "{bc}");
         assert!(take_hits().contains(&Assumption::RenameBlankKeyWithRelation));
     }
 }
 
 #[test]
-fn a_rename_to_a_blank_key_is_refused() {
-    let r = run_on(
-        "29.0",
-        "var Master: Record \"RB Master\"; Child: Record \"RB Child\"; begin
-            Master.Code := 'A'; Master.Insert();
-            Child.\"Entry No.\" := 2; Child.\"Master Code\" := 'A'; Child.Insert();
-            Master.Rename('');
-            exit('renamed');
-        end;",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn a_rename_from_a_blank_key_no_child_row_carries_is_refused() {
-    let r = run_on(
-        "29.0",
-        "var Master: Record \"RB Master\"; begin
-            Master.Code := ''; Master.Insert();
-            Master.Rename('X');
-            exit('renamed');
-        end;",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn a_rename_from_a_blank_key_two_child_rows_carry_is_refused() {
-    let r = run_on(
-        "29.0",
-        "var Master: Record \"RB Master\"; Child: Record \"RB Child\"; begin
-            Master.Code := ''; Master.Insert();
-            Child.\"Entry No.\" := 2; Child.\"Master Code\" := ''; Child.Insert();
-            Child.\"Entry No.\" := 3; Child.Insert();
-            Master.Rename('X');
-            exit('renamed');
-        end;",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn a_temporary_rename_from_a_blank_key_is_refused() {
-    let r = run_on(
-        "29.0",
-        "var Master: Record \"RB Master\" temporary; begin
-            Master.Code := ''; Master.Insert();
-            Master.Rename('X');
-            exit(Master.Code);
-        end;",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-// Main's outcome stays: a table nothing relates to renames from a blank key, and a non-blank rename follows the relation.
-#[test]
-fn a_rename_from_a_blank_key_of_a_table_nothing_relates_to_keeps_its_rename() {
-    let r = run_on(
-        "29.0",
-        "var Lone: Record \"RB Lone\"; begin
-            Lone.Code := ''; Lone.Insert();
-            Lone.Rename('X');
-            exit(Lone.Code);
-        end;",
-    );
-    assert_eq!(r.unwrap(), "X");
-}
-
-#[test]
-fn a_rename_between_non_blank_keys_still_follows_the_relation() {
-    let r = run_on(
-        "29.0",
-        "var Master: Record \"RB Master\"; Child: Record \"RB Child\"; begin
-            Master.Code := 'A'; Master.Insert();
-            Child.\"Entry No.\" := 2; Child.\"Master Code\" := 'A'; Child.Insert();
-            Master.Rename('X');
-            Child.Get(2);
-            exit(Child.\"Master Code\");
-        end;",
-    );
-    assert_eq!(r.unwrap(), "X");
-}
-
-#[test]
-fn the_error_code_is_not_known() {
-    let r = run_on(
-        "29.0",
-        "var Master: Record \"RB Master\"; Child: Record \"RB Child\"; begin
-            Master.Code := ''; Master.Insert();
-            Child.\"Entry No.\" := 2; Child.\"Master Code\" := ''; Child.Insert();
-            asserterror Master.Rename('X');
-            exit(GetLastErrorCode());
-        end;",
-    );
-    assert!(refused(r).contains("not pinned"));
-}
-
-#[test]
-fn a_rename_of_an_integer_key_to_zero_is_refused() {
-    let r = run_on(
-        "29.0",
-        "var Master: Record \"RB Int Master\"; Child: Record \"RB Int Child\"; begin
-            Master.No := 1; Master.Insert();
-            Child.Id := 2; Child.MasterNo := 1; Child.Insert();
-            Master.Rename(0);
-            exit('renamed');
-        end;",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn a_rename_from_a_blank_key_through_an_unvalidated_relation_is_refused() {
-    let r = run_on(
-        "29.0",
-        "var Master: Record \"RB Soft Master\"; Child: Record \"RB Soft Child\"; begin
-            Master.Code := ''; Master.Insert();
-            Child.Id := 2; Child.Ref := ''; Child.Insert();
-            Master.Rename('X');
-            exit('renamed');
-        end;",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-fn run_src(bc: &str, extra: &str, body: &str) -> Result<String, Signal> {
-    let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
-    let src = format!("{TABLES}\n{extra}\ncodeunit 50150 C {{ procedure F(): Text {body} }}");
-    let l = al_testkit::compile(&src);
-    let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
-    let engine = al_vm::Engine::with_target(l.program.clone(), al_testkit::blocked(&l), Some(target));
-    let mut s = al_vm::Session::new(engine);
-    let inst = s.instance(oi);
-    match s.call(oi, 0, inst, vec![])?.0 {
-        Value::Text(t) => Ok(t.to_string()),
-        other => panic!("{other:?}"),
-    }
-}
-
-// HIGH 1 of the review of PR 7943: only a relation whose related field is the key field that changes to or from blank enters.
-// Base Application renames "Sales Invoice Entity Aggregate" ("No.", Posted) from Posted = false, while Gen. Journal Line
-// relates to its Id (SalesInvoiceAggregator.Codeunit.al:195, GenJournalLine.Table.al:3806): main renames it, and so does this.
-#[test]
-fn a_boolean_key_field_leaving_false_with_a_relation_to_a_non_key_field_keeps_its_rename() {
-    let r = run_src(
-        "29.0",
-        "",
-        "var Inv: Record \"RB Inv\"; R: Record \"RB Inv Ref\"; begin
-            Inv.No := 'A'; Inv.Id := CreateGuid(); Inv.Insert();
-            R.Id := 1; R.InvId := Inv.Id; R.Insert();
-            Inv.Rename('A', true);
-            exit(Format(Inv.Posted));
-        end;",
-    );
-    assert_eq!(r.unwrap(), "Yes");
-}
-
-#[test]
-fn a_relation_to_key_field_a_while_key_field_b_leaves_blank_keeps_its_rename() {
-    let r = run_src(
-        "29.0",
-        "",
-        "var Two: Record \"RB Two\"; R: Record \"RB Two Ref\"; begin
-            Two.A := 'A1'; Two.B := ''; Two.Insert();
-            R.Id := 1; R.RefA := 'A1'; R.Insert();
-            Two.Rename('A1', 'Y');
-            R.Get(1);
-            exit(Two.B + '/' + R.RefA);
-        end;",
-    );
-    assert_eq!(r.unwrap(), "Y/A1");
-}
-
-/// The reporter's tables and rows, then `tail` (which renames and exits).
-fn repro_with(extra: &str, tail: &str) -> Result<String, Signal> {
-    run_src(
-        "29.0",
-        extra,
-        &format!(
-            "var Master: Record \"RB Master\"; Child: Record \"RB Child\"; M2: Record \"RB Master\"; RR: RecordRef; begin
-                Master.Code := ''; Master.Insert();
-                Child.\"Entry No.\" := 2; Child.\"Master Code\" := ''; Child.Insert();
-                {tail}
-            end;"
-        ),
-    )
-}
-
-// MED 2 of the review: each fact of the reporter's shape is required; a rename that differs in one of them is refused.
-#[test]
-fn a_rename_from_a_blank_key_onto_a_stored_key_is_refused() {
-    let r = repro_with(
-        "",
-        "M2.Code := 'X'; M2.Insert(); asserterror Master.Rename('X'); exit(GetLastErrorText());",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn the_return_value_form_is_refused() {
-    let r = repro_with("", "if Master.Rename('X') then exit('true'); exit('false');");
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn recordref_rename_is_refused() {
-    let r = repro_with(
-        "",
-        "RR.GetTable(Master); asserterror RR.Rename('X'); exit(GetLastErrorText());",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn a_rename_with_the_database_rename_trigger_on_is_refused() {
-    let subs = r#"codeunit 50160 Subs
-{
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
-    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
-    begin
-        if TableId = Database::"RB Master" then OnDatabaseRename := true;
-    end;
-}"#;
-    let r = repro_with(subs, "asserterror Master.Rename('X'); exit(GetLastErrorText());");
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn a_child_table_with_other_rows_beside_the_blank_one_is_refused() {
-    let r = repro_with(
-        "",
-        "Child.\"Entry No.\" := 3; Child.\"Master Code\" := 'Q'; Child.Insert(); asserterror Master.Rename('X'); exit(GetLastErrorText());",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn a_buffer_read_under_another_key_is_refused() {
-    let r = repro_with(
-        "",
-        "M2.Code := 'Q'; M2.Insert(); M2.Get('Q'); M2.Code := ''; asserterror M2.Rename('X'); exit(GetLastErrorText());",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-#[test]
-fn a_rename_of_a_row_that_is_not_stored_is_refused() {
-    let r = run_src(
-        "29.0",
-        "",
-        "var Master: Record \"RB Master\"; Child: Record \"RB Child\"; begin
-            Child.\"Entry No.\" := 2; Child.\"Master Code\" := ''; Child.Insert();
-            Master.Code := '';
-            asserterror Master.Rename('X');
-            exit(GetLastErrorText());
-        end;",
-    );
-    assert!(refused(r).contains("blank or zero key value"));
-}
-
-/// A table "S Master" renamed from its blank key to `new` while "S Child" (one row, its fields at their defaults) relates to it.
-fn shape(master: &str, child: &str, extra: &str, new: &str) -> Result<String, Signal> {
-    let target = al_version::Target::for_bc(al_version::BcVersion::parse("29.0").unwrap());
-    let src = format!(
-        "{master}\n{child}\n{extra}\ncodeunit 50150 C {{ procedure F(): Text var M: Record \"S Master\"; C: Record \"S Child\"; begin
-            M.Insert(); C.Id := 1; C.Insert();
-            asserterror M.Rename({new});
-            exit(GetLastErrorText());
-        end; }}"
-    );
-    let l = al_testkit::compile(&src);
-    let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
-    let engine = al_vm::Engine::with_target(l.program.clone(), al_testkit::blocked(&l), Some(target));
-    let mut s = al_vm::Session::new(engine);
-    let inst = s.instance(oi);
-    match s.call(oi, 0, inst, vec![])?.0 {
-        Value::Text(t) => Ok(t.to_string()),
-        other => panic!("{other:?}"),
-    }
-}
-
-const S_MASTER: &str = "table 50120 \"S Master\" { fields { field(1; Code; Code[20]) { } field(2; Name; Text[20]) { } } keys { key(PK; Code) { } } }";
-const S_CHILD: &str = "table 50121 \"S Child\" { fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = \"S Master\"; } } keys { key(PK; Id) { } } }";
-
-#[test]
-fn the_plain_shape_raises_bcs_error() {
-    let r = shape(S_MASTER, S_CHILD, "", "'X'").unwrap();
+fn the_base_cell_raises_from_and_to_blank() {
+    assert_eq!(cell(MASTER, CHILD, "", "", "'X'").unwrap(), format!("{SECOND}|DB:Ok"));
+    let r = cell(MASTER, CHILD, "", "M.Code := 'x\"y';", "''").unwrap();
     assert!(
-        r.starts_with("The Code field on the S Master table cannot be renamed"),
+        r.starts_with("The Code field on the S Master table cannot be renamed from \"X\"Y\" to \"\".\\\\When"),
         "{r}"
     );
 }
 
-// The facts of the reporter's shape one at a time (the PR's area table): each other value is refused.
+fn master_with(props: &str, field_props: &str, key_ty: &str) -> String {
+    format!(
+        "table 50120 \"S Master\" {{ {props} fields {{ field(1; Code; {key_ty}) {{ {field_props} }} field(2; Name; Text[20]) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}"
+    )
+}
+
+fn child_with(ty: &str, rel: &str, rest: &str) -> String {
+    format!(
+        "table 50121 \"S Child\" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Ref; {ty}) {{ {rel} }} field(3; Kind; Integer) {{ }} }} keys {{ key(PK; Id) {{ }} }} {rest} }}"
+    )
+}
+
+const PLAIN: &str = "TableRelation = \"S Master\";";
+const LOG: &str = "codeunit 50162 Log { SingleInstance = true; var T: Text; procedure Add(S: Text) begin T += S; end; procedure Get(): Text begin exit(T); end; }";
+const SUBS: &str = "codeunit 50161 Sub {
+    [EventSubscriber(ObjectType::Table, Database::\"S Master\", 'OnBeforeRenameEvent', '', false, false)] local procedure B(var Rec: Record \"S Master\") var L: Codeunit Log; begin L.Add('before;'); end;
+    [EventSubscriber(ObjectType::Table, Database::\"S Master\", 'OnAfterRenameEvent', '', false, false)] local procedure A(var Rec: Record \"S Master\") var L: Codeunit Log; begin L.Add('after;'); end; }";
+
+// Each cell that differs from the base cell in one fact raises the error with its own text.
 #[test]
-fn every_other_shape_of_master_or_child_is_refused() {
-    let child = |rel: &str| {
+fn each_measured_cell_raises_the_error() {
+    let from = |field: &str, table: &str, old: &str, new: &str| {
         format!(
-            "table 50121 \"S Child\" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Ref; Code[20]) {{ {rel} }} field(3; Kind; Integer) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}"
+            "The {field} field on the {table} table cannot be renamed from \"{old}\" to \"{new}\".\\\\When a field has a relation defined, the field cannot be renamed to and from zero or an empty value.|DB:Ok"
         )
     };
-    let master_with = |props: &str, field_props: &str, key_ty: &str| {
-        format!(
-            "table 50120 \"S Master\" {{ {props} fields {{ field(1; Code; {key_ty}) {{ {field_props} }} field(2; Name; Text[20]) {{ }} }} keys {{ key(PK; Code) {{ }} }} }}"
-        )
-    };
-    let typed_child = |ty: &str| {
-        format!(
-            "table 50121 \"S Child\" {{ fields {{ field(1; Id; Integer) {{ }} field(2; Ref; {ty}) {{ TableRelation = \"S Master\"; }} }} keys {{ key(PK; Id) {{ }} }} }}"
-        )
-    };
-    let plain = child("TableRelation = \"S Master\";");
-    let sub = "codeunit 50161 Sub { [EventSubscriber(ObjectType::Table, Database::\"S Master\", 'OnBeforeInsertEvent', '', false, false)] local procedure B(var Rec: Record \"S Master\") begin end; }";
-    let cases: Vec<(&str, String, String, &str, &str)> = vec![
-        ("table caption", master_with("Caption = 'Cap';", "", "Code[20]"), plain.clone(), "", "'X'"),
-        ("field caption", master_with("", "Caption = 'Cap';", "Code[20]"), plain.clone(), "", "'X'"),
-        (
-            "OnRename trigger",
-            master_with("trigger OnRename() begin end;", "", "Code[20]"),
-            plain.clone(),
-            "",
-            "'X'",
-        ),
-        (
-            "table extension",
-            S_MASTER.into(),
-            plain.clone(),
-            "tableextension 50130 SX extends \"S Master\" { fields { field(50; X; Integer) { } } }",
-            "'X'",
-        ),
-        ("table event subscriber", S_MASTER.into(), plain.clone(), sub, "'X'"),
-        ("not per company", master_with("DataPerCompany = false;", "", "Code[20]"), plain.clone(), "", "'X'"),
-        ("Guid key", master_with("", "", "Guid"), typed_child("Guid"), "", "CreateGuid()"),
-        ("Integer key", master_with("", "", "Integer"), typed_child("Integer"), "", "5"),
-        ("Date key", master_with("", "", "Date"), typed_child("Date"), "", "20240101D"),
-        ("shorter child field", S_MASTER.into(), typed_child("Code[10]"), "", "'X'"),
-        (
-            "condition",
-            S_MASTER.into(),
-            child("TableRelation = if (Kind = const(0)) \"S Master\";"),
-            "",
-            "'X'",
-        ),
-        ("where()", S_MASTER.into(), child("TableRelation = \"S Master\" where(Name = const(''));"), "", "'X'"),
-        ("named related field", S_MASTER.into(), child("TableRelation = \"S Master\".Code;"), "", "'X'"),
-        (
-            "unvalidated",
-            S_MASTER.into(),
-            child("TableRelation = \"S Master\"; ValidateTableRelation = false;"),
-            "",
-            "'X'",
-        ),
-        (
-            "FlowFilter relation",
-            S_MASTER.into(),
-            child("FieldClass = FlowFilter; TableRelation = \"S Master\";"),
-            "",
-            "'X'",
-        ),
-        (
-            "child field in the child's key",
-            S_MASTER.into(),
-            "table 50121 \"S Child\" { fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = \"S Master\"; } } keys { key(PK; Id, Ref) { } } }".into(),
-            "",
-            "'X'",
-        ),
-        (
-            "same-table relation",
-            "table 50120 \"S Master\" { fields { field(1; Code; Code[20]) { } field(2; Parent; Code[20]) { TableRelation = \"S Master\"; } } keys { key(PK; Code) { } } }".into(),
-            "table 50121 \"S Child\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }".into(),
-            "",
-            "'X'",
-        ),
-        (
-            "multi-field key",
-            "table 50120 \"S Master\" { fields { field(1; Code; Code[20]) { } field(2; Sub; Code[20]) { } } keys { key(PK; Code, Sub) { } } }".into(),
-            plain.clone(),
-            "",
-            "'X', ''",
-        ),
+    let plain = child_with("Code[20]", PLAIN, "");
+    let x = from("Code", "S Master", "", "X");
+    let typed = |ty: &str| (master_with("", "", ty), child_with(ty, PLAIN, ""));
+    let (int_m, int_c) = typed("Integer");
+    let (guid_m, guid_c) = typed("Guid");
+    let (date_m, date_c) = typed("Date");
+    let (opt_m, opt_c) = typed("Option");
+    let opt_m = opt_m.replace("Code; Option) {", "Code; Option) { OptionMembers = \" \",Alpha,Beta;");
+    let opt_c = opt_c.replace("Ref; Option) {", "Ref; Option) { OptionMembers = \" \",Alpha,Beta;");
+    let cases: Vec<(&str, String, String, &str, &str, &str, String)> = vec![
+        // :2034
+        ("captions", master_with("Caption = 'T Cap';", "Caption = 'F Cap';", "Code[20]"), plain.clone(), "", "", "'X'", from("F Cap", "T Cap", "", "X")),
+        // :1333, :1346
+        ("Integer key from zero", int_m.clone(), int_c.clone(), "", "", "5", from("Code", "S Master", "0", "5")),
+        ("Integer key to zero", int_m, int_c, "", "M.Code := 5;", "0", from("Code", "S Master", "5", "0")),
+        // :1441
+        ("Guid key", guid_m, guid_c, "", "", "'{11111111-2222-3333-4444-555555555555}'", from("Code", "S Master", "{00000000-0000-0000-0000-000000000000}", "{11111111-2222-3333-4444-555555555555}")),
+        // :1533
+        ("Date key", date_m, date_c, "", "", "DMY2Date(1, 2, 2024)", from("Code", "S Master", "", "02/01/24")),
+        // :1489
+        ("Option key", opt_m, opt_c, "", "", "1", from("Code", "S Master", " ", "Alpha")),
+        // :2647
+        ("shorter related field", MASTER.into(), child_with("Code[10]", PLAIN, ""), "", "", "'X'", x.clone()),
+        // :1676
+        ("condition", MASTER.into(), child_with("Code[20]", "TableRelation = if (Kind = const(1)) \"S Master\";", ""), "", "", "'X'", x.clone()),
+        // :1738
+        ("where()", MASTER.into(), child_with("Code[20]", "TableRelation = \"S Master\" where(Name = const('N'));", ""), "", "", "'X'", x.clone()),
+        // :1780
+        ("named key field", MASTER.into(), child_with("Code[20]", "TableRelation = \"S Master\".Code;", ""), "", "", "'X'", x.clone()),
+        // :2767
+        ("ObsoleteState = Pending", MASTER.into(), child_with("Code[20]", "TableRelation = \"S Master\"; ObsoleteState = Pending; ObsoleteReason = 'r';", ""), "", "", "'X'", x.clone()),
+        // :2793
+        ("TestTableRelation = false", MASTER.into(), child_with("Code[20]", "TableRelation = \"S Master\"; TestTableRelation = false;", ""), "", "", "'X'", x.clone()),
+        // :2819
+        ("NotBlank key", master_with("", "NotBlank = true;", "Code[20]"), plain.clone(), "", "", "'X'", x.clone()),
+        // :2845
+        ("key with its own relation", master_with("", "TableRelation = \"S Target\";", "Code[20]"), plain.clone(), "table 50122 \"S Target\" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { } } }", "", "'X'", x.clone()),
+        // :2871
+        ("OnModify on the related table", MASTER.into(), child_with("Code[20]", PLAIN, "trigger OnModify() begin Error('ran'); end;"), "", "", "'X'", x.clone()),
+        // :1937
+        ("same-table relation", "table 50120 \"S Master\" { fields { field(1; Code; Code[20]) { } field(2; Parent; Code[20]) { TableRelation = \"S Master\"; } } keys { key(PK; Code) { } } }".into(), "table 50121 \"S Child\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }".into(), "", "", "'X'", x.clone()),
+        // :1895
+        ("table extension field", MASTER.into(), "table 50121 \"S Child\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }".into(), "tableextension 50130 CX extends \"S Child\" { fields { field(50; Ref; Code[20]) { TableRelation = \"S Master\"; } } }", "", "'X'", x.clone()),
     ];
-    for (name, master, child, extra, new) in cases {
-        match shape(&master, &child, extra, new) {
-            Err(Signal::Unsupported(why)) => {
-                assert!(why.to_string().contains("blank or zero key value"), "{name}: {why}")
-            }
-            other => panic!("{name}: expected a refusal, got {other:?}"),
+    for (name, master, child, extra, setup, new, want) in cases {
+        take_hits();
+        match cell(&master, &child, extra, setup, new) {
+            Ok(got) => assert_eq!(got, want, "{name}"),
+            other => panic!("{name}: {other:?}"),
         }
+        assert!(take_hits().contains(&Assumption::RenameBlankKeyWithRelation), "{name}");
     }
 }
 
-// A temporary rename asks which fields relate to the table without following them: it takes none of the assumptions a
-// rename that follows an arm takes (here rename-follows-filter-condition-arms), and with no relation to the key field that
-// changes it keeps main's rename.
+// :1979: OnBeforeRenameEvent and the OnRename trigger run, then the error; OnAfterRenameEvent does not run.
 #[test]
-fn a_temporary_rename_takes_no_assumption_of_the_arms_it_does_not_follow() {
-    let master = "table 50120 \"S Master\" { fields { field(1; A; Code[20]) { } field(2; B; Code[20]) { } } keys { key(PK; A, B) { } } }";
-    let child = "table 50121 \"S Child\" { fields { field(1; Id; Integer) { } field(2; Kind; Integer) { } field(3; Ref; Code[20]) { TableRelation = if (Kind = filter(1 | 2)) \"S Master\".A; } } keys { key(PK; Id) { } } }";
-    let target = al_version::Target::for_bc(al_version::BcVersion::parse("29.0").unwrap());
-    let src = format!(
-        "{master}\n{child}\ncodeunit 50150 C {{ procedure F(): Text var M: Record \"S Master\" temporary; begin
-            M.A := 'A1'; M.Insert();
-            M.Rename('A1', 'Y');
-            exit(M.B);
-        end; }}"
+fn the_error_comes_after_the_trigger_and_before_the_after_event() {
+    let master = master_with(
+        "trigger OnRename() var L: Codeunit Log; begin L.Add('trigger;'); end;",
+        "",
+        "Code[20]",
     );
-    let l = al_testkit::compile(&src);
-    let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
-    let engine = al_vm::Engine::with_target(l.program.clone(), al_testkit::blocked(&l), Some(target));
-    let mut s = al_vm::Session::new(engine);
-    let inst = s.instance(oi);
-    take_hits();
-    let r = s.call(oi, 0, inst, vec![]).unwrap().0;
-    assert!(matches!(r, Value::Text(t) if t == "Y"));
-    assert!(!take_hits().contains(&Assumption::RenameFollowsFilterConditionArms));
+    let r = run(
+        &format!("{master}\n{CHILD}\n{LOG}\n{SUBS}"),
+        "var M: Record \"S Master\"; M2: Record \"S Master\"; C: Record \"S Child\"; L: Codeunit Log; begin
+            M.Insert(); C.Id := 1; C.Insert(); Commit();
+            M2.Get('');
+            asserterror M2.Rename('X');
+            exit(L.Get() + GetLastErrorCode() + ';' + M2.Code + ';' + Format(M.Get('')));
+        end;",
+    );
+    assert_eq!(r.unwrap(), "before;trigger;DB:Ok;;Yes");
+}
+
+// The return-value form raises too (:2281), and so does RecordRef.Rename (:2321).
+#[test]
+fn the_return_value_form_and_recordref_rename_raise() {
+    for call in ["Ok := M2.Rename('X')", "RR.GetTable(M2); RR.Rename('X')"] {
+        let r = run(
+            &format!("{MASTER}\n{CHILD}"),
+            &format!(
+                "var M: Record \"S Master\"; M2: Record \"S Master\"; C: Record \"S Child\"; RR: RecordRef; Ok: Boolean; begin
+                    M.Insert(); C.Id := 1; C.Insert(); Commit();
+                    M2.Get('');
+                    asserterror begin {call}; end;
+                    exit(GetLastErrorText() + '|' + GetLastErrorCode());
+                end;"
+            ),
+        );
+        assert_eq!(r.unwrap(), format!("{SECOND}|DB:Ok"), "{call}");
+    }
+}
+
+// :1400: key (A, B), the relation targets B with where(A = field(RefA)), B changes from blank.
+#[test]
+fn the_two_field_cell_raises() {
+    let objects = "table 50120 \"S Master\" { fields { field(1; A; Code[10]) { } field(2; B; Code[10]) { } } keys { key(PK; A, B) { } } }
+        table 50121 \"S Child\" { fields { field(1; Id; Integer) { } field(2; RefA; Code[10]) { } field(3; RefB; Code[10]) { TableRelation = \"S Master\".B where(A = field(RefA)); } } keys { key(PK; Id) { } } }";
+    let body = |new: &str| {
+        format!(
+            "var M: Record \"S Master\"; M2: Record \"S Master\"; begin
+                M.A := 'A1'; M.Insert(); Commit();
+                M2.Get('A1', '');
+                asserterror M2.Rename({new});
+                exit(GetLastErrorText());
+            end;"
+        )
+    };
+    let r = run(objects, &body("'A1', 'X'")).unwrap();
+    assert!(
+        r.starts_with("The B field on the S Master table cannot be renamed from \"\" to \"X\".\\\\"),
+        "{r}"
+    );
+    // Both key fields change: not the measured cell.
+    assert!(refused(run(objects, &body("'A2', 'X'"))).contains("two-field key"));
+}
+
+// One fact outside the measured cells, or two measured facts at once: refused.
+#[test]
+fn a_rename_outside_the_measured_cells_is_refused() {
+    let plain = child_with("Code[20]", PLAIN, "");
+    let cases: Vec<(&str, String, String, &str, &str, &str)> = vec![
+        ("two measured facts", master_with("Caption = 'T';", "Caption = 'F';", "Code[20]"), child_with("Code[10]", PLAIN, ""), "", "", "'X'"),
+        ("table caption only", master_with("Caption = 'T';", "", "Code[20]"), plain.clone(), "", "", "'X'"),
+        ("table extension of the renamed table", MASTER.into(), plain.clone(), "tableextension 50130 SX extends \"S Master\" { fields { field(50; X; Integer) { } } }", "", "'X'"),
+        ("not per company", master_with("DataPerCompany = false;", "", "Code[20]"), plain.clone(), "", "", "'X'"),
+        ("Code[10] key", master_with("", "", "Code[10]"), child_with("Code[10]", PLAIN, ""), "", "", "'X'"),
+        ("Boolean key", master_with("", "", "Boolean"), child_with("Boolean", PLAIN, ""), "", "", "true"),
+        ("Integer of four digits", master_with("", "", "Integer"), child_with("Integer", PLAIN, ""), "", "", "1000"),
+        ("Guid with letters", master_with("", "", "Guid"), child_with("Guid", PLAIN, ""), "", "", "'{AAAAAAAA-2222-3333-4444-555555555555}'"),
+        ("related field in its table's key", MASTER.into(), "table 50121 \"S Child\" { fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = \"S Master\"; } } keys { key(PK; Id, Ref) { } } }".into(), "", "", "'X'"),
+        ("two arms", MASTER.into(), child_with("Code[20]", "TableRelation = if (Kind = const(1)) \"S Master\" else if (Kind = const(2)) \"S Master\";", ""), "", "", "'X'"),
+        ("filter condition", MASTER.into(), child_with("Code[20]", "TableRelation = if (Kind = filter(1 | 2)) \"S Master\";", ""), "", "", "'X'"),
+        ("two relations", MASTER.into(), plain.clone(), "table 50123 \"S Other\" { fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = \"S Master\"; } } keys { key(PK; Id) { } } }", "", "'X'"),
+        ("OnDelete on the related table", MASTER.into(), child_with("Code[20]", PLAIN, "trigger OnDelete() begin end;"), "", "", "'X'"),
+        ("OnModify on the related table, to blank", MASTER.into(), child_with("Code[20]", PLAIN, "trigger OnModify() begin end;"), "", "M.Code := 'A';", "''"),
+        ("a trigger that writes", master_with("trigger OnRename() var C: Record \"S Child\"; begin C.Id := 9; C.Insert(); end;", "", "Code[20]"), plain.clone(), "", "", "'X'"),
+    ];
+    for (name, master, child, extra, setup, new) in cases {
+        let why = refused(cell(&master, &child, extra, setup, new));
+        assert!(why.contains("blank or zero key value"), "{name}: {why}");
+    }
+}
+
+// The record's own state outside the measured cells: refused.
+#[test]
+fn a_record_outside_the_measured_states_is_refused() {
+    let objects = format!("{MASTER}\n{CHILD}");
+    let body = |steps: &str| {
+        format!(
+            "var M: Record \"S Master\"; M2: Record \"S Master\"; M3: Record \"S Master\"; C: Record \"S Child\"; RR: RecordRef; Ok: Boolean; begin
+                {steps}
+                exit('renamed');
+            end;"
+        )
+    };
+    let cases = [
+        (
+            "Get of a row the open transaction wrote",
+            "M.Insert(); M2.Get(''); M2.Rename('X');",
+        ),
+        ("own Insert, to blank", "M.Code := 'A'; M.Insert(); M.Rename('');"),
+        (
+            "a changed buffer",
+            "M.Insert(); Commit(); M2.Get(''); M2.Name := 'n'; M2.Rename('X');",
+        ),
+        (
+            "a stale record",
+            "M.Insert(); Commit(); M2.Get(''); M3.Get(''); M3.Name := 'n'; M3.Modify(); M2.Rename('X');",
+        ),
+        (
+            "a filter",
+            "M.Insert(); Commit(); M2.Get(''); M2.SetRange(Name, 'n'); M2.Rename('X');",
+        ),
+        (
+            "RecordRef with the return value",
+            "M.Insert(); Commit(); M2.Get(''); RR.GetTable(M2); Ok := RR.Rename('X');",
+        ),
+    ];
+    for (name, steps) in cases {
+        let why = refused(run(&objects, &body(steps)));
+        assert!(why.contains("blank or zero key value"), "{name}: {why}");
+    }
+}
+
+// Outside the rule main's rename and main's errors stay.
+#[test]
+fn a_rename_outside_the_rule_keeps_mains_result() {
+    let plain = format!("{MASTER}\n{CHILD}");
+    let lone = MASTER.to_string();
+    let soft = format!(
+        "{MASTER}\n{}",
+        child_with(
+            "Code[20]",
+            "TableRelation = \"S Master\"; ValidateTableRelation = false;",
+            ""
+        )
+    );
+    let flow = format!(
+        "{MASTER}\n{}",
+        child_with("Code[20]", "FieldClass = FlowFilter; TableRelation = \"S Master\";", "")
+    );
+    // Base Application's "Sales Invoice Entity Aggregate" shape (:2495): the relation targets a non-key field.
+    let inv = "table 50120 \"S Master\" { fields { field(1; No; Code[20]) { } field(2; Posted; Boolean) { } field(3; Id; Code[20]) { } } keys { key(PK; No, Posted) { } } }
+        table 50121 \"S Child\" { fields { field(1; Id; Integer) { } field(2; Ref; Code[20]) { TableRelation = \"S Master\".Id; } } keys { key(PK; Id) { } } }";
+    // :2610: the relation targets key field A while B changes from blank.
+    let pair = "table 50120 \"S Master\" { fields { field(1; A; Code[10]) { } field(2; B; Code[10]) { } } keys { key(PK; A, B) { } } }
+        table 50121 \"S Child\" { fields { field(1; Id; Integer) { } field(2; Ref; Code[10]) { TableRelation = \"S Master\".A; } } keys { key(PK; Id) { } } }";
+    let cases: [(&str, &str, &str, &str); 9] = [
+        // :1572
+        (
+            "a temporary record",
+            &plain,
+            "var T: Record \"S Master\" temporary; C: Record \"S Child\"; begin C.Id := 1; C.Insert(); T.Insert(); T.Rename('X'); exit(T.Code); end;",
+            "X",
+        ),
+        // :1607
+        (
+            "no relation",
+            &lone,
+            "var M: Record \"S Master\"; begin M.Insert(); M.Rename('X'); exit(M.Code); end;",
+            "X",
+        ),
+        // :1305
+        (
+            "non-blank to non-blank",
+            &plain,
+            "var M: Record \"S Master\"; C: Record \"S Child\"; begin M.Code := 'A'; M.Insert(); C.Id := 1; C.Ref := 'A'; C.Insert(); M.Rename('X'); C.Get(1); exit(C.Ref); end;",
+            "X",
+        ),
+        // :1859
+        (
+            "ValidateTableRelation = false",
+            &soft,
+            "var M: Record \"S Master\"; C: Record \"S Child\"; begin M.Insert(); C.Id := 1; C.Insert(); M.Rename('X'); exit(M.Code); end;",
+            "X",
+        ),
+        // :2422
+        (
+            "a FlowFilter relation",
+            &flow,
+            "var M: Record \"S Master\"; C: Record \"S Child\"; begin M.Insert(); C.Id := 1; C.Insert(); M.Rename('X'); exit(M.Code); end;",
+            "X",
+        ),
+        (
+            "a Boolean key field beside a relation to a non-key field",
+            inv,
+            "var M: Record \"S Master\"; begin M.No := 'A'; M.Insert(); M.Rename('A', true); exit(Format(M.Posted)); end;",
+            "Yes",
+        ),
+        (
+            "a relation to key field A while B leaves blank",
+            pair,
+            "var M: Record \"S Master\"; begin M.A := 'A1'; M.Insert(); M.Rename('A1', 'X'); exit(M.B); end;",
+            "X",
+        ),
+        // :2178
+        (
+            "the new key is stored",
+            &plain,
+            "var M: Record \"S Master\"; N: Record \"S Master\"; C: Record \"S Child\"; begin M.Insert(); N.Code := 'X'; N.Insert(); C.Id := 1; C.Insert(); asserterror M.Rename('X'); exit(GetLastErrorCode()); end;",
+            "DB:RecordExists",
+        ),
+        // :2229
+        (
+            "the old row is not stored",
+            &plain,
+            "var M: Record \"S Master\"; C: Record \"S Child\"; begin C.Id := 1; C.Insert(); asserterror M.Rename('X'); exit(GetLastErrorCode()); end;",
+            "DB:RecordNotFound",
+        ),
+    ];
+    for (name, objects, body, want) in cases {
+        take_hits();
+        match run(objects, body) {
+            Ok(got) => assert_eq!(got, want, "{name}"),
+            other => panic!("{name}: {other:?}"),
+        }
+        assert!(!take_hits().contains(&Assumption::RenameBlankKeyWithRelation), "{name}");
+    }
 }

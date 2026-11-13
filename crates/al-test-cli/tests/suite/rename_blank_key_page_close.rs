@@ -1,6 +1,6 @@
 //! The page client's rename at close of a StandardDialog in lookup mode (pages/save-deleted-row/Y17SaveRowGone.al:551, a
-//! database source) from a blank key while another table relates to the key: the assumption rename-blank-key-with-relation
-//! measured only a Rename that AL code calls (al-runner issue 7937), so this one is refused.
+//! database source) from a blank key while another table relates to the key: the cells of the assumption
+//! rename-blank-key-with-relation are Renames that AL code calls (al-runner issue 7937), so this one is refused.
 
 use al_testkit::outcomes_in;
 use al_testrun::Outcome;
