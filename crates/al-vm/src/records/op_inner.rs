@@ -2011,6 +2011,7 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::Rename => {
+                let from_al = std::mem::take(&mut self.tx.rename_from_al);
                 let rename_note = (self.tx.writes.len(), self.store.change_counter());
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other);
                 if !rec.borrow().temporary {
@@ -2076,7 +2077,7 @@ impl Session {
                 }
                 // After the All Profile key check: a tenant profile renamed from the empty App ID gets that error
                 // (profiles/TestAllProfileTable.al:186).
-                self.rename_blank_key(&cx, rec, &t, &refs, &old, &new)?;
+                self.rename_blank_key(&cx, rec, &t, &refs, &old, &new, from_al)?;
                 // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
                 // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).
                 let old_pk = Self::sql_key(rec, &t, &old);

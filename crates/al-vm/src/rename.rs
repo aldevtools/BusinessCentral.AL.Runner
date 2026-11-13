@@ -22,6 +22,8 @@ pub(crate) struct RenameRef {
     table: usize,
     pos: usize,
     arm: ir::RelationArm,
+    /// The field's relation has this one arm.
+    sole_arm: bool,
 }
 
 impl RenameRef {
@@ -29,11 +31,32 @@ impl RenameRef {
     pub(crate) fn parts(&self) -> (usize, usize, &ir::RelationArm) {
         (self.table, self.pos, &self.arm)
     }
+
+    /// The field's relation has this one arm.
+    pub(crate) fn sole_arm(&self) -> bool {
+        self.sole_arm
+    }
+
+    /// The field of the renamed table `t` the arm relates to: the one it names, or the first primary key field.
+    pub(crate) fn related_field(&self, t: &TableDef) -> usize {
+        self.arm.field.unwrap_or(t.keys[0][0])
+    }
 }
 
 impl Session {
     /// Every relation arm that points at table `t`, or why the rename cannot be done faithfully.
     pub(crate) fn rename_references(&self, t: &TableDef) -> Result<Vec<RenameRef>, Signal> {
+        self.relation_refs(t, true)
+    }
+
+    /// [`Session::rename_references`] without taking the assumptions a rename that follows the arms takes: for a rename
+    /// that only asks which fields relate to `t` and follows none of them (a temporary record, `rename_blank_key.rs`).
+    pub(crate) fn relation_refs_unfollowed(&self, t: &TableDef) -> Result<Vec<RenameRef>, Signal> {
+        self.relation_refs(t, false)
+    }
+
+    /// The arms of [`Session::rename_references`]; `follows`: the rename follows them and takes their assumptions.
+    fn relation_refs(&self, t: &TableDef, follows: bool) -> Result<Vec<RenameRef>, Signal> {
         let name = t.name.to_lowercase();
         let mut refs = Vec::new();
         for (oi, o) in self.engine.program.objects.heads().iter().enumerate() {
@@ -67,7 +90,7 @@ impl Session {
                             // A `Field = filter(<> X)` arm is pinned (record/table-relation/TableRelationArms.al:192
                             // Rename_FollowsOnlyTheArmsThatApply: the rows the filter takes follow the rename, the others
                             // stay); any other filter form is the assumption.
-                            if arm.conditions.iter().any(|c| c.filter && !single_not_equal(&c.value)) {
+                            if follows && arm.conditions.iter().any(|c| c.filter && !single_not_equal(&c.value)) {
                                 al_builtins::assumptions::assume(
                                     al_builtins::assumptions::Assumption::RenameFollowsFilterConditionArms,
                                 );
@@ -78,13 +101,16 @@ impl Session {
                                     t.name, o.name, f.name
                                 ));
                             }
-                            for a in &arm.assumes {
-                                al_builtins::assumptions::assume(*a);
+                            if follows {
+                                for a in &arm.assumes {
+                                    al_builtins::assumptions::assume(*a);
+                                }
                             }
                             refs.push(RenameRef {
                                 table: oi,
                                 pos,
                                 arm: arm.clone(),
+                                sole_arm: arms.len() == 1,
                             });
                         }
                         // An arm whose target the workspace does not declare may still be this table
@@ -138,8 +164,7 @@ impl Session {
             if !self.engine.field_facts[r.table][r.pos].validate_relation {
                 continue;
             }
-            // The related field: the arm's, or the first primary key field.
-            let rel = r.arm.field.unwrap_or(t.keys[0][0]);
+            let rel = r.related_field(t);
             if rename_equal(&old[rel], &new[rel])? {
                 continue;
             }

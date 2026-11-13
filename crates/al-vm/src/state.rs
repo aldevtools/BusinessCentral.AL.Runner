@@ -61,6 +61,9 @@ pub(crate) struct TxState {
     /// (`Session::record_op_unprofiled`): only such an Insert goes into the insert queue. The platform's own inserts (an XmlPort
     /// import, a page's new row, a FlowField's row, a record link) are not measured and stay out of it.
     pub(crate) insert_from_al: bool,
+    /// Set by a Rename that AL code calls on a Record or a RecordRef, taken by the Rename arm of `record_op_inner`: only such
+    /// a Rename can have the reporter's shape of `rename_blank_key.rs`. The page client's rename at close clears it.
+    pub(crate) rename_from_al: bool,
     /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
     /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
     pub(crate) deferred_by: Option<usize>,
@@ -190,6 +193,7 @@ impl TxState {
             deferred_insert: None,
             insert_buffer: Vec::new(),
             insert_from_al: false,
+            rename_from_al: false,
             deferred_by: None,
             deferred_raised: 0,
             immediate_errors: false,
