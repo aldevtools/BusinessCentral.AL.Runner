@@ -76,7 +76,7 @@ impl Session {
     }
 
     /// The reporter's shape (al-runner issue 7937, `app/Repro.al` and `test/ReproTest.Codeunit.al`, BC online 29.1), every fact
-    /// by equality: BC 29; a database record of a per-company table with a one-field Code primary key, no Caption on the table
+    /// by equality: a database record of a per-company table with a one-field Code primary key, no Caption on the table
     /// or the field, no table extension, no OnRename trigger, no subscriber to its events, the Global Triggers rename subscribers
     /// as measured (`global_rename_subscribers_as_measured`); its stored row's key is blank and the new key is not; one relation to it: a plain `TableRelation = <table>` of a
     /// validated Code field outside the primary key of another per-company table without extensions; one row holds the blank.
@@ -103,8 +103,7 @@ impl Session {
                 .iter()
                 .all(|(p, _)| !p.eq_ignore_ascii_case("Caption") && !p.eq_ignore_ascii_case("CaptionML"))
         };
-        let master_facts = engine.target.as_ref().map(|v| v.bc.major) == Some(29)
-            && t.per_company
+        let master_facts = t.per_company
             && matches!(t.fields[k].ty, RtType::Code(_))
             && no_caption(&master.properties)
             && no_caption(&master_schema.fields[k].properties)

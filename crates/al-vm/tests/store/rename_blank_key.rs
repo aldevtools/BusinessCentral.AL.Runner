@@ -90,10 +90,18 @@ fn refused(r: Result<String, Signal>) -> String {
     }
 }
 
-// The reporter measured BC 29.1 only.
+// The reporter measured BC 29.1; the assumption takes BC 27 and 28 alike (no version gate has corpus evidence).
 #[test]
-fn the_same_rename_on_bc_28_is_refused() {
-    assert!(refused(run_on("28.0", REPRO)).contains("blank or zero key value"));
+fn the_same_rename_on_bc_27_and_28_takes_the_assumption() {
+    for bc in ["27.0", "28.0"] {
+        take_hits();
+        assert!(
+            run_on(bc, REPRO)
+                .unwrap()
+                .starts_with("The Code field on the RB Master table cannot be renamed")
+        );
+        assert!(take_hits().contains(&Assumption::RenameBlankKeyWithRelation));
+    }
 }
 
 #[test]
