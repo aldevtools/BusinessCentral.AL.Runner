@@ -3088,3 +3088,27 @@ codeunit 50954 T {
 "#;
     all_pass(run_with_deps(&[], source));
 }
+
+/// The outcome of test `name` in `results`.
+fn outcome_named(results: &[(String, Outcome)], name: &str) -> Outcome {
+    results
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, o)| o.clone())
+        .unwrap_or_else(|| panic!("no test {name}: {results:?}"))
+}
+
+/// Issue 7880: a Worksheet that shows a primary key field can get the key typed, which is not measured: closing it
+/// keeps main's refusal.
+#[test]
+fn issue_7880_worksheet_with_a_key_field_control_keeps_the_refusal() {
+    let source = include_str!("../fixtures/worksheet-draft-close-empty-part.al");
+    let item = "                field(Item; Rec.Item) { }\n";
+    assert!(source.contains(item));
+    let changed = source.replace(item, &format!("                field(Batch; Rec.Batch) {{ }}\n{item}"));
+    let outcome = outcome_named(&run_with_deps(&[], &changed), "CloseStoresWorksheetRowWithoutReadingEmptyPart");
+    assert!(
+        matches!(&outcome, Outcome::NotRun(reason) if reason.contains("closing a new host row")),
+        "{outcome:?}"
+    );
+}

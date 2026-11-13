@@ -797,8 +797,9 @@ impl Session {
             )
     }
 
-    /// Whether a SetValue typed the key of the new row: its key differs from the one it started with (`PageState::draft_start`,
-    /// after the filters stamped it and OnNewRecord ran). False for a row `start_draft` did not start.
+    /// Whether `part` is the single part of the Worksheet `host` and is the measured FactBox (AL Runner issue 7880, corpus pull
+    /// request 1344, assumption `worksheet-draft-close-empty-part`): a ListPart in the FactBoxes area without extension or
+    /// subscriber, linked by one `field(...)` entry.
     fn worksheet_draft_factbox(&self, host: &St, part: &St) -> bool {
         let engine = self.engine();
         let host_state = host.borrow();
@@ -820,6 +821,20 @@ impl Session {
             })
     }
 
+    /// Whether the Worksheet `st` shows no field control bound to a primary key field, as measured (issue 7880: Batch comes from
+    /// OnNewRecord, the line number from AutoSplitKey, and the page shows neither), so no key can be typed.
+    fn worksheet_shows_no_key_field(&self, st: &St) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let engine = self.engine();
+        Ok(!page_of(&engine, st)
+            .controls
+            .iter()
+            .any(|c| matches!(c.binding, ir::Binding::Field(f) if table.keys[0].contains(&f))))
+    }
+
+    /// Whether a SetValue typed the key of the new row: its key differs from the one it started with (`PageState::draft_start`,
+    /// after the filters stamped it and OnNewRecord ran). False for a row `start_draft` did not start.
     pub(super) fn key_typed_since_draft_start(&mut self, st: &St) -> Result<bool, Signal> {
         let Some(start) = st.borrow().draft_start.clone() else {
             return Ok(false);
@@ -866,6 +881,9 @@ impl Session {
         }
         let pinned =
             st.borrow().draft_from_open && self.top_card_or_document(st) && self.key_typed_since_draft_start(st)?;
+        // The measured Worksheet (issue 7880, corpus pull request 1344): opened with OpenEdit, its line started by SetValue on
+        // the empty page (no OpenNew draft, no saved starting buffer), AutoSplitKey, DelayedInsert and MultipleNewLines,
+        // OnNewRecord, no extension or subscriber, no key field shown, and one FactBox part (`worksheet_draft_factbox`).
         let worksheet = {
             let page = st.borrow();
             let engine = self.engine();
@@ -884,7 +902,7 @@ impl Session {
         let worksheet = worksheet
             && self.unextended_unsubscribed(st)
             && self.declares(st, "onnewrecord")
-            && !self.key_typed_since_draft_start(st)?;
+            && self.worksheet_shows_no_key_field(st)?;
         let mut quiet = Vec::new();
         for c in parts {
             let worksheet = worksheet && self.worksheet_draft_factbox(st, &c);
