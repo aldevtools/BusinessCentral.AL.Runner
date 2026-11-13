@@ -1099,6 +1099,35 @@ fn tdd_true_on_run_tests_runs_against_stubs_and_flags_the_line_and_the_summary()
     s.line();
 }
 
+/// The kept compile holds every test codeunit (ADR-028 amendment of 2026-11-13), so with a `test` filter the summary's
+/// `generatedStubs` still lists the stubs of the test codeunits the filter leaves out.
+#[test]
+fn with_tdd_and_a_test_filter_the_summary_lists_the_stubs_of_unselected_test_codeunits() {
+    let d = tempfile::tempdir().unwrap();
+    let a = tdd_app(d.path());
+    write(
+        &a,
+        "src/Other.al",
+        "codeunit 50112 \"Serve Other Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Alone()\n    begin\n    end;\n}\n",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": true, "test": "Codeunit50112."}));
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 1, "{lines:?}");
+    assert_eq!(line_of(&lines, "Alone")["status"], "pass", "{lines:?}");
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["generatedStubs"], json!([DOUBLE_IT]), "{summary}");
+    assert_eq!(
+        summary["stubbed"],
+        json!({"passed": 0, "failed": 0, "error": 0}),
+        "{summary}"
+    );
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
 #[test]
 fn a_server_started_with_tdd_stubs_by_default_and_tdd_false_turns_it_off_for_one_request() {
     let d = tempfile::tempdir().unwrap();

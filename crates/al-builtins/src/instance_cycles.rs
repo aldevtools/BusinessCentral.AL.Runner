@@ -28,6 +28,10 @@ type Shared = Rc<RefCell<Instance>>;
 thread_local! {
     /// The instances made on this thread that were alive at the last [`collect`] or made since.
     static MADE: RefCell<Vec<Weak<RefCell<Instance>>>> = const { RefCell::new(Vec::new()) };
+    /// The registry length at which [`shared`] next drops the entries of dropped instances: twice the entries left by
+    /// the last pruning or [`collect`], at least [`PRUNE_FLOOR`]. A `Weak` keeps its instance's allocation, so a
+    /// session that makes many instances before a `collect` (or never reaches one) would otherwise grow with each.
+    static PRUNE_AT: std::cell::Cell<usize> = const { std::cell::Cell::new(PRUNE_FLOOR) };
 }
 
 /// The instances of the process that are alive (made by [`shared`] and not yet dropped).
@@ -67,11 +71,30 @@ pub fn live() -> usize {
     LIVE.load(Ordering::Relaxed)
 }
 
+/// The fewest registry entries at which [`shared`] drops the entries of dropped instances.
+const PRUNE_FLOOR: usize = 1024;
+
+/// How many instances this thread's registry notes (alive or dropped since the last pruning).
+pub fn noted() -> usize {
+    MADE.with(|m| m.borrow().len())
+}
+
 /// The shared handle of a new instance, noted for [`collect`].
 pub fn shared(instance: Instance) -> Shared {
     let r = Rc::new(RefCell::new(instance));
-    MADE.with(|m| m.borrow_mut().push(Rc::downgrade(&r)));
+    MADE.with(|m| {
+        let mut m = m.borrow_mut();
+        m.push(Rc::downgrade(&r));
+        if m.len() >= PRUNE_AT.get() {
+            m.retain(|w| w.strong_count() > 0);
+            set_prune_at(m.len());
+        }
+    });
     r
+}
+
+fn set_prune_at(entries: usize) {
+    PRUNE_AT.set((2 * entries).max(PRUNE_FLOOR));
 }
 
 /// Clears the globals of the instances made on this thread that only references among themselves keep alive. Called
@@ -132,7 +155,11 @@ pub fn collect() {
         .map(|(r, _)| Rc::downgrade(r))
         .collect();
     drop(alive);
-    MADE.with(|m| m.borrow_mut().extend(kept));
+    MADE.with(|m| {
+        let mut m = m.borrow_mut();
+        m.extend(kept);
+        set_prune_at(m.len());
+    });
 }
 
 /// Calls `f` for every instance reference `inst` holds through values only it owns.
@@ -177,5 +204,43 @@ fn owned_in_value(v: &Value, f: &mut dyn FnMut(&Shared)) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make() -> Shared {
+        shared(Instance {
+            object: 1,
+            ..Default::default()
+        })
+    }
+
+    /// A session that makes and drops many instances before any `collect` keeps the registry bounded (review of
+    /// PR 7986: 9 M instances per test grew the process by about 206 bytes each).
+    #[test]
+    fn dropped_instances_leave_the_registry_bounded() {
+        for _ in 0..200_000 {
+            drop(make());
+        }
+        assert!(noted() <= 2 * PRUNE_FLOOR, "registry holds {} entries", noted());
+    }
+
+    /// Instances that are still alive stay noted when the registry is pruned, so `collect` still frees their cycles.
+    #[test]
+    fn pruning_keeps_the_live_instances() {
+        let kept: Vec<Shared> = (0..3 * PRUNE_FLOOR).map(|_| make()).collect();
+        for _ in 0..10 * PRUNE_FLOOR {
+            drop(make());
+        }
+        let noted_alive = MADE.with(|m| m.borrow().iter().filter(|w| w.strong_count() > 0).count());
+        assert_eq!(noted_alive, kept.len());
+        assert!(
+            noted() <= 2 * kept.len() + PRUNE_FLOOR,
+            "registry holds {} entries",
+            noted()
+        );
     }
 }
