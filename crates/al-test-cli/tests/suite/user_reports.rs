@@ -2674,28 +2674,35 @@ fn measured_report_extension_items_link_to_named_immediate_parents() {
 #[test]
 fn report_extension_refuses_unmeasured_parent_references() {
     let fixture = include_str!("../fixtures/report-added-item-parent-link.al");
-    for (shape, source) in [
+    for (shape, source, refusal) in [
         (
             "grandparent",
             fixture.replace(
                 "DataItemLinkReference = AddedHeader;",
                 "DataItemLinkReference = Header;",
             ),
+            "DataItemLinkReference",
         ),
         (
             "sibling",
             fixture.replace("DataItemLinkReference = Header;", "DataItemLinkReference = Line;"),
+            "DataItemLinkReference",
         ),
-        ("top-level", fixture.replace("addbefore(Line)", "addbefore(Header)")),
+        (
+            "top-level",
+            fixture.replace("addbefore(Line)", "addbefore(Header)"),
+            "is a top-level data item",
+        ),
         (
             "no link",
             fixture.replacen("DataItemLink = ParentId = field(Id);", "", 1),
+            "DataItemLinkReference",
         ),
     ] {
         let outcomes = run_with_deps(&[], &source);
         assert_eq!(outcomes.len(), 1, "{shape}: {outcomes:?}");
         assert!(
-            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains("DataItemLinkReference")),
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains(refusal)),
             "{shape}: {outcomes:?}"
         );
     }
