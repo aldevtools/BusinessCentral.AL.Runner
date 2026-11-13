@@ -932,6 +932,8 @@ pub struct Session {
     pub(crate) seed_refusal: Option<String>,
     /// Whether the builtin being called has its result used (ADR-011 `ret_used`).
     pub(crate) ret_used: bool,
+    /// The routine `call` returned from last ended by running `exit(value)` (al-vm pages/record_trigger_answer.rs).
+    pub(crate) exited_with_value: bool,
     /// The form of the text of the `FieldError` being called, for the text `GetLastErrorText(true)` answers
     /// (`Ctx::field_error_with_form`); `None` outside such a call.
     pub(crate) field_error_form: Option<al_builtins::native::ErrorTextForm>,
@@ -1322,6 +1324,7 @@ impl Session {
             baseline_origin: None,
             seed_refusal: None,
             ret_used: true,
+            exited_with_value: false,
             field_error_form: None,
             error_finals: None,
             var_alias_watch: Vec::new(),
@@ -2722,6 +2725,7 @@ impl Session {
                 return Err(e);
             }
         };
+        self.exited_with_value = ret.is_some();
         let value = match (&r.ret, ret, r.ret_local) {
             (Some(t), Some(v), _) => ops::convert_plain(v, t)?,
             (Some(_), None, Some(l)) => frame.locals[l].clone(),
