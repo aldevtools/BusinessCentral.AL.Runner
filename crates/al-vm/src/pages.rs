@@ -68,6 +68,46 @@ pub(crate) fn control_id(object_id: u32, name: &str) -> i64 {
     request::action_id(object_id, name)
 }
 
+/// A host move whose parts are reading again (`Session::host_move_running`, set in `pageops.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HostMove {
+    pub(crate) method: al_builtins::page_op::PageMethod,
+    /// The move stayed on the row and its parts read again through `sync_parts_stayed` (a GoToKey or GoToRecord to the row the
+    /// host stands on). False for every other move, a GoToRecord the `pageops.rs` last branch syncs included.
+    pub(crate) stayed: bool,
+    /// The host passes this row on its way to the row a GoToRecord finds (`walk_parts.rs`).
+    pub(crate) passing: bool,
+}
+
+impl HostMove {
+    /// A move whose parts read again outside `sync_parts_stayed`.
+    pub(crate) fn moved(method: al_builtins::page_op::PageMethod) -> Self {
+        HostMove {
+            method,
+            stayed: false,
+            passing: false,
+        }
+    }
+
+    /// A GoToKey or GoToRecord that stayed on the row; its parts read again through `sync_parts_stayed`.
+    pub(crate) fn stayed(method: al_builtins::page_op::PageMethod) -> Self {
+        HostMove {
+            method,
+            stayed: true,
+            passing: false,
+        }
+    }
+
+    /// A row a GoToRecord passes on its way to the row it finds; the parts read again there (`walk_parts.rs`).
+    pub(crate) fn passing(method: al_builtins::page_op::PageMethod) -> Self {
+        HostMove {
+            method,
+            stayed: false,
+            passing: true,
+        }
+    }
+}
+
 fn page_of<'a>(engine: &'a Engine, st: &St) -> &'a ir::Page {
     let object = st.borrow().object as usize;
     engine.program.objects[object]
@@ -162,6 +202,7 @@ fn lit_bool(name: &str, s: &str) -> Result<bool, Signal> {
 
 type Handler = (usize, usize, Rc<RefCell<al_builtins::value::Instance>>);
 
+mod action_enabled_row;
 mod areas;
 mod background;
 mod end_move_no_read;
@@ -173,6 +214,8 @@ mod filter;
 mod filter_enum;
 mod filter_link_numbers;
 mod modal_handler_error;
+mod page_run_close;
+pub(crate) use page_run_close::PageRunCall;
 mod param_read;
 mod part_tree_typed;
 mod part_unsettled;
@@ -211,6 +254,7 @@ mod dev_endpoint;
 mod dirty_step;
 mod draft;
 mod empty_after_action;
+mod empty_view_update;
 mod ext_column_visible;
 mod fn_controls;
 mod format;
@@ -227,6 +271,8 @@ mod list_refresh;
 mod list_view_switch;
 mod long_view;
 mod lookup_editable;
+mod new_document_insert;
+mod rendered_field;
 use lookup_editable::LookupLock;
 mod lookup_next;
 mod lookup_refresh;
@@ -243,6 +289,8 @@ mod no_source_events;
 use no_source_events::NoSourceNew;
 mod open;
 pub(crate) mod pinned_shape;
+mod trapped_card_blank_part;
+use trapped_card_blank_part::blank_part_host_refusal;
 mod ui_caption_translate;
 mod update_refresh_card;
 pub(crate) mod validate_xrec;
@@ -251,12 +299,17 @@ pub(crate) use open::written_by_routine;
 mod action_body;
 mod card_part_new_host;
 mod empty_part_rec;
+mod empty_part_rec_list;
+mod empty_part_rec_list_triggers;
+mod hidden_part_journal;
+mod hidden_part_journal_code;
 mod list_card_action;
 mod other_record_no_row;
 mod page_get_record;
 mod page_var_modeless_temp;
 mod page_var_view;
 mod pageops;
+mod part_assist_edit;
 mod part_filter_find;
 mod part_filter_unsaved_host;
 mod part_host_update;
@@ -266,6 +319,7 @@ mod part_visible_gate;
 mod pinned_body;
 mod post_left_new_line;
 mod provider_hidden;
+mod record_trigger_answer;
 mod refill;
 mod refresh_new_line;
 mod rows;
@@ -276,9 +330,11 @@ mod server_row_lag;
 mod shown;
 pub(crate) mod state;
 mod table_values_allowed;
+mod temp_list_gone_row;
 mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
+mod walk_parts;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
     ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, ReadBackwards, WindowRow, control_of,
@@ -461,7 +517,10 @@ impl Session {
         if let Some(r) = page.triggers.iter().find(|(n, _)| n == name).map(|(_, r)| *r) {
             let inst = st.borrow().instance.clone().expect("open page");
             match self.page_call(st, object, r, inst, args.clone()) {
-                Ok((v, _)) => answer = Some(v),
+                Ok((v, _)) => {
+                    self.pages.own_exited = self.exited_with_value;
+                    answer = Some(v)
+                }
                 Err(e) => {
                     if matches!(e, Signal::Error(_)) {
                         self.pages.failed_trigger = Some((object as u32, name.to_string()));
@@ -602,6 +661,11 @@ impl Session {
                 }
             }
         }
+        for slot in self.action_enabled_row_slots(st)? {
+            if !wanted.contains(&slot) {
+                wanted.push(slot);
+            }
+        }
         if wanted.is_empty() {
             return Ok(());
         }
@@ -724,26 +788,20 @@ impl Session {
         }
     }
 
-    /// A page trigger that answers Boolean: `Some(answer)` when the trigger exists and can state one,
-    /// `None` when it is absent or never executes `exit(value)`. A trigger that falls off its end
-    /// without an exit does not veto (corpus pages/currpage/PageUpdateNewRowCard.Page.al: OnInsertRecord
-    /// assigns the key and exits nothing, and the row is saved; testpage/TrtCardNoInsert.Page.al
-    /// exits false and it is not).
+    /// A page trigger that answers Boolean: `Some(answer)` when the trigger exists and states one, `None` when it is absent
+    /// or lets the row be saved (`own_record_trigger_answer`, pages/record_trigger_answer.rs).
     fn page_trigger_answer(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<bool>, Signal> {
         let engine = self.engine();
-        let object = st.borrow().object as usize;
         let routine = page_of(&engine, st)
             .triggers
             .iter()
             .find(|(n, _)| n == name)
             .map(|(_, r)| *r);
         self.pages.ext_vetoed = false;
-        let states_answer = routine.is_some_and(|r| has_value_exit(&engine.program.objects[object].routines[r].body));
+        self.pages.own_exited = false;
+        self.pages.named_false_insert = false;
         let v = self.page_trigger(st, name, args)?;
-        let own = match v {
-            Some(Value::Boolean(b)) if states_answer => Some(b),
-            _ => None,
-        };
+        let own = self.own_record_trigger_answer(st, name, routine, v)?;
         // OnInsertRecord and OnModifyRecord of the page extensions: all of them run, the page's first, whatever the others
         // answered, and one false answer of an extension vetoes the insert or the modify (testpage/
         // UeTriggerTests.al NewRow_FirstExtensionAnswersFalse, ModifyRow_SecondExtensionAnswersFalse; awaiting the corpus pin).
@@ -1084,7 +1142,7 @@ impl Session {
 }
 
 /// Whether any statement of `body` executes `exit(value)`.
-fn has_value_exit(body: &[ir::Stmt]) -> bool {
+pub(super) fn has_value_exit(body: &[ir::Stmt]) -> bool {
     use ir::Stmt;
     body.iter().any(|s| match s {
         Stmt::Exit(Some(_)) => true,

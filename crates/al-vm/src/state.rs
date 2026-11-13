@@ -61,6 +61,9 @@ pub(crate) struct TxState {
     /// (`Session::record_op_unprofiled`): only such an Insert goes into the insert queue. The platform's own inserts (an XmlPort
     /// import, a page's new row, a FlowField's row, a record link) are not measured and stay out of it.
     pub(crate) insert_from_al: bool,
+    /// Set by a Rename that AL code calls on a Record or a RecordRef, taken by the Rename arm of `record_op_inner`: only such
+    /// a Rename is in a measured cell of `rename_blank_key.rs`. The page client's rename at close clears it.
+    pub(crate) rename_from_al: bool,
     /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
     /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
     pub(crate) deferred_by: Option<usize>,
@@ -190,6 +193,7 @@ impl TxState {
             deferred_insert: None,
             insert_buffer: Vec::new(),
             insert_from_al: false,
+            rename_from_al: false,
             deferred_by: None,
             deferred_raised: 0,
             immediate_errors: false,
@@ -269,6 +273,11 @@ pub(crate) struct PageClients {
     pub(crate) ext_answers: Vec<bool>,
     /// The last `page_trigger_answer` was a veto by a page extension's trigger.
     pub(crate) ext_vetoed: bool,
+    /// The page's own trigger of the last `page_trigger` call ended by running `exit(value)`.
+    pub(crate) own_exited: bool,
+    /// The last `page_trigger_answer` was the page's own OnInsertRecord vetoing by its named return value
+    /// (pages/record_trigger_answer.rs); taken by `insert_draft`.
+    pub(crate) named_false_insert: bool,
     /// The open that starts next is a TestPage's own OpenEdit, OpenView or OpenNew (taken by `open_page_as`).
     pub(crate) test_open: bool,
     /// Set by a FindFirst or FindLast that found a row on Rec in the OnOpenPage of a page an action opened through
@@ -303,6 +312,8 @@ pub(crate) struct PageClients {
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
+    /// Successful binding and language changes invalidate literal field caption reuse.
+    pub(crate) caption_context_revision: u64,
     /// Manual bindings whose bound instance the globals of a page reached when they were made (`page_held_bindings.rs`,
     /// al-runner issue 6924).
     pub(crate) page_held: Vec<crate::page_held_bindings::PageHeld>,

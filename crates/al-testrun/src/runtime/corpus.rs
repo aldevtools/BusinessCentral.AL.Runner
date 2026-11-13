@@ -599,6 +599,8 @@ impl CorpusRuntime {
                 })
             })
             .collect();
+        let load_ws =
+            |apps, kinds, lazy| internals_grant::load_workspace(apps, kinds, symbols, &dep_symbols, lazy, manifests);
         // The apps whose files hold no text yet, in program order.
         let lazy: Vec<Option<al_sema::LazySource>> =
             order.iter().map(|&i| opts.lazy.get(i).cloned().flatten()).collect();
@@ -680,15 +682,11 @@ impl CorpusRuntime {
                     (true, Some(cc)) => match lazy_index(cc, &apps, manifests, &lazy, &identities) {
                         Ok(deps) => {
                             source_index = Some("read");
-                            (
-                                al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, deps),
-                                false,
-                            )
+                            (load_ws(apps, kinds, deps), false)
                         }
                         Err(key) => {
                             fill_all(&mut apps);
-                            let ws =
-                                al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, Vec::new());
+                            let ws = load_ws(apps, kinds, Vec::new());
                             save_index(cc, &ws, &lazy, &key);
                             source_index = Some("built");
                             (ws, true)
@@ -696,10 +694,7 @@ impl CorpusRuntime {
                     },
                     _ => {
                         fill_all(&mut apps);
-                        (
-                            al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, Vec::new()),
-                            true,
-                        )
+                        (load_ws(apps, kinds, Vec::new()), true)
                     }
                 };
                 let load = started.elapsed();
@@ -823,13 +818,7 @@ impl CorpusRuntime {
                                 None => {
                                     fill_all(&mut apps);
                                     let started = std::time::Instant::now();
-                                    let ws = al_sema::Workspace::load_apps_symbols(
-                                        apps,
-                                        kinds,
-                                        symbols,
-                                        &dep_symbols,
-                                        Vec::new(),
-                                    );
+                                    let ws = load_ws(apps, kinds, Vec::new());
                                     (ws, started.elapsed())
                                 }
                             };

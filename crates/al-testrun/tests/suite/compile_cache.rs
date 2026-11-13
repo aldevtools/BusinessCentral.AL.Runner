@@ -64,6 +64,7 @@ fn apps(base: &str) -> (Vec<AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>) {
                 translation_source: None,
                 runtime: None,
                 app_json_keys: Vec::new(),
+                platform_internals_visible_to: Vec::new(),
                 symbols: vec![],
             },
             Manifest {
@@ -83,6 +84,7 @@ fn apps(base: &str) -> (Vec<AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>) {
                 translation_source: None,
                 runtime: None,
                 app_json_keys: Vec::new(),
+                platform_internals_visible_to: Vec::new(),
                 symbols: vec![],
             },
         ],

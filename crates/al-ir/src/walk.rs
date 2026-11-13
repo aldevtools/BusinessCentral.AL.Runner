@@ -735,7 +735,7 @@ fn walk_field<V: RefVisitor>(f: &mut Field, v: &mut V) {
         if let Some(ws) = wheres {
             for w in ws {
                 match w {
-                    RelationWhere::Value { related: f, text: _ } => fld(v, f, related),
+                    RelationWhere::Value { related: f, .. } => fld(v, f, related),
                     RelationWhere::Field { related: f, own } => {
                         fld(v, f, related);
                         fld(v, own, TableOf::Own);
@@ -1086,6 +1086,9 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
             big_text: _,
             source_view: _,
             calc_fields,
+            after_assign_layout: _,
+            plain_import_layout: _,
+            text_attr_export: _,
             triggers: _,
         } = n;
         let of_node = |i: &Option<usize>| TableOf::object(i.and_then(|i| tables.get(i).copied().flatten()));
@@ -1218,6 +1221,7 @@ fn walk_report_ext<V: RefVisitor>(e: &mut ReportExt, v: &mut V) {
         let AddedItem {
             item,
             base_parent,
+            explicit_parent_link: _,
             place: _,
         } = a;
         // An added item is nested under another added item or under a base item.

@@ -273,7 +273,11 @@ impl Lowerer<'_> {
                             } else {
                                 text.clone()
                             };
-                            Some(ir::RelationWhere::Value { related: p, text })
+                            Some(ir::RelationWhere::Value {
+                                related: p,
+                                text,
+                                filter: *filter,
+                            })
                         }
                         // One AL string with a doubled quote in it is the filter its content spells: `filter('<>''''')` is
                         // `<>''` (not empty), on a field of the related table and on one a tableextension adds,
@@ -304,6 +308,7 @@ impl Lowerer<'_> {
                             (text != "=''" || equal_empty_pinned).then(|| ir::RelationWhere::Value {
                                 related: p,
                                 text: text.clone(),
+                                filter: true,
                             })
                         }
                         crate::relation::ParsedWhere::QuotedFilter { .. } => None,

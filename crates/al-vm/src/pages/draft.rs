@@ -1,3 +1,4 @@
+use super::pinned_shape::TestCall;
 use super::*;
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;
@@ -228,10 +229,7 @@ impl Session {
         if !self.pages.scope_unpinned.iter().any(|p| Rc::ptr_eq(p, st)) {
             self.pages.scope_unpinned.push(st.clone());
         }
-        Err(error_code(
-            "Validation error for Field: ,  Message = 'The view is filtered, and the entry is outside the filter. Some actions may not work.'",
-            "TestValidation",
-        ))
+        Err(view_filtered_error())
     }
 
     /// Whether control `idx` shows a field of the page's source table outside its primary key.
@@ -800,6 +798,54 @@ impl Session {
             )
     }
 
+    /// Whether `part` is the single part of the Worksheet `host` and is the measured FactBox (AL Runner issue 7880, corpus pull
+    /// request 1344, assumption `worksheet-draft-close-empty-part`): a ListPart in the FactBoxes area without extension or
+    /// subscriber, linked by one `field(...)` entry.
+    fn worksheet_draft_factbox(&self, host: &St, part: &St) -> bool {
+        let engine = self.engine();
+        let host_state = host.borrow();
+        let [(control, linked)] = host_state.parts.as_slice() else {
+            return false;
+        };
+        let control = *control;
+        let linked = Rc::ptr_eq(linked, part);
+        drop(host_state);
+        let ctl = &page_of(&engine, host).controls[control];
+        linked
+            && ctl.factbox
+            && self.unextended_unsubscribed(part)
+            && engine.object_facts[part.borrow().object as usize].page_type_lower() == "listpart"
+            && ctl.part_link.as_ref().is_some_and(|link| {
+                link.provider.is_none()
+                    && link.view.is_none()
+                    && matches!(link.entries.as_slice(), [ir::LinkEntry::Field(_, _)])
+            })
+    }
+
+    /// Whether the test's calls on the Worksheet `st` since its OpenEdit are as measured (issue 7880): one or more SetValues,
+    /// each ending without an error, then the running Close. The page opened on a row would have taken the first SetValue on
+    /// that row, so a draft after these calls was started on the empty page.
+    fn worksheet_draft_close_calls(st: &St) -> bool {
+        Self::test_calls_all_succeeded(st).is_some_and(|calls| match calls.split_last() {
+            Some((TestCall::Page(PageMethod::Close), writes)) => {
+                !writes.is_empty() && writes.iter().all(|c| matches!(c, TestCall::Write(_)))
+            }
+            _ => false,
+        })
+    }
+
+    /// Whether the Worksheet `st` shows no field control bound to a primary key field, as measured (issue 7880: Batch comes from
+    /// OnNewRecord, the line number from AutoSplitKey, and the page shows neither), so no key can be typed.
+    fn worksheet_shows_no_key_field(&self, st: &St) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let engine = self.engine();
+        Ok(!page_of(&engine, st)
+            .controls
+            .iter()
+            .any(|c| matches!(c.binding, ir::Binding::Field(f) if table.keys[0].contains(&f))))
+    }
+
     /// Whether a SetValue typed the key of the new row: its key differs from the one it started with (`PageState::draft_start`,
     /// after the filters stamped it and OnNewRecord ran). False for a row `start_draft` did not start.
     pub(super) fn key_typed_since_draft_start(&mut self, st: &St) -> Result<bool, Signal> {
@@ -848,8 +894,33 @@ impl Session {
         }
         let pinned =
             st.borrow().draft_from_open && self.top_card_or_document(st) && self.key_typed_since_draft_start(st)?;
+        // The measured Worksheet (issue 7880, corpus pull request 1344): opened by the test's own OpenEdit, the test's only
+        // calls on it SetValues that succeeded and then Close (`worksheet_draft_close_calls`), so its line started on the empty
+        // page (no OpenNew draft, no saved starting buffer), AutoSplitKey, DelayedInsert and MultipleNewLines, OnNewRecord,
+        // no extension or subscriber, no key field shown, and one FactBox part (`worksheet_draft_factbox`).
+        let worksheet = {
+            let page = st.borrow();
+            let engine = self.engine();
+            let object = page.object as usize;
+            page.test_open_edit()
+                && !page.draft_from_open
+                && page.draft_start.is_none()
+                && engine.object_facts[object].page_type == Some(ir::PageType::Worksheet)
+                && ["AutoSplitKey", "DelayedInsert", "MultipleNewLines"]
+                    .iter()
+                    .all(|name| {
+                        effective_prop(&engine, object, name)
+                            .is_ok_and(|value| value.is_some_and(|value| value.trim().eq_ignore_ascii_case("true")))
+                    })
+        };
+        let worksheet = worksheet
+            && self.unextended_unsubscribed(st)
+            && self.declares(st, "onnewrecord")
+            && Self::worksheet_draft_close_calls(st)
+            && self.worksheet_shows_no_key_field(st)?;
         let mut quiet = Vec::new();
         for c in parts {
+            let worksheet = worksheet && self.worksheet_draft_factbox(st, &c);
             if c.borrow().part_accessed || (c.borrow().draft && c.borrow().dirty) {
                 continue;
             }
@@ -861,9 +932,14 @@ impl Session {
                     .iter()
                     .any(|t| self.engine().events.is_subscribed(object, t));
             if observes && c.borrow().cursor != Cursor::Row && self.has_source(&c) {
-                if !pinned {
+                if !pinned && !worksheet {
                     return unsupported(
                         "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
+                    );
+                }
+                if worksheet {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::WorksheetDraftCloseEmptyPart,
                     );
                 }
                 c.borrow_mut().quiet_at_close = true;
@@ -984,6 +1060,20 @@ impl Session {
             self.set_xrec(st);
             return Ok(());
         }
+        if go == Some(false) && std::mem::take(&mut self.pages.named_false_insert) {
+            // The page's own OnInsertRecord vetoed by its named return value, the insert of a SetValue: the SetValue raises
+            // the filtered-view error and nothing is stored (open corpus PR 1367, pages/triggers/RecordTriggerReturnValue.al:350
+            // False_Insert_OpenNewSetValueClose `end|text`, `log` `I N1 ; `; assumption page-record-trigger-named-false-vetoes).
+            // What the page holds afterwards is not measured: every later call on it, Close too, is refused.
+            {
+                let mut s = st.borrow_mut();
+                s.unpinned_state = Some(
+                    "a card after its OnInsertRecord vetoed the insert by its named return value (not pinned)".into(),
+                );
+                s.unpinned_close = true;
+            }
+            return Err(view_filtered_error());
+        }
         if go == Some(false) {
             // A trigger that inserted the row itself and answered false leaves the page on a stored row: its next edit is
             // a modify (as for a template step in `start_draft`). Pinned for a database table, in a card (OpenNew) and a list
@@ -1074,11 +1164,14 @@ impl Session {
     /// a control of that row to a non-key control inserts it (corpus
     /// testpage/TestPageBlankKeyInsert.al:1-25 and its List_NewRow_Focus... arm: after New() the
     /// focus still sits on the old row's control).
-    pub(super) fn activate(&mut self, st: &St, idx: usize) -> Result<(), Signal> {
+    pub(super) fn activate(&mut self, st: &St, idx: usize, setting_value: bool) -> Result<(), Signal> {
         let (prev, in_row) = {
             let s = st.borrow();
             (s.focus, s.focus_in_row)
         };
+        if setting_value {
+            self.insert_document_before_variable_validation(st, idx, in_row && prev.is_some() && prev != Some(idx))?;
+        }
         if prev == Some(idx) {
             return Ok(());
         }
@@ -1110,4 +1203,13 @@ impl Session {
         }
         Ok(())
     }
+}
+
+/// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487, open corpus PR 1367
+/// pages/triggers/RecordTriggerReturnValue.al:365).
+fn view_filtered_error() -> Signal {
+    error_code(
+        "Validation error for Field: ,  Message = 'The view is filtered, and the entry is outside the filter. Some actions may not work.'",
+        "TestValidation",
+    )
 }

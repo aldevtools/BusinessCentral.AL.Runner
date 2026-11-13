@@ -126,9 +126,23 @@ pub(crate) struct UiScope {
     handlers: Vec<UiHandler>,
     /// A handler is running: a UI call from inside it is not pinned by the corpus.
     pub(crate) in_handler: bool,
+    /// The kind and the error text of the last dialog no handler took (`dispatch_ui_returning`): which UI call an error with
+    /// the code MissingUIHandler came from, for a rule pinned for one kind (`pages/page_run_close.rs`).
+    last_unhandled: Option<(UiKind, String)>,
 }
 
 impl Session {
+    /// The (object, routine) of each handler of `kind` bound to the running test method.
+    pub(crate) fn bound_handlers(&self, kind: UiKind) -> Vec<(usize, usize)> {
+        self.ui_state.scope.as_ref().map_or_else(Vec::new, |s| {
+            s.handlers
+                .iter()
+                .filter(|h| h.kind == kind)
+                .map(|h| (h.object, h.routine))
+                .collect()
+        })
+    }
+
     /// Checks that routine `routine` of `object` has the signature BC requires
     /// of a handler of `kind`, and binds it to `instance` (the test codeunit's).
     pub fn ui_handler(
@@ -265,6 +279,7 @@ impl Session {
         self.ui_state.scope = Some(UiScope {
             handlers,
             in_handler: false,
+            last_unhandled: None,
         });
     }
 
@@ -309,8 +324,12 @@ impl Session {
             }
             // Text and code: corpus errors/TestUnhandledUiAndDialogDefaults.al:68-107 (ONE space
             // after the kind; Confirm quotes the question, StrMenu the options only).
+            let message = format!("Unhandled UI: {} {shown}", kind.label());
+            if let Some(scope) = self.ui_state.scope.as_mut() {
+                scope.last_unhandled = Some((kind, message.clone()));
+            }
             return Err(Signal::Error(Box::new(AlError {
-                message: format!("Unhandled UI: {} {shown}", kind.label()),
+                message,
                 code: "MissingUIHandler".into(),
                 call_stack: String::new(),
                 ..Default::default()
@@ -418,6 +437,24 @@ impl Session {
     /// Whether an `[HttpClientHandler]` is bound to the running test.
     pub(crate) fn has_http_handler(&self) -> bool {
         self.has_ui_handler(UiKind::HttpClient)
+    }
+
+    /// Whether `e` is the error of a dialog of `kind` that no handler took (`UiScope::last_unhandled`).
+    pub(crate) fn unhandled_ui_is(&self, e: &AlError, kind: UiKind) -> bool {
+        e.code == "MissingUIHandler"
+            && self
+                .ui_state
+                .scope
+                .as_ref()
+                .is_some_and(|s| matches!(&s.last_unhandled, Some((k, m)) if *k == kind && *m == e.message))
+    }
+
+    /// Whether every handler bound to the running test is of `kind`.
+    pub(crate) fn every_ui_handler_is(&self, kind: UiKind) -> bool {
+        self.ui_state
+            .scope
+            .as_ref()
+            .is_some_and(|s| s.handlers.iter().all(|h| h.kind == kind))
     }
 
     /// Whether a handler of `kind` is bound to the running test.

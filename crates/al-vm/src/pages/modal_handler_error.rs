@@ -27,13 +27,18 @@ impl Session {
     /// PageModalQueryCloseVeto.al:478 RP_ListWithFactBox_HandlerCancel_HostVetoes, where the page refuses the close). Pinned only
     /// for a refusal by a page with open parts, and for a close allowed in lookup mode (WbModalHandlerCloseTests.al); a page without
     /// parts, or one where no close trigger is declared, closes as before without asking; another allowed close, or one with an
-    /// unsaved row, is refused.
-    pub(super) fn close_modal_after_handler_error(&mut self, st: &St, e: &Signal) -> Result<(), Signal> {
+    /// unsaved row, is refused. `caught_before`: the session's count of caught errors before the handler ran (caught_errors.rs).
+    pub(super) fn close_modal_after_handler_error(
+        &mut self,
+        st: &St,
+        e: &Signal,
+        caught_before: u64,
+    ) -> Result<(), Signal> {
         if self.relation_closed_in_handler(st) {
             return self.close_relation_lookup_after_handler_error(st);
         }
         if self.document_close_pinned(st)? {
-            return self.close_document_after_handler_error(st, e);
+            return self.close_document_after_handler_error(st, e, caught_before);
         }
         let parts: Vec<St> = st
             .borrow()
@@ -57,23 +62,7 @@ impl Session {
                 "a page left open by a ModalPageHandler that raised an error, with an unsaved row or a hidden part (not pinned)",
             );
         }
-        // ModalThreeParts.al: after a ListPart validation error, the three clean drafts
-        // receive None and the instance-run Document receives OK before the handler error returns.
-        let close_three_drafts = matches!(e, Signal::Error(error) if error.code == "TestValidation")
-            && !st.borrow().lookup
-            && st.borrow().run_static == Some(false)
-            && self.engine.object_facts[st.borrow().object as usize].page_type == Some(ir::PageType::Document)
-            && parts.len() == 3
-            && parts.iter().any(|p| !p.borrow().trigger_errors.is_empty())
-            && parts.iter().all(|p| {
-                let state = p.borrow();
-                state.draft
-                    && !state.dirty
-                    && self.engine.object_facts[state.object as usize]
-                        .page_type
-                        .as_ref()
-                        .is_some_and(|kind| kind.lower() == "listpart")
-            });
+        let close_three_drafts = self.three_draft_parts_close_pinned(st, &parts, e);
         let a = self.unattended_action(st);
         let lookup = st.borrow().lookup;
         match self.close_with(st, a, false, false) {
@@ -93,5 +82,91 @@ impl Session {
             ),
             Err(e) => Err(e),
         }
+    }
+
+    // al-runner issue 7891, corpus PR #1353: pages/close-errors/TestModalThreeDraftParts.al.
+    fn three_draft_parts_close_pinned(&self, st: &St, parts: &[St], error: &Signal) -> bool {
+        use super::pinned_shape::{TestCall, TreeCall, table_code};
+        use al_builtins::page_op::PageMethod;
+        let Signal::Error(error) = error else { return false };
+        if error.code != "TestValidation" {
+            return false;
+        }
+        let host = st.borrow();
+        let engine = self.engine();
+        let object = host.object as usize;
+        if host.lookup
+            || host.run_static != Some(false)
+            || host.tree_calls_unknown
+            || engine.object_facts[object].page_type != Some(ir::PageType::Document)
+        {
+            return false;
+        }
+        let [first, second, third] = parts else { return false };
+        let part_object = first.borrow().object;
+        let shape = |state: &St| {
+            let object = state.borrow().object as usize;
+            let page = page_of(&engine, state);
+            page.triggers.len() == 1
+                && page.triggers[0].0 == "onqueryclosepage"
+                && page.extensions.is_empty()
+                && page.ext_triggers.is_empty()
+                && !engine.events.any_subscriber_of(object)
+                && table_code(&engine, self.page_rec(state).borrow().table as usize) == Some((Vec::new(), false))
+        };
+        drop(host);
+        if !shape(st)
+            || !shape(first)
+            || !engine.object_facts[part_object as usize]
+                .page_type
+                .as_ref()
+                .is_some_and(|p| p.lower() == "listpart")
+            || ![first, second, third].iter().all(|p| {
+                let p = p.borrow();
+                p.object == part_object && p.draft && !p.dirty
+            })
+        {
+            return false;
+        }
+        let host = st.borrow();
+        let page = page_of(&engine, st);
+        let indices: Vec<_> = host.parts.iter().map(|(i, _)| *i).collect();
+        let [a, b, c] = indices.as_slice() else { return false };
+        if !indices.iter().all(|&i| {
+            page.controls[i].part_link.as_ref().is_some_and(|link| {
+                link.provider.is_none()
+                    && link.view.is_none()
+                    && matches!(link.entries.as_slice(), [ir::LinkEntry::Field(..)])
+            })
+        }) {
+            return false;
+        }
+        let [
+            new_a,
+            new_b,
+            new_c,
+            TreeCall {
+                part: Some(part),
+                call: TestCall::Write(field),
+                failed: true,
+                ..
+            },
+        ] = host.tree_calls.as_slice()
+        else {
+            return false;
+        };
+        let new_on = |step: &TreeCall, index| {
+            step.part == Some(index) && step.call == TestCall::Page(PageMethod::New) && !step.failed && !step.no
+        };
+        if !new_on(new_a, *a) || !new_on(new_b, *b) || !new_on(new_c, *c) || *part != *a {
+            return false;
+        }
+        let control = &page_of(&engine, first).controls[*field];
+        control.triggers.iter().any(|(name, _)| name == "onvalidate")
+            && first.borrow().trigger_errors.iter().any(|(index, message)| {
+                *index == *field
+                    && error.message
+                        == format!("Validation error for Field: {},  Message = '{}'", control.name, message)
+            })
     }
 }

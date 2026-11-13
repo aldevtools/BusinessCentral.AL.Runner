@@ -395,7 +395,7 @@ impl Session {
                     self.store = before.expect("snapshot taken when isolating");
                     // The subscriber's own transaction is gone with its writes.
                     self.tx.tx_phase = phase;
-                    self.last_error = *e;
+                    self.catch_error(*e);
                     continue;
                 }
                 r => r?,
@@ -693,7 +693,7 @@ impl Session {
     }
 
     /// Live bound instances of codeunit `object`, oldest binding first.
-    fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
+    pub(crate) fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);
         self.events
             .bindings
@@ -766,6 +766,7 @@ impl Session {
             }
             self.ensure_initialized(&inst);
             self.forget_page_held(&inst);
+            self.events.caption_context_revision += 1;
             self.events.bindings.push(Binding {
                 instance: Rc::downgrade(&inst),
             });
@@ -776,6 +777,7 @@ impl Session {
             // True even when it was never bound (Contract 6, "container-verified").
             if let Some(i) = at {
                 self.events.bindings.remove(i);
+                self.events.caption_context_revision += 1;
             }
             self.forget_page_held(&inst);
             self.sync_active_instances();
