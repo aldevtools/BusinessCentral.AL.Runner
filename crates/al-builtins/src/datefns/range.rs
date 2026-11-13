@@ -29,7 +29,21 @@ fn date_invalid<T>(assumed: bool) -> Result<T, Signal> {
     if assumed {
         assumptions::assume(Assumption::CalcDatePastDateRange);
     }
-    raise("The date is not valid.", "DateInvalid")
+    crate::native::date_invalid()
+}
+
+/// `CalcDate('<+10000Y>', D)`: the year step is above 9999 and BC raises the "too large" formula error with the sign in the
+/// message (code Evaluate; CalcDateOverflow.al:250, :367, cases 4 and 9). Measured with the date omitted (Today) and with
+/// Today: a defined date that is not a closing date and is after 0001-01-02, through the text overload. The undefined date
+/// raised its own error before this runs; the low bases were refused by [`low_base`]; on a closing date the formula goes on to
+/// [`past_edge`], which refuses it. Other numbers above 9999 also go on (refused past the range, a date inside it).
+pub(super) fn year_step_too_large(formula: &str, base: Base, overload: Overload) -> Result<(), Signal> {
+    let measured = matches!((formula, overload, base.closing), ("<+10000Y>", Overload::Text, false));
+    if measured && base.day > SECOND_DAY {
+        assumptions::assume(Assumption::CalcDatePastDateRange);
+        return raise(super::numbers::message("+10000Y"), "Evaluate");
+    }
+    Ok(())
 }
 
 /// CalcDate on the base 0001-01-01 or 0001-01-02 (a date, not a closing date, with a text formula): the measured formulas raise
@@ -66,9 +80,8 @@ pub(super) fn past_edge<T>(terms: &[Term], base: Base, overload: Overload) -> Re
         (false, Overload::Text, [Step(Day | Week | Month | Year, 1)]) => date_invalid(false),
         // CalcDate.al:476 (`<-1Y>` from 0001-06-01).
         (false, Overload::Text, [Step(Year, -1)]) => date_invalid(false),
-        // CalcDateOverflow.al:313, :483 (`<+9999Y>` from Today). Above 9999 the formula itself is the error (`<+10000Y>`,
-        // `numbers::year_step_too_large`); other numbers above 9999 fall through to the refusal.
-        (false, Overload::Text, [Step(Day | Week | Month | Year, 2..=9999)]) => date_invalid(true),
+        // CalcDateOverflow.al:313, :483 (`<+9999Y>` from Today). Other step sizes are not measured (docs/probes-needed.md).
+        (false, Overload::Text, [Step(Year, 9999)]) => date_invalid(true),
         // CalcDateOverflow.al:250, :367 (`<CM+1D>` from 9999-12-31).
         (false, Overload::Text, [Edge { unit: Month, end: true }, Step(Day, 1)]) => date_invalid(true),
         // CalcDateOverflow.al:250, :394 (the DateFormula `<+1Y>` from 9999-12-31).
@@ -206,6 +219,18 @@ mod tests {
     }
 
     #[test]
+    fn plus_10000y_on_the_undefined_date_keeps_the_undefined_date_error() {
+        let (r, flag) = calc("<+10000Y>", Value::Date(0, false));
+        let Err(Signal::Error(e)) = r else { panic!("{r:?}") };
+        assert_eq!(e.code, "Argument");
+        assert!(
+            !flag
+                && e.message
+                    .starts_with("You cannot base a date calculation on an undefined date.")
+        );
+    }
+
+    #[test]
     fn shapes_not_measured_are_refused() {
         // Other formulas, a closing date or the DateFormula overload on the base 0001-01-01 or 0001-01-02.
         refused(calc("<CM>", date(1, 1, 1)));
@@ -223,6 +248,15 @@ mod tests {
         refused(calc("<+1Q>", date(9999, 12, 31)));
         refused(calc("<+1D-1D>", date(9999, 12, 31)));
         refused(calc("<+10001Y>", date(2026, 11, 13)));
+        // Step sizes not measured past the range (only 1, pinned, and `<+9999Y>`).
+        refused(calc("<+2D>", date(9999, 12, 30)));
+        refused(calc("<+2W>", date(9999, 12, 30)));
+        refused(calc("<+2M>", date(9999, 11, 15)));
+        refused(calc("<+2Y>", date(9998, 6, 1)));
+        refused(calc("<+9999D>", date(9999, 12, 31)));
+        // `<+10000Y>` on a base not measured: a closing date and 0001-01-01 refuse.
+        refused(calc("<+10000Y>", closing(2024, 1, 31)));
+        refused(calc("<+10000Y>", date(1, 1, 1)));
         refused(calc("<+2D>", closing(9999, 12, 30)));
         refused(calc("<+1M>", closing(9999, 12, 31)));
         refused(calc("<-5D>", date(1, 1, 3)));

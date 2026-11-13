@@ -13,18 +13,8 @@ pub(super) fn too_large(body: &str) -> Result<(), Signal> {
     Ok(())
 }
 
-/// CalcDate with the text formula `<+10000Y>`: the year step is above 9999 and BC raises the same error, with the formula's
-/// sign in the message (code Evaluate; corpus PR 1374, types/date-time/CalcDateOverflow.al:250, :367, assumption
-/// `calcdate-past-date-range`). Only this text is measured; a step above 9999 in any other formula is refused (`range::past_edge`).
-pub(super) fn year_step_too_large(formula: &str) -> Result<(), Signal> {
-    if formula == "<+10000Y>" {
-        crate::assumptions::assume(crate::assumptions::Assumption::CalcDatePastDateRange);
-        return raise(message("+10000Y"), "Evaluate");
-    }
-    Ok(())
-}
-
-fn message(shown: &str) -> String {
+/// The "too large" text of a date formula, as BC shows it (`shown` is the formula without brackets).
+pub(super) fn message(shown: &str) -> String {
     format!(
         "The date formula '{shown}' contains a number that is too large.\\\\The number must be in the range 0 - 9999."
     )

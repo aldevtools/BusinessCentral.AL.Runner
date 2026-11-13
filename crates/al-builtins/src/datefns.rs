@@ -1220,9 +1220,6 @@ fn apply(terms: &[Term], from: i32) -> Result<Applied, Signal> {
 
 fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range::Overload) -> Out {
     let terms = parse_formula(formula)?;
-    if overload == range::Overload::Text {
-        numbers::year_step_too_large(formula)?;
-    }
     // Without a date the calculation counts from TODAY, not from WorkDate (types/
     // TestDateTimeIntegerCalcDateContracts.al:CalcDateWithoutADate_UsesToday_NotWorkDate).
     let today = base
@@ -1243,7 +1240,8 @@ fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range:
             "Argument",
         );
     }
-    // A closing date is its day (Dates_CalcDate_Formulas, `closing_date_base`).
+    // From a closing date the day is pinned (Dates_CalcDate_Formulas, `closing_date_base`, read with Format(R, 0, 9)); whether the
+    // result is a closing date is pinned only from C9999-12-31 (`range::closing_result`).
     let base = match base {
         Value::Date(n, closing) if *n > 0 => range::Base {
             day: *n,
@@ -1252,6 +1250,7 @@ fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range:
         other => return plain_date(other, "CalcDate").map(|_| unreachable!()),
     };
     range::low_base(&terms, base, overload)?;
+    range::year_step_too_large(formula, base, overload)?;
     match apply(&terms, base.day)? {
         Applied::PastEdge => range::past_edge(&terms, base, overload),
         Applied::Day(day) => {
