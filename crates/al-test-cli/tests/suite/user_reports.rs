@@ -2903,7 +2903,11 @@ fn issue_7879_other_calls_after_the_set_value_keep_the_refusal() {
     let close = "        Card.Close();\n";
     assert!(source.contains(close));
     for (shape, call, refusal) in [
-        ("Next", "        Card.Next();\n", "TestPage.Next on a new, unsaved host whose part shows rows of the blank key"),
+        (
+            "Next",
+            "        Card.Next();\n",
+            "TestPage.Next on a new, unsaved host whose part shows rows of the blank key",
+        ),
         (
             "second SetValue",
             "        Card.Category.SetValue('OTHER');\n",
@@ -3007,7 +3011,13 @@ fn issue_7883_neighbor_keeps_the_previous_result() {
         .iter()
         .find(|(name, _)| name == "AssistEditUsesTheLinkedPrimaryKey")
         .unwrap();
-    assert_ne!(outcome, &Outcome::Pass, "{outcome:?}");
+    assert_eq!(
+        outcome,
+        &Outcome::Fail(
+            "Before Assist must be equal to 'DETAIL-A'  in Linked Part Detail Row: Code=DETAIL-A. Current value is ''."
+                .into()
+        )
+    );
 }
 
 #[test]
@@ -3106,7 +3116,10 @@ fn issue_7880_worksheet_with_a_key_field_control_keeps_the_refusal() {
     let item = "                field(Item; Rec.Item) { }\n";
     assert!(source.contains(item));
     let changed = source.replace(item, &format!("                field(Batch; Rec.Batch) {{ }}\n{item}"));
-    let outcome = outcome_named(&run_with_deps(&[], &changed), "CloseStoresWorksheetRowWithoutReadingEmptyPart");
+    let outcome = outcome_named(
+        &run_with_deps(&[], &changed),
+        "CloseStoresWorksheetRowWithoutReadingEmptyPart",
+    );
     assert!(
         matches!(&outcome, Outcome::NotRun(reason) if reason.contains("closing a new host row")),
         "{outcome:?}"
@@ -3119,8 +3132,14 @@ fn issue_7881_card_with_on_after_get_record_keeps_main_result() {
     let source = include_str!("../fixtures/next-only-card-assist-edit-refresh.al");
     let current = "    trigger OnAfterGetCurrRecord()\n";
     assert_eq!(source.matches(current).count(), 1);
-    let changed = source.replace(current, &format!("    trigger OnAfterGetRecord()\n    begin\n    end;\n\n{current}"));
-    let outcome = outcome_named(&run_with_deps(&[], &changed), "AssistEditRefreshesAfterSyncStoredTheEditedRow");
+    let changed = source.replace(
+        current,
+        &format!("    trigger OnAfterGetRecord()\n    begin\n    end;\n\n{current}"),
+    );
+    let outcome = outcome_named(
+        &run_with_deps(&[], &changed),
+        "AssistEditRefreshesAfterSyncStoredTheEditedRow",
+    );
     assert!(
         matches!(&outcome, Outcome::NotRun(reason) if reason.contains("re-anchoring not pinned")),
         "{outcome:?}"
@@ -3152,9 +3171,12 @@ page 50925 "Action Link Part"
 "#;
     for (shape, changed) in [("View action", view_action), ("part", with_part)] {
         let outcome = outcome_named(&run_with_deps(&[], &changed), "CalculatedFieldDoesNotSaveStaleDocument");
-        assert!(
-            matches!(&outcome, Outcome::NotRun(reason) if reason.contains("a page saves a row that code changed after the page read it")),
-            "{shape}: {outcome:?}"
+        assert_eq!(
+            outcome,
+            Outcome::NotRun(
+                "Modify(true) of a stale committed-read Action Header Row buffer from a Find (not pinned)".into()
+            ),
+            "{shape}"
         );
     }
 }
@@ -3168,7 +3190,10 @@ fn issue_7886_part_calls_after_the_drilldown_keep_main_result() {
     assert_eq!(source.matches(drilldown).count(), 1);
     for (shape, call) in [
         ("second drilldown", drilldown),
-        ("part field read", "        if Document.PackageActions.NewPackage.Value() = '' then;\n"),
+        (
+            "part field read",
+            "        if Document.PackageActions.NewPackage.Value() = '' then;\n",
+        ),
     ] {
         let outcomes = run_with_deps(&[], &source.replace(drilldown, &format!("{drilldown}{call}")));
         assert!(
@@ -3186,7 +3211,11 @@ fn issue_7884_other_calls_between_the_reads_keep_the_refusal() {
     let source = include_str!("../fixtures/literal-field-caption.al");
     let needle = "        SecondCaption := Pg.Payload.Caption();";
     assert!(source.contains(needle));
-    for call in ["Pg.Payload.SetValue('X');", "if Pg.EditValue.Value() = '' then;", "Pg.Next();"] {
+    for call in [
+        "Pg.Payload.SetValue('X');",
+        "if Pg.EditValue.Value() = '' then;",
+        "Pg.Next();",
+    ] {
         let outcomes = run_with_deps(&[], &source.replace(needle, &format!("        {call}\n{needle}")));
         assert!(
             matches!(outcomes.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("a second Caption()")),
@@ -3206,6 +3235,31 @@ fn issue_7885_alias_assigned_from_a_variant_keeps_main_result() {
     let changed = source
         .replace(assign, "        V := Original;\n        Alias := V;\n")
         .replace(vars, &format!("{vars}        V: Variant;\n"));
-    let outcome = outcome_named(&run_with_deps(&[], &changed), "GetTableUpdatesAnAssignedAliasOfTheSameTable");
-    assert_eq!(outcome, Outcome::Fail("The assigned alias changed the value to 0.".into()));
+    let outcome = outcome_named(
+        &run_with_deps(&[], &changed),
+        "GetTableUpdatesAnAssignedAliasOfTheSameTable",
+    );
+    assert_eq!(
+        outcome,
+        Outcome::Fail("The assigned alias changed the value to 0.".into())
+    );
+}
+
+/// Issue 7883: the measured CardPart has InsertAllowed = false. With the default the AssistEdit keeps main's result.
+#[test]
+fn issue_7883_card_part_with_insert_allowed_keeps_main_result() {
+    let source = include_str!("../fixtures/linked-card-part-assist.al");
+    let insert = "    InsertAllowed = false;\n";
+    assert_eq!(source.matches(insert).count(), 1);
+    let outcome = outcome_named(
+        &run_with_deps(&[], &source.replace(insert, "")),
+        "AssistEditUsesTheLinkedPrimaryKey",
+    );
+    assert_eq!(
+        outcome,
+        Outcome::Fail(
+            "Before Assist must be equal to 'DETAIL-A'  in Linked Part Detail Row: Code=DETAIL-A. Current value is ''."
+                .into()
+        )
+    );
 }

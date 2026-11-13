@@ -1,4 +1,9 @@
 //! AssistEdit on the primary-key control of an empty linked CardPart.
+//!
+//! Measured shape (AL Runner issue 7883, corpus pull request 1347; assumption `linked-card-part-assist-edit`): a CardPart with
+//! InsertAllowed = false, a stored source table keyed by one Code field, no OnAfterGetRecord or OnAfterGetCurrRecord, no
+//! page extension and no subscriber, on a Document linked by one `field(...)` entry on that key. Other shapes keep main's
+//! result.
 
 use super::*;
 use al_builtins::filter::FilterExpr;
@@ -28,6 +33,8 @@ impl Session {
             || self.declares(st, "onaftergetrecord")
             || self.declares(st, "onaftergetcurrrecord")
             || engine.object_facts[st.borrow().object as usize].page_type_lower() != "cardpart"
+            || !effective_prop(&engine, st.borrow().object as usize, "InsertAllowed")?
+                .is_some_and(|value| value.trim().eq_ignore_ascii_case("false"))
             || engine.object_facts[host.borrow().object as usize].page_type != Some(ir::PageType::Document)
         {
             return Ok(None);
