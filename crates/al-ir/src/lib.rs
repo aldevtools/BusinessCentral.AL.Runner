@@ -1054,6 +1054,11 @@ pub struct XmlNode {
     /// OnAfterAssignField before the validation.
     #[serde(default)]
     pub after_assign_layout: bool,
+    /// A field node in the import layout without triggers of al-sema `xmlports/assumed_shapes.rs` `plain_import_layout`
+    /// (corpus PR 1366, XpAfterAssignTableRelation.al): al-vm `xmlports/after_assign.rs` checks the field and the record and
+    /// validates nothing on a temporary table element.
+    #[serde(default)]
+    pub plain_import_layout: bool,
     /// A text element in the export shape of al-sema `xmlports/assumed_shapes.rs` `text_attr_export` (corpus PR 1366,
     /// XpTextElemFieldAttrExport.al): al-vm `xmlports/text_attr_export.rs` writes it.
     #[serde(default)]
