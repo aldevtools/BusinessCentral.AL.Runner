@@ -1444,6 +1444,7 @@ impl Session {
             ui_state: UiState::default(),
             pages: PageClients::default(),
             events: EventState {
+                caption_context_revision: 0,
                 bindings: Vec::new(),
                 page_held: Vec::new(),
                 page_var_runs: Vec::new(),

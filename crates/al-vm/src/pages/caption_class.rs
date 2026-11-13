@@ -21,6 +21,46 @@ impl Session {
         }
     }
 
+    pub(super) fn read_literal_field_caption(
+        &mut self,
+        st: &St,
+        index: usize,
+        class: String,
+    ) -> Result<String, Signal> {
+        let revision = self.events.caption_context_revision;
+        let subscriptions = self.bound_subscriptions();
+        {
+            let state = st.borrow();
+            if let Some((_, prior_class, caption)) = state.control_captions.iter().find(|(i, _, _)| *i == index) {
+                if *prior_class == class
+                    && state
+                        .literal_field_caption_contexts
+                        .iter()
+                        .any(|(i, saved_revision, saved_subscriptions)| {
+                            *i == index && *saved_revision == revision && *saved_subscriptions == subscriptions
+                        })
+                {
+                    // Corpus PR 1356 (issue 7884): repeated reads, including after an unrelated control edit.
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::LiteralFieldCaptionResolutionReused,
+                    );
+                    return Ok(caption.clone());
+                }
+                return unsupported(
+                    "a second Caption() of a field CaptionClass that raises OnResolveCaptionClass (whether BC raises it again is not pinned)",
+                );
+            }
+        }
+        // XTablePropsTests.al:483-487 pins the first read.
+        let caption = self.caption_class_text(st, &class)?;
+        let mut state = st.borrow_mut();
+        state.control_captions.push((index, class, caption.clone()));
+        state
+            .literal_field_caption_contexts
+            .push((index, revision, subscriptions));
+        Ok(caption)
+    }
+
     /// The caption a CaptionClass text stands for. Area 3 is the literal text. Other numeric areas
     /// go to the platform's translation (`caption_class_translate`). An area that is not a number, or no
     /// area at all, goes to no built-in resolver: the System Application's Caption Class codeunit

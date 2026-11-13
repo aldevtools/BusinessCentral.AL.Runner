@@ -177,6 +177,8 @@ pub struct PageState {
     /// The caption each control's CaptionClass resolved to when the page filled: (control index, class text, caption).
     /// `Caption()` reads it without raising OnResolveCaptionClass again (corpus testpage/W2CaptionClass.al:113-116).
     pub control_captions: Vec<(usize, String, String)>,
+    /// The resolver context of a literal source field caption read by the test client.
+    pub literal_field_caption_contexts: Vec<(usize, u64, Vec<usize>)>,
     /// Why the caption in `control_captions` of a control is not known: (control index, refusal). `Caption()` refuses with it.
     /// Only read together with a `control_captions` entry of the same control, which an open clears.
     pub caption_refusals: Vec<(usize, String)>,
