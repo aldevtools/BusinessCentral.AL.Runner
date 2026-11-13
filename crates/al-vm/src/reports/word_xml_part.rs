@@ -353,12 +353,14 @@ impl Session {
             ItemRef::Added(k, _) => tree.report.extensions[k],
         };
         let mut out: Vec<(usize, &ir::ReportColumn)> = tree.item(r).columns.iter().map(|c| (owner, c)).collect();
-        if let ItemRef::Base(i) = r {
-            for (k, x) in tree.exts.iter().enumerate() {
-                let Some(x) = x else { continue };
-                for add in x.adds.iter().filter(|a| a.item == i) {
-                    out.extend(add.columns.iter().map(|c| (tree.report.extensions[k], c)));
-                }
+        for (k, x) in tree.exts.iter().enumerate() {
+            let Some(x) = x else { continue };
+            for add in x
+                .adds
+                .iter()
+                .filter(|a| super::item_anchor(tree.report, k, a.item) == Some(r))
+            {
+                out.extend(add.columns.iter().map(|c| (tree.report.extensions[k], c)));
             }
         }
         out

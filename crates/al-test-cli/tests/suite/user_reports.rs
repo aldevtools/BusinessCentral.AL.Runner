@@ -26,7 +26,24 @@ pub(crate) fn run_with_deps(apps: &[&str], objects: &str) -> Vec<(String, Outcom
         });
         ids.push(id);
     }
-    let (ws, l) = al_sema::lower::compile_apps(sources, kinds, &Default::default());
+    report_outcomes(sources, kinds, 0)
+}
+
+fn report_outcomes(sources: Vec<AppSource>, kinds: Vec<AppKind>, cached: usize) -> Vec<(String, Outcome)> {
+    let (ws, l) = if cached > 0 {
+        let set = al_sema::lower::lower_for_cache(sources[..cached].to_vec(), &Default::default(), None);
+        al_sema::lower::compile_apps_cached(
+            sources,
+            kinds,
+            &Default::default(),
+            None,
+            Default::default(),
+            std::sync::Arc::new(set),
+        )
+        .unwrap_or_else(|error| panic!("the cached dependency reports can be linked: {}", error.1))
+    } else {
+        al_sema::lower::compile_apps(sources, kinds, &Default::default())
+    };
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
     let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
     let blocked = l
@@ -3430,5 +3447,178 @@ fn issue_7885_var_variant_and_source_side_keep_main_result() {
             Outcome::Fail("The assigned alias changed the value to 0.".into()),
             "{shape}"
         );
+    }
+}
+
+fn dependency_report_outcomes(owner: &str, consumer: &str, test: &str) -> Vec<(String, Outcome)> {
+    dependency_report_mode(owner, consumer, test, 0)
+}
+
+fn dependency_report_mode(owner: &str, consumer: &str, test: &str, cached: usize) -> Vec<(String, Outcome)> {
+    let mut apps = Vec::new();
+    for (i, source) in [
+        include_str!("../fixtures/cross-app-report-items-base.al"),
+        owner,
+        consumer,
+        test,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = format!("e0b74651-fb05-47ab-8d77-57b3b30c{i:04x}");
+        apps.push(AppSource {
+            name: id.clone(),
+            dependencies: apps.iter().map(|app: &AppSource| app.id.clone()).collect(),
+            files: vec![(format!("{id}.al"), source.to_string())],
+            id,
+        });
+    }
+    report_outcomes(
+        apps,
+        vec![
+            AppKind::Dependency,
+            AppKind::Dependency,
+            AppKind::Dependency,
+            AppKind::Workspace,
+        ],
+        cached,
+    )
+}
+
+// Issue #7878, corpus PR #1342: the same XML dataset and linked rows for both extension ID orders.
+#[test]
+fn measured_report_extension_targets_dependency_data_items() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    for cached in [0, 2, 3] {
+        all_pass(dependency_report_mode(owner, consumer, test, cached));
+        all_pass(dependency_report_mode(
+            owner,
+            &consumer.replace("50880", "50891"),
+            test,
+            cached,
+        ));
+    }
+}
+
+#[test]
+fn dependency_report_extension_refuses_unmeasured_entry_points() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    let xml = "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Xml, Output);";
+    for call in [
+        "Report.Run(Report::\"Cross Report Base\", false);",
+        "Report.RunModal(Report::\"Cross Report Base\", false);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Xml, Output, Ref);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Word, Output);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Excel, Output);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Html, Output);",
+        "ReportVariable.SaveAs('', ReportFormat::Xml, Output);",
+        "Report.RunRequestPage(Report::\"Cross Report Base\");",
+        "Report.SaveAsXml(Report::\"Cross Report Base\", 'unused.xml');",
+        "Report.WordXmlPart(Report::\"Cross Report Base\");",
+        "Report.SaveAs(Report::\"Cross Report Base\", 'params', ReportFormat::Xml, Output);",
+        "Report.SaveAs(Report::\"Cross Report Base\", '', ReportFormat::Pdf, Output);",
+    ] {
+        let src = test.replace(xml, call).replace(
+            "        Number: Integer;",
+            "        Number: Integer; Ref: RecordRef; ReportVariable: Report \"Cross Report Base\";",
+        );
+        let outcomes = dependency_report_outcomes(owner, consumer, &src);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains("dependency report data items") || (call.contains("SaveAsXml") && why.to_ascii_lowercase().contains("saveasxml"))),
+            "{call}: {outcomes:?}"
+        );
+    }
+}
+
+#[test]
+fn dependency_report_extension_refuses_unmeasured_targets() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    for (from, to, refusal) in [
+        (
+            "modify(AddedRow)",
+            "modify(FooterRow)",
+            "reportextensions of different apps",
+        ),
+        ("add(AddedRow)", "add(FooterRow)", "add("),
+        ("addbefore(FooterRow)", "addbefore(AddedRow)", "add"),
+        ("addbefore(FooterRow)", "addfirst(AddedRow)", "add"),
+        ("addafter(FooterRow)", "addlast(AddedRow)", "add"),
+        (
+            "DataItemLinkReference = AddedRow",
+            "DataItemLinkReference = BaseRow",
+            "DataItemLinkReference",
+        ),
+    ] {
+        let changed = consumer.replace(from, to);
+        let outcomes = dependency_report_outcomes(owner, &changed, test);
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains(refusal)),
+            "{from}: {outcomes:?}"
+        );
+    }
+}
+
+#[test]
+fn dependency_report_extension_without_foreign_references_can_run_normally() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = r#"
+        reportextension 50891 LocalOnly extends "Cross Report Base"
+        {
+            dataset { add(BaseRow) { column(LocalNo; Number) { } } }
+        }
+    "#;
+    let test = r#"
+        codeunit 50899 T { Subtype = Test;
+            [Test] procedure OrdinaryXml()
+            var Row: Record "Cross Report Number"; Buffer: Record "Cross Report Number" temporary; Output: OutStream;
+            begin
+                Row.Number := 1;
+                Row.Insert();
+                Buffer.Data.CreateOutStream(Output);
+                Report.SaveAs(Report::"Cross Report Base", '', ReportFormat::Xml, Output);
+            end;
+        }
+    "#;
+    all_pass(dependency_report_outcomes(owner, consumer, test));
+}
+
+#[test]
+fn dependency_report_extension_refuses_unmeasured_owners_and_modifications() {
+    let owner = include_str!("../fixtures/cross-app-report-items-alpha.al");
+    let consumer = include_str!("../fixtures/cross-app-report-items-leaf.al").replace("50880", "50891");
+    let test = include_str!("../fixtures/cross-app-report-items-tests.al");
+    for (owner, consumer) in [
+        (
+            owner.replace("DataItemTableView = where(Number = const(2));", "UseTemporary = true;"),
+            consumer.clone(),
+        ),
+        (
+            owner.to_string(),
+            consumer.replace("OnAfterAfterGetRecord", "OnBeforeAfterGetRecord"),
+        ),
+        (
+            owner.to_string(),
+            consumer.replace(
+                "trigger OnAfterAfterGetRecord",
+                "RequestFilterFields = Number; trigger OnAfterAfterGetRecord",
+            ),
+        ),
+        (
+            owner.to_string(),
+            format!(
+                "{consumer} reportextension 50892 Third extends \"Cross Report Base\" {{ dataset {{ add(BaseRow) {{ column(ThirdNo; Number) {{ }} }} }} }}"
+            ),
+        ),
+    ] {
+        // Remove the reference in the trigger and column expressions so the refusal is about the dataset shape.
+        let consumer = consumer.replace("AddedRow.Number", "2");
+        let outcomes = dependency_report_outcomes(&owner, &consumer, test);
+        assert!(matches!(&outcomes[0].1, Outcome::NotRun(_)), "{outcomes:?}");
     }
 }

@@ -1209,20 +1209,27 @@ fn walk_report_ext<V: RefVisitor>(e: &mut ReportExt, v: &mut V) {
         base,
         on_pre: _,
         on_post: _,
-        aliases: _,
-        modifies: _,
+        aliases,
+        modifies,
         added,
         adds,
         labels: _,
     } = e;
     let base_report = *base;
+    for (anchor, _) in aliases {
+        walk_report_anchor(anchor, v);
+    }
+    for modify in modifies {
+        walk_report_anchor(&mut modify.item, v);
+    }
     let added_tables: Vec<Option<usize>> = added.iter().map(|a| a.item.table).collect();
     for a in added {
         let AddedItem {
             item,
             base_parent,
+            foreign_parent,
+            place,
             explicit_parent_link: _,
-            place: _,
         } = a;
         // An added item is nested under another added item or under a base item.
         let parent = match (item.parent, base_parent) {
@@ -1233,20 +1240,40 @@ fn walk_report_ext<V: RefVisitor>(e: &mut ReportExt, v: &mut V) {
             },
             (None, None) => TableOf::Unknown,
         };
+        let parent = foreign_parent.as_ref().map_or(parent, |p| TableOf::object(p.table));
         walk_report_item(item, parent, v);
+        if let Some(p) = foreign_parent {
+            walk_foreign_report_item(p, v);
+        }
+        if let AddedPlace::Before(a) | AddedPlace::After(a) = place {
+            walk_report_anchor(a, v);
+        }
     }
     for a in adds {
         let ReportExtAdd { item, columns } = a;
+        let table = match *item {
+            ItemAnchor::Base(item) => TableOf::BaseItem {
+                report: base_report,
+                item,
+            },
+            ItemAnchor::Added(item) => TableOf::object(added_tables.get(item).copied().flatten()),
+            ItemAnchor::Foreign(item) => TableOf::object(item.table),
+        };
         for c in columns {
-            walk_report_column(
-                c,
-                TableOf::BaseItem {
-                    report: base_report,
-                    item: *item,
-                },
-                v,
-            );
+            walk_report_column(c, table, v);
         }
+        walk_report_anchor(item, v);
     }
     obj(v, base);
+}
+
+fn walk_report_anchor<V: RefVisitor>(anchor: &mut ItemAnchor, v: &mut V) {
+    if let ItemAnchor::Foreign(item) = anchor {
+        walk_foreign_report_item(item, v);
+    }
+}
+
+fn walk_foreign_report_item<V: RefVisitor>(item: &mut ForeignReportItem, v: &mut V) {
+    obj(v, &mut item.extension);
+    object_opt(v, &mut item.table);
 }

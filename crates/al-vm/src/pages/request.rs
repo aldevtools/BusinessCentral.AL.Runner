@@ -295,6 +295,9 @@ impl Session {
         want_parameters: bool,
     ) -> Result<(RequestClosed, Option<String>), Signal> {
         let engine = self.engine();
+        if let Some(report) = engine.program.objects[object].report.as_ref() {
+            crate::reports::dependency_items::require_pinned_entry(report, false)?;
+        }
         let name = engine.program.objects[object].name.clone();
         let Some(page) = engine.program.objects[object].page.as_ref() else {
             return unsupported(format!(

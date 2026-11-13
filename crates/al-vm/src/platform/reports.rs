@@ -799,7 +799,7 @@ pub(super) fn report_data_item_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
                 .enumerate()
                 .filter(|(_, e)| e.report_ext_base == Some(oi))
                 .filter_map(|(ei, _)| c.full[ei].report_ext.as_ref().filter(|x| x.base == oi))
-                .flat_map(|x| x.modifies.iter().filter(|m| m.item == n))
+                .flat_map(|x| x.modifies.iter().filter(|m| m.item == al_ir::ItemAnchor::Base(n)))
                 .filter_map(|m| m.request_filter_fields.as_ref())
                 .collect();
             let result = if ext_fields.len() > 1 {

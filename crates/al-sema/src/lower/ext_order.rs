@@ -15,7 +15,7 @@
 //! all put B first (al-language-xapp-b and -d app.json; the corpus CI publishes D before B). The reporter's own case needs
 //! an order (al-runner issue 7358).
 //!
-//! Everything else is refused: apps on a path with ids against it, more than two apps where one pair has no path, and two
+//! Everything else is refused: other apps on a path with ids against it, more than two apps where one pair has no path, and two
 //! apps without a path whose app id and app name sort differently.
 
 use crate::workspace::Workspace;
@@ -29,7 +29,7 @@ pub(crate) struct ExtOrder {
 }
 
 /// The report extensions `exts` in the order they apply, or why that order is not pinned.
-pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<ExtOrder, String> {
+pub(crate) fn report_extension_order(ws: &Workspace, base: usize, exts: &[usize]) -> Result<ExtOrder, String> {
     let pinned = |exts| ExtOrder {
         exts,
         assumes: Vec::new(),
@@ -51,6 +51,13 @@ pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<E
     if along_path {
         return Ok(pinned(by_id));
     }
+    if let [consumer, owner] = by_id[..]
+        && app(consumer) != app(owner)
+        && crate::reports::direct_report_dependency(ws, consumer, owner)
+        && modifies_dependency_item(ws, base, consumer, owner)
+    {
+        return Ok(pinned(vec![owner, consumer]));
+    }
     let mut apps: Vec<usize> = by_id.iter().map(|&e| app(e)).collect();
     apps.sort_unstable();
     apps.dedup();
@@ -70,6 +77,24 @@ pub(crate) fn report_extension_order(ws: &Workspace, exts: &[usize]) -> Result<E
         exts: by_id,
         assumes: vec![Assumption::ReportExtIndependentAppOrder],
     })
+}
+
+/// al-runner issue 7878 and corpus PR #1342: a consumer with a lower ID modifies the owner's item.
+fn modifies_dependency_item(ws: &Workspace, base: usize, consumer: usize, owner: usize) -> bool {
+    let consumer_layout = crate::reports::ext_layout(&ws.object_ast(consumer));
+    crate::reports::dependency_dataset_items(ws, consumer, base)
+        .iter()
+        .any(|(source, _, item)| {
+            *source == owner
+                && item.parent.is_none()
+                && consumer_layout.modifies.iter().any(|(name, sec)| {
+                    name.eq_ignore_ascii_case(&item.name)
+                        && sec.properties().next().is_none()
+                        && sec
+                            .triggers()
+                            .all(|t| t.name().eq_ignore_ascii_case("OnAfterAfterGetRecord"))
+                })
+        })
 }
 
 /// How app `a` sorts against app `b` when no dependency path orders them: by app id, pinned only where the app name sorts
