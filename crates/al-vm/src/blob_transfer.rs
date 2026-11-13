@@ -321,7 +321,7 @@ pub(crate) fn moved(
     match how {
         BlobMove::WriteBack => return Ok(v),
         BlobMove::Assign if s.row_copy && !s.loaded => return Ok(Value::Blob(new_blob())),
-        BlobMove::Assign if std::sync::Arc::strong_count(b) > 1 => return Ok(Value::Blob(copy_for_assignment(b))),
+        BlobMove::Assign if std::sync::Arc::strong_count(b) > 1 => return Ok(assigned_copy(cur, b, &s)),
         BlobMove::Assign => return Ok(v),
         BlobMove::TransferFields(_) if !s.loaded && !s.written => return Ok(Value::Blob(new_blob())),
         _ => {}
@@ -362,6 +362,20 @@ pub(crate) fn moved(
         Cell::Unread => new_blob(),
         Cell::UnreadRow => copy_blob_db_row_of(b, uncompressed),
     }))
+}
+
+/// The copy `Target.Field := Source` stores when another holder has the source Blob `b` too (`copy_for_assignment`); `cur`
+/// is what the target holds now. In the cell of assumption `blob-assign-counts-as-write` (al-runner issue 7961, the
+/// reporter's repro: a temporary record's Blob after its Insert, assigned to a Blob without an unsaved write) the copy is
+/// marked `BlobBuf::assigned_unsaved`: a loaded source with content and no unsaved write of its own, and a target Blob with
+/// none. `Session::load_blobs` reads the mark and raises the flag. Every other copy is as before.
+fn assigned_copy(cur: Option<&Value>, b: &al_builtins::stream::BlobRef, s: &Source) -> Value {
+    let copy = copy_for_assignment(b);
+    let target_unwritten = matches!(cur, Some(Value::Blob(c)) if !c.borrow().written);
+    if target_unwritten && s.loaded && s.content && !s.written {
+        copy.borrow_mut().assigned_unsaved = true;
+    }
+    Value::Blob(copy)
 }
 
 impl BlobMove {

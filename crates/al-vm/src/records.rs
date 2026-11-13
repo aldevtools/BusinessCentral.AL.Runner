@@ -2023,6 +2023,12 @@ impl Session {
                     }
                     _ => false,
                 };
+            // An assigned Blob that nothing saved or wrote since is kept, as an unsaved stream write is (assumption
+            // `blob-assign-counts-as-write`: al-runner issue 7961, the reporter's repro on real BC).
+            if keeps_content && stored.is_some() && buf.borrow().assigned_unsaved {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobAssignCountsAsWrite);
+                continue;
+            }
             if stale {
                 // Pinned: streams/CalcFieldsBlobStaleBuffer.al (empty, loaded-earlier and unsaved-write buffers).
             } else if copied_write {
@@ -2048,6 +2054,7 @@ impl Session {
             b.bytes = bytes;
             b.written = false;
             b.written_base = None;
+            b.assigned_unsaved = false;
             b.fetched = true;
             // ADR-040: the stored row carries the mark of an output that was never produced.
             b.render_pending = pending;
@@ -2064,6 +2071,7 @@ impl Session {
                 let mut b = b.borrow_mut();
                 b.written = false;
                 b.written_base = None;
+                b.assigned_unsaved = false;
                 // A Blob the record read without CalcFields stays as stored by the save (record/load-fields/
                 // P81LoadFields.al:700-711) and stays unloaded: a later CalcFields fetches it (streams/TestBlob.al
                 // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), it does not keep the empty view the buffer shows.
