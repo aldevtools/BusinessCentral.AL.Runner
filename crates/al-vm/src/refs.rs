@@ -952,7 +952,7 @@ impl Session {
                     },
                     other => return unsupported(format!("RecordRef.GetTable of {}", other.describe())),
                 };
-                let mut copy = self.gettable_copy(&src, matches!(args.first(), Some(Value::Record(_))))?;
+                let mut copy = self.gettable_copy(&src, matches!(args.first(), Some(Value::Record(_))));
                 // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
                 // as any RecordRef: GetView, SetView, SetFilter, FindFirst (corpus
                 // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
@@ -1415,9 +1415,15 @@ impl Session {
             // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
             d.read_isolation = s.read_isolation;
             let before = std::mem::replace(&mut d.fields, s.fields.clone());
-            // The one-argument call moves its Blobs as `blob_transfer::moved` says; with ShareTable they come as before.
-            if args.len() == 1 {
-                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), BlobMove::SetTable)?;
+            // The one-argument call and the call that shares the table move their Blobs as `blob_transfer::moved` says; with
+            // ShareTable false they come as before.
+            let how = match args.len() {
+                1 => Some(BlobMove::SetTable),
+                _ if share => Some(BlobMove::SetTableShared),
+                _ => None,
+            };
+            if let Some(how) = how {
+                crate::blob_transfer::move_blobs(&mut d.fields, Some(&before), how);
             }
             d.filters = s.filters.clone();
             d.key = s.key;
@@ -1595,9 +1601,7 @@ impl Session {
                     }
                     let v = self.fieldref_value_into(&t, pos, &field.ty, v)?;
                     let mut r = rec.borrow_mut();
-                    let v = crate::blob_transfer::moved(Some(&r.fields[pos]), v, BlobMove::FieldRefValue, || {
-                        self.blob_field_measured(t.object as usize, pos)
-                    })?;
+                    let v = crate::blob_transfer::moved(Some(&r.fields[pos]), v, BlobMove::FieldRefValue);
                     r.fields[pos] = v;
                     if r.load.partial {
                         r.load.written(pos);

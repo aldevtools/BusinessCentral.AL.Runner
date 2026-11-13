@@ -995,68 +995,76 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::CopyFilters => Self::copy_filters(rec, args),
-            // Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the buffer, filters,
-            // key and direction come over; a temporary target keeps its own rows and stays temporary.
-            RecordOp::Copy => {
-                let Some(Value::Record(src)) = args.first() else {
-                    return unsupported(format!("Copy from {}", args.first().describe()));
-                };
-                let share = match args.get(1) {
-                    Some(v) => ops::truthy(v)?,
-                    None => false,
-                };
-                if Rc::ptr_eq(src, rec) {
-                    return Ok(Value::Null);
-                }
-                if crate::records::media_key_marked(src) {
-                    return unsupported(format!("Copy of a record {}", crate::records::MEDIA_KEY));
-                }
-                let s = src.borrow().clone();
-                // Copy takes the fields, filters and key but does not move the target to the source's company
-                // (record/TestChangeCompanyFiltersCopyDeleteContracts.al:117-121).
-                let mut d = rec.borrow_mut();
-                // shareTable needs both records temporary; a plain Copy of a temporary record onto
-                // a normal one copies values and filters only
-                // (record/TestRecordViewCopyMarkContracts.al:89, Copy_ShareTable_RequiresBothRecordsToBeTemporary).
-                if share && !(s.temporary && d.temporary) {
-                    return Err(error(
-                        "The COPY function can only be used with the shareTable argument set to true if both records are temporary.".into(),
-                        "Argument",
-                    ));
-                }
-                // The row version the buffer got comes over with the fields, and where it came from (record/crud/
-                // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
-                (d.fields, d.row_origin) = (s.fields, s.row_origin);
-                d.filters = s.filters;
-                d.filter_group = s.filter_group;
-                d.key = s.key;
-                d.adhoc = s.adhoc;
-                d.ascending = s.ascending;
-                d.field_descending = s.field_descending;
-                d.position = s.position;
-                // ReadIsolation comes over with Copy (record/CvReadIsolationState.al:49-51, :61); SecurityFiltering stays the
-                // target's (al-language/reports/runtime/ACAttributes.al:385-387).
-                d.read_isolation = s.read_isolation;
-                // The marks come over with Copy, not with an assignment (record/crud/RcAMisc.al:
-                // Mark_Separate_Variables_Do_Not_Share `copied`).
-                d.marks = s.marks;
-                d.marked_only = s.marked_only;
-                // The SetAutoCalcFields set comes over (record/crud/RcBFlowFields.al:SetAutoCalcFields_AfterInsertRead
-                // `copy keeps autocalc`).
-                d.auto_calc = s.auto_calc;
-                // SetLoadFields comes over with Copy (record/crud/RcAMisc.al:SetLoadFields_Copy_And_Assignment).
-                d.load.request = s.load.request;
-                d.load.buffer = s.load.buffer;
-                d.load.partial = s.load.partial;
-                if share && s.temporary {
-                    d.temp_id = s.temp_id.clone();
-                }
-                Ok(Value::Null)
-            }
+            RecordOp::Copy => Self::record_copy(rec, args),
             RecordOp::TestField => self.test_field(rec, t, args),
             RecordOp::FieldError => self.field_error(rec, t, args),
             other => unsupported(format!("Record.{other}")),
         }
+    }
+
+    /// `Record.Copy(Source [, ShareTable])`. Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the
+    /// buffer, filters, key and direction come over; a temporary target keeps its own rows and stays temporary.
+    fn record_copy(rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+        let Some(Value::Record(src)) = args.first() else {
+            return unsupported(format!("Copy from {}", args.first().describe()));
+        };
+        let share = match args.get(1) {
+            Some(v) => ops::truthy(v)?,
+            None => false,
+        };
+        if Rc::ptr_eq(src, rec) {
+            return Ok(Value::Null);
+        }
+        if crate::records::media_key_marked(src) {
+            return unsupported(format!("Copy of a record {}", crate::records::MEDIA_KEY));
+        }
+        let s = src.borrow().clone();
+        // Copy takes the fields, filters and key but does not move the target to the source's company
+        // (record/TestChangeCompanyFiltersCopyDeleteContracts.al:117-121).
+        let mut d = rec.borrow_mut();
+        // shareTable needs both records temporary; a plain Copy of a temporary record onto
+        // a normal one copies values and filters only
+        // (record/TestRecordViewCopyMarkContracts.al:89, Copy_ShareTable_RequiresBothRecordsToBeTemporary).
+        if share && !(s.temporary && d.temporary) {
+            return Err(error(
+                "The COPY function can only be used with the shareTable argument set to true if both records are temporary.".into(),
+                "Argument",
+            ));
+        }
+        // The row version the buffer got comes over with the fields, and where it came from (record/crud/
+        // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
+        (d.fields, d.row_origin) = (s.fields, s.row_origin);
+        // Between two temporary records or two that are not, the Blobs move as `blob_transfer::moved` says; between
+        // one of each they come as before.
+        if s.temporary == d.temporary {
+            crate::blob_transfer::move_blobs(&mut d.fields, None, BlobMove::RecordCopy);
+        }
+        d.filters = s.filters;
+        d.filter_group = s.filter_group;
+        d.key = s.key;
+        d.adhoc = s.adhoc;
+        d.ascending = s.ascending;
+        d.field_descending = s.field_descending;
+        d.position = s.position;
+        // ReadIsolation comes over with Copy (record/CvReadIsolationState.al:49-51, :61); SecurityFiltering stays the
+        // target's (al-language/reports/runtime/ACAttributes.al:385-387).
+        d.read_isolation = s.read_isolation;
+        // The marks come over with Copy, not with an assignment (record/crud/RcAMisc.al:
+        // Mark_Separate_Variables_Do_Not_Share `copied`).
+        d.marks = s.marks;
+        d.marked_only = s.marked_only;
+        // The SetAutoCalcFields set comes over (record/crud/RcBFlowFields.al:SetAutoCalcFields_AfterInsertRead
+        // `copy keeps autocalc`).
+        d.auto_calc = s.auto_calc;
+        // SetLoadFields comes over with Copy (record/crud/RcAMisc.al:SetLoadFields_Copy_And_Assignment).
+        d.load.request = s.load.request;
+        d.load.buffer = s.load.buffer;
+        d.load.partial = s.load.partial;
+        if share && s.temporary {
+            d.temp_id = s.temp_id.clone();
+        }
+        Ok(Value::Null)
+    
     }
 
     /// `TestField(Field [, Value])`. The "must have a value" text is pinned by the corpus
@@ -1624,14 +1632,8 @@ impl Session {
             // A Blob moves as `blob_transfer::moved` says.
             if let Value::Blob(_) = &src_fields[sp] {
                 let cur = rec.borrow().fields[dp].clone();
-                let measured =
-                    || self.blob_field_measured(src_table, sp) && self.blob_field_measured(t.object as usize, dp);
-                let v = crate::blob_transfer::moved(
-                    Some(&cur),
-                    src_fields[sp].clone(),
-                    BlobMove::TransferFields { plain: args.len() == 1 },
-                    measured,
-                )?;
+                let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(args));
+                let v = crate::blob_transfer::moved(Some(&cur), src_fields[sp].clone(), how);
                 updates.push((dp, ops::convert(v, &df.ty)?));
                 continue;
             }

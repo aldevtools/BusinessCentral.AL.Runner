@@ -2441,7 +2441,7 @@ impl Session {
         facts: RoutineFacts,
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
-        self.events.next_is_subscriber = false;
+        let subscriber = std::mem::take(&mut self.events.next_is_subscriber);
         self.note_routine(object, routine);
         if self.coverage.cells.is_some() {
             self.tap_cells(object, routine, &instance);
@@ -2474,7 +2474,9 @@ impl Session {
                 locals[i] = a;
                 continue;
             }
-            locals[i] = match (a, r.by_var.get(i).copied().unwrap_or(false)) {
+            let by_var = r.by_var.get(i).copied().unwrap_or(false);
+            let argument = blob_transfer::Argument::of(&a, by_var || subscriber, &r.locals[i].ty);
+            locals[i] = argument.bind(match (a, by_var) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer
                 // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_PassedToVariantParameter_ByValue, record/TestTempTableContracts.al:141-148).
@@ -2601,7 +2603,7 @@ impl Session {
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
-            };
+            });
         }
         self.return_vec(args);
         let var_lens = if facts.var_lens {

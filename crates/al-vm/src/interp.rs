@@ -1657,7 +1657,7 @@ impl Session {
                         crate::records::held_part_field_write(why)?;
                     }
                     let how = if assign { BlobMove::Assign } else { BlobMove::WriteBack };
-                    let v = crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, || true)?;
+                    let v = crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how);
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;
@@ -1674,7 +1674,12 @@ impl Session {
         // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_AssignedToVariantVariable and :TempRecord_VariantModifiedAfterAssign).
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
-                self.record_by_value_unmeasured(rc)
+                let copy = self.record_by_value_unmeasured(rc);
+                if matches!(p, ir::Place::Local(_)) {
+                    crate::blob_transfer::by_value(copy, rc.borrow().temporary, crate::blob_transfer::Taker::LocalVariant)
+                } else {
+                    copy
+                }
             }
             // A RecordRef assigned to a Variant or to another RecordRef: a RecordRef of its own on the same buffer
             // (`recordref_variant.rs`). A builtin's write-back of the receiver keeps its handle.
@@ -1687,11 +1692,12 @@ impl Session {
             {
                 crate::recordref_variant::own_copy(h)
             }
-            // A Blob assigned to a local Variant: the Variant holds a copy (`blob_transfer::moved`).
-            Value::Blob(_)
-                if assign && matches!(p, ir::Place::Local(_)) && matches!(self.place_type(p, f), RtType::Variant) =>
-            {
-                crate::blob_transfer::moved(None, v, BlobMove::Variant, || true)?
+            // A Blob assigned to a Variant: the Variant holds a copy where `BlobMove::into_variant` names the place.
+            Value::Blob(_) if assign && matches!(self.place_type(p, f), RtType::Variant) => {
+                match BlobMove::into_variant(p) {
+                    Some(how) => crate::blob_transfer::moved(None, v, how),
+                    None => v,
+                }
             }
             _ => v,
         };
