@@ -644,7 +644,7 @@ impl Compiled {
     }
 }
 
-/// What a warm server keeps between requests (ADR-028): the last compile, and which test codeunits it was compiled for.
+/// What a warm server keeps between requests (ADR-028): the last compile.
 #[derive(Default)]
 pub struct Warm {
     pub(crate) slot: Option<WarmSlot>,
@@ -654,8 +654,6 @@ pub(crate) struct WarmSlot {
     pub(crate) key: String,
     /// The text of every workspace file the compile was made from: (app, path, hash of the text).
     pub(crate) files: Vec<(usize, String, u64)>,
-    /// The codeunits the compile reached, by (app, id) as the caller gave them; `None`: all of them.
-    pub(crate) compiled_for: Option<std::collections::BTreeSet<(usize, u32)>>,
     pub(crate) compiled: Compiled,
 }
 
@@ -666,7 +664,7 @@ pub enum WarmUse {
     Reused,
     /// The code of some routines changed: only the objects of those files were compiled again (ADR-029).
     Updated,
-    /// The inputs changed or the earlier compile did not reach the selected tests: compiled again.
+    /// The inputs changed: compiled again.
     Compiled,
 }
 
@@ -682,10 +680,13 @@ impl Warm {
 
     /// Runs like [`CorpusRuntime::try_run_suites_with`], keeping the compile for the next call. `key` names everything
     /// the compile depends on except the selection and the text of the workspace files (the dependency apps, the
-    /// symbols, the target, the names of the files); `files` are those texts. With the same key and a selection the
-    /// earlier compile reached, nothing is compiled when the texts are the same, and only what changed is when they
-    /// differ in the code of routines ([`Compiled::update_files`]). A different selection compiles for the earlier and
-    /// the new one together, so a client that asks for one test after another converges.
+    /// symbols, the target, the names of the files); `files` are those texts. With the same key, nothing is compiled
+    /// when the texts are the same, and only what changed is when they differ in the code of routines
+    /// ([`Compiled::update_files`]). The compile holds every test codeunit, whatever `opts.only` selects; the selection
+    /// only chooses what runs, so a request with another selection reuses the compile (al-runner issue 7978: a client
+    /// that ran a suite one codeunit per request compiled again on every request). A recipe lane (`--recipe microsoft`,
+    /// `test-microsoft`) runs through it too, so each lane compiles every test codeunit of its app (ADR-028 amendment
+    /// of 2026-11-13).
     #[allow(clippy::too_many_arguments)]
     pub fn run(
         &mut self,
@@ -729,19 +730,10 @@ impl Warm {
                 (f.app, f.path.to_string(), h.finish())
             })
             .collect();
-        let wanted: Option<std::collections::BTreeSet<(usize, u32)>> =
-            opts.only.as_ref().map(|v| v.iter().copied().collect());
-        let covers = |have: &Option<std::collections::BTreeSet<(usize, u32)>>| match (have, &wanted) {
-            (None, _) => true,
-            (Some(h), Some(w)) => w.is_subset(h),
-            (Some(_), None) => false,
-        };
         let mut used = WarmUse::Reused;
-        // The manifests of the apps, once `build` has given them: a request redone on the full run's compile needs them.
-        let mut kept_manifests: Option<Vec<Manifest>> = None;
         let mut reusable = false;
         let mut broken = false;
-        if let Some(slot) = self.slot.as_mut().filter(|s| s.key == key && covers(&s.compiled_for)) {
+        if let Some(slot) = self.slot.as_mut().filter(|s| s.key == key) {
             let same_files = slot.files.len() == hashes.len()
                 && slot.files.iter().zip(&hashes).all(|(a, b)| a.0 == b.0 && a.1 == b.1);
             if same_files {
@@ -768,9 +760,8 @@ impl Warm {
                             // lowering. A run that fails here has found a defect of the update.
                             if std::env::var_os("ALRUNNER_CHECK_INCREMENTAL").is_some() {
                                 let (apps, kinds, manifests) = build.take().expect("built once")();
-                                kept_manifests = Some(manifests.clone());
                                 let compile_opts = RunOptions {
-                                    only: slot.compiled_for.as_ref().map(|u| u.iter().copied().collect()),
+                                    only: None,
                                     ..opts.clone()
                                 };
                                 let full = CorpusRuntime::compile_suites(
@@ -803,16 +794,9 @@ impl Warm {
         }
         if !reusable {
             used = WarmUse::Compiled;
-            let union = match (self.slot.as_ref().filter(|s| s.key == key), &wanted) {
-                // A request with effects outside its run is never redone: it compiles as the full run does.
-                _ if super::narrowing::Narrowing::live_effects(opts) => None,
-                (Some(s), Some(w)) => s.compiled_for.as_ref().map(|h| h.union(w).copied().collect()),
-                _ => wanted.clone(),
-            };
             let (apps, kinds, manifests) = build.take().expect("built once")();
-            kept_manifests = Some(manifests.clone());
             let compile_opts = RunOptions {
-                only: union.as_ref().map(|u| u.iter().copied().collect()),
+                only: None,
                 ..opts.clone()
             };
             // The old compile goes first: two of them are never in memory together.
@@ -825,7 +809,6 @@ impl Warm {
             self.slot = Some(WarmSlot {
                 key: key.to_string(),
                 files: hashes,
-                compiled_for: union,
                 compiled,
             });
         }
@@ -834,109 +817,11 @@ impl Warm {
             slot.compiled.set_resources(resources);
         }
         let compile_time = compile_started.elapsed();
-        // A run that may be redone tells its tests only once it stands: a client is told one line per test, by the run
-        // that counts (docs/manual/tool-protocol.md section 4b). The full run's compile streams them as they finish.
-        let held: Arc<std::sync::Mutex<Vec<crate::events::TestEvent>>> = Default::default();
-        let hold = super::narrowing::Narrowing::may_redo(&slot.compiled) && opts.hooks.on_test.is_some();
-        let first_opts = match hold {
-            true => std::borrow::Cow::Owned(RunOptions {
-                hooks: crate::events::Hooks {
-                    on_test: Some({
-                        let held = held.clone();
-                        Arc::new(move |e| held.lock().unwrap_or_else(|p| p.into_inner()).push(e))
-                    }),
-                    ..opts.hooks.clone()
-                },
-                ..opts.clone()
-            }),
-            false => std::borrow::Cow::Borrowed(opts),
-        };
-        let rt = CorpusRuntime::run_compiled_kept(&slot.compiled, target, dotnet.clone(), &first_opts, true);
-        let (mut rt, redone) = self.settle(
-            rt,
-            (build, kept_manifests),
-            resources,
-            (symbols, target, &dotnet),
-            suites,
-            opts,
-        )?;
-        if let (false, Some(on_test)) = (redone, &opts.hooks.on_test) {
-            for e in std::mem::take(&mut *held.lock().unwrap_or_else(|p| p.into_inner())) {
-                on_test(e);
-            }
-        }
-        // A redone request compiled the whole workspace again.
-        let used = if redone { WarmUse::Compiled } else { used };
+        // The compile has no selection (`only: None`, not lean), so its outcomes are the full run's: nothing is redone
+        // (`narrowing::Narrowing::Full`) and the tests stream as they finish.
+        let mut rt = CorpusRuntime::run_compiled_kept(&slot.compiled, target, dotnet, opts, true);
         rt.phases.warm_compile = Some(compile_time);
         Ok((rt, used))
-    }
-
-    /// A request whose run met what the kept compile left out runs again on the full run's compile, as a one-shot run
-    /// does (`narrowing::settle`); the slot keeps that compile for the next requests. `apps` gives the apps again: `build`
-    /// when it was not called, else the kept compile's apps with the manifests `build` gave. Also says whether the request
-    /// was redone.
-    #[allow(clippy::type_complexity)]
-    fn settle(
-        &mut self,
-        rt: CorpusRuntime,
-        apps: (
-            Option<impl FnOnce() -> (Vec<al_sema::workspace::AppSource>, Vec<al_sema::AppKind>, Vec<Manifest>)>,
-            Option<Vec<Manifest>>,
-        ),
-        resources: Option<&[&Resources]>,
-        (symbols, target, dotnet): (
-            &BTreeSet<String>,
-            Option<&al_version::Target>,
-            &al_vm::dotnet::DotNetConfig,
-        ),
-        suites: &[SuiteRun],
-        opts: &RunOptions,
-    ) -> Result<(CorpusRuntime, bool), String> {
-        use super::narrowing::{Met, Narrowing, Settled};
-        let slot = self.slot.as_ref().expect("a compile is kept");
-        if Narrowing::of(&slot.compiled).next(Met::of(&rt)).is_none() {
-            return Ok((rt, false));
-        }
-        let WarmSlot {
-            key, files, compiled, ..
-        } = self.slot.take().expect("a compile is kept");
-        crate::baseline_cache::forget_kept();
-        let (mut build, mut manifests) = apps;
-        let settled = super::narrowing::settle(
-            compiled,
-            rt,
-            opts,
-            |old, o| {
-                let (apps, kinds, manifests) = match build.take() {
-                    Some(build) => {
-                        retire(old);
-                        build()
-                    }
-                    None => {
-                        let (apps, kinds) = old.into_apps();
-                        (apps, kinds, manifests.take().expect("the manifests of a compile"))
-                    }
-                };
-                let mut c = CorpusRuntime::compile_suites(apps, kinds, &manifests, symbols, target, suites, o)?;
-                if let Some(resources) = resources {
-                    c.set_resources(resources);
-                }
-                Ok(Ok(c))
-            },
-            |c| CorpusRuntime::run_compiled_kept(c, target, dotnet.clone(), opts, true),
-        )?;
-        match settled {
-            Settled::Stopped(rt) => Ok((rt, true)),
-            Settled::Ran { compiled, rt, redone } => {
-                self.slot = Some(WarmSlot {
-                    key,
-                    files,
-                    compiled_for: None,
-                    compiled: *compiled,
-                });
-                Ok((rt, redone))
-            }
-        }
     }
 
     /// Drops what is kept.
