@@ -5,8 +5,8 @@
 use super::*;
 use al_builtins::assumptions::Assumption;
 
-/// The kind of a variable a bare name reads, when it is a Label or TextConst the cells cover: a Label with neither
-/// `Locked` nor `MaxLength`, or a TextConst with only an ENU text (the declarations the pins use).
+/// The kind of a variable a bare name reads, when it is declared as just `Label 'text'` or `TextConst ENU = 'text'` (the
+/// declarations the pins use: types/TestTernaryContracts.al:529-530, :548-550; types/variant/VaTTextConst.al:13, :278).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Source {
     LocalLabel,
@@ -30,20 +30,14 @@ impl Lowerer<'_> {
             return None;
         }
         match self.res(node)? {
-            Res::Local(n) if self.local_labels.contains_key(n) => {
-                let textconst = self.local_textconsts.contains(n);
-                let plain = !self.local_locked_labels.contains(n)
-                    && !self.local_maxlength_labels.contains(n)
-                    && !self.local_textconst_languages.contains_key(n);
-                plain.then_some(if textconst { Source::LocalTextConst } else { Source::LocalLabel })
-            }
-            Res::Global(n) if self.global_labels.contains_key(n) => {
-                let textconst = self.global_textconsts.contains(n);
-                let plain = !self.global_locked_labels.contains(n)
-                    && !self.global_maxlength_labels.contains(n)
-                    && !self.global_textconst_languages.contains_key(n);
-                plain.then_some(if textconst { Source::GlobalTextConst } else { Source::GlobalLabel })
-            }
+            Res::Local(n) if self.local_plain_text_decls.contains(n) => Some(match self.local_textconsts.contains(n) {
+                true => Source::LocalTextConst,
+                false => Source::LocalLabel,
+            }),
+            Res::Global(n) if self.global_plain_text_decls.contains(n) => Some(match self.global_textconsts.contains(n) {
+                true => Source::GlobalTextConst,
+                false => Source::GlobalLabel,
+            }),
             _ => None,
         }
     }

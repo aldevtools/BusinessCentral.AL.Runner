@@ -15,6 +15,7 @@ codeunit 69975 C
         GLbl: Label 'Hello';
         GTc: TextConst ENU = 'Hello';
         GLocked: Label 'Hello', Locked = true;
+        GComment: Label 'Hello', Comment = 'a note';
         GVar: Variant;
 
     local procedure Kinds(V: Variant): Text
@@ -95,6 +96,23 @@ codeunit 69975 C
         exit(Kinds(V));
     end;
 
+    procedure CommentLabel(): Text
+    var
+        Cmt: Label 'Hello', Comment = 'a note';
+        V: Variant;
+    begin
+        V := Cmt;
+        exit(Kinds(V));
+    end;
+
+    procedure GlobalCommentLabel(): Text
+    var
+        V: Variant;
+    begin
+        V := GComment;
+        exit(Kinds(V));
+    end;
+
     procedure GlobalTarget(): Text
     begin
         GVar := GLbl;
@@ -165,7 +183,7 @@ fn a_global_label_holds_a_text_constant_flagged() {
 
 #[test]
 fn other_label_shapes_keep_the_text_conversion() {
-    for routine in ["LabelArg", "LockedLabel", "GlobalTarget", "ParamTarget", "ArrayTarget"] {
+    for routine in ["LabelArg", "LockedLabel", "CommentLabel", "GlobalCommentLabel", "GlobalTarget", "ParamTarget", "ArrayTarget"] {
         let (r, hits) = run(routine);
         assert_eq!(al_testkit::text(r), TEXT, "{routine}");
         assert!(!hits.contains(&Assumption::LabelGlobalIntoVariant), "{routine}");

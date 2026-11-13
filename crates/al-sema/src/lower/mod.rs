@@ -268,6 +268,10 @@ pub(crate) struct Lowerer<'a> {
     /// The Label variables declared with `MaxLength`, by lowercase name (a conditional expression pairs them only where pinned).
     global_maxlength_labels: std::collections::HashSet<String>,
     local_maxlength_labels: std::collections::HashSet<String>,
+    /// The Label and TextConst variables declared as just `Label 'text'` or `TextConst ENU = 'text'`, by lowercase name
+    /// ([`shared::plain_text_declaration`]; lower/label_variant.rs).
+    global_plain_text_decls: std::collections::HashSet<String>,
+    local_plain_text_decls: std::collections::HashSet<String>,
     /// Attributes of variables the lowering reads (`shared::var_attribute_names`), by lowercase name.
     global_var_attrs: HashMap<String, Vec<String>>,
     local_var_attrs: HashMap<String, Vec<String>>,
