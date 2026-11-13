@@ -1,7 +1,7 @@
 //! CalcDate at the ends of the date range (0001-01-01 to 9999-12-31): which formulas raise "The date is not valid." (code
 //! DateInvalid), and which results from the closing date C9999-12-31 stay closing dates. Each cell is pinned by
-//! types/date-time/CalcDate.al:458-480 or measured by corpus PR 1374 (types/date-time/CalcDateOverflow.al, the same on BC
-//! 27.5, 28.5 and 29.0; assumption `calcdate-past-date-range`). Every other shape at the ends is refused.
+//! types/date-time/CalcDate.al:458-480 or measured by corpus PR 1374 (types/date-time/CalcDateOverflow.al, the same on all
+//! three majors; assumption `calcdate-past-date-range`). Every other shape at the ends is refused.
 
 use super::{LAST_DAY, Term, Unit};
 use crate::assumptions::{self, Assumption};
