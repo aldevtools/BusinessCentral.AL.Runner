@@ -1,6 +1,7 @@
 //! Every Variant.IsXxx method asked of a Variant that holds a value of each kind (al-runner issue 7963; corpus PR 1382,
 //! types/variant/VariantIsMatrix.al:135-493, the probe's codeunit with its Observer calls turned into a returned text). The
-//! methods the registry did not have mark `variant-is-matrix`; kinds outside the probe refuse in those methods. The probe's Label
+//! methods the registry did not have (IsTransactionType, IsDataClassificationType, IsSecurityFiltering) and IsOption of a
+//! TransactionType mark `variant-is-matrix`; kinds outside the probe refuse in the three new methods. The probe's Label
 //! and TextConst cells (:186, both IsTextConstant only) are left out: a TextConst into a Variant stays refused, and a Label in a
 //! Variant is still a Text (not changed here).
 
@@ -437,16 +438,43 @@ codeunit 69973 "LT VaM Is Matrix"
 "#;
 
 const EXPECTED: &[(&str, &str)] = &[
-    ("TransactionType_AllValues", "default=TransactionType,;browse=TransactionType,;snapshot=TransactionType,;update=TransactionType,;updatenolocks=TransactionType,;report=TransactionType,;literal=TransactionType,;current=TransactionType,;formatted=Text,;"),
+    (
+        "TransactionType_AllValues",
+        "default=TransactionType,;browse=TransactionType,;snapshot=TransactionType,;update=TransactionType,;updatenolocks=TransactionType,;report=TransactionType,;literal=TransactionType,;current=TransactionType,;formatted=Text,;",
+    ),
     ("Unassigned_Variant", "unassigned=;"),
-    ("Simple_Kinds", "boolean=Boolean,;integer=Integer,;biginteger=BigInteger,;decimal=Decimal,;byte=Byte,;char=Char,WideChar,;text=Text,;code=Code,;option=Option,;enum=Option,;"),
-    ("Date_Time_Kinds", "date=Date,;time=Time,;datetime=DateTime,;duration=Duration,;dateformula=DateFormula,;guid=Guid,;"),
-    ("Record_Kinds", "record=Record,;recordid=RecordId,;recordref=RecordRef,;fieldref=FieldRef,;codeunit=Codeunit,;"),
-    ("Stream_Builder_Collection_Kinds", "outstream=OutStream,;instream=InStream,;textbuilder=TextBuilder,;list=List,;dictionary=Dictionary,;notification=Notification,;filterpagebuilder=FilterPageBuilder,;"),
-    ("Json_Kinds", "jsonobject=JsonObject,;jsonarray=JsonArray,;jsonvalue=JsonValue,;jsontoken=JsonToken,;"),
-    ("Platform_Option_Kinds", "action=Action,;clienttype=ClientType,;dataclassification=DataClassification,DataClassificationType,;defaultlayout=DefaultLayout,;executionmode=ExecutionMode,;objecttype=ObjectType,;reportformat=ReportFormat,;tableconnectiontype=TableConnectionType,;testpermissions=TestPermissions,;textencoding=TextEncoding,;promptmode=PromptMode,;"),
-    ("Xml_Kinds_A", "xmldocument=XmlDocument,;xmlelement=XmlElement,;xmlattribute=XmlAttribute,;xmltext=XmlText,;xmlcdata=XmlCData,;xmlcomment=XmlComment,;xmldeclaration=XmlDeclaration,;xmlprocessinginstruction=XmlProcessingInstruction,;"),
-    ("Xml_Kinds_B", "xmldocumenttype=XmlDocumentType,;xmlnode=XmlElement,;xmlnodelist=XmlNodeList,;xmlattributecollection=XmlAttributeCollection,;xmlnamespacemanager=XmlNamespaceManager,;xmlnametable=XmlNameTable,;xmlreadoptions=XmlReadOptions,;xmlwriteoptions=XmlWriteOptions,;"),
+    (
+        "Simple_Kinds",
+        "boolean=Boolean,;integer=Integer,;biginteger=BigInteger,;decimal=Decimal,;byte=Byte,;char=Char,WideChar,;text=Text,;code=Code,;option=Option,;enum=Option,;",
+    ),
+    (
+        "Date_Time_Kinds",
+        "date=Date,;time=Time,;datetime=DateTime,;duration=Duration,;dateformula=DateFormula,;guid=Guid,;",
+    ),
+    (
+        "Record_Kinds",
+        "record=Record,;recordid=RecordId,;recordref=RecordRef,;fieldref=FieldRef,;codeunit=Codeunit,;",
+    ),
+    (
+        "Stream_Builder_Collection_Kinds",
+        "outstream=OutStream,;instream=InStream,;textbuilder=TextBuilder,;list=List,;dictionary=Dictionary,;notification=Notification,;filterpagebuilder=FilterPageBuilder,;",
+    ),
+    (
+        "Json_Kinds",
+        "jsonobject=JsonObject,;jsonarray=JsonArray,;jsonvalue=JsonValue,;jsontoken=JsonToken,;",
+    ),
+    (
+        "Platform_Option_Kinds",
+        "action=Action,;clienttype=ClientType,;dataclassification=DataClassification,DataClassificationType,;defaultlayout=DefaultLayout,;executionmode=ExecutionMode,;objecttype=ObjectType,;reportformat=ReportFormat,;tableconnectiontype=TableConnectionType,;testpermissions=TestPermissions,;textencoding=TextEncoding,;promptmode=PromptMode,;",
+    ),
+    (
+        "Xml_Kinds_A",
+        "xmldocument=XmlDocument,;xmlelement=XmlElement,;xmlattribute=XmlAttribute,;xmltext=XmlText,;xmlcdata=XmlCData,;xmlcomment=XmlComment,;xmldeclaration=XmlDeclaration,;xmlprocessinginstruction=XmlProcessingInstruction,;",
+    ),
+    (
+        "Xml_Kinds_B",
+        "xmldocumenttype=XmlDocumentType,;xmlnode=XmlElement,;xmlnodelist=XmlNodeList,;xmlattributecollection=XmlAttributeCollection,;xmlnamespacemanager=XmlNamespaceManager,;xmlnametable=XmlNameTable,;xmlreadoptions=XmlReadOptions,;xmlwriteoptions=XmlWriteOptions,;",
+    ),
 ];
 
 #[test]
@@ -456,7 +484,10 @@ fn each_held_kind_answers_the_measured_is_methods() {
         take_hits();
         let got = al_testkit::text(b.run_in("LT VaM Is Matrix", routine));
         assert_eq!(&got, expected, "{routine}");
-        assert!(take_hits().contains(&Assumption::VariantIsMatrix), "{routine} must mark its assumption");
+        assert!(
+            take_hits().contains(&Assumption::VariantIsMatrix),
+            "{routine} must mark its assumption"
+        );
     }
 }
 
@@ -473,23 +504,23 @@ codeunit 69974 "LT VaM Neighbors"
         exit(Value.IsTransactionType());
     end;
 
-    procedure HttpClientIsJson(): Boolean
+    procedure HttpClientIsTransactionType(): Boolean
     var
         Client: HttpClient;
         V: Variant;
     begin
         V := Client;
-        exit(V.IsJsonObject());
+        exit(V.IsTransactionType());
     end;
 
-    procedure AttributeNodeIsXmlNode(): Boolean
+    procedure AttributeNodeIsDataClassificationType(): Boolean
     var
         Nd: XmlNode;
         V: Variant;
     begin
         Nd := XmlAttribute.Create('k', 'v').AsXmlNode();
         V := Nd;
-        exit(V.IsXmlNode());
+        exit(V.IsDataClassificationType());
     end;
 
     procedure AppOptionIsOption(): Boolean
@@ -506,21 +537,32 @@ codeunit 69974 "LT VaM Neighbors"
 #[test]
 fn the_reporters_repro_answers_true_flagged() {
     take_hits();
-    assert!(al_testkit::boolean(al_testkit::run_in(NEIGHBORS, "LT VaM Neighbors", "Reporter")));
+    assert!(al_testkit::boolean(al_testkit::run_in(
+        NEIGHBORS,
+        "LT VaM Neighbors",
+        "Reporter"
+    )));
     assert!(take_hits().contains(&Assumption::VariantIsMatrix));
 }
 
 #[test]
 fn a_kind_the_probe_did_not_hold_refuses_in_the_new_methods() {
-    for routine in ["HttpClientIsJson", "AttributeNodeIsXmlNode"] {
+    for routine in ["HttpClientIsTransactionType", "AttributeNodeIsDataClassificationType"] {
         let r = al_testkit::run_in(NEIGHBORS, "LT VaM Neighbors", routine);
-        assert!(matches!(r, Err(al_builtins::native::Signal::Unsupported(_))), "{routine}: {r:?}");
+        assert!(
+            matches!(r, Err(al_builtins::native::Signal::Unsupported(_))),
+            "{routine}: {r:?}"
+        );
     }
 }
 
 #[test]
 fn is_option_of_an_app_option_keeps_mains_answer_unflagged() {
     take_hits();
-    assert!(al_testkit::boolean(al_testkit::run_in(NEIGHBORS, "LT VaM Neighbors", "AppOptionIsOption")));
+    assert!(al_testkit::boolean(al_testkit::run_in(
+        NEIGHBORS,
+        "LT VaM Neighbors",
+        "AppOptionIsOption"
+    )));
     assert!(!take_hits().contains(&Assumption::VariantIsMatrix));
 }

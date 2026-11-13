@@ -98,7 +98,10 @@ impl Session {
             return Ok(None);
         };
         if matches!(field.ty, RtType::Integer)
-            && self.engine.events.is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makeintfilter")
+            && self
+                .engine
+                .events
+                .is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makeintfilter")
         {
             return Ok(None);
         }
@@ -131,11 +134,30 @@ mod tests {
     #[test]
     fn only_the_measured_shapes_match() {
         let a = [Value::Text("A".into())];
-        assert_eq!(empty_or_side("A|", &[], &text_ty()), Some((Side::Right, Evidence::Probe)));
-        assert_eq!(empty_or_side("%1|", &a, &text_ty()), Some((Side::Right, Evidence::Probe)));
-        assert_eq!(empty_or_side("||", &[], &text_ty()), Some((Side::Left, Evidence::Pinned)));
-        assert_eq!(empty_or_side("|10", &[], &RtType::Integer), Some((Side::Left, Evidence::Pinned)));
-        for (t, args) in [("A|B||C", &[][..]), (" A|", &[]), ("A|", &a), ("%1|", &[]), ("%1||", &a), ("|A|", &[])] {
+        assert_eq!(
+            empty_or_side("A|", &[], &text_ty()),
+            Some((Side::Right, Evidence::Probe))
+        );
+        assert_eq!(
+            empty_or_side("%1|", &a, &text_ty()),
+            Some((Side::Right, Evidence::Probe))
+        );
+        assert_eq!(
+            empty_or_side("||", &[], &text_ty()),
+            Some((Side::Left, Evidence::Pinned))
+        );
+        assert_eq!(
+            empty_or_side("|10", &[], &RtType::Integer),
+            Some((Side::Left, Evidence::Pinned))
+        );
+        for (t, args) in [
+            ("A|B||C", &[][..]),
+            (" A|", &[]),
+            ("A|", &a),
+            ("%1|", &[]),
+            ("%1||", &a),
+            ("|A|", &[]),
+        ] {
             assert_eq!(empty_or_side(t, args, &text_ty()), None, "{t}");
         }
         assert_eq!(empty_or_side("||", &[], &RtType::Code(Some(20))), None);

@@ -3,7 +3,6 @@
 # `al-test-cli --prune-not-passing` deletes stale lines; a corpus bump adds new cases with `--list-new-cases`.
 # A line for a case the oracle already had is a regression: it needs the owner's OK (CLAUDE.md hard rule 2).
 60026 MockedSet_WithTheGrant_AllowsInsert
-60123 Variant_IsTransactionType_ReturnsTrue_WhenAssignedTransactionType
 60129 Record_Relation_EntryNoField_Throws
 60129 Record_Relation_NonRelatedField_Throws
 60130 Media_ExportStream_ValidPng_RoundTripsPreservingDimensions

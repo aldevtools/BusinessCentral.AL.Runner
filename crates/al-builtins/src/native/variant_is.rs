@@ -1,7 +1,7 @@
 //! The Variant.IsXxx methods that corpus PR 1382 measured first (al-runner issue 7963; types/variant/VariantIsMatrix.al:135-493,
-//! not pinned yet, assumption `variant-is-matrix`): IsTransactionType, IsDataClassificationType, IsSecurityFiltering, the four
-//! IsJson methods and the sixteen IsXml methods. They answer only for the kinds the probe held ([`measured`]); every other kind
-//! refuses.
+//! not pinned yet, assumption `variant-is-matrix`): IsTransactionType, IsDataClassificationType and IsSecurityFiltering answer
+//! only for the kinds the probe held ([`measured`]); every other kind refuses. IsOption of a TransactionType value is false. The
+//! IsJson and IsXml methods stay in `xml::lists`.
 
 use super::*;
 use crate::assumptions::{Assumption, assume};
@@ -69,7 +69,9 @@ fn measured(c: &mut dyn Ctx, v: Option<&mut Value>) -> Result<bool, Signal> {
                     | LibraryKind::XmlNodeList
                     | LibraryKind::XmlProcessingInstruction
                     | LibraryKind::XmlText
-            ) || ["XmlReadOptions", "XmlWriteOptions"].iter().any(|n| kind.as_str().eq_ignore_ascii_case(n))
+            ) || ["XmlReadOptions", "XmlWriteOptions"]
+                .iter()
+                .any(|n| kind.as_str().eq_ignore_ascii_case(n))
         }
         _ => false,
     })
@@ -80,9 +82,8 @@ fn transaction_type(members: &[String]) -> bool {
         .is_some_and(|known| members.len() == known.len() && members.iter().zip(known).all(|(a, b)| a == b))
 }
 
-/// `Variant.Is<kind>` for one of the methods of this module: true only for a value of its own kind; a DataClassification value is
-/// also IsDataClassificationType (:393), an XmlNode that holds an element is IsXmlElement and no IsXmlNode (:493), and
-/// IsSecurityFiltering is true for none of the held kinds.
+/// `Variant.Is<kind>` for one of the methods of this module: a TransactionType value is IsTransactionType (:135), a
+/// DataClassification value is IsDataClassificationType (:393), and IsSecurityFiltering is true for none of the held kinds.
 fn is_kind(c: &mut dyn Ctx, r: Option<&mut Value>, kind: &str) -> Result<Value, Signal> {
     let held = r.as_deref().map(|v| v.describe()).unwrap_or_default();
     let mut r = r;
@@ -91,18 +92,18 @@ fn is_kind(c: &mut dyn Ctx, r: Option<&mut Value>, kind: &str) -> Result<Value, 
             "Variant.Is{kind} of a {held} value (corpus PR 1382 measures only the kinds it puts into a Variant)"
         ));
     }
+    // The default TransactionType value is IsTransactionType: pinned by types/TestVariantExtended.al:238.
+    if kind == "TransactionType" && matches!(r.as_deref(), Some(Value::Option(0, m)) if transaction_type(m)) {
+        return Ok(Value::Boolean(true));
+    }
     assume(Assumption::VariantIsMatrix);
-    let answer = match r.as_deref_mut() {
+    let answer = match r {
         None | Some(Value::Null) => false,
         Some(Value::Option(_, members)) => match kind {
             "TransactionType" => transaction_type(members),
             "DataClassificationType" => crate::sysenum::kind_of(members) == Some("dataclassification"),
             _ => false,
         },
-        Some(v @ Value::Library(LibraryKind::XmlNode, _)) => {
-            kind == "XmlElement" && crate::xml::variant_node_is_element(c, Some(v))?
-        }
-        Some(Value::Library(k, _)) => k.as_str().eq_ignore_ascii_case(kind),
         Some(_) => false,
     };
     Ok(Value::Boolean(answer))
@@ -128,28 +129,5 @@ macro_rules! variant_is {
 
 pub(super) const OPTION: (&str, NativeFn) = ("Variant.IsOption#1", |_, r, _| is_option(r));
 
-pub(super) const REGISTRY: &[(&str, NativeFn)] = variant_is!(
-    "TransactionType",
-    "DataClassificationType",
-    "SecurityFiltering",
-    "JsonArray",
-    "JsonObject",
-    "JsonToken",
-    "JsonValue",
-    "XmlAttribute",
-    "XmlAttributeCollection",
-    "XmlCData",
-    "XmlComment",
-    "XmlDeclaration",
-    "XmlDocument",
-    "XmlDocumentType",
-    "XmlElement",
-    "XmlNamespaceManager",
-    "XmlNameTable",
-    "XmlNode",
-    "XmlNodeList",
-    "XmlProcessingInstruction",
-    "XmlReadOptions",
-    "XmlText",
-    "XmlWriteOptions",
-);
+pub(super) const REGISTRY: &[(&str, NativeFn)] =
+    variant_is!("TransactionType", "DataClassificationType", "SecurityFiltering");

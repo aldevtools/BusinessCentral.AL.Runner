@@ -48,10 +48,18 @@ fn the_measured_members_raise_not_initialized_flagged() {
     for state in [0, 1] {
         for member in [1, 2, 5, 7, 8] {
             let r = call(state, member);
-            let Err(Signal::Error(e)) = &r else { panic!("state {state} member {member}: {r:?}") };
-            assert_eq!(e.message, "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.");
+            let Err(Signal::Error(e)) = &r else {
+                panic!("state {state} member {member}: {r:?}")
+            };
+            assert_eq!(
+                e.message,
+                "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized."
+            );
             assert_eq!(e.code, "NotInitialized");
-            assert!(take_hits().contains(&Assumption::FieldrefUnassignedFilters), "state {state} member {member}");
+            assert!(
+                take_hits().contains(&Assumption::FieldrefUnassignedFilters),
+                "state {state} member {member}"
+            );
         }
     }
 }

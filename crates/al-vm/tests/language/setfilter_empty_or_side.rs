@@ -121,7 +121,11 @@ fn an_empty_side_written_in_the_filter_raises_the_filter_error_flagged() {
 
 #[test]
 fn the_pinned_shapes_raise_the_filter_error_unflagged() {
-    for (which, filter, field, side) in [(17, "||", "Name", "left"), (18, "|10", "Num", "left"), (19, "10|", "Num", "right")] {
+    for (which, filter, field, side) in [
+        (17, "||", "Name", "left"),
+        (18, "|10", "Num", "left"),
+        (19, "10|", "Num", "right"),
+    ] {
         assert_eq!(text(which), err(filter, field, side), "case {which}");
         assert!(!flagged(), "case {which} is pinned");
     }
