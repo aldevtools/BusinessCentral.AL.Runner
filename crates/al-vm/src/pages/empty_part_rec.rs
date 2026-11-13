@@ -23,8 +23,9 @@
 //! The List host (al-runner issue 6924, comment 6822249976: the reporter's host is a List page) runs through the assumption
 //! `empty-part-rec-list-host` until corpus pull request 1339 (pages/parts/EmptyPartRecLinkList.al) is pinned; its allowlist
 //! is `empty_part_rec_list.rs`. There the landing leaves the fields the part's filters name unknown, and Rec holds the values
-//! only while a read the cell measured runs: a test Invoke of an action of the part right after the landing
-//! (`Session::reading_empty_list_rec`).
+//! only while a read the cell measured runs: a test Invoke of an action of the part right after the landing, which ends at
+//! any other test call on the host or its parts that starts inside it (`Session::reading_empty_list_rec`,
+//! `Session::end_read_at_test_call`). Code that the Invoke runs itself (the action body and what it calls) reads the values.
 
 use super::parts::LINK_GROUP;
 use super::pinned_shape::{PartStep, TestCall};
@@ -77,8 +78,9 @@ impl Session {
     /// Runs `f`, the test's call `call` on a control of page `st`. When `st` is a part that landed in a List-host cell
     /// (`empty_part_rec`) and the call is a read the cells measured (`measured_read`), Rec holds the link's single values
     /// while `f` runs, through the assumption `empty-part-rec-list-host`; before and after, the fields the part's filters name
-    /// are unknown and a read of one is refused. So host code, a control's source expression, a trigger outside such a call
-    /// and any later call cannot read the values.
+    /// are unknown and a read of one is refused. A test call on the host or its parts that starts while `f` runs (from a UI
+    /// handler) ends the read first (`end_read_at_test_call`). So host code that a test call runs, a control's source
+    /// expression, a trigger outside such a call and any later call cannot read the values; code `f` itself runs can.
     pub(super) fn reading_empty_list_rec<T>(
         &mut self,
         st: &St,
@@ -88,7 +90,12 @@ impl Session {
         let Some(landing) = st.borrow().empty_list_landing else {
             return f(self);
         };
-        if landing.reading || !self.measured_read(st, &landing, call) {
+        if landing.reading {
+            // A call on the part inside its own read (`end_read_at_test_call` ends the read at every test call first).
+            self.end_empty_list_landing(st);
+            return f(self);
+        }
+        if !self.measured_read(st, &landing, call) {
             return f(self);
         }
         assumptions::assume(Assumption::EmptyPartRecListHost);
@@ -150,6 +157,33 @@ impl Session {
     pub(super) fn end_empty_list_landing(&mut self, st: &St) {
         if st.borrow_mut().empty_list_landing.take().is_some_and(|l| l.reading) {
             unknown_filtered_fields(&self.page_rec(st), OUTSIDE_READ);
+        }
+    }
+
+    /// The test makes call `call` on page `st` (`None`: page code calls a method of the page). A test call on the host or on
+    /// any of its parts while a part of that page tree runs a measured read (`reading_empty_list_rec`) ends that part's
+    /// landing first: in every List-host cell the read is the only test call running on the page tree (the probe's action
+    /// only appends to a codeunit's text, EmptyPartRecLinkList.al:630), so a UI handler of the test that calls the page
+    /// again inside the read gets the fields unknown.
+    pub(super) fn end_read_at_test_call(&mut self, st: &St, call: Option<TestCall>) {
+        if call.is_none() {
+            return;
+        }
+        let mut top = st.clone();
+        loop {
+            let host = top.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
+            let Some(host) = host else { break };
+            top = host;
+        }
+        let reading: Vec<St> = top
+            .borrow()
+            .parts
+            .iter()
+            .map(|(_, p)| p.clone())
+            .filter(|p| p.borrow().empty_list_landing.is_some_and(|l| l.reading))
+            .collect();
+        for part in reading {
+            self.end_empty_list_landing(&part);
         }
     }
 

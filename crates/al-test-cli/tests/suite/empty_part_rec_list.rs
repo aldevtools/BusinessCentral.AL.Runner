@@ -12,20 +12,29 @@ use al_testrun::isolation::TestIsolation;
 fn run(src: &str) -> Vec<(String, Outcome, bool)> {
     let l = compile(src);
     let engine = al_vm::Engine::new(l.program.clone(), blocked(&l));
-    let oi = l.program.objects.iter().position(|o| o.name == "PG EPL Tests").unwrap();
     let mut hits = Vec::new();
-    let o = al_testrun::runtime::run_codeunit_full(
-        &engine,
-        &l,
-        oi,
-        None,
-        TestIsolation::Codeunit,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut hits,
-        None,
-    );
+    let mut o = Vec::new();
+    // Every codeunit whose name starts with "PG EPL Tests", in object order (one codeunit per handler set).
+    for (oi, _) in l
+        .program
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.name.starts_with("PG EPL Tests"))
+    {
+        o.extend(al_testrun::runtime::run_codeunit_full(
+            &engine,
+            &l,
+            oi,
+            None,
+            TestIsolation::Codeunit,
+            None,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut hits,
+            None,
+        ));
+    }
     o.into_iter()
         .map(|(name, outcome)| {
             let flagged = hits
@@ -3471,6 +3480,282 @@ fn empty_list_part_rec_tied_to_its_landing() {
                 None => !refused(outcome),
             },
         )
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A UI handler of the test that the measured Invoke lets in calls the page again (review round 4 of the List-host cells): an
+/// action of the host that calls a procedure of the part, a nested Invoke of the part's action (once or three times), a
+/// Drilldown of the part whose trigger reads Rec. No cell measures a test call inside the read, so each refuses, on the
+/// reporter's host form and on the probe's first host form. A handler that makes no test call keeps the measured read
+/// (`W0b`), as does the read without a handler (`W0`).
+const NESTED_SRC: &str = r#"
+table 77100 "PG EPLH Head" { fields { field(1; "No."; Code[20]) { } field(2; "Ref Code"; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+table 77101 "PG EPLH Line"
+{
+    fields { field(1; "Table ID"; Integer) { } field(2; "No."; Code[20]) { } field(3; "Line No."; Integer) { } }
+    keys { key(PK; "Table ID", "No.", "Line No.") { Clustered = true; } }
+}
+codeunit 77102 "PG EPLH Log"
+{
+    SingleInstance = true;
+    var L: Text;
+    procedure Reset() begin L := ''; end;
+    procedure Add(T: Text) begin L += T + ';'; end;
+    procedure Get(): Text begin exit(L); end;
+}
+page 77103 "PG EPLH Part"
+{
+    PageType = ListPart; SourceTable = "PG EPLH Line"; DeleteAllowed = true; DelayedInsert = true; InsertAllowed = false;
+    ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { repeater(Lines) { field(LineNoCtl; Rec."Line No.") { ApplicationArea = All; trigger OnDrillDown() begin ReadProc('drill'); end; } } } }
+    actions
+    {
+        area(Processing)
+        {
+            action(ReadRec) { ApplicationArea = All; trigger OnAction() begin ReadProc('act'); end; }
+            action(ConfirmRead) { ApplicationArea = All; trigger OnAction() begin Log.Add('b'); if Confirm('q') then; ReadProc('after'); end; }
+            action(ConfirmOnly) { ApplicationArea = All; trigger OnAction() begin Log.Add('b'); if Confirm('q') then; Log.Add('e'); end; }
+        }
+    }
+    trigger OnInit() begin end;
+    trigger OnDeleteRecord(): Boolean begin exit(true); end;
+    trigger OnAfterGetCurrRecord() begin end;
+    var Log: Codeunit "PG EPLH Log";
+    procedure ReadProc(Tag: Text) begin Log.Add(Tag + '=' + Format(Rec."Table ID") + '/' + Rec."No." + '/' + Format(Rec."Line No.")); end;
+}
+page 77104 "PG EPLH Rep"
+{
+    PageType = List; SourceTable = "PG EPLH Head"; Caption = 'Rep'; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLH Part") { ApplicationArea = All; Caption = 'Attachments'; SubPageLink = "Table ID" = const(77100), "No." = field("Ref Code"); UpdatePropagation = Both; } }
+    }
+    actions { area(Processing) { action(CallPart) { ApplicationArea = All; trigger OnAction() begin CurrPage.Box.Page.ReadProc('host'); end; } } }
+}
+page 77105 "PG EPLH Base"
+{
+    PageType = List; SourceTable = "PG EPLH Head"; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content) { repeater(Heads) { field(NoCtl; Rec."No.") { ApplicationArea = All; } } }
+        area(FactBoxes) { part(Box; "PG EPLH Part") { ApplicationArea = All; SubPageLink = "Table ID" = const(77100), "No." = field("No."); } }
+    }
+    actions { area(Processing) { action(CallPart) { ApplicationArea = All; trigger OnAction() begin CurrPage.Box.Page.ReadProc('host'); end; } } }
+}
+codeunit 77110 "PG EPL Tests Rep W0"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [Test] procedure Rep_W0() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77111 "PG EPL Tests Rep W0b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h(');  Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W0b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmRead.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77112 "PG EPL Tests Rep W1b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.CallPart.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W1b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77113 "PG EPL Tests Rep W1c"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.CallPart.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W1c() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77114 "PG EPL Tests Rep W2"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.ReadRec.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W2() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77115 "PG EPL Tests Rep W2b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W2b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77116 "PG EPL Tests Rep W8"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Rep";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.LineNoCtl.Drilldown(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Rep_W8() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77117 "PG EPL Tests Base W0"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [Test] procedure Base_W0() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ReadRec.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77118 "PG EPL Tests Base W0b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h(');  Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W0b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmRead.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77119 "PG EPL Tests Base W1b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.CallPart.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W1b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77120 "PG EPL Tests Base W1c"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.CallPart.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W1c() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77121 "PG EPL Tests Base W2"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.ReadRec.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W2() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77122 "PG EPL Tests Base W2b"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); P.Box.ReadRec.Invoke(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W2b() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+codeunit 77123 "PG EPL Tests Base W8"
+{
+    Subtype = Test;
+    var Log: Codeunit "PG EPLH Log"; P: TestPage "PG EPLH Base";
+    [ConfirmHandler] procedure CH(Q: Text[1024]; var Reply: Boolean) begin Log.Add('h('); P.Box.LineNoCtl.Drilldown(); Log.Add(')h'); Reply := true; end;
+    [Test] [HandlerFunctions('CH')] procedure Base_W8() var H: Record "PG EPLH Head"; L: Record "PG EPLH Line";
+    begin
+        L.DeleteAll(); H.DeleteAll();
+        H."No." := 'A'; H."Ref Code" := 'RA'; H.Insert(); H."No." := 'B'; H."Ref Code" := 'RB'; H.Insert(); H."No." := 'C'; H."Ref Code" := 'RC'; H.Insert();
+        Log.Reset();
+        P.OpenEdit(); H.Get('C'); P.GoToRecord(H); P.Box.ConfirmOnly.Invoke();
+        Error(Log.Get());
+    end;
+}
+"#;
+
+#[test]
+fn empty_list_part_rec_nested_test_call_ends_the_read() {
+    let o = run(NESTED_SRC);
+    assert_eq!(o.len(), 14, "{o:?}");
+    let kept: &[(&str, &str)] = &[
+        ("Rep_W0", "act=77100/RC/0;"),
+        ("Rep_W0b", "b;h(;)h;after=77100/RC/0;"),
+        ("Base_W0", "act=77100/C/0;"),
+        ("Base_W0b", "b;h(;)h;after=77100/C/0;"),
+    ];
+    let wrong: Vec<_> = o
+        .iter()
+        .filter(|(name, outcome, flagged)| match kept.iter().find(|(n, _)| n == name) {
+            Some((_, want)) => !raised(outcome, want) || !flagged,
+            None => !refused(outcome),
+        })
         .collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }

@@ -919,7 +919,8 @@ pub struct Session {
     /// How many `Randomize()` calls without a seed the session has seen.
     pub(crate) unseeded_randomizes: i32,
     pub(crate) next_row_version: i64,
-    /// How many Delete, DeleteAll and Truncate calls have reached the store: with `next_row_version`, it tells whether code wrote.
+    /// How many Delete calls and DeleteAll calls that found a row have reached the store, and every Truncate call (on an empty
+    /// table too): with `next_row_version`, it tells whether code wrote.
     pub(crate) deletes: u64,
     /// How many times the store rolled back (`rollback_transaction`): a rollback takes rows back and moves neither count above.
     pub(crate) rollbacks: u64,

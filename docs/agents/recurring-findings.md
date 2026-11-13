@@ -102,7 +102,9 @@ holds it: code of another page that calls into it (a host calling a part's proce
 a kept call also leave the measured shape. Keep the store state of the landing (writes and rollbacks) with the value and compare
 it at each read. Take the store state from the store's own change counter, not only from the places in the VM that count
 writes: a call that writes another way (Truncate) is missed. A control whose source is an expression is code that reads Rec: a
-value read of it is a read of the stamped value.
+value read of it is a read of the stamped value. A value that is on the record only while one call runs is also there for code
+that call lets in: a UI handler of the test that calls the page again. End the window at any test call on the page tree that
+starts inside it.
 
 Prefer the allowlist form of the same rule (round 3 of PR 7932): keep the value off the record (unknown, a read refuses), put
 it on only while the measured read runs and its landing facts still hold, and take it off when that read ends. Then no list of
