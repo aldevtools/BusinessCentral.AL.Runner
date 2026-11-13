@@ -30,7 +30,7 @@ impl Session {
     /// Called by a Run, RunModal or Execute of a report that renders (`ir::Report::output` not empty) once its request page
     /// closed with OK or was not shown: `Ok` goes on with the triggers and writes nothing; otherwise the pinned error or a
     /// refusal naming `why` (the first reason the report renders).
-    pub(crate) fn run_without_output(&self, schema: &Schema, why: &str) -> Result<(), Signal> {
+    pub(crate) fn run_without_output(&mut self, schema: &Schema, why: &str) -> Result<(), Signal> {
         let report = schema.report();
         let refused = || {
             unsupported(format!(
@@ -44,7 +44,7 @@ impl Session {
         if !matches!(report.default_layout_kind.as_str(), "rdlc" | "word" | "excel") {
             return refused();
         }
-        self.refuse_unraised_layout_events(schema, "a run", &["substitutereport"], None)?;
+        self.refuse_run_layout_events(schema)?;
         if let Some(who) = self.run_event_subscriber() {
             return unsupported(format!(
                 "a run of report \"{}\" with {who} (BC raises the printer and download events around a render; this runtime \

@@ -2471,7 +2471,7 @@ impl<'a> ItemTree<'a> {
 
 // ---------------------------------------------------------------------- Report.SaveAs
 
-use crate::report_placeholder::{Rendered, SaveOutput};
+use crate::report_placeholder::SaveOutput;
 
 /// Where a rendering save puts its output.
 pub(crate) enum SaveTarget {
@@ -2660,7 +2660,7 @@ impl Session {
             // subscriber that substitutes another report is not pinned.
             if record_ref.is_none()
                 && matches!(target, SaveTarget::Stream(_))
-                && crate::report_placeholder::format_refused_by_layout(&schema, &format)
+                && self.format_unsupported_by_layout(&schema, &format)
                 && self
                     .engine
                     .events
@@ -2717,11 +2717,11 @@ impl Session {
                 return Err(Signal::Error(Box::new(e)));
             }
         }
-        // ADR-040 and its amendments: the format x layout grid (`report_placeholder::grid`).
+        // ADR-040 and its amendments: the save table (`report_save`).
         if format != "Xml" {
-            match self.rendered_save(&schema, &format, &target, result_used, custom.is_some())? {
-                Rendered::Write(o) => output = o,
-                Rendered::False(e) => {
+            match self.static_or_variable_save(&schema, &format, &target, result_used, custom.is_some())? {
+                Ok(o) => output = o,
+                Err(e) => {
                     self.last_error = e;
                     return Ok(Value::Boolean(false));
                 }
@@ -2935,7 +2935,7 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                let saved = self.write_save_output(target, output, &schema, &bytes, rows, Some(result_used))?;
+                let saved = self.write_save_output(target, output, &schema, &bytes, rows)?;
                 Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),

@@ -507,7 +507,7 @@ fn report_pdf_placeholder_a_report_layout_selection_of_a_custom_layout_is_refuse
         &src,
         "RPP Selection Tests",
         "CustomSelection",
-        "Report Layout Selection",
+        "layout selection another Report Layout Selection or Tenant Report Layout Selection row",
     );
 }
 
@@ -527,7 +527,7 @@ fn report_pdf_placeholder_a_design_time_layout_selection_is_refused() {
         &src,
         "RPP Selection Tests",
         "DesignTimeSelection",
-        "Design-time Report Selection",
+        "layout selection = a design-time selection",
     );
 }
 
@@ -538,7 +538,7 @@ fn report_pdf_placeholder_html_of_an_rdlc_report_while_a_design_time_selection_i
         &src,
         "RPP Selection Tests",
         "DesignTimeSelectionHtml",
-        "Design-time Report Selection",
+        "layout selection = a design-time selection",
     );
 }
 
@@ -590,7 +590,7 @@ fn report_pdf_placeholder_an_excel_layout_keeps_the_refusal() {
 }
 
 // An RDLC layout saved as Word writes the Word placeholder (CiReportRunLeads.al:674-692 SaveAs_RdlcOnly_WordExcel; ADR-040
-// amendment 2026-11-11, `report_placeholder::grid`).
+// amendment 2026-11-11, `report_save`).
 #[test]
 fn report_pdf_placeholder_an_rdlc_layout_saved_as_word_writes_the_word_placeholder() {
     assert!(run(SRC, "WordFormat").is_ok());

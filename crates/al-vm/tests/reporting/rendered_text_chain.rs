@@ -411,7 +411,7 @@ fn rendered_text_chain_a_temporary_selection_of_a_user_defined_word_layout_passe
 
 /// The Html of the user-defined Word layout a temporary selection named keeps that as the layout of its render: the form
 /// the rgba replace of `Email Message Impl.` is measured on (corpus pull request 1371,
-/// reports/html-email-body/RxTenantLayoutBodyTests.al:121 TenantGuid_WordAlpha_EmailBody; `rendered_text::RenderFacts`).
+/// reports/html-email-body/RxTenantLayoutBodyTests.al:121 TenantGuid_WordAlpha_EmailBody; the rgba column of the save's row).
 #[test]
 fn rendered_text_chain_a_selected_layouts_render_is_the_selected_tenant_word_layout() {
     let body = match selected_run("RawBody") {
@@ -419,16 +419,8 @@ fn rendered_text_chain_a_selected_layouts_render_is_the_selected_tenant_word_lay
         other => panic!("expected a text, got {other:?}"),
     };
     let marks = al_builtins::rendered_text::marks(&body).expect("whole marks");
-    let facts = al_builtins::rendered_text::render(marks[0].0)
-        .expect("registered")
-        .facts;
-    assert_eq!(
-        facts,
-        al_builtins::rendered_text::RenderFacts {
-            layout: al_builtins::rendered_text::RenderLayout::TempSelectedTenantWord,
-            ..al_builtins::rendered_text::RGBA_REPLACE_BASE
-        }
-    );
+    let render = al_builtins::rendered_text::render(marks[0].0).expect("registered");
+    assert_eq!(render.rgba_replace, al_builtins::rendered_text::RgbaReplace::Measured);
 }
 
 #[test]

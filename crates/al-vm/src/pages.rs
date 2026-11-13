@@ -75,17 +75,36 @@ pub(crate) struct HostMove {
     /// The move stayed on the row and its parts read again through `sync_parts_stayed` (a GoToKey or GoToRecord to the row the
     /// host stands on). False for every other move, a GoToRecord the `pageops.rs` last branch syncs included.
     pub(crate) stayed: bool,
+    /// The host passes this row on its way to the row a GoToRecord finds (`walk_parts.rs`).
+    pub(crate) passing: bool,
 }
 
 impl HostMove {
     /// A move whose parts read again outside `sync_parts_stayed`.
     pub(crate) fn moved(method: al_builtins::page_op::PageMethod) -> Self {
-        HostMove { method, stayed: false }
+        HostMove {
+            method,
+            stayed: false,
+            passing: false,
+        }
     }
 
     /// A GoToKey or GoToRecord that stayed on the row; its parts read again through `sync_parts_stayed`.
     pub(crate) fn stayed(method: al_builtins::page_op::PageMethod) -> Self {
-        HostMove { method, stayed: true }
+        HostMove {
+            method,
+            stayed: true,
+            passing: false,
+        }
+    }
+
+    /// A row a GoToRecord passes on its way to the row it finds; the parts read again there (`walk_parts.rs`).
+    pub(crate) fn passing(method: al_builtins::page_op::PageMethod) -> Self {
+        HostMove {
+            method,
+            stayed: false,
+            passing: true,
+        }
     }
 }
 
@@ -281,6 +300,7 @@ mod action_body;
 mod card_part_new_host;
 mod empty_part_rec;
 mod empty_part_rec_list;
+mod empty_part_rec_list_triggers;
 mod hidden_part_journal;
 mod hidden_part_journal_code;
 mod list_card_action;
@@ -314,6 +334,7 @@ mod temp_list_gone_row;
 mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
+mod walk_parts;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
     ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, ReadBackwards, WindowRow, control_of,
