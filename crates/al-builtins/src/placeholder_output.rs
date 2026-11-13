@@ -84,6 +84,11 @@ pub fn is_pdf(mark: &str) -> bool {
     mark.strip_prefix(PREFIX).is_some_and(|m| m.starts_with("Pdf "))
 }
 
+/// Whether `mark` is the mark of a placeholder Html.
+pub fn is_html(mark: &str) -> bool {
+    mark.strip_prefix(PREFIX).is_some_and(|m| m.starts_with("Html "))
+}
+
 /// A read of a stream that [`pdf_read`] can answer inside [`PDF_PREFIX`].
 #[derive(Debug, Clone, Copy)]
 pub enum PdfRead {
