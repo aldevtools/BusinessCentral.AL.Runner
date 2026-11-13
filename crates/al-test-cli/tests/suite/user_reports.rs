@@ -2801,3 +2801,49 @@ codeunit 50995 T {
 fn measured_card_new_skips_empty_part_current_record() {
     all_pass(run_with_deps(&[], include_str!("../fixtures/card-new-empty-part.al")));
 }
+
+#[test]
+fn measured_report_extension_items_link_to_named_immediate_parents() {
+    all_pass(run_with_deps(
+        &[],
+        include_str!("../fixtures/report-added-item-parent-link.al"),
+    ));
+}
+
+// Issue #7904: the corpus fixture uses a named immediate parent with a DataItemLink.
+#[test]
+fn report_extension_refuses_unmeasured_parent_references() {
+    let fixture = include_str!("../fixtures/report-added-item-parent-link.al");
+    for (shape, source, refusal) in [
+        (
+            "grandparent",
+            fixture.replace(
+                "DataItemLinkReference = AddedHeader;",
+                "DataItemLinkReference = Header;",
+            ),
+            "DataItemLinkReference",
+        ),
+        (
+            "sibling",
+            fixture.replace("DataItemLinkReference = Header;", "DataItemLinkReference = Line;"),
+            "DataItemLinkReference",
+        ),
+        (
+            "top-level",
+            fixture.replace("addbefore(Line)", "addbefore(Header)"),
+            "is a top-level data item",
+        ),
+        (
+            "no link",
+            fixture.replacen("DataItemLink = ParentId = field(Id);", "", 1),
+            "DataItemLinkReference",
+        ),
+    ] {
+        let outcomes = run_with_deps(&[], &source);
+        assert_eq!(outcomes.len(), 1, "{shape}: {outcomes:?}");
+        assert!(
+            matches!(&outcomes[0].1, Outcome::NotRun(why) if why.contains(refusal)),
+            "{shape}: {outcomes:?}"
+        );
+    }
+}
