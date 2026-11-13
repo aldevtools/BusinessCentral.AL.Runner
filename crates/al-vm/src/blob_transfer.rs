@@ -395,9 +395,10 @@ fn measured(how: BlobMove, s: &Source) -> Option<Cell> {
 /// The moves in which a [`FieldKind::Variation`] field gives what a plain field gives ([`measured`]). Corpus PR 1372
 /// (streams/BlobValueCopyShapes.al) measured loaded content through GetTable, SetTable and TransferFields(Source) (:1174
 /// Compressed = false, :1190 and :1206 a table extension field), and such a field as the source of FieldRef.Value and of a
-/// local Variant (:1174, :1190). Such a field as the target of FieldRef.Value and FieldRef.Validate, and its empty and
-/// not-loaded states, are taken to follow: these moves were refused for these fields between al-runner PR 7936 and this
-/// rule, which cost tests of an outside reporter that passed before (al-runner issue 6924).
+/// local Variant (:1174, :1190). Such a field as the target of FieldRef.Value and FieldRef.Validate copies in every source
+/// state, and a source read with Get only gives an empty target (corpus PR 1375, streams/BlobCopyStates.al, procedure Into,
+/// :536-1002 at d96306a8). Its empty and not-loaded states in the other moves are taken to follow: these moves were refused
+/// for these fields between al-runner PR 7936 and this rule, which cost tests of an outside reporter (al-runner issue 6924).
 fn first_probe_move(how: BlobMove) -> bool {
     matches!(
         how,

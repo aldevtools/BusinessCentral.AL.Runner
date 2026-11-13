@@ -904,6 +904,21 @@ codeunit 50444 C
         exit(Rd(Dst) + '|' + Rd(Dst2));
     end;
 
+    // FieldRef.Validate into a table extension field from a row read without CalcFields (corpus PR 1375,
+    // streams/BlobCopyStates.al, procedure Into, state get).
+    procedure ExtensionFieldValidateFromUnreadSource(): Text
+    var
+        Src: Record "BS Row";
+        Dst: Record "BS Row" temporary;
+        RR: RecordRef;
+    begin
+        StoreUnloaded(Src, 56);
+        RR.GetTable(Dst);
+        RR.Field(50441).Validate(Src.Data);
+        RR.SetTable(Dst);
+        exit(RdAdded(Dst));
+    end;
+
     // ---- Refused ----
 
     // FieldRef.Value into a field with Compressed = true.
@@ -1065,14 +1080,15 @@ fn arguments_and_states_that_are_not_measured_share_as_before() {
 }
 
 /// These were refused after al-runner PR 7936 and shared the buffer before it (issue 6924: three tests of an outside reporter
-/// stopped running). FieldRef.Value into such a field is not a cell of its own in corpus PR 1372: the fields copy in GetTable,
-/// SetTable and TransferFields (streams/BlobValueCopyShapes.al:1174, :1190, :1206).
+/// stopped running). Corpus PR 1375 (streams/BlobCopyStates.al, procedure Into) measures FieldRef.Value and Validate into such a
+/// field: a copy in every source state, an empty target from a row read with Get only.
 #[test]
 fn fieldref_value_and_validate_into_an_extension_or_uncompressed_field_copy() {
     assert_eq!(flagged("ValueAndValidateIntoExtensionField"), "hv:alpha|hv:alpha");
     assert_eq!(flagged("ValueIntoUncompressedField"), "hv:alpha");
     assert_eq!(flagged("GetTableUncompressedCalcFields"), "hv:alpha");
     assert_eq!(flagged("ExtensionFieldValueFromUnreadSource"), "nohv:");
+    assert_eq!(flagged("ExtensionFieldValidateFromUnreadSource"), "nohv:");
 }
 
 #[test]
