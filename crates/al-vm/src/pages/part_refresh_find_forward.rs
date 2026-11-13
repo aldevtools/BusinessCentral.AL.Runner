@@ -2,7 +2,7 @@
 //! `CurrPage.Update(true)` in a control's OnValidate (al-runner issue 7820): the client asks OnFindRecord `=>`, not the `=><`
 //! of an open read.
 
-use super::pinned_body::{Callees, callees_are, page_is, table_is};
+use super::pinned_body::{Callees, Names, callees_are, page_is, table_is};
 use super::pinned_shape::{NextEnd, PartStep, PinnedEnd, PinnedPart, TestCall};
 use super::*;
 use al_builtins::page_op::PageMethod;
@@ -147,11 +147,12 @@ impl Session {
         let part_table = rec.borrow().table as usize;
         let engine = self.engine();
         let mut callees = Callees::new();
-        let code_ok = page_is(&engine, host.borrow().object as usize, HOST_PAGE, &mut callees)
-            && page_is(&engine, st.borrow().object as usize, PART_PAGE, &mut callees)
-            && table_is(&engine, host_table, HEADER_TABLE, &mut callees)
-            && table_is(&engine, part_table, LINE_TABLE, &mut callees)
-            && callees_are(&engine, &callees, LOG_ADD)
+        let names = &mut Names::default();
+        let code_ok = page_is(&engine, host.borrow().object as usize, HOST_PAGE, &mut callees, names)
+            && page_is(&engine, st.borrow().object as usize, PART_PAGE, &mut callees, names)
+            && table_is(&engine, host_table, HEADER_TABLE, &mut callees, names)
+            && table_is(&engine, part_table, LINE_TABLE, &mut callees, names)
+            && callees_are(&engine, &callees, LOG_ADD, names)
             && page_of(&engine, host).controls[c].prop("updatepropagation").is_none();
         drop(engine);
         if !code_ok {

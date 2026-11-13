@@ -453,8 +453,9 @@ pub enum Gate {
     /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines:
     /// the same file's :685 TD_LeavesKey_Line1WithUpdate_TwoLines and testpage/Y1WorksheetPostLog.al:165,181,
     /// al-runner issue 6292). BC 28
-    /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
-    /// settle of a list action).
+    /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/post_left_new_line.rs (the
+    /// `rec_moved_other` settle of a list action; there also for two rows on the new-row line, open corpus PR 1384, assumption
+    /// `post-left-other-key-new-line-variants`).
     ThreeLineLeavesKeyOnceFrom28,
     /// A move (Next, Previous, First, Last, GoToKey) of a plain list onto a row that a deletion by code took from the table
     /// since the list read it: BC 27 re-reads the rows around the row the cursor stands on and stays there; BC 28 answers the
