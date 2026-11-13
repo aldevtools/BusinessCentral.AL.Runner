@@ -9,6 +9,100 @@ use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 
 impl Session {
+    pub(super) fn refresh_after_card_assist_edit(
+        &mut self,
+        st: &St,
+        rec_before: Option<&(Vec<Value>, bool)>,
+    ) -> Result<(), Signal> {
+        if let Some((before, true)) = rec_before {
+            self.settle_next_only_card_assist_edit(st, before)?;
+        }
+        self.run_refresh(st)
+    }
+
+    /// NextOnlyCardRefresh.al: AssistEdit stores and reloads the edited row before Update(false).
+    /// The old client edit is no longer pending. BC shows the returned Rec and refreshes the linked
+    /// part without raising the card's current-record trigger.
+    pub(super) fn settle_next_only_card_assist_edit(&mut self, st: &St, before: &[Value]) -> Result<(), Signal> {
+        {
+            let s = st.borrow();
+            if !s.open
+                || !s.dirty
+                || !s.refresh
+                || !s.refresh_by_update
+                || !s.refresh_update_false
+                || s.draft
+                || s.mode != PageMode::Edit
+                || s.modal
+                || s.host.is_some()
+                || s.cursor != Cursor::Row
+                || self.engine.object_facts[s.object as usize].page_type != Some(ir::PageType::Card)
+            {
+                return Ok(());
+            }
+        }
+        if !self.unextended_unsubscribed(st)
+            || !self.assist_edit_has_linked_list_part(st)
+            || self.declares(st, "onfindrecord")
+            || !self.declares(st, "onnextrecord")
+            || !self.declares(st, "onaftergetcurrrecord")
+        {
+            return Ok(());
+        }
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        if !Self::same_key(&table.primary_key(before), &self.row_key(&rec)?) {
+            return Ok(());
+        }
+        let Some(stored) = self.stored_row(&rec)? else {
+            return Ok(());
+        };
+        let current = rec.borrow();
+        let already_stored =
+            table
+                .fields
+                .iter()
+                .zip(current.fields.iter().zip(&stored))
+                .all(|(field, (shown, stored))| {
+                    !field.stored
+                        || Self::same_but_unwritten_blobs(std::slice::from_ref(shown), std::slice::from_ref(stored))
+                });
+        drop(current);
+        if already_stored {
+            assume(Assumption::NextOnlyCardAssistEditRefresh);
+            {
+                let mut s = st.borrow_mut();
+                s.dirty = false;
+                s.set_value_held = false;
+                s.refresh = false;
+            }
+            self.set_xrec_fields(st, stored);
+            self.sync_parts(st)?;
+        }
+        Ok(())
+    }
+
+    fn assist_edit_has_linked_list_part(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let page = st.borrow();
+        let [(control, part)] = page.parts.as_slice() else {
+            return false;
+        };
+        let control = *control;
+        let part = part.clone();
+        drop(page);
+        engine.object_facts[part.borrow().object as usize].page_type_lower() == "listpart"
+            && self.unextended_unsubscribed(&part)
+            && page_of(&engine, st).controls[control]
+                .part_link
+                .as_ref()
+                .is_some_and(|link| {
+                    link.provider.is_none()
+                        && link.view.is_none()
+                        && matches!(link.entries.as_slice(), [ir::LinkEntry::Field(_, _)])
+                })
+    }
+
     /// Marks the assumption of the refresh: update-refresh-onfindrecord (the trigger order of the refresh) unless a pin covers
     /// this page's refresh. A card with only OnNextRecord staying on its row is pinned (UpdateOnFindRecord.al:357); the trigger
     /// order of its refresh is not, so it is marked the same way.
