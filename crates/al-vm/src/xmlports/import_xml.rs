@@ -976,7 +976,7 @@ impl Session {
         Ok(())
     }
 
-    /// Field element or attribute: the text becomes the field's value, then `OnAfterAssignField`.
+    /// Field attribute: the text becomes the field's value, then `OnAfterAssignField`.
     /// Returns the field's position.
     pub(super) fn xp_assign_field(
         &mut self,
@@ -985,7 +985,9 @@ impl Session {
         node: usize,
         text: &str,
     ) -> Result<usize, Signal> {
-        Ok(self.xp_assign_field_flow(inst, schema, node, text)?.0)
+        Ok(self
+            .xp_assign_field_flow_in(inst, schema, node, text, false, Written::Attribute)?
+            .0)
     }
 
     /// `xp_assign_field` for the text of the element `ce`: with PreserveWhiteSpace a CDATA section of white space only is kept.
@@ -999,7 +1001,12 @@ impl Session {
         let text = ce.text();
         let keep_blank =
             schema.xp().preserve_whitespace && !text.is_empty() && text.trim().is_empty() && Self::xp_blank_cdata(ce)?;
-        Ok(self.xp_assign_field_flow_in(inst, schema, node, &text, keep_blank)?.0)
+        let written = Written::Element {
+            self_closed: ce.self_closed,
+        };
+        Ok(self
+            .xp_assign_field_flow_in(inst, schema, node, &text, keep_blank, written)?
+            .0)
     }
 
     /// Whether the white space only text of `ce` is a CDATA section, which an import with PreserveWhiteSpace keeps
@@ -1015,18 +1022,22 @@ impl Session {
         }
     }
 
-    /// `xp_assign_field`, and what `OnAfterAssignField` asked for.
+    /// `xp_assign_field` for a value of a line of a text format (`quoted`: it stood in the field delimiter), and what
+    /// `OnAfterAssignField` asked for.
     pub(super) fn xp_assign_field_flow(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         node: usize,
         text: &str,
+        quoted: bool,
     ) -> Result<(usize, Option<Flow>), Signal> {
-        self.xp_assign_field_flow_in(inst, schema, node, text, false)
+        self.xp_assign_field_flow_in(inst, schema, node, text, false, Written::Value { quoted })
     }
 
-    /// `xp_assign_field_flow`; `keep_blank` keeps a value of white space only (a CDATA section, with PreserveWhiteSpace).
+    /// The text becomes the field's value, then `OnAfterAssignField`; the result is the field's position and what the trigger
+    /// asked for. `keep_blank` keeps a value of white space only (a CDATA section, with PreserveWhiteSpace); `written` says how
+    /// the text stood in the source (read by the Guid import without FormatEvaluate only, `xp_legacy_guid`).
     fn xp_assign_field_flow_in(
         &mut self,
         inst: &Inst,
@@ -1034,6 +1045,7 @@ impl Session {
         node: usize,
         text: &str,
         keep_blank: bool,
+        written: Written,
     ) -> Result<(usize, Option<Flow>), Signal> {
         // White space around a value is dropped, for text too (xmlports/import/XpTImportBasic.al:
         // Import_WhitespaceAroundValues).
@@ -1161,6 +1173,8 @@ impl Session {
                 }
             };
             self.xp_value_xml(text, &ty, members.map(|(_, m)| m))?
+        } else if !schema.xp().format_evaluate_declared && ty == RtType::Guid {
+            self.xp_legacy_guid(inst, schema, n.kind, written, raw)?
         } else if !schema.xp().format_evaluate_declared {
             if matches!(&ty, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordId) {
                 return unsupported("XmlPort import into a RecordId field without FormatEvaluate (not pinned)");
@@ -1170,6 +1184,15 @@ impl Session {
                 Ok(v) => v,
                 Err(Signal::Error(first)) => match self.xp_value_xml(text, &ty, None) {
                     Ok(v) => v,
+                    // The caption of an Enum or Option member, which this port's export writes, reads back as that member
+                    // (xmlports/import/XpEnumOptionRoundTrip.al:221-257; al-runner issue 7781). The shapes that file does not
+                    // measure keep the error (`xp_caption_import_pinned`, `xp_value_by_caption`).
+                    Err(Signal::Error(_)) if self.xp_caption_import_pinned(schema, &ty) => {
+                        match self.xp_value_by_caption(&rec, pos, text, &ty) {
+                            Some(v) => v,
+                            None => return Err(Signal::Error(first)),
+                        }
+                    }
                     // A Date that neither reads gives the long text with the code Evaluate (XpTImportBasic.al: Import_BadDate,
                     // Import_DateWrongFormat).
                     Err(Signal::Error(_)) if matches!(ty, RtType::Date) => {
@@ -1260,6 +1283,12 @@ impl Session {
         rec.borrow_mut().fields[pos] = value.clone();
         // One blank names member 0 of an Enum or Option as the empty text does (Y72XpTextTypeBlankEnum.al:847 `one blank attributes`).
         let blank = text.is_empty() || (matches!(ty, RtType::Enum(_) | RtType::Option(_)) && text.trim().is_empty());
+        if let Some(shape) = self.xp_after_assign_shape(schema, node, &rec, pos)? {
+            return self.xp_after_assign_then_validate(inst, schema, node, &rec, pos, shape, blank);
+        }
+        if self.xp_temporary_import_not_validated(schema, node, &rec, pos)? {
+            return Ok((pos, None));
+        }
         self.xp_validate_field(schema, node, &rec, pos, value, blank)?;
         let flow = self.xp_site(inst, schema, node, "onafterassignfield")?;
         Ok((pos, flow))
@@ -1272,8 +1301,8 @@ impl Session {
     /// validated, the value is stored as it is. Where validation can be seen (an OnValidate, a table extension's validate
     /// trigger, a checked TableRelation, a subscriber to the validate events), these are refused as not pinned: another
     /// format, a blank field attribute into a field without a TableRelation, and a validated element with an
-    /// OnAfterAssignField trigger (which runs first is not pinned). A field attribute follows the same rule as an element,
-    /// except that a blank one is not validated.
+    /// OnAfterAssignField trigger outside the shapes `after_assign.rs` runs (which runs first is not pinned there). A field
+    /// attribute follows the same rule as an element, except that a blank one is not validated.
     pub(super) fn xp_validate_field(
         &mut self,
         schema: &Schema,
@@ -1328,6 +1357,19 @@ impl Session {
             return unsupported(format!(
                 "XmlPort import of {} into {}.{}, which has validation code: whether it is validated is not pinned",
                 n.name, t.name, field.name
+            ));
+        }
+        // A blank field attribute runs no OnAfterAssignField where the port validates by default
+        // (corpus PR 1366, not pinned yet: XpAfterAssignTableRelation.al:1437, :1463); with DefaultFieldsValidation = false it is not
+        // measured.
+        if xp.no_default_fields_validation
+            && n.kind == al_ir::XmlNodeKind::FieldAttr
+            && blank
+            && n.trigger("onafterassignfield").is_some()
+        {
+            return unsupported(format!(
+                "XmlPort import of a blank field attribute {} with OnAfterAssignField on a port with DefaultFieldsValidation = false: whether the trigger runs is not pinned",
+                n.name
             ));
         }
         if !n.field_validate.unwrap_or(!xp.no_default_fields_validation) {

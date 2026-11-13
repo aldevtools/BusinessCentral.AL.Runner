@@ -48,6 +48,8 @@ pub struct TestEvent {
     pub ui_answered: Vec<String>,
     /// The entry of the run the test ran for (`RunOptions::entries`), as the caller's hook sets it; `None` otherwise.
     pub entry: Option<usize>,
+    /// The unprobed assumptions the test ran through (`TestResult::assumptions`).
+    pub assumptions: Vec<al_builtins::assumptions::Assumption>,
 }
 
 impl TestEvent {
@@ -66,6 +68,7 @@ impl TestEvent {
             stubs: Vec::new(),
             ui_answered: Vec::new(),
             entry: None,
+            assumptions: Vec::new(),
         }
     }
 }

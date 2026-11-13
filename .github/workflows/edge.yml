@@ -19,6 +19,11 @@ on:
         description: The commit of `release` to build and publish. It passed CI on main.
         required: true
         type: string
+      skip_macos:
+        description: Build and publish without the macOS archive (see build-packages.yml).
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
 
 permissions:
@@ -79,6 +84,7 @@ jobs:
       label: edge
       sha: ${{ needs.plan.outputs.sha }}
       version_suffix: ${{ needs.plan.outputs.version_suffix }}
+      skip_macos: ${{ inputs.skip_macos == true }}
 
   publish:
     needs: [plan, package]
@@ -90,6 +96,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       SHA: ${{ needs.plan.outputs.sha }}
+      SKIP_MACOS: ${{ inputs.skip_macos == true }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -126,6 +133,9 @@ jobs:
           Windows: download \`install.ps1\` and run \`./install.ps1 -Version edge\`.
           For a numbered checkpoint, use the newest \`3.0.0-alpha.N\` release instead.
           NOTES
+          if [ "$SKIP_MACOS" = true ]; then
+            printf '\nThis build has no macOS archive: GitHub had no macOS runner when it was built. Use the previous edge build or the newest numbered release on macOS.\n' >> notes.md
+          fi
           sed -i 's/^          //' notes.md
           git tag -f edge "$SHA"
           # One retry: GitHub rejected this push once with "fatal error in commit_refs_rules"

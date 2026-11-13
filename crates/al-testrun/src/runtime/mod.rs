@@ -84,6 +84,9 @@ pub struct Manifest {
     /// The top-level keys of the app's own app.json; empty for a package. With `target` and `runtime`, what the AL
     /// compiler's checks of the app's context need (`al_sema::alcodes::AppContext`).
     pub app_json_keys: Vec<String>,
+    /// For the platform package, the modules its manifest's `InternalsVisibleTo` names
+    /// (`al_deps::load::DependencyApp::platform_internals_visible_to`); empty for every other app.
+    pub platform_internals_visible_to: Vec<al_deps::package::InternalsGrant>,
 }
 
 /// The components of `path` made absolute, with `.` and `..` resolved without touching the file system.
@@ -221,6 +224,8 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .as_object()
             .map(|o| o.keys().cloned().collect())
             .unwrap_or_default(),
+        // An app folder is never the platform package here: its `internalsVisibleTo` is not read.
+        platform_internals_visible_to: Vec::new(),
     })
 }
 
@@ -925,22 +930,24 @@ fn run_unit(
     if crate::events::wants_events() {
         let have = crate::events::reported();
         let name = lowered.program.objects[u.oi].name.clone();
-        let event = |test: &str, outcome: Outcome, call_stack: String, time, coverage| crate::events::TestEvent {
-            codeunit: u.id,
-            codeunit_name: name.clone(),
-            test: test.to_string(),
-            outcome,
-            call_stack,
-            time,
-            coverage,
-            captured: None,
-            stubs: Vec::new(),
-            ui_answered: Vec::new(),
-            entry: None,
-            slept_ms: 0,
-        };
+        let event =
+            |test: &str, outcome: Outcome, call_stack: String, time, coverage, assumptions| crate::events::TestEvent {
+                codeunit: u.id,
+                codeunit_name: name.clone(),
+                test: test.to_string(),
+                outcome,
+                call_stack,
+                time,
+                coverage,
+                captured: None,
+                stubs: Vec::new(),
+                ui_answered: Vec::new(),
+                entry: None,
+                slept_ms: 0,
+                assumptions,
+            };
         match &result {
-            Ok((done, stacks, times, _, covs, _)) => {
+            Ok((done, stacks, times, hits, covs, _)) => {
                 for (test, outcome) in done.iter().filter(|(t, _)| !have.contains(t)) {
                     let stack = stacks.iter().find(|(n, _)| n == test).map(|(_, s)| s.clone());
                     let time = times
@@ -952,7 +959,15 @@ fn run_unit(
                         .find(|(n, _)| n == test)
                         .map(|(_, c)| c.clone())
                         .unwrap_or_default();
-                    crate::events::report(event(test, outcome.clone(), stack.unwrap_or_default(), time, cov));
+                    let marks = hits.iter().find(|(n, _)| n == test).map(|(_, h)| h.clone());
+                    crate::events::report(event(
+                        test,
+                        outcome.clone(),
+                        stack.unwrap_or_default(),
+                        time,
+                        cov,
+                        marks.unwrap_or_default(),
+                    ));
                 }
             }
             Err(msg) => {
@@ -963,6 +978,7 @@ fn run_unit(
                         why,
                         String::new(),
                         std::time::Duration::ZERO,
+                        Vec::new(),
                         Vec::new(),
                     ));
                 }
@@ -1146,6 +1162,7 @@ mod discovery;
 mod grow;
 mod handlers;
 mod install_snapshot;
+mod internals_grant;
 mod lane_starts;
 #[cfg(test)]
 mod login_tests;

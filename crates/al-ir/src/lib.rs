@@ -48,6 +48,10 @@ pub struct Program {
     /// Empty without `--tdd`.
     #[serde(default)]
     pub tdd_stubs: Vec<String>,
+    /// The unprobed assumptions that whether the program compiles at all rests on; the runner marks them for every test
+    /// it runs of this program.
+    #[serde(default)]
+    pub assumes: Vec<al_builtins::assumptions::Assumption>,
 }
 
 /// An event subscriber that is declared but not compiled (see [`Program::uncompiled_subscribers`]).
@@ -101,6 +105,25 @@ pub const RAISED_REPORTING_EVENTS: [&str; 4] = [
     "OnDocumentReady",
     "SetupPrinters",
 ];
+
+/// The events of `Reporting Triggers` the runtime raises to Base Application's [`REPORT_MANAGEMENT`] subscribers only, for a save
+/// while a temporary layout selection is held (ADR-040 amendment 2026-11-12, A7). SelectedBuiltinLayoutType is not raised once
+/// SelectReportLayoutCode answered a selected layout (corpus probe pull request 1362,
+/// reports/layouts-html-text/HtRenderedTextTests.al:494, :530).
+pub const REPORT_MANAGEMENT_LAYOUT_EVENTS: [&str; 1] = ["SelectReportLayoutCode"];
+
+/// Base Application's app id.
+pub const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
+
+/// Base Application's codeunit ReportManagement: its id and name.
+pub const REPORT_MANAGEMENT: (u32, &str) = (44, "ReportManagement");
+
+/// Whether a codeunit with `id` and `name` of the app with `app_id` is Base Application's [`REPORT_MANAGEMENT`].
+pub fn is_report_management(id: Option<u32>, name: &str, app_id: &str) -> bool {
+    id == Some(REPORT_MANAGEMENT.0)
+        && name.eq_ignore_ascii_case(REPORT_MANAGEMENT.1)
+        && app_id.eq_ignore_ascii_case(BASE_APPLICATION_APP_ID)
+}
 
 /// The events of `Filter Helper Triggers` the runtime raises (MakeDateFilter, MakeIntFilter and MakeTimeFilter:
 /// events/platform-triggers/PtObserve.al) or refuses to raise (MakeDateTimeFilter).
@@ -773,6 +796,8 @@ pub struct AddedItem {
     pub base_parent: Option<usize>,
     /// Parent introduced by a dependency's report extension.
     pub foreign_parent: Option<ForeignReportItem>,
+    /// This link names its immediate parent explicitly.
+    pub explicit_parent_link: bool,
     /// Where it sits among its siblings (`addlast` unless the extension says otherwise).
     #[serde(default)]
     pub place: AddedPlace,
@@ -1035,6 +1060,20 @@ pub struct XmlNode {
     /// OnAfterGetRecord (xmlports/shapes-properties/Y68XmlPortShapes.al:567-621).
     #[serde(default)]
     pub calc_fields: Vec<usize>,
+    /// A field node in the import layout of al-sema `xmlports/assumed_shapes.rs` `after_assign_layout` (corpus PR 1366,
+    /// XpAfterAssignTableRelation.al): al-vm `xmlports/after_assign.rs` checks the field and the record, then runs
+    /// OnAfterAssignField before the validation.
+    #[serde(default)]
+    pub after_assign_layout: bool,
+    /// A field node in the import layout without triggers of al-sema `xmlports/assumed_shapes.rs` `plain_import_layout`
+    /// (corpus PR 1366, XpAfterAssignTableRelation.al): al-vm `xmlports/after_assign.rs` checks the field and the record and
+    /// validates nothing on a temporary table element.
+    #[serde(default)]
+    pub plain_import_layout: bool,
+    /// A text element in the export shape of al-sema `xmlports/assumed_shapes.rs` `text_attr_export` (corpus PR 1366,
+    /// XpTextElemFieldAttrExport.al): al-vm `xmlports/text_attr_export.rs` writes it.
+    #[serde(default)]
+    pub text_attr_export: bool,
     /// Triggers by lower-case name (`onbeforepassvariable`, ...) to routine index.
     pub triggers: Vec<(String, usize)>,
 }
@@ -1385,7 +1424,7 @@ pub struct PartLink {
     pub view: Option<String>,
     /// `Provider = <part>`: the control index (on the same page) whose current row the link reads.
     pub provider: Option<usize>,
-    /// The `RunPageLink` entries (indices into `entries`) written `const(...)`; empty for a part's `SubPageLink`.
+    /// The entries (indices into `entries`) written `const(...)`, not `filter(...)` or `field(...)`.
     #[serde(default)]
     pub consts: Vec<usize>,
     /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.
@@ -1583,8 +1622,13 @@ pub struct RelationCond {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum RelationWhere {
-    /// `related = const(text)` / `filter(text)`: `text` is a filter on the related field.
-    Value { related: usize, text: String },
+    /// `related = const(text)` / `filter(text)` (`filter`): `text` is a filter on the related field.
+    Value {
+        related: usize,
+        text: String,
+        #[serde(default)]
+        filter: bool,
+    },
     /// `related = field(own)`: the related field equals the referencing row's field.
     Field { related: usize, own: usize },
 }
@@ -2209,6 +2253,7 @@ mod tests {
             }],
             apps: vec![],
             tdd_stubs: vec!["C: procedure \"P\"()".into()],
+            assumes: vec![al_builtins::assumptions::Assumption::MovedTableStubOfDependency],
             sources: vec![],
             positions: Default::default(),
             uncompiled_subscribers: vec![UncompiledSubscriber {

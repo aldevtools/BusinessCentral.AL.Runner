@@ -664,7 +664,7 @@ const SYSTEM: i32 = 10;
 /// Y84_Abp_PageControlFieldRows, which lists the page's 19 field controls under a set with no table data grant).
 const ALWAYS_READABLE: [u32; 3] = [2_000_000_038, 2_000_000_041, 2_000_000_192];
 /// Tenant Media: the one system table whose write denial is pinned (Y19PermSystemTables.al, P13: Insert error).
-const TENANT_MEDIA: u32 = 2_000_000_184;
+pub(crate) const TENANT_MEDIA: u32 = 2_000_000_184;
 
 /// What the decision function says about one access of a restricted session.
 pub(crate) enum Verdict {

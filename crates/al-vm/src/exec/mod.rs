@@ -39,10 +39,12 @@ pub(crate) enum Op {
         i: u32,
         kind: SingleWriteKind,
     },
-    /// `d := read(place p)` (any place: fields, array elements, base globals).
+    /// `d := read(place p)` (any place: fields, array elements, base globals). `value` is true where the expression reads the
+    /// place as a value (`Expr::Load`), false where the place is taken by reference (`Session::read_place`).
     ReadPlace {
         d: u16,
         p: u32,
+        value: bool,
     },
     /// Local `i := a`; a Record or a Library value goes through `write` (copy semantics).
     StoreLocal {
@@ -262,6 +264,12 @@ pub(crate) enum Op {
         a: u16,
         b: u16,
     },
+    /// Register `r` holds the value of a record field read that is about to be stored in a Variant that is not local: a
+    /// Blob moves as `Session::field_read_into_variant` says.
+    BlobFieldRead {
+        r: u16,
+        read: crate::blob_transfer::FieldRead,
+    },
     /// `S += x`: `old` holds the value `S` had before `x` was evaluated, `a` holds `x`.
     AppendText {
         s: u32,
@@ -413,6 +421,10 @@ pub(crate) struct CallSite {
     /// The IR arguments with the value expressions blanked: only the by-reference places matter after the call.
     pub args: Vec<ir::Arg>,
     pub try_call: bool,
+    /// The arguments that are a record field read whose static type is none of the scalar ones
+    /// (`blob_transfer::FieldRead`), by argument index: a Blob among them moves into a by-value Variant parameter as
+    /// `Session::call_field_reads` says. Empty for almost every call.
+    pub field_reads: Box<[(u16, crate::blob_transfer::FieldRead)]>,
 }
 
 /// How `Op::SingleWrite` writes its global.

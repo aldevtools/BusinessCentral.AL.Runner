@@ -76,6 +76,8 @@ pub struct Registry {
 /// A subscriber of a platform event the runtime does not raise.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unraised {
+    /// The subscriber's object.
+    pub object: usize,
     /// Where it is declared, for the refusal text.
     pub subscriber: String,
     /// The objects through which a test can see that it ran: its own codeunit and the SingleInstance codeunits its codeunit
@@ -142,6 +144,7 @@ impl Registry {
             .entry((target.to_ascii_lowercase(), event.to_string()))
             .or_default()
             .push(Unraised {
+                object: oi,
                 subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
                 witnesses,
             });
@@ -395,15 +398,16 @@ impl Registry {
                                     .entry((target.to_ascii_lowercase(), event.clone()))
                                     .or_default()
                                     .push(Unraised {
+                                        object: oi,
                                         subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
                                         witnesses: witnesses(heads, oi, r),
                                     });
                             }
+                            // The layout selection events go to Base Application's ReportManagement only (ADR-040 amendment
+                            // 2026-11-12, A7; `report_save::fact_selection`).
                             if kind == ObjKind::Codeunit
                                 && target.eq_ignore_ascii_case("Reporting Triggers")
-                                && al_ir::RAISED_REPORTING_EVENTS
-                                    .iter()
-                                    .any(|e| e.eq_ignore_ascii_case(event.as_str()))
+                                && raised_reporting_event(program, o, &event)
                             {
                                 reg.subscribers
                                     .entry((REPORTING_TRIGGERS, event.clone()))
@@ -536,6 +540,18 @@ impl Registry {
         test: Option<&ir::Object>,
         test_index: Option<usize>,
     ) -> Option<(&str, &str)> {
+        self.unraised_subscriber_but(publisher, event, test, test_index, None)
+    }
+
+    /// [`Registry::unraised_subscriber`], leaving out the subscribers of object `but` (one the runtime raises the event to).
+    pub fn unraised_subscriber_but(
+        &self,
+        publisher: &str,
+        event: Option<&str>,
+        test: Option<&ir::Object>,
+        test_index: Option<usize>,
+        but: Option<usize>,
+    ) -> Option<(&str, &str)> {
         let sees = |u: &Unraised| {
             match (test, test_index) {
             (Some(t), Some(ti)) => {
@@ -555,7 +571,7 @@ impl Registry {
             .filter(|((p, e), _)| p == publisher && event.is_none_or(|want| e == want))
             .flat_map(|((_, e), subs)| {
                 subs.iter()
-                    .filter(|u| sees(u))
+                    .filter(|u| Some(u.object) != but && sees(u))
                     .map(move |u| (e.as_str(), u.subscriber.as_str()))
             })
             .collect();
@@ -584,6 +600,19 @@ impl Registry {
             .iter()
             .find(|m| element.is_none_or(|e| m.element.is_empty() || m.element.eq_ignore_ascii_case(e)))
     }
+}
+
+/// Whether the runtime raises `event` of Reporting Triggers to subscriber object `o`: the events of
+/// `al_ir::RAISED_REPORTING_EVENTS` to every subscriber, the layout selection events to Base Application's ReportManagement only
+/// (ADR-040 amendment 2026-11-12, A7; `report_save::fact_selection`).
+fn raised_reporting_event(program: &ir::Program, o: &ir::ObjectHead, event: &str) -> bool {
+    let named = |list: &[&str]| list.iter().any(|e| e.eq_ignore_ascii_case(event));
+    named(&al_ir::RAISED_REPORTING_EVENTS)
+        || (named(&al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS)
+            && program
+                .apps
+                .get(o.app as usize)
+                .is_some_and(|a| al_ir::is_report_management(o.id, &o.name, &a.id)))
 }
 
 /// Splits the argument list of an attribute written as `[Name(a, 'b,c', "d")]`

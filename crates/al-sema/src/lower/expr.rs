@@ -730,7 +730,9 @@ impl Lowerer<'_> {
             NameRef if crate::check::is_this_keyword(n) && self.ws.objects[self.oi].kind == ObjKind::Report => {
                 Ok(ir::Expr::ThisInstance)
             }
-            ParenExpr => self.expr(&kids[0]),
+            // The parser recovers from `Do();` (alc: AL0104) with an empty `()`: refuse it, never index into it
+            // (al-runner issue 7957).
+            ParenExpr => self.expr(kids.first().ok_or("parenthesized expression without an operand")?),
             PrefixExpr => {
                 let op = match sig_tokens(n)[0].text().to_ascii_lowercase().as_str() {
                     "not" => ir::UnOp::Not,

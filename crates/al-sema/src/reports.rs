@@ -330,8 +330,9 @@ fn bool_prop(value: &str) -> Option<bool> {
     }
 }
 
-/// Walks the `dataset` section of report `obj` and checks the object's own properties.
-pub fn layout(obj: &ast::Object) -> Layout {
+/// Walks the `dataset` section of report `obj` and checks the object's own properties. `timer_trigger` is the lowercase name of
+/// the Elapsed trigger of the report's WithEvents Timer (`lower::with_events::timer_elapsed_trigger`), which never runs.
+pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
     let mut out = Layout {
         items: Vec::new(),
         processing_only: false,
@@ -416,7 +417,9 @@ pub fn layout(obj: &ast::Object) -> Layout {
     }
     for t in obj.triggers() {
         let n = t.name().to_ascii_lowercase();
-        if !["oninitreport", "onprereport", "onpostreport", "onprerendering"].contains(&n.as_str()) {
+        if !["oninitreport", "onprereport", "onpostreport", "onprerendering"].contains(&n.as_str())
+            && timer_trigger != Some(n.as_str())
+        {
             out.reasons.push(format!("report trigger {n} is not supported yet"));
         }
     }
@@ -1431,23 +1434,79 @@ fn resolve_layout_path(file: &str) -> String {
     parts.join("/")
 }
 
-/// Unique data item names introduced by extensions in visible dependency apps.
+/// A manifest edge, excluding the transitive visibility used for ordinary name lookup.
+pub(crate) fn direct_report_dependency(ws: &Workspace, consumer: usize, owner: usize) -> bool {
+    let (consumer, owner) = (ws.objects[consumer].app, ws.objects[owner].app);
+    consumer != owner
+        && ws.apps[consumer]
+            .dependencies
+            .iter()
+            .any(|id| id.eq_ignore_ascii_case(&ws.apps[owner].id))
+}
+
+/// The unique data item names of the measured owner and consumer pair (ADR-075).
 pub(crate) fn dependency_dataset_items(ws: &Workspace, extension: usize, base: usize) -> Vec<(usize, usize, RawItem)> {
-    let app = ws.objects[extension].app;
+    let mut changing = ws
+        .extensions_of(base)
+        .iter()
+        .copied()
+        .filter(|&e| ws.usable(e) && changes_a_run(&ws.object_ast(e)));
+    let (Some(first), Some(second), None) = (changing.next(), changing.next(), changing.next()) else {
+        return Vec::new();
+    };
+    let owner = if first == extension {
+        second
+    } else if second == extension {
+        first
+    } else {
+        return Vec::new();
+    };
+    if !direct_report_dependency(ws, extension, owner) {
+        return Vec::new();
+    }
+    let obj = ws.object_ast(extension);
+    let consumer = ext_layout(&obj);
+    let base_layout = layout(&ws.object_ast(base), None);
+    let locals: Vec<_> = obj
+        .var_decls()
+        .chain(obj.request_page_var_decls())
+        .flat_map(|v| v.names())
+        .collect();
     let mut items = Vec::new();
     let mut names = std::collections::HashMap::new();
-    for &owner in ws.extensions_of(base) {
-        let owner_app = ws.objects[owner].app;
-        if owner_app == app || !ws.app_sees(app, owner_app) || !ws.usable(owner) {
-            continue;
-        }
-        for (index, item) in ext_layout(&ws.object_ast(owner)).items.into_iter().enumerate() {
-            *names.entry(item.name.to_lowercase()).or_insert(0) += 1;
-            items.push((owner, index, item));
-        }
+    for (index, item) in ext_layout(&ws.object_ast(owner)).items.into_iter().enumerate() {
+        *names.entry(item.name.to_lowercase()).or_insert(0) += 1;
+        items.push((owner, index, item));
     }
-    items.retain(|(_, _, item)| names[&item.name.to_lowercase()] == 1);
-    items.sort_by_key(|(owner, index, _)| (*owner, *index));
+    items.retain(|(_, _, item)| {
+        names[&item.name.to_lowercase()] == 1
+            && !uses_temporary(&item.section)
+            && !locals.iter().any(|name| name.eq_ignore_ascii_case(&item.name))
+            && !base_layout
+                .items
+                .iter()
+                .chain(&consumer.items)
+                .any(|own| own.name.eq_ignore_ascii_case(&item.name))
+    });
+    let modifies_top = items.iter().any(|(_, _, item)| {
+        item.parent.is_none()
+            && item.target.as_ref().is_some_and(|target| {
+                base_layout.items.iter().any(|base| {
+                    base.name.eq_ignore_ascii_case(target)
+                        && (matches!(item.place, Place::First | Place::Last) || base.parent.is_some())
+                })
+            })
+            && consumer.modifies.iter().any(|(name, sec)| {
+                name.eq_ignore_ascii_case(&item.name)
+                    && sec.properties().next().is_none()
+                    && sec
+                        .triggers()
+                        .all(|t| t.name().eq_ignore_ascii_case("OnAfterAfterGetRecord"))
+            })
+    });
+    if !modifies_top {
+        items.clear();
+    }
     items
 }
 
@@ -1471,6 +1530,27 @@ pub struct ExtContext<'a> {
 /// records first, then its own items (`ExtContext::base_items.len() + j`).
 pub fn alias_slot(i: usize) -> usize {
     i
+}
+
+fn has_explicit_reference(raw: &RawItem) -> bool {
+    raw.section
+        .properties()
+        .any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"))
+}
+
+// ADR-075, corpus PR #1342: siblings of an owner's nested item under its base-linked item.
+fn measured_sibling(cx: &ExtContext, raw: &RawItem, anchor: ir::ItemAnchor) -> bool {
+    let ir::ItemAnchor::Foreign(item) = anchor else {
+        return true;
+    };
+    let Some(owner) = cx.prior_exts[item.extension].as_ref() else {
+        return false;
+    };
+    matches!(raw.place, Place::Before | Place::After)
+        && owner.added[item.item].item.parent.is_some_and(|p| {
+            let parent = &owner.added[p];
+            parent.base_parent.is_some() && parent.item.parent.is_none()
+        })
 }
 
 /// The IR of the reportextension `cx.oi`, and why it cannot run if it cannot.
@@ -1503,7 +1583,7 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
             .then_some((raw, reference))
         })
         .collect();
-    let target_index = |name: &str| {
+    let placement_index = |name: &str| {
         base_index(name).map(ir::ItemAnchor::Base).or_else(|| {
             foreign
                 .iter()
@@ -1517,6 +1597,15 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
             .expect("a foreign item was resolved")
             .added[item.item]
     };
+    let target_index = |name: &str| {
+        placement_index(name).filter(|item| match item {
+            ir::ItemAnchor::Foreign(p) => {
+                let item = foreign_item(*p);
+                item.base_parent.is_some() && item.item.parent.is_none() && item.foreign_parent.is_none()
+            }
+            _ => true,
+        })
+    };
     let mut modifies = Vec::new();
     for (name, sec) in &cx.layout.modifies {
         let trigger = |t: &str| {
@@ -1525,7 +1614,13 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
                     .get(&(cx.oi, usize::from(x.syntax().text_range().start())))
             })
         };
-        match target_index(name) {
+        match target_index(name).filter(|item| {
+            !matches!(item, ir::ItemAnchor::Foreign(_))
+                || (sec.properties().next().is_none()
+                    && sec
+                        .triggers()
+                        .all(|t| t.name().eq_ignore_ascii_case("OnAfterAfterGetRecord")))
+        }) {
             Some(item) => modifies.push(ir::ReportExtModify {
                 item,
                 request_filter_fields: sec
@@ -1563,7 +1658,7 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
                     .iter()
                     .position(|x| x.name.eq_ignore_ascii_case(target))
                     .map(ir::ItemAnchor::Added)
-                    .or_else(|| target_index(target))
+                    .or_else(|| placement_index(target).filter(|anchor| measured_sibling(cx, raw, *anchor)))
             };
             match (&raw.place, anchor) {
                 // `addfirst(Parent)` and `addlast(Parent)` name the parent.
@@ -1581,14 +1676,6 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
                     }
                     added[k].item.table
                 }
-                (Place::First | Place::Last, Some(ir::ItemAnchor::Foreign(item))) => {
-                    foreign_parent = Some(item);
-                    if raw.place == Place::First {
-                        place = ir::AddedPlace::First;
-                    }
-                    item.table
-                }
-                // `addbefore(Sibling)` and `addafter(Sibling)` name a sibling and sit under its parent.
                 (Place::Before | Place::After, Some(a)) => {
                     place = if raw.place == Place::Before {
                         ir::AddedPlace::Before(a)
@@ -1638,7 +1725,7 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
                         }
                     }
                 }
-                (_, None) => {
+                _ => {
                     reasons.push(format!("add...({target}): the report has no such visible data item"));
                     None
                 }
@@ -1646,21 +1733,25 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
         } else {
             raw.parent.and_then(|p| added.get(p).and_then(|a| a.item.table))
         };
-        // The local Dataset.al probe names the immediate parent, both a base item
-        // above an addbefore sibling and an item the same extension added.
-        let parent_name = base_parent
-            .map(|p| cx.base_items[p].name.as_str())
-            .or_else(|| parent.map(|p| cx.layout.items[p].name.as_str()))
-            .or_else(|| foreign_parent.map(|p| foreign_item(p).item.name.as_str()));
+        let has_link = raw
+            .section
+            .properties()
+            .any(|p| p.name().eq_ignore_ascii_case("DataItemLink"));
         let enclosing = |name: &str| {
-            parent_name
-                .filter(|parent| parent.eq_ignore_ascii_case(name))
-                .map(|_| (None, parent_table))
+            // Issue #7904 and corpus PR #1358: reports/extensions/TestReportExtensionParentLink.al:51-57.
+            let anchor = base_parent
+                .map(|p| (Some(p), cx.base_items[p].name.as_str()))
+                .or_else(|| parent.map(|p| (None, cx.layout.items[p].name.as_str())))
+                .or_else(|| foreign_parent.map(|p| (None, foreign_item(p).item.name.as_str())));
+            anchor
+                .filter(|(_, parent)| has_link && parent.eq_ignore_ascii_case(name))
+                .map(|(index, _)| (index, parent_table))
         };
         let item = item_ir(&o, raw, Some(n + j), parent, parent_table, &enclosing, &mut reasons);
         added.push(ir::AddedItem {
             item,
             base_parent,
+            explicit_parent_link: foreign_parent.is_none() && has_explicit_reference(raw),
             foreign_parent,
             place,
         });
@@ -1671,6 +1762,14 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
         .chain(
             foreign
                 .iter()
+                .filter(|(_, item)| {
+                    modifies.iter().any(|m| m.item == ir::ItemAnchor::Foreign(*item))
+                        || cx
+                            .layout
+                            .adds
+                            .iter()
+                            .any(|(name, _)| target_index(name) == Some(ir::ItemAnchor::Foreign(*item)))
+                })
                 .enumerate()
                 .map(|(i, (_, item))| (ir::ItemAnchor::Foreign(*item), n + cx.layout.items.len() + i)),
         )
@@ -1727,7 +1826,7 @@ mod tests {
     fn layout_of(src: &str) -> Layout {
         let parse = al_syntax::parse(src, &Default::default());
         let root = ast::SourceFile::cast(parse.syntax()).unwrap();
-        layout(&root.objects().next().unwrap())
+        layout(&root.objects().next().unwrap(), None)
     }
 
     #[test]

@@ -910,7 +910,7 @@ impl Session {
                         self.rollback_transaction();
                     }
                     self.error_finals = None;
-                    self.last_error = *e;
+                    self.catch_error(*e);
                     if let Some(c) = caller_rec.take() {
                     c.restore();
                 }
@@ -952,7 +952,7 @@ impl Session {
                     self.guarded_run_rollback(&e, body)?;
                 }
                 self.error_finals = None;
-                self.last_error = *e;
+                self.catch_error(*e);
                 if let Some(c) = caller_rec.take() {
                     c.restore();
                 }

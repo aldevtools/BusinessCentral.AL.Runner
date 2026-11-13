@@ -1,6 +1,6 @@
 table 50850 "Cross Report Number"
 {
-    fields { field(1; Number; Integer) { } }
+    fields { field(1; Number; Integer) { } field(2; Data; Blob) { } }
     keys { key(PK; Number) { } }
 }
 
@@ -23,7 +23,7 @@ codeunit 50850 "Cross Report Trace"
 
 report 50851 "Cross Report Base"
 {
-    ProcessingOnly = true;
+    ProcessingOnly = false;
     UseRequestPage = false;
 
     dataset

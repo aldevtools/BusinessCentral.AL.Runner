@@ -1,6 +1,7 @@
 //! IR to bytecode. Returns `None` only when the routine needs more registers than an instruction can name.
 
 use super::*;
+use crate::blob_transfer::FieldRead;
 use al_builtins::builtin_id::{Class, ids};
 use al_builtins::value::RtType;
 use types::{DeclaredTypes, ExprTypes, Ty, of_rt};
@@ -51,6 +52,7 @@ fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
         captured,
         cap_depth: 0,
         debug,
+        params: r.params,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -85,6 +87,8 @@ struct Compiler<'a> {
     cap_depth: u32,
     /// The debug form (ADR-048).
     debug: bool,
+    /// The number of parameters of the routine.
+    params: usize,
 }
 
 type R<T> = Result<T, ()>;
@@ -472,7 +476,7 @@ impl<'a> Compiler<'a> {
             E::Load(p) => {
                 let rp = self.rplace(p)?;
                 let p = self.place(&rp);
-                self.emit(Op::ReadPlace { d, p });
+                self.emit(Op::ReadPlace { d, p, value: true });
             }
             E::Unary(ir::UnOp::Not, a) if self.tys.expr_ty(a) == Some(Ty::Boolean) => {
                 let a = self.expr_any(a)?;
@@ -546,6 +550,7 @@ impl<'a> Compiler<'a> {
                     arg_regs,
                     args: site_args,
                     try_call: *try_call,
+                    field_reads: self.field_reads(args),
                 });
                 let s = (self.chunk.calls.len() - 1) as u32;
                 self.emit(Op::Call { s, d });
@@ -863,7 +868,7 @@ impl<'a> Compiler<'a> {
                 let rp = self.rplace(p)?;
                 let d = self.alloc()?;
                 let pi = self.place(&rp);
-                self.emit(Op::ReadPlace { d, p: pi });
+                self.emit(Op::ReadPlace { d, p: pi, value: false });
                 Ok((d, ir::Arg::Ref(rp)))
             }
         }
@@ -1284,7 +1289,11 @@ impl<'a> Compiler<'a> {
                     // The old value is read before `x` is evaluated.
                     let old = self.alloc()?;
                     let pi = self.place(p);
-                    self.emit(Op::ReadPlace { d: old, p: pi });
+                    self.emit(Op::ReadPlace {
+                        d: old,
+                        p: pi,
+                        value: false,
+                    });
                     let a = self.expr_any(r)?;
                     self.chunk.appends.push(AppendSite {
                         place: p.clone(),
@@ -1331,11 +1340,39 @@ impl<'a> Compiler<'a> {
                     self.expr_any(e)?
                 };
                 let rp = self.rplace(p)?;
+                // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
+                if let Some(read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
+                    self.emit(Op::BlobFieldRead { r: a, read });
+                }
                 let pi = self.place(&rp);
                 self.emit(Op::StorePlace { p: pi, a });
             }
         }
         Ok(())
+    }
+
+    /// The arguments of a call that are record field reads (`CallSite::field_reads`).
+    fn field_reads(&self, args: &'a [ir::Arg]) -> Box<[(u16, FieldRead)]> {
+        args.iter()
+            .enumerate()
+            .filter_map(|(i, a)| match a {
+                ir::Arg::Value(e) => Some((u16::try_from(i).ok()?, self.blob_field_read(e)?)),
+                ir::Arg::Ref(_) => None,
+            })
+            .collect()
+    }
+
+    /// The record field read `e` is (`blob_transfer::FieldRead`), unless lowering recorded a scalar type for it: a Blob
+    /// field's type is `Other`.
+    fn blob_field_read(&self, e: &'a ir::Expr) -> Option<FieldRead> {
+        use al_ir::types::ExprTy;
+        let inner = match e {
+            ir::Expr::Convert(RtType::Variant, x) => &**x,
+            e => e,
+        };
+        matches!(self.tys.lowered.of(inner), ExprTy::Other | ExprTy::Unknown)
+            .then(|| FieldRead::of(e, self.params))
+            .flatten()
     }
 }
 

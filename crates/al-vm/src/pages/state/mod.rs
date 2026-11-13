@@ -177,6 +177,9 @@ pub struct PageState {
     /// The caption each control's CaptionClass resolved to when the page filled: (control index, class text, caption).
     /// `Caption()` reads it without raising OnResolveCaptionClass again (corpus testpage/W2CaptionClass.al:113-116).
     pub control_captions: Vec<(usize, String, String)>,
+    /// The context of each field caption `read_literal_field_caption` resolved or reused: (control index, the session's caption
+    /// context revision, the bound subscriptions, the length of the page tree's call log at that read).
+    pub literal_field_caption_contexts: Vec<(usize, u64, Vec<usize>, usize)>,
     /// Why the caption in `control_captions` of a control is not known: (control index, refusal). `Caption()` refuses with it.
     /// Only read together with a `control_captions` entry of the same control, which an open clears.
     pub caption_refusals: Vec<(usize, String)>,
@@ -217,6 +220,13 @@ pub struct PageState {
     pub seen_visible: bool,
     /// Such a part was visible at its host's last refill (`provider_hidden.rs`).
     pub visible_at_sync: bool,
+    /// The body of the action running on the host turned this part of the journal shape visible: the database store's change
+    /// counter after the part's first read, taken after the host's refresh that follows the action (`hidden_part_journal.rs`).
+    pub journal_turned: Option<u64>,
+    /// The test's last call on this host of the journal shape was the GoToRecord that stayed on its row and read nothing
+    /// (`hidden_part_journal.rs` `journal_part_stays`); the test's next method of the page, the next action's body and an open
+    /// clear it.
+    pub journal_stayed: bool,
     /// Where an action of a Document page stands that saved a SetValue of the host before its trigger: 0 none, 1 that save's
     /// refresh is running, 2 the save is done and a CurrPage.Update in the trigger has not refreshed yet, 3 it has
     /// (record/captions/QdCaptionClassAreas.al:1015-1049 QO_Doc_OpenEdit_HostSteps `update`).
@@ -396,6 +406,11 @@ pub struct PageState {
     pub pending: Option<Vec<Value>>,
     /// Opened by AL code (`Page.RunModal`, `Page.Run`) and answered by a handler, not by the test.
     pub modal: bool,
+    /// The current run is AL code's non-modal `Page.Run` (`note_page_run`, `page_run_close.rs`); cleared when the page closes.
+    pub page_run: Option<super::page_run_close::PageRun>,
+    /// The first calls AL code made on this page through its Page variable or `CurrPage`, at most three
+    /// (`note_page_code_call`, `page_run_close.rs`).
+    pub code_calls: Vec<al_builtins::page_op::PageMethod>,
     /// Whether the last run of this variable was modal (`None` before the first run): a second non-modal Run runs OnInit again.
     pub last_run_modal: Option<bool>,
     /// The rows of a tree (a repeater with ShowAsTree) expanded with `Expand(true)`, by primary key.
@@ -422,6 +437,8 @@ pub struct PageState {
     pub trapping: bool,
     /// `CurrPage.Update` was called: the client re-reads the row once the call that made it returns.
     pub refresh: bool,
+    /// The host row to reread before its next SetValue after a CardPart drilldown.
+    pub deferred_part_drilldown_refresh: Option<crate::pages::part_host_update::DeferredReread>,
     /// `CurrPage.SaveRecord` ran in the action being invoked.
     pub save_record_called: bool,
     /// A SetValue on a control of this page is running its validation (CurrPage.SaveRecord inside it keeps xRec).
@@ -548,6 +565,9 @@ pub struct PageState {
     pub tree_calls_unknown: bool,
     /// The store's write mark when the last call on the page or its parts ended; `None` before the first one ended.
     pub tree_calls_mark: Option<(i64, u64)>,
+    /// A ListPart that shows no row on a top-level List host landed in a cell BC was measured at: Rec holds the link values
+    /// only inside a measured read (`empty_part_rec.rs`, `reading_empty_list_rec`).
+    pub empty_list_landing: Option<crate::pages::empty_part_rec::EmptyListLanding>,
     /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
     pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
@@ -600,9 +620,12 @@ pub struct PageState {
     /// The action's refresh just ran the new-row line of a list that lost its only row three times (`settle_after_action`); read
     /// by `post_left_other_key_settled` and cleared when the action ends (al-runner issue 7821).
     pub gone_new_line_settled: bool,
-    /// A rule pinned for one outside reporter's repro ran on this page or one of its parts, and the repro does nothing after it
-    /// but the calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
+    /// A rule pinned for one scenario ran on this page or one of its parts, and the scenario does nothing after it but the
+    /// calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
     pub pinned_end: Option<crate::pages::pinned_shape::PinnedEnd>,
+    /// `SetSelectionFilter` on the empty modal Worksheet answered once since the page opened
+    /// (`empty_modal_worksheet_selection`); its pin makes one call.
+    pub empty_selection_given: bool,
     /// The fields of a part's Rec when the test's last SetValue on it began (`control_set_value`).
     pub row_before_write: Option<Vec<Value>>,
     /// The next first read of this part asks OnFindRecord `=>` instead of `=><` (`part_refresh_find_forward.rs`, al-runner
@@ -638,6 +661,8 @@ pub struct PageState {
     pub test_opened_new: bool,
     /// The last open was the test's own `TestPage.OpenEdit`, `OpenView` or `OpenNew` (not a run by AL code).
     pub opened_by_test: bool,
+    /// The built-in Edit or View action switched the page's mode since it opened (`switch_mode`).
+    pub mode_switched_since_open: bool,
     /// What closed the page the last time (`None` before the first close, reset when the page opens). Decides what the
     /// page's code reaches through a part after the close (`pages/held_page_part.rs`).
     pub closed_by: Option<ClosedBy>,
@@ -715,6 +740,9 @@ pub struct PageState {
     /// and a read of a host field are pinned for it, and a part field read or First that inserts it (pages/
     /// lt-part-line-before-host-key/PartLineBeforeHostKey.al QH_BlankRows_*).
     pub new_host_part_rows: bool,
+    /// The measured SetValue of `trapped_card_blank_part.rs` ran on this host: only a read of a host field and Close may
+    /// follow, and the row Close stores must have a key that is not blank.
+    pub trapped_blank_part_edit: bool,
     /// New() on the request page of a report landed on a blank row that nothing stores (Y80_RX_New_*).
     pub request_new_blank: bool,
     /// A new host card or document that a first part access stored with its blank key (pages/new-host-key-entry/Y80NewHostKey.al
@@ -857,6 +885,9 @@ pub struct PageState {
     pub shown_doubt_call: Option<&'static str>,
     /// The page was run by code and caught by `TestPage.Trap()`, not opened by the test (OpenView, OpenEdit, OpenNew).
     pub caught_by_trap: bool,
+    /// The trap caught the static `Page.Run(Page::X, Rec)` (`PageRunCall::StaticWithRecord`), not a Page variable's `Run()` or
+    /// another run. Set and cleared where `caught_by_trap` is (`PageRun::catch_by_trap`, RunObject, the test's own opens).
+    pub trapped_static_run: bool,
 }
 
 // The page instance holds `CurrPage`, which points back here: print only the facts.
@@ -917,10 +948,13 @@ impl PageState {
         self.tree_calls = Vec::new();
         self.tree_calls_unknown = false;
         self.tree_calls_mark = None;
+        self.empty_list_landing = None;
         self.typed_key_dropped = false;
         self.pinned_end = None;
+        self.empty_selection_given = false;
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
+        self.journal_stayed = false;
     }
 
     /// The page opens: the field captions of its last run are gone.

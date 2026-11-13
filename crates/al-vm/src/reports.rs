@@ -802,6 +802,9 @@ impl Session {
     fn report_instance(&mut self, receiver: Option<Value>, can_stop: bool) -> Result<(Inst, bool), Signal> {
         match receiver {
             Some(Value::Codeunit(rc)) => {
+                if let Some(report) = self.engine.program.objects[rc.borrow().object as usize].report.as_ref() {
+                    dependency_items::require_pinned_entry(report, false)?;
+                }
                 // Used again after a Run, it is a new instance: OnInitReport runs.
                 // A second Run on one variable runs OnInitReport again (reports/request-page/RptTriggerOrder.al:353
                 // VariableRun_Twice_InitReportEachTime; reports/PnH5aExt.al:396).
@@ -942,12 +945,7 @@ impl Session {
     /// The first use of the variable runs `OnInitReport`, as a call of any of its procedures does.
     pub(crate) fn report_extension_instance(&mut self, base: &Inst, ext: usize) -> Result<Inst, Signal> {
         let (base, _) = self.report_instance(Some(Value::Codeunit(base.clone())), false)?;
-        if let Some((_, i)) = base.borrow().exts.iter().find(|(e, _)| *e as usize == ext) {
-            return Ok(i.clone());
-        }
-        let i = self.extension_instance(ext, &base);
-        base.borrow_mut().exts.push((ext as u32, i.clone()));
-        Ok(i)
+        Ok(self.report_extension_state(&base, ext))
     }
 
     /// The schema of `inst`'s object; refuses a report the runtime cannot run.
@@ -1013,6 +1011,9 @@ impl Session {
         // `instance` hands out a made instance: OnInitReport has not run on it yet.
         inst.borrow_mut().initialized = false;
         let schema = self.report_schema(&inst)?;
+        if id != ids::REPORT_SAVEAS_2 {
+            dependency_items::require_pinned_entry(schema.report(), false)?;
+        }
         Ok((inst, schema))
     }
 
@@ -1729,7 +1730,7 @@ impl Session {
         // names for the base items point at the report's own records.
         let mut exts: Vec<(Inst, usize)> = Vec::new();
         for &e in &report.extensions {
-            let ext_inst = self.report_extension_instance(inst, e)?;
+            let ext_inst = self.dataset_extension_instance(inst, e, report)?;
             let eir = self.engine.program.objects[e]
                 .report_ext
                 .as_ref()
@@ -2099,15 +2100,7 @@ impl Session {
         let item = run.item(r);
         let (owner, object) = run.owner(r);
         let mut rec = self.report_item_record(run, r)?;
-        // A `DataItemLinkReference` names another enclosing item than the parent.
-        let parent_rec = match item.link_item {
-            Some(li) => enclosing
-                .iter()
-                .find(|(e, _)| matches!(e, ItemRef::Base(x) if *x == li))
-                .map(|(_, rec)| rec.clone())
-                .or(parent_rec),
-            None => parent_rec,
-        };
+        let parent_rec = explicit_parent_link::linked_parent(run, r, item.link_item, parent_rec, enclosing);
         if let Some(parent) = parent_rec {
             // The link filter is hidden from GetFilters (reports/TestReportRuntimeContracts.al:62-90).
             let table = self.table(&rec)?;
@@ -2489,7 +2482,7 @@ impl<'a> ItemTree<'a> {
 
 // ---------------------------------------------------------------------- Report.SaveAs
 
-use crate::report_placeholder::{Rendered, SaveOutput};
+use crate::report_placeholder::SaveOutput;
 
 /// Where a rendering save puts its output.
 pub(crate) enum SaveTarget {
@@ -2629,26 +2622,9 @@ impl Session {
             // layout) answers false with this text (text/PnBReportSaveAs.al:387-391 OtherFormats_NoLayout;
             // :436 SecondSaveAs_OnOneVariable). With the answer dropped, and after an earlier SaveAs that ended any other
             // way, it is not pinned.
-            let ran = |list: &Vec<std::rc::Weak<std::cell::RefCell<Instance>>>| {
-                list.iter().any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, &inst)))
-            };
-            let tried = ran(&self.report.report_save_tried);
-            if ran(&self.report.report_executed) {
-                if !tried {
-                    return unsupported("a SaveAs on a report variable that an Execute ran (not pinned)");
-                }
-                if !result_used {
-                    return unsupported("a second SaveAs on one report variable, with the answer dropped (not pinned)");
-                }
-                // The text is pinned (PnBReportSaveAs.al:387), and the code (:749-750, :755-756 PW_SecondSaveAs_LastErrorCode).
-                self.last_error = running::already_run_error();
-                return Ok(Value::Boolean(false));
+            if let Some(result) = self.save_variable_start(&inst, result_used)? {
+                return Ok(result);
             }
-            if tried {
-                return unsupported("a second SaveAs on one report variable after the first ended early (not pinned)");
-            }
-            self.report.report_save_tried.retain(|w| w.strong_count() > 0);
-            self.report.report_save_tried.push(Rc::downgrade(&inst));
             // An Xml SaveAs on a variable raises OnDocumentReady after the dataset and no SubstituteReport
             // (events/platform-triggers/PeVTests.al:688 PW_RaisedEvents_SaveAsForms `saveas var xml`
             // `OnDocumentReady(69860,in=No);`).
@@ -2658,6 +2634,7 @@ impl Session {
             (inst, schema, quit)
         } else {
             let (mut inst, mut schema) = self.report_by_number(id, args.first())?;
+            let pinned = dependency_items::check_static_save(&schema, &format, &parameters, record_ref, &target)?;
             // An Xml SaveAs to a stream of a processing-only report raises SubstituteReport (RunMode SaveAs, the
             // parameters as RequestPageXml), and a report a subscriber sets is the one that runs and fails as processing-only
             // (reports/Y14ReportSubstitute.al:389 Execute_SaveAs_Swap `saveas xmlA`: `Sub(91650,SaveAs,xmlLen=155,
@@ -2678,7 +2655,7 @@ impl Session {
             // subscriber that substitutes another report is not pinned.
             if record_ref.is_none()
                 && matches!(target, SaveTarget::Stream(_))
-                && crate::report_placeholder::format_refused_by_layout(&schema, &format)
+                && self.format_unsupported_by_layout(&schema, &format)
                 && self
                     .engine
                     .events
@@ -2695,6 +2672,7 @@ impl Session {
                 let xml = Value::Text(parameters.to_string().into());
                 if let Some(new_id) = self.raise_substitute_report(&schema, xml)? {
                     let (i, s) = self.report_by_number(id, Some(&Value::Integer(new_id)))?;
+                    dependency_items::require_pinned_entry(s.report(), pinned)?;
                     if !self.save_as_raises_events(&s, &format, &parameters, record_ref, &target, true) {
                         return unsupported(format!(
                             "SubstituteReport set report {new_id} \"{}\" for an Xml SaveAs: only a report with an RDLC layout \
@@ -2735,11 +2713,11 @@ impl Session {
                 return Err(Signal::Error(Box::new(e)));
             }
         }
-        // ADR-040 and its amendments: the format x layout grid (`report_placeholder::grid`).
+        // ADR-040 and its amendments: the save table (`report_save`).
         if format != "Xml" {
-            match self.rendered_save(&schema, &format, &target, result_used, custom.is_some())? {
-                Rendered::Write(o) => output = o,
-                Rendered::False(e) => {
+            match self.static_or_variable_save(&schema, &format, &target, result_used, custom.is_some())? {
+                Ok(o) => output = o,
+                Err(e) => {
                     self.last_error = e;
                     return Ok(Value::Boolean(false));
                 }
@@ -2935,7 +2913,7 @@ impl Session {
         match ran {
             Ok(true) => {
                 let header = self.dataset_header(&schema)?;
-                let bytes = written.expect("a SaveAs run has a dataset").finish(&header)?;
+                let (bytes, rows) = written.expect("a SaveAs run has a dataset").finish_counted(&header)?;
                 if let Some(layout) = custom {
                     let SaveTarget::Stream(blob) = target else {
                         return unsupported(format!(
@@ -2953,8 +2931,8 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                self.write_save_output(target, output, &schema, &bytes)?;
-                Ok(Value::Boolean(true))
+                let saved = self.write_save_output(target, output, &schema, &bytes, rows)?;
+                Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
             // An error a trigger raises: with no layout it reaches the caller
@@ -4455,7 +4433,7 @@ fn header_extension_name(name: &str, publisher: &str) -> String {
 }
 
 mod blob_column;
-mod dependency_items;
+pub(crate) mod dependency_items;
 use dependency_items::item_anchor;
 mod execute_args;
 use execute_args::RefCall;
@@ -4467,3 +4445,5 @@ mod request_caption;
 mod request_unshown;
 mod running;
 mod word_xml_part;
+
+mod explicit_parent_link;

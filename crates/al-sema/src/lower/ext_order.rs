@@ -53,13 +53,10 @@ pub(crate) fn report_extension_order(ws: &Workspace, base: usize, exts: &[usize]
     }
     if let [consumer, owner] = by_id[..]
         && app(consumer) != app(owner)
-        && ws.app_sees(app(consumer), app(owner))
+        && crate::reports::direct_report_dependency(ws, consumer, owner)
         && modifies_dependency_item(ws, base, consumer, owner)
     {
-        return Ok(ExtOrder {
-            exts: vec![owner, consumer],
-            assumes: vec![Assumption::DependencyReportDataItems],
-        });
+        return Ok(pinned(vec![owner, consumer]));
     }
     let mut apps: Vec<usize> = by_id.iter().map(|&e| app(e)).collect();
     apps.sort_unstable();
@@ -82,17 +79,21 @@ pub(crate) fn report_extension_order(ws: &Workspace, base: usize, exts: &[usize]
     })
 }
 
-/// Reversed object IDs are measured for a consumer that modifies an item supplied by its dependency.
+/// al-runner issue 7878 and corpus PR #1342: a consumer with a lower ID modifies the owner's item.
 fn modifies_dependency_item(ws: &Workspace, base: usize, consumer: usize, owner: usize) -> bool {
     let consumer_layout = crate::reports::ext_layout(&ws.object_ast(consumer));
     crate::reports::dependency_dataset_items(ws, consumer, base)
         .iter()
         .any(|(source, _, item)| {
             *source == owner
-                && consumer_layout
-                    .modifies
-                    .iter()
-                    .any(|(name, _)| name.eq_ignore_ascii_case(&item.name))
+                && item.parent.is_none()
+                && consumer_layout.modifies.iter().any(|(name, sec)| {
+                    name.eq_ignore_ascii_case(&item.name)
+                        && sec.properties().next().is_none()
+                        && sec
+                            .triggers()
+                            .all(|t| t.name().eq_ignore_ascii_case("OnAfterAfterGetRecord"))
+                })
         })
 }
 

@@ -55,6 +55,15 @@ codeunit 69963 C
     procedure FromFirstFalse(): Text begin exit(Run(1, false)); end;
     procedure FromFirstTrue(): Text begin exit(Run(1, true)); end;
     procedure FromLaterFalse(): Text begin exit(Run(3, false)); end;
+    procedure FilteredBefore()
+    var P: TestPage "AE List"; Row: Record "AE Row"; i: Integer;
+    begin
+        for i := 1 to 4 do begin Row.Init(); Row.Id := i; Row.Insert(); end;
+        P.OpenView();
+        P.Filter.SetFilter(Id, '1..3');
+        P.First();
+        P.NoneFalse.Invoke();
+    end;
 }
 "#;
 
@@ -83,5 +92,16 @@ fn from_a_later_row_the_row_before_it_is_read() {
     assert_eq!(
         al_testkit::text(al_testkit::run_in(SRC, "C", "FromLaterFalse")),
         "[|]:R3;a3;u3;R2|No[|]:|No[|]:|No[|]:|No[|]:|No[|]:"
+    );
+}
+
+// A view that had a filter before the action (the journal shape of al-runner issue 7922) is not pinned: refused, and the reason
+// names that condition.
+#[test]
+fn a_view_filtered_before_the_action_is_refused_by_name() {
+    let r = al_testkit::run_in(SRC, "C", "FilteredBefore");
+    assert!(
+        matches!(&r, Err(al_builtins::native::Signal::Unsupported(m)) if m.contains("the view had filters before the action")),
+        "{r:?}"
     );
 }

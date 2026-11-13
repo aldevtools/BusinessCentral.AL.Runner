@@ -72,6 +72,7 @@ impl Session {
     /// (`TxState::insert_from_al`).
     pub(crate) fn record_op_of_al(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.tx.insert_from_al = method == RecordOp::Insert;
+        self.tx.rename_from_al = method == RecordOp::Rename;
         self.record_op(method, rec, args)
     }
 

@@ -567,7 +567,8 @@ pub(crate) fn build_shared<'a>(
             continue;
         }
         let obj = ws.object_ast(oi);
-        let mut l = crate::reports::layout(&obj);
+        let timer_trigger = super::with_events::timer_elapsed_trigger(ws, oi);
+        let mut l = crate::reports::layout(&obj, timer_trigger.as_deref());
         // The layouts a reportextension adds refuse a run that renders output, as the report's own do.
         for &e in changing.get(&oi).into_iter().flatten() {
             if let Some(el) = ext_layouts[e].as_ref() {
@@ -1025,6 +1026,12 @@ pub(crate) fn lower_core(
             .collect(),
         uncompiled_subscribers,
         tdd_stubs: tdd_stub_list(checked, &tdd_sites),
+        // `alcodes::duplicate_ids` lets a moved table stub of a dependency's table compile (al-runner issue 7914).
+        assumes: if ws.has_moved_table_stub() {
+            vec![al_builtins::assumptions::Assumption::MovedTableStubOfDependency]
+        } else {
+            Vec::new()
+        },
         ..Default::default()
     };
     let mut out = Lowered {
@@ -2638,10 +2645,18 @@ fn lower_report_extensions(
             routine_at,
         };
         let (ir, reasons) = crate::reports::build_ext(&cx, &ws.object_ast(ei));
+        let uses_foreign = ir
+            .modifies
+            .iter()
+            .any(|m| matches!(m.item, al_ir::ItemAnchor::Foreign(_)));
         ext_irs[ei] = Some(ir);
         // The extension's reasons stop the report it changes.
         let name = &ws.objects[ei].name;
         if let Some(r) = report_irs[base].as_mut() {
+            let assumption = al_builtins::assumptions::Assumption::DependencyReportDataItems;
+            if uses_foreign && !r.assumes.contains(&assumption) {
+                r.assumes.push(assumption);
+            }
             r.unsupported.extend(
                 reasons
                     .into_iter()

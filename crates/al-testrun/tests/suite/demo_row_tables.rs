@@ -74,6 +74,7 @@ fn a_count_of_an_empty_corpus_demo_table_is_refused() {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     let rt = CorpusRuntime::try_run_suites_with(
