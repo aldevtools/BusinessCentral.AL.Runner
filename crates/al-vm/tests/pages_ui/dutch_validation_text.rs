@@ -65,6 +65,14 @@ codeunit 69806 C
         asserterror P."Bal. Account No.".SetValue('abc');
         exit(GetLastErrorText());
     end;
+    procedure ValidateCode(): Text
+    var R: Record "Payment Method";
+    begin
+        R.Code := 'LPX'; R.Insert();
+        GlobalLanguage(1043);
+        asserterror R.Validate("Bal. Account No.", 'missing');
+        exit(GetLastErrorCode());
+    end;
 }
 "#;
 
@@ -79,19 +87,16 @@ pageextension 62440 "LPX Payment Methods Ext" extends "Payment Methods"
 }
 "#;
 
-/// BaseAppPageExtCaption.al:271-276 measures Dutch relation text only after the pinned page extension modifies the field
-/// caption without an XLIFF unit. The same relation on the unextended page keeps main's English result.
+/// The TableRelation error of a TestPage SetValue under 1043 is refused, as on main: BaseAppPageExtCaption.al:276 measures
+/// the Dutch sentence on one table only, which states no rule for a page or a table.
 #[test]
-fn dutch_relation_text_on_unextended_payment_methods_page_keeps_main_english_result() {
+fn dutch_relation_text_on_unextended_payment_methods_page_keeps_main_refusal() {
     let mut built = al_testkit::Built::new(al_testkit::compile(PINNED_RELATION));
-    assert_eq!(
-        al_testkit::text(built.run_in("C", "Text")),
-        "Validation error for Field: Bal. Account No.,  Message = 'The field Bal. Account No. of table Payment Method contains a value (ABC) that cannot be found in the related table (G/L Account).'"
-    );
+    refused(built.run_in("C", "Text"), "GlobalLanguage 1043");
 }
 
-fn pinned_relation_with_units(mut units: Vec<(String, String)>, translate_related_caption: bool) -> al_testkit::Built {
-    units.push((
+fn pinned_relation(translate_related_caption: bool) -> al_testkit::Built {
+    let units = vec![(
         format!(
             "{} - {} - {}",
             xliff_part("PageExtension", "LPX Payment Methods Ext"),
@@ -99,7 +104,7 @@ fn pinned_relation_with_units(mut units: Vec<(String, String)>, translate_relate
             xliff_part("Property", "Caption")
         ),
         "LPX type gewijzigd".into(),
-    ));
+    )];
     let source = format!("{PINNED_RELATION}\n{PINNED_RELATION_EXTENSION}");
     let mut lowered = al_testkit::compile(&source);
     let program = std::sync::Arc::make_mut(&mut lowered.program);
@@ -149,31 +154,36 @@ fn pinned_relation_with_units(mut units: Vec<(String, String)>, translate_relate
     al_testkit::Built::new(lowered)
 }
 
-fn pinned_relation_with_translated_caption() -> al_testkit::Built {
-    pinned_relation_with_units(Vec::new(), true)
+/// The shape of BaseAppPageExtCaption.al:271-276 itself (the extension's `modify` caption without a unit): the Dutch
+/// relation sentence stays refused until a probe measures it on a second table.
+#[test]
+fn dutch_relation_sentence_on_the_probe_shape_stays_refused() {
+    let mut built = pinned_relation(false);
+    refused(built.run_in("C", "Text"), "GlobalLanguage 1043");
+}
+
+/// BaseAppPageExtCaption.al:276 pins `TestValidation` for the relation error of a TestPage; a caption that can translate
+/// leaves no part of the case pinned, so its code is not read either: the whole case is refused, as on main.
+#[test]
+fn dutch_testpage_relation_with_translatable_caption_refuses_its_code() {
+    let mut built = pinned_relation(true);
+    refused(built.run_in("C", "Code"), "GlobalLanguage 1043");
 }
 
 #[test]
-fn dutch_relation_text_on_pinned_payment_methods_extension_is_available() {
-    let mut built = pinned_relation_with_units(Vec::new(), false);
+fn dutch_testpage_relation_with_translatable_caption_refuses_its_text() {
+    let mut built = pinned_relation(true);
+    refused(built.run_in("C", "Text"), "GlobalLanguage 1043");
+}
+
+/// `Rec.Validate` is no page site: its relation error keeps main's result under 1043, the code readable.
+#[test]
+fn dutch_record_validate_relation_with_translatable_caption_keeps_its_code() {
+    let mut built = pinned_relation(true);
     assert_eq!(
-        al_testkit::text(built.run_in("C", "Text")),
-        "Validatiefout voor veld: Bal. Account No., bericht = 'Het veld Bal. Account No. van tabel Payment Method bevat een waarde (ABC) die niet is gevonden in de gerelateerde tabel (G/L Account).'"
+        al_testkit::text(built.run_in("C", "ValidateCode")),
+        "DB:PrimRecordNotFound"
     );
-}
-
-/// BaseAppPageExtCaption.al:276 pins the TableRelation error's code for the Payment Methods page. An unpinned field-caption
-/// translation must make only GetLastErrorText unavailable; GetLastErrorCode remains readable.
-#[test]
-fn dutch_relation_with_unpinned_caption_keeps_its_pinned_error_code_readable() {
-    let mut built = pinned_relation_with_translated_caption();
-    assert_eq!(al_testkit::text(built.run_in("C", "Code")), "DB:PrimRecordNotFound");
-}
-
-#[test]
-fn dutch_relation_with_unpinned_caption_keeps_text_refused() {
-    let mut built = pinned_relation_with_translated_caption();
-    refused(built.run_in("C", "Text"), "TableRelation Dutch text");
 }
 
 fn own_page_captionclass_relation() -> al_testkit::Built {
@@ -228,6 +238,7 @@ table 69801 "DV Row"
         field(5; Kind; Option) { OptionMembers = Open,Closed; }
         field(6; Ref; Code[10]) { TableRelation = "DV Target".Code; }
         field(7; EnumKind; Enum "DV Kind") { }
+        field(8; Qty; Integer) { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -263,10 +274,36 @@ page 69803 "DV Card"
     SourceTable = "DV Row";
     ApplicationArea = All;
     UsageCategory = None;
-    layout { area(Content) { field(Flag; Rec.Flag) { } } }
+    layout { area(Content) { field(Flag; Rec.Flag) { } field(Qty; Rec.Qty) { } } }
+}
+page 69806 "DV Worksheet"
+{
+    PageType = Worksheet;
+    SourceTable = "DV Row";
+    ApplicationArea = All;
+    UsageCategory = None;
+    layout { area(Content) { repeater(R) { field(Flag; Rec.Flag) { } } } }
 }
 codeunit 69804 C
 {
+    procedure WorksheetField(): Text
+    var P: TestPage "DV Worksheet";
+    begin
+        Seed();
+        GlobalLanguage(1043);
+        P.OpenEdit();
+        P.Flag.SetValue('abc');
+        exit('no error');
+    end;
+    procedure CardIntegerField(): Text
+    var P: TestPage "DV Card";
+    begin
+        Seed();
+        GlobalLanguage(1043);
+        P.OpenEdit();
+        P.Qty.SetValue('abc');
+        exit('no error');
+    end;
     procedure Seed()
     var R: Record "DV Row";
     begin
@@ -416,11 +453,31 @@ fn dutch_enum_table_field_list_error_remains_available() {
     );
 }
 
-/// BaseAppPageExtCaption.al:276 pins Dutch TableRelation text for `Bal. Account No.` on the Payment Methods list only.
+/// A relation error on another table keeps main's refusal under 1043.
 #[test]
-fn dutch_relation_text_for_another_table_field_keeps_main_english_result() {
-    assert_eq!(
-        al_testkit::error_message(al_testkit::run_in(DUTCH_VALIDATION, "C", "RelationField")),
-        "Validation error for Field: Ref,  Message = 'The field Ref of table DV Row contains a value (MISSING) that cannot be found in the related table (DV Target).'"
+fn dutch_relation_text_for_another_table_field_keeps_main_refusal() {
+    refused(
+        al_testkit::run_in(DUTCH_VALIDATION, "C", "RelationField"),
+        "GlobalLanguage 1043",
+    );
+}
+
+/// BaseAppPageExtCaption.al:271-274 pins the bare entry sentence on a PageType List page; a Worksheet has a repeater too,
+/// but is not one.
+#[test]
+fn dutch_boolean_entry_on_a_worksheet_keeps_main_refusal() {
+    refused(
+        al_testkit::run_in(DUTCH_VALIDATION, "C", "WorksheetField"),
+        "GlobalLanguage 1043",
+    );
+}
+
+/// R7187PageCaption.al:107-122, :152-166 pin the Dutch Integer entry text without a Refresh hint (a draft row); a card
+/// with a stored row adds the hint, which is not pinned under 1043.
+#[test]
+fn dutch_integer_entry_with_a_refresh_hint_is_refused() {
+    refused(
+        al_testkit::run_in(DUTCH_VALIDATION, "C", "CardIntegerField"),
+        "can't be evaluated into type Integer",
     );
 }

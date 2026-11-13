@@ -22,6 +22,7 @@ pub(super) struct EntryFacts {
     pub parse_failure: bool,
     pub kind: EntryKind,
     pub table_field: bool,
+    /// PageType = List (`is_list_page`), not any page with a repeater.
     pub list: bool,
     pub values_allowed: ValuesAllowedFact,
 }
@@ -30,7 +31,6 @@ pub(super) struct EntryFacts {
 pub(super) enum ValidationErrorKind {
     Ordinary,
     Entry(EntryFacts),
-    DutchTableRelation,
 }
 
 #[derive(Clone, Copy)]
@@ -49,8 +49,8 @@ pub(super) struct ValidationFrame<'c> {
 /// Under 1043 the platform's own words are Dutch: the frame of the error and the reason an Integer entry could not be read
 /// (localization/app-xliff/lt-r7144-ext-caption/R7187PageCaption.al:107-122, :152-166, al-runner issue 7187); the sentence in
 /// front, built from the caption, stays English, as it does alone (localization/app-xliff/BaseAppPageExtCaption.al:274-275,
-/// :288-290, a Boolean and an Option entry, al-runner issue 7327). Those cases show no Refresh hint; any other text under
-/// 1043, or one with the hint, is not pinned and is refused.
+/// :288-290, a Boolean and an Enum table-field entry on a PageType List page, al-runner issue 7327). Those cases show no
+/// Refresh hint; any other text under 1043, or one with the hint, is not pinned and is refused.
 pub(super) fn validation_signal(
     engine: &Engine,
     st: &St,
@@ -98,9 +98,6 @@ impl Session {
 fn dutch_text(msg: &str, suffix: &str, caption: &str, error_kind: ValidationErrorKind) -> Option<String> {
     if !suffix.is_empty() {
         return None;
-    }
-    if matches!(error_kind, ValidationErrorKind::DutchTableRelation) {
-        return Some(msg.to_string());
     }
     let integer = msg.split_once(" The value \"").and_then(|(head, tail)| {
         tail.strip_suffix("\" can't be evaluated into type Integer.")

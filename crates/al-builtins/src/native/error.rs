@@ -6,20 +6,10 @@ pub struct AlError {
     pub message: String,
     pub code: String,
     pub call_stack: String,
-    /// The runtime operation that owns an error whose text a caller may need to preserve.
-    pub kind: AlErrorKind,
     /// How the error was raised, which `GetLastErrorText(true)` needs.
     pub origin: ErrorOrigin,
     /// The .NET exception BC holds for the error, which `GetLastErrorObject` needs.
     pub exception: ExceptionKind,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum AlErrorKind {
-    #[default]
-    Other,
-    TableRelation,
-    DutchTableRelation,
 }
 
 /// The .NET exception type behind an error, for `GetLastErrorObject`. Only the kinds the corpus pins are named

@@ -1861,37 +1861,115 @@ mod tests {
         assert_eq!(t.unique_keys, [true, false]);
     }
 
+    fn control(name: &str) -> al_ir::Control {
+        al_ir::Control {
+            name: name.into(),
+            kind: al_ir::ControlKind::Field,
+            parent: None,
+            binding: al_ir::Binding::None,
+            props: vec![],
+            triggers: vec![],
+            part_page: None,
+            part_link: None,
+            owner: None,
+            ext_triggers: vec![],
+            caption_modifies: vec![],
+            ext_replaced: vec![],
+            run_object: None,
+            action_ref: None,
+            prop_texts: vec![],
+            var_field: None,
+            var_slot: None,
+            array_element_field: None,
+            expr_source: None,
+            expr_row_unordered: false,
+            expr_call: false,
+            array_element: None,
+            source_text: None,
+            bare_quoted_ext_source: false,
+            factbox: false,
+        }
+    }
+
+    /// A `modify` block that sets `Caption` or `CaptionML` of a symbolic base page's control adds (extension, the name as
+    /// the block writes it) to `caption_modifies`, the extensions in program order; one that sets other properties does not.
+    #[test]
+    fn a_modify_that_sets_a_caption_is_listed_on_the_control_of_a_symbolic_page() {
+        use al_ir::sym::{ControlId, ControlMod, Join, ListKind, PageContribution};
+        let key = |id, kind| ObjKey {
+            app: "app".into(),
+            kind,
+            name: ObjName::Id(id),
+        };
+        let page = SymObject {
+            key: key(1, ObjKind::Page),
+            object: Object {
+                kind: ObjKind::Page,
+                id: Some(1),
+                page: Some(al_ir::Page {
+                    assumes: vec![],
+                    controls: vec![control("Amount"), control("Code")],
+                    triggers: vec![],
+                    curr_page_slot: 0,
+                    unsupported: vec![],
+                    extensions: vec![],
+                    ext_triggers: vec![],
+                    action_areas: vec![],
+                    big_integer_expressions: vec![],
+                    restricted_refusals: vec![],
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let ext = |id: u32, order: u32, mods: Vec<(usize, &str, &str)>| {
+            let mut s = SymObject {
+                key: key(id, ObjKind::PageExtension),
+                extends: Some(key(1, ObjKind::Page)),
+                joins: vec![Join {
+                    list: ListKind::PageExtensions,
+                    order: (0, 0, order),
+                }],
+                object: Object {
+                    kind: ObjKind::PageExtension,
+                    id: Some(id),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            s.contribution.page = Some(PageContribution {
+                mods: mods
+                    .into_iter()
+                    .map(|(target, name, prop)| ControlMod {
+                        target: ControlId::Base(target),
+                        name: name.into(),
+                        props: vec![(prop.into(), al_ir::PropVal::Lit("'X'".into()))],
+                        triggers: vec![],
+                    })
+                    .collect(),
+                ..Default::default()
+            });
+            s
+        };
+        let units = vec![
+            ext(12, 2, vec![(0, "Amount", "captionml")]),
+            page,
+            ext(11, 1, vec![(0, "amount", "caption"), (1, "Code", "visible")]),
+        ];
+        let linked = link_all(units, 1).unwrap();
+        let controls = &linked.program.objects[1].page.as_ref().unwrap().controls;
+        assert_eq!(
+            controls[0].caption_modifies,
+            [(2, "amount".to_string()), (0, "Amount".to_string())]
+        );
+        assert!(controls[1].caption_modifies.is_empty());
+    }
+
     #[test]
     fn controls_go_after_the_control_they_name_in_any_order_of_the_list() {
         use al_ir::sym::{ControlId, ExtControl, PageContribution};
         let ext = |k: usize, pred: Option<ControlId>| ExtControl {
-            control: al_ir::Control {
-                name: format!("X{k}"),
-                kind: al_ir::ControlKind::Field,
-                parent: None,
-                binding: al_ir::Binding::None,
-                props: vec![],
-                triggers: vec![],
-                part_page: None,
-                part_link: None,
-                owner: None,
-                ext_triggers: vec![],
-                caption_modifies: vec![],
-                ext_replaced: vec![],
-                run_object: None,
-                action_ref: None,
-                prop_texts: vec![],
-                var_field: None,
-                var_slot: None,
-                array_element_field: None,
-                expr_source: None,
-                expr_row_unordered: false,
-                expr_call: false,
-                array_element: None,
-                source_text: None,
-                bare_quoted_ext_source: false,
-                factbox: false,
-            },
+            control: control(&format!("X{k}")),
             pred,
             parent: None,
             target: None,

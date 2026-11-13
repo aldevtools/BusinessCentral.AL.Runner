@@ -1998,13 +1998,7 @@ impl Session {
                 };
                 // The relation is checked before the value goes in and before OnValidate runs; a
                 // refused value is never stored (corpus record/TestCalcFormulaSystemFieldsTests.Codeunit.al:253).
-                self.validate_relation_at(
-                    rec,
-                    &t,
-                    pos,
-                    new_value.clone().unwrap_or_else(|| old_value.clone()),
-                    entry.1,
-                )?;
+                self.validate_relation(rec, &t, pos, new_value.clone().unwrap_or_else(|| old_value.clone()))?;
                 if let Some(v) = new_value {
                     rec.borrow_mut().fields[pos] = v;
                 }
