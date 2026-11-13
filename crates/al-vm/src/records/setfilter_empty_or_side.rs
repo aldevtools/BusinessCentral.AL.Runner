@@ -22,7 +22,7 @@ enum Evidence {
 /// The measured cells, the whole filter text by equality. `V` is one literal value (letters and digits on a Text or Code field,
 /// digits on an Integer field) with no placeholder argument, `%1` one placeholder with exactly one argument that is not empty.
 ///
-/// - Probe (corpus PR 1382, record/filters/SetFilterEmptyTerm.al, BC 27.5, 28.5 and 29.0): Text `%1|` and `|%1` with `'A'`
+/// - Probe (corpus PR 1382, record/filters/SetFilterEmptyTerm.al): Text `%1|` and `|%1` with `'A'`
 ///   (:123), `A|`, `|A`, `A||B`, `|` (:142); Code `%1|` with `'A'` (:161), `A|`, `|A`, `A||B` (:177); Integer `%1|` and `|%1`
 ///   with `1`, `1||2` (:193); Text `%1|` with a Text literal argument (:222). `V|` and `V||V` name the right side, `|V` and
 ///   `|` the left side.
