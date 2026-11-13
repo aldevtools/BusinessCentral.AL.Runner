@@ -263,7 +263,7 @@ impl Session {
         }
         let writes = self.write_mark();
         let inserted_by_trigger = st.borrow().new_row_inserted_by_trigger;
-        let (activated, origin) = self.traced(st, |s| s.activate(st, idx));
+        let (activated, origin) = self.traced(st, |s| s.activate(st, idx, true));
         if inserted_by_trigger {
             return Err(self.insert_of_trigger_inserted_row(st, idx, activated)?);
         }
@@ -1582,7 +1582,7 @@ impl Session {
                         return Ok(shown);
                     }
                 }
-                let text = self.control_text(st, idx, &v)?;
+                let text = self.field_value_text(st, idx, &v)?;
                 Ok(Value::Text(text.into()))
             }
             PageMethod::AsInteger => self.control_as(st, idx, &RtType::Integer),
@@ -1733,10 +1733,7 @@ impl Session {
                 None if self.read_only_expression_control(st, idx) => Ok(Value::Boolean(false)),
                 None => Ok(Value::Boolean(self.control_editable(st, idx)?)),
             },
-            PageMethod::Enabled => match self.part_field_gate(st, false)? {
-                Some(b) => Ok(Value::Boolean(b)),
-                None => Ok(Value::Boolean(self.control_enabled(st, idx)?)),
-            },
+            PageMethod::Enabled => self.test_control_enabled(st, idx),
             // A control of a part also answers what its part control says (see `part_visible_gate`).
             PageMethod::Visible => Ok(Value::Boolean(self.control_visible_in_part(st, idx)?)),
             PageMethod::Invoke => self.action_invoke(st, idx),
@@ -1756,7 +1753,7 @@ impl Session {
                 Ok(r)
             }
             PageMethod::Activate => {
-                let (activated, origin) = self.traced(st, |s| s.activate(st, idx));
+                let (activated, origin) = self.traced(st, |s| s.activate(st, idx, false));
                 if let (Err(Signal::Error(_)), Some("oninsertrecord")) = (&activated, origin.as_deref()) {
                     return unsupported("an error in OnInsertRecord on Activate() (only SetValue is pinned)");
                 }

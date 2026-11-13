@@ -33,6 +33,7 @@ mod own_rolled_back_modify;
 mod platform_rows;
 mod stale;
 mod stale_rule;
+mod tenant_media_rows;
 pub(crate) use stale_rule::{TrappedRollback, same_key};
 mod guarded_run_body;
 pub(crate) use guarded_run_body::GuardedBody;
@@ -1000,6 +1001,11 @@ impl Session {
         pos: usize,
         id: [u8; 16],
     ) -> Result<(), Signal> {
+        if self.is_stored_tenant_media_id(id) {
+            return unsupported(
+                "a Modify or Delete that lets go of the ID of a Tenant Media row an AL Insert stored (not pinned)",
+            );
+        }
         let held = |s: &mut Self, table: &TableDef, field: usize| -> Result<bool, Signal> {
             let filters = [FieldFilter {
                 lang: al_builtins::filter::filter_language(),

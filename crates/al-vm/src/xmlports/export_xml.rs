@@ -594,6 +594,14 @@ impl Session {
                 // element's OnBeforePassVariable, its attributes, then the inner element as the text-only shape above
                 // (`pass entry;pass status;pass admission;pass admcode;`, `<admission option_value="2" />` for an empty text).
                 // The same for an attributed leaf deeper below a table element (`attributed_leaf`, einvoice_shapes.rs).
+                // A text element with one field attribute below a temporary table element (`text_attr_export.rs`).
+                ir::XmlNodeKind::Text if c.text_attr_export => {
+                    let e = got!(self.xp_export_text_attr(inst, schema, child));
+                    out.children.push(Node::Elem(e));
+                    if Self::xp_quit(inst) {
+                        return Ok(());
+                    }
+                }
                 ir::XmlNodeKind::Text
                     if text_in_table(schema, child).is_some()
                         || nested_inner(schema, child)
@@ -723,17 +731,7 @@ impl Session {
                 // order, Skip there leaves out that leaf (xmlports/shapes-properties/R6924eTreeInTable.al:287-288 all filled,
                 // :296-297 leaves skipped, :305-306 an inner leaf empty). Its own text stays refused (measured at :314, not built).
                 ir::XmlNodeKind::Text if leaf_triggered_tree(schema, child, node) => {
-                    if !got!(self.xp_pass_variable(inst, schema, child)).is_empty() {
-                        return unsupported(
-                            "XmlPort export of a container text element below a table element with its own text (not pinned)",
-                        );
-                    }
-                    let e = self.xp_export_container(inst, schema, child)?;
-                    if matches!(Self::xp_flow(inst), Some(Flow::Break | Flow::Unbound)) {
-                        return unsupported(
-                            "Break in OnBeforePassVariable of a leaf inside a container text element below a table element (not pinned)",
-                        );
-                    }
+                    let e = got!(self.xp_export_leaf_triggered_tree(inst, schema, child));
                     out.children.push(Node::Elem(e));
                     if Self::xp_quit(inst) {
                         return Ok(());
@@ -778,16 +776,25 @@ impl Session {
     pub(super) fn xp_pass_variable(&mut self, inst: &Inst, schema: &Schema, node: usize) -> Result<String, Signal> {
         self.xp_run_trigger(inst, schema, node, "onbeforepassvariable")?;
         let slot = schema.node(node).slot.expect("text nodes have a slot");
-        match &inst.borrow().globals[slot] {
-            Value::Text(s) | Value::Code(s) => Ok(s.to_string()),
+        let text = match &inst.borrow().globals[slot] {
+            Value::Text(s) | Value::Code(s) => s.to_string(),
             // A BigText element writes its whole text (xmlports/shapes-properties/XmlPortBigText.al:178, :198).
             Value::Library(al_builtins::library_kind::LibraryKind::BigText, h) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::Empty => Ok(String::new()),
-                al_builtins::value::LibraryValue::Text(s) => Ok(s.clone()),
-                _ => unsupported("XmlPort export of a BigText variable of this kind"),
+                al_builtins::value::LibraryValue::Empty => String::new(),
+                al_builtins::value::LibraryValue::Text(s) => s.clone(),
+                _ => return unsupported("XmlPort export of a BigText variable of this kind"),
             },
-            other => unsupported(format!("XmlPort export of the variable {}", other.describe())),
+            other => return unsupported(format!("XmlPort export of the variable {}", other.describe())),
+        };
+        // Rendered content never goes into an exported file: its characters would be written as known bytes into a buffer
+        // without a mark (ADR-040 amendment 2026-11-12, A3b: a use that is not in table A3 refuses).
+        if al_builtins::rendered_text::holds(&text) {
+            return Err(al_builtins::rendered_text::refusal(
+                &text,
+                "a text variable an XmlPort exports",
+            ));
         }
+        Ok(text)
     }
 
     /// `OnBeforePassField` (it runs for every row: xmlports/TestXmlPortTriggersReplaceViewContracts.al:

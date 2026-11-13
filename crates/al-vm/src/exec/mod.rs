@@ -39,10 +39,12 @@ pub(crate) enum Op {
         i: u32,
         kind: SingleWriteKind,
     },
-    /// `d := read(place p)` (any place: fields, array elements, base globals).
+    /// `d := read(place p)` (any place: fields, array elements, base globals). `value` is true where the expression reads the
+    /// place as a value (`Expr::Load`), false where the place is taken by reference (`Session::read_place`).
     ReadPlace {
         d: u16,
         p: u32,
+        value: bool,
     },
     /// Local `i := a`; a Record or a Library value goes through `write` (copy semantics).
     StoreLocal {

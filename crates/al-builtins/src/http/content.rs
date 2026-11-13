@@ -1,12 +1,17 @@
 //! `HttpContent`: writing and reading the body.
 
+use super::secret_read::Call;
 use super::*;
 
 // ------------------------------------------------------------------------------------------------ content
 
 pub(super) fn write_from(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let t = text(a, 0)?;
-    with_content(r, |s| s.write_body(t.into_bytes())).map(|()| Value::Null)
+    with_content(r, |s| {
+        s.note(Call::WriteText);
+        s.write_body(t.into_bytes())
+    })
+    .map(|()| Value::Null)
 }
 
 /// `WriteFrom(SecretText)`: the body is the secret's text and the content is secret: `IsSecretContent` is true, `ReadAs(SecretText)`
@@ -16,6 +21,7 @@ pub(super) fn write_from(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
 pub(super) fn write_from_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (t, _) = text_or_secret(a, 0)?;
     with_content(r, |s| {
+        s.note(if t.is_empty() { Call::Other } else { Call::WriteSecret });
         s.write_body(t.into_bytes());
         s.secret = true;
         let mut bag = s.headers.borrow_mut();
@@ -28,25 +34,63 @@ pub(super) fn write_from_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 /// `IsSecretContent()`: the last WriteFrom took a SecretText (P97ContentSecret.al:83-150; http/client/UfHttpClear.al:102
 /// after a Clear and a WriteFrom of text).
 pub(super) fn is_secret_content(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    with_content(r, |s| Value::Boolean(s.secret))
+    with_content(r, |s| {
+        s.note(Call::IsSecretContent);
+        Value::Boolean(s.secret)
+    })
 }
 
 /// `ReadAs(var SecretText)` with its result used answers true and gives the body as a secret, of a secret or a plain content, a
-/// new one included (P97ContentSecret.al:21-28 with :83-150, :215-234). The statement form and the content of a request that has
-/// none are not pinned.
+/// new one included (P97ContentSecret.al:21-28 with :83-150, :215-234).
+///
+/// The statement form gives the body the same way after the call sequences `SecretReadShape::statement_gives_body` lists
+/// (assumption `http-readas-secret-statement`, probe al-language-onprem/http/N4ReadAsSecretStatement.al; corpus
+/// http/CzHttpNoNetwork.al:34 with :80 pins one of them as not empty, its body is assumed). On the content of a request that
+/// has none, after the sequences `SecretReadShape::without_content_measured` lists, the statement raises NotInitialized and
+/// the result-used form answers false, and both leave the secret (assumed, same probe). Every other statement, and every
+/// other read of the content of a request that has none, is refused.
 pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    if !c.ret_used() {
-        return unsupported("HttpContent.ReadAs(SecretText) as a statement (not pinned)");
-    }
-    let (data, uninit) = with_content(r, |s| (s.data.clone(), s.uninitialized))?;
+    let used = c.ret_used();
+    let (data, uninit, shape) = with_content(r, |s| {
+        let shape = s.secret_read;
+        s.note(if used { Call::SecretUsed } else { Call::SecretStatement });
+        (s.data.clone(), s.uninitialized, shape)
+    })?;
     if uninit {
-        return unsupported("HttpContent.ReadAs(SecretText) on the content of a request that has none (not pinned)");
+        if !shape.without_content_measured(used) {
+            return unsupported(if used {
+                "HttpContent.ReadAs(SecretText) on the content of a request that has none (not pinned)"
+            } else {
+                "HttpContent.ReadAs(SecretText) as a statement (not pinned)"
+            });
+        }
+        crate::assumptions::assume(crate::assumptions::Assumption::HttpReadasSecretStatement);
+        return if used {
+            Ok(Value::Boolean(false))
+        } else {
+            content_not_initialized()
+        };
+    }
+    if !used {
+        if !shape.statement_gives_body() {
+            return unsupported("HttpContent.ReadAs(SecretText) as a statement (not pinned)");
+        }
+        crate::assumptions::assume(crate::assumptions::Assumption::HttpReadasSecretStatement);
     }
     let Ok(t) = String::from_utf8(data) else {
         return unsupported("HttpContent.ReadAs(SecretText) of a body that is not UTF-8 (not pinned)");
     };
     a[0] = lib("SecretText", LibraryValue::Text(t));
-    Ok(Value::Boolean(true))
+    Ok(if used { Value::Boolean(true) } else { Value::Null })
+}
+
+/// The error of a read of the content a request has when none was set (http/PnE12HttpContent.al:192, http/HttpRequest.al
+/// FreshRequestContent).
+fn content_not_initialized() -> Out {
+    raise(
+        "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
+        "NotInitialized",
+    )
 }
 
 /// `WriteFrom(InStream)` takes the bytes the stream has left. The source then is not at its end
@@ -54,6 +98,7 @@ pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 pub(super) fn write_from_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let bytes = crate::stream::hand_to_content(&mut a[0])?;
     with_content(r, |s| {
+        s.note(Call::Other);
         s.write_body(bytes);
         s.from_stream = true;
     })
@@ -75,7 +120,10 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     let mut r = r;
     // A secret content does not read as text: with the result used the call answers false and leaves the text
     // (P97ContentSecret.al:30-38 with :83-101, :119-168). The statement form is not pinned.
-    if with_content(r.as_deref_mut(), |s| s.secret)? {
+    if with_content(r.as_deref_mut(), |s| {
+        s.note(Call::Other);
+        s.secret
+    })? {
         if c.ret_used() {
             return Ok(Value::Boolean(false));
         }
@@ -118,10 +166,7 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
         return if c.ret_used() {
             Ok(Value::Boolean(false))
         } else {
-            raise(
-                "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
-                "NotInitialized",
-            )
+            content_not_initialized()
         };
     }
     // Once the body was handed out as a stream, whether that stream was read to its end, in part or not at all: a copy of a
@@ -171,7 +216,10 @@ pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     let mut r = r;
     // On a secret content the stream is left not initialized (P97ContentSecret.al:40-51: its EOS raises NotInitialized); what the
     // call answers is not pinned.
-    if with_content(r.as_deref_mut(), |s| s.secret)? {
+    if with_content(r.as_deref_mut(), |s| {
+        s.note(Call::Other);
+        s.secret
+    })? {
         return unsupported(
             "HttpContent.ReadAs(InStream) on a content written from a SecretText (its result is not pinned)",
         );
@@ -194,10 +242,7 @@ pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
                 "HttpContent.ReadAs(InStream) on the content of a request that has none, into a stream variable that already holds a stream (not pinned)",
             ),
             (true, _) => Ok(Value::Boolean(false)),
-            (false, false) => raise(
-                "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
-                "NotInitialized",
-            ),
+            (false, false) => content_not_initialized(),
             (false, true) => unsupported(
                 "HttpContent.ReadAs(InStream) as a statement, on a copy of the content of a request that has none (not pinned)",
             ),
@@ -214,7 +259,10 @@ pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 /// (http/headers/Y62ContentHeaders.al:GetHeaders_ResultUsed_FreshRequest, _ThenStatementAndReadAs); on a
 /// copy of such a content that is not pinned.
 pub(super) fn get_headers(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
-    let (list, uninit, copied) = with_content(r, |s| (s.headers.clone(), s.uninitialized, s.copied))?;
+    let (list, uninit, copied) = with_content(r, |s| {
+        s.note(Call::GetHeaders);
+        (s.headers.clone(), s.uninitialized, s.copied)
+    })?;
     if uninit && c.ret_used() {
         if copied {
             return unsupported(
@@ -224,10 +272,7 @@ pub(super) fn get_headers(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
         return Ok(Value::Boolean(false));
     }
     if uninit {
-        return raise(
-            "Microsoft.Dynamics.Nav.Runtime.NavHttpContent variable not initialized.",
-            "NotInitialized",
-        );
+        return content_not_initialized();
     }
     hand_out_headers(a.first(), &list)?;
     Ok(Value::Boolean(true))
@@ -236,12 +281,19 @@ pub(super) fn get_headers(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
 /// `Clear` empties the body and gives the content its own fresh headers, the Content-Type among them
 /// (http/content/HttpContent.al:ClearContent).
 pub(super) fn content_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    with_content(r, |s| s.clear_body()).map(|()| Value::Null)
+    with_content(r, |s| {
+        s.note(Call::Clear);
+        s.clear_body()
+    })
+    .map(|()| Value::Null)
 }
 
 impl HttpContentState {
-    /// A content with its own data and its own headers.
-    pub fn deep_copy(&self) -> HttpContentState {
+    /// A content with its own data and its own headers. The content the copy is taken of is `Other` afterwards
+    /// (`SecretReadShape::of_copy`).
+    pub fn deep_copy(&mut self) -> HttpContentState {
+        let secret_read = self.secret_read.of_copy();
+        self.secret_read = SecretReadShape::Other;
         let bag = self.headers.borrow();
         let copy = new_header_list(bag.kind);
         {
@@ -259,7 +311,14 @@ impl HttpContentState {
             copied: true,
             from_stream: self.from_stream,
             secret: self.secret,
+            secret_read,
+            untouched: false,
         }
+    }
+
+    /// Moves `secret_read` after a content method.
+    fn note(&mut self, call: Call) {
+        self.secret_read = self.secret_read.after(call);
     }
 
     /// `Clear`: the content gets no body and a header collection of its own that holds the Content-Type; a header

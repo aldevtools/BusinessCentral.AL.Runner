@@ -58,9 +58,12 @@ pub struct Layout {
     pub export_reasons: Vec<String>,
     /// See `ir::XmlPort::request_page`.
     pub request_page: bool,
+    /// The object's own properties as written: lower-case name, trimmed value.
+    pub object_properties: Vec<(String, String)>,
 }
 
 /// `Table.Field` at the first dot outside quotes: a table name may hold a dot (`"Data Exch. Def".Code`).
+mod assumed_shapes;
 mod containers;
 mod table_props;
 
@@ -216,11 +219,13 @@ pub fn layout(obj: &ast::Object) -> Layout {
         run_reasons: Vec::new(),
         export_reasons: Vec::new(),
         request_page: false,
+        object_properties: Vec::new(),
     };
     let (mut default_namespace, mut use_default_namespace) = (None::<String>, Some(false));
     let mut bc_namespace = false;
     for p in obj.properties() {
         let (name, value) = (p.name().to_ascii_lowercase(), p.value_text());
+        out.object_properties.push((name.clone(), value.trim().to_string()));
         match name.as_str() {
             "direction" => match value.trim().to_ascii_lowercase().as_str() {
                 "import" => out.direction = ir::XmlDirection::Import,
@@ -1101,6 +1106,9 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
             field_validate: layout.property(i, "FieldValidate").and_then(|v| bool_prop(&v)),
             big_text: is_big_text(layout, i),
             calc_fields: Vec::new(),
+            after_assign_layout: matches!(kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::FieldAttr)
+                && assumed_shapes::after_assign_layout(layout, i),
+            text_attr_export: kind == ir::XmlNodeKind::Text && assumed_shapes::text_attr_export(cx, layout, i),
             triggers,
         };
         match kind {
@@ -1118,7 +1126,8 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                 // table element, a text element whose nodes are only text attributes, or text attributes and leaf text and
                 // field elements; the runtime (al-vm xmlports.rs `text_in_table`) runs its triggers. The same for a text element
                 // with field and text attributes and one text element of only text attributes below it, and for that inner
-                // element (QrXpContainerOccurs.al TP_Nested_*).
+                // element (QrXpContainerOccurs.al TP_Nested_*). Assumed (corpus PR 1366): a text element with one field attribute
+                // below a temporary table element (`assumed_shapes::text_attr_export`).
                 if kind == ir::XmlNodeKind::Text
                     && layout.has_children(i)
                     && !node.triggers.is_empty()
@@ -1130,6 +1139,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
                     && !containers::attributed_leaf_shape(layout, i)
                     && !containers::table_container_shape(layout, i)
                     && !containers::root_table_shape(layout, i)
+                    && !node.text_attr_export
                 {
                     run_reasons.push(format!(
                         "triggers of the container text element {} are not supported (not pinned)",
