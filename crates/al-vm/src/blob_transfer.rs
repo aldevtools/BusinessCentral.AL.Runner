@@ -189,13 +189,35 @@ impl Holder {
     }
 }
 
-/// Marks the value a declared variable starts with as a [`FRESH`] source; `commits` is the session's commit count. The callers
+/// Marks the value a declared variable starts with as a [`FRESH`] source; `commits` is the session's commit count, `sources`
+/// the session's [`Sources`]. The callers
 /// hand in a local variable of a codeunit's procedure and a global of a codeunit, as the sources of corpus PR 1372
 /// (streams/BlobValueCopyShapes.al:590 `Src`, :847 `GRow`), PR 1375 (streams/BlobCopyStates.al:1048 `Src`, :3208 a global
 /// record) and PR 1387 (streams/BlobCopyNeighbors.al:492 `CellRecordParam`) are. A record in an array is not marked (not measured).
-pub(crate) fn new_variable(v: &Value, commits: u64) {
+pub(crate) fn new_variable(v: &Value, commits: u64, sources: &mut Sources) {
     if let Value::Record(rc) = v {
         rc.borrow_mut().probed_source = ProbedSource(FRESH, commits);
+        sources.records_marked();
+    }
+}
+
+/// Whether a record of the session may be a measured source: the session marked a record [`FRESH`] ([`new_variable`]) or
+/// took over the single instances of an earlier session (`Session::adopt_single_instances`), whose globals may hold such
+/// records. Every other non-zero `RecordState::probed_source` comes from one of these (a clone gives 0), so while this is
+/// `false` no record of the session is a measured source and [`records_into_builtin`] has nothing to end. It is never reset.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Sources(bool);
+
+impl Sources {
+    /// Whether any record of the session may be a measured source.
+    #[inline]
+    pub(crate) fn any(self) -> bool {
+        self.0
+    }
+
+    /// A record of the session may be a measured source from now on.
+    pub(crate) fn records_marked(&mut self) {
+        self.0 = true;
     }
 }
 
@@ -232,8 +254,12 @@ fn builtin_keeps_probed(id: BuiltinId) -> bool {
 /// platform code. A record among them is a measured source no longer, whatever the builtin does with it (a page that hands
 /// back the picked row, `SetSelectionFilter`, `Codeunit.Run`, `Page.GetRecord`), unless [`builtin_keeps_probed`] names the
 /// builtin. A Record receiver is the record of a record method, which reaches `Session::record_op` and is [`after`]'s.
+/// `sources` is the session's [`Sources`]: without any measured source there is nothing to end.
 #[inline]
-pub(crate) fn records_into_builtin(id: BuiltinId, recv: Option<&Value>, operands: &[Value]) {
+pub(crate) fn records_into_builtin(sources: Sources, id: BuiltinId, recv: Option<&Value>, operands: &[Value]) {
+    if !sources.any() {
+        return;
+    }
     let own = recv.filter(|v| !matches!(v, Value::Record(_)));
     for v in own.into_iter().chain(operands) {
         if let Value::Record(rc) = v

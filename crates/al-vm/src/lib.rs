@@ -1038,6 +1038,8 @@ pub struct Session {
     /// it around a test method to see whether the method committed (test isolation, `isolation.rs`
     /// in al-test-cli).
     pub commits: u64,
+    /// Whether a record of the session may be a measured Blob source (`blob_transfer::Sources`).
+    pub(crate) blob_sources: blob_transfer::Sources,
     /// The `[ErrorBehavior(Collect)]` scopes on the call stack and the errors they hold
     /// (see `errorcollect.rs`).
     pub(crate) error_scopes: errorcollect::Scopes,
@@ -1391,6 +1393,7 @@ impl Session {
             constants: Default::default(),
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             commits: 0,
+            blob_sources: Default::default(),
             error_scopes: Default::default(),
             initial_cache: Default::default(),
             adhoc_tables: Default::default(),
@@ -2070,7 +2073,7 @@ impl Session {
         if engine.program.objects[object].kind == ir::ObjKind::Codeunit {
             globals
                 .iter()
-                .for_each(|v| blob_transfer::new_variable(v, self.commits));
+                .for_each(|v| blob_transfer::new_variable(v, self.commits, &mut self.blob_sources));
         }
         Rc::new(RefCell::new(Instance {
             object: object as u32,
@@ -2454,7 +2457,7 @@ impl Session {
             } else {
                 let v = self.slot_default(s);
                 if blob_transfer::measured_local(engine.program.objects[object].kind, r, i) {
-                    blob_transfer::new_variable(&v, self.commits);
+                    blob_transfer::new_variable(&v, self.commits, &mut self.blob_sources);
                 }
                 locals.push(v);
             }

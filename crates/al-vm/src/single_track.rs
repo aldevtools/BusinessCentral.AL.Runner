@@ -565,6 +565,10 @@ impl Session {
         self.next_temp = self.next_temp.max(moved.next_temp);
         self.temps.extend(moved.temps);
         let _ = moved.unclaimed;
+        // The globals of the single instances may hold records the earlier session marked as Blob sources.
+        if !moved.singletons.is_empty() {
+            self.blob_sources.records_marked();
+        }
         self.singles_unclaimed.extend(moved.singletons.keys().copied());
         self.singletons.extend(moved.singletons);
         self.events.bindings.splice(0..0, moved.bindings);
@@ -593,5 +597,37 @@ mod tests {
         let v = Fp::Val(vec![1u8].into());
         assert_eq!(v, v.clone());
         assert_ne!(v, o);
+    }
+
+    /// A session that takes over the single instances of an earlier one may hold records that session marked as Blob
+    /// sources (a global record of a SingleInstance codeunit): its builtins must still end them
+    /// (`blob_transfer::records_into_builtin`).
+    #[test]
+    fn adopted_single_instances_count_as_marked_blob_sources() {
+        const SRC: &str = "table 50100 Row { fields { field(1; Id; Integer) { } } }
+            codeunit 50100 Keeper { SingleInstance = true; var R: Record Row; }
+            codeunit 50101 Plain { }";
+        let (ws, l) = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), SRC.into())],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let engine = crate::Engine::new(l.program, Vec::new());
+        let at = |name: &str| engine.program.objects.iter().position(|o| o.name == name).unwrap();
+        let mut first = crate::Session::new(engine.clone());
+        first.codeunit_instance(at("Plain"));
+        assert!(!first.blob_sources.any(), "a codeunit without records marks none");
+        first.codeunit_instance(at("Keeper"));
+        assert!(first.blob_sources.any(), "the global record is marked");
+        let moved = first.take_single_instances();
+        let mut second = crate::Session::new(engine.clone());
+        assert!(!second.blob_sources.any());
+        second.adopt_single_instances(moved);
+        assert!(second.blob_sources.any(), "the adopted global record may be marked");
     }
 }
