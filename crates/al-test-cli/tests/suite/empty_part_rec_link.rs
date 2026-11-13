@@ -782,7 +782,7 @@ fn empty_list_part_rec_outside_the_measured_shape() {
         .iter()
         .filter(|(name, outcome)| match name.as_str() {
             "ListView" | "ListEdit" => !matches!(outcome, Outcome::NotRun(m)
-                if m.starts_with("a read of Rec of a ListPart that shows no row")
+                if m.starts_with("a read of Rec of a part that shows no row")
                     && m.contains("(the part page has a property, a trigger")),
             _ => {
                 !matches!(outcome, Outcome::Fail(m) if m == "act=0//0/")

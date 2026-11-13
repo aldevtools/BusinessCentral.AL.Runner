@@ -125,6 +125,7 @@ mod records;
 mod refs;
 mod relations;
 mod rename;
+mod rename_blank_key;
 mod report_handler_unshown;
 mod report_layout_export;
 mod report_layout_streams;
@@ -919,8 +920,11 @@ pub struct Session {
     /// How many `Randomize()` calls without a seed the session has seen.
     pub(crate) unseeded_randomizes: i32,
     pub(crate) next_row_version: i64,
-    /// How many Delete and DeleteAll calls have reached the store: with `next_row_version`, it tells whether code wrote.
+    /// How many Delete calls and DeleteAll calls that found a row have reached the store, and every Truncate call (on an empty
+    /// table too): with `next_row_version`, it tells whether code wrote.
     pub(crate) deletes: u64,
+    /// How many times the store rolled back (`rollback_transaction`): a rollback takes rows back and moves neither count above.
+    pub(crate) rollbacks: u64,
     /// The highest SystemRowVersion install code gave a row (`Session::mark_install_end`): a row at or below it was
     /// written by install code (ADR-046 amendment 1, A2 item d).
     pub(crate) install_row_version: i64,
@@ -1332,6 +1336,7 @@ impl Session {
             unseeded_randomizes: 0,
             next_row_version: restored_row_version,
             deletes: 0,
+            rollbacks: 0,
             install_row_version: restored_row_version,
             restored_row_version,
             session_id_override: None,
@@ -1614,6 +1619,7 @@ impl Session {
         self.note_rollback_for_stale_rule();
         self.tx.deferred_insert = None;
         al_data::Store::rollback(&mut self.store);
+        self.rollbacks += 1;
         self.crm_rolled_back();
         self.sql.rolled_back();
         self.tx.row_versions = Default::default();

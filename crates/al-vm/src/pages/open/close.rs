@@ -148,6 +148,7 @@ impl Session {
             }
         }
         self.ret_used = false;
+        self.tx.rename_from_al = false;
         self.record_op(RecordOp::Rename, &rec, &mut new_key)?;
         st.borrow_mut().dirty = false;
         self.set_xrec(st);

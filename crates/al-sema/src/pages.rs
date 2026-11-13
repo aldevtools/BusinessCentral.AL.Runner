@@ -1987,7 +1987,7 @@ pub fn parse_run_object(text: &str) -> Result<(al_ir::RunKind, Vec<String>), Str
 /// Parses the value of a `SubPageLink` property: `A = field(B), C = const(x), D = filter(y | z)`.
 /// `Err` names the part it does not understand.
 pub fn parse_sub_page_link(text: &str) -> Result<Vec<(String, LinkRhs)>, String> {
-    Ok(parse_link_kinds(text)?
+    Ok(parse_sub_page_link_kinds(text)?
         .into_iter()
         .map(|(left, rhs, _)| (left, rhs))
         .collect())
@@ -1995,10 +1995,11 @@ pub fn parse_sub_page_link(text: &str) -> Result<Vec<(String, LinkRhs)>, String>
 
 /// `parse_run_page_link` with, per entry, whether it is written `const(...)` (not `field(...)` or `filter(...)`).
 pub fn parse_run_page_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, bool)>, String> {
-    parse_link_kinds(text).map_err(|e| e.replace("SubPageLink", "RunPageLink"))
+    parse_sub_page_link_kinds(text).map_err(|e| e.replace("SubPageLink", "RunPageLink"))
 }
 
-fn parse_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, bool)>, String> {
+/// `parse_sub_page_link` with, per entry, whether it is written `const(...)` (not `field(...)` or `filter(...)`).
+pub fn parse_sub_page_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, bool)>, String> {
     let mut out = Vec::new();
     for item in crate::scan::split_trimmed(text, ',') {
         let eq = {

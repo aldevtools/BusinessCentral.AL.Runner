@@ -282,6 +282,10 @@ impl Session {
                 } else {
                     self.land_on_new_line(st)?;
                 }
+            } else if self.part_of_top_list(st) {
+                // A part of a top-level List host: what Rec holds there has one owner, `empty_part_rec`; no landing runs here,
+                // so it is outside the List-host cells and a read of a field the filters name is refused.
+                self.empty_part_rec(st)?;
             } else {
                 let rec = self.page_rec(st);
                 let table = rec.borrow().table as usize;

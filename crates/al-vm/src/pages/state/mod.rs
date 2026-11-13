@@ -553,6 +553,9 @@ pub struct PageState {
     pub tree_calls_unknown: bool,
     /// The store's write mark when the last call on the page or its parts ended; `None` before the first one ended.
     pub tree_calls_mark: Option<(i64, u64)>,
+    /// A ListPart that shows no row on a top-level List host landed in a cell BC was measured at: Rec holds the link values
+    /// only inside a measured read (`empty_part_rec.rs`, `reading_empty_list_rec`).
+    pub empty_list_landing: Option<crate::pages::empty_part_rec::EmptyListLanding>,
     /// The test called `First()` on the page since it opened (`next_held_row_read`; set and cleared by `test_page_op_held`).
     pub first_since_open: bool,
     /// The static `Page.RunModal(0, Rec)` found the page from the table's LookupPageId.
@@ -928,6 +931,7 @@ impl PageState {
         self.tree_calls = Vec::new();
         self.tree_calls_unknown = false;
         self.tree_calls_mark = None;
+        self.empty_list_landing = None;
         self.typed_key_dropped = false;
         self.pinned_end = None;
         self.empty_selection_given = false;

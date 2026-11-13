@@ -1413,7 +1413,7 @@ pub struct PartLink {
     pub view: Option<String>,
     /// `Provider = <part>`: the control index (on the same page) whose current row the link reads.
     pub provider: Option<usize>,
-    /// The `RunPageLink` entries (indices into `entries`) written `const(...)`; empty for a part's `SubPageLink`.
+    /// The entries (indices into `entries`) written `const(...)`, not `filter(...)` or `field(...)`.
     #[serde(default)]
     pub consts: Vec<usize>,
     /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.
@@ -1611,8 +1611,13 @@ pub struct RelationCond {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum RelationWhere {
-    /// `related = const(text)` / `filter(text)`: `text` is a filter on the related field.
-    Value { related: usize, text: String },
+    /// `related = const(text)` / `filter(text)` (`filter`): `text` is a filter on the related field.
+    Value {
+        related: usize,
+        text: String,
+        #[serde(default)]
+        filter: bool,
+    },
     /// `related = field(own)`: the related field equals the referencing row's field.
     Field { related: usize, own: usize },
 }
