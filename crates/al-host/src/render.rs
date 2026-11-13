@@ -67,6 +67,8 @@ pub struct WordMerge {
     pub dataset: Vec<u8>,
     pub title: String,
     pub company: String,
+    /// The layout has picture controls: the merge needs [`RenderNeed::MergePictures`], not only [`RenderNeed::Merge`].
+    pub pictures: bool,
 }
 
 /// Why a render call gave no bytes.

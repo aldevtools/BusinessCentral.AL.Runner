@@ -3,15 +3,17 @@
 //!
 //! The process is started on the first call that needs it, never at run start. Its pieces (probe folders, the Linux
 //! drawing pair and Skia native) are made present by the run's [`PrepareFn`] then; the first `render_probe` answer is
-//! kept for the run. A process that dies is started again for the next call, at most [`MAX_STARTS`] times a run.
+//! kept for the run. A process that dies is started again for the next call: [`MAX_STARTS`] starts a run (2 restarts).
 //!
 //! Requests and replies use the frames of the session sidecar (`crate::dotnet`); bytes travel as Base64.
 
-use crate::dotnet::{PROTOCOL, Proc, SidecarConfig, base64, major, resolve, spawn_helper, unbase64, wire_probe_dirs};
+use crate::dotnet::{
+    PROTOCOL, Proc, SidecarConfig, base64, check_hello, resolve, spawn_helper, unbase64, wire_probe_dirs,
+};
+use al_deps::render_set::{RenderSet, set_files};
 use al_host::render::{RenderFailure, RenderNeed, RenderUnavailable, ReportRenderer, WordMerge};
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex};
@@ -36,10 +38,19 @@ pub struct RenderPieces {
 /// Fetches or finds the pieces; called once, on the first call that needs the process.
 pub type PrepareFn = dyn Fn() -> RenderPieces + Send + Sync;
 
+/// Why a request gave no value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CallError {
+    /// The process answered with a refusal or BC's exception.
+    Failed(RenderFailure),
+    /// The process is gone (it ended, or gave no answer in time and was stopped); the text says which.
+    Gone(String),
+}
+
 /// One request, one reply (internal; a fake in the tests).
 pub(crate) trait Transport: Send {
-    /// The reply's `value`, or the failure. `Err(None)` means the process is gone.
-    fn request(&mut self, req: Value) -> Result<Value, Option<RenderFailure>>;
+    /// The reply's `value`, or why there is none.
+    fn request(&mut self, req: Value) -> Result<Value, CallError>;
 }
 
 /// The `render_probe` answer per need.
@@ -90,10 +101,8 @@ impl RenderHost {
     /// A running, configured process; starts one (and sends it the pieces) when none runs.
     fn running<'a>(&self, st: &'a mut State) -> Result<&'a mut Box<dyn Transport>, String> {
         if st.proc.is_none() {
-            if st.starts >= MAX_STARTS {
-                return Err(format!(
-                    "the render process was started {MAX_STARTS} times in this run; not again"
-                ));
+            if let Some(why) = st.used_up() {
+                return Err(why);
             }
             st.starts += 1;
             let mut t = (self.start)()?;
@@ -105,8 +114,8 @@ impl RenderHost {
                 p
             });
             let answer = t.request(probe_request(pieces)).map_err(|f| match f {
-                Some(f) => f.to_string(),
-                None => "the render process ended during render_probe".to_string(),
+                CallError::Failed(f) => f.to_string(),
+                CallError::Gone(why) => format!("{why} (render_probe)"),
             })?;
             if st.probe.is_none() {
                 st.probe = Some(parse_probe(&answer));
@@ -133,17 +142,28 @@ impl RenderHost {
         let mut st = self.lock();
         let t = self.running(&mut st).map_err(RenderFailure::Refused)?;
         match t.request(req) {
-            Ok(v) => Ok(unbase64(v["bytes"].as_str().unwrap_or(""))),
-            Err(Some(f)) => Err(f),
-            Err(None) => {
+            Ok(v) => match v["bytes"].as_str() {
+                Some(b) if !b.is_empty() => Ok(unbase64(b)),
+                _ => Err(RenderFailure::Refused("the render process answered no bytes".into())),
+            },
+            Err(CallError::Failed(f)) => Err(f),
+            Err(CallError::Gone(why)) => {
                 st.proc = None;
-                Err(RenderFailure::Refused(
-                    "the render process ended during the call".into(),
-                ))
+                Err(RenderFailure::Refused(why))
             }
         }
     }
 }
+
+impl State {
+    /// Why no process may be started any more: the run used its [`MAX_STARTS`] starts and none runs.
+    fn used_up(&self) -> Option<String> {
+        (self.proc.is_none() && self.starts >= MAX_STARTS).then(|| format!("started {MAX_STARTS} times in this run"))
+    }
+}
+
+/// The name a refusal about the process itself uses as the missing piece.
+const THE_PROCESS: &str = "the render process";
 
 fn probe_request(p: &RenderPieces) -> Value {
     let path = |b: &PathBuf| {
@@ -152,9 +172,15 @@ fn probe_request(p: &RenderPieces) -> Value {
             .to_string_lossy()
             .into_owned()
     };
+    // Every file of each set, by name: the helper answers the first one it cannot find as the missing piece.
+    let sets: serde_json::Map<String, Value> = [RenderSet::Merge, RenderSet::Convert]
+        .into_iter()
+        .map(|s| (s.name().to_string(), json!(set_files(s, cfg!(windows)))))
+        .collect();
     json!({
         "op": "render_probe",
         "dirs": wire_probe_dirs(&p.dirs),
+        "sets": sets,
         "drawing": p.drawing.iter().map(path).collect::<Vec<_>>(),
         "skia": p.skia.as_ref().map(path),
     })
@@ -184,6 +210,12 @@ fn parse_probe(v: &Value) -> Result<ProbeAnswer, String> {
 
 impl ReportRenderer for RenderHost {
     fn availability(&self, need: RenderNeed) -> Result<(), RenderUnavailable> {
+        if let Some(why) = self.lock().used_up() {
+            return Err(RenderUnavailable {
+                piece: THE_PROCESS.into(),
+                detail: why,
+            });
+        }
         match self.probe() {
             Ok(m) => m.get(&need).cloned().unwrap_or_else(|| {
                 Err(RenderUnavailable {
@@ -192,15 +224,20 @@ impl ReportRenderer for RenderHost {
                 })
             }),
             Err(why) => Err(RenderUnavailable {
-                piece: "the render process".into(),
+                piece: THE_PROCESS.into(),
                 detail: why,
             }),
         }
     }
 
     fn merge_word(&self, req: &WordMerge) -> Result<Vec<u8>, RenderFailure> {
+        let need = if req.pictures {
+            RenderNeed::MergePictures
+        } else {
+            RenderNeed::Merge
+        };
         self.call(
-            RenderNeed::Merge,
+            need,
             json!({"op": "word_merge", "layout": base64(&req.layout), "dataset": base64(&req.dataset),
                    "title": req.title, "company": req.company}),
         )
@@ -226,7 +263,7 @@ struct ProcTransport {
 impl Drop for ProcTransport {
     fn drop(&mut self) {
         // `Proc`'s own drop kills the process and removes its folder; say goodbye first so it ends cleanly.
-        let _ = self.send(&json!({"op": "bye", "id": 0}));
+        let _ = self.proc.send(&json!({"op": "bye", "id": 0}));
     }
 }
 
@@ -237,60 +274,49 @@ impl ProcTransport {
         let n = STARTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let folder = format!("al-runtime-render-{}-{n}", std::process::id());
         let proc = spawn_helper(cfg, &r, &folder, &["--render"])?;
+        // Starting a process is not a call: it gets at least 30 s however short the call deadline.
         let mut t = ProcTransport {
             proc,
             next_id: 1,
             timeout: cfg.timeout.max(Duration::from_secs(30)),
         };
-        let v = t.request(json!({"op": "hello", "protocol": PROTOCOL})).map_err(|f| {
-            f.map_or("the render process ended before it answered hello".into(), |f| {
-                f.to_string()
-            })
-        })?;
-        if v["protocol"].as_u64() != Some(PROTOCOL) || v["compatible"] != json!(true) || v["mode"] != "render" {
-            return Err(format!(
-                "protocol mismatch: the helper speaks version {} in mode {}, the host version {PROTOCOL} in mode render",
-                v["protocol"], v["mode"]
-            ));
-        }
-        let chosen = u64::from(major(&r.runtime.version).unwrap_or(r.runtime.needed));
-        if v["major"].as_u64() != Some(chosen) {
-            return Err(format!(
-                "the render process runs on {}, not on {}",
-                v["runtime"], r.runtime.version
-            ));
-        }
+        let v = t
+            .request(json!({"op": "hello", "protocol": PROTOCOL}))
+            .map_err(|f| match f {
+                CallError::Failed(f) => f.to_string(),
+                CallError::Gone(why) => format!("{why} (hello)"),
+            })?;
+        check_hello(&v, &r, "render process", Some("render"))?;
         t.timeout = cfg.timeout;
         Ok(t)
     }
 
-    fn send(&mut self, req: &Value) -> std::io::Result<()> {
-        let body = req.to_string().into_bytes();
-        let mut frame = (body.len() as u32).to_le_bytes().to_vec();
-        frame.extend_from_slice(&body);
-        self.proc.stdin.write_all(&frame)?;
-        self.proc.stdin.flush()
+    /// The process is gone: how it ended, with its last stderr line.
+    fn gone(&mut self, what: &str) -> CallError {
+        CallError::Gone(format!("{what}{}", self.proc.exit_detail()))
     }
 }
 
 impl Transport for ProcTransport {
-    fn request(&mut self, mut req: Value) -> Result<Value, Option<RenderFailure>> {
+    fn request(&mut self, mut req: Value) -> Result<Value, CallError> {
         let id = self.next_id;
         self.next_id += 1;
         req["id"] = json!(id);
-        if self.send(&req).is_err() {
-            return Err(None);
+        if self.proc.send(&req).is_err() {
+            return Err(self.gone("the pipe to the render process is closed"));
         }
         let bytes = match self.proc.replies.recv_timeout(self.timeout) {
             Ok(Some(b)) => b,
-            Ok(None) | Err(RecvTimeoutError::Disconnected) => return Err(None),
+            Ok(None) | Err(RecvTimeoutError::Disconnected) => {
+                return Err(self.gone("the render process ended during the call"));
+            }
             Err(RecvTimeoutError::Timeout) => {
                 let _ = self.proc.child.kill();
-                return Err(None);
+                return Err(CallError::Gone(no_answer_within(self.timeout)));
             }
         };
         let v: Value = serde_json::from_slice(&bytes).map_err(|e| {
-            Some(RenderFailure::Refused(format!(
+            CallError::Failed(RenderFailure::Refused(format!(
                 "the render process wrote invalid JSON: {e}"
             )))
         })?;
@@ -298,29 +324,38 @@ impl Transport for ProcTransport {
     }
 }
 
+/// The reason of a call that hit its deadline (the process is then stopped).
+fn no_answer_within(timeout: Duration) -> String {
+    format!(
+        "the render process gave no answer within {} s and was stopped",
+        timeout.as_secs()
+    )
+}
+
 /// A reply frame to the request `id`'s value or failure.
-fn reply_of(v: Value, id: u64) -> Result<Value, Option<RenderFailure>> {
+fn reply_of(v: Value, id: u64) -> Result<Value, CallError> {
+    let failed = |f| Err(CallError::Failed(f));
     if v["id"] != json!(id) {
-        return Err(Some(RenderFailure::Refused(format!(
+        return failed(RenderFailure::Refused(format!(
             "the render process answered out of order (expected {id}, got {})",
             v["id"]
-        ))));
+        )));
     }
     if v["ok"] == json!(true) {
         return Ok(v["value"].clone());
     }
     if v["kind"] == "exception" {
-        return Err(Some(RenderFailure::Exception {
+        return failed(RenderFailure::Exception {
             clr_type: v["type"].as_str().unwrap_or("").to_string(),
             message: v["message"].as_str().unwrap_or("").to_string(),
-        }));
+        });
     }
-    Err(Some(RenderFailure::Refused(
+    failed(RenderFailure::Refused(
         v["reason"]
             .as_str()
             .unwrap_or("refused by the render process")
             .to_string(),
-    )))
+    ))
 }
 
 #[cfg(test)]
@@ -336,12 +371,18 @@ mod tests {
     }
 
     impl Transport for Fake {
-        fn request(&mut self, req: Value) -> Result<Value, Option<RenderFailure>> {
+        fn request(&mut self, req: Value) -> Result<Value, CallError> {
             let op = req["op"].as_str().unwrap().to_string();
             self.log.lock().unwrap().push(op.clone());
             match op.as_str() {
                 "render_probe" => {
                     assert_eq!(req["dirs"][0]["recursive"], json!(false));
+                    // Every file of both sets, by name, from the one list (al_deps::render_set::set_files).
+                    assert_eq!(req["sets"]["merge"][0], "Microsoft.Dynamics.Nav.OpenXml");
+                    assert_eq!(
+                        req["sets"]["conversion"][0],
+                        "Microsoft.BusinessCentral.DocumentProcessor"
+                    );
                     Ok(json!({
                         "merge": {"ok": true},
                         "merge_pictures": {"ok": false, "piece": "libgdiplus", "detail": "install it"},
@@ -349,7 +390,10 @@ mod tests {
                         "html": {"ok": true},
                     }))
                 }
-                "word_merge" if self.die_on_merge => Err(None),
+                "word_merge" if self.die_on_merge => Err(CallError::Gone(
+                    "the render process ended during the call (signal: 9; last stderr: boom)".into(),
+                )),
+                "word_merge" if req["title"] == "empty" => Ok(json!({"bytes": ""})),
                 "word_merge" => Ok(json!({"bytes": req["layout"]})),
                 "word_to_html" => reply_of(
                     json!({"id": 1, "ok": false, "kind": "exception", "type": "System.IO.InvalidDataException",
@@ -441,7 +485,9 @@ mod tests {
             let e = h.merge_word(&WordMerge::default()).unwrap_err();
             assert_eq!(
                 e,
-                RenderFailure::Refused("the render process ended during the call".into())
+                RenderFailure::Refused(
+                    "the render process ended during the call (signal: 9; last stderr: boom)".into()
+                )
             );
         }
         let e = h.merge_word(&WordMerge::default()).unwrap_err();
@@ -451,6 +497,31 @@ mod tests {
         assert_eq!(prepares.load(Ordering::SeqCst), 1);
         let probes = log.lock().unwrap().iter().filter(|o| *o == "render_probe").count();
         assert_eq!(probes, MAX_STARTS);
+    }
+
+    #[test]
+    fn an_answer_without_bytes_is_refused_not_an_empty_document() {
+        let (h, _, _, _) = host(false);
+        let e = h
+            .merge_word(&WordMerge {
+                title: "empty".into(),
+                ..WordMerge::default()
+            })
+            .unwrap_err();
+        assert_eq!(e, RenderFailure::Refused("the render process answered no bytes".into()));
+    }
+
+    #[test]
+    fn after_the_last_start_every_need_is_unavailable_by_name() {
+        let (h, _, _, _) = host(true);
+        for _ in 0..MAX_STARTS {
+            let _ = h.merge_word(&WordMerge::default());
+        }
+        let e = h.availability(RenderNeed::Merge).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "the render process not found (started 3 times in this run)"
+        );
     }
 
     #[test]
@@ -466,6 +537,27 @@ mod tests {
     }
 
     #[test]
+    fn a_merge_with_pictures_asks_for_the_picture_pieces_first() {
+        let (h, log, _, _) = host(false);
+        let e = h
+            .merge_word(&WordMerge {
+                pictures: true,
+                ..WordMerge::default()
+            })
+            .unwrap_err();
+        assert_eq!(e, RenderFailure::Refused("libgdiplus not found (install it)".into()));
+        assert_eq!(*log.lock().unwrap(), vec!["render_probe"]);
+    }
+
+    #[test]
+    fn a_deadline_is_named_as_such() {
+        assert_eq!(
+            no_answer_within(Duration::from_secs(120)),
+            "the render process gave no answer within 120 s and was stopped"
+        );
+    }
+
+    #[test]
     fn a_probe_answer_without_a_need_is_an_error_not_a_guess() {
         let e = parse_probe(&json!({"merge": {"ok": true}})).unwrap_err();
         assert!(e.contains("merge_pictures"), "{e}");
@@ -475,14 +567,14 @@ mod tests {
     fn replies_out_of_order_or_refused_are_refusals() {
         assert!(matches!(
             reply_of(json!({"id": 2, "ok": true}), 1),
-            Err(Some(RenderFailure::Refused(_)))
+            Err(CallError::Failed(RenderFailure::Refused(_)))
         ));
         assert_eq!(
             reply_of(
                 json!({"id": 1, "ok": false, "kind": "refused", "reason": "MergeWordDocument overload not found"}),
                 1
             ),
-            Err(Some(RenderFailure::Refused(
+            Err(CallError::Failed(RenderFailure::Refused(
                 "MergeWordDocument overload not found".into()
             )))
         );

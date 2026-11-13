@@ -18,20 +18,26 @@ public sealed class RenderServer
     const string ConverterAssembly = "Microsoft.BusinessCentral.DocumentProcessor";
     const string ConverterType = "Microsoft.BusinessCentral.DocumentProcessor.WordTransformation";
 
-    // The closed overload table: one row per entry point, the parameter types the round-0 spike read from the metadata of
-    // builds 24.5, 27.5, 28.1, 28.5 and 29.1 (the same on all). An overload that is not here is refused by name.
-    static readonly Type[] MergeRow =
+    // The closed overload table: one row per entry point, the return type and the parameter types the round-0 spike read
+    // from the metadata of builds 24.5, 27.5, 28.1, 28.5 and 29.1 (the same on all). An overload that is not here is
+    // refused by name.
+    sealed record Row(Type Returns, Type[] Parameters);
+    static readonly Row MergeRow = new(typeof(Stream), new[]
     {
         typeof(Stream), typeof(Stream), typeof(Stream), typeof(string), typeof(string), typeof(string), typeof(string),
         typeof(CancellationToken),
-    };
-    static readonly Type[] ConvertRow = { typeof(Stream), typeof(Stream) };
+    });
+    static readonly Row ConvertRow = new(typeof(void), new[] { typeof(Stream), typeof(Stream) });
 
     readonly List<Resolver.Dir> dirs = new();
     // Linux: System.Drawing.Common 6.0.0 and Microsoft.Win32.SystemEvents 6.0.0 by simple name, in place of the
     // artifact's Windows-only build.
     readonly Dictionary<string, string> drawing = new(StringComparer.OrdinalIgnoreCase);
     string? skiaNative;
+    // The SkiaSharp assembly whose native imports are bound to the probed file (set once per process).
+    Assembly? skiaBound;
+    // Set by `render_probe`: the simple names of each set's files (`merge`, `conversion`).
+    readonly Dictionary<string, List<string>> sets = new();
 
     public RenderServer()
     {
@@ -135,17 +141,32 @@ public sealed class RenderServer
             drawing[Path.GetFileNameWithoutExtension(path)] = path;
         }
         skiaNative = req["skia"]?.GetValue<string>();
+        sets.Clear();
+        if (req["sets"] is JsonObject given)
+            foreach (var (name, files) in given)
+                sets[name] = files!.AsArray().Select(f => f!.GetValue<string>()).ToList();
     }
 
     // ---- availability -------------------------------------------------------------------------
 
     JsonObject Probe()
     {
-        var merge = Check(() => Method(MergerAssembly, MergerType, "MergeWordDocument", MergeRow));
+        var merge = Set("merge") ?? Check(() => Method(MergerAssembly, MergerType, "MergeWordDocument", MergeRow));
         var pictures = merge["ok"]!.GetValue<bool>() ? Pictures() : merge.DeepClone().AsObject();
-        var pdf = Converter("ConvertToPdf");
-        var html = Converter("ConvertToHtml");
+        var conversion = Set("conversion");
+        var pdf = conversion ?? Converter("ConvertToPdf");
+        var html = conversion?.DeepClone().AsObject() ?? Converter("ConvertToHtml");
         return new JsonObject { ["merge"] = merge, ["merge_pictures"] = pictures, ["pdf"] = pdf, ["html"] = html };
+    }
+
+    // Every file of the set, by name, in the probe folders; the first one missing is the answer. No list: the host did
+    // not send the set, so nothing of it is available.
+    JsonObject? Set(string name)
+    {
+        if (!sets.TryGetValue(name, out var files)) return Missing($"the {name} set", "not given");
+        foreach (var f in files)
+            if (FindInDirs(f, ".dll") == null) return Missing(f + ".dll", "searched " + Searched());
+        return null;
     }
 
     static JsonObject Available() => new() { ["ok"] = true };
@@ -165,7 +186,9 @@ public sealed class RenderServer
 
     JsonObject Pictures()
     {
-        if (!OperatingSystem.IsLinux()) return Available();
+        // Windows: the artifact's own System.Drawing (not measured here). Linux: the 6.0.0 pair and libgdiplus.
+        if (OperatingSystem.IsWindows()) return Available();
+        if (!OperatingSystem.IsLinux()) return Missing("System.Drawing", "not supported on this system");
         foreach (var name in new[] { "System.Drawing.Common", "Microsoft.Win32.SystemEvents" })
             if (!drawing.TryGetValue(name, out var p) || !File.Exists(p))
                 return Missing(name + ".dll 6.0.0", "not fetched");
@@ -188,36 +211,55 @@ public sealed class RenderServer
     }
 
     // A missing or mismatched Skia native raises nothing on a conversion: pictures are dropped silently (round-0 spike).
-    // So the native is loaded here and its version compared with the managed SkiaSharp the build ships.
+    // So SkiaSharp's native imports are bound to the probed file (a resolver runs before .NET's own search, which would
+    // take a native beside SkiaSharp.dll or in a system folder first), and SkiaSharp's own compatibility check is asked
+    // on the bound library. Either failing makes PDF and Html unavailable, by name.
     JsonObject Skia()
     {
-        string? managedPath = FindInDirs("SkiaSharp", ".dll");
-        if (managedPath == null) return Missing("SkiaSharp.dll", "not in the probe folders");
-        var managed = System.Diagnostics.FileVersionInfo.GetVersionInfo(managedPath);
-        string want = $"{managed.FileMajorPart}.{managed.FileMinorPart}.{managed.FileBuildPart}";
-        string? native = OperatingSystem.IsLinux() ? skiaNative : FindInDirs("libSkiaSharp", ".dll");
-        if (native == null || !File.Exists(native)) return Missing($"libSkiaSharp {want}", "not fetched");
-        if (!NativeLibrary.TryLoad(native, out var handle)) return Missing($"libSkiaSharp {want}", $"{native} does not load");
-        try
+        Assembly skia;
+        try { skia = AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName("SkiaSharp")); }
+        catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
         {
-            var milestone = Export(handle, "sk_version_get_milestone");
-            var increment = Export(handle, "sk_version_get_increment");
-            if (milestone == null || increment == null)
-                return Missing($"libSkiaSharp {want}", $"{native} exports no version");
-            string got = $"{milestone()}.{increment()}";
-            // SkiaSharp's own rule: the native milestone is the managed minor version.
-            if (milestone() != managed.FileMinorPart)
-                return Missing($"libSkiaSharp {want}", $"{native} is Skia milestone {got}");
-            return new JsonObject { ["ok"] = true, ["skia"] = got };
+            return Missing("SkiaSharp.dll", Resolver.Chain(ex) + "; searched " + Searched());
         }
-        finally { NativeLibrary.Free(handle); }
+        var managed = skia.GetName().Version;
+        string piece = $"libSkiaSharp for SkiaSharp {managed}";
+        string? native = SkiaNativePath();
+        if (native == null || !File.Exists(native)) return Missing(piece, "not fetched");
+        if (skiaBound == null)
+        {
+            try { NativeLibrary.SetDllImportResolver(skia, ResolveSkia); }
+            catch (InvalidOperationException ex) { return Missing(piece, "its native imports cannot be bound: " + ex.Message); }
+            skiaBound = skia;
+        }
+        else if (skiaBound != skia) return Missing(piece, "a second SkiaSharp assembly was loaded");
+        var version = skia.GetType("SkiaSharp.SkiaSharpVersion", false);
+        var check = version?.GetMethod("CheckNativeLibraryCompatible", BindingFlags.Public | BindingFlags.Static,
+            new[] { typeof(bool) });
+        if (check == null || check.ReturnType != typeof(bool))
+            return Missing("SkiaSharpVersion.CheckNativeLibraryCompatible(bool)", $"not in {skia.Location}");
+        bool compatible;
+        try { compatible = (bool)Invoke(check, false)!; }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException
+                                       or TypeInitializationException)
+        {
+            return Missing(piece, $"{native}: {ex.GetType().Name}: {ex.Message}");
+        }
+        if (!compatible) return Missing(piece, $"{native} is not compatible (SkiaSharp's own check)");
+        return new JsonObject { ["ok"] = true, ["skia"] = version!.GetProperty("Native")?.GetValue(null)?.ToString() };
     }
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    delegate int IntGetter();
+    // Linux: the file the host fetched and checked by its SHA-256. Elsewhere: the artifact's own.
+    string? SkiaNativePath() => OperatingSystem.IsLinux() ? skiaNative : FindInDirs("libSkiaSharp", ".dll");
 
-    static IntGetter? Export(IntPtr lib, string name) =>
-        NativeLibrary.TryGetExport(lib, name, out var p) ? Marshal.GetDelegateForFunctionPointer<IntGetter>(p) : null;
+    // Binds every native import of SkiaSharp to the probed file. A file that does not load is not replaced by another.
+    IntPtr ResolveSkia(string lib, Assembly asm, DllImportSearchPath? path)
+    {
+        if (!lib.Contains("SkiaSharp", StringComparison.OrdinalIgnoreCase)) return IntPtr.Zero;
+        string? native = SkiaNativePath();
+        if (native != null && NativeLibrary.TryLoad(native, out var h)) return h;
+        throw new DllNotFoundException($"{native ?? "no Skia native"} does not load");
+    }
 
     static bool TryLoadSystem(string[] names)
     {
@@ -253,7 +295,7 @@ public sealed class RenderServer
         public MissingPiece(string piece, string detail) : base($"{piece} not found ({detail})") { Piece = piece; Detail = detail; }
     }
 
-    MethodInfo Method(string assembly, string type, string name, Type[] row)
+    MethodInfo Method(string assembly, string type, string name, Row row)
     {
         Assembly asm;
         try { asm = AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName(assembly)); }
@@ -263,9 +305,11 @@ public sealed class RenderServer
         }
         var t = asm.GetType(type, false) ?? throw new MissingPiece(type, $"not in {asm.Location}");
         var all = t.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(m => m.Name == name).ToList();
-        var hit = all.FirstOrDefault(m => m.GetParameters().Select(p => p.ParameterType).SequenceEqual(row));
+        var hit = all.FirstOrDefault(m =>
+            m.ReturnType == row.Returns && m.GetParameters().Select(p => p.ParameterType).SequenceEqual(row.Parameters));
         if (hit != null) return hit;
-        var found = string.Join("; ", all.Select(m => "(" + string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name)) + ")"));
+        var found = string.Join("; ", all.Select(m =>
+            m.ReturnType.Name + " (" + string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name)) + ")"));
         throw new MissingPiece($"{name} overload", $"no overload of the table; found {(found.Length == 0 ? "none" : found)}");
     }
 
@@ -297,11 +341,9 @@ public sealed class RenderServer
         string? path = null;
         if (OperatingSystem.IsLinux())
         {
-            if (lib.Contains("SkiaSharp", StringComparison.OrdinalIgnoreCase)) path = skiaNative;
-            else if (lib == "harfbuzz") return Load(new[] { "libharfbuzz.so.0", "libharfbuzz.so" });
+            if (lib == "harfbuzz") return Load(new[] { "libharfbuzz.so.0", "libharfbuzz.so" });
             else if (lib is "libgdiplus" or "gdiplus") return Load(new[] { "libgdiplus.so.0", "libgdiplus.so" });
         }
-        else if (lib.Contains("SkiaSharp", StringComparison.OrdinalIgnoreCase)) path = FindInDirs("libSkiaSharp", ".dll");
         else if (lib == "harfbuzz") path = FindInDirs("harfbuzz", ".dll");
         return path != null && NativeLibrary.TryLoad(path, out var h) ? h : IntPtr.Zero;
     }

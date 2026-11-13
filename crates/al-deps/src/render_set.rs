@@ -19,6 +19,16 @@ pub enum RenderSet {
     Convert,
 }
 
+impl RenderSet {
+    /// The set's name in messages and on the wire of `render_probe`.
+    pub fn name(self) -> &'static str {
+        match self {
+            RenderSet::Merge => "merge",
+            RenderSet::Convert => "conversion",
+        }
+    }
+}
+
 /// The simple names (no `.dll`) of a set's files on this platform. The Windows-only entries are the artifact's own
 /// `System.Drawing.Common` (picture merges) and the two native libraries of the converter; on Linux those come from
 /// [`linux_pieces`] and the distribution.
@@ -98,8 +108,9 @@ pub const SYSTEM_EVENTS: NugetPiece = NugetPiece {
 };
 
 /// The Linux `libSkiaSharp.so` for each managed SkiaSharp assembly version a measured build ships: 3.119.0.0 (27.5,
-/// 28.1, 29.1; file version 3.119.0.0) and 4.152.0.0 (28.5; file version 4.152.1.0). The render process checks the
-/// loaded native against the managed file version before any conversion; a version not in this table gets no native.
+/// 28.1, 29.0; file version 3.119.0.0) and 4.152.0.0 (28.5, 29.1; file version 4.152.1.0). The render process binds
+/// SkiaSharp's native imports to this file and asks SkiaSharp's own compatibility check before any conversion; a version
+/// not in this table gets no native.
 pub const SKIA_LINUX: &[([u16; 2], NugetPiece)] = &[
     (
         [3, 119],
@@ -159,17 +170,24 @@ pub fn ensure_piece<S: RangeSource>(
     src: impl FnOnce() -> S,
 ) -> Result<PathBuf, String> {
     let path = piece_dir(cache_root, piece).join(piece.file_name());
-    if let Ok(bytes) = std::fs::read(&path)
-        && hex(&Sha256::digest(&bytes)) == piece.sha256
-    {
+    let cached = std::fs::read(&path).ok().map(|b| hex(&Sha256::digest(&b)));
+    if cached.as_deref() == Some(piece.sha256) {
         return Ok(path);
     }
     if !download {
-        return Err(format!(
-            "{} {} is not in the cache and downloading is off",
-            piece.file_name(),
-            piece.version
-        ));
+        return Err(match cached {
+            Some(got) => format!(
+                "{} {} in the cache has SHA-256 {got}, not the pinned {}, and downloading is off",
+                piece.file_name(),
+                piece.version,
+                piece.sha256
+            ),
+            None => format!(
+                "{} {} is not in the cache and downloading is off",
+                piece.file_name(),
+                piece.version
+            ),
+        });
     }
     let url = piece.url();
     let zip = RemoteZip::open(src()).map_err(|e| format!("{url}: {e}"))?;
@@ -242,6 +260,27 @@ mod tests {
         assert!(!piece_dir(&cache, &piece(wrong)).join("Own.dll").exists());
         let e = ensure_piece(&cache, &piece(OWN), false, || FileSource(src.clone())).unwrap_err();
         assert_eq!(e, "Own.dll 1.0.0 is not in the cache and downloading is off");
+    }
+
+    #[test]
+    fn offline_a_cached_file_with_another_hash_is_named_as_such() {
+        let t = tempfile::tempdir().unwrap();
+        let cache = t.path().join("c");
+        let path = piece_dir(&cache, &piece(OWN)).join("Own.dll");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"other bytes").unwrap();
+        let e = ensure_piece(&cache, &piece(OWN), false, || -> FileSource { panic!("not opened") }).unwrap_err();
+        assert!(e.starts_with("Own.dll 1.0.0 in the cache has SHA-256 "), "{e}");
+        assert!(
+            e.ends_with(&format!("not the pinned {OWN}, and downloading is off")),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn the_sets_have_names() {
+        assert_eq!(RenderSet::Merge.name(), "merge");
+        assert_eq!(RenderSet::Convert.name(), "conversion");
     }
 
     #[test]

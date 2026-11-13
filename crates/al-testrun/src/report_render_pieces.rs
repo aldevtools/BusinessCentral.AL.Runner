@@ -7,6 +7,7 @@ use al_deps::artifact::Cdn;
 use al_deps::remote::{HttpSource, http_agent};
 use al_deps::render_set::{NugetPiece, RenderSet, ensure_piece, linux_pieces, set_files};
 use al_deps::service_tier::ServiceTier;
+use al_host::render::RenderNeed;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -24,6 +25,27 @@ pub struct PieceSources<C: Cdn> {
     pub download: bool,
     /// Whether the Linux pieces are needed (they are on Linux only).
     pub linux: bool,
+    /// The needs the run can have. Only their sets and pieces are fetched: a run with PDF off (the default) fetches no
+    /// conversion set and no Skia native.
+    pub needs: Vec<RenderNeed>,
+}
+
+/// The set a need loads.
+pub fn set_of(need: RenderNeed) -> RenderSet {
+    match need {
+        RenderNeed::Merge | RenderNeed::MergePictures => RenderSet::Merge,
+        RenderNeed::Pdf | RenderNeed::Html => RenderSet::Convert,
+    }
+}
+
+impl<C: Cdn> PieceSources<C> {
+    /// The sets of [`PieceSources::needs`], merge first.
+    fn sets(&self) -> Vec<RenderSet> {
+        [RenderSet::Merge, RenderSet::Convert]
+            .into_iter()
+            .filter(|s| self.needs.iter().any(|n| set_of(*n) == *s))
+            .collect()
+    }
 }
 
 /// The [`PrepareFn`] of `src`.
@@ -43,10 +65,10 @@ pub(crate) fn pieces<C: Cdn, S: al_deps::remote::RangeSource>(
         dirs: src.dirs.clone(),
         ..RenderPieces::default()
     };
-    let windows = !src.linux && cfg!(windows);
+    let sets = src.sets();
     if let Some(tier) = &src.tier {
-        for set in [RenderSet::Merge, RenderSet::Convert] {
-            match tier.ensure_set(&set_files(set, windows)) {
+        for &set in &sets {
+            match tier.ensure_set(&set_files(set, cfg!(windows))) {
                 Ok(got) => {
                     if !got.files.is_empty() {
                         eprintln!(
@@ -60,7 +82,7 @@ pub(crate) fn pieces<C: Cdn, S: al_deps::remote::RangeSource>(
                         out.notes.push(format!("the platform artifact has no {m}.dll"));
                     }
                 }
-                Err(e) => out.notes.push(format!("the {set:?} set was not fetched: {e}")),
+                Err(e) => out.notes.push(format!("the {} set was not fetched: {e}", set.name())),
             }
         }
     }
@@ -70,7 +92,7 @@ pub(crate) fn pieces<C: Cdn, S: al_deps::remote::RangeSource>(
     let skia = find(&out.dirs, "SkiaSharp.dll")
         .and_then(|p| std::fs::read(p).ok())
         .and_then(|b| al_deps::assembly_refs::assembly_version(&b));
-    for set in [RenderSet::Merge, RenderSet::Convert] {
+    for &set in &sets {
         for piece in linux_pieces(set, skia) {
             match ensure_piece(&src.cache_root, &piece, src.download, || nuget(&piece)) {
                 Ok(path) if set == RenderSet::Merge => out.drawing.push(path),
@@ -127,6 +149,7 @@ mod tests {
             cache_root: t.path().join("c"),
             download: false,
             linux: true,
+            needs: RenderNeed::ALL.to_vec(),
         };
         let p = pieces(&src, &|_: &NugetPiece| -> FileSource {
             panic!("nothing is opened offline")
@@ -144,6 +167,27 @@ mod tests {
     }
 
     #[test]
+    fn a_run_without_a_merge_need_asks_for_no_merge_piece() {
+        let t = tempfile::tempdir().unwrap();
+        let src = PieceSources::<NoFeed> {
+            dirs: vec![t.path().join("svc")],
+            tier: None,
+            cache_root: t.path().join("c"),
+            download: false,
+            linux: true,
+            needs: vec![RenderNeed::Pdf],
+        };
+        let p = pieces(&src, &|_: &NugetPiece| -> FileSource { panic!("not opened") });
+        assert!(p.notes.is_empty(), "{}", p.notes.join("; "));
+        assert_eq!(src.sets(), vec![RenderSet::Convert]);
+        let merge_only = PieceSources::<NoFeed> {
+            needs: vec![RenderNeed::Merge],
+            ..src
+        };
+        assert_eq!(merge_only.sets(), vec![RenderSet::Merge]);
+    }
+
+    #[test]
     fn off_linux_only_the_folders_are_passed() {
         let src = PieceSources::<NoFeed> {
             dirs: vec![PathBuf::from("/svc")],
@@ -151,6 +195,7 @@ mod tests {
             cache_root: PathBuf::from("/c"),
             download: false,
             linux: false,
+            needs: RenderNeed::ALL.to_vec(),
         };
         let p = pieces(&src, &|_: &NugetPiece| -> FileSource { panic!("not opened") });
         assert_eq!(

@@ -1002,6 +1002,55 @@ struct SidecarSession {
     unacked: std::collections::VecDeque<u64>,
 }
 
+impl Proc {
+    /// Writes one request frame (length, then the JSON body).
+    pub(crate) fn send(&mut self, req: &Value) -> std::io::Result<()> {
+        let body = req.to_string().into_bytes();
+        let mut frame = (body.len() as u32).to_le_bytes().to_vec();
+        frame.extend_from_slice(&body);
+        self.stdin.write_all(&frame)?;
+        self.stdin.flush()
+    }
+
+    /// How a process that is gone ended: ` (<exit status>; last stderr: <line>)`. Waits for it.
+    pub(crate) fn exit_detail(&mut self) -> String {
+        let status = self.child.wait().ok().map(|s| s.to_string()).unwrap_or_default();
+        // The process is gone, so its stderr is at its end: let the reader take the last line.
+        if let Some(t) = self.stderr_thread.take() {
+            let _ = t.join();
+        }
+        let last = lock(&self.last_stderr).clone();
+        format!(" ({status}; last stderr: {last})")
+    }
+}
+
+/// Checks the `hello` answer of a helper started from `r`: the protocol version, and the runtime major it was started on.
+/// `mode` is the helper's mode when it was started with one (`render`).
+pub(crate) fn check_hello(v: &Value, r: &Resolved, what: &str, mode: Option<&str>) -> Result<(), String> {
+    let mode_ok = mode.is_none_or(|m| v["mode"] == m);
+    if v["protocol"].as_u64() != Some(PROTOCOL) || v["compatible"] != json!(true) || !mode_ok {
+        return Err(match mode {
+            Some(m) => format!(
+                "protocol mismatch: the {what} speaks version {} in mode {}, the host version {PROTOCOL} in mode {m}",
+                v["protocol"], v["mode"]
+            ),
+            None => format!(
+                "protocol mismatch: the {what} speaks version {}, the host version {PROTOCOL}",
+                v["protocol"]
+            ),
+        });
+    }
+    let chosen = u64::from(major(&r.runtime.version).unwrap_or(r.runtime.needed));
+    if v["major"].as_u64() != Some(chosen) {
+        return Err(format!(
+            "the {what} runs on {}; it was started on Microsoft.NETCore.App {}",
+            v["runtime"].as_str().unwrap_or("an unknown runtime"),
+            r.runtime.version
+        ));
+    }
+    Ok(())
+}
+
 fn read_frame(r: &mut impl Read) -> Option<Vec<u8>> {
     let mut head = [0u8; 4];
     r.read_exact(&mut head).ok()?;
@@ -1087,21 +1136,7 @@ impl SidecarSession {
                 DotNetFailure::Refused(s) => s,
                 DotNetFailure::Exception(e) => e.to_string(),
             })?;
-        let v = &hello["value"];
-        if v["protocol"].as_u64() != Some(PROTOCOL) || v["compatible"] != json!(true) {
-            return Err(format!(
-                "protocol mismatch: the sidecar speaks version {}, the host version {PROTOCOL}",
-                v["protocol"]
-            ));
-        }
-        let chosen = u64::from(major(&r.runtime.version).unwrap_or(r.runtime.needed));
-        if v["major"].as_u64() != Some(chosen) {
-            return Err(format!(
-                "the sidecar runs on {}; it was started on Microsoft.NETCore.App {}",
-                v["runtime"].as_str().unwrap_or("an unknown runtime"),
-                r.runtime.version
-            ));
-        }
+        check_hello(&hello["value"], &r, "sidecar", None)?;
         // Where assemblies other than the standard library come from (ADR-014 section 3).
         if !self.shared.cfg.assembly_dirs.is_empty() {
             let dirs = wire_probe_dirs(&self.shared.cfg.assembly_dirs);
@@ -1126,11 +1161,8 @@ impl SidecarSession {
         let id = self.next_id;
         self.next_id += 1;
         req["id"] = json!(id);
-        let body = req.to_string().into_bytes();
         let p = self.proc.as_mut().expect("started");
-        let mut frame = (body.len() as u32).to_le_bytes().to_vec();
-        frame.extend_from_slice(&body);
-        if p.stdin.write_all(&frame).and_then(|_| p.stdin.flush()).is_err() {
+        if p.send(&req).is_err() {
             return Err(self.died("the pipe to the sidecar is closed"));
         }
         let p = self.proc.as_mut().expect("started");
@@ -1240,13 +1272,7 @@ impl SidecarSession {
     fn died(&mut self, what: &str) -> DotNetFailure {
         let mut detail = String::new();
         if let Some(mut p) = self.proc.take() {
-            let status = p.child.wait().ok().map(|s| s.to_string()).unwrap_or_default();
-            // The process is gone, so its stderr is at its end: let the reader take the last line.
-            if let Some(t) = p.stderr_thread.take() {
-                let _ = t.join();
-            }
-            let last = p.last_stderr.lock().unwrap().clone();
-            detail = format!(" ({status}; last stderr: {last})");
+            detail = p.exit_detail();
             let _ = std::fs::remove_dir_all(&p.workdir);
         }
         let why = format!("{what}{detail}");
@@ -1404,10 +1430,7 @@ impl DotNetSession for SidecarSession {
         let id = self.next_id;
         self.next_id += 1;
         req["id"] = json!(id);
-        let body = req.to_string().into_bytes();
-        let mut frame = (body.len() as u32).to_le_bytes().to_vec();
-        frame.extend_from_slice(&body);
-        if p.stdin.write_all(&frame).and_then(|_| p.stdin.flush()).is_ok() {
+        if p.send(&req).is_ok() {
             self.unacked.push_back(id);
             lock(&self.shared.stats).calls += 1;
         }

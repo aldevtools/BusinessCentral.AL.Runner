@@ -1062,8 +1062,9 @@ A spike (round 0, Linux, builds 24.5, 27.5, 28.1, 28.5 and 29.1) measured:
   controls. A picture control needs libgdiplus and `System.Drawing.Common` 6.0.0 with Unix support.
 - PDF and Html work on Linux on all three majors. Every conversion loads Aspose.PDF and Aspose.Cells, so the conversion
   set is about 65 MB to download and 112 MB inflated on Linux (125 to 128 MB on Windows, with the two native libraries).
-- The SkiaSharp version depends on the build, not on the major (28.5 ships 4.152.1, 27.5 and 28.1 ship 3.119.0). A
-  missing or mismatched Linux `libSkiaSharp.so` raises nothing: pictures are dropped silently.
+- The SkiaSharp version depends on the build, not on the major (28.5 and 29.1 ship 4.152.1; 27.5, 28.1 and 29.0 ship
+  3.119.0). A missing or mismatched Linux `libSkiaSharp.so` raises nothing: pictures are dropped silently. .NET's own
+  search takes a `libSkiaSharp.so` beside `SkiaSharp.dll` or in a system folder before any fallback (review of round 1).
 - The public merger does not raise the section-break error of `streams/CjWordSections.al:138-139`: WordMergeDataItem is
   server work outside the methods the runner calls.
 - Warm cost per call: merge about 20 ms, PDF about 170 ms. Cold: about 0.35 s and 2.3 s.
@@ -1071,7 +1072,8 @@ A spike (round 0, Linux, builds 24.5, 27.5, 28.1, 28.5 and 29.1) measured:
 ### Decision
 
 1. A render process (the .NET helper of ADR-014, started with `--render`, one per run, calls one at a time) offers four
-   requests: `render_probe` (what is available, or the first missing piece by name), `word_merge` (layout, dataset, title,
+   requests: `render_probe` (what is available, or the first missing piece by name; every file of a need's set is
+   required by name, from the one list in `al_deps::render_set`), `word_merge` (layout, dataset, title,
    company), `word_to_pdf`, `word_to_html`. It is reached through an additive capability trait, `ReportRenderer` in
    `al-host`. Protocol version 6.
 2. The assemblies are found as ADR-014 section 3 says. When no extracted artifact is on disk, two named sets are fetched
@@ -1080,10 +1082,13 @@ A spike (round 0, Linux, builds 24.5, 27.5, 28.1, 28.5 and 29.1) measured:
 3. On Linux, `System.Drawing.Common` 6.0.0, `Microsoft.Win32.SystemEvents` 6.0.0 and `libSkiaSharp.so` of the build's own
    SkiaSharp version are fetched from nuget.org; each file is checked against a SHA-256 kept in the repository.
    libgdiplus, HarfBuzz, fontconfig and fonts are distribution packages the user installs.
-4. `render_probe` loads the Skia native and compares its version with the build's managed SkiaSharp. A mismatch makes
-   PDF and Html unavailable, by name. A picture control needs libgdiplus; without it the merge of such a layout is
-   unavailable, by name.
-5. Entry-point overloads are a closed table, one row per entry point (24.5 to 29.1). An overload that is not in it is
+4. `render_probe` binds SkiaSharp's native imports to the probed Skia native (a resolver set on the SkiaSharp assembly,
+   which runs before .NET's own search) and asks SkiaSharp's own compatibility check on it. A native that does not
+   load, a resolver that cannot be set or a failed check makes PDF and Html unavailable, by name. A picture control
+   needs libgdiplus; without it the merge of such a layout is unavailable, by name (the merge request says whether the
+   layout has picture controls).
+5. Entry-point overloads are a closed table, one row per entry point (24.5 to 29.1): the return type and the parameter
+   types. An overload that is not in it is
    refused and the refusal prints the parameter list found. "Pass the first N arguments" is not done.
 6. The table of part 1 still decides whether a save is answered, its error and its events. For a row that saves a Word
    layout as Word, the bytes come from the render process when the layout's shape is one the corpus measured and the
