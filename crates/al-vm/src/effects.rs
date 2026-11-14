@@ -23,6 +23,7 @@ use std::collections::HashSet;
 const PLAIN_SYSTEM: &[&str] = &[
     "Abs",
     "ArrayLen",
+    "AutoFormatWriterGuard",
     "CalcDate",
     "Clear",
     "ClosingDate",
@@ -559,7 +560,7 @@ impl Walk<'_> {
 }
 
 /// No statement of `body` assigns the local `is_slot` names or loops over it.
-fn stmts_keep_local(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) -> bool {
+pub(crate) fn stmts_keep_local(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) -> bool {
     body.iter().all(|s| match s {
         Stmt::Assign(p, _) => !is_slot(p),
         Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {

@@ -71,6 +71,34 @@ pub fn parse_precision(expr: &str) -> Option<(u32, u32)> {
     parse_decimal_places(rest.split('>').next()?)
 }
 
+/// Why an `AutoFormatType` property (its text as written) is refused: it is none of the types the runtime models. BC resolves an
+/// AutoFormat through the AutoFormatTranslate event of UI Helper Triggers and the subscribers of the loaded apps (al-runner issue
+/// 8011), which the runtime does not raise, so a type outside the pinned ones has no known format. The pinned types, each by its
+/// exact text:
+/// - 0: pages/run-modal/P113AutoFormat.al:64, :71 (a page control), text/text-methods/RwDecimalFieldPlaces.al:63 (`Format`);
+/// - 1, 2, 4, 5: format-evaluate/autoformat/PWAutoFormatTypes.al:19-26, :88-92 (a page control), text/text-methods/
+///   SaUnitAmountSubst.al:138-145 (`Format`), :123-126 (StrSubstNo);
+/// - 10: pages/run-modal/P113AutoFormat.al:67-70 (a page control), :311 (`Format`, P113_AF_TableFieldFormatIsPlain);
+/// - 11: format-evaluate/autoformat/TestAutoFormat.al:78-90 (a page control), format-evaluate/Y43AfType11.al:221 (`Format`).
+///
+/// Each caller decides which shapes of a modelled type it runs; this answers only for the type.
+pub fn unmodelled_auto_format_type(kind: &str) -> Option<String> {
+    match kind.trim() {
+        "0" | "1" | "2" | "4" | "5" | "10" | "11" => None,
+        other => Some(format!(
+            "AutoFormatType {other} (a type outside the pinned ones; BC resolves it through the AutoFormatTranslate event of UI Helper Triggers, which the runtime does not raise; only types 0, 1, 2, 4, 5, 10 and 11 are modelled)"
+        )),
+    }
+}
+
+/// Whether AutoFormatType `kind` (its text as written) is one the runtime formats natively and BC resolves through the AutoFormat
+/// events a subscriber can write (al-vm `auto_format_writer`): 1, 2, 4, 5, 10 and 11, by their exact text (the pins are those of
+/// [`unmodelled_auto_format_type`]). Type 0 is not: Format of a plain field raises no event
+/// (events/platform-triggers/P114GlobalTriggerEvents.al:341-347).
+pub fn resolved_auto_format_type(kind: &str) -> bool {
+    matches!(kind.trim(), "1" | "2" | "4" | "5" | "10" | "11")
+}
+
 /// `1234567.891` with (2, 2) as `1,234,567.89`: half away from zero, thousands separators.
 pub fn decimal_text(d: &Decimal, places: (u32, u32)) -> String {
     let (min, max) = places;

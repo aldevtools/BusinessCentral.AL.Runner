@@ -511,8 +511,9 @@ impl Lowerer<'_> {
             })
     }
 
-    /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: the field declares
-    /// `DecimalPlaces` and an AutoFormat beside it. Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
+    /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: its AutoFormatType is not
+    /// modelled (`pagefmt::unmodelled_auto_format_type`), or the field declares `DecimalPlaces` and an AutoFormat beside it.
+    /// Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
     /// `AutoFormatExpression` is pinned (the AutoFormat wins: text/text-methods/RwDecimalFieldPlaces.al:83
     /// `Dp33Amt1` gives `70.00`). `AutoFormatType = 0` is the default and keeps the places.
     pub(crate) fn decimal_field_format_unpinned(&mut self, arg: &SyntaxNode) -> Option<String> {
@@ -529,6 +530,10 @@ impl Lowerer<'_> {
                 .find(|(k, _)| k.eq_ignore_ascii_case(n))
                 .map(|(_, v)| v.trim().to_string())
         };
+        // An AutoFormatType the runtime does not model, with or without DecimalPlaces or an expression beside it.
+        if let Some(why) = prop("AutoFormatType").and_then(|k| al_builtins::pagefmt::unmodelled_auto_format_type(&k)) {
+            return Some(format!("Format of Decimal field {}: {why}", f.name));
+        }
         prop("DecimalPlaces")?;
         let (aft, expr) = (prop("AutoFormatType"), prop("AutoFormatExpression"));
         match (aft.as_deref(), expr.as_deref()) {
@@ -550,6 +555,40 @@ impl Lowerer<'_> {
                 f.name
             )),
         }
+    }
+
+    /// `lowered` (the `Format` of the Decimal table field `arg`, or its StrSubstNo, Message or Error substitution) behind the check
+    /// that no subscriber could write the AutoFormat result (al-vm `auto_format_writer`), for a field of AutoFormatType 1, 2, 4, 5, 10
+    /// or 11 (`pagefmt::resolved_auto_format_type`): the check runs first, the Format only after it. Any other argument as it is.
+    pub(crate) fn auto_format_writer_guard(&mut self, arg: &SyntaxNode, lowered: ir::Expr) -> Result<ir::Expr, String> {
+        let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
+            return Ok(lowered);
+        };
+        let Some(f) = self.members[table].fields.iter().find(|f| f.id == field) else {
+            return Ok(lowered);
+        };
+        let kind = f
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("AutoFormatType"))
+            .map(|(_, v)| v.trim().to_string())
+            .filter(|k| al_builtins::pagefmt::resolved_auto_format_type(k));
+        let (Ty::Decimal, Some(kind)) = (&f.ty, kind) else {
+            return Ok(lowered);
+        };
+        let guard = ir::Expr::Builtin {
+            id: super::call::builtin_id("System.AutoFormatWriterGuard#1")?,
+            receiver: None,
+            args: vec![ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(
+                kind.parse().expect("a resolved type is a number"),
+            )))],
+            ret_used: true,
+        };
+        Ok(ir::Expr::Ternary(
+            Box::new(guard),
+            Box::new(lowered),
+            Box::new(ir::Expr::Const(ir::Const::Text(String::new()))),
+        ))
     }
 
     /// The places `min:max` a Decimal table field declares for `Format`: its `DecimalPlaces`, else the precision of its

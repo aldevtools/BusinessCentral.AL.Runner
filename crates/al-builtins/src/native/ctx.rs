@@ -207,6 +207,11 @@ pub trait Ctx: FormatCtx {
             "Format of a field with an AutoFormatExpression outside a session".into(),
         ))
     }
+    /// Why `Format` in code of a Decimal field of AutoFormatType `kind` is refused while a subscriber could write the AutoFormat
+    /// result (al-vm `auto_format_writer`); `None` where the context has no session.
+    fn auto_format_writer_refusal(&self, _kind: &str) -> Option<String> {
+        None
+    }
     /// `CopyStream` where one side is a `DotNet` stream (ADR-024). `None` where the context has no
     /// .NET host.
     fn copy_stream_dotnet(&mut self, _out: &Value, _src: &Value, _count: Option<i64>) -> Option<Result<(), Signal>> {
