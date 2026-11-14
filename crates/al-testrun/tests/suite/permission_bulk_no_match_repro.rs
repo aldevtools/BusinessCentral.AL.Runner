@@ -205,6 +205,65 @@ table 50317 "Nb Parent Wide"
     end;
 }
 
+table 50318 "Nb Parent Literal"
+{
+    fields { field(1; Code; Code[10]) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+
+    trigger OnDelete()
+    var
+        ReproOther: Record "Repro Other";
+    begin
+        ReproOther.SetRange("Parent Code", 'P1');
+        ReproOther.ModifyAll("Parent Code", '');
+    end;
+}
+
+table 50319 "Nb Parent Other Field"
+{
+    fields
+    {
+        field(1; Code; Code[10]) { }
+        field(2; "Primary Child No."; Code[10]) { }
+    }
+    keys { key(PK; Code) { Clustered = true; } }
+
+    trigger OnDelete()
+    var
+        ReproOther: Record "Repro Other";
+    begin
+        ReproOther.SetRange("Parent Code", "Primary Child No.");
+        ReproOther.ModifyAll("Parent Code", '');
+    end;
+}
+
+table 50320 "Nb Parent Extended"
+{
+    fields { field(1; Code; Code[10]) { } }
+    keys { key(PK; Code) { Clustered = true; } }
+
+    trigger OnDelete()
+    var
+        ReproOther: Record "Repro Other";
+    begin
+        ReproOther.SetRange("Parent Code", Code);
+        ReproOther.ModifyAll("Parent Code", '');
+    end;
+}
+
+tableextension 50320 "Nb Parent Extension" extends "Nb Parent Extended"
+{
+    trigger OnDelete()
+    begin
+    end;
+}
+
+permissionset 50392 "Nb Edit 2"
+{
+    Assignable = true;
+    Permissions = tabledata "Nb Parent Literal" = RIMD, tabledata "Nb Parent Other Field" = RIMD, tabledata "Nb Parent Extended" = RIMD;
+}
+
 permissionset 50391 "Nb Edit"
 {
     Assignable = true;
@@ -238,6 +297,7 @@ codeunit 50410 "Nb Tests"
         PermissionsMock.Set('D365 BASIC');
         PermissionsMock.Assign('Repro Parent Edit');
         PermissionsMock.Assign('Nb Edit');
+        PermissionsMock.Assign('Nb Edit 2');
     end;
 
     // MED1: the trigger reached by DeleteAll(true).
@@ -404,6 +464,65 @@ codeunit 50410 "Nb Tests"
         ReproParent.Delete(true);
     end;
 
+    // Round 2 B1: the SetRange value is a literal, not the trigger record's Code.
+    [Test]
+    procedure SetRangeWithALiteral()
+    var
+        Parent: Record "Nb Parent Literal";
+    begin
+        PermissionsMock.ClearAssignments();
+        Parent.Code := 'P1';
+        Parent.Insert();
+        SeedOther();
+        Restrict();
+        Parent.Delete(true);
+    end;
+
+    // Round 2 B1: the SetRange value is another field of the trigger record.
+    [Test]
+    procedure SetRangeWithAnotherField()
+    var
+        Parent: Record "Nb Parent Other Field";
+    begin
+        PermissionsMock.ClearAssignments();
+        Parent.Code := 'P1';
+        Parent."Primary Child No." := 'Z';
+        Parent.Insert();
+        SeedOther();
+        Restrict();
+        Parent.Delete(true);
+    end;
+
+    // Round 2 F1: the parent has a table extension.
+    [Test]
+    procedure ParentWithATableExtension()
+    var
+        Parent: Record "Nb Parent Extended";
+    begin
+        PermissionsMock.ClearAssignments();
+        Parent.Code := 'P1';
+        Parent.Insert();
+        SeedOther();
+        Restrict();
+        Parent.Delete(true);
+    end;
+
+    // Round 2 F2: the parent had a Delete(false) and an Insert before the Delete(true).
+    [Test]
+    procedure ParentDeletedAndInsertedBefore()
+    var
+        ReproParent: Record "Repro Parent";
+    begin
+        PermissionsMock.ClearAssignments();
+        ReproParent.Code := 'P1';
+        ReproParent.Insert();
+        ReproParent.Delete(false);
+        ReproParent.Insert();
+        SeedOther();
+        Restrict();
+        ReproParent.Delete(true);
+    end;
+
     // The target holds two rows.
     [Test]
     procedure TwoRowsInTheTarget()
@@ -505,6 +624,18 @@ fn another_filter_value_or_table_shape_is_refused() {
         "FilterFieldInASecondaryKey",
         "FilterFieldOfAnotherLength",
         "TwoRowsInTheTarget",
+    ] {
+        refused(on_28(), test);
+    }
+}
+
+#[test]
+fn a_parent_or_set_range_the_reporter_did_not_run_is_refused() {
+    for test in [
+        "SetRangeWithALiteral",
+        "SetRangeWithAnotherField",
+        "ParentWithATableExtension",
+        "ParentDeletedAndInsertedBefore",
     ] {
         refused(on_28(), test);
     }

@@ -263,3 +263,6 @@ Integer). The pins measured a few values. Name the measured values in the commen
 A gate on code that runs inside a trigger, checked by the frame stack only: the method that started the trigger
 (Delete, DeleteAll(true), RecordRef.Delete, a page delete), its RunTrigger argument and whether the record is temporary
 are pinned facts too. Keep them where the trigger starts and require them.
+
+An entry text that names an argument expression (Code, a field) states a fact. The IR check must compare that argument,
+not only count the arguments (round 2: `SetRange(<field>, 'P1')` passed).

@@ -207,7 +207,10 @@ impl Session {
 
     /// al-runner issue 8068 (the reporter's repro on BC 28.5, assumption `bulk-write-no-match-in-delete-trigger`), its
     /// facts by equality: the running frame is the OnDelete trigger of table "Repro Parent", whose body is
-    /// `ReproOther.SetRange("Parent Code", Code); ReproOther.ModifyAll("Parent Code", '');` on its one local Record; the
+    /// `ReproOther.SetRange("Parent Code", Code); ReproOther.ModifyAll("Parent Code", '');` on its one local Record (the
+    /// SetRange value is the trigger record's own Code, the same field in both calls); the table "Repro Parent" runs no
+    /// code but that OnDelete (no procedure, field trigger, table extension or subscriber) and its writes in the open
+    /// transaction are exactly one Insert; the
     /// trigger was started by the statement `ReproParent.Delete(true)` of a Record variable of that table, not temporary,
     /// in a procedure of a test codeunit; the filter value is not blank; the filter field and the primary key field are
     /// Code[10] (the table's first field is the primary key, the second the filter field), the table has one key and one row, inserted in the open transaction (no Commit since), and nothing is
@@ -246,29 +249,62 @@ impl Session {
                 .delete_trigger_of(by)
                 .is_some_and(|routine| self.reported_trigger_body(by, routine))
             && self.only_test_codeunit_frames(by, 1)
+            && self.table_code_is(by, &["ondelete"])
+            && self.rows_inserted_in_open_transaction(by as u32, 1)
             && self.rows_inserted_in_open_transaction(t.table, t.rows)
             && self.nothing_locked()
     }
 
     /// Whether routine `routine` of object `by` declares one local, a Record, and its body is a SetRange and then a
-    /// ModifyAll of two arguments on that local, both statements (the reporter's OnDelete, al-runner issue 8068).
+    /// ModifyAll of two arguments on that local, both statements, the same field in both and the SetRange value the trigger
+    /// record's own field 1 (Code, the primary key; the reporter's OnDelete, al-runner issue 8068).
     fn reported_trigger_body(&self, by: usize, routine: usize) -> bool {
         use al_builtins::builtin_id::ids;
-        use al_ir::{Arg, Expr, Place, Stmt};
+        use al_ir::{Arg, Const, Expr, Place, Stmt};
         let engine = self.engine.clone();
         let Some(r) = engine.program.objects[by].routines.get(routine) else {
             return false;
         };
-        let on_local = |s: &Stmt, id| {
-            matches!(s, Stmt::Expr(Expr::Builtin { id: i, receiver: Some(recv), args, ret_used: false })
-                if *i == id && args.len() == 2
-                    && matches!(&**recv, Arg::Ref(Place::Local(0)) | Arg::Value(Expr::Load(Place::Local(0)))))
-        };
+        // The call statement `<local>.<id>(a, b)` as its two arguments.
+        fn on_local_fn(s: &Stmt, id: al_builtins::builtin_id::BuiltinId) -> Option<(&Expr, &Expr)> {
+            match s {
+                Stmt::Expr(Expr::Builtin {
+                    id: i,
+                    receiver: Some(recv),
+                    args,
+                    ret_used: false,
+                }) if *i == id
+                    && matches!(
+                        &**recv,
+                        Arg::Ref(Place::Local(0)) | Arg::Value(Expr::Load(Place::Local(0)))
+                    ) =>
+                {
+                    match args.as_slice() {
+                        [Arg::Value(a), Arg::Value(b)] => Some((a, b)),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            }
+        }
         let stmts: Vec<&Stmt> = r.body.stmts().iter().filter(|s| !matches!(s, Stmt::Pos(_))).collect();
+        let [a, b] = stmts.as_slice() else {
+            return false;
+        };
+        let (Some((set_field, set_value)), Some((write_field, _))) = (
+            on_local_fn(a, ids::RECORD_SETRANGE_1),
+            on_local_fn(b, ids::RECORD_MODIFYALL_1),
+        ) else {
+            return false;
+        };
+        // The trigger record `Rec` is global 0 of the table (the lowering of the reporter's trigger); its field 1 is the
+        // primary key Code, field position 0 (`SetRange(<field>, Code)`).
         r.params == 0
             && r.locals.len() == 1
             && matches!(r.locals[0].ty, RtType::Record(..))
-            && matches!(stmts.as_slice(), [a, b] if on_local(a, ids::RECORD_SETRANGE_1) && on_local(b, ids::RECORD_MODIFYALL_1))
+            && set_field == write_field
+            && matches!(set_field, Expr::Const(Const::FieldPos(_)))
+            && matches!(set_value, Expr::Load(Place::Field(rec, 0)) if **rec == Place::Global(0))
     }
 
     /// Whether the open transaction's writes of table `table` are exactly `rows` Inserts (no Commit since they were made).
