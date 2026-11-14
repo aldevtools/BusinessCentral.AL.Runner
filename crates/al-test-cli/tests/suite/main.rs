@@ -69,6 +69,7 @@ mod erm_builtins_8;
 mod erm_lowering_gaps;
 mod explain_site;
 mod failure_after_left_binding;
+mod field_extension_package_ids;
 mod filtergroup_or;
 mod find_list_descending;
 mod fixes2;
