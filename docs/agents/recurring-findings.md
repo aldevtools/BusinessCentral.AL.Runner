@@ -211,3 +211,9 @@ lines and one-statement assignments of an answer value (`Success := true;`) may 
 A checker change that lets a new shape compile: follow the name into lowering. Two declarations the checker tells apart
 may share one slot there (a declared global `Rec` and the implicit Rec of a codeunit with TableNo). Run the shape and
 read a value that tells them apart.
+
+## 15. A comment says "X members are pinned" while the gate takes the whole type (al-runner PR 8017)
+
+A doc comment or area-table row says "X members are pinned" while the gate takes the whole type (any text, any
+Integer). The pins measured a few values. Name the measured values in the comment and gate on them (rounds 1 and 2:
+`yaml_text`, `array_item`, `inner_value`).

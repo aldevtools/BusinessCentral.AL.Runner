@@ -6,7 +6,7 @@ use crate::native::{Ctx, Signal, unsupported};
 use crate::value::Value;
 
 mod read;
-use read::{Yaml, document};
+use read::{Yaml, document, keyword};
 
 /// A key WriteToYaml writes: letters, digits and `_` (every pinned key); any other key refuses.
 fn plain_yaml_key(k: &str) -> bool {
@@ -122,10 +122,16 @@ fn yaml_members(kids: &[(String, Handle)], indent: usize, out: &mut String) -> R
     Ok(())
 }
 
+/// The texts measured inside an array item: P88:164 `two`, PnA:82 and Dc:208 `b`, `c`.
+fn measured_word(t: &str) -> bool {
+    t.starts_with(|c: char| c.is_ascii_alphabetic()) && t.chars().all(|c| c.is_ascii_alphanumeric()) && !keyword(t)
+}
+
 /// An array item: `- ` and a scalar, or an object of scalars whose first member follows the `- ` and whose other
 /// members are indented by two more (P88:164 `- x: 1\r\n  y: two`; PnA:82 `- b: 1`; Dc:208 `  - name: b\r\n    run: c`).
-/// The object form is pinned with whole-number members (an Integer; a BigInteger is how a JSON text reads one) and
-/// text members, in an array at indent 0 or 2. An empty object, an array, other members and deeper arrays are not.
+/// The object form is pinned with the members measured there, in an array at indent 0 or 2: a whole number from 0 (an
+/// Integer; a BigInteger is how a JSON text reads one) and a one-word text of ASCII letters and digits that starts with
+/// a letter (`measured_word`). Every other member, an empty object, an array and deeper arrays are not pinned.
 fn array_item(item: &Handle, pad: &str, out: &mut String) -> Result<(), Signal> {
     let members = with_node(item, |n| match n {
         JsonNode::Object(m) if !m.is_empty() => Some(Some(m.clone())),
@@ -139,17 +145,15 @@ fn array_item(item: &Handle, pad: &str, out: &mut String) -> Result<(), Signal> 
                 if !plain_yaml_key(k) {
                     return unsupported(format!("WriteToYaml with the key `{k}` (quoting is not pinned)"));
                 }
-                let pinned_member = with_node(c, |n| {
-                    matches!(
-                        n,
-                        JsonNode::Scalar(Scalar::Val(
-                            Value::Integer(_) | Value::BigInteger(_) | Value::Text(_) | Value::Code(_)
-                        ))
-                    )
+                let pinned_member = with_node(c, |n| match n {
+                    JsonNode::Scalar(Scalar::Val(Value::Integer(i))) => *i >= 0,
+                    JsonNode::Scalar(Scalar::Val(Value::BigInteger(i))) => *i >= 0,
+                    JsonNode::Scalar(Scalar::Val(Value::Text(t) | Value::Code(t))) => measured_word(t),
+                    _ => false,
                 });
                 if !(pinned_member && matches!(pad.len(), 0 | 2)) {
                     return unsupported(
-                        "WriteToYaml of an object inside an array with a member other than an Integer or a text, or deeper than indent 2 (not pinned)",
+                        "WriteToYaml of an object inside an array with a member other than a whole number from 0 or a one-word text, or deeper than indent 2 (not pinned)",
                     );
                 }
                 let lead = if i == 0 { "- " } else { "  " };
@@ -311,6 +315,32 @@ mod tests {
             r#"{"a":"a\u2028b"}"#,
             r#"{"a":"a\u0085b"}"#,
             r#"{"a":"a\ufeffb"}"#,
+        ] {
+            assert!(refuses(json), "{json}");
+        }
+    }
+
+    /// A member of an object inside an array is pinned only as a one-word text of letters and digits that starts with a
+    /// letter (P88:164 `two`, Dc:208 `b`, `c`) and a whole number from 0 (PnA:82 `b: 1`); every other member refuses
+    /// (W000-W017 of the round-2 review).
+    #[test]
+    fn an_array_item_member_is_written_only_in_the_measured_forms() {
+        assert_eq!(
+            yaml(r#"{"l":[{"x":0,"y":"two","z":"b2"}]}"#).ok().as_deref(),
+            Some("l:\r\n- x: 0\r\n  y: two\r\n  z: b2\r\n")
+        );
+        for json in [
+            r#"{"l":[{"x":"it's"}]}"#,
+            r#"{"l":[{"x":"null"}]}"#,
+            r#"{"l":[{"x":"~"}]}"#,
+            r#"{"l":[{"x":"123"}]}"#,
+            r#"{"l":[{"x":"true"}]}"#,
+            r#"{"l":[{"x":"a,b"}]}"#,
+            r#"{"l":[{"x":"a:b"}]}"#,
+            r#"{"l":[{"x":"say \"hi\""}]}"#,
+            r#"{"l":[{"x":"\u00e9"}]}"#,
+            r#"{"l":[{"x":"a b"}]}"#,
+            r#"{"l":[{"x":-1}]}"#,
         ] {
             assert!(refuses(json), "{json}");
         }

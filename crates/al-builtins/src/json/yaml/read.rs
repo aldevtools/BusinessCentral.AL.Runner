@@ -112,11 +112,9 @@ pub(crate) fn document(text: &str) -> Result<Yaml, Signal> {
     if first.indent != 0 {
         return unsupported("ReadFromYaml of a text whose first line is indented (not pinned)");
     }
-    // A trailing line feed is pinned after a mapping only (P88:216).
-    let trailing_lf = text.ends_with('\n');
-    let mapping_line = first.text.contains(": ") || first.text.ends_with(':');
-    if trailing_lf && (first.text.starts_with(['{', '-']) || !mapping_line) {
-        return unsupported("ReadFromYaml of a line feed after a flow mapping, a list or a word (not pinned)");
+    // A trailing line feed is pinned after the flat line `a: 1` only (P88:216).
+    if text.ends_with('\n') && !flat(&lines) {
+        return unsupported("ReadFromYaml of a line feed after a block, a flow mapping, a list or a word (not pinned)");
     }
     // A one-line flow mapping (P88:211-212).
     if lines.len() == 1 && first.text.starts_with('{') {
@@ -140,20 +138,15 @@ pub(crate) fn document(text: &str) -> Result<Yaml, Signal> {
     Ok(map)
 }
 
-/// A whole text of words: letters and digits, single spaces between them (P88:214,229 `hello`). A single `null`, a
-/// number, a Boolean-like word and other characters are not pinned.
+/// A whole text of one word of ASCII letters (P88:214,229 `hello`). Several words, a digit, another letter, `null` and a
+/// Boolean-like word are not pinned.
 fn top_word(t: &str) -> Result<Yaml, Signal> {
-    match plain(t)? {
-        Yaml::Text(w) if words(&w) && !w.starts_with(|c: char| c.is_ascii_digit()) && !keyword(&w) => Ok(Yaml::Text(w)),
-        _ => unsupported(
-            "ReadFromYaml of a whole text that is not words, or is null, a number or a Boolean-like word (not pinned)",
-        ),
+    if t.chars().all(|c| c.is_ascii_alphabetic()) && !keyword(t) && !["Null", "NULL"].contains(&t) {
+        return Ok(Yaml::Text(t.to_string()));
     }
-}
-
-fn words(t: &str) -> bool {
-    t.split(' ')
-        .all(|w| !w.is_empty() && w.chars().all(char::is_alphanumeric))
+    unsupported(
+        "ReadFromYaml of a whole text that is not one word of ASCII letters, or is null or a Boolean-like word (not pinned)",
+    )
 }
 
 /// `key: value` and `key:` lines at `indent` (0, or 2 below a top key), from `at`. Returns the mapping and the index of
@@ -172,12 +165,15 @@ fn mapping(lines: &[Line], at: usize, indent: usize) -> Result<(Yaml, usize), Si
             i += 1;
         } else if let Some(k) = line.text.strip_suffix(':') {
             let k = key(k)?;
-            let (value, end) = block_under(lines, i + 1, indent)?;
+            let (value, end) = block_under(lines, i + 1, indent, i == 0)?;
             members.push((k, value));
             i = end;
         } else {
             return unsupported("ReadFromYaml of a line that is not `key: value` or `key:` (not pinned)");
         }
+    }
+    if indent == 2 && members.len() > 1 {
+        return unsupported("ReadFromYaml of a mapping indented by two with several members (not pinned)");
     }
     if lines.get(i).is_some_and(|l| l.indent > indent) {
         return unsupported("ReadFromYaml of a line indented other than by two spaces (not pinned)");
@@ -186,8 +182,12 @@ fn mapping(lines: &[Line], at: usize, indent: usize) -> Result<(Yaml, usize), Si
 }
 
 /// What `key:` at `indent` holds, read from the line `at`. Every pinned block under a key ends the text (P88:218-219,
-/// PnA:151-152, Dc:189-199); only a null key is followed by a line.
-fn block_under(lines: &[Line], at: usize, indent: usize) -> Result<(Yaml, usize), Signal> {
+/// PnA:151-152, Dc:189-199), holds one member, and its key is the first and only top line (`first`); only a null key is
+/// followed by a line. A key after another top line, or any block under it, is not pinned.
+fn block_under(lines: &[Line], at: usize, indent: usize, first: bool) -> Result<(Yaml, usize), Signal> {
+    if indent == 0 && !first {
+        return unsupported("ReadFromYaml of `key:` below another top line (not pinned)");
+    }
     let block = match lines.get(at).copied() {
         // A list indented by two, below a top key (PnA:152,167; Dc:189,204) or below a key at indent 2 (Dc:199,207).
         Some(n) if item(n.text).is_some() && n.indent == indent + 2 => sequence(lines, at, indent + 2)?,
@@ -257,7 +257,8 @@ fn pinned_bad_format(k: &str, v: &str) -> bool {
     digit_then_colon || unclosed_list
 }
 
-/// A value on a line of the top mapping: a quoted text, `null` or a plain word or number.
+/// A value on a line of the top mapping: a quoted text, `null` or a plain value `plain` takes (as main did; a flat line
+/// keeps main's result).
 fn top_value(v: &str) -> Result<Yaml, Signal> {
     match quoted(v)? {
         Some(text) => Ok(text),
@@ -265,17 +266,19 @@ fn top_value(v: &str) -> Result<Yaml, Signal> {
     }
 }
 
-/// A value below the top mapping or in a list: a plain word or whole number (P88:213,218-219; PnA:151-152; Dc:189-199).
-/// `null` and quoted texts are pinned as top values only.
+/// A value below the top mapping or in a list: one word of ASCII letters and digits (P88:213,218-219; PnA:151-152;
+/// Dc:189-199). `null`, quoted texts and any other character are pinned as top values only, if at all.
 fn inner_value(v: &str) -> Result<Yaml, Signal> {
     match plain(v)? {
-        text @ Yaml::Text(_) => Ok(text),
-        _ => unsupported("ReadFromYaml of null below the top mapping or in a list (not pinned)"),
+        text @ Yaml::Text(_) if v.chars().all(|c| c.is_ascii_alphanumeric()) => Ok(text),
+        _ => {
+            unsupported("ReadFromYaml of a value below the top mapping or in a list that is not one word (not pinned)")
+        }
     }
 }
 
 /// A word YAML may read as null or a Boolean: pinned only as a plain top value (P88:221-222, PnA:150).
-fn keyword(w: &str) -> bool {
+pub(super) fn keyword(w: &str) -> bool {
     ["null", "true", "false", "yes", "no", "on", "off"]
         .iter()
         .any(|k| w.eq_ignore_ascii_case(k))
@@ -344,7 +347,9 @@ fn flow_mapping(t: &str) -> Result<Yaml, Signal> {
     };
     let entries: Vec<(String, &str)> = match inner.strip_prefix('"') {
         Some(rest) => match rest.split_once("\":") {
-            Some((k, v)) if !k.contains(['"', '\\', ',']) => vec![(key(k)?, v)],
+            Some((k, v)) if !k.contains(['"', '\\', ',']) && v.chars().all(|c| c.is_ascii_digit()) => {
+                vec![(key(k)?, v)]
+            }
             _ => return unsupported("ReadFromYaml of a flow mapping entry with this quoted key (not pinned)"),
         },
         None => {
@@ -354,6 +359,9 @@ fn flow_mapping(t: &str) -> Result<Yaml, Signal> {
                     return unsupported("ReadFromYaml of a flow mapping entry that is not `key: value` (not pinned)");
                 };
                 entries.push((key(k)?, v));
+            }
+            if entries.len() != 2 {
+                return unsupported("ReadFromYaml of a flow mapping with other than two plain entries (not pinned)");
             }
             entries
         }

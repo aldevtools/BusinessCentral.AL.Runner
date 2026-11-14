@@ -32,11 +32,8 @@ fn the_pinned_block_shapes_read() {
         r#"{"job":{"steps":["a",{"name":"b","run":"c"}]}}"#
     );
     assert_eq!(json("a:\n- 1\n- 2"), r#"{"a":["1","2"]}"#);
-    assert_eq!(json("a:\n  - 1\n  - 2\n"), r#"{"a":["1","2"]}"#);
-    assert_eq!(
-        json("x: 1\na:\n  b: 1\n  c: two"),
-        r#"{"x":"1","a":{"b":"1","c":"two"}}"#
-    );
+    assert_eq!(json("a:\n  - 1\n  - 2"), r#"{"a":["1","2"]}"#);
+    assert_eq!(json("a:\n  b: 1"), r#"{"a":{"b":"1"}}"#);
     assert_eq!(json("{a: 1, b: x}"), r#"{"a":"1","b":"x"}"#);
     assert_eq!(json("a: \"x: y\""), r#"{"a":"x: y"}"#);
     assert_eq!(json("a:\n<TAB>b: 1"), r#"{"a":null,"<TAB>b":"1"}"#);
@@ -222,7 +219,57 @@ fn scalars_only_where_pinned() {
     for text in ["hello\n", "{\"a\":1}\n", "- 1\n- 2\n"] {
         assert!(refused(text), "{text:?} should refuse, got {:?}", document(text));
     }
-    for text in ["hello world", "é"] {
-        assert!(matches!(document(text), Ok(Yaml::Text(_))), "{text:?}");
+}
+
+/// Round-2 review B2: a whole text reads as a word only for one word of ASCII letters (P88:214,229 `hello`).
+#[test]
+fn a_whole_text_is_one_ascii_word() {
+    for text in ["hello world", "a b c", "é", "abc1", "a1"] {
+        assert!(refused(text), "{text:?} should refuse, got {:?}", document(text));
     }
+    assert!(matches!(document("hello"), Ok(Yaml::Text(_))));
+}
+
+/// Round-2 review B3: a block under a key holds one member and belongs to the first and only top line.
+#[test]
+fn a_block_holds_one_member_under_the_first_top_line() {
+    for text in [
+        "a:\n  b: 1\n  c: 2",
+        "a:\n  c: 2\n  b:\n    - 1",
+        "a: 1\nb:\n  c: 2",
+        "x: 1\na:\n  b: 1\n  c: two",
+        "x: 1\na:\n- 1",
+        "x: 1\na:\nb: 2",
+    ] {
+        assert!(refused(text), "{text:?} should refuse, got {:?}", document(text));
+    }
+    assert_eq!(json("a:\n  b: 1"), r#"{"a":{"b":"1"}}"#);
+}
+
+/// Round-2 review B4: a flow mapping reads with two plain entries, or one quoted key and a whole number.
+#[test]
+fn a_flow_mapping_reads_only_the_pinned_forms() {
+    for text in ["{a: 1}", "{a: 1, b: x, c: y}", "{\"a\":x}", "{\"a\":1}x"] {
+        assert!(refused(text), "{text:?} should refuse, got {:?}", document(text));
+    }
+    assert_eq!(json("{a: 1, b: x}"), r#"{"a":"1","b":"x"}"#);
+    assert_eq!(json("{\"a\":1}"), r#"{"a":"1"}"#);
+}
+
+/// Round-2 review B5: a value below the top mapping or in a list is one word of letters and digits.
+#[test]
+fn an_inner_value_is_one_word() {
+    for text in ["a:\n  b: x y", "a:\n- it's", "a:\n- a,b", "a:\n- x:y", "a:\n  b: é"] {
+        assert!(refused(text), "{text:?} should refuse, got {:?}", document(text));
+    }
+    assert_eq!(json("a:\n  b: x1"), r#"{"a":{"b":"x1"}}"#);
+}
+
+/// Round-2 follow-up F1: a trailing line feed is pinned after flat lines only (P88:216).
+#[test]
+fn a_trailing_line_feed_only_after_flat_lines() {
+    for text in ["a:\n  b: 1\n", "a:\n- 1\n- 2\n"] {
+        assert!(refused(text), "{text:?} should refuse, got {:?}", document(text));
+    }
+    assert_eq!(json("a: 1\n"), r#"{"a":"1"}"#);
 }
