@@ -597,6 +597,11 @@ pub struct Report {
     /// reports/request-page/YRequestPageTests.al:551; through a procedure it is not pinned).
     #[serde(default)]
     pub request_rec_routines: Vec<usize>,
+    /// The request page is the one al-sema `lower/ext_request_page.rs` admits with triggers on the request pages of two
+    /// run-changing reportextensions of independent apps: the VM runs it only for the measured call and close and refuses
+    /// everything else on it (al-vm `pages/request_ok_only.rs`).
+    #[serde(default)]
+    pub request_page_ok_only: bool,
     /// Why running the report would render output (it is not `ProcessingOnly`, or it declares a
     /// layout): the runtime renders nothing, so a run that gets that far is refused. Its request
     /// page still opens first.

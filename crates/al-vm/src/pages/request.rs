@@ -286,7 +286,21 @@ impl Session {
     /// `[RequestPageHandler]` and reports how the handler closed it. The page's `OnInit` and
     /// `OnOpenPage` run before the handler sees it, and write the report's own variables
     /// (reports/TestRequestPageOnInit.al, reports/TestReportRunRequestPage.al: `rp-open`).
+    /// The page that two reportextensions of independent apps extend with triggers opens only as `request_ok_only_open` lets it.
     pub(crate) fn run_request_page(
+        &mut self,
+        inst: &Inst,
+        object: usize,
+        seed: Option<&str>,
+        run_ext: Vec<(usize, Inst)>,
+        want_parameters: bool,
+    ) -> Result<(RequestClosed, Option<String>), Signal> {
+        self.request_ok_only_open(object, want_parameters, |s| {
+            s.open_request_page(inst, object, seed, run_ext, want_parameters)
+        })
+    }
+
+    fn open_request_page(
         &mut self,
         inst: &Inst,
         object: usize,

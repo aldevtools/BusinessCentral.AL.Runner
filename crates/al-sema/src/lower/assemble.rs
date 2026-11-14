@@ -589,16 +589,16 @@ pub(crate) fn build_shared<'a>(
         // extensions' request pages that the corpus pins, `ext_request_page` gives that order.
         let changing_here = changing.get(&oi).cloned().unwrap_or_default();
         let request_exts = page_extensions.get(&oi).cloned().unwrap_or_default();
-        let pinned = super::ext_request_page::pinned_request_page(ws, &obj, &request_exts, &changing_here);
-        if let Some(p) = &pinned {
-            page_extensions.insert(oi, p.order.clone());
-            request_page_order.insert(oi, p.order.clone());
+        let pinned = super::ext_request_page::pinned_request_page(ws, oi, &request_exts, &changing_here);
+        if let Some(order) = &pinned {
+            page_extensions.insert(oi, order.clone());
+            request_page_order.insert(oi, order.clone());
         }
         let exts: Vec<(usize, ast::Object)> = page_extensions
             .get(&oi)
             .map(|v| v.iter().map(|&e| (e, ws.object_ast(e))).collect())
             .unwrap_or_default();
-        let (mut request, request_section) = crate::reports::request_layout(&obj, &l.items, &exts);
+        let (request, request_section) = crate::reports::request_layout(&obj, &l.items, &exts);
         page_reasons[oi].extend(request.reasons.iter().cloned());
         // A request page that declares `SourceTable` has a `Rec` of that table (corpus
         // reports/TestReportRequestPageSourceTableCompiledContracts.al).
@@ -628,9 +628,6 @@ pub(crate) fn build_shared<'a>(
             &changing_here,
             pinned.is_some(),
         ));
-        if let Some(p) = pinned {
-            request.assumes.extend(p.assumes);
-        }
         layouts[oi] = Some(request);
         let (exts, extension_reasons, extension_assumes) =
             match super::ext_order::report_extension_order(ws, &changing.get(&oi).cloned().unwrap_or_default()) {
@@ -653,6 +650,7 @@ pub(crate) fn build_shared<'a>(
             extension_reasons,
             extension_assumes,
             extensions: exts.clone(),
+            request_page_ok_only: pinned.is_some(),
         };
         let mut over = super::shared::over_max_length_of(ws, oi);
         for &e in &exts {

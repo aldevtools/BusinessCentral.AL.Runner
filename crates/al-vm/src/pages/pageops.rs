@@ -13,6 +13,14 @@ impl Session {
         if self.without_client() {
             self.clientless_page_guard(method, recv.as_deref(), args)?;
         }
+        match recv.as_deref() {
+            Some(Value::TestPage(st)) => self.request_ok_only_step(st_of(st), method, None)?,
+            Some(Value::TestControl(c)) => {
+                let c = control_of(c);
+                self.request_ok_only_step(&c.page, method, Some(&c.target))?;
+            }
+            _ => {}
+        }
         // CurrPage calls from the page's own code do not count as the test code touching the page.
         if let (Some(Value::TestPage(st)), al_builtins::page_op::PageRecv::TestPage) = (recv.as_deref(), method.recv())
         {

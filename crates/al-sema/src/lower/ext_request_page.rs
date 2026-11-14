@@ -13,43 +13,35 @@
 //! refused.
 
 use crate::workspace::{ObjKind, Resolution, Workspace};
-use al_builtins::assumptions::Assumption;
 use al_ir as ir;
 use al_syntax::SyntaxKind;
 use al_syntax::ast;
 use std::collections::HashSet;
 
-/// The order the request page of a report takes from its two run-changing extensions, in the shape
-/// reports/extensions/IndependentAppsReportExtensions.al pins (al-runner issue 7358).
-pub(crate) struct PinnedRequestPage {
-    /// The order the extensions apply to the request page: the run order (`ext_order`), app B before app D. Their triggers run
-    /// in it after the report's own (IndependentAppsReportExtensions.al:108, :138 `A:rp open;B:rp open;D:rp open;A:rp close;
-    /// B:rp close;D:rp close;`), and the parameters text lists their fields in it after the report's (:109, :139:
-    /// BaseOptionValue, BFieldValue, DFieldValue; `request_parameters` writes the base's controls, then each extension's in
-    /// this order).
-    pub(crate) order: Vec<usize>,
-    /// The unprobed assumptions the run order rests on (`ext_order`).
-    pub(crate) assumes: Vec<Assumption>,
-}
-
-/// `Some` only for the request page of report `base` (written in `file`) that the corpus pins with triggers on its
-/// extensions' request pages; each fact is required by equality:
-/// - the report's request page states no SaveValues (al-language-xapp-a/R7358XaIndependentReports.al:88-111);
+/// `Some(order)` only for the request page of report `oi` that the corpus pins with triggers on its extensions' request
+/// pages; each fact is required by equality:
+/// - the report's request page is the measured one (`base_anchor`; R7358XaIndependentReports.al:88-111);
 /// - its request page extensions `request_exts` are its run-changing extensions `changing`, and there are two
 ///   (R7358XbIndependentReportExts.al:3, R7358XdIndependentReportExts.al:3);
 /// - they are of two apps with no dependency path between them (`ExtOrder::independent_pair`; xapp-b and xapp-d app.json);
-/// - each extension's request page is the measured one (`extension_anchor`), and both add after the same field of the
+/// - each extension's request page is the measured one (`extension_anchor`), and both add after the one field of the
 ///   report's request page (R7358XaIndependentReports.al:94, R7358XbIndependentReportExts.al:105, R7358XdIndependentReportExts.al:105).
+///
+/// `order` is the order the extensions apply to the request page: the run order (`ext_order`), app B before app D. Their
+/// triggers run in it after the report's own (IndependentAppsReportExtensions.al:108, :138 `A:rp open;B:rp open;D:rp open;
+/// A:rp close;B:rp close;D:rp close;`), and the parameters text lists their fields in it after the report's (:109, :139:
+/// BaseOptionValue, BFieldValue, DFieldValue; `request_parameters` writes the base's controls, then each extension's in this
+/// order). Both extensions add after the same field, so the later one lands next to it (controls: base, D, B): no pinned
+/// call reads that order, and the VM lets the handler touch no control of this page (al-vm `pages/request_ok_only.rs`).
+/// The test's call and the page's close are gated there as well. The run order rests on the assumption `ext_order` names,
+/// which the report raises on every run (`ir::Report::assumes`).
 pub(crate) fn pinned_request_page(
     ws: &Workspace,
-    base: &ast::Object,
+    oi: usize,
     request_exts: &[usize],
     changing: &[usize],
-) -> Option<PinnedRequestPage> {
-    let base_request = base.sections().find(|s| s.name().eq_ignore_ascii_case("requestpage"))?;
-    if save_values(Some(&base_request)) {
-        return None;
-    }
+) -> Option<Vec<usize>> {
+    let base_anchor = base_anchor(ws, oi)?;
     let (mut a, mut b) = (request_exts.to_vec(), changing.to_vec());
     a.sort_unstable();
     b.sort_unstable();
@@ -65,54 +57,87 @@ pub(crate) fn pinned_request_page(
         .iter()
         .map(|&e| extension_anchor(ws, e))
         .collect::<Option<_>>()?;
-    if anchors[0] != anchors[1] || !has_field(&base_request, &anchors[0]) {
+    anchors.iter().all(|a| *a == base_anchor).then_some(order.exts)
+}
+
+/// The name (lower case) of the one field of report `oi`'s request page when that page is exactly the measured one
+/// (R7358XaIndependentReports.al:88-111): no property and no variable; the triggers OnOpenPage and OnClosePage and no other
+/// routine, each only calling a procedure of a SingleInstance codeunit variable of the report with one text literal
+/// (`calls_single_instance_codeunit`); a `layout` that holds one `area(Content)` that holds one field, bound to a Boolean
+/// variable of the report (:135), stating ApplicationArea and Caption and nothing else, with no trigger.
+fn base_anchor(ws: &Workspace, oi: usize) -> Option<String> {
+    let report = ws.object_ast(oi);
+    let rp = only_request_page(&report)?;
+    logging_open_and_close(ws, oi, &report, &rp)?;
+    let layout = only_section(&rp, "layout")?;
+    no_properties(&layout)?;
+    let area = only_section(&layout, "area")?;
+    no_properties(&area)?;
+    let [content]: [String; 1] = area.args().try_into().ok()?;
+    if !content.eq_ignore_ascii_case("Content") {
         return None;
     }
-    Some(PinnedRequestPage {
-        order: order.exts,
-        assumes: order.assumes,
-    })
+    pinned_field(&report, &only_section(&area, "field")?)
 }
 
 /// The anchor (lower case) of reportextension `e`'s request page when it is exactly the measured one
 /// (R7358XbIndependentReportExts.al:101-124): no property and no variable; the triggers OnOpenPage and OnClosePage and no
 /// other routine, each only calling a procedure of a SingleInstance codeunit variable of the extension with one text
 /// literal (`calls_single_instance_codeunit`); a `layout` with one `addafter(<field>)` that adds one field, bound to a
-/// variable of the extension, stating ApplicationArea and Caption and nothing else, with no trigger.
+/// Boolean variable of the extension (R7358XbIndependentReportExts.al:144), stating ApplicationArea and Caption and nothing
+/// else, with no trigger.
 fn extension_anchor(ws: &Workspace, e: usize) -> Option<String> {
     let ext = ws.object_ast(e);
-    let mut sections = ext.sections().filter(|s| s.name().eq_ignore_ascii_case("requestpage"));
-    let (Some(rp), None) = (sections.next(), sections.next()) else {
-        return None;
-    };
-    if rp.properties().next().is_some() || rp.var_decls().next().is_some() {
-        return None;
-    }
-    let routines: Vec<ast::Routine> = rp.triggers().collect();
-    let mut names: Vec<String> = routines.iter().map(|r| r.name().to_ascii_lowercase()).collect();
-    names.sort_unstable();
-    if names != ["onclosepage", "onopenpage"] || !routines.iter().all(|r| r.is_trigger()) {
-        return None;
-    }
-    if !routines.iter().all(|r| calls_single_instance_codeunit(ws, e, &ext, r)) {
-        return None;
-    }
+    let rp = only_request_page(&ext)?;
+    logging_open_and_close(ws, e, &ext, &rp)?;
     let layout = only_section(&rp, "layout")?;
     no_properties(&layout)?;
     let add = only_section(&layout, "addafter")?;
     no_properties(&add)?;
-    let field = only_section(&add, "field")?;
     let [anchor] = add.args().try_into().ok()?;
-    let [_, source]: [String; 2] = field.args_raw().try_into().ok()?;
-    let own = crate::pages::plain_name(&source).is_some_and(|n| {
-        ext.var_decls()
-            .flat_map(|v| v.names())
-            .any(|v| v.eq_ignore_ascii_case(&n))
-    });
+    pinned_field(&ext, &only_section(&add, "field")?)?;
+    Some(anchor.to_ascii_lowercase())
+}
+
+/// The one `requestpage` section of `object`, when it states no property and declares no variable.
+fn only_request_page(object: &ast::Object) -> Option<ast::Section> {
+    let mut sections = object
+        .sections()
+        .filter(|s| s.name().eq_ignore_ascii_case("requestpage"));
+    let (Some(rp), None) = (sections.next(), sections.next()) else {
+        return None;
+    };
+    (rp.properties().next().is_none() && rp.var_decls().next().is_none()).then_some(rp)
+}
+
+/// The request page `rp` of object `o` declares exactly the triggers OnOpenPage and OnClosePage, each calling a procedure
+/// of a SingleInstance codeunit with one text literal (R7358XaIndependentReports.al:102-110,
+/// R7358XbIndependentReportExts.al:115-123).
+fn logging_open_and_close(ws: &Workspace, o: usize, object: &ast::Object, rp: &ast::Section) -> Option<()> {
+    let routines: Vec<ast::Routine> = rp.triggers().collect();
+    let mut names: Vec<String> = routines.iter().map(|r| r.name().to_ascii_lowercase()).collect();
+    names.sort_unstable();
+    (names == ["onclosepage", "onopenpage"]
+        && routines
+            .iter()
+            .all(|r| r.is_trigger() && calls_single_instance_codeunit(ws, o, object, r)))
+    .then_some(())
+}
+
+/// The name (lower case) of `field` when it is bound to a Boolean variable of `object` and states ApplicationArea and
+/// Caption and nothing else (R7358XaIndependentReports.al:94-98, R7358XbIndependentReportExts.al:107-111).
+fn pinned_field(object: &ast::Object, field: &ast::Section) -> Option<String> {
+    let [name, source]: [String; 2] = field.args_raw().try_into().ok()?;
+    let source = crate::pages::plain_name(&source)?;
+    let boolean = object
+        .var_decls()
+        .find(|v| v.names().iter().any(|n| n.eq_ignore_ascii_case(&source)))
+        .and_then(|v| v.type_ref())
+        .is_some_and(|t| t.text().eq_ignore_ascii_case("Boolean"));
     let mut props: Vec<String> = field.properties().map(|p| p.name().to_ascii_lowercase()).collect();
     props.sort_unstable();
-    (own && props == ["applicationarea", "caption"] && field.sections().next().is_none())
-        .then(|| anchor.to_ascii_lowercase())
+    (boolean && props == ["applicationarea", "caption"] && field.sections().next().is_none())
+        .then(|| al_syntax::ast::unquote_ident(&name).to_ascii_lowercase())
 }
 
 /// The one section of `parent` when it is named `name` and declares no trigger (`parent` holds no other section).
@@ -129,9 +154,12 @@ fn no_properties(s: &ast::Section) -> Option<()> {
     s.properties().next().is_none().then_some(())
 }
 
-/// Whether trigger `r` of reportextension `e` has no parameter and no local variable, and its body is one statement that
-/// calls a procedure of a variable of the extension whose type is a SingleInstance codeunit, with one text literal
-/// (R7358XbIndependentReportExts.al:115-123 `Log.Add('B:rp open');`, the log codeunit R7358XaIndependentReports.al:14-16).
+/// Whether trigger `r` of object `e` (a report or a reportextension) has no parameter and no local variable, and its body is
+/// one statement that calls a procedure of a global variable of the object whose type is a SingleInstance codeunit, with one
+/// text literal (R7358XbIndependentReportExts.al:115-123 `Log.Add('B:rp open');`, R7358XaIndependentReports.al:102-110),
+/// and that procedure is the only one of its name in the codeunit, has no attribute and takes one Text by value
+/// (R7358XaIndependentReports.al:14-24). What the procedure's body does is not checked here: an error it raises on the page
+/// is refused at run time (al-vm `pages/request_ok_only.rs`).
 fn calls_single_instance_codeunit(ws: &Workspace, e: usize, ext: &ast::Object, r: &ast::Routine) -> bool {
     if r.params().next().is_some() || r.local_var_decls().next().is_some() {
         return false;
@@ -151,7 +179,7 @@ fn calls_single_instance_codeunit(ws: &Workspace, e: usize, ext: &ast::Object, r
     let Some([callee, args]) = kids(&call, SyntaxKind::CallExpr).and_then(|k| <[_; 2]>::try_from(k).ok()) else {
         return false;
     };
-    let Some([var, _]) = kids(&callee, SyntaxKind::MemberExpr).and_then(|k| <[_; 2]>::try_from(k).ok()) else {
+    let Some([var, member]) = kids(&callee, SyntaxKind::MemberExpr).and_then(|k| <[_; 2]>::try_from(k).ok()) else {
         return false;
     };
     let Some([arg]) = kids(&args, SyntaxKind::ArgList).and_then(|k| <[_; 1]>::try_from(k).ok()) else {
@@ -176,17 +204,21 @@ fn calls_single_instance_codeunit(ws: &Workspace, e: usize, ext: &ast::Object, r
     let Resolution::Found(cu) = ws.resolve_ref(ws.objects[e].file, ObjKind::Codeunit, &ty.object_name_parts()) else {
         return false;
     };
-    ws.object_ast(cu)
+    let codeunit = ws.object_ast(cu);
+    let single_instance = codeunit
         .properties()
-        .any(|p| p.name().eq_ignore_ascii_case("SingleInstance") && p.value_text().trim().eq_ignore_ascii_case("true"))
-}
-
-/// Whether the request page `section` of a report declares a field control named `name` (lower case).
-fn has_field(section: &ast::Section, name: &str) -> bool {
-    section.sections().any(|s| {
-        (s.name().eq_ignore_ascii_case("field") && s.args().first().is_some_and(|a| a.eq_ignore_ascii_case(name)))
-            || has_field(&s, name)
-    })
+        .any(|p| p.name().eq_ignore_ascii_case("SingleInstance") && p.value_text().trim().eq_ignore_ascii_case("true"));
+    let procedure = al_syntax::ast::unquote_ident(member.text().to_string().trim());
+    let mut named = codeunit
+        .routines()
+        .filter(|p| p.name().eq_ignore_ascii_case(&procedure));
+    let (Some(callee), None) = (named.next(), named.next()) else {
+        return false;
+    };
+    let params: Vec<ast::Param> = callee.params().collect();
+    let text_by_value = matches!(params.as_slice(), [p] if !p.is_var()
+        && p.type_ref().is_some_and(|t| t.text().eq_ignore_ascii_case("Text")));
+    single_instance && callee.attributes().next().is_none() && text_by_value
 }
 
 /// The request page `section` states `SaveValues = true`.
