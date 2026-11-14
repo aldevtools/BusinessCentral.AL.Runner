@@ -406,13 +406,15 @@ impl Session {
         // GoToKey go on in the cells `empty_list_one_row.rs` admits; other calls are not pinned.
         if method.recv() != PageRecv::Page && std::mem::take(&mut st.borrow_mut().empty_list_row_behind) {
             let rec_left = std::mem::take(&mut st.borrow_mut().empty_list_rec_left);
+            let action_pinned = std::mem::take(&mut st.borrow_mut().empty_list_action_pinned);
             match name {
                 PageMethod::First
                     if st.borrow().open && st.borrow().cursor == Cursor::NewLine && !st.borrow().dirty =>
                 {
                     return self.first_after_empty_list_action(st);
                 }
-                _ if name == PageMethod::Close || self.one_row_behind_call_pinned(st, name, args, &rec_left)? => {}
+                _ if name == PageMethod::Close
+                    || self.one_row_behind_call_pinned(st, name, args, &rec_left, action_pinned)? => {}
                 _ => {
                     return unsupported(format!(
                         "TestPage.{} after an action stored a row behind the new-row line of an empty list (not pinned)",

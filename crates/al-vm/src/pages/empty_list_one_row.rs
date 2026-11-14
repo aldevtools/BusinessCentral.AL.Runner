@@ -56,8 +56,12 @@ impl Session {
         name: PageMethod,
         args: &[Value],
         rec_left: &[Value],
+        action_pinned: bool,
     ) -> Result<bool, Signal> {
         use PageMethod as M;
+        if !action_pinned {
+            return Ok(false);
+        }
         let delayed = self.page_property_true(st, "DelayedInsert");
         let cell = if delayed {
             matches!(name, M::OK | M::Next | M::Previous | M::Last | M::GoToKey)
@@ -97,6 +101,24 @@ impl Session {
             AFTER_MOVE
         });
         Ok(true)
+    }
+
+    /// At the flag site (`actions.rs`, `empty_page_after_action`): the action did what the pinned one did, and `found` is the one
+    /// row it stored. The tally says the action ran one report with its request page that did one plain `Insert()` into the
+    /// page's table and nothing else (`ActionTally::is_one_report_insert`); the row's key is the test's filter value and
+    /// Line No. 10000 (:82 `stored after action` `[P1 10000 by report 1]`, :58 `GoToKey('P1', 10000)`), and no CurrPage.Update
+    /// ran (the caller checked the refresh flag).
+    pub(super) fn one_row_action_pinned(&mut self, st: &St, found: &[Value]) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let (first, rest) = (table.keys[0][0], &table.keys[0][1..]);
+        let typed = {
+            let r = rec.borrow();
+            st.borrow().test_typed_filter(&r, first).map(str::to_uppercase)
+        };
+        Ok(matches!(rest, [second]
+                if matches!(found.get(first), Some(Value::Code(c)) if Some(c.as_str().to_string()) == typed)
+                    && matches!(found.get(*second), Some(Value::Integer(10000)))))
     }
 
     /// The test's calls on `st` since the open, the running one (`name`) last: the filter (`Pg.Filter.SetFilter`), one action's
@@ -156,5 +178,70 @@ impl Session {
         }
         let key = self.row_key(&probe)?;
         Ok(Self::same_key(&key, args))
+    }
+
+    /// First on a list that went back to its new-row line with one row behind it (see `pageops.rs`): the row is read twice, then
+    /// OnAfterGetCurrRecord with xRec on it.
+    pub(super) fn first_after_empty_list_action(&mut self, st: &St) -> Result<Value, Signal> {
+        let rec = self.page_rec(st);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        if !matches!(
+            self.record_op(RecordOp::FindFirst, &probe, &mut [])?,
+            Value::Boolean(true)
+        ) {
+            return unsupported("First after the row behind the new-row line of an empty list is gone (not pinned)");
+        }
+        let fields = probe.borrow().fields.clone();
+        rec.borrow_mut().fields = fields.clone();
+        {
+            let mut s = st.borrow_mut();
+            s.cursor = Cursor::Row;
+            s.draft = false;
+            s.dirty = false;
+        }
+        // The other rows of the view, which the client read after the action (`empty_page_after_action` with two rows or more).
+        let mut rest = Vec::new();
+        loop {
+            self.ret_used = true;
+            if !matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0)
+            {
+                break;
+            }
+            let f = probe.borrow().fields.clone();
+            rest.push(crate::pages::WindowRow {
+                key: self.table(&probe)?.primary_key(&f),
+                stored: f.clone(),
+                shown: f,
+            });
+            if rest.len() >= Self::WINDOW {
+                return unsupported(
+                    "First after an action stored more rows than a window behind the new-row line of an empty list (not pinned)",
+                );
+            }
+        }
+        self.populate_current(st)?;
+        self.populate_current(st)?;
+        let key = self.row_key(&rec)?;
+        {
+            let shown = rec.borrow().fields.clone();
+            let mut s = st.borrow_mut();
+            s.window = vec![crate::pages::WindowRow {
+                key,
+                stored: fields,
+                shown,
+            }];
+            s.window_from_start = true;
+            // With more rows the client holds them all and walks them as on a list it opened, then onto its new-row line
+            // (RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenWalk `walk log = R:10000;R:10000;C:10000;R:20000;R:20000;
+            // C:20000;N:0;C:0;`; registered assumption `empty-worksheet-filled-by-action`).
+            if !rest.is_empty() {
+                s.window.extend(rest);
+                s.view_read_to_end = true;
+            }
+        }
+        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+        self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+        Ok(Value::Boolean(true))
     }
 }

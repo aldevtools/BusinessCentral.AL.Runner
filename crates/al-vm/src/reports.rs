@@ -1562,7 +1562,7 @@ impl Session {
                 );
             }
         }
-        let shows_page = entry == Entry::Run && window;
+        let shows_page = self.note_report_start(entry == Entry::Run && window);
         self.report.report_preview_pinned.push(match entry {
             Entry::Run => crate::state::ReportStart::Run,
             Entry::Execute | Entry::Print => crate::state::ReportStart::Execute,

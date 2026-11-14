@@ -219,6 +219,7 @@ mod filter_option_ne;
 mod modal_handler_error;
 mod page_run_close;
 pub(crate) use page_run_close::PageRunCall;
+pub(crate) mod action_tally;
 mod blank_enum_rows;
 mod empty_list_one_row;
 mod param_read;

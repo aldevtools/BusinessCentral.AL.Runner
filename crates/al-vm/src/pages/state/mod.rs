@@ -566,6 +566,9 @@ pub struct PageState {
     /// Rec's fields as the action that set `empty_list_row_behind` left them, before the list went back to its new-row line;
     /// set and taken with that flag (`empty_list_one_row.rs`).
     pub empty_list_rec_left: Vec<Value>,
+    /// The action that set `empty_list_row_behind` did what the one-row pin's action did (`empty_list_one_row.rs`,
+    /// `Session::one_row_action_pinned`); set and taken with that flag.
+    pub empty_list_action_pinned: bool,
     /// An action put a list that showed stored rows on a row the client did not hold before it (an insert through Rec): what a
     /// move reads next is not pinned (testpage/PnGShowRow.al:144 NonEmptyListInsertViaRec `first-after` reads
     /// nothing, the Next after it reads the row it lands on twice); a move is refused.
@@ -938,9 +941,10 @@ impl std::fmt::Debug for PageState {
 
 impl PageState {
     /// Sets `empty_list_row_behind` to `behind`, with Rec's fields as the action left them (`empty_list_rec_left`).
-    pub(crate) fn set_row_behind(&mut self, behind: bool, rec_left: Vec<Value>) {
+    pub(crate) fn set_row_behind(&mut self, behind: bool, rec_left: Vec<Value>, action_pinned: bool) {
         self.empty_list_row_behind = behind;
         self.empty_list_rec_left = rec_left;
+        self.empty_list_action_pinned = action_pinned;
     }
 
     /// The page is one the test's own `TestPage.OpenEdit` opened, at the top level: not a page AL code ran that the test
