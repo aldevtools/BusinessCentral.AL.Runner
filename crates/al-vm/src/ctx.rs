@@ -137,6 +137,14 @@ impl al_builtins::native::Ctx for Session {
     fn gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
     }
+    fn error_text_raise(&self) -> Result<(), Signal> {
+        // An Error of a CaptionClass run is measured only where `CaptionDialogs` lets it raise (record/captions/
+        // CaptionClassStateFreeCalls.al:919-936, al-runner issue 7391).
+        match self.caption_dialog_refusal("Error", true) {
+            Some(why) => Err(Signal::unsupported(why)),
+            None => Ok(()),
+        }
+    }
     fn translated_app_read(&self, app: &str, what: &str) -> Result<(), Signal> {
         Session::translated_app_read(self, app, what)
     }

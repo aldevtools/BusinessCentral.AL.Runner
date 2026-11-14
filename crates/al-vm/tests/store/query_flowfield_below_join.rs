@@ -16,7 +16,13 @@ table 50296 Contact
 
 table 50297 Line
 {
-    fields { field(1; "Line No."; Integer) { } field(2; "Contact No."; Code[10]) { } field(3; "Header No."; Code[10]) { } }
+    fields
+    {
+        field(1; "Line No."; Integer) { }
+        field(2; "Contact No."; Code[10]) { }
+        field(3; "Header No."; Code[10]) { }
+        field(4; "Hdr Customer"; Code[10]) { FieldClass = FlowField; CalcFormula = lookup(Header."Customer No." where("No." = field("Header No."))); }
+    }
     keys { key(PK; "Line No.") { Clustered = true; } }
 }
 
@@ -30,13 +36,15 @@ table 50298 Header
         field(11; "Line Count"; Integer) { FieldClass = FlowField; CalcFormula = count(Line where("Header No." = field("No."))); }
         field(12; "Has Customer"; Boolean) { FieldClass = FlowField; CalcFormula = exist(Customer where("No." = field("Customer No."))); }
         field(13; "Min Line"; Integer) { FieldClass = FlowField; CalcFormula = min(Line."Line No." where("Header No." = field("No."))); }
+        field(14; "Customer Amount"; Decimal) { FieldClass = FlowField; CalcFormula = lookup(Customer.Amount where("No." = field("Customer No."))); }
+        field(15; "Line One Count"; Integer) { FieldClass = FlowField; CalcFormula = count(Line where("Header No." = field("No."), "Line No." = const(1))); }
     }
     keys { key(PK; "No.") { Clustered = true; } }
 }
 
 table 50299 Customer
 {
-    fields { field(1; "No."; Code[10]) { } field(2; Name; Text[30]) { } }
+    fields { field(1; "No."; Code[10]) { } field(2; Name; Text[30]) { } field(3; Amount; Decimal) { } }
     keys { key(PK; "No.") { Clustered = true; } }
 }
 "#;
@@ -111,6 +119,133 @@ query 50298 MinBelowJoin
                     DataItemLink = "No." = Line."Header No.";
                     SqlJoinType = LeftOuterJoin;
                     filter(Hdr_Min_Line; "Min Line") { }
+                }
+            }
+        }
+    }
+}
+
+query 50299 OrderByFlagged
+{
+    OrderBy = ascending(Hdr_Customer_Name);
+    elements
+    {
+        dataitem(Contact; Contact)
+        {
+            column(ContactNo; "No.") { }
+            dataitem(Line; Line)
+            {
+                DataItemLink = "Contact No." = Contact."No.";
+                SqlJoinType = LeftOuterJoin;
+                column(LineNo; "Line No.") { }
+                dataitem(Hdr; Header)
+                {
+                    DataItemLink = "No." = Line."Header No.";
+                    SqlJoinType = LeftOuterJoin;
+                    column(HdrNo; "No.") { }
+                    column(Hdr_Customer_Name; "Customer Name") { }
+                }
+            }
+        }
+    }
+}
+
+query 50300 TopProperty
+{
+    OrderBy = ascending(ContactNo), ascending(LineNo);
+    TopNumberOfRows = 2;
+    elements
+    {
+        dataitem(Contact; Contact)
+        {
+            column(ContactNo; "No.") { }
+            dataitem(Line; Line)
+            {
+                DataItemLink = "Contact No." = Contact."No.";
+                SqlJoinType = InnerJoin;
+                column(LineNo; "Line No.") { }
+                dataitem(Hdr; Header)
+                {
+                    DataItemLink = "No." = Line."Header No.";
+                    SqlJoinType = LeftOuterJoin;
+                    column(HdrNo; "No.") { }
+                    filter(Hdr_Customer_Name; "Customer Name") { }
+                }
+            }
+        }
+    }
+}
+
+query 50301 OtherKinds
+{
+    OrderBy = ascending(ContactNo), ascending(LineNo);
+    elements
+    {
+        dataitem(Contact; Contact)
+        {
+            column(ContactNo; "No.") { }
+            dataitem(Line; Line)
+            {
+                DataItemLink = "Contact No." = Contact."No.";
+                SqlJoinType = InnerJoin;
+                column(LineNo; "Line No.") { }
+                dataitem(Hdr; Header)
+                {
+                    DataItemLink = "No." = Line."Header No.";
+                    SqlJoinType = LeftOuterJoin;
+                    column(HdrNo; "No.") { }
+                    filter(Hdr_Customer_Amount; "Customer Amount") { }
+                }
+            }
+        }
+    }
+}
+
+query 50302 ConstCount
+{
+    OrderBy = ascending(ContactNo), ascending(LineNo);
+    elements
+    {
+        dataitem(Contact; Contact)
+        {
+            column(ContactNo; "No.") { }
+            dataitem(Line; Line)
+            {
+                DataItemLink = "Contact No." = Contact."No.";
+                SqlJoinType = InnerJoin;
+                column(LineNo; "Line No.") { }
+                dataitem(Hdr; Header)
+                {
+                    DataItemLink = "No." = Line."Header No.";
+                    SqlJoinType = LeftOuterJoin;
+                    column(HdrNo; "No.") { }
+                    filter(Hdr_Line_One_Count; "Line One Count") { }
+                }
+            }
+        }
+    }
+}
+
+query 50303 ChildFlow
+{
+    OrderBy = ascending(ContactNo), ascending(LineNo);
+    elements
+    {
+        dataitem(Contact; Contact)
+        {
+            column(ContactNo; "No.") { }
+            dataitem(Line; Line)
+            {
+                DataItemLink = "Contact No." = Contact."No.";
+                SqlJoinType = InnerJoin;
+                column(LineNo; "Line No.") { }
+                column(LineCustomer; "Hdr Customer") { }
+                dataitem(Hdr; Header)
+                {
+                    DataItemLink = "No." = Line."Header No.";
+                    SqlJoinType = LeftOuterJoin;
+                    column(HdrNo; "No.") { }
+                    filter(Hdr_Customer_Name; "Customer Name") { }
                 }
             }
         }
@@ -214,6 +349,66 @@ codeunit 50296 C
         Q.Open();
         exit('opened');
     end;
+
+    procedure OrderByFlagged(): Text
+    var
+        Q: Query OrderByFlagged;
+    begin
+        Q.Open();
+        exit('opened');
+    end;
+
+    procedure TopProperty(): Text
+    var
+        Q: Query TopProperty;
+    begin
+        Q.Open();
+        exit('opened');
+    end;
+
+    procedure TopCall(): Text
+    var
+        Q: Query InnerOuterFilter;
+    begin
+        Seed();
+        Q.SetFilter(Hdr_Customer_Name, '<>Alpha');
+        Q.TopNumberOfRows(2);
+        Q.Open();
+        Q.Read();
+        exit('read');
+    end;
+
+    procedure OtherKinds(): Text
+    var
+        Q: Query OtherKinds;
+    begin
+        Q.Open();
+        exit('opened');
+    end;
+
+    procedure ConstCount(): Text
+    var
+        Q: Query ConstCount;
+    begin
+        Q.Open();
+        exit('opened');
+    end;
+
+    procedure ChildFlow(): Text
+    var
+        Q: Query ChildFlow;
+    begin
+        Q.Open();
+        exit('opened');
+    end;
+
+    procedure GetFilterOne(): Text
+    var
+        Q: Query InnerOuterFilter;
+    begin
+        Q.SetFilter(Hdr_Customer_Name, '<>Alpha');
+        exit(Q.GetFilter(Hdr_Customer_Name));
+    end;
 }
 "#;
 
@@ -259,4 +454,29 @@ fn a_min_flowfield_below_the_join_keeps_the_refusal() {
         Err(Signal::Unsupported(why)) => assert!(why.to_string().contains("outer-joined dataitem"), "{why}"),
         other => panic!("expected a refusal, got {other:?}"),
     }
+}
+
+/// Query facts the probe did not have keep main's refusal (QueryOuterFlowBelowJoin.al:99-281 has OrderBy on the top and the
+/// child's columns, no TopNumberOfRows, a Text Lookup, a Count and an Exist whose CalcFormula links by field only, and no
+/// FlowField column on the other dataitems; it reads GetFilters only): OrderBy on the flagged column, TopNumberOfRows as the
+/// property and as a call, a Decimal Lookup, a Count with a const filter, a FlowField column on the child, GetFilter of the
+/// column.
+#[test]
+fn query_facts_the_probe_did_not_have_keep_the_refusal() {
+    let ran: Vec<String> = [
+        "OrderByFlagged",
+        "TopProperty",
+        "OtherKinds",
+        "ConstCount",
+        "ChildFlow",
+        "TopCall",
+        "GetFilterOne",
+    ]
+    .into_iter()
+    .filter_map(|name| match al_testkit::run(&src(), name) {
+        Err(Signal::Unsupported(_)) => None,
+        other => Some(format!("{name}: {other:?}")),
+    })
+    .collect();
+    assert!(ran.is_empty(), "expected refusals: {ran:?}");
 }

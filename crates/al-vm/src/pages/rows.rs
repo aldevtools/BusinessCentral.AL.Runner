@@ -116,21 +116,8 @@ impl Session {
             let Value::Record(empty) = self.default_value(&RtType::Record(t.object, false)) else {
                 return unsupported("an empty record of the page's source table");
             };
-            // How many times: writer SX pinned it for a Card or a List opened with OpenView or OpenEdit over a table with one
-            // CaptionClass expression field (Card 8, List 7) or two with the same expression (Card 18, List 16 in all; corpus
-            // record/captions/SxCaptionClassCount.al:190 SX_CardOne_OpenEdit, :236 SX_CardTwo_OpenEdit, :282
-            // SX_ListOne_OpenEdit, :328 SX_ListTwo_OpenEdit and their OpenView twins, the same in three cycles on every
-            // supported major; al-runner issue 5870).
-            if let Some(runs) = self.caption_empty_runs_pinned(st, &exprs) {
-                for _ in 0..runs {
-                    for (pos, expr) in &exprs {
-                        self.field_caption_class_value(&t, *pos, Some(&empty), expr)?;
-                    }
-                }
-            } else {
-                self.run_caption_empty_unpinned(&t, &exprs, &empty)?;
-                return self
-                    .with_caption_dialogs_refused(|this| this.fill_field_captions_with_row(st, &t, &exprs, runs));
+            if self.run_caption_open_empty_runs(st, &t, &exprs, &empty)? {
+                return Ok(());
             }
         } else {
             // The other rows the open reads and a Next() run no expression, and Caption() keeps the open's value

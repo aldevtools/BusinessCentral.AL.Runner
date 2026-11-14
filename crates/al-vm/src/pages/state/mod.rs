@@ -202,8 +202,8 @@ pub struct PageState {
     pub field_captions: Vec<(usize, String)>,
     /// The open ran the CaptionClass expressions of the source table's fields with an empty record (`field_captions`).
     pub field_captions_opened: bool,
-    /// The open ran the empty-record CaptionClass runs without a pinned number: a dialog raised by a later row run of the
-    /// page refuses (`Session::fill_field_captions_with_row`).
+    /// The open ran the empty-record CaptionClass runs without a pinned number, or in a cell of `Session::caption_state_free_pin`:
+    /// a dialog or an Error with a text raised by a later row run of the page refuses (`Session::fill_field_captions_with_row`).
     pub caption_dialogs_refused: bool,
     /// The open has filled its first rows (`field_captions` no longer changes at the fills of the open itself).
     pub field_captions_settled: bool,

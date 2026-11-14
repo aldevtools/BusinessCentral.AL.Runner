@@ -486,11 +486,11 @@ fn get_table_on_local(id: al_builtins::builtin_id::BuiltinId, receiver: Option<&
     id.name() == "RecordRef.GetTable#1" && receiver.and_then(local_slot).is_some()
 }
 
-/// Message, Confirm and Error: whether a run raises one is a fact of the run, so the walk lets them through. On a page whose
-/// empty-record runs have no pinned number, a dialog raised by any of its CaptionClass runs refuses
-/// (`Session::run_caption_empty_unpinned`, `Session::fill_field_captions_with_row`); an error ends the open at its first run
-/// whatever the number (record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc, not taken with the empty record,
-/// :655-701; the taken Error branch fails the open at :919-936; al-runner issue 7391).
+/// Message, Confirm and Error with a text: whether a run raises one is a fact of the run, so the walk lets them through
+/// (record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc, not taken with the empty record, :640-701; al-runner issue
+/// 7391). On a page whose empty-record runs have no pinned number, each of them refuses when any CaptionClass run of the page
+/// raises it (`pages::CaptionDialogs::Refused`, set by `Session::run_caption_empty_unpinned` and kept for the page's later row
+/// runs by `Session::fill_field_captions_with_row`).
 fn dialog_checked_at_run_time(id: al_builtins::builtin_id::BuiltinId) -> bool {
     let name = id.name();
     // Error with a text (not with an ErrorInfo, which can be collected instead of raised).

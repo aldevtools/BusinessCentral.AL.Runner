@@ -306,13 +306,10 @@ impl Session {
         shown: &str,
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
-        // How many dialogs a handler sees depends on how many times the runs ran (record/captions/
-        // CaptionClassStateFreeCalls.al:168-181, al-runner issue 7391).
-        if self.pages.caption_runs_unpinned {
-            return Err(Signal::unsupported(format!(
-                "{} raised by a CaptionClass expression on a page whose number of CaptionClass runs is not pinned",
-                kind.label()
-            )));
+        // A dialog of a CaptionClass run is measured only where `CaptionDialogs` lets it run (record/captions/
+        // CaptionClassStateFreeCalls.al:891-914, al-runner issue 7391).
+        if let Some(why) = self.caption_dialog_refusal(kind.label(), kind == UiKind::Message) {
+            return Err(Signal::unsupported(why));
         }
         let Some(scope) = self.ui_state.scope.as_mut() else {
             return Err(Signal::unsupported(format!(

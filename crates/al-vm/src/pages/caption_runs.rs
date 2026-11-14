@@ -25,7 +25,7 @@ impl Session {
     /// And by writer Y61 (testpage/Y61CaptionClassCount.al, three cycles alike on every major): on a List each field
     /// runs 9 times for three fields with the same text (:540), 10 for four fields with different or the same texts (:468, :516),
     /// 21 for fifteen fields with different texts (:564); a Worksheet as a List (:492 four fields, :639 one). `None` for any other shape: the counts are pinned per number of fields only.
-    pub(super) fn caption_empty_runs_pinned(&self, st: &St, exprs: &[(usize, String)]) -> Option<usize> {
+    fn caption_empty_runs_pinned(&self, st: &St, exprs: &[(usize, String)]) -> Option<usize> {
         use al_ir::PageType;
         let page_type = {
             let s = st.borrow();
@@ -34,9 +34,6 @@ impl Session {
             }
             self.engine.object_facts[s.object as usize].page_type.clone()
         };
-        if let Some(runs) = self.caption_empty_runs_six_fields(st, page_type.as_ref(), exprs) {
-            return Some(runs);
-        }
         let card = match page_type {
             Some(PageType::Card) => true,
             Some(PageType::List) => false,
@@ -65,73 +62,201 @@ impl Session {
         }
     }
 
-    /// Runs `f` with every dialog refused (`Session::dispatch_ui_returning`): the CaptionClass runs of a page open whose empty-record
-    /// runs are not pinned, the row runs of that open included (a dialog in a row run of such an open is not measured either).
-    pub(super) fn with_caption_dialogs_refused<T>(
+    /// The empty-record runs of the open of page `st`; `Ok(true)` when the open's row run ran too (`caption_state_free_pin`).
+    /// How many times: writer SX pinned it for a Card or a List opened with OpenView or OpenEdit over a table with one CaptionClass
+    /// expression field (Card 8, List 7) or two with the same expression (Card 18, List 16 in all; corpus
+    /// record/captions/SxCaptionClassCount.al:190 SX_CardOne_OpenEdit, :236 SX_CardTwo_OpenEdit, :282 SX_ListOne_OpenEdit, :328
+    /// SX_ListTwo_OpenEdit and their OpenView twins, the same in three cycles on every supported major; al-runner issue 5870),
+    /// and the other cells of `caption_empty_runs_pinned`.
+    pub(super) fn run_caption_open_empty_runs(
         &mut self,
+        st: &St,
+        t: &al_data::TableDef,
+        exprs: &[(usize, String)],
+        empty: &Rec,
+    ) -> Result<bool, Signal> {
+        if self.run_caption_open_state_free(st, t, exprs, empty)? {
+            return Ok(true);
+        }
+        match self.caption_empty_runs_pinned(st, exprs) {
+            Some(runs) => {
+                for _ in 0..runs {
+                    for (pos, expr) in exprs {
+                        self.field_caption_class_value(t, *pos, Some(empty), expr)?;
+                    }
+                }
+            }
+            // The open's row run and those of later moves refuse a dialog too (`PageState::caption_dialogs_refused`).
+            None => self.run_caption_empty_unpinned(st, t, exprs, empty)?,
+        }
+        Ok(false)
+    }
+
+    /// Runs `f` with `dialogs` in force for the dialogs and errors the CaptionClass runs inside it raise
+    /// (`Session::dispatch_ui_returning`, `Ctx::error_text_raise`).
+    fn with_caption_dialogs<T>(
+        &mut self,
+        dialogs: CaptionDialogs,
         f: impl FnOnce(&mut Self) -> Result<T, Signal>,
     ) -> Result<T, Signal> {
-        let outer = std::mem::replace(&mut self.pages.caption_runs_unpinned, true);
+        let outer = std::mem::replace(&mut self.pages.caption_dialogs, dialogs);
         let r = f(self);
-        self.pages.caption_runs_unpinned = outer;
+        self.pages.caption_dialogs = outer;
         r
     }
 
-    /// The cells of record/captions/CaptionClassStateFreeCalls.al (table 62412 at :218-232: six fields, four of them with
-    /// CaptionClass expressions of different texts), three cycles alike on BC 27, 28 and 29:
-    /// - a Card opened with OpenEdit whose five field controls show Id and the four expression fields: 11 runs each (:907, :934, :980; page 62415
-    ///   at :444-461);
-    /// - a CardPart opened alone with OpenView whose one field control shows one of them: 6 runs each (:1013; page 62416 at :463-478).
-    ///
-    /// The caller has checked: no host, not modal, OpenView or OpenEdit.
-    fn caption_empty_runs_six_fields(
-        &self,
-        st: &St,
-        page_type: Option<&al_ir::PageType>,
-        exprs: &[(usize, String)],
-    ) -> Option<usize> {
-        use al_ir::PageType;
-        let distinct = exprs.len() == 4
-            && exprs
-                .iter()
-                .enumerate()
-                .all(|(i, (_, e))| exprs[..i].iter().all(|(_, o)| o.trim() != e.trim()));
+    /// The refusal of a dialog `what` (`Message`, `Confirm`, `Error`, ...) raised while `pages.caption_dialogs` is in force; `None`
+    /// lets it run. `message_or_error`: a Message, or an Error with a text.
+    pub(crate) fn caption_dialog_refusal(&self, what: &str, message_or_error: bool) -> Option<String> {
+        match (self.pages.caption_dialogs, message_or_error) {
+            (CaptionDialogs::Free, _) | (CaptionDialogs::OpenRowMessageOrError, true) => None,
+            _ => Some(format!(
+                "{what} raised by a CaptionClass expression on a page where BC's runs with that dialog are not measured \
+                 (al-runner issue 7391)"
+            )),
+        }
+    }
+
+    /// The cells of record/captions/CaptionClassStateFreeCalls.al with their number of empty-record runs, three cycles alike on
+    /// BC 27, 28 and 29. Every fact is the probe's, by equality:
+    /// - the source table has six fields, of them the third to sixth with CaptionClass expressions of four different texts
+    ///   (table 62412 at :218-232);
+    /// - the page declares PageType and SourceTable, the Card also UsageCategory = None (:444-448, :463-466); no trigger, no
+    ///   action, no page extension and no event subscriber of the page;
+    /// - the test opened it itself on a row (`SeedCountRow` before the open; one row at :896, :924, :996, three at :947-949);
+    /// - a Card opened with OpenEdit whose five field controls show the first field and the four expression fields in field order,
+    ///   directly in the content area, with ApplicationArea = All only (:454-458): 11 runs each (:907, :934, :980); its open's row run
+    ///   lets a Message (:889-915) and an Error with a text (:917-937) through;
+    /// - a CardPart opened alone with OpenView whose one cuegroup holds one field control over the first expression field
+    ///   (:470-476): 6 runs each (:1013).
+    fn caption_state_free_pin(&self, st: &St, exprs: &[(usize, String)]) -> Option<StateFreePin> {
+        use al_ir::{ControlKind, PageType};
+        let (card_open, part_open, on_row, object) = {
+            let s = st.borrow();
+            (
+                s.test_open_edit(),
+                s.test_open_view(),
+                s.cursor == Cursor::Row,
+                s.object as usize,
+            )
+        };
+        let positions: Vec<usize> = exprs.iter().map(|(pos, _)| *pos).collect();
+        let distinct = exprs
+            .iter()
+            .enumerate()
+            .all(|(i, (_, e))| exprs[..i].iter().all(|(_, o)| o.trim() != e.trim()));
         let table = self.page_rec(st).borrow().table as usize;
-        let fields = self.engine.tables[table]
-            .as_ref()
-            .map_or(0, |t| t.fields.iter().filter(|f| f.id < 2_000_000_000).count());
-        if !distinct || fields != 6 {
+        let t = self.engine.tables[table].as_ref()?;
+        if positions != [2, 3, 4, 5] || !distinct || t.fields.iter().filter(|f| f.id < 2_000_000_000).count() != 6 {
+            return None;
+        }
+        if !on_row || !self.unextended_unsubscribed(st) {
             return None;
         }
         let engine = self.engine();
         let page = page_of(&engine, st);
-        let t = self.engine.tables[table].as_ref()?;
-        let bound: Vec<_> = (0..page.controls.len())
-            .filter_map(|idx| self.control_field(st, idx))
-            .collect();
-        let shown = bound
+        if !page.triggers.is_empty() || !page.ext_triggers.is_empty() || !page.action_areas.is_empty() {
+            return None;
+        }
+        let mut props: Vec<(String, String)> = engine.program.objects[object]
+            .properties
             .iter()
-            .filter(|f| exprs.iter().any(|(pos, _)| t.fields[*pos].id == f.id))
-            .count();
-        let mode = st.borrow().mode;
-        // (field controls, of them over an expression field): Id and the four (:454-458), the one cue (:474).
-        match (page_type?, mode, bound.len(), shown) {
-            (PageType::Card, PageMode::Edit, 5, 4) => Some(11),
-            (PageType::Other(kind), PageMode::View, 1, 1) if kind == "cardpart" => Some(6),
+            .map(|(k, v)| (k.to_ascii_lowercase(), v.trim().to_ascii_lowercase()))
+            .filter(|(k, _)| k != "sourcetable")
+            .collect();
+        props.sort();
+        let plain_field = |idx: usize, parent: Option<usize>| {
+            let c = &page.controls[idx];
+            c.kind == ControlKind::Field
+                && c.parent == parent
+                && c.owner.is_none()
+                && c.triggers.is_empty()
+                && c.ext_triggers.is_empty()
+                && matches!(c.props.as_slice(), [(n, al_ir::PropVal::Lit(v))]
+                    if n == "applicationarea" && v.trim().eq_ignore_ascii_case("All"))
+        };
+        let field_pos = |idx: usize| {
+            let id = self.control_field(st, idx)?.id;
+            t.fields.iter().position(|f| f.id == id)
+        };
+        let page_type = engine.object_facts[object].page_type.as_ref()?;
+        let n = page.controls.len();
+        match page_type {
+            PageType::Card
+                if card_open
+                    && props
+                        == [
+                            ("pagetype".into(), "card".into()),
+                            ("usagecategory".into(), "none".into()),
+                        ]
+                    && n == 5
+                    && (0..n).all(|i| plain_field(i, None))
+                    && (0..n).map(field_pos).collect::<Option<Vec<_>>>()? == [0, 2, 3, 4, 5] =>
+            {
+                Some(StateFreePin {
+                    runs: 11,
+                    open_row: CaptionDialogs::OpenRowMessageOrError,
+                })
+            }
+            PageType::Other(kind)
+                if kind == "cardpart"
+                    && part_open
+                    && props == [("pagetype".into(), "cardpart".into())]
+                    && n == 2
+                    && page.controls[0].kind == ControlKind::CueGroup
+                    && page.controls[0].parent.is_none()
+                    && page.controls[0].props.is_empty()
+                    && page.controls[0].triggers.is_empty()
+                    && plain_field(1, Some(0))
+                    && field_pos(1)? == 2 =>
+            {
+                Some(StateFreePin {
+                    runs: 6,
+                    open_row: CaptionDialogs::Refused,
+                })
+            }
             _ => None,
         }
+    }
+
+    /// The open of a page in a cell of `caption_state_free_pin`: the empty-record runs and the row run, with every dialog and
+    /// error refused but those of the open's row run the probe measured. Later row runs of the page refuse them too
+    /// (`PageState::caption_dialogs_refused`).
+    fn run_caption_open_state_free(
+        &mut self,
+        st: &St,
+        t: &al_data::TableDef,
+        exprs: &[(usize, String)],
+        empty: &Rec,
+    ) -> Result<bool, Signal> {
+        let Some(pin) = self.caption_state_free_pin(st, exprs) else {
+            return Ok(false);
+        };
+        st.borrow_mut().caption_dialogs_refused = true;
+        self.with_caption_dialogs(CaptionDialogs::Refused, |this| {
+            for _ in 0..pin.runs {
+                for (pos, expr) in exprs {
+                    this.field_caption_class_value(t, *pos, Some(empty), expr)?;
+                }
+            }
+            Ok(())
+        })?;
+        self.with_caption_dialogs(pin.open_row, |this| {
+            this.fill_field_captions_with_row_unguarded(st, t, exprs, 1)
+        })?;
+        Ok(true)
     }
 
     /// The empty-record runs of a page open whose number is not pinned (the corpus saw 240, 480 and 492 calls for one 12-field
     /// Card open, record/captions/QdCaptionClassAreas.al:657). The number matters only when an expression leaves something
     /// behind that AL code can read later: such an open is refused (`effects.rs`). Every open that runs them is a flagged pass at
-    /// best (owner decision 2026-10-21). A dialog that a run raises is a trace too, so it refuses there (the run-time half of
-    /// `effects.rs`: the walk lets an expression reach Message and Confirm, as long as no run takes that branch;
-    /// record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc with an empty record, al-runner issue 7391). An error ends
-    /// the open at the first run whatever the number, as on main (format-evaluate/autoformat/TestCaptionClassResolverFailure.al:116
-    /// for an error raised while a page open resolves a caption).
-    pub(super) fn run_caption_empty_unpinned(
+    /// best (owner decision 2026-10-21). A dialog or an Error with a text that a run raises refuses, here and in the page's later
+    /// row runs (`PageState::caption_dialogs_refused`): the run-time half of `effects.rs`, whose walk lets an expression reach
+    /// them as long as no run takes that branch (record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc with an empty
+    /// record, al-runner issue 7391).
+    fn run_caption_empty_unpinned(
         &mut self,
+        st: &St,
         t: &al_data::TableDef,
         exprs: &[(usize, String)],
         empty: &Rec,
@@ -140,7 +265,8 @@ impl Session {
             return unsupported(why);
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount);
-        self.with_caption_dialogs_refused(|this| {
+        st.borrow_mut().caption_dialogs_refused = true;
+        self.with_caption_dialogs(CaptionDialogs::Refused, |this| {
             for _ in 0..20 {
                 for (pos, expr) in exprs {
                     this.field_caption_class_value(t, *pos, Some(empty), expr)?;
@@ -181,8 +307,9 @@ impl Session {
         runs: usize,
     ) -> Result<(), Signal> {
         if st.borrow().caption_dialogs_refused {
-            return self
-                .with_caption_dialogs_refused(|this| this.fill_field_captions_with_row_unguarded(st, t, exprs, runs));
+            return self.with_caption_dialogs(CaptionDialogs::Refused, |this| {
+                this.fill_field_captions_with_row_unguarded(st, t, exprs, runs)
+            });
         }
         self.fill_field_captions_with_row_unguarded(st, t, exprs, runs)
     }
@@ -220,4 +347,27 @@ impl Session {
         st.borrow_mut().field_captions_row = Some(rec.borrow().fields.clone());
         Ok(())
     }
+}
+
+/// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CaptionDialogs {
+    /// No guarded run is in progress: a dialog runs as anywhere else (the pinned counts of writers SX and Y61, as on main).
+    #[default]
+    Free,
+    /// Every dialog (Message, Confirm, any other) and every Error with a text refuses: the runs of a page whose empty-record count
+    /// is not pinned (the walk of `effects.rs` let the expression reach them only on that condition), and every run of a
+    /// `caption_state_free_pin` page but the open's row run of its Card.
+    Refused,
+    /// The open's row run of the Card of `caption_state_free_pin`: a Message and an Error with a text run, as the probe measured
+    /// (record/captions/CaptionClassStateFreeCalls.al:891-936); any other dialog refuses.
+    OpenRowMessageOrError,
+}
+
+/// A cell of `Session::caption_state_free_pin`.
+struct StateFreePin {
+    /// Empty-record runs of each expression.
+    runs: usize,
+    /// What the open's row run may raise.
+    open_row: CaptionDialogs,
 }
