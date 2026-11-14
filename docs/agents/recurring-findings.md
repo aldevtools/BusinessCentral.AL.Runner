@@ -36,6 +36,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
     differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it
     was read).
+  - an Insert cell checked without "no row has the key": the probe inserted a new key. An Insert of a stored key has a
+    second error (the duplicate) and its order against the measured error is not measured. Require that no row has the
+    key in every Insert cell of a deferred or raised error, through one helper (al-runner PRs 8058 and 8111).
   - "the test's filter" read from "filter group 0": page code (OnOpenPage, the record handed to Page.Run) writes group 0
     too. Keep which fields the test filtered, with the typed text, on the page state and require that (al-runner PR 8009).
   - the record handed to Page.Run checked by its filters and key only: its field values are state the page's code reads
@@ -110,6 +113,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a gate that checks the extension's side of a page and not the base's: the base request page (properties, triggers, the
     number and place of its fields) and the call that opened and closed the page are pinned facts too. Require the base
     object's shape, and name the measured open and close calls (al-runner PR 8053).
+  - the rows of a pinned table checked by key only: the other field values are what the page's code reads (a caption
+    expression, a trigger). Require every field of every measured row by equality (al-runner PR 8113; the same miss for a
+    handed record in PR 8009).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
@@ -124,6 +130,9 @@ refusal on a shape main ran is a regression, often in Base App code that partner
 - Work moved to the open (a resolve, a fill) carries every refusal of the function it calls to tests that never read the
   value. Before the move, require in the gate every fact that function refuses on, and return to main's path when one fails
   (al-runner PR 8052).
+- A new measured open that sets a `PinnedEnd` on a page main ran without one: every test call beyond the pinned end now
+  refuses. Before a page moves from main's path (or from a "skip" entry) to a measured path, run a handler that moves, writes
+  and invokes on it with the main binary; keep main's path where main answered (al-runner PR 8108).
 
 ## 3. Text that does not match the code or CI (comments 13, pull request body or ADR 9)
 
@@ -271,3 +280,9 @@ are pinned facts too. Keep them where the trigger starts and require them.
 
 An entry text that names an argument expression (Code, a field) states a fact. The IR check must compare that argument,
 not only count the arguments (round 2: `SetRange(<field>, 'P1')` passed).
+
+## 18. Session state that ends or carries because a routine set it, also when the runner stopped that routine (al-runner PR 8114)
+
+A session state that ends or carries because a routine set it: the pin measured a routine that ran to its end. A routine
+the runner stops (rows rolled back) leaves state the pin does not cover. Give the state its new rule only when the routine
+returns Ok.

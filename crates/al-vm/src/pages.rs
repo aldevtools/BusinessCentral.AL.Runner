@@ -260,6 +260,8 @@ mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
 mod currpage_run_typed_key;
+mod data_caption_get_body;
+mod data_caption_get_open;
 mod data_caption_open;
 mod data_caption_run;
 mod delayed_blank_key_save;
@@ -349,6 +351,7 @@ mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
 mod walk_parts;
+pub(crate) mod ws_trigger_order;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
     ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind, OpenEditable, PageMode, PageState,
@@ -456,8 +459,10 @@ impl Session {
     /// is the page's own.
     fn page_trigger(&mut self, st: &St, name: &str, args: Vec<Value>) -> Result<Option<Value>, Signal> {
         self.data_caption_before_trigger(st, name)?;
+        self.ws_caption_before_trigger(st, name)?;
         let r = self.in_page_trigger(st, name, |s| s.page_trigger_run(st, name, args))?;
         self.data_caption_after_trigger(st, name);
+        self.ws_caption_after_trigger(st, name)?;
         self.show_ext_columns_after_first_open_row(st, name)?;
         Ok(r)
     }

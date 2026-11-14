@@ -30,7 +30,7 @@ mod setrange_filter;
 mod sql_range;
 mod sql_range_code;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
-use sql_range::{InsertShape, ModifyShape};
+use sql_range::InsertShape;
 mod nested_validate;
 pub(crate) use nested_validate::ValidateSite;
 mod op_inner;
@@ -624,11 +624,13 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`, al-vm
+    /// `group1_sessions.rs`), outside install code.
     pub(crate) fn install_assumed(&self, object: u32) {
         if self.install_scope {
             return;
         }
+        self.group1_flagged_touch(object);
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };
@@ -2751,7 +2753,7 @@ impl Session {
     }
 
     /// The filters of `rec` in filter group 1, as text to compare.
-    fn group1_signature(rec: &Rec) -> String {
+    pub(crate) fn group1_signature(rec: &Rec) -> String {
         let r = rec.borrow();
         let mut v: Vec<String> = r
             .filters
@@ -2783,13 +2785,10 @@ impl Session {
             ));
         }
         self.global_group_check(rec, table, method.name())?;
+        let by_record = self.is_al_record_call(method, rec);
         let r = self.record_op(method, rec, args)?;
         let sig = Self::group1_signature(rec);
-        if sig.is_empty() {
-            self.global_group1.remove(&table);
-        } else {
-            self.global_group1.insert(table, sig);
-        }
+        self.note_group1(table, sig, by_record);
         Ok(r)
     }
 
@@ -2798,13 +2797,14 @@ impl Session {
     /// Answered when the record carries the same group 1 filters (the setter, or a copy of it such as the record of
     /// Page.Run(Page, Rec)); refused otherwise.
     pub(crate) fn global_group_check(&self, rec: &Rec, table: u32, what: &str) -> Result<(), Signal> {
-        let Some(global) = self.global_group1.get(&table) else {
+        let Some(global) = self.global_group1.signature(table) else {
+            self.group1_ended_check(rec, table, what);
             return Ok(());
         };
         if what == "FilterGroup" {
             return Ok(());
         }
-        if !rec.borrow().temporary && Self::group1_signature(rec) == *global {
+        if !rec.borrow().temporary && Self::group1_signature(rec) == global {
             return Ok(());
         }
         unsupported(format!(

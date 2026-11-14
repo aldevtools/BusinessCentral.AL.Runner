@@ -198,7 +198,7 @@ impl Session {
         record: Option<Rec>,
         bind: Option<UiKind>,
     ) -> Result<Option<Handler>, Signal> {
-        let handed = self.data_caption_handed(st, record.as_ref(), bind);
+        let handed = self.data_caption_handed(st, record.as_ref());
         let handler = self.open_page_as(st, mode, record, bind, false)?;
         let trapped = bind.is_none() && st.borrow().caught_by_trap;
         if handler.is_some() || trapped {
@@ -593,7 +593,7 @@ impl Session {
             if unattended {
                 return Ok(());
             }
-            let mut new_line = has_source && self.offers_new_line(st)?;
+            let mut new_line = has_source && self.offers_new_line_at_open(st)?;
             // A record handed to the page filtered to one Enum or Option value the blank row does not hold: no blank line shows
             // (pages/run-modal/CePageRun.al RunModal_EnumFilter_RowsAndNewRowDefault, RunModal_OptionFilter_RowsAndNewRowDefault,
             // `[2][5]`; a Boolean filter the blank row matches keeps it, ui-handlers/TestPageModalNewRowLine_Tests.al:180).

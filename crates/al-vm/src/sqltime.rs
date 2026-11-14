@@ -133,6 +133,10 @@ pub(crate) enum InsertEvidence {
     /// Only corpus PR 1398 measured it, by the Insert statement into a table without insert code (`LT SD Floor Row`:
     /// Insert_Date_1753_1, Insert_DateTime_RoundingEdge_1): a closing date in 1753, 1753-12-31 23:59:59.999.
     ProbePlain,
+    /// Only corpus PR 1398 measured it, by the Insert() statement into a table without insert code (`LT SD Floor Row`:
+    /// Outside_Date_Insert, Outside_DateTime_Insert): a Date from 1700-01-01 to 1752-12-30, a DateTime from 1700-01-01 to
+    /// 1752-12-31 that stays in its minute (other than the pinned 1752-12-31 12:00).
+    ProbeOutside,
 }
 
 /// The kinds of value the column cannot hold that a write gate names.
@@ -150,6 +154,10 @@ pub(crate) enum BadKind {
     DateTime1753,
     /// The DateTime 1752-12-31 12:00.
     DateTime1752,
+    /// A Date from 1700-01-01 to 1752-12-30 that is not a closing date.
+    DatePre1753,
+    /// A DateTime from 1700-01-01 to 1752-12-31 that stays in its minute, other than 1752-12-31 12:00.
+    DateTimePre1753,
     /// A DateTime that rounds past 9999-12-31.
     PastMax,
 }
@@ -161,9 +169,10 @@ struct Shown {
     insert: InsertEvidence,
 }
 
-/// The days of 1752-12-31, 1753-01-01 and 1754-01-01.
-fn edge_days() -> (i64, i64, i64) {
+/// The days of 1700-01-01, 1752-12-31, 1753-01-01 and 1754-01-01.
+fn edge_days() -> (i64, i64, i64, i64) {
     (
+        i64::from(day_from_civil(1700, 1, 1)),
         i64::from(day_from_civil(1752, 12, 31)),
         i64::from(day_from_civil(1753, 1, 1)),
         i64::from(day_from_civil(1754, 1, 1)),
@@ -174,9 +183,11 @@ fn edge_days() -> (i64, i64, i64) {
 /// closing date) fail, 0D and 0001-01-01 store (P130DateFilters.al:255-293; 0001-01-01 reads back as it was written, :261-262,
 /// which a blank date would not: types/date-time/Arithmetic.al:111-116). Assumed (`sql-date-first-year`, corpus PR 1398
 /// SqlDateFloor1753.al Insert_Date_1753_1, Insert_Date_1753_2): every other date in 1753 fails, a closing date too, shown as
-/// MM/DD/YYYY with a `C` before a closing date (`C06/15/1753`). Every other date before 1754-01-01 is refused.
+/// MM/DD/YYYY with a `C` before a closing date (`C06/15/1753`). Assumed (Outside_Date_Insert, Outside_Date_Modify, which
+/// measured 1700-01-01 and 1752-12-31): a date from 1700-01-01 to 1752-12-30 fails as well, shown the same way
+/// (`01/01/1700`). Every other date before 1754-01-01 is refused.
 fn bad_date(d: i32, closing: bool) -> Result<Option<Shown>, Signal> {
-    let (d1752, d1753, d1754) = edge_days();
+    let (d1700, d1752, d1753, d1754) = edge_days();
     let day = i64::from(d);
     if day >= d1754 || (d <= 1 && !closing) {
         return Ok(None);
@@ -193,6 +204,7 @@ fn bad_date(d: i32, closing: bool) -> Result<Option<Shown>, Signal> {
         (d, true) if d == d1752 => shown(BadKind::ClosingDate1752, InsertEvidence::Pinned),
         (d, false) if d > d1753 && d < d1754 => shown(BadKind::Date1753, InsertEvidence::Reporter),
         (d, true) if d >= d1753 && d < d1754 => shown(BadKind::ClosingDate1753, InsertEvidence::ProbePlain),
+        (d, false) if d >= d1700 && d < d1752 => shown(BadKind::DatePre1753, InsertEvidence::ProbeOutside),
         _ => {
             return Err(Signal::unsupported(
                 "a Date before 1754-01-01 in a database table, other than the measured ones (not pinned)",
@@ -207,10 +219,12 @@ fn bad_date(d: i32, closing: bool) -> Result<Option<Shown>, Signal> {
 /// Insert_DateTime_RoundingEdge_1): every other value on a day in 1753 fails and shows as MM/DD/YYYY hh:mm with AM or PM,
 /// the hour of the 12-hour clock in two digits and the time cut to the minute (00:00:01 `12:00 AM`, 01:00 `01:00 AM`, 13:00
 /// `01:00 PM`, 21:59:59 `09:59 PM`). 1753-12-31 23:59:59.999, which the column would round into 1754, fails too and shows
-/// `12/31/1753 11:59 PM`. Another value the rounding moves into another minute is refused, as is every other value before
+/// `12/31/1753 11:59 PM`. Assumed (Outside_DateTime_Insert, Outside_DateTime_Modify, which measured 1700-01-01 12:00 and
+/// 1752-12-31 23:59): a value from 1700-01-01 to 1752-12-31 that stays in its minute fails as well and shows the same way
+/// (`01/01/1700 12:00 PM`). Another value the rounding moves into another minute is refused, as is every other value before
 /// 1754-01-01.
 fn bad_datetime(v: i64) -> Result<Option<Shown>, Signal> {
-    let (d1752, d1753, d1754) = edge_days();
+    let (d1700, d1752, d1753, d1754) = edge_days();
     let (day, in_day) = ((v - 1).div_euclid(MS_PER_DAY) + 1, (v - 1).rem_euclid(MS_PER_DAY));
     let r = round_datetime(v);
     if (r - 1).div_euclid(MS_PER_DAY) + 1 > i64::from(day_from_civil(9999, 12, 31)) {
@@ -236,7 +250,7 @@ fn bad_datetime(v: i64) -> Result<Option<Shown>, Signal> {
                 insert: InsertEvidence::Pinned,
             }));
         }
-        (d, _) if d < d1753 => return Err(refuse()),
+        (d, _) if d < d1700 => return Err(refuse()),
         _ => {}
     }
     let same_minute = (r - 1).div_euclid(60_000) == (v - 1).div_euclid(60_000);
@@ -244,19 +258,26 @@ fn bad_datetime(v: i64) -> Result<Option<Shown>, Signal> {
     if !(same_minute || last_millisecond_of_1753) {
         return Err(refuse());
     }
+    let in_1753 = day >= d1753;
     let (hour, minute) = (in_day / 3_600_000, in_day / 60_000 % 60);
     let hour12 = if hour % 12 == 0 { 12 } else { hour % 12 };
     let (y, m, dd) = al_builtins::format::civil_from_day(day as i32);
     let half = if hour < 12 { "AM" } else { "PM" };
-    let insert = match (day == d1753 && in_day == 0, same_minute, matches!(hour12, 10..=12)) {
-        (true, _, _) => InsertEvidence::Pinned,
-        (false, true, true) => InsertEvidence::Reporter,
-        (false, true, false) => InsertEvidence::ProbeHour,
-        (false, false, _) => InsertEvidence::ProbePlain,
+    let (kind, insert) = match (
+        in_1753,
+        day == d1753 && in_day == 0,
+        same_minute,
+        matches!(hour12, 10..=12),
+    ) {
+        (false, _, _, _) => (BadKind::DateTimePre1753, InsertEvidence::ProbeOutside),
+        (true, true, _, _) => (BadKind::DateTime1753, InsertEvidence::Pinned),
+        (true, false, true, true) => (BadKind::DateTime1753, InsertEvidence::Reporter),
+        (true, false, true, false) => (BadKind::DateTime1753, InsertEvidence::ProbeHour),
+        (true, false, false, _) => (BadKind::DateTime1753, InsertEvidence::ProbePlain),
     };
     Ok(Some(Shown {
         value: format!("{m:02}/{dd:02}/{y:04} {hour12:02}:{minute:02} {half}"),
-        kind: BadKind::DateTime1753,
+        kind,
         insert,
     }))
 }

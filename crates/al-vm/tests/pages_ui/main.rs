@@ -42,6 +42,7 @@ mod ext_column_visible;
 mod ext_record_method_source;
 mod ext_validate_variable;
 mod filter_eq_text;
+mod filter_eq_text_open_edit;
 mod filterpage;
 mod filterpage_view_dates;
 mod find_list_full_window_rows_before;

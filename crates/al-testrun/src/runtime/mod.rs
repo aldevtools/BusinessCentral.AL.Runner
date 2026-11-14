@@ -1159,6 +1159,8 @@ mod compiled;
 mod corpus;
 mod data_driven;
 mod discovery;
+#[cfg(test)]
+mod group1_sessions_tests;
 mod grow;
 mod handlers;
 mod install_snapshot;

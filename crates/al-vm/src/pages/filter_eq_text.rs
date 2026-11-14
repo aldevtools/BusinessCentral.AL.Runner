@@ -4,10 +4,33 @@
 //! this path (`eq_text_sets_no_filter`). Another text that starts with `=` (also after blanks) on a Boolean, Enum or Option field
 //! of a List or Worksheet refuses; a text on another page type or field type keeps the filter `filter.rs` parses.
 
+use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::page_op::PageMethod;
 use al_builtins::value::RtType;
 use al_data::TableDef;
+
+/// What a page lets through after the OpenEdit cell of WorksheetOpenEditTemp.al: the filter's GetFilter, First, Next and GoToKey
+/// (WalkEq :144-154, GoToEq :228-236), the control reads of the walk, the Fill action's Invoke when it did not come before the
+/// filter (BeforeEq :207), and Close (:188, :209, :236).
+const OPEN_EDIT_END: PinnedEnd = PinnedEnd {
+    reason: "a call of the test on a temporary Worksheet it opened with OpenEdit, after the '=0' or '=1' filter, other than \
+             GetFilter, First, Next, GoToKey, a control's value read, one action Invoke or Close (not measured; al-runner issue \
+             6924)",
+    reads: true,
+    caption: false,
+    part_reads: false,
+    one_action: false,
+    first_ends: false,
+    part_visible: false,
+    part_moves: false,
+    no_writes: false,
+    next: NextEnd::Refused,
+    close: true,
+    ok: false,
+    walk: true,
+};
 
 /// The Boolean words after the `=` the corpus measured on a List, as written: TempListOffPageBooleanFilter.al:335-340 and :343-348
 /// (Hidden, no control), :360-365 and :368-373 (Shown, a control), :508-513 and :516-521 (database list), :534-539 and :542-547.
@@ -67,6 +90,9 @@ enum EqCell {
     Pinned,
     /// Measured by WorksheetEnumEqFilter.al (corpus PR 1392): the text sets no filter, under the assumption.
     Assumed,
+    /// Measured by WorksheetOpenEditTemp.al (corpus PR 1401) on a page the test opened with OpenEdit: the text sets no filter,
+    /// under its own assumption.
+    AssumedOpenEdit,
     /// Not measured, for this reason: refused.
     Unmeasured(&'static str),
 }
@@ -111,6 +137,10 @@ impl Session {
                 assume(Assumption::TestpageFilterEqTextDropped);
                 Ok(true)
             }
+            EqCell::AssumedOpenEdit => {
+                assume(Assumption::TestpageFilterEqTextDroppedOpenEdit);
+                Ok(true)
+            }
             EqCell::Unmeasured(why) => Err(Signal::unsupported(format!(
                 "TestPage.Filter.SetFilter: the text '{text}' on a {} page over a {} table {why} (Business Central sets no \
                  filter for a text that starts with '=' on every shape the corpus measured; this shape is not measured; \
@@ -128,15 +158,22 @@ impl Session {
     /// The cell of the text after the `=` (`rest`) on a List (`list`) or Worksheet `st`. Every fact is required as the corpus
     /// measured it:
     /// - the page opened by the test's own `OpenView` (TempListOffPageBooleanFilter.al:273, :293, :435, :461;
-    ///   WorksheetEnumEqFilter.al:260, :319, :378), at the top level (not a part, not a page AL code ran);
+    ///   WorksheetEnumEqFilter.al:260, :319, :378), at the top level (not a part, not a page AL code ran); or by its own
+    ///   `OpenEdit` in the one cell `eq_text_open_edit_cell` covers;
     /// - the text after the `=`, exactly as written (`eq_text_kind`), and the page and source table it was measured on
     ///   (`eq_text_cell`);
     /// - no filter of group 0 on the field yet; or, on the temporary Worksheet with an Enum member's name, the test's own filter
     ///   typed as a member's name (WorksheetEnumEqFilter.al:554-560: `Order`, then `=Quote` and `=Invoice` keep `Order`), which
     ///   stays.
     fn eq_text_measured(&self, st: &St, rec: &Rec, table: &TableDef, pos: usize, rest: &str, list: bool) -> EqCell {
-        if !st.borrow().test_open_view() {
-            return EqCell::Unmeasured("that the test did not open with its own OpenView (only OpenView is measured)");
+        let (open_view, open_edit) = {
+            let s = st.borrow();
+            (s.test_open_view(), s.test_open_edit())
+        };
+        if !open_view && !open_edit {
+            return EqCell::Unmeasured(
+                "that the test did not open with its own OpenView or OpenEdit (only those are measured)",
+            );
         }
         let Some(kind) = self.eq_text_kind(table, pos, rest) else {
             return EqCell::Unmeasured(
@@ -145,6 +182,9 @@ impl Session {
         };
         let temporary = rec.borrow().temporary;
         let unfiltered = rec.borrow().filters.iter().all(|f| !(f.field == pos && f.group == 0));
+        if open_edit {
+            return self.eq_text_open_edit_cell(st, rec, list, temporary, unfiltered, kind);
+        }
         if unfiltered {
             return Self::eq_text_cell(list, temporary, kind);
         }
@@ -161,6 +201,113 @@ impl Session {
             "after a filter on the field (only the test's own Enum member name, then an Enum member name, on a temporary \
              Worksheet is measured)",
         )
+    }
+
+    /// The one cell WorksheetOpenEditTemp.al (corpus PR 1401) measured on a page the test opened with its own `OpenEdit`, every
+    /// fact required as the probe has it:
+    /// - a Worksheet (:22, :63, :92; WEQ Temp Worksheet of WorksheetEnumEqFilter.al) over a temporary table (:24, :65, :94), the
+    ///   Boolean field IsHist with or without a control (:106; :35-37), no earlier filter on the field, and the text `=0` or `=1`
+    ///   (:499-504, :516-519, :529-536 and the same steps at :593, :606, :619, :687, :700, :713, :781, :794);
+    /// - the page (`eq_text_open_edit_page`) and the test's calls on it before the SetFilter (`eq_text_open_edit_calls`).
+    ///
+    /// The text sets no filter and every row shows, as under OpenView; then only the calls of the measured walks follow
+    /// (`OPEN_EDIT_END`). Every other text, page, source or call sequence opened with OpenEdit is not measured.
+    fn eq_text_open_edit_cell(
+        &self,
+        st: &St,
+        rec: &Rec,
+        list: bool,
+        temporary: bool,
+        unfiltered: bool,
+        kind: EqText,
+    ) -> EqCell {
+        let word = matches!(kind, EqText::Boolean(w) if TEMP_WORKSHEET_BOOLEAN_WORDS.contains(&w));
+        if list || !temporary || !unfiltered || !word {
+            return EqCell::Unmeasured(
+                "that the test opened with OpenEdit (only the Boolean words 0 and 1 on a temporary Worksheet, with no earlier \
+                 filter on the field, are measured there)",
+            );
+        }
+        let Some(action) = self.eq_text_open_edit_page(st, rec) else {
+            return EqCell::Unmeasured(
+                "that the test opened with OpenEdit, on a page whose triggers, properties, controls or source table no cell of \
+                 WorksheetOpenEditTemp.al has",
+            );
+        };
+        let Some(action_before) = Self::eq_text_open_edit_calls(st, action) else {
+            return EqCell::Unmeasured(
+                "that the test opened with OpenEdit, after test calls on the page no cell of WorksheetOpenEditTemp.al makes \
+                 before the filter (only none, or one action Invoke)",
+            );
+        };
+        st.borrow_mut().pinned_end = Some(PinnedEnd {
+            one_action: action && !action_before,
+            ..OPEN_EDIT_END
+        });
+        EqCell::AssumedOpenEdit
+    }
+
+    /// Whether page `st` with Rec `rec` is a page of WorksheetOpenEditTemp.al, and `Some(true)` when it has the Fill action:
+    /// - no page trigger and one action whose only trigger is OnAction (WEQ Temp Worksheet, WorksheetEnumEqFilter.al:79-125;
+    ///   WOE Temp WS Act and WOE Temp WS Shown, :20-59, :90-129), or OnOpenPage and no action (WOE Temp WS Open, :61-88);
+    /// - no property but the plain ones, SourceTableTemporary = true and Editable = false or not set (:24;
+    ///   WorksheetEnumEqFilter.al:87); no extension, no subscriber (`page_declares_within`);
+    /// - controls that are repeaters, groups, fields of Rec without a trigger, and that action (`controls_are_rec_fields`);
+    /// - no TestPage rule ran before (no `pinned_end`);
+    /// - the source table a normal table (WEQ Row has no TableType) without triggers, extensions or subscribers.
+    fn eq_text_open_edit_page(&self, st: &St, rec: &Rec) -> Option<bool> {
+        if st.borrow().pinned_end.is_some()
+            || !self.page_declares_within(st, &["onopenpage"], &["sourcetabletemporary", "editable"])
+            || !self.controls_are_rec_fields(st, true)
+        {
+            return None;
+        }
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let page = page_of(&engine, st);
+        let actions = page
+            .controls
+            .iter()
+            .filter(|c| c.kind == ir::ControlKind::Action)
+            .count();
+        let open_page = matches!(page.triggers.as_slice(), [(n, _)] if n == "onopenpage");
+        let shape = match (page.triggers.is_empty(), open_page, actions) {
+            (true, false, 1) => true,
+            (false, true, 0) => false,
+            _ => return None,
+        };
+        let prop = |name: &str| {
+            engine.program.objects[object]
+                .properties
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.trim().to_ascii_lowercase())
+        };
+        let props = prop("SourceTableTemporary").as_deref() == Some("true")
+            && prop("Editable").as_deref().is_none_or(|v| v == "false");
+        let table = rec.borrow().table as usize;
+        let normal = matches!(
+            engine.object_facts[table].table_type,
+            None | Some(al_ir::TableType::Normal)
+        );
+        drop(engine);
+        (props && normal && self.table_runs_no_trigger(table)).then_some(shape)
+    }
+
+    /// The test's calls on page `st` before this SetFilter, as WorksheetOpenEditTemp.al makes them, read with their outcomes
+    /// (`test_calls_all_succeeded`): none (BeforeEq :198-203, and the page that fills in OnOpenPage), or one `Invoke` of the
+    /// Fill action (`action`; AfterEq :179-184, GoToEq :219-225). `Some(true)`: the Invoke came before.
+    fn eq_text_open_edit_calls(st: &St, action: bool) -> Option<bool> {
+        // `P.Filter` is a call of the page, then `SetFilter` one of the filter.
+        let filter_set = |filter: &TestCall, set: &TestCall| {
+            *filter == TestCall::Page(PageMethod::Filter) && *set == TestCall::Other(PageMethod::SetFilter)
+        };
+        let calls = Self::test_calls_all_succeeded(st)?;
+        match calls.as_slice() {
+            [filter, set] if filter_set(filter, set) => Some(false),
+            [TestCall::Other(PageMethod::Invoke), filter, set] if action && filter_set(filter, set) => Some(true),
+            _ => None,
+        }
     }
 
     /// The measured cells of a text `kind` on a List (`list`) or Worksheet over a temporary or database table, with no earlier

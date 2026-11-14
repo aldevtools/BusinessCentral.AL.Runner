@@ -24,7 +24,7 @@ struct Parked {
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
     si_track: Option<Box<crate::single_track::Track>>,
     bindings: Vec<dispatch::Binding>,
-    global_group1: std::collections::HashMap<u32, String>,
+    global_group1: group1_sessions::Filters,
     last_error: AlError,
     session_id_override: Option<i32>,
     ui_scope: Option<ui::UiScope>,
@@ -116,7 +116,7 @@ impl Session {
             singletons: std::mem::take(&mut self.singletons),
             si_track: self.si_track.take(),
             bindings: std::mem::take(&mut self.events.bindings),
-            global_group1: std::mem::take(&mut self.global_group1),
+            global_group1: std::mem::take(&mut self.global_group1.filters),
             last_error: std::mem::take(&mut self.last_error),
             session_id_override: self.session_id_override.replace(id),
             ui_scope: self.ui_state.scope.take(),
@@ -146,7 +146,7 @@ impl Session {
         self.singletons = parked.singletons;
         self.si_track = parked.si_track;
         self.events.bindings = parked.bindings;
-        self.global_group1 = parked.global_group1;
+        self.global_group1.filters = parked.global_group1;
         self.last_error = parked.last_error;
         self.session_id_override = parked.session_id_override;
         self.ui_state.scope = parked.ui_scope;
