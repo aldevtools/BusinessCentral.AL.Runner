@@ -764,6 +764,34 @@ pub struct CarriedState {
     work_date: Option<i32>,
 }
 
+/// One part of a [`CarriedState`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CarriedPart {
+    /// `GlobalLanguage`.
+    Language,
+    /// `WorkDate`.
+    WorkDate,
+}
+
+impl CarriedState {
+    /// Whether `other` holds another value for `part`.
+    pub fn differs(&self, other: &CarriedState, part: CarriedPart) -> bool {
+        match part {
+            CarriedPart::Language => self.language != other.language,
+            CarriedPart::WorkDate => self.work_date != other.work_date,
+        }
+    }
+
+    /// This state with `part` taken from `from`.
+    pub fn with_part(mut self, from: &CarriedState, part: CarriedPart) -> CarriedState {
+        match part {
+            CarriedPart::Language => self.language = from.language,
+            CarriedPart::WorkDate => self.work_date = from.work_date,
+        }
+        self
+    }
+}
+
 pub struct Session {
     pub engine: Arc<Engine>,
     pub last_error: AlError,
@@ -1880,7 +1908,7 @@ impl Session {
     }
 
     /// The session state a test method can change for the next test besides the database and the globals: the language
-    /// (`GlobalLanguage`) and WorkDate. The test runner puts it back after a test refused while it ran (`restore_carried`).
+    /// (`GlobalLanguage`) and WorkDate (`restore_carried` puts it back).
     pub fn carried_state(&self) -> CarriedState {
         CarriedState {
             language: self.global_language,
@@ -1888,8 +1916,7 @@ impl Session {
         }
     }
 
-    /// Puts back what [`Session::carried_state`] took: a test refused while it ran leaves nothing of it behind, as its
-    /// database writes are rolled back (al-testrun `run.rs`).
+    /// Puts back what [`Session::carried_state`] took (al-testrun `stopped_state.rs` decides when).
     pub fn restore_carried(&mut self, state: CarriedState) {
         self.global_language = state.language;
         self.events.event_stats.language.set(state.language);

@@ -257,3 +257,8 @@ read a value that tells them apart.
 A doc comment or area-table row says "X members are pinned" while the gate takes the whole type (any text, any
 Integer). The pins measured a few values. Name the measured values in the comment and gate on them (rounds 1 and 2:
 `yaml_text`, `array_item`, `inner_value`).
+
+## 16. A restore or undo applied because code stopped, justified by a pin where the stopped code would have undone it (al-runner PR 8105)
+
+A restore or undo applied because code stopped, justified by a pin where the stopped code would have undone the change
+itself: require that set-back in the stopped routine, or treat the state as unknown and refuse its readers.

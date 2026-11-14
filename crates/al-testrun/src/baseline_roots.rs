@@ -26,6 +26,9 @@ pub(crate) struct RootRun<'a> {
     pub step_failed: bool,
     /// Tables whose rows depend on the install order of partner apps, and why (`install_orders.rs`).
     pub refused: Vec<(BTreeSet<u32>, String)>,
+    /// The app whose install session holds a language or WorkDate the runner does not know, and why
+    /// (`stopped_state::roll_back_stopped_install`): its later install roots are not run.
+    pub unknown_session: Option<(u32, String)>,
 }
 
 impl RootRun<'_> {
@@ -50,10 +53,24 @@ impl RootRun<'_> {
         // Company-Initialize and the company build keep their own rules.
         session.set_install_without_client(!is_step && self.company_initialize_root != Some(k));
         let label = format!("{}.{}", objs[oi].name, objs[oi].routines[ri].name);
+        // The app's install code, which runs in the app's install session (not Company-Initialize or a step).
+        let install_session = !is_step && self.company_initialize_root != Some(k);
+        let app = objs[oi].app;
+        if let Some((_, why)) = self
+            .unknown_session
+            .as_ref()
+            .filter(|(a, _)| install_session && *a == app)
+        {
+            self.notes.push(format!("{label} was not run: {why}"));
+            self.stopped
+                .push((crate::baseline::tables_written_or_loaded(self.lowered, oi, ri), false));
+            return;
+        }
         if no_company {
             session.set_company("");
         }
         session.clear_fault_site();
+        let before = session.carried_state();
         // A Message while the company is built goes to the run log (`company_data::MESSAGE_NOTE`).
         if is_step {
             session.capture_messages();
@@ -73,6 +90,7 @@ impl RootRun<'_> {
                 self.notes.push(format!("{}{m}", crate::company_data::MESSAGE_NOTE));
             }
         }
+        let by_runner = matches!(called, Err(Signal::Unsupported(_)));
         let why = match called {
             Ok(_) => None,
             // Where it stopped: the innermost routine and its source position.
@@ -96,8 +114,11 @@ impl RootRun<'_> {
             Some(why) => {
                 if keep_prefix {
                     session.commit_transaction();
-                } else {
-                    session.rollback_transaction();
+                } else if let Some(unknown) =
+                    crate::stopped_state::roll_back_stopped_install(self.lowered, session, (oi, ri), before, by_runner)
+                    && install_session
+                {
+                    self.unknown_session = Some((app, unknown));
                 }
                 if is_step {
                     self.step_failed = true;
@@ -132,7 +153,7 @@ pub(crate) struct DependencyInstalls<'r, 'a> {
 }
 
 impl crate::install_orders::AppInstalls for DependencyInstalls<'_, '_> {
-    type Mark = (usize, usize, usize, usize);
+    type Mark = (usize, usize, usize, usize, Option<(u32, String)>);
 
     fn mark(&self) -> Self::Mark {
         (
@@ -140,6 +161,7 @@ impl crate::install_orders::AppInstalls for DependencyInstalls<'_, '_> {
             self.run.stopped.len(),
             self.run.ran,
             self.run.refused.len(),
+            self.run.unknown_session.clone(),
         )
     }
 
@@ -148,6 +170,7 @@ impl crate::install_orders::AppInstalls for DependencyInstalls<'_, '_> {
         self.run.stopped.truncate(m.1);
         self.run.ran = m.2;
         self.run.refused.truncate(m.3);
+        self.run.unknown_session = m.4.clone();
     }
 
     fn install(&mut self, session: &mut Session, app: u32) {
