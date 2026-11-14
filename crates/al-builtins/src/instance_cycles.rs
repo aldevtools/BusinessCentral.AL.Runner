@@ -32,6 +32,8 @@ thread_local! {
     /// the last pruning or [`collect`], at least [`PRUNE_FLOOR`]. A `Weak` keeps its instance's allocation, so a
     /// session that makes many instances before a `collect` (or never reaches one) would otherwise grow with each.
     static PRUNE_AT: std::cell::Cell<usize> = const { std::cell::Cell::new(PRUNE_FLOOR) };
+    /// How many [`RunEnd`] guards are alive on this thread.
+    static GUARDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The instances of the process that are alive (made by [`shared`] and not yet dropped).
@@ -169,12 +171,28 @@ pub fn collect() {
 /// worker thread holds one for its whole life; the thread a run starts on holds one for the run, so the next run on it
 /// (the next variant of a stability run, al-runner issue 6924) starts with none of them. Not `Send`: it drops on the
 /// thread that made it.
-pub struct RunEnd(std::marker::PhantomData<Rc<()>>);
+///
+/// It clears only when, at [`RunEnd::new`], no other guard was alive on the thread and the thread held no live
+/// instance: then every instance alive at the drop was made inside this run. Otherwise it does nothing (the instances
+/// of the outer run or of the code that made them before keep their globals, as without the guard).
+pub struct RunEnd {
+    clears: bool,
+    _not_send: std::marker::PhantomData<Rc<()>>,
+}
 
 impl RunEnd {
     /// Call before the thread makes the first instance of the run.
     pub fn new() -> RunEnd {
-        RunEnd(std::marker::PhantomData)
+        let none_alive = MADE.with(|m| m.borrow().iter().all(|w| w.strong_count() == 0));
+        let first = GUARDS.with(|g| {
+            let n = g.get();
+            g.set(n + 1);
+            n == 0
+        });
+        RunEnd {
+            clears: first && none_alive,
+            _not_send: std::marker::PhantomData,
+        }
     }
 }
 
@@ -186,6 +204,10 @@ impl Default for RunEnd {
 
 impl Drop for RunEnd {
     fn drop(&mut self) {
+        GUARDS.with(|g| g.set(g.get() - 1));
+        if !self.clears {
+            return;
+        }
         let alive: Vec<Shared> = MADE
             .with(|m| std::mem::take(&mut *m.borrow_mut()))
             .iter()
@@ -259,6 +281,58 @@ mod tests {
             object: 1,
             ..Default::default()
         })
+    }
+
+    fn with_global(inner: &Shared) -> Shared {
+        shared(Instance {
+            object: 2,
+            globals: vec![Value::Codeunit(inner.clone())],
+            ..Default::default()
+        })
+    }
+
+    fn globals_len(i: &Shared) -> usize {
+        i.borrow().globals.len()
+    }
+
+    /// The normal case: the guard clears the globals of what its run made, which ends a cycle.
+    #[test]
+    fn run_end_clears_what_the_run_made() {
+        let (a, b);
+        {
+            let _end = RunEnd::new();
+            a = make();
+            b = with_global(&a);
+            a.borrow_mut().globals.push(Value::Codeunit(b.clone()));
+        }
+        assert_eq!((globals_len(&a), globals_len(&b)), (0, 0));
+    }
+
+    /// An instance the thread made before the guard keeps its globals (review of PR 8022, MED-1).
+    #[test]
+    fn run_end_keeps_an_instance_made_before_it() {
+        let a = make();
+        let b = with_global(&a);
+        {
+            let _end = RunEnd::new();
+            let _c = make();
+        }
+        assert_eq!(globals_len(&b), 1);
+        drop(b);
+    }
+
+    /// A nested guard does nothing to the instances of the outer run (review of PR 8022, MED-1).
+    #[test]
+    fn nested_run_end_keeps_the_outer_runs_instances() {
+        let outer = RunEnd::new();
+        let a = make();
+        let b = with_global(&a);
+        {
+            let _inner = RunEnd::new();
+        }
+        assert_eq!(globals_len(&b), 1);
+        drop(outer);
+        assert_eq!(globals_len(&b), 0);
     }
 
     /// A session that makes and drops many instances before any `collect` keeps the registry bounded (review of
