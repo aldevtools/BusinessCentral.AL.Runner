@@ -30,7 +30,7 @@ pub(super) fn replace_attribute(c: &mut dyn Ctx, h: &Handle, args: &[Value]) -> 
 }
 
 /// The element and the position of `h` when the call is one the pins measured, each fact by equality:
-/// - the statement form (both pins);
+/// - the statement form (every pin);
 /// - `h` is an attribute of an element without a namespace, and every attribute of that element, `h` included, has no
 ///   prefix and no namespace (`<e a="1" b="2"/>` read, :413; `r` built with `p`, `x`, `q`, P97AttrEdit.al:26-33);
 /// - one or two arguments, each a typed `XmlAttribute` without a parent, prefix or namespace, whose name no attribute of
