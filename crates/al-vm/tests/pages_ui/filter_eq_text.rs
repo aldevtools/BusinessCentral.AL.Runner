@@ -1,7 +1,7 @@
 //! `TestPage.Filter.SetFilter` with a text that starts with `=`: Business Central sets no filter on a List or Worksheet the test
 //! opened with OpenView, for a Boolean word or an Enum or Option member (corpus testpage/filters/TempListOffPageBooleanFilter.al,
-//! WorksheetEnumEqFilter.al of corpus PR 1392, al-runner issue 6924). These tests hold the shapes outside those cells to main's
-//! outcome (the filter is applied), and such a shape on a database source the corpus did not measure to a refusal.
+//! WorksheetEnumEqFilter.al of corpus PR 1392, al-runner issue 6924). These tests hold another `=` text on a Boolean, Enum or Option
+//! field of a List or Worksheet to a refusal, and a text on another page type or field type to main's outcome (the filter applies).
 
 const SRC: &str = r#"
 table 69990 "EQ Row"
@@ -129,17 +129,26 @@ fn an_eq_text_on_a_viewed_list_sets_no_filter() {
     assert_eq!(run("TempViewOptionSecond"), "[]1,2,3,4,");
 }
 
-// Not measured: OpenEdit, a Code or Integer field, another text after the `=`, a field the test
-// already filtered, a Card.
-// Each keeps main's filter.
+// Outside the rule's neighborhood: a Code or Integer field, a Card. Each keeps main's filter.
 #[test]
 fn shapes_outside_the_cell_keep_the_filter() {
-    assert_eq!(run("EditBoolean"), "2,4,");
     assert_eq!(run("ViewCode"), "2,");
     assert_eq!(run("ViewInteger"), "2,");
-    assert_eq!(run("ViewBooleanOtherWord"), "1,2,3,4,");
-    assert_eq!(run("ViewBooleanAfterOwnFilter"), "2,4,");
     assert_eq!(run("CardBoolean"), "2");
+}
+
+// In the neighborhood but not measured: OpenEdit, another text after the `=`, a field the test already filtered. Main applied the
+// filter, which BC did on no measured shape (WorksheetEnumEqFilter.al:14-17): each refuses.
+#[test]
+fn unmeasured_shapes_on_a_list_refuse() {
+    for (proc, why) in [
+        ("EditBoolean", "did not open with its own OpenView"),
+        ("ViewBooleanOtherWord", "not a measured Boolean word"),
+        ("ViewBooleanAfterOwnFilter", "after a filter on the field"),
+    ] {
+        let got = refusal(al_testkit::run_in(SRC, "C", proc));
+        assert!(got.contains(why), "{proc}: {got}");
+    }
 }
 
 // On a List over a database table only the Boolean words are measured (TempListOffPageBooleanFilter.al:508-521, :534-547). An
@@ -331,17 +340,30 @@ fn an_eq_text_keeps_the_earlier_filter_on_the_temporary_worksheet() {
     assert_eq!(ws0("TempWsEnumAfterOwnFilter"), "[Order]2,4,");
 }
 
-// Not measured: OpenEdit, a Code field, an ordinal other than 0 and 1, a name with another case, an earlier filter on the
-// database Worksheet. Each keeps main's filter; `<>Quote` and a bare name keep filter.rs's parsing (:406, :408).
+// Outside the neighborhood: a Code field keeps main's filter; `<>Quote` and a bare name keep filter.rs's parsing (:406, :408).
 #[test]
 fn worksheet_shapes_outside_the_cells_keep_the_filter() {
-    assert_eq!(ws("WsEditEnum", "=Order"), "2,4,");
     assert_eq!(ws("WsCode", "=N2"), "2,");
-    assert_eq!(ws("WsEnum", "=2"), "[Invoice]3,");
-    assert_eq!(ws("WsEnum", "=order"), "[Order]2,4,");
-    assert_eq!(ws0("WsEnumAfterOwnFilter"), "1,");
     assert_eq!(ws("WsEnum", "<>Quote"), "[<>0]2,3,4,");
     assert_eq!(ws("WsEnum", "Order"), "[Order]2,4,");
+}
+
+// In the neighborhood but not measured: OpenEdit, an ordinal other than 0 and 1, a name with another case, an earlier filter on
+// the database Worksheet. Main applied the filter: each refuses.
+#[test]
+fn unmeasured_worksheet_shapes_refuse() {
+    let refused = |proc: &str, arg: &str| {
+        let arg = al_builtins::value::Value::Text(arg.to_string().into());
+        refusal(al_testkit::run_with(WS_SRC, "C", proc, vec![arg]).map(|(v, _)| v))
+    };
+    assert!(refused("WsEditEnum", "=Order").contains("did not open with its own OpenView"));
+    for t in ["=2", "=order"] {
+        assert!(
+            refused("WsEnum", t).contains("not a measured Boolean word, member name or ordinal"),
+            "{t}"
+        );
+    }
+    assert!(refusal(al_testkit::run_in(WS_SRC, "C", "WsEnumAfterOwnFilter")).contains("after a filter on the field"));
 }
 
 // Neighbors of the cells (review of al-runner PR 8009): an Enum or Option with captions, a member name with a blank, an earlier
@@ -455,22 +477,24 @@ fn nb(proc: &str, args: &[&str]) -> Result<al_builtins::value::Value, al_builtin
     al_testkit::run_with(NB_SRC, "C", proc, args).map(|(v, _)| v)
 }
 
-// Main's filter where no cell measured the shape: WorksheetEnumEqFilter.al's enum and option have no captions (:25-46) and one-word
-// members; its only earlier filter is the test's bare `Order` (:554); its `<>` text is `<>Quote` (:415, :456); the Worksheet
-// Boolean words are `=1` and `=0` (:472-473); an Enum ordinal only on the Worksheet (:418-419).
+// Where no cell measured the shape: WorksheetEnumEqFilter.al's enum and option have no captions (:25-46) and one-word members; its
+// only earlier filter is the test's bare `Order` (:554); the Worksheet Boolean words are `=1` and `=0` (:472-473); an Enum ordinal
+// only on the Worksheet (:418-419). Main applied each `=` text as a filter: each refuses. A `<>` text keeps filter.rs's parsing
+// (:415, :456), and a filter page code wrote reads as on main.
 #[test]
-fn shapes_next_to_the_eq_cells_keep_main_filter() {
+fn shapes_next_to_the_eq_cells_refuse_or_keep_main_filter() {
     let t = |p: &str, a: &[&str]| al_testkit::text(nb(p, a));
-    assert_eq!(t("TempWs", &["T", "", "=Order"]), "filter=Bestellung rows=2,");
-    assert_eq!(t("TempWs", &["K", "", "=Order"]), "filter=Order rows=2,");
-    assert_eq!(t("TempWs", &["P", "", "=Credit Memo"]), "filter=Credit Memo rows=3,");
-    assert_eq!(t("TempWs", &["P", "<>Quote", "=Order"]), "filter=Order rows=2,");
+    let refused = |p: &str, a: &[&str]| refusal(nb(p, a));
+    assert!(refused("TempWs", &["T", "", "=Order"]).contains("shows captions"));
+    assert!(refused("TempWs", &["K", "", "=Order"]).contains("shows captions"));
+    assert!(refused("TempWs", &["P", "", "=Credit Memo"]).contains("more than one word"));
+    assert!(refused("TempWs", &["P", "<>Quote", "=Order"]).contains("after a filter on the field"));
+    assert!(refused("TempWs", &["B", "", "=Yes"]).contains("Boolean word not measured"));
+    assert!(refused("TempList", &["P", "=1"]).contains("Enum ordinal"));
+    assert!(refused("OpenFlt", &[]).contains("after a filter on the field"));
     assert_eq!(t("TempWs", &["O", "", "<>0"]), "filter=<>Quote rows=2,3,");
     assert_eq!(t("TempWs", &["K", "", "<>Quote"]), "filter=<>Quote rows=2,3,");
-    assert_eq!(t("TempWs", &["B", "", "=Yes"]), "filter=Yes rows=3,");
-    assert_eq!(t("TempList", &["P", "=1"]), "filter=Order rows=2,");
     assert_eq!(t("OpenNe", &[]), "filter=<>Quote");
-    assert_eq!(t("OpenFlt", &[]), "before=1 after=Quote first=1");
 }
 
 // The measured cells next to them still take the path: :554-566, :456, :612, :631, :640.
@@ -485,10 +509,10 @@ fn the_measured_eq_cells_next_to_them_still_drop() {
 }
 
 // Main drops the Option's first member on a List (TempListOffPageBooleanFilter.al:440, no captions); with OptionCaption it is not
-// measured, and the path refuses instead of filtering.
+// measured, and the path refuses.
 #[test]
 fn an_option_first_member_with_captions_on_a_list_refuses() {
-    assert!(refusal(nb("TempList", &["K", "=Quote"])).contains("first member of an Option with captions"));
+    assert!(refusal(nb("TempList", &["K", "=Quote"])).contains("shows captions"));
 }
 
 // On the database Worksheet the corpus measured the Option's `=Order` and the Boolean's `=1` only (:631, :632): the first member
@@ -549,7 +573,7 @@ fn gap(proc: &str, arg: &str) -> Result<al_builtins::value::Value, al_builtins::
 
 // WorksheetEnumEqFilter.al's enum has the ordinals 0, 1, 2 at the positions 0, 1, 2 (:25-32), and BC shows an Enum filter by its
 // ordinal (:534, :640). An enum whose ordinals are not its positions was not measured (review of al-runner PR 8009, round 2: G03,
-// G04): on the database Worksheet the text refuses, on the temporary Worksheet it keeps main's filter.
+// G04): the text refuses, on the database and on the temporary Worksheet (main filtered on the temporary one).
 #[test]
 fn an_enum_whose_ordinals_are_not_its_positions_is_not_a_measured_cell() {
     for t in ["=Alpha", "=Beta"] {
@@ -558,8 +582,9 @@ fn an_enum_whose_ordinals_are_not_its_positions_is_not_a_measured_cell() {
             "{t}"
         );
     }
-    assert_eq!(al_testkit::text(gap("TempWs", "=Alpha")), "[Alpha]1,");
-    assert_eq!(al_testkit::text(gap("TempWs", "=Beta")), "[Beta]2,");
+    for t in ["=Alpha", "=Beta"] {
+        assert!(refusal(gap("TempWs", t)).contains("the measured 3 members"), "{t}");
+    }
 }
 
 const SIZE_SRC: &str = r#"
@@ -615,8 +640,8 @@ fn size(proc: &str, field: i32, arg: &str) -> Result<al_builtins::value::Value, 
 }
 
 // WorksheetEnumEqFilter.al's enum and option have exactly three members at the positions 0-2, the enum with no enumextension member
-// (:25-46). An enum or option of another size, or an enum with a member from an enumextension, was not measured: on the database
-// Worksheet the text refuses, on the temporary Worksheet it keeps main's filter.
+// (:25-46). An enum or option of another size, or an enum with a member from an enumextension, was not measured: the text refuses,
+// on the database and on the temporary Worksheet (main filtered on the temporary one).
 #[test]
 fn an_enum_or_option_of_another_size_is_not_a_measured_cell() {
     for (field, t) in [
@@ -632,7 +657,119 @@ fn an_enum_or_option_of_another_size_is_not_a_measured_cell() {
             "{field} {t}"
         );
     }
-    assert_eq!(al_testkit::text(size("TempWs", 2, "=Fourth")), "2,");
-    assert_eq!(al_testkit::text(size("TempWs", 3, "=Three")), "2,");
-    assert_eq!(al_testkit::text(size("TempWs", 4, "=D")), "2,");
+    for (field, t) in [(2, "=Fourth"), (3, "=Three"), (4, "=D")] {
+        assert!(
+            refusal(size("TempWs", field, t)).contains("the measured 3 members"),
+            "{field} {t}"
+        );
+    }
+}
+
+/// The search Worksheet of al-runner issue 6924 (HIS), as the reporter described it: a temporary source that an action refills
+/// (Reset, a table procedure, CurrPage.Update(false)), header controls on page variables that the test fills, a Boolean without a
+/// control and an Enum of six members.
+const HIS_SRC: &str = r#"
+enum 69940 "HS Type" { Extensible = true; value(0; Quote) { } value(1; "Order") { } value(2; Invoice) { } value(3; "Credit Memo") { } value(4; "Blanket Order") { } value(5; "Return Order") { } }
+table 69941 "HS Line"
+{
+    fields { field(1; "Document Type"; Enum "HS Type") { } field(2; "No."; Code[20]) { } field(3; "Is History"; Boolean) { } field(4; Name; Code[20]) { } }
+    keys { key(PK; "Document Type", "No.", "Is History") { } }
+    procedure Search(Customer: Code[20])
+    begin
+        Rec.DeleteAll();
+        Rec.Init(); Rec."Document Type" := Rec."Document Type"::Quote; Rec."No." := 'Q1'; Rec.Name := Customer; Rec.Insert();
+        Rec.Init(); Rec."Document Type" := Rec."Document Type"::"Order"; Rec."No." := 'O1'; Rec.Name := Customer; Rec.Insert();
+    end;
+}
+page 69942 "HS Search"
+{
+    PageType = Worksheet; SourceTable = "HS Line"; SourceTableTemporary = true; ApplicationArea = All; UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            group(Header) { field(DocFilter; DocFilter) { } field(CustFilter; CustFilter) { } }
+            repeater(Rows) { field("No."; Rec."No.") { Editable = false; StyleExpr = Rec."Is History"; } field("Document Type"; Rec."Document Type") { Editable = false; } }
+        }
+    }
+    actions { area(Processing) { action(SearchAction) { trigger OnAction() begin Rec.Reset(); Rec.Search(CustFilter); CurrPage.Update(false); end; } } }
+    var DocFilter: Boolean; CustFilter: Code[20];
+}
+page 69943 "HS Search RO"
+{
+    PageType = Worksheet; SourceTable = "HS Line"; SourceTableTemporary = true; ApplicationArea = All; UsageCategory = None; Editable = false;
+    layout { area(Content) { repeater(Rows) { field("No."; Rec."No.") { StyleExpr = Rec."Is History"; } field("Document Type"; Rec."Document Type") { } } } }
+    actions { area(Processing) { action(SearchAction) { trigger OnAction() begin Rec.Reset(); Rec.Search('C1'); CurrPage.Update(false); end; } } }
+}
+codeunit 69944 C
+{
+    procedure EditSearch(): Text
+    var P: TestPage "HS Search";
+    begin
+        P.OpenEdit();
+        P.DocFilter.SetValue(true);
+        P.CustFilter.SetValue('C1');
+        P.SearchAction.Invoke();
+        P.First();
+        P.Filter.SetFilter("Is History", '=1');
+        P.Filter.SetFilter("Document Type", '=Quote');
+        exit(Format(P.First()));
+    end;
+    procedure ViewSixMembers(FilterText: Text): Text
+    var P: TestPage "HS Search RO"; Ids: Text;
+    begin
+        P.OpenView();
+        P.SearchAction.Invoke();
+        P.First();
+        P.Filter.SetFilter("Is History", '=1');
+        P.Filter.SetFilter("Document Type", FilterText);
+        if P.First() then repeat Ids += P."No.".Value() + ','; until not P.Next();
+        exit('[' + P.Filter.GetFilter("Document Type") + ']' + Ids);
+    end;
+    procedure ViewSixMembersBare(FilterText: Text): Text
+    var P: TestPage "HS Search RO"; Ids: Text;
+    begin
+        P.OpenView();
+        P.SearchAction.Invoke();
+        P.Filter.SetFilter("Document Type", FilterText);
+        if P.First() then repeat Ids += P."No.".Value() + ','; until not P.Next();
+        exit('[' + P.Filter.GetFilter("Document Type") + ']' + Ids);
+    end;
+}
+"#;
+
+fn his(proc: &str, args: &[&str]) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    let args = args
+        .iter()
+        .map(|a| al_builtins::value::Value::Text(a.to_string().into()))
+        .collect();
+    al_testkit::run_with(HIS_SRC, "C", proc, args).map(|(v, _)| v)
+}
+
+// al-runner issue 6924 (HIS): the test fills header controls, so it opened the page with OpenEdit; WorksheetEnumEqFilter.al opened
+// every page with OpenView (:260, :319, :378). Main applied the `'=1'` filter there and the row was gone, a wrong result. Not
+// measured: it refuses before the first `=` text takes effect.
+#[test]
+fn an_eq_text_on_a_page_the_test_opened_for_edit_refuses() {
+    let why = refusal(his("EditSearch", &[]));
+    assert!(
+        why.contains("'=1'") && why.contains("did not open with its own OpenView"),
+        "{why}"
+    );
+}
+
+// The probe's enum has three members (WorksheetEnumEqFilter.al:25-32); the issue's has six. Main filtered on `=Quote` there (the
+// page read the filter back as `Quote`, BC reads ''), right only by chance for the row kept. Not measured: it refuses.
+#[test]
+fn an_eq_text_on_an_enum_of_six_members_refuses() {
+    for t in ["=Quote", "=Order"] {
+        let why = refusal(his("ViewSixMembers", &[t]));
+        assert!(why.contains("the measured 3 members"), "{t}: {why}");
+    }
+}
+
+// A text without the `=` on the same Enum keeps filter.rs's parsing, as on main.
+#[test]
+fn a_bare_member_on_an_enum_of_six_members_keeps_the_filter() {
+    assert_eq!(al_testkit::text(his("ViewSixMembersBare", &["Quote"])), "[Quote]Q1,");
 }

@@ -1,6 +1,7 @@
 //! The DataCaptionExpression of a Worksheet or a Card with DelayedInsert that AL code runs with `Page.Run(Id, Rec)` and a
 //! PageHandler answers (`data_caption_open.rs`, corpus PR 1392 pages/properties/DataCaptionExprWorksheet.al). These tests hold a
-//! measured cell, the shapes next to the cells to main's outcome, and the refusals of the new path.
+//! measured cell, the shapes next to the cells to main's outcome or, for a Worksheet on an empty view, to a refusal, and the
+//! refusals of the new path.
 
 use al_testkit::outcomes_in;
 
@@ -299,7 +300,7 @@ codeunit 69966 T
 "#;
 
 #[test]
-fn neighbors_of_the_measured_open_keep_main_outcome() {
+fn neighbors_of_the_measured_open_keep_main_outcome_or_refuse() {
     let outcomes = outcomes_in(NEIGHBORS, "T");
     let get = |name: &str| {
         let o = outcomes.iter().find(|(n, _)| n == name).map(|(_, o)| o);
@@ -317,20 +318,164 @@ fn neighbors_of_the_measured_open_keep_main_outcome() {
     ] {
         assert_eq!(get(t), "Some(Pass)", "{t}");
     }
-    for t in [
-        "D04_FieldArg",
-        "D05_RangeFilter",
-        "D06_Descending",
-        "D16_OpenOffOn",
-        "D17_OpenFilterGroup",
-        "D18_InitOff",
-        "D21_OpenDelete",
-        "D23_HandedAfterGet",
-        "D24_HandedVendorSet",
-        "D25_HandedItemSet",
-        "D13_FieldExpr",
+    // A field argument is outside the neighborhood: main's refusal at the caption read.
+    let field_arg = get("D04_FieldArg");
+    assert!(
+        field_arg.contains("NotRun") && field_arg.contains("on a new row"),
+        "{field_arg}"
+    );
+    // The others are Worksheets AL code ran with a record on an empty view (main refused them at the caption read): they refuse
+    // at the open and name the fact they miss.
+    for (t, miss) in [
+        ("D05_RangeFilter", "not one SetRange to one Code value"),
+        ("D06_Descending", "on another key or order"),
+        ("D16_OpenOffOn", "more than once"),
+        ("D17_OpenFilterGroup", "changed Rec's filters, key, order, filter group"),
+        ("D18_InitOff", "assigned in OnInit"),
+        ("D21_OpenDelete", "wrote to the database"),
+        ("D23_HandedAfterGet", "fields hold values"),
+        ("D24_HandedVendorSet", "fields hold values"),
+        ("D25_HandedItemSet", "fields hold values"),
+        ("D13_FieldExpr", "not a call of a procedure of the page"),
     ] {
         let o = get(t);
-        assert!(o.contains("NotRun") && o.contains("on a new row"), "{t}: {o}");
+        assert!(
+            o.contains("NotRun") && o.contains("on an empty view") && o.contains(miss),
+            "{t}: {o}"
+        );
+    }
+}
+
+// The page of al-runner issue 6924 (APPD), as the reporter described it: filter controls with OnValidate and OnLookup, a third
+// control on a Date variable, and an OnOpenPage that asks a codeunit and assigns its answer to CurrPage.Editable. The probe's
+// controls have no trigger and show Text variables (DataCaptionExprWorksheet.al:120-130).
+const REPORTED: &str = r#"
+table 69950 "RP Row" { fields { field(1; "Item No."; Code[20]) { } field(2; "Vendor No."; Code[20]) { } } keys { key(PK; "Item No.", "Vendor No.") { } } }
+codeunit 69951 "RP License" { procedure IsInLicense(): Boolean begin exit(true); end; }
+page 69952 "RP Ws Trig"
+{
+    PageType = Worksheet; SourceTable = "RP Row"; Caption = 'RP WS'; DataCaptionExpression = GetCaption(); DelayedInsert = true; UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            group(F)
+            {
+                field(VendNoFilterCtl; VendNoFilter) { trigger OnValidate() begin SetRecFilters(); end; trigger OnLookup(var Text: Text): Boolean begin exit(false); end; }
+                field(ItemNoFilterCtl; ItemNoFilter) { trigger OnValidate() begin SetRecFilters(); end; trigger OnLookup(var Text: Text): Boolean begin exit(false); end; }
+            }
+            repeater(L) { field(ItemNoCtl; Rec."Item No.") { } }
+        }
+    }
+    var VendNoFilter: Text[250]; ItemNoFilter: Text[250]; IsInLicense: Boolean;
+    local procedure GetCaption(): Text[250]
+    begin
+        if Rec.GetFilters <> '' then begin VendNoFilter := Rec.GetFilter("Vendor No."); ItemNoFilter := Rec.GetFilter("Item No."); end;
+        exit('Cap ' + ItemNoFilter + '/' + VendNoFilter);
+    end;
+    local procedure SetRecFilters() begin Rec.SetFilter("Item No.", ItemNoFilter); CurrPage.Update(false); end;
+    trigger OnOpenPage() var License: Codeunit "RP License"; begin IsInLicense := License.IsInLicense(); CurrPage.Editable := IsInLicense; end;
+}
+page 69953 "RP Ws Date"
+{
+    PageType = Worksheet; SourceTable = "RP Row"; Caption = 'RP WS'; DataCaptionExpression = GetCaption(); DelayedInsert = true; UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            group(F) { field(VendNoFilterCtl; VendNoFilter) { } field(ItemNoFilterCtl; ItemNoFilter) { } field(StartingDateFilterCtl; StartingDateFilter) { } }
+            repeater(L) { field(ItemNoCtl; Rec."Item No.") { } }
+        }
+    }
+    var VendNoFilter: Text[250]; ItemNoFilter: Text[250]; StartingDateFilter: Date; IsInLicense: Boolean;
+    local procedure GetCaption(): Text[250]
+    begin
+        if Rec.GetFilters <> '' then begin VendNoFilter := Rec.GetFilter("Vendor No."); ItemNoFilter := Rec.GetFilter("Item No."); end;
+        exit('Cap ' + ItemNoFilter + '/' + VendNoFilter);
+    end;
+    trigger OnOpenPage() var License: Codeunit "RP License"; begin IsInLicense := License.IsInLicense(); CurrPage.Editable := IsInLicense; end;
+}
+page 69954 "RP List Trig"
+{
+    PageType = List; SourceTable = "RP Row"; Caption = 'RP List'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            group(F) { field(ItemNoFilterCtl; ItemNoFilter) { trigger OnValidate() begin Rec.SetFilter("Item No.", ItemNoFilter); end; } }
+            repeater(L) { field(ItemNoCtl; Rec."Item No.") { } }
+        }
+    }
+    var ItemNoFilter: Text[250];
+    local procedure GetCaption(): Text[250]
+    begin
+        if Rec.GetFilters <> '' then ItemNoFilter := Rec.GetFilter("Item No.");
+        exit('Cap ' + ItemNoFilter);
+    end;
+}
+codeunit 69955 T
+{
+    Subtype = Test;
+    var Seen: Text;
+    local procedure Seed(Rows: Integer)
+    var Row: Record "RP Row";
+    begin
+        Row.DeleteAll(); Seen := '';
+        if Rows = 1 then begin Row."Item No." := 'I1'; Row."Vendor No." := 'V1'; Row.Insert(); end;
+    end;
+    [Test] [HandlerFunctions('HTrig')] procedure R1_ControlTriggers_Empty()
+    var Row: Record "RP Row";
+    begin Seed(0); Row.SetRange("Item No.", 'I9'); Page.Run(Page::"RP Ws Trig", Row); if Seen <> 'item=I9 vend=' then Error('Wrong Filter on Page'); end;
+    [Test] [HandlerFunctions('HDate')] procedure R2_DateVariable_Empty()
+    var Row: Record "RP Row";
+    begin Seed(0); Row.SetRange("Item No.", 'I9'); Page.Run(Page::"RP Ws Date", Row); end;
+    // Outside the neighborhood: a view with a row, and a List page. Main's path.
+    [Test] [HandlerFunctions('HTrig')] procedure R3_ControlTriggers_OneRow()
+    var Row: Record "RP Row";
+    begin Seed(1); Row.SetRange("Item No.", 'I1'); Page.Run(Page::"RP Ws Trig", Row); if Seen <> 'item= vend=' then Error('%1', Seen); end;
+    [Test] [HandlerFunctions('HList')] procedure R4_List_Empty()
+    var Row: Record "RP Row";
+    begin Seed(0); Row.SetRange("Item No.", 'I9'); Page.Run(Page::"RP List Trig", Row); if Seen <> 'item=' then Error('%1', Seen); end;
+    [PageHandler] procedure HTrig(var P: TestPage "RP Ws Trig")
+    begin Seen := 'item=' + P.ItemNoFilterCtl.Value + ' vend=' + P.VendNoFilterCtl.Value; end;
+    [PageHandler] procedure HDate(var P: TestPage "RP Ws Date")
+    begin if P.ItemNoFilterCtl.Value <> 'I9' then Error('Wrong Filter on Page'); end;
+    [PageHandler] procedure HList(var P: TestPage "RP List Trig")
+    begin Seen := 'item=' + P.ItemNoFilterCtl.Value; end;
+}
+"#;
+
+// al-runner issue 6924 (APPD): main's path ran the expression only at a caption read, so the handler read empty controls where BC
+// ran it twice before the handler (DataCaptionExprWorksheet.al:412). Control triggers and a Date variable are not measured: on the
+// empty view the page refuses before the handler and names the fact it misses.
+#[test]
+fn the_reported_worksheet_on_an_empty_view_refuses() {
+    let outcomes = outcomes_in(REPORTED, "T");
+    let get = |name: &str| {
+        let o = outcomes.iter().find(|(n, _)| n == name).map(|(_, o)| o);
+        format!("{o:?}")
+    };
+    let trig = get("R1_ControlTriggers_Empty");
+    assert!(
+        trig.contains("NotRun") && trig.contains("a control has a trigger"),
+        "{trig}"
+    );
+    let date = get("R2_DateVariable_Empty");
+    assert!(
+        date.contains("NotRun") && date.contains("not an empty Text or Code"),
+        "{date}"
+    );
+}
+
+// A view with a row, and a List page, keep main's path (the expression is not run before the handler's control reads).
+#[test]
+fn the_reported_shapes_outside_the_neighborhood_keep_main_outcome() {
+    let outcomes = outcomes_in(REPORTED, "T");
+    let get = |name: &str| {
+        let o = outcomes.iter().find(|(n, _)| n == name).map(|(_, o)| o);
+        format!("{o:?}")
+    };
+    for t in ["R3_ControlTriggers_OneRow", "R4_List_Empty"] {
+        assert_eq!(get(t), "Some(Pass)", "{t}");
     }
 }
