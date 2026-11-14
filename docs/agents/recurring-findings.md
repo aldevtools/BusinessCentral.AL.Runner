@@ -274,3 +274,9 @@ are pinned facts too. Keep them where the trigger starts and require them.
 
 An entry text that names an argument expression (Code, a field) states a fact. The IR check must compare that argument,
 not only count the arguments (round 2: `SetRange(<field>, 'P1')` passed).
+
+## 18. Session state that ends or carries because a routine set it, also when the runner stopped that routine (al-runner PR 8114)
+
+A session state that ends or carries because a routine set it: the pin measured a routine that ran to its end. A routine
+the runner stops (rows rolled back) leaves state the pin does not cover. Give the state its new rule only when the routine
+returns Ok.

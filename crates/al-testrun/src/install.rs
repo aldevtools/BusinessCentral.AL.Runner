@@ -684,6 +684,14 @@ fn install_app_under_test(
             } else {
                 Ok(())
             };
+            if session.end_group1_install_routine(open.is_ok()) {
+                // The Company Triggers relied on the group 1 assumption: what main refused for them is flagged.
+                for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
+                    installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
+                }) {
+                    session.flag_group1_tables(touched(&engine, lowered, so, sr));
+                }
+            }
             match open {
                 Err(stopped) => {
                     unknown = stopped.roll_back(lowered, session);
@@ -739,6 +747,7 @@ fn install_app_under_test(
                             let why = format!("install code {} was not run: {why}", label(lowered, oi, ri));
                             refuse(lowered, session, skipped, &in_company, &company, ((oi, ri), why));
                         } else if let Err(stopped) = run_routine(lowered, session, oi, ri) {
+                            session.end_group1_install_routine(false);
                             unknown = stopped.roll_back(lowered, session);
                             refuse(
                                 lowered,
@@ -756,6 +765,10 @@ fn install_app_under_test(
                                 ),
                             );
                         } else {
+                            if session.end_group1_install_routine(true) {
+                                // It relied on the group 1 assumption: what main refused for it is flagged.
+                                session.flag_group1_tables(touched(&engine, lowered, oi, ri));
+                            }
                             // A routine that ran is durable before the next one starts: a later one that cannot run
                             // must not take its writes with it.
                             al_builtins::native::Ctx::commit(session).expect("commit");
@@ -769,7 +782,7 @@ fn install_app_under_test(
     }
 }
 
-/// The group 1 shape install routine `(oi, ri)` runs in (al-vm `group1_sessions.rs`): `InstallTrigger` for an install
+/// The group 1 shape install routine `(oi, ri)` runs in (al-vm `group1_sessions.rs`): `InstallTrigger` of it for an install
 /// codeunit's OnInstallAppPerCompany trigger where the probe measured it (`measured`: the per-company part in the session
 /// company, G1sXaInstall.al:115-117); `Off` for every other routine (an "Extension Triggers" subscriber among them).
 pub(crate) fn group1_trigger_shape(lowered: &Lowered, measured: bool, (oi, ri): (usize, usize)) -> Group1InstallShape {
@@ -778,7 +791,7 @@ pub(crate) fn group1_trigger_shape(lowered: &Lowered, measured: bool, (oi, ri): 
         && is_install(&objs.heads()[oi])
         && crate::baseline::trigger(&objs[oi], Part::Company.event()) == Some(ri)
     {
-        Group1InstallShape::InstallTrigger
+        Group1InstallShape::InstallTrigger((oi, ri))
     } else {
         Group1InstallShape::Off
     }

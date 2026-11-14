@@ -182,8 +182,8 @@ fn own_events(lowered: &Lowered, events: &Registry) -> Vec<OwnEvent> {
     out
 }
 
-/// The automatic subscribers, of any app, to "System Initialization".`OnAfterLogin` ([`LOGIN_EVENTS`]): the routines in
-/// which an install session's group 1 filter ends with the session (al-vm `group1_sessions.rs`, `Group1InstallShape::Login`).
+/// The automatic subscribers, of any app, to "System Initialization".`OnAfterLogin` ([`LOGIN_EVENTS`]): the routines whose
+/// body sets a group 1 filter that ends with the install session (al-vm `group1_sessions.rs`, `Group1InstallShape::Login`).
 pub(crate) fn after_login_subscribers(lowered: &Lowered, events: &Registry) -> std::rc::Rc<[(usize, usize)]> {
     let objects = &lowered.program.objects;
     let Some(&(id, name, event)) = LOGIN_EVENTS.iter().find(|e| e.2 == "onafterlogin") else {
