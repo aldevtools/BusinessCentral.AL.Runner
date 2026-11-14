@@ -19,6 +19,7 @@ mod bare_quoted_ext_control;
 mod bare_system_function_table_no;
 mod bg_task_part_moves;
 mod bigtext_write;
+mod blank_enum_list_rows;
 mod blob_copy_platform_fills;
 mod blocked_set_2;
 mod blocked_set_3;

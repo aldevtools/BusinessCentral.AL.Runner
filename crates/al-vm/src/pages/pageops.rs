@@ -411,7 +411,7 @@ impl Session {
                 {
                     return self.first_after_empty_list_action(st);
                 }
-                PageMethod::Close => {}
+                _ if name == PageMethod::Close || self.one_row_behind_call_pinned(st, name, args)? => {}
                 _ => {
                     return unsupported(format!(
                         "TestPage.{} after an action stored a row behind the new-row line of an empty list (not pinned)",
