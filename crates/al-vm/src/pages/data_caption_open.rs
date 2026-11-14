@@ -27,6 +27,8 @@ const OPENED_END: PinnedEnd = PinnedEnd {
     part_moves: false,
     no_writes: false,
     next: NextEnd::Refused,
+    close: true,
+    ok: false,
 };
 
 /// The page of a measured cell (`DataCaptionExprWorksheet.al`).

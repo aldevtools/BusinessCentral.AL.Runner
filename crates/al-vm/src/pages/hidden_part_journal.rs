@@ -52,6 +52,8 @@ const TURN_END: PinnedEnd = PinnedEnd {
     part_moves: false,
     no_writes: false,
     next: NextEnd::Once,
+    close: true,
+    ok: false,
 };
 
 /// The source of the measured part page: temporary rows its procedure refills (page 75313, `SourceTableTemporary = true`), or

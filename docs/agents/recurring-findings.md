@@ -28,6 +28,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
     the write ran no trigger, or that Rec changed only in the typed field;
   - data type, length, sign, position in a filter or expression;
   - record state: temporary, stored, dirty, saved by which call;
+  - a flag of a verdict read as a fact about the grant: `Deny { indirect: false }` says the calling object has no object
+    grant, not that the session level is blank. Require the session levels the pin measured (al-runner PR 8033).
   - BC version: a gate that one major measured is not a gate for the others;
   - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
     differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it
@@ -83,6 +85,12 @@ finds the next neighbor shape. Write the gate in allowlist form:
     raises the pinned error from the value, before it checks the key, also raises it for comments, wrapped flow
     collections and other valid input. Check every fact of the pinned line (key, value, position) before the error
     (al-runner PR 8017).
+  - a "same value, nothing to do" shortcut: skipping the write also skips the validation. The corpus pins that SetValue of
+    the held value still runs OnValidate (testpage/TestPageRuntimeContracts.al:199). Require no control, field or extension
+    validate trigger and no subscriber before the shortcut (al-runner PR 8029).
+  - `page_declares_within` checks page triggers, properties, extensions and subscribers, not control triggers and not table
+    code. A gate whose text says "no trigger" needs the control check (`controls_are_rec_fields`) and the table check
+    (`table_code_is`, `table_runs_no_code_for`) too (al-runner PR 8029).
   - a "cannot raise" list of builtins or operators checked by name only: the argument count, the argument values
     (a format text, a Where text, a lock flag), the operand types (Integer and Date addition overflows) and the
     properties of the field named (a CaptionClass runs AL code in FieldCaption) decide whether the call raises or runs

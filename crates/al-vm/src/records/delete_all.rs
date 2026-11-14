@@ -1,9 +1,27 @@
-//! `DeleteAll`: the rows it deletes, row by row (with delete events, database triggers, OnDelete for DeleteAll(true), the
-//! User table, MarkedOnly) or in one step in the store; a filter on a FlowField goes to `delete_all_flow`.
+//! `Delete` of one row with what it takes along (`delete_one`). `DeleteAll`: the rows it deletes, row by row (with delete
+//! events, database triggers, OnDelete for DeleteAll(true), the User table, MarkedOnly) or in one step in the store; a filter
+//! on a FlowField goes to `delete_all_flow`.
 
 use super::*;
 
 impl Session {
+    /// `Delete(run)` of `rec` on `t`, after the refusals of the Delete arm of `record_op_inner`: the row, and for a stored Tenant
+    /// Permission Set row the permission rows it takes with it (tenant_set_delete.rs).
+    pub(super) fn delete_one(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        rec: &Rec,
+        run: bool,
+    ) -> Result<Value, Signal> {
+        let cascade = self.tenant_set_delete_one(cx, t, rec)?;
+        let deleted = self.delete_row(t, rec, run)?;
+        if let Some(c) = cascade {
+            self.tenant_set_cascade_apply(cx, t, c)?;
+        }
+        Ok(deleted)
+    }
+
     /// `DeleteAll(run)` of `rec` on `t` (the arm of `record_op_inner`; `Session::note_bulk_write` notes it around this call).
     pub(super) fn delete_all(
         &mut self,
@@ -15,7 +33,37 @@ impl Session {
         // The platform takes no delete on Tenant License State (record/TestPlatformTablesWritableContracts.al:96-101).
         self.tenant_license_state_refuses(t, "delete")?;
         self.document_service_trigger_refused(t, rec, run, "DeleteAll")?;
-        self.tenant_set_delete_all_refuses(cx, t, rec)?;
+        // A stored Tenant Permission Set row takes its permission rows with it (tenant_set_delete.rs).
+        let cascade = self.tenant_set_delete_all(cx, t, rec)?;
+        let deleted = self.delete_all_selected(t, rec, cx, run)?;
+        if let Some(c) = cascade {
+            self.tenant_set_cascade_apply(cx, t, c)?;
+        }
+        Ok(deleted)
+    }
+
+    /// `Truncate(reset)` of `rec` on `t`: refused when it would leave rows that name a stored tenant set it removes
+    /// (tenant_set_delete.rs), else noted as a bulk write and run.
+    pub(super) fn truncate_all(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        rec: &Rec,
+        reset: bool,
+    ) -> Result<Value, Signal> {
+        self.tenant_set_truncate(cx, t, rec)?;
+        self.note_bulk_write(rec, t, crate::state::TxWriteKind::Truncate);
+        self.truncate(t, rec, reset)
+    }
+
+    /// The rows `delete_all` deletes, after its refusals.
+    fn delete_all_selected(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        cx: &al_data::AccessContext,
+        run: bool,
+    ) -> Result<Value, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
         if !flow_field_filters.is_empty() {
             return self.delete_all_flow_filtered(t, rec, run);
