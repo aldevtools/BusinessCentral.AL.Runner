@@ -1,10 +1,11 @@
 //! When the DataCaptionExpression of a Worksheet, or of a Card with DelayedInsert, runs as AL code opens the page with
-//! `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and a TestPage handler answers it (al-runner issue 6924, APPD). Measured by
-//! corpus PR 1392, pages/properties/DataCaptionExprWorksheet.al (its CI passed on all three BC majors the corpus runs); the cells
-//! run under the assumption `data-caption-run-at-open`. Such a Worksheet in another shape or run (`data_caption_open_neighbor`)
-//! refuses at the open when its expression can raise an error or leave something behind (`Engine::caption_open_risk`), else at
-//! the first test read of the caption (`refuse_unmeasured_caption_read`); every other page keeps main's path
-//! (`data_caption_run.rs`, `caption_expr_list.rs`).
+//! `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and a TestPage handler answers it (al-runner issue 6924). Measured by corpus
+//! PR 1392, pages/properties/DataCaptionExprWorksheet.al (its CI passed on all three BC majors the corpus runs); the cells run
+//! under the assumption `data-caption-run-at-open`. A page in no cell here may be in a cell of corpus PR 1401
+//! (`data_caption_get_open.rs`). Such a Worksheet in another shape or run (`data_caption_open_neighbor`) refuses at the open when
+//! its expression can raise an error or leave something behind (`Engine::caption_open_risk`), else at the first test read of the
+//! caption (`refuse_unmeasured_caption_read`); every other page keeps main's path (`data_caption_run.rs`,
+//! `caption_expr_list.rs`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
 use super::*;
@@ -29,11 +30,12 @@ const OPENED_END: PinnedEnd = PinnedEnd {
     next: NextEnd::Refused,
     close: true,
     ok: false,
+    walk: false,
 };
 
 /// The page of a measured cell (`DataCaptionExprWorksheet.al`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Shape {
+pub(super) enum Shape {
     /// PageType = Worksheet with DelayedInsert = true (:106-112).
     WorksheetDelayedInsert,
     /// PageType = Worksheet without DelayedInsert (:177-182).
@@ -95,28 +97,30 @@ type Miss = &'static str;
 
 /// The record AL code handed to `Page.Run`, as it was before the page opened, in the measured shape (`Session::data_caption_handed`).
 pub(super) struct HandedRecord {
-    filters: Vec<FieldFilter>,
+    pub(super) filters: Vec<FieldFilter>,
     /// The store's change counter before OnInit.
     writes: u64,
+    /// The filters are one SetRange of group 0 to one Code value that is not empty (DataCaptionExprWorksheet.al:349, :357-359).
+    one_code_value: bool,
 }
 
 impl Session {
-    /// The record `record` that AL code hands to page `st` with `bind`'s handler bound, when it is the probe's: AL code's static
-    /// run with a record and no field number (DataCaptionExprWorksheet.al:362-368), the test did not open the page; a stored
-    /// record with no marks, the primary key in ascending order, filter group 0 active and one filter of group 0, a SetRange to
-    /// one Code value that is not empty (:349, :357-359; `Item No.: I9`, `Vendor No.: V9`, `I1`); every field holding the value a
-    /// fresh record variable of the table holds (the probe hands a fresh variable after Reset, :341-359, and its expression reads
-    /// Rec's fields, :146).
-    pub(super) fn data_caption_handed(
-        &mut self,
-        st: &St,
-        record: Option<&Rec>,
-        bind: Option<UiKind>,
-    ) -> Result<HandedRecord, Miss> {
+    /// The record `record` that AL code hands to page `st`, when it is the probes': AL code's static run with a record and no
+    /// field number (DataCaptionExprWorksheet.al:362-368; DataCaptionGetOpen.al:334, :353, :373-374 of corpus PR 1401, also after a
+    /// TestPage Trap), the test did not open the page; a stored record with no marks, the primary key in ascending order, filter
+    /// group 0 active; every field holding the value a fresh record variable of the table holds (the probes hand a fresh variable
+    /// after Reset, DataCaptionExprWorksheet.al:341-359, DataCaptionGetOpen.al:299-312, and the expressions read Rec's fields,
+    /// DataCaptionExprWorksheet.al:146, DataCaptionGetOpen.al:191). Its filters are checked by each family of cells.
+    pub(super) fn data_caption_handed(&mut self, st: &St, record: Option<&Rec>) -> Result<HandedRecord, Miss> {
         let Some(r) = record.map(|r| r.borrow()) else {
             return Err("AL code handed no record");
         };
-        if bind.is_none() || !st.borrow().static_run_record_only || self.pages.test_open {
+        // A Trap caught the run: `trapped_static_run` is the static `Page.Run(Page::X, Rec)` (DataCaptionGetOpen.al:373-374).
+        let static_run = {
+            let s = st.borrow();
+            s.static_run_record_only || (s.caught_by_trap && s.trapped_static_run)
+        };
+        if !static_run || self.pages.test_open {
             return Err("the page is not one AL code ran with Page.Run(Id, Rec) while no TestPage opened");
         }
         let one_code_value = match r.filters.as_slice() {
@@ -126,9 +130,6 @@ impl Session {
             }
             _ => false,
         };
-        if !one_code_value {
-            return Err("the handed record's filters are not one SetRange to one Code value that is not empty");
-        }
         let measured = !r.temporary
             && r.marks.is_empty()
             && !r.marked_only
@@ -146,6 +147,7 @@ impl Session {
         Ok(HandedRecord {
             filters: r.filters.clone(),
             writes: self.store.change_counter(),
+            one_code_value,
         })
     }
 
@@ -162,13 +164,14 @@ impl Session {
         bind: Option<UiKind>,
         handed: Result<HandedRecord, Miss>,
     ) -> Result<(), Signal> {
-        let cell = match handed {
-            Ok(handed) => self.data_caption_open_cell(st, bind, &handed)?,
-            Err(miss) => Err(miss),
+        let cell = match &handed {
+            Ok(handed) => self.data_caption_open_cell(st, bind, handed)?,
+            Err(miss) => Err(*miss),
         };
         let runs = match cell {
             Ok(runs) => runs,
             Err(_) if self.data_caption_read_pinned(st, bind) => return Ok(()),
+            Err(_) if self.data_caption_get_open(st, bind, handed.as_ref().ok())? => return Ok(()),
             Err(miss) if self.data_caption_open_neighbor(st, bind) => {
                 return match self.data_caption_expression_risk(st) {
                     None => {
@@ -202,19 +205,24 @@ impl Session {
         Ok(())
     }
 
-    /// What the page's compiled DataCaptionExpression can do at the open (`Engine::caption_open_risk`); `None`: it can neither
-    /// raise an error nor leave anything behind.
-    fn data_caption_expression_risk(&self, st: &St) -> Option<String> {
+    /// The routine of the page object of `st` that holds its compiled DataCaptionExpression.
+    pub(super) fn data_caption_routine(&self, st: &St) -> Option<usize> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
-        let Some(routine) = engine.program.objects[object]
+        engine.program.objects[object]
             .routines
             .iter()
             .position(|r| r.name == ir::DATA_CAPTION_ROUTINE)
-        else {
+    }
+
+    /// What the page's compiled DataCaptionExpression can do at the open (`Engine::caption_open_risk`); `None`: it can neither
+    /// raise an error nor leave anything behind.
+    pub(super) fn data_caption_expression_risk(&self, st: &St) -> Option<String> {
+        let Some(routine) = self.data_caption_routine(st) else {
             return Some("the expression was not compiled".into());
         };
-        engine.caption_open_risk(object, routine)
+        let object = st.borrow().object as usize;
+        self.engine().caption_open_risk(object, routine)
     }
 
     /// The test reads, on page `st`, its caption (`control` empty) or the control at index `control`: on a Worksheet whose
@@ -272,6 +280,11 @@ impl Session {
         bind: Option<UiKind>,
         handed: &HandedRecord,
     ) -> Result<Result<Runs, Miss>, Signal> {
+        if !handed.one_code_value {
+            return Ok(Err(
+                "the handed record's filters are not one SetRange to one Code value that is not empty",
+            ));
+        }
         let run_modal = {
             let s = st.borrow();
             let run = match (bind, s.modal) {
@@ -361,7 +374,7 @@ impl Session {
     /// record's filters, key and order, filter group 0 active; no write to the store; the page variables the controls show still
     /// empty (:369 `OnOpenPage(item=)`); `CurrPage.Editable` assigned once in OnOpenPage (`'true'` :412, `'false'` :452) or not at
     /// all (:503), and no Editable set on the page before it ran. Otherwise the fact it misses.
-    fn data_caption_open_left(&self, st: &St, handed: &HandedRecord) -> Result<bool, Miss> {
+    pub(super) fn data_caption_open_left(&self, st: &St, handed: &HandedRecord) -> Result<bool, Miss> {
         let rec = self.page_rec(st);
         let kept = {
             let r = rec.borrow();
@@ -405,7 +418,7 @@ impl Session {
     }
 
     /// The page's `Shape`, when its code and properties are those of the probe's pages; otherwise the fact it misses.
-    fn data_caption_open_shape(&self, st: &St) -> Result<Shape, Miss> {
+    pub(super) fn data_caption_open_shape(&self, st: &St) -> Result<Shape, Miss> {
         if !self.has_source(st)
             || !self.page_declares_within(
                 st,

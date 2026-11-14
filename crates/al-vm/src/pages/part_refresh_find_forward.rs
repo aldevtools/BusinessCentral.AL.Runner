@@ -96,6 +96,7 @@ impl Session {
                 next: NextEnd::Refused,
                 close: true,
                 ok: false,
+                walk: false,
             });
         }
         let r = self.sync_part(host, c, st);

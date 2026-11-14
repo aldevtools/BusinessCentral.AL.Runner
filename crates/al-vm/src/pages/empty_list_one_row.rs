@@ -32,6 +32,7 @@ const AFTER_MOVE: PinnedEnd = PinnedEnd {
     next: NextEnd::Refused,
     close: false,
     ok: true,
+    walk: false,
 };
 
 impl Session {
