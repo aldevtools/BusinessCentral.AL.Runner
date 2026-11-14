@@ -595,35 +595,11 @@ impl Session {
                 let mut stored = Self::to_store(rec, view);
                 self.webhook_application_id(&t, rec, &mut stored)?;
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
-                    // A value the SQL column cannot hold: the Insert does not fail, the next access of the table does
-                    // (record/filters/P130DateFilters.al:255-275, stage `get`), as for a duplicate key. With a Blob
-                    // field, an AutoIncrement field, the result used, an after-insert trigger or event, or a page write it is
-                    // not pinned.
-                    let has_blob = t
-                        .fields
-                        .iter()
-                        .any(|f| matches!(&f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob)));
-                    // A CRM table has no SQL column: what its table connection does with such a value is not pinned.
-                    if self.ret_used
-                        || rec.borrow().crm
-                        || has_blob
-                        || auto.is_some()
-                        || self.tx.immediate_errors
-                        || (run && !self.ext_triggers(&t, "OnAfterInsert").is_empty())
-                        || self.listened(&t, "onafterinsertevent", None)?
-                    {
-                        return unsupported(format!(
-                            "an Insert into {} of a value its SQL column cannot hold, in a form the corpus does not pin",
-                            t.name
-                        ));
-                    }
-                    if bad.evidence == crate::sqltime::Evidence::Reporter1753 {
-                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SqlDateFirstYear);
-                    }
-                    Self::restore_row_version(rec, old_version);
-                    Self::unstamp(rec, stamped);
-                    self.defer_insert(rec, t.object, bad.error);
-                    return Ok(Value::Boolean(true));
+                    let shape = InsertShape {
+                        auto: auto.is_some(),
+                        run,
+                    };
+                    return self.defer_insert_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
                 let empty_blob = Self::temp_insert_blobs(rec, &stored);
                 Self::mark_blobs_inserted(rec, &stored, true);
@@ -805,6 +781,7 @@ impl Session {
             }
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
+                let from_al = std::mem::take(&mut self.tx.modify_from_al);
                 self.tenant_license_state_refuses(&t, "modify")?;
                 self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
@@ -938,7 +915,11 @@ impl Session {
                 }
                 let mut stored = Self::to_store(rec, view);
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
-                    return self.fail_modify_sql_range(rec, &t, bad);
+                    let shape = ModifyShape {
+                        from_al,
+                        row_exists: stored_row.is_some(),
+                    };
+                    return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
                 Self::mark_blobs_inserted(rec, &stored, false);
                 let before = self.store.change_counter();

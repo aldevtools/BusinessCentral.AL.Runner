@@ -29,6 +29,7 @@ mod setfilter_empty_or_side;
 mod setrange_filter;
 mod sql_range;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
+use sql_range::{InsertShape, ModifyShape};
 mod nested_validate;
 pub(crate) use nested_validate::ValidateSite;
 mod op_inner;

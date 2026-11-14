@@ -91,6 +91,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - `page_declares_within` checks page triggers, properties, extensions and subscribers, not control triggers and not table
     code. A gate whose text says "no trigger" needs the control check (`controls_are_rec_fields`) and the table check
     (`table_code_is`, `table_runs_no_code_for`) too (al-runner PR 8029).
+  - a gate on Modify that excludes ModifyAll by the bulk flag: ModifyAll with RunTrigger = true, RecordRef.Modify and a page
+    save reach the same arm. Require the Modify statement of AL code on a Record variable, and that the row exists
+    (al-runner PR 8045).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

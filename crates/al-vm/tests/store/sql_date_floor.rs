@@ -24,8 +24,66 @@ table 69991 "SDF Trig Row"
     keys { key(PK; Id) { } }
     trigger OnModify() begin end;
 }
+table 69993 "SDF Blob Row"
+{
+    fields { field(1; Id; Integer) { } field(2; Dt; Date) { } field(3; B; Blob) { } }
+    keys { key(PK; Id) { } }
+}
 codeunit 69992 C
 {
+    procedure ModifyMissingRow(Dt: Date)
+    var R: Record "SDF Row";
+    begin
+        R.Id := 901; R.Dt := Dt; R.Modify();
+    end;
+
+    procedure ModifyAllPlain(Dt: Date)
+    var R: Record "SDF Row";
+    begin
+        R.Id := 1; R.Insert();
+        R.ModifyAll(Dt, Dt);
+    end;
+
+    procedure ModifyAllTrue(Dt: Date)
+    var R: Record "SDF Row";
+    begin
+        R.Id := 1; R.Insert();
+        R.ModifyAll(Dt, Dt, true);
+    end;
+
+    procedure RecRefModify(Dt: Date)
+    var R: Record "SDF Row"; RR: RecordRef;
+    begin
+        R.Id := 1; R.Insert();
+        RR.GetTable(R);
+        RR.Field(2).Value := Dt;
+        RR.Modify();
+    end;
+
+    procedure BlobModify(Dt: Date)
+    var R: Record "SDF Blob Row";
+    begin
+        R.Id := 1; R.Insert();
+        R.Dt := Dt; R.Modify();
+    end;
+
+    procedure ModifyDtm(Dtm: DateTime)
+    var R: Record "SDF Row";
+    begin
+        R.Id := 1; R.Insert();
+        R.Dtm := Dtm; R.Modify();
+    end;
+
+    procedure StampAfterFailedModify(Dt: Date): Boolean
+    var R: Record "SDF Row"; Back: Record "SDF Row";
+    begin
+        R.Id := 1; R.Insert();
+        Back.Get(1);
+        R.Dt := Dt;
+        asserterror R.Modify();
+        exit(R.SystemModifiedAt = Back.SystemModifiedAt);
+    end;
+
     // The reporter's Insert shape, as record/filters/P130DateFilters.al:234-251 writes it.
     procedure Insert(Dt: Date; Dtm: DateTime): Text
     var R: Record "SDF Row"; Back: Record "SDF Row"; Stage: Text;
@@ -235,4 +293,34 @@ fn the_unmeasured_neighbors_are_refused() {
     refused("Modify", vec![date(1752, 12, 31, false), BLANK_DTM]);
     refused("Modify", vec![BLANK_DT, datetime(1752, 12, 31, 12 * 3_600_000)]);
     refused("RenameTo", vec![date(1753, 1, 2, false)]);
+}
+
+// Round 1 of the review: the Modify gate takes the Modify statement of AL code on a Record variable and a stored row.
+// ModifyAll (both forms), RecordRef.Modify, a Modify of a row that does not exist, a Blob table, a closing date and a
+// one-digit hour keep refusing; main stored the values (or raised RecordNotFound) and the reporter measured none of them.
+#[test]
+fn the_modify_gate_is_the_statement_on_a_stored_row() {
+    refused("ModifyMissingRow", vec![date(1753, 6, 15, false)]);
+    refused("ModifyAllPlain", vec![date(1753, 6, 15, false)]);
+    refused("ModifyAllTrue", vec![date(1753, 6, 15, false)]);
+    refused("RecRefModify", vec![date(1753, 6, 15, false)]);
+    refused("BlobModify", vec![date(1753, 6, 15, false)]);
+    refused("Modify", vec![date(1753, 6, 15, true), BLANK_DTM]);
+    refused("ModifyDtm", vec![datetime(1753, 6, 15, 3 * 3_600_000)]);
+}
+
+// A missing row keeps main's RecordNotFound for a value the column holds.
+#[test]
+fn a_modify_of_a_missing_row_keeps_main_for_a_storable_value() {
+    let (r, hit) = run("ModifyMissingRow", vec![date(1754, 1, 1, false)]);
+    assert!(!hit);
+    assert!(matches!(r, Err(Signal::Error(_))), "{r:?}");
+}
+
+// A failed Modify leaves the buffer as the sibling failure does (unique violation): the stamp is restored.
+#[test]
+fn a_failed_modify_restores_the_buffer_stamp() {
+    let (r, hit) = run("StampAfterFailedModify", vec![date(1753, 6, 15, false)]);
+    assert!(hit);
+    assert!(matches!(r, Ok(Value::Boolean(true))), "{r:?}");
 }
