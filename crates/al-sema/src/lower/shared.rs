@@ -180,6 +180,7 @@ impl<'a> Seq<'a> {
 pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a Seq<'a>, oi: usize) -> Lowerer<'a> {
     Lowerer {
         rec_slot: None,
+        declared_rec_slot: None,
         table_of: &sh.table_of,
         ws: sh.ws,
         members: sh.members,
@@ -252,31 +253,6 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
 }
 
 /// Records what a global's type says about its text: label text and XLIFF id, textconst, languages, `Locked`, `MaxLength`.
-/// A global `Rec` that a codeunit with TableNo `table` declares. Lowering has one slot for it and for the implicit Rec of
-/// OnRun (the slot below takes the name), so the declared variable runs as that slot. alc compiles a global `Rec` in a
-/// procedure of such a codeunit (corpus must-not-compile 3141, its note; corpus PR 1386); whether BC keeps it apart from
-/// OnRun's Rec is not measured. Only main's shape runs: a record of the TableNo table, declared without `temporary`, whose
-/// run-time type is the implicit slot's. Any other declared type refuses every routine of the codeunit (a record of
-/// another table read `TableName()` as the TableNo table's; review of PR 7980).
-fn declared_rec_refusal(lw: &Lowerer<'_>, kind: ObjKind, obj: &ast::Object, table: usize) -> Option<String> {
-    if kind != ObjKind::Codeunit {
-        return None;
-    }
-    let decl = obj
-        .var_decls()
-        .find(|v| v.names().iter().any(|n| n.eq_ignore_ascii_case("Rec")))?;
-    let ty = decl.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
-    let main_shape = matches!(ty, Ty::Record { temporary: false, .. })
-        && lw.rt(&ty) == Ok(RtType::Record(table as u32, lw.is_temporary_table(table)));
-    (!main_shape).then(|| {
-        format!(
-            "a global `Rec` declared as `{}` in a codeunit with TableNo: BC's behavior is not measured (only a record of the \
-             TableNo table, not temporary, runs, as the codeunit's Rec)",
-            decl.type_ref().map(|t| al_syntax::ast::NodeText::text_string(t.syntax()).trim().to_string()).unwrap_or_default()
-        )
-    })
-}
-
 fn note_global_label_facts(lw: &mut Lowerer<'_>, v: &ast::VarDecl, n: &str, label: Option<&String>) {
     let key = n.to_lowercase();
     if let Some(l) = label {
@@ -567,7 +543,7 @@ pub(crate) fn lower_object<'a>(
     }
     let (mut rec_slot, mut xrec_slot) = (None, None);
     if let Some(t) = table_of[oi] {
-        global_reasons.extend(declared_rec_refusal(&lw, o.kind, &obj, t));
+        global_reasons.extend(super::table_no_rec::declared_rec_refusal(&mut lw, o.kind, &obj, t));
         for (name, slot) in [("Rec", &mut rec_slot), ("xRec", &mut xrec_slot)] {
             // A codeunit has no xRec.
             if name == "xRec" && o.kind == ObjKind::Codeunit {

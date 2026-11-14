@@ -229,6 +229,9 @@ pub(crate) type L<T> = Result<T, String>;
 pub(crate) struct Lowerer<'a> {
     /// Global slot of the implicit `Rec` of the current object.
     rec_slot: Option<usize>,
+    /// Global slot of a variable `Rec` that a codeunit with TableNo declares, when procedures read it apart from the
+    /// implicit Rec (`table_no_rec::declared_rec_refusal`).
+    declared_rec_slot: Option<usize>,
     table_of: &'a [Option<usize>],
     ws: &'a Workspace,
     members: &'a MemberTable<'a>,
@@ -627,6 +630,7 @@ mod request_procs;
 mod routine_lists;
 mod shared;
 mod stmt;
+mod table_no_rec;
 mod tables;
 mod test_handlers;
 #[cfg(test)]

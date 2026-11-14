@@ -176,6 +176,213 @@ codeunit 50726 "Old Sequence"
     assert!(not_run(outcome(&o, "B_DrawsAgain"), "not measured"), "{o:?}");
 }
 
+// al-runner issue 8002: only a later test that reaches the changed key or sequence is refused, at that call. A test that
+// reaches another key or sequence runs (its rollback is pinned: IsolProbeAfterRollback.Codeunit.al S7-S9).
+#[test]
+fn under_a_function_runner_only_a_test_that_reaches_the_changed_key_or_sequence_is_refused() {
+    let src = r#"
+codeunit 50727 "Old Key Narrow"
+{
+    Subtype = Test;
+    trigger OnRun() begin IsolatedStorage.Set('OLD', 'V', DataScope::Module); IsolatedStorage.Set('OTHER', 'W', DataScope::Module); end;
+    [Test] procedure A_ChangesTheOldKey() begin IsolatedStorage.Set('OLD', 'CHANGED', DataScope::Module); end;
+    [Test] procedure B_ReadsAnotherKey() var V: Text; begin IsolatedStorage.Get('OTHER', DataScope::Module, V); if V <> 'W' then Error('B %1', V); end;
+    [Test] procedure C_ReadsTheOldKey() var V: Text; begin IsolatedStorage.Get('OLD', DataScope::Module, V); end;
+    [Test] procedure D_ReadsItWithATrailingSpace() begin if IsolatedStorage.Contains('old ', DataScope::Module) then; end;
+    [Test] procedure E_ReadsItInTheCompanyScope() begin if IsolatedStorage.Contains('OLD', DataScope::Company) then Error('E'); end;
+}
+codeunit 50728 "Old Sequence Narrow"
+{
+    Subtype = Test;
+    trigger OnRun() begin NumberSequence.Insert('OLDSEQ3', 1, 1); NumberSequence.Insert('OTHERSEQ', 5, 1); end;
+    [Test] procedure A_RestartsTheOldSequence() begin NumberSequence.Restart('OLDSEQ3', 10); end;
+    [Test] procedure B_DrawsFromAnother() begin if NumberSequence.Next('OTHERSEQ') <> 5 then Error('B'); end;
+    [Test] procedure C_AsksForTheOldOne() begin if NumberSequence.Exists('OLDSEQ3') then; end;
+    [Test] procedure D_InsertsTheOldName() begin NumberSequence.Insert('OldSeq3', 1, 1); end;
+}
+"#;
+    let o = run(src, TestIsolation::Function);
+    for t in [
+        "A_ChangesTheOldKey",
+        "B_ReadsAnotherKey",
+        "E_ReadsItInTheCompanyScope",
+        "A_RestartsTheOldSequence",
+        "B_DrawsFromAnother",
+    ] {
+        assert_eq!(outcome(&o, t), &Outcome::Pass, "{t}: {o:?}");
+    }
+    for t in ["C_ReadsTheOldKey", "D_ReadsItWithATrailingSpace"] {
+        assert!(
+            not_run(outcome(&o, t), "A_ChangesTheOldKey, changed isolated storage key 'OLD'"),
+            "{t}: {o:?}"
+        );
+    }
+    for t in ["C_AsksForTheOldOne", "D_InsertsTheOldName"] {
+        assert!(
+            not_run(
+                outcome(&o, t),
+                "A_RestartsTheOldSequence, changed number sequence 'OLDSEQ3'"
+            ),
+            "{t}: {o:?}"
+        );
+    }
+}
+
+// al-runner issue 8002, the reporter's repro unchanged (`--isolation test`): the tests after a change to an existing sequence
+// or key that reach neither run.
+const REPRO_8002: &str = r#"
+codeunit 50643 "R962 Sequence Follow-on"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('R962Seq') then
+            NumberSequence.Insert('R962Seq', 1, 1);
+    end;
+
+    [Test]
+    procedure A_AdvancesAnExistingSequence()
+    var
+        N: BigInteger;
+    begin
+        N := NumberSequence.Next('R962Seq');
+    end;
+
+    [Test]
+    procedure B_DoesNothing() // refused, though it reads nothing
+    begin
+    end;
+}
+
+codeunit 50644 "R962 Storage Follow-on"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    begin
+        IsolatedStorage.Set('R962Key', 'before', DataScope::Module);
+    end;
+
+    [Test]
+    procedure A_ChangesAnExistingKey()
+    begin
+        IsolatedStorage.Set('R962Key', 'changed', DataScope::Module);
+    end;
+
+    [Test]
+    procedure B_DoesNothing() // refused, though it reads nothing
+    begin
+    end;
+}
+"#;
+
+#[test]
+fn issue_8002_a_later_test_that_reaches_nothing_runs() {
+    let o = run(REPRO_8002, TestIsolation::Function);
+    assert_eq!(o.len(), 4, "{o:?}");
+    for (_, t, x) in &o {
+        assert_eq!(x, &Outcome::Pass, "{t}: {o:?}");
+    }
+}
+
+// The refusals end with the codeunit: a later codeunit that reads the same key and sequence runs.
+#[test]
+fn under_a_function_runner_the_refusal_of_a_changed_key_ends_with_its_codeunit() {
+    let src = r#"
+codeunit 50733 "Changes Old"
+{
+    Subtype = Test;
+    trigger OnRun() begin IsolatedStorage.Set('OLD5', 'V', DataScope::Module); NumberSequence.Insert('OLDSEQ5', 1, 1); end;
+    [Test] procedure A_ChangesBoth() begin IsolatedStorage.Set('OLD5', 'X', DataScope::Module); NumberSequence.Restart('OLDSEQ5', 9); end;
+}
+codeunit 50734 "Reads Old Later"
+{
+    Subtype = Test;
+    [Test] procedure R_ReadsBoth() begin if IsolatedStorage.Contains('OLD5', DataScope::Module) then; if NumberSequence.Exists('OLDSEQ5') then; end;
+}
+"#;
+    let o = run(src, TestIsolation::Function);
+    assert_eq!(outcome(&o, "A_ChangesBoth"), &Outcome::Pass, "{o:?}");
+    assert_eq!(outcome(&o, "R_ReadsBoth"), &Outcome::Pass, "{o:?}");
+}
+
+// Under Codeunit isolation a failed test after a change to a sequence that was there when the tests began: only a later
+// test that reaches that sequence is refused (al-runner issue 8002); a new sequence's Insert is rolled back with the failed
+// test (IsolProbeAfterRollback.Codeunit.al:58-78, :117-132 under runner 61301).
+#[test]
+fn under_a_codeunit_runner_only_a_test_that_reaches_the_changed_sequence_after_a_failure_is_refused() {
+    let src = r#"
+codeunit 50735 "Old Sequence Failed"
+{
+    Subtype = Test;
+    trigger OnRun() begin NumberSequence.Insert('OLDSEQ6', 1, 1); NumberSequence.Insert('OTHERSEQ6', 5, 1); end;
+    [Test] procedure A_RestartsAndFails() begin NumberSequence.Restart('OLDSEQ6', 10); Error('A fails on purpose'); end;
+    [Test] procedure B_DrawsFromAnother() begin if NumberSequence.Next('OTHERSEQ6') <> 5 then Error('B'); end;
+    [Test] procedure C_DrawsFromTheOldOne() begin NumberSequence.Next('OLDSEQ6'); end;
+}
+"#;
+    let o = run(src, TestIsolation::Codeunit);
+    assert_eq!(
+        outcome(&o, "A_RestartsAndFails"),
+        &Outcome::Fail("A fails on purpose".into())
+    );
+    assert_eq!(outcome(&o, "B_DrawsFromAnother"), &Outcome::Pass, "{o:?}");
+    assert!(
+        not_run(
+            outcome(&o, "C_DrawsFromTheOldOne"),
+            "A_RestartsAndFails, failed after number sequence 'OLDSEQ6'"
+        ),
+        "{o:?}"
+    );
+}
+
+// A failed test after an earlier test was refused mid-run: its failure is reported as not trusted, but its body still
+// ended with an AL error, so the sequences it deleted or restarted stay refused for the later tests (review of al-runner
+// issue 8002, round one).
+#[test]
+fn under_a_codeunit_runner_a_failure_reported_as_not_trusted_still_marks_the_sequences_it_changed() {
+    let src = r#"
+codeunit 50736 "Untrusted Failure"
+{
+    Subtype = Test;
+    trigger OnRun() begin NumberSequence.Insert('CS1', 1, 1); NumberSequence.Insert('CS2', 1, 1); NumberSequence.Insert('CS3', 1, 1); end;
+    [Test] procedure T01_RestartFails() begin NumberSequence.Restart('CS1', 7); Error('boom'); end;
+    [Test] procedure T02_NextRefused() begin if NumberSequence.Next('CS1') = 0 then; end;
+    [Test] procedure T03_DeleteFails() begin NumberSequence.Delete('CS2'); NumberSequence.Restart('CS3', 40); Error('boom'); end;
+    [Test] procedure T04_DeletedGone() begin if NumberSequence.Exists('CS2') then Error('exists'); end;
+    [Test] procedure T05_RestartedNext() begin if NumberSequence.Next('CS3') <> 40 then Error('not 40'); end;
+}
+"#;
+    let o = run(src, TestIsolation::Codeunit);
+    assert_eq!(outcome(&o, "T01_RestartFails"), &Outcome::Fail("boom".into()), "{o:?}");
+    assert!(
+        not_run(
+            outcome(&o, "T02_NextRefused"),
+            "T01_RestartFails, failed after number sequence 'CS1'"
+        ),
+        "{o:?}"
+    );
+    assert!(
+        not_run(outcome(&o, "T03_DeleteFails"), "this failure is not trusted"),
+        "{o:?}"
+    );
+    assert!(
+        not_run(
+            outcome(&o, "T04_DeletedGone"),
+            "T03_DeleteFails, failed after number sequence 'CS2'"
+        ),
+        "{o:?}"
+    );
+    assert!(
+        not_run(
+            outcome(&o, "T05_RestartedNext"),
+            "T03_DeleteFails, failed after number sequence 'CS3'"
+        ),
+        "{o:?}"
+    );
+}
+
 // IsolProbeWriter.Codeunit.al:23-77 (W1-W5) and IsolProbeReader.Codeunit.al:16-41 (R1-R3), SdIsolCommitError.Codeunit.al
 // :34-68 (E1-E5) and SdIsolCommitReader.Codeunit.al:21-35 (R1), runners 61304 (Disabled) and 61305 (no property): nothing
 // is rolled back but a failed test's writes since its last Commit(); the next codeunit (a higher id) sees the rest.
