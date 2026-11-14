@@ -113,6 +113,9 @@ refusal on a shape main ran is a regression, often in Base App code that partner
 - Add Rust tests that out-of-scope shapes keep main's outcome. Compare with a main binary.
 - Keep a refusal only as wide as its reason. Check its order: look the fact up first, refuse only when it
   matters.
+- Work moved to the open (a resolve, a fill) carries every refusal of the function it calls to tests that never read the
+  value. Before the move, require in the gate every fact that function refuses on, and return to main's path when one fails
+  (al-runner PR 8052).
 
 ## 3. Text that does not match the code or CI (comments 13, pull request body or ADR 9)
 
