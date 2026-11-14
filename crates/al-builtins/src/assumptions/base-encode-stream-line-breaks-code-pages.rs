@@ -1,0 +1,11 @@
+BaseEncodeStreamLineBreaksCodePages => {
+    id: "base-encode-stream-line-breaks-code-pages",
+    assumed: "The `Base64Convert` natives (System.app 28 and later) as corpus PR 1394 measured on BC 28.5 and 29.0. ToBase64(InStream, true) and ToBase64(InStream, true, OutStream) put CR LF after every 76 characters and none after the last line. With true the InStream form converts every byte of the stream whatever was read before, and the stream does not move; the OutStream form, measured only on a stream nothing was read from, appends to what the target holds. Covered only for a stream on a Blob buffer that is not a file; with true any other stream, and the OutStream form on a stream read part way, are refused. With false both forms keep the earlier result (from the read position, the stream moves to its end). FromBase64(Text, TextEncoding, Integer): UTF16 with code page 65001, 1200, 1201, 28591 or 99999 decodes UTF-16 (with 1252 it is pinned by types/PVBase64.al:141, with 0 it keeps the earlier answer); UTF8 with 28591, 1200 or 99999 decodes UTF-8; Windows with 1200 decodes UTF-16; Windows or MSDos with 850 and MSDos with 437 decode by that code page's table (measured bytes E4 F6 FC). Windows or MSDos with 99999 or 70000 is refused (BC 28 and 29 fail with an exception AL cannot catch). Every other code page keeps the earlier result.",
+    tests: "Corpus PR 1394 (open; merged, not pinned yet): tests/al-language/streams/Base64LineBreaks.al, green on the PR's CI for 27.5, 28.5 and 29.0. Outside reports: al-runner issue 7996 (the reporter's repro, ToBase64(InStream, true)) and 7997 item 2 (FromBase64 UTF16 with code page 1252).",
+    probe: "Written: corpus PR 1394, tests/al-language/streams/Base64LineBreaks.al:103-198 (InStream form, read position), :303-403 (OutStream form), :452-543 (FromBase64 code pages). Not measured yet: a stream on a file or an HttpContent stream with line breaks; where the stream stands after the call when it was read part way; code pages such as 1361; MSDos with 1200 and Windows with 437.",
+    awaiting: Awaiting {
+        issues: &[7996, 7997],
+        files: &["tests/al-language/streams/Base64LineBreaks.al"],
+        since: "2026-11-14",
+    },
+}

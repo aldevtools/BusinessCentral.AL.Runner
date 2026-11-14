@@ -522,7 +522,7 @@ pub enum Encoding {
 }
 
 /// Unicode of the code page 437 bytes 0x80..=0xFF.
-const CP437_HIGH: [char; 128] = [
+pub(crate) const CP437_HIGH: [char; 128] = [
     'Ç', 'ü', 'é', 'â', 'ä', 'à', 'å', 'ç', 'ê', 'ë', 'è', 'ï', 'î', 'ì', 'Ä', 'Å', 'É', 'æ', 'Æ', 'ô', 'ö', 'ò', 'û',
     'ù', 'ÿ', 'Ö', 'Ü', '¢', '£', '¥', '₧', 'ƒ', 'á', 'í', 'ó', 'ú', 'ñ', 'Ñ', 'ª', 'º', '¿', '⌐', '¬', '½', '¼', '¡',
     '«', '»', '░', '▒', '▓', '│', '┤', '╡', '╢', '╖', '╕', '╣', '║', '╗', '╝', '╜', '╛', '┐', '└', '┴', '┬', '├', '─',
@@ -1308,6 +1308,17 @@ pub fn hand_to_content(v: &mut Value) -> Result<Vec<u8>, Signal> {
         let bytes = s.with_data(|d| d.get(pos..).map(<[u8]>::to_vec).unwrap_or_default());
         s.handed_to_content = true;
         Ok(bytes)
+    })
+}
+
+/// Every byte of the Blob buffer an InStream reads, whatever its read position, with that position; the stream does not
+/// move. `None` when the stream does not read a Blob buffer, or reads a file's. Its one caller cites what it pins.
+pub fn blob_bytes_unmoved(v: &mut Value) -> Result<Option<(Vec<u8>, usize)>, Signal> {
+    with_in(Some(v), |s| match &s.source {
+        Source::Live(b) if matches!(&*b.borrow(), BlobBuf { file: false, .. }) => {
+            Ok(Some((s.with_data(<[u8]>::to_vec), s.pos)))
+        }
+        _ => Ok(None),
     })
 }
 
