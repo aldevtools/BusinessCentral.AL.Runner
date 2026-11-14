@@ -1,7 +1,8 @@
 //! A temporary record going from a Variant into a Variant (`V := W` where `W` is a Variant variable, parameter, global,
 //! array element, procedure result or a ternary of them; al-runner issue 8070). The owner of that one move:
-//! `exec/compile.rs` emits `Op::StoreVariantCopy` for an assignment whose right-hand side is one of the forms in
-//! [`VariantSource`], and [`Session::store_variant_copy`] decides. A `try` call yields a Boolean, never a Variant.
+//! `exec/compile.rs` registers a [`VariantCopySite`] for an assignment whose right-hand side is one of the forms in
+//! [`VariantSource`] (`Op::StoreLocal` names a local's site by its place, `Op::StoreVariantCopy` every other), and
+//! [`Session::store_variant_copy`] decides for a record. A `try` call yields a Boolean, never a Variant.
 //!
 //! The pinned neighbors stay where they are: a record variable put into a Variant is a by-value copy over an empty table
 //! of its own (recordref-fieldref/recordref/PWRecordMisc.al:234-250, `Interp::write_as`), a temporary record handed to a
@@ -50,11 +51,14 @@ pub(crate) enum VariantSource {
     Interface(Vec<(usize, usize)>),
 }
 
-/// One `Op::StoreVariantCopy`: the place assigned and the form of the right-hand side.
+/// One assignment of a possible Variant: the place assigned and the form of the right-hand side.
 #[derive(Debug, Clone)]
 pub(crate) struct VariantCopySite {
     pub place: ir::Place,
     pub source: VariantSource,
+    /// A local target: the index of its place in `Chunk::places`, which its `Op::StoreLocal` names. `u32::MAX` for a target
+    /// that is no local (`Op::StoreVariantCopy` names the site).
+    pub at: u32,
 }
 
 /// The form of `inner`, the operand of `Convert(Variant, inner)` on the right of an assignment, when it may be a Variant;
@@ -154,7 +158,7 @@ fn is_cell(cell: (Source, Target, Held, Filters)) -> bool {
 }
 
 impl Session {
-    /// `Op::StoreVariantCopy` of a record: `site.place := v`.
+    /// The record of a site's assignment: `site.place := v`.
     #[cold]
     pub(crate) fn store_variant_copy(&mut self, site: &VariantCopySite, v: Value, f: &mut Frame) -> Result<(), Signal> {
         // Whether the record state and its table have no other holder than `v` (counted before `v` is cloned).

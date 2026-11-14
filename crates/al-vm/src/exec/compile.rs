@@ -1370,7 +1370,7 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    /// `p := Convert(Variant, x)` where `x` may be a Variant (`variant_copy::source_of`): `Op::StoreVariantCopy`, which
+    /// `p := Convert(Variant, x)` where `x` may be a Variant (`variant_copy::source_of`): a site of `variant_copy.rs`, which
     /// decides at run time what a temporary record does there. False for every other assignment.
     fn variant_copy(&mut self, p: &'a ir::Place, e: &'a ir::Expr) -> R<bool> {
         let ir::Expr::Convert(RtType::Variant, inner) = e else {
@@ -1379,22 +1379,32 @@ impl<'a> Compiler<'a> {
         let Some(source) = crate::variant_copy::source_of(inner, &self.locals_ty, self.params, self.by_var) else {
             return Ok(false);
         };
+        if let ir::Place::Local(i) = p {
+            // A local takes `Op::StoreLocal`, as every other value it is assigned; its record goes to the site of its place.
+            let i = u16::try_from(*i).map_err(|_| ())?;
+            let a = self.expr_any(e)?;
+            let at = self.place(p);
+            self.chunk.variant_copies.push(crate::variant_copy::VariantCopySite {
+                place: p.clone(),
+                source,
+                at,
+            });
+            self.emit(Op::StoreLocal { i, a, p: at });
+            return Ok(true);
+        }
         let a = if has_index(p) {
             self.expr_copy(e)?
         } else {
             self.expr_any(e)?
         };
         let place = self.rplace(p)?;
-        // A local's register goes in the instruction: a value that is no record is stored there as `Op::StoreLocal` stores it.
-        let local = match place {
-            ir::Place::Local(i) => u16::try_from(i).map_err(|_| ())?,
-            _ => NOT_LOCAL,
-        };
-        self.chunk
-            .variant_copies
-            .push(crate::variant_copy::VariantCopySite { place, source });
+        self.chunk.variant_copies.push(crate::variant_copy::VariantCopySite {
+            place,
+            source,
+            at: u32::MAX,
+        });
         let s = u32::try_from(self.chunk.variant_copies.len() - 1).map_err(|_| ())?;
-        self.emit(Op::StoreVariantCopy { s, a, local });
+        self.emit(Op::StoreVariantCopy { s, a });
         Ok(true)
     }
 

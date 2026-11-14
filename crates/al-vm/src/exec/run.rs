@@ -69,19 +69,23 @@ fn release(f: &mut Frame, r: u16, nl: u16) {
 }
 
 impl Session {
-    /// `Op::StoreVariantCopy`, out of the instruction loop (inlined, it made every other instruction of the loop slower): only a
-    /// record needs `Session::store_variant_copy`; every other value is stored as `Op::StoreLocal` and `Op::StorePlace`
-    /// store it.
+    /// The record, RecordRef or Blob `Op::StoreLocal` stores into local place `p`: a record goes to
+    /// `Session::store_variant_copy` when the assignment is a `variant_copy.rs` site, every value else to `write`.
     #[inline(never)]
-    fn variant_copy_op(&mut self, chunk: &Chunk, s: u32, a: u16, local: u16, f: &mut Frame) -> Result<(), Signal> {
+    fn store_local_held(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        match chunk.variant_copies.iter().find(|site| site.at == p) {
+            Some(site) if matches!(v, Value::Record(_)) => self.store_variant_copy(site, v, f),
+            _ => self.write(&chunk.places[p as usize], v, f),
+        }
+    }
+
+    /// `Op::StoreVariantCopy` (a target that is no local), out of the instruction loop: inlined, it made every other
+    /// instruction of the loop slower. Only a record needs `Session::store_variant_copy`.
+    #[inline(never)]
+    fn variant_copy_op(&mut self, chunk: &Chunk, s: u32, a: u16, f: &mut Frame) -> Result<(), Signal> {
         let site = &chunk.variant_copies[s as usize];
         match take(f, a, chunk.nlocals) {
             v @ Value::Record(_) => self.store_variant_copy(site, v, f),
-            v @ (Value::Library(..) | Value::Blob(_)) => self.write(&site.place, v, f),
-            v if local != NOT_LOCAL => {
-                set(&mut f.locals[local as usize], v);
-                Ok(())
-            }
             v => self.write(&site.place, v, f),
         }
     }
@@ -185,13 +189,16 @@ impl Session {
                     let v = take(f, a, nl);
                     // A Blob goes through `write` too: a Variant takes a copy (`blob_transfer::moved`).
                     if matches!(v, Value::Record(_) | Value::Library(..) | Value::Blob(_)) {
-                        self.write(&chunk.places[p as usize], v, f)?;
+                        self.store_local_held(chunk, p, v, f)?;
                     } else {
                         set(&mut f.locals[i as usize], v);
                     }
                 }
-                Op::StorePlace { p, a } => self.write(&chunk.places[p as usize], take(f, a, nl), f)?,
-                Op::StoreVariantCopy { s, a, local } => self.variant_copy_op(chunk, s, a, local, f)?,
+                Op::StorePlace { p, a } => {
+                    let v = take(f, a, nl);
+                    self.write(&chunk.places[p as usize], v, f)?;
+                }
+                Op::StoreVariantCopy { s, a } => self.variant_copy_op(chunk, s, a, f)?,
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;
                     release(f, a, nl);
