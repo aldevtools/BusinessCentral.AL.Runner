@@ -2,8 +2,8 @@
 //!
 //! Pinned by queries/read-lifecycle/QueryClosedAfterLastRow.al:162-182 (Query_RowsLeft_OpenAgainAndSetRange): a query of one
 //! data item with two plain columns (:10-22), no filter set (`Seed` clears it, :42), opened and read once with rows left
-//! (:165-167); `Open` as a statement raises nothing (:168, :178); then `SetRange` on a column with one value (:169) and `Open`
-//! (:170) read the rows of the new filter (:171, :182). What any other call does right after the second `Open` (a `Read`, a
+//! (:165-166, :174); `Open` as a statement raises nothing (:168, :175); then `SetRange` on a column with one value (:169) and `Open`
+//! (:170) read the rows of the new filter (:171, :179). What any other call does right after the second `Open` (a `Read`, a
 //! column read, another `Open`, `SetFilter`, `Close`) is not pinned and refuses, as does every other shape of the second `Open`.
 
 use crate::Session;
@@ -36,7 +36,7 @@ impl Session {
             && def.top == 0;
         let now = self.query_stamps(def);
         let q = qs.borrow();
-        // No filter, top or security filtering set (:42); read once with rows left and nothing written since (:165-167).
+        // No filter, top or security filtering set (:42); read once with rows left and nothing written since (:165-166, :174).
         let state = q.filters.is_empty()
             && q.top.is_none()
             && q.security_filtering.is_none()
