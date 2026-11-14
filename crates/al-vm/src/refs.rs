@@ -1677,7 +1677,12 @@ impl Session {
                 if stored {
                     return unsupported("FieldRef.CalcField of a field that is not a FlowField (not pinned)");
                 }
-                self.flow_op(RecordOp::CalcFields, &rec, &[Value::Integer(pos as i32)])
+                self.flow_op(
+                    RecordOp::CalcFields,
+                    &rec,
+                    &[Value::Integer(pos as i32)],
+                    crate::flowfields::Asked::Other,
+                )
             }
             // FieldRef.CalcSum sums a stored Decimal or Integer field over the rows the RecordRef's filters pass, a field in
             // no SumIndexFields list as well, puts the sum into the field and answers Yes

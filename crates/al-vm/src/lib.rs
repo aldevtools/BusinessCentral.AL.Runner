@@ -107,6 +107,7 @@ pub mod observer_tap;
 mod pages;
 mod partial;
 mod permission_shadow;
+mod permission_system_flowfield;
 mod permission_triggers;
 mod permissions;
 mod platform;
@@ -996,6 +997,9 @@ pub struct Session {
     /// True while a page calculates the FlowFields of its controls: BC drops such a control when the session cannot read the
     /// source table (Y24PermReads.al Y24_P15, `testpage_field`), which the runtime does not model, so a denial refuses.
     pub(crate) permission_page_calc: bool,
+    /// True while `Record.FindFirst` scans for its row and loads it (`Session::as_find_first`): the FlowField filters checked
+    /// then are checked for it (permission_system_flowfield.rs).
+    pub(crate) find_first_read: bool,
     /// The source table (object index) of a page while it opens (`open_page_as`): a read the page makes of it, when the table is
     /// empty, raises nothing (`Session::page_open_read_allowed`).
     pub(crate) permission_opening_source: Option<usize>,
@@ -1380,6 +1384,7 @@ impl Session {
             setfilter_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
+            find_first_read: false,
             permission_opening_source: None,
             report_refusal_after_denial: None,
             permission_caller: None,
