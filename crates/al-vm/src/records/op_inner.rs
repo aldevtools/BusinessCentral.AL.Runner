@@ -1177,7 +1177,7 @@ impl Session {
                     })));
                 }
                 let found = match which.as_str() {
-                    "-" => self.scan(rec, &t, asc, None)?,
+                    "-" => self.as_find_first(method, rec, |s| s.scan(rec, &t, asc, None))?,
                     "+" => self.scan(rec, &t, !asc, None)?,
                     // Every form honours the active filters
                     // (record/TestFilterTextBooleanFindContracts.al:143, Find_AllForms_HonourTheActiveFilters).
@@ -1257,7 +1257,7 @@ impl Session {
                         // Every form of Find gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:256-480,
                         // Y89_Part1_find_*, against record/crud/Y76StaleBuffers.al Y76_Part1_*).
                         self.find_load = true;
-                        let loaded = self.load(rec, row);
+                        let loaded = self.as_find_first(method, rec, |s| s.load(rec, row));
                         self.find_load = false;
                         loaded?;
                         Ok(Value::Boolean(true))
@@ -2209,6 +2209,7 @@ impl Session {
                 }
             }
             RecordOp::Truncate => self.truncate_all(&cx, &t, rec, arg_bool(args, 0)?),
+            // Only the AL call `Record.CalcFields` asks as `Asked::CalcFields` (permission_system_flowfield.rs).
             RecordOp::CalcFields | RecordOp::CalcSums | RecordOp::SetAutoCalcFields => self.flow_op(method, rec, args),
             RecordOp::LoadFields => self.load_fields_row(rec, &t, args),
             RecordOp::SetLoadFields
