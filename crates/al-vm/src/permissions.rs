@@ -1514,7 +1514,7 @@ impl Session {
                     };
                 }
                 let filters = rec.borrow().filters.clone();
-                let matching = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
+                let matching = al_data::Store::count(&*self.store_for(rec)?, &cx, &t, &filters)
                     .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
                 if matching == 0 {
                     use crate::permission_bulk_no_match::NoMatch;
