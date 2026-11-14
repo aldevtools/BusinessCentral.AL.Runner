@@ -1,8 +1,9 @@
 //! A denied ModifyAll or DeleteAll whose filter matches no row of a table that holds rows (ADR-062 probe P2).
 //!
-//! BC denies it in the shape record/Y19PermWrites.al:294-307 pins, and does not deny it in the shape of al-runner issue
-//! 8068 (the reporter's run on BC 28.5). Which of the differences between the two decides is not measured, so each shape is
-//! an allowlist of its facts here, and every other no-match shape is refused.
+//! BC denies it as it denies one that matches rows: record/Y19PermWrites.al:294-307 pins one shape, and corpus PR 1403
+//! (open; record/Y19PermNoMatchShapes.al, record/Y19PermNoMatchTriggers.al) measured the denial in each shape it changed,
+//! on each major its CI runs (assumption `bulk-write-no-match-denied`). The measured shapes are allowlists of their facts
+//! here; every other no-match shape is refused.
 
 use crate::Session;
 use crate::permissions::{Access, Op};
@@ -44,29 +45,26 @@ pub(crate) struct RecordCall {
     statement: bool,
 }
 
-/// What a denied no-match bulk write does.
-pub(crate) enum NoMatch {
-    /// BC's denial (the pinned shape).
-    Deny,
-    /// No error: the write runs over no row (the reporter's shape, flagged).
-    Allow,
-    /// Not measured.
-    Refuse,
-}
-
-/// The rows of the target table and the facts of the record that both shapes compare.
+/// The rows of the target table and the facts of the record that the measured shapes compare.
 struct Target {
     rows: usize,
-    /// The one filter: (field position, value), a SetRange to one value in filter group 0.
+    /// The one filter: (field position, value), a range of one value in filter group 0, whatever call set it (SetRange
+    /// with one or two equal values, SetRecFilter, CopyFilters).
     filter: Option<(usize, Value)>,
-    /// The primary key's field positions.
-    key: Vec<usize>,
-    /// How many keys the table has.
-    keys: usize,
+    /// The field positions of each key, the primary key first.
+    keys: Vec<Vec<usize>>,
     types: Vec<RtType>,
-    table: u32,
-    /// The record reads in primary key order, ascending, and has read no row.
-    fresh_order: bool,
+    /// The FieldClass of each field.
+    classes: Vec<al_ir::FieldClass>,
+    /// The table is per company (`DataPerCompany` is not false).
+    per_company: bool,
+}
+
+impl Target {
+    /// The primary key's field positions.
+    fn key(&self) -> &[usize] {
+        &self.keys[0]
+    }
 }
 
 impl Session {
@@ -117,10 +115,11 @@ impl Session {
         self.record_calls.pop();
     }
 
-    /// The verdict for a denied `method` (ModifyAll or DeleteAll) on `rec` whose filters match no row while the table holds
-    /// `rows` rows. `by` is the object whose code makes the access; `indirect` whether its Permissions property grants it.
+    /// Whether BC denies `method` (ModifyAll or DeleteAll) on `rec` whose filters match no row while the table holds `rows`
+    /// rows, as it denies one that matches rows: true in the measured shapes, false (the caller refuses) in every other.
+    /// `by` is the object whose code makes the access; `indirect` whether its Permissions property grants it.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn bulk_no_match_verdict(
+    pub(crate) fn bulk_no_match_denied(
         &mut self,
         method: RecordOp,
         rec: &crate::records::Rec,
@@ -130,7 +129,7 @@ impl Session {
         by: usize,
         caller: RecordCaller,
         rows: usize,
-    ) -> Result<NoMatch, Signal> {
+    ) -> Result<bool, Signal> {
         let t = self.table(rec)?;
         let target = {
             let r = rec.borrow();
@@ -148,32 +147,34 @@ impl Session {
             Target {
                 rows,
                 filter,
-                key: t.keys[0].clone(),
-                keys: t.keys.len(),
+                keys: t.keys.clone(),
                 types: t.fields.iter().map(|f| f.ty.clone()).collect(),
-                table: r.table,
-                fresh_order: r.key == 0
-                    && r.adhoc.is_none()
-                    && r.ascending
-                    && r.field_descending == 0
-                    && r.position.is_none(),
+                classes: self.engine.field_facts[t.object as usize]
+                    .iter()
+                    .map(|f| f.class)
+                    .collect(),
+                per_company: t.per_company,
             }
         };
-        // Facts both shapes share: a Record variable (not a RecordRef), code whose object grants nothing on the table, a
-        // table that runs no trigger (Y19PermObjects.al:9-27 "LT Y19 Row"; the reporter's "Repro Other").
+        // Facts every measured shape shares: a Record variable (not a RecordRef), code whose object grants nothing on the
+        // table, a table that runs no trigger (Y19PermObjects.al:9-27 "LT Y19 Row"; Y19PermNoMatchShapes.al:15-26 "LT NM
+        // Target", Y19PermNoMatchTriggers.al:19-34 "LT NT Target", corpus PR 1403).
         let table = rec.borrow().table as usize;
-        let shared = caller == RecordCaller::Record && !indirect && self.table_runs_no_trigger(table);
-        if !shared {
-            return Ok(NoMatch::Refuse);
+        if caller != RecordCaller::Record || indirect || !self.table_runs_no_trigger(table) {
+            return Ok(false);
         }
         if self.pinned_no_match(method, args, access, by, &target) {
-            return Ok(NoMatch::Deny);
+            return Ok(true);
         }
-        if self.reported_no_match(method, args, access, by, &target) {
-            assume(Assumption::BulkWriteNoMatchInDeleteTrigger);
-            return Ok(NoMatch::Allow);
+        if probed_no_match_write(method, args, &target)
+            && self.levels_are(access, &[[1, 0, 0, 0], [1, 1, 0, 0]])
+            && self.probed_sets(table)
+            && self.probed_no_match_caller(by)
+        {
+            assume(Assumption::BulkWriteNoMatchDenied);
+            return Ok(true);
         }
-        Ok(NoMatch::Refuse)
+        Ok(false)
     }
 
     /// record/Y19PermWrites.al:294-307 (Y19_P2_SetR, Y19_P2_SetRI; BC 27, 28, 29): `Row.SetRange(Id, 100)` then
@@ -190,7 +191,7 @@ impl Session {
             RecordOp::ModifyAll => match args {
                 [Value::Integer(p), v] | [Value::Integer(p), v, Value::Boolean(_)] => {
                     let p = *p as usize;
-                    !t.key.contains(&p) && t.types.get(p) == Some(&RtType::Integer) && matches!(v, Value::Integer(_))
+                    !t.key().contains(&p) && t.types.get(p) == Some(&RtType::Integer) && matches!(v, Value::Integer(_))
                 }
                 _ => false,
             },
@@ -198,130 +199,77 @@ impl Session {
         };
         written_ok
             && t.rows == 2
-            && t.key.as_slice() == [*field]
+            && t.key() == [*field]
             && t.types.get(*field) == Some(&RtType::Integer)
             && matches!(value, Value::Integer(_))
             && self.levels_are(access, &[[1, 0, 0, 0], [1, 1, 0, 0]])
-            && self.only_test_codeunit_frames(by, 0)
+            && self.test_codeunit_code(by)
     }
 
-    /// al-runner issue 8068 (the reporter's repro on BC 28.5, assumption `bulk-write-no-match-in-delete-trigger`), its
-    /// facts by equality: the running frame is the OnDelete trigger of table "Repro Parent", whose body is
-    /// `ReproOther.SetRange("Parent Code", Code); ReproOther.ModifyAll("Parent Code", '');` on its one local Record (the
-    /// SetRange value is the trigger record's own Code, the same field in both calls); the table "Repro Parent" runs no
-    /// code but that OnDelete (no procedure, field trigger, table extension or subscriber) and its writes in the open
-    /// transaction are exactly one Insert; the
-    /// trigger was started by the statement `ReproParent.Delete(true)` of a Record variable of that table, not temporary,
-    /// in a procedure of a test codeunit; the filter value is not blank; the filter field and the primary key field are
-    /// Code[10] (the table's first field is the primary key, the second the filter field), the table has one key and one row, inserted in the open transaction (no Commit since), and nothing is
-    /// locked; the sets give R on it.
-    fn reported_no_match(&self, method: RecordOp, args: &[Value], access: Access, by: usize, t: &Target) -> bool {
-        let Some((field, value)) = &t.filter else {
+    /// The sets corpus PR 1403 measured: `Permissions Mock.Set(X)` assigned 'All Objects' and then one set X, declared by
+    /// the app that declares table `table` (Y19PermNoMatchShapes.al:112-126, :296; Y19PermNoMatchTriggers.al:158-167, :314),
+    /// in a test codeunit with `TestPermissions = Disabled` (Y19PermNoMatchShapes.al:131, Y19PermNoMatchTriggers.al:172).
+    fn probed_sets(&self, table: usize) -> bool {
+        let [all, set] = self.permission_roles.as_slice() else {
             return false;
         };
-        let code10 = |p: usize| t.types.get(p) == Some(&RtType::Code(Some(10)));
-        let started_by = RecordCall {
-            method: RecordOp::Delete,
-            caller: RecordCaller::Record,
-            table: by,
-            temporary: false,
-            run_trigger: true,
-            statement: true,
+        let heads = self.engine.program.objects.heads();
+        let mut declaring = heads
+            .iter()
+            .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some() && o.name.to_uppercase() == *set);
+        let set_app = match (declaring.next(), declaring.next()) {
+            (Some(o), None) => Some(o.app),
+            _ => None,
         };
-        method == RecordOp::ModifyAll
-            && self
-                .engine
-                .target
-                .as_ref()
-                .is_some_and(|v| al_version::bulk_write_no_match_in_delete_trigger_reported(v.bc.major))
-            && matches!(args, [Value::Integer(p), Value::Text(v) | Value::Code(v)] if *p as usize == *field && v.as_str().is_empty())
-            && matches!(value, Value::Code(v) if !v.as_str().is_empty())
-            && t.rows == 1
-            && t.keys == 1
-            && t.key.as_slice() == [0]
-            && *field == 1
-            && code10(0)
-            && code10(1)
-            && t.fresh_order
-            && self.levels_are(access, &[[1, 0, 0, 0]])
-            && self.record_calls.last() == Some(&started_by)
-            && self
-                .delete_trigger_of(by)
-                .is_some_and(|routine| self.reported_trigger_body(by, routine))
-            && self.only_test_codeunit_frames(by, 1)
-            && self.table_code_is(by, &["ondelete"])
-            && self.rows_inserted_in_open_transaction(by as u32, 1)
-            && self.rows_inserted_in_open_transaction(t.table, t.rows)
-            && self.nothing_locked()
+        let disabled = self.frames.get(self.test_frame_base()).is_some_and(|&t| {
+            heads[t]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("TestPermissions") && v.trim().eq_ignore_ascii_case("Disabled"))
+        });
+        all == "ALL OBJECTS" && set_app == Some(heads[table].app) && disabled
     }
 
-    /// Whether routine `routine` of object `by` declares one local, a Record, and its body is a SetRange and then a
-    /// ModifyAll of two arguments on that local, both statements, the same field in both and the SetRange value the trigger
-    /// record's own field 1 (Code, the primary key; the reporter's OnDelete, al-runner issue 8068).
-    fn reported_trigger_body(&self, by: usize, routine: usize) -> bool {
-        use al_builtins::builtin_id::ids;
-        use al_ir::{Arg, Const, Expr, Place, Stmt};
-        let engine = self.engine.clone();
-        let Some(r) = engine.program.objects[by].routines.get(routine) else {
-            return false;
-        };
-        // The call statement `<local>.<id>(a, b)` as its two arguments.
-        fn on_local_fn(s: &Stmt, id: al_builtins::builtin_id::BuiltinId) -> Option<(&Expr, &Expr)> {
-            match s {
-                Stmt::Expr(Expr::Builtin {
-                    id: i,
-                    receiver: Some(recv),
-                    args,
-                    ret_used: false,
-                }) if *i == id
-                    && matches!(
-                        &**recv,
-                        Arg::Ref(Place::Local(0)) | Arg::Value(Expr::Load(Place::Local(0)))
-                    ) =>
-                {
-                    match args.as_slice() {
-                        [Arg::Value(a), Arg::Value(b)] => Some((a, b)),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            }
+    /// The code that makes the access in a shape corpus PR 1403 measured (assumption `bulk-write-no-match-denied`):
+    /// - a procedure of the test codeunit, with only procedures of it below, while no record method runs
+    ///   (Y19PermNoMatchShapes.al:342-371, ops 1-6);
+    /// - a procedure of a codeunit of the app without properties, called by procedures of the test codeunit while no record
+    ///   method runs (Y19PermNoMatchShapes.al:93-110, :392-395, ops 21 and 22);
+    /// - the OnDelete trigger of a table, called by procedures of the test codeunit through one of the record calls in
+    ///   [`probed_delete_start`], the one record method that runs (Y19PermNoMatchShapes.al:372-391, ops 11-14;
+    ///   Y19PermNoMatchTriggers.al:386-458, ops 31-34, 51-102, 131);
+    /// - a subscriber of a codeunit without properties to the OnBeforeDeleteEvent of a table and to no other event, raised by
+    ///   the statement `Delete(true)` of a Record variable of that table in a procedure of the test codeunit, the one record
+    ///   method that runs (Y19PermNoMatchTriggers.al:146-156, :447-451, op 122).
+    fn probed_no_match_caller(&self, by: usize) -> bool {
+        if self.test_codeunit_code(by) {
+            return true;
         }
-        let stmts: Vec<&Stmt> = r.body.stmts().iter().filter(|s| !matches!(s, Stmt::Pos(_))).collect();
-        let [a, b] = stmts.as_slice() else {
+        let engine = self.engine.clone();
+        let o = &engine.program.objects[by];
+        let (Some(&last), Some(f)) = (self.frames.last(), self.call_stack.last()) else {
             return false;
         };
-        let (Some((set_field, set_value)), Some((write_field, _))) = (
-            on_local_fn(a, ids::RECORD_SETRANGE_1),
-            on_local_fn(b, ids::RECORD_MODIFYALL_1),
-        ) else {
+        let Some(routine) = o.routines.get(f.routine) else {
             return false;
         };
-        // The trigger record `Rec` is global 0 of the table (the lowering of the reporter's trigger); its field 1 is the
-        // primary key Code, field position 0 (`SetRange(<field>, Code)`).
-        r.params == 0
-            && r.locals.len() == 1
-            && matches!(r.locals[0].ty, RtType::Record(..))
-            && set_field == write_field
-            && matches!(set_field, Expr::Const(Const::FieldPos(_)))
-            && matches!(set_value, Expr::Load(Place::Field(rec, 0)) if **rec == Place::Global(0))
-    }
-
-    /// Whether the open transaction's writes of table `table` are exactly `rows` Inserts (no Commit since they were made).
-    fn rows_inserted_in_open_transaction(&self, table: u32, rows: usize) -> bool {
-        let mut writes = self.tx.writes.iter().filter(|w| w.table == table);
-        let all_inserts = writes
-            .clone()
-            .all(|w| matches!(w.kind, crate::state::TxWriteKind::Insert));
-        all_inserts && writes.by_ref().count() == rows
-    }
-
-    /// Whether the open transaction holds no lock (no LockTable, no RecordRef.LockTable, no locking read).
-    fn nothing_locked(&self) -> bool {
-        !self.tx.lock_tx
-            && !self.tx.recref_lock_tx
-            && self.tx.lock_unpinned.is_none()
-            && self.tx.locked_tables.is_empty()
+        let start = match self.record_calls.as_slice() {
+            [c] => Some(c),
+            _ => None,
+        };
+        let app_procedure = o.kind == al_ir::ObjKind::Codeunit
+            && o.properties.is_empty()
+            && !routine.is_trigger
+            && self.record_calls.is_empty();
+        let trigger = self.delete_trigger_of(by).is_some() && start.is_some_and(|c| probed_delete_start(c, by));
+        // A subscriber runs right above the frame of the code whose Delete raised the event (no publisher frame).
+        let subscriber = o.kind == al_ir::ObjKind::Codeunit
+            && o.properties.is_empty()
+            && start.is_some_and(|c| {
+                *c == probed_subscriber_start(c.table)
+                    && engine.events.subscriptions_of(by, f.routine) == [(c.table, "onbeforedeleteevent")]
+            });
+        last == by && !f.event && (app_procedure || trigger || subscriber) && self.only_test_codeunit_frames(by, 1)
     }
 
     /// Whether the session's levels Read, Insert, Modify and Delete on the accessed table are one of `allowed`.
@@ -347,8 +295,16 @@ impl Session {
         is_delete.then_some(f.routine)
     }
 
-    /// Whether every frame of the test, but the last `skip`, is a procedure (not a trigger, not an event) of one test
-    /// codeunit, which is `by` when `skip` is 0.
+    /// The access is made by a procedure of test codeunit `by` with only its procedures below, while no record method runs
+    /// (record/Y19PermWrites.al:257-265, :294-307; Y19PermNoMatchShapes.al:274-371).
+    fn test_codeunit_code(&self, by: usize) -> bool {
+        self.record_calls.is_empty() && self.only_test_codeunit_frames(by, 0)
+    }
+
+    /// Whether every frame of the test, but the last `skip`, is a procedure of one test codeunit, which is `by` when `skip`
+    /// is 0: the first frame the test method, with the one attribute `[Test]`, and each frame above it a procedure without
+    /// attributes (no subscriber, handler or try function), as the measured RunCase and Op (record/Y19PermWrites.al:257-265;
+    /// Y19PermNoMatchShapes.al:274-398; Y19PermNoMatchTriggers.al:180-330).
     fn only_test_codeunit_frames(&self, by: usize, skip: usize) -> bool {
         let base = self.test_frame_base();
         let end = self.frames.len().saturating_sub(skip);
@@ -366,7 +322,95 @@ impl Session {
             && (skip != 0 || first == by)
             && (base..end).all(|i| {
                 let f = &self.call_stack[i];
-                self.frames[i] == first && !f.event && o.routines.get(f.routine).is_some_and(|r| !r.is_trigger)
+                let attributes_ok = |r: &al_ir::Routine| match (i == base, r.attributes.as_slice()) {
+                    (true, [a]) => a.name.eq_ignore_ascii_case("Test") && a.args.is_empty(),
+                    (false, []) => true,
+                    _ => false,
+                };
+                self.frames[i] == first
+                    && !f.event
+                    && o.routines
+                        .get(f.routine)
+                        .is_some_and(|r| !r.is_trigger && attributes_ok(r))
             })
     }
+}
+
+/// The record calls corpus PR 1403 measured as the start of the OnDelete trigger of table `table`, each a statement on that
+/// table with RunTrigger true: `Delete(true)` of a Record variable (Y19PermNoMatchShapes.al:372-391,
+/// Y19PermNoMatchTriggers.al:407-458), also of a temporary one (Y19PermNoMatchTriggers.al:401-406, op 34); `DeleteAll(true)`
+/// of a Record variable, filtered or not (Y19PermNoMatchTriggers.al:387-393, ops 31 and 32); `Delete(true)` of a RecordRef
+/// (Y19PermNoMatchTriggers.al:394-400, op 33).
+fn probed_delete_start(c: &RecordCall, table: usize) -> bool {
+    let call = |method, caller, temporary| RecordCall {
+        method,
+        caller,
+        table,
+        temporary,
+        run_trigger: true,
+        statement: true,
+    };
+    [
+        call(RecordOp::Delete, RecordCaller::Record, false),
+        call(RecordOp::Delete, RecordCaller::Record, true),
+        call(RecordOp::DeleteAll, RecordCaller::Record, false),
+        call(RecordOp::Delete, RecordCaller::RecordRef, false),
+    ]
+    .contains(c)
+}
+
+/// The record call corpus PR 1403 measured as the start of an OnBeforeDeleteEvent subscriber: the statement `Delete(true)`
+/// of a Record variable, not temporary, of table `table` (Y19PermNoMatchTriggers.al:447-451, op 122).
+fn probed_subscriber_start(table: usize) -> RecordCall {
+    RecordCall {
+        method: RecordOp::Delete,
+        caller: RecordCaller::Record,
+        table,
+        temporary: false,
+        run_trigger: true,
+        statement: true,
+    }
+}
+
+/// The written shape of a no-match bulk write corpus PR 1403 measured (Y19PermNoMatchShapes.al:15-26 "LT NM Target", one
+/// key; Y19PermNoMatchTriggers.al:19-34 "LT NT Target", a second key on the Code[10] field "Parent Code"; both an Integer
+/// primary key Id as first field; per company), one or two rows, none matching (Seed, Y19PermNoMatchShapes.al:302-330),
+/// and one filter, a range of one value in filter group 0, on a field of FieldClass Normal:
+/// - the primary key to 100 (ops 1, 13, 22: `SetRange(Id, 100)`), or a Code[10] or Code[20] field outside the primary key
+///   to 'P1' or '' (the other ops: the parent's Code 'P1', Y19PermNoMatchShapes.al:322-328, Y19PermNoMatchTriggers.al:352-369;
+///   blank in Y19PermNoMatchTriggers.al op 61, :358; Code[20] op 81);
+/// - `DeleteAll()` (ops 6 and 14), or `ModifyAll` of a field of FieldClass Normal outside the primary key: an Integer field
+///   to 99 (ops 1, 2, 13, 22: `ModifyAll(Value, 99)`), or a Code[10] or Code[20] field to '' or 'Y' (ops 3, 4, 11, 12, 21,
+///   81); with RunTrigger true as third argument (op 5) or no third argument.
+fn probed_no_match_write(method: RecordOp, args: &[Value], t: &Target) -> bool {
+    let Some((field, value)) = &t.filter else {
+        return false;
+    };
+    let normal = |p: usize| t.classes.get(p) == Some(&al_ir::FieldClass::Normal);
+    let int = |p: usize| normal(p) && t.types.get(p) == Some(&RtType::Integer);
+    let code = |p: usize| normal(p) && matches!(t.types.get(p), Some(RtType::Code(Some(10 | 20))));
+    let outside_key = |p: usize| !t.key().contains(&p);
+    let table_ok = t.key() == [0]
+        && int(0)
+        && match t.keys.as_slice() {
+            [_] => true,
+            [_, k2] => matches!(k2.as_slice(), [p] if t.types.get(*p) == Some(&RtType::Code(Some(10)))),
+            _ => false,
+        };
+    let filter_ok = (t.key() == [*field] && matches!(value, Value::Integer(100)))
+        || (outside_key(*field)
+            && code(*field)
+            && matches!(value, Value::Code(s) if s.as_str().is_empty() || s.as_str() == "P1"));
+    let written_ok = match (method, args) {
+        (RecordOp::DeleteAll, []) => true,
+        (RecordOp::ModifyAll, [Value::Integer(p), v] | [Value::Integer(p), v, Value::Boolean(true)]) => {
+            let p = *p as usize;
+            outside_key(p)
+                && ((int(p) && matches!(v, Value::Integer(99)))
+                    || (code(p)
+                        && matches!(v, Value::Text(s) | Value::Code(s) if s.as_str().is_empty() || s.as_str() == "Y")))
+        }
+        _ => false,
+    };
+    table_ok && t.per_company && filter_ok && written_ok && matches!(t.rows, 1 | 2)
 }
