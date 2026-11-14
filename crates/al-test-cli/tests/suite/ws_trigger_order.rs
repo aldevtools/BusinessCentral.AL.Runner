@@ -190,6 +190,10 @@ codeunit 78925 "TRG Seed"
     var Seeded: Record "TRG Row"; i: Integer;
     begin
         Seeded.DeleteAll(); Log.Wipe();
+        if View = 'Blank' then
+            for i := 1 to 3 do begin
+                Seeded.Init(); Seeded."Code" := CopyStr('ABC', i, 1); Seeded.Insert();
+            end;
         if View = 'Three' then
             for i := 1 to 3 do begin
                 Seeded.Init(); Seeded."Code" := CopyStr('ABC', i, 1); Seeded.Name := 'Row' + CopyStr('ABC', i, 1) + Suffix; Seeded.Insert();
@@ -237,6 +241,9 @@ codeunit 78929 "TRG Blanks"
     [Test] procedure Cell_Caption_TwoTrailingBlanks_Refused()
     var TP: TestPage "TRG WS";
     begin S.Seed('Three', '  '); TP.OpenEdit(); Error('cap=%1', TP.Caption()); end;
+    [Test] procedure Cell_Blank_Names_Refused()
+    var TP: TestPage "TRG WS";
+    begin S.Seed('Blank', ''); TP.OpenEdit(); Error('cap=%1', TP.Caption()); end;
 }
 "#;
 
@@ -288,6 +295,14 @@ page 78937 "TRN Pure"
     var Log: Codeunit "TRN Log";
     trigger OnAfterGetRecord() begin Log.Add('AGR ' + Rec."Code"); end;
 }
+page 78942 "TRN Filtered"
+{
+    PageType = Worksheet; SourceTable = "TRN Row"; Caption = 'TRN Filtered'; UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(CodeCtl; Rec."Code") { } } } }
+    var Log: Codeunit "TRN Log";
+    trigger OnOpenPage() begin Rec.SetRange("Code", 'ZZ'); end;
+    trigger OnNewRecord(BelowxRec: Boolean) begin Log.Add('NEW'); end;
+}
 codeunit 78938 "TRN Seed"
 {
     var Log: Codeunit "TRN Log";
@@ -323,6 +338,14 @@ codeunit 78940 "TRN Risky Tests"
     var TP: TestPage "TRN Risky";
     begin S.Seed(2); TP.OpenEdit(); end;
 }
+codeunit 78943 "TRN Filtered Tests"
+{
+    Subtype = Test;
+    var S: Codeunit "TRN Seed";
+    [Test] procedure Filtered_View_Refused()
+    var TP: TestPage "TRN Filtered";
+    begin S.Seed(2); TP.OpenView(); end;
+}
 codeunit 78941 "TRN New Tests"
 {
     Subtype = Test;
@@ -355,7 +378,13 @@ fn calls_after_a_measured_open_that_the_probe_does_not_make_refuse() {
         "Cell_Caption_TwoTrailingBlanks_Refused",
     );
     assert!(
-        o.contains("NotRun") && o.contains("blanks the probe did not measure"),
+        o.contains("NotRun") && o.contains("can raise an error or leave something behind"),
+        "{o}"
+    );
+    // Rows A, B, C with an empty Name (the probe's rows have Name 'Row' + Code): outside the cell, refused at the open.
+    let o = outcome(&outcomes_in(PROBE, "TRG Blanks"), "Cell_Blank_Names_Refused");
+    assert!(
+        o.contains("NotRun") && o.contains("can raise an error or leave something behind"),
         "{o}"
     );
     let outcomes = outcomes_in(PROBE, "TRG Values");
@@ -384,6 +413,12 @@ fn the_probe_shape_outside_the_cells_refuses_and_other_pages_keep_main() {
         "{o}"
     );
     let o = outcome(&outcomes_in(NEIGHBORS, "TRN New Tests"), "New_View_Empty_Refused");
+    assert!(
+        o.contains("NotRun") && o.contains("BC runs both twice at the open, main neither"),
+        "{o}"
+    );
+    // OnOpenPage filters every stored row away: the view is empty like an empty table.
+    let o = outcome(&outcomes_in(NEIGHBORS, "TRN Filtered Tests"), "Filtered_View_Refused");
     assert!(
         o.contains("NotRun") && o.contains("BC runs both twice at the open, main neither"),
         "{o}"

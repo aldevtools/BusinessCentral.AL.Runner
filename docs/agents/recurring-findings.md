@@ -110,6 +110,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a gate that checks the extension's side of a page and not the base's: the base request page (properties, triggers, the
     number and place of its fields) and the call that opened and closed the page are pinned facts too. Require the base
     object's shape, and name the measured open and close calls (al-runner PR 8053).
+  - the rows of a pinned table checked by key only: the other field values are what the page's code reads (a caption
+    expression, a trigger). Require every field of every measured row by equality (al-runner PR 8113; the same miss for a
+    handed record in PR 8009).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

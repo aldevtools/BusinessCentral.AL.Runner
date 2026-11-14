@@ -184,7 +184,6 @@ impl Session {
             return Ok(None);
         }
         let rec = self.page_rec(st);
-        let rows = self.stored_rows_passing(&rec, Vec::new())?;
         let plain_rec = {
             let r = rec.borrow();
             !r.temporary
@@ -210,7 +209,13 @@ impl Session {
                 && table_is(&engine, table, ROW_TABLE, &mut callees)
                 && callees_are(&engine, &callees, LOG_ADD)
         };
-        let three = rows == 3 && self.probe_rows_are_three(&rec)?;
+        if !probe_page && !self.neighbor_shape(st) {
+            return Ok(None);
+        }
+        // The rows of Rec's own view (its filters in every group), as OnOpenPage left them.
+        let own_filters = rec.borrow().filters.clone();
+        let rows = self.stored_rows_passing(&rec, own_filters)?;
+        let three = rows == 3 && plain_rec && self.probe_rows_are_three(&rec)?;
         let view_empty = view && rows == 0;
         if probe_page && plain_rec && (three || rows == 0) && (caption || view_empty) {
             return Ok(Some(WsTriggerOrder {
@@ -243,7 +248,7 @@ impl Session {
             .any(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
     }
 
-    /// The rows of the table of `rec` are the probe's: Code A, B, C (`Seed`, :208-214).
+    /// The rows of the table of `rec` are the probe's, each by both fields: A/RowA, B/RowB, C/RowC (`Seed`, :208-214).
     fn probe_rows_are_three(&mut self, rec: &Rec) -> Result<bool, Signal> {
         let all = Rc::new(RefCell::new(rec.borrow().clone()));
         {
@@ -253,14 +258,20 @@ impl Session {
             a.marked_only = false;
         }
         let rows = self.view_rows(&all, 4)?;
-        let codes: Vec<String> = rows
-            .iter()
-            .map(|r| match r.first() {
-                Some(Value::Code(c)) => c.to_string(),
-                _ => String::new(),
-            })
-            .collect();
-        Ok(codes == ["A", "B", "C"])
+        let want = [("A", "RowA"), ("B", "RowB"), ("C", "RowC")];
+        Ok(rows.len() == want.len()
+            && rows.iter().zip(want).all(|(r, (code, name))| {
+                matches!(r.as_slice(), [Value::Code(c), Value::Text(n), ..] if c.as_str() == code && n.as_str() == name)
+            }))
+    }
+
+    /// Page `st` has the shape `ws_open_neighbor` describes.
+    fn neighbor_shape(&self, st: &St) -> bool {
+        self.has_source(st)
+            && !self.page_rec(st).borrow().temporary
+            && self.page_declares_within(st, &PROBE_TRIGGERS, &["datacaptionexpression"])
+            && self.controls_are_rec_fields(st, false)
+            && self.table_code_is(self.page_rec(st).borrow().table as usize, &[])
     }
 
     /// A page outside the cells with the probe pages' shape, where main's order is known to differ from BC's: a top-level
@@ -268,14 +279,9 @@ impl Session {
     /// (`PROBE_TRIGGERS`), no property but the plain ones and DataCaptionExpression, no extension or subscriber, and controls
     /// bound to fields of Rec without triggers. It refuses when its expression can raise an error or leave something behind
     /// (`Engine::caption_open_risk`: BC runs it after every row trigger, main only at a caption read), or when OpenView of an empty
-    /// view meets OnNewRecord or OnAfterGetCurrRecord (BC runs both twice, main neither). Every other page keeps main's path.
+    /// view (no row passes Rec's own filters, also after OnOpenPage) meets OnNewRecord or OnAfterGetCurrRecord (BC runs both twice, main neither). Every other page keeps main's path.
     fn ws_open_neighbor(&self, st: &St, caption: bool, view_empty: bool) -> Result<(), Signal> {
-        let shape = self.has_source(st)
-            && !self.page_rec(st).borrow().temporary
-            && self.page_declares_within(st, &PROBE_TRIGGERS, &["datacaptionexpression"])
-            && self.controls_are_rec_fields(st, false)
-            && self.table_code_is(self.page_rec(st).borrow().table as usize, &[]);
-        if !shape {
+        if !self.neighbor_shape(st) {
             return Ok(());
         }
         if caption && let Some(risk) = self.data_caption_expression_risk(st) {
@@ -356,19 +362,18 @@ impl Session {
     }
 
     /// The caption of a page in a measured cell: the page caption, ` - ` and what the expression returned last, without its
-    /// one trailing blank (:315 `cap=TRG WS - Cap RowA`, :491 `cap=TRG WS - Cap` from `Cap `). `None` outside the cells. A value
-    /// that is empty, starts with a blank or ends with more than one is not measured.
+    /// one trailing blank (:315 `cap=TRG WS - Cap RowA`, :491 `cap=TRG WS - Cap` from `Cap `). `None` outside the cells. Only
+    /// `Cap RowA`, `Cap RowB`, `Cap RowC` (the probe's rows) and `Cap ` (the new-row line) are measured.
     pub(super) fn ws_trigger_caption(&self, st: &St, base: &str) -> Option<Result<String, Signal>> {
         let s = st.borrow();
         let order = s.ws_trigger_order.as_ref().filter(|o| o.caption)?;
         let value = order.value.as_deref().unwrap_or("");
-        let shown = value.strip_suffix(' ').unwrap_or(value);
-        Some(if !shown.is_empty() && shown.trim() == shown {
-            Ok(format!("{base} - {shown}"))
+        Some(if matches!(value, "Cap RowA" | "Cap RowB" | "Cap RowC" | "Cap ") {
+            Ok(format!("{base} - {}", value.trim_end_matches(' ')))
         } else {
             unsupported(
-                "the caption of a Worksheet in a cell of WorksheetTriggersOpen.al whose DataCaptionExpression returned an empty \
-                 value or blanks the probe did not measure (not pinned)",
+                "the caption of a Worksheet in a cell of WorksheetTriggersOpen.al whose DataCaptionExpression returned a value \
+                 other than the probe's rows or the new-row line (not pinned)",
             )
         })
     }
