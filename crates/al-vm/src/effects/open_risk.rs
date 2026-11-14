@@ -121,10 +121,10 @@ impl Walk<'_> {
     }
 
     /// A read of `place`: an array element counts (an index out of range raises); any other read cannot raise.
-    fn strict_read(&self, place: &Place, at: (usize, usize)) -> Found {
+    fn strict_read(place: &Place) -> Found {
         match place {
             Place::Index(..) => Err("reads an array element (an index out of range raises)".into()),
-            Place::Field(inner, _) | Place::RecGlobal(inner, ..) => self.strict_read(inner, at),
+            Place::Field(inner, _) | Place::RecGlobal(inner, ..) => Self::strict_read(inner),
             _ => Ok(()),
         }
     }
@@ -146,7 +146,7 @@ impl Walk<'_> {
     /// The facts of node `e` that can raise. `Ok(true)`: `e` is a builtin call, checked here in full.
     pub(super) fn strict_expr(&mut self, e: &Expr, at: (usize, usize), inst: Inst) -> Result<bool, String> {
         match e {
-            Expr::Load(p) => self.strict_read(p, at).map(|()| false),
+            Expr::Load(p) => Self::strict_read(p).map(|()| false),
             Expr::Const(_) | Expr::Ternary(..) | Expr::In(..) | Expr::FieldOf(..) => Ok(false),
             Expr::Unary(UnOp::Not | UnOp::Plus, _) => Ok(false),
             Expr::Binary(op, ..) => match op {
@@ -230,7 +230,7 @@ impl Walk<'_> {
         match receiver {
             None => Ok(()),
             Some(Arg::Ref(p)) if writes => self.strict_place(p, at),
-            Some(Arg::Ref(p)) => self.strict_read(p, at),
+            Some(Arg::Ref(p)) => Self::strict_read(p),
             Some(Arg::Value(_)) if writes => Err(format!("calls {full} on a value, not a variable")),
             Some(Arg::Value(v)) => self.expr(v, at, inst),
         }
