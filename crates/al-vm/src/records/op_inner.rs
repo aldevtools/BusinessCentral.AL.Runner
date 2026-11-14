@@ -1,6 +1,7 @@
 //! `record_op_inner`: the dispatch of every Record method (moved out of `records.rs`).
 
 use super::*;
+use crate::state::WriteOfAl;
 
 impl Session {
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
@@ -428,6 +429,7 @@ impl Session {
             }
             RecordOp::Clear => self.clear_record(&t, rec),
             RecordOp::Insert => {
+                let of_al = self.take_write_of_al(WriteOfAl::Insert);
                 if !rec.borrow().temporary {
                     self.page_metadata_before_insert(&t, &rec.borrow().fields)?;
                 }
@@ -598,8 +600,9 @@ impl Session {
                     let shape = InsertShape {
                         auto: auto.is_some(),
                         run,
+                        of_al,
                     };
-                    return self.defer_insert_sql_range(rec, &t, bad, shape, (old_version, stamped));
+                    return self.insert_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
                 let empty_blob = Self::temp_insert_blobs(rec, &stored);
                 Self::mark_blobs_inserted(rec, &stored, true);
@@ -781,7 +784,7 @@ impl Session {
             }
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
-                let from_al = std::mem::take(&mut self.tx.modify_from_al);
+                let caller = self.take_modify_caller();
                 self.tenant_license_state_refuses(&t, "modify")?;
                 self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
@@ -916,7 +919,7 @@ impl Session {
                 let mut stored = Self::to_store(rec, view);
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
                     let shape = ModifyShape {
-                        from_al,
+                        caller,
                         row_exists: stored_row.is_some(),
                     };
                     return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
@@ -972,22 +975,8 @@ impl Session {
                             let company = rec.borrow().company.clone();
                             self.tx.rows_touched.push((t.object, company, pk.clone()));
                         }
-                        // The Modify that stores a Media field's new media removes the Tenant Media row of the one it held
-                        // (streams/ArRecordProbes.al:141-143). Only a media replaced by another is pinned; a
-                        // cleared field and a temporary record keep it.
                         if let (Some(old), false) = (stored_row.as_deref(), rec.borrow().temporary) {
-                            for (i, f) in t.fields.iter().enumerate() {
-                                if !matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Media)) {
-                                    continue;
-                                }
-                                if let (Value::Guid(was), Value::Guid(now)) = (&old[i], &row[i])
-                                    && was != now
-                                    && *was != [0; 16]
-                                    && *now != [0; 16]
-                                {
-                                    self.release_media(&cx, &t, i, *was)?;
-                                }
-                            }
+                            self.release_replaced_media(&cx, &t, old, &row)?;
                         }
                         // A Blob a Modify of a temporary record persisted does not survive a later Rename
                         // (streams/TestBlobRenameIsolation.al:TempBlob_CommittedWrite_Rename_SameInstanceReGet_LosesBlobValue);
@@ -2071,8 +2060,8 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, self.stored_view(&t, &row));
-                if self.sql_columns(rec, &t, &mut stored)?.is_some() {
-                    return unsupported("a Rename with a value its SQL column cannot hold (not pinned)");
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                    return self.fail_rename_sql_range(rec, &t, bad, (from_al, refs.is_empty()), &old);
                 }
                 // A rename to the key the row has succeeds and writes the row again, which is what
                 // stamps it (record/TestRecordSystemId.al:752-775).
@@ -2277,5 +2266,30 @@ impl Session {
         r.load.buffer = buffer;
         r.load.partial = partial;
         Ok(Value::Null)
+    }
+
+    /// The Modify that stores a Media field's new media removes the Tenant Media row of the one it held
+    /// (streams/ArRecordProbes.al:141-143). Only a media replaced by another is pinned; a cleared field and a temporary
+    /// record keep it.
+    fn release_replaced_media(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        old: &[Value],
+        row: &[Value],
+    ) -> Result<(), Signal> {
+        for (i, f) in t.fields.iter().enumerate() {
+            if !matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Media)) {
+                continue;
+            }
+            if let (Value::Guid(was), Value::Guid(now)) = (&old[i], &row[i])
+                && was != now
+                && *was != [0; 16]
+                && *now != [0; 16]
+            {
+                self.release_media(cx, t, i, *was)?;
+            }
+        }
+        Ok(())
     }
 }

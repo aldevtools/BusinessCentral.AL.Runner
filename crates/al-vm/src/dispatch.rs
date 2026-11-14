@@ -672,6 +672,19 @@ impl Session {
         Ok(!self.event_targets(object, event, element)?.is_empty())
     }
 
+    /// The subscribers `event` of table or codeunit `object` reaches right now (`event_targets`), without their instances.
+    pub(crate) fn event_subscribers(
+        &mut self,
+        object: usize,
+        event: &str,
+    ) -> Result<Vec<crate::events::Subscriber>, Signal> {
+        Ok(self
+            .event_targets(object, event, None)?
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect())
+    }
+
     /// The instance a static (automatic) subscriber runs on: the session's one instance for a
     /// `SingleInstance` codeunit, else a fresh one per event, so its globals start at their defaults
     /// every time (corpus record/TestTableEventSequenceContracts.al:Insert_EventsAndTrigger_WithAndWithoutRunTrigger,

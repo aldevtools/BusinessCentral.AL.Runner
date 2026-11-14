@@ -23,6 +23,8 @@ pub(crate) struct Entry {
     pub name_set: bool,
     /// The row rests on an unprobed assumption: a read that returns or counts it marks it.
     pub assumed: Option<al_builtins::assumptions::Assumption>,
+    /// The columns whose values rest on `assumed`: a scan that filters on one of them marks it too ([`Entry::assuming_in`]).
+    pub assumed_cols: Vec<usize>,
 }
 
 impl Entry {
@@ -35,6 +37,7 @@ impl Entry {
             name_only: None,
             name_set: false,
             assumed: None,
+            assumed_cols: Vec::new(),
         }
     }
     pub(crate) fn poisoned(key_only: Row, why: String) -> Entry {
@@ -46,6 +49,7 @@ impl Entry {
             name_only: None,
             name_set: false,
             assumed: None,
+            assumed_cols: Vec::new(),
         }
     }
     /// A poisoned row of which only the first `known` primary key columns are real: it stands for
@@ -59,6 +63,7 @@ impl Entry {
             name_only: None,
             name_set: false,
             assumed: None,
+            assumed_cols: Vec::new(),
         }
     }
     /// The positions of the columns of a poisoned row that hold real values.
@@ -87,6 +92,14 @@ impl Entry {
     /// A row whose values rest on assumption `a`: every read that returns or counts it marks `a`.
     pub(crate) fn assuming(mut self, a: al_builtins::assumptions::Assumption) -> Entry {
         self.assumed = Some(a);
+        self
+    }
+    /// A row whose values in columns `cols` rest on assumption `a`: every read that returns or counts it marks `a`, and so
+    /// does a scan that filters on one of those columns and whose key filters do not leave the row out (the assumed value
+    /// may be what leaves it out).
+    pub(crate) fn assuming_in(mut self, a: al_builtins::assumptions::Assumption, cols: Vec<usize>) -> Entry {
+        self.assumed = Some(a);
+        self.assumed_cols = cols;
         self
     }
 }
@@ -124,6 +137,10 @@ pub(crate) struct Mat {
     name_set: Vec<bool>,
     /// Per row: the assumption a read of it marks ([`Entry::assuming`]); empty when no row has one.
     assumed: Vec<Option<al_builtins::assumptions::Assumption>>,
+    /// The rows with columns that rest on their assumption ([`Entry::assuming_in`]), in key order, and per column whether
+    /// it is one of those in some row (empty when no row has any).
+    assumed_rows: Vec<u32>,
+    assumed_cols: Box<[bool]>,
     /// No row is poisoned. Only then are the values of the key columns all real, so the rows are in the order of
     /// the key and the filters on its leading columns bound a scan (`band`).
     clean: bool,
@@ -273,7 +290,16 @@ impl Mat {
         let mut name_only = Vec::new();
         let mut name_set = Vec::new();
         let mut assumed = Vec::new();
-        for (_, e) in keyed {
+        let mut assumed_rows = Vec::new();
+        let mut assumed_cols = Vec::new();
+        for (i, (_, e)) in keyed.into_iter().enumerate() {
+            if !e.assumed_cols.is_empty() {
+                assumed_cols.resize(t.fields.len(), false);
+                for &c in &e.assumed_cols {
+                    assumed_cols[c] = true;
+                }
+                assumed_rows.push(i as u32);
+            }
             assumed.push(e.assumed);
             rows.push(e.row);
             poison.push(e.poison);
@@ -298,6 +324,8 @@ impl Mat {
             name_only,
             name_set,
             assumed,
+            assumed_rows,
+            assumed_cols: assumed_cols.into_boxed_slice(),
             clean,
             unknown_cols,
             key_refusal,
@@ -327,6 +355,25 @@ impl Mat {
         }
     }
 
+    /// A scan of the rows in `band` with `filters`, in the order of the columns `order`: when a filter or the order reads a
+    /// column whose value rests on an assumption in some row of the band ([`Entry::assuming_in`]), mark that row's
+    /// assumption, whether the scan returns the row or not (the value may be what leaves it out or puts another row first).
+    fn seen_filtered(&self, band: std::ops::Range<usize>, filters: &[FieldFilter], order: &[usize]) {
+        let assumed = |c: usize| self.assumed_cols.get(c).copied().unwrap_or(false);
+        if self.assumed_rows.is_empty()
+            || !(filters.iter().any(|f| assumed(f.field)) || order.iter().any(|&c| assumed(c)))
+        {
+            return;
+        }
+        let from = self.assumed_rows.partition_point(|&i| (i as usize) < band.start);
+        for &i in self.assumed_rows[from..]
+            .iter()
+            .take_while(|&&i| (i as usize) < band.end)
+        {
+            self.seen(i as usize);
+        }
+    }
+
     /// The same listing with every row changed by `f` (the key columns must stay as they are).
     pub(crate) fn mapped(&self, f: impl Fn(&Row) -> Row) -> Mat {
         Mat {
@@ -337,6 +384,8 @@ impl Mat {
             name_only: self.name_only.clone(),
             name_set: self.name_set.clone(),
             assumed: self.assumed.clone(),
+            assumed_rows: self.assumed_rows.clone(),
+            assumed_cols: self.assumed_cols.clone(),
             clean: self.clean,
             unknown_cols: self.unknown_cols.clone(),
             key_refusal: self.key_refusal.clone(),
@@ -525,6 +574,7 @@ impl Mat {
                     .partition_point(|r| key_cmp(&position(t, 0, r), a) != Ordering::Greater),
             };
             let band = self.band(t, scan.filters);
+            self.seen_filtered(band.clone(), scan.filters, &t.keys[0]);
             if scan.ascending {
                 return self.walk(
                     t,
@@ -547,6 +597,11 @@ impl Mat {
             .get(scan.key)
             .is_some_and(|k| k.iter().any(|&c| self.unknown_cols.get(c).copied().unwrap_or(false)));
         let check_unknown = self.filters_unknown(scan.filters);
+        self.seen_filtered(
+            self.band(t, scan.filters),
+            scan.filters,
+            t.keys.get(scan.key).map_or(&[][..], |k| &k[..]),
+        );
         let mut best: Option<(Vec<Value>, usize)> = None;
         for (i, r) in self.rows.iter().enumerate() {
             if self.name_only[i].is_some() {
@@ -700,6 +755,7 @@ impl Mat {
         super::refuse_unpinned(filters)?;
         let mut n = 0;
         let band = self.band(t, filters);
+        self.seen_filtered(band.clone(), filters, &[]);
         let check_unknown = self.filters_unknown(filters);
         for (i, r) in self.rows.iter().enumerate().skip(band.start).take(band.len()) {
             if self.name_only[i].is_some() {
@@ -820,6 +876,58 @@ mod tests {
         let f = [id_filter(2, 2)];
         assert!(m.next(&t, &scan(&f, None, true)).unwrap().is_some());
         assert!(take_hits().contains(&a));
+    }
+
+    /// A row whose Name rests on an assumption marks it when a scan filters or orders on Name and could see the row, also
+    /// when the scan leaves it out; a scan whose key filters leave the row out marks nothing.
+    #[test]
+    fn a_filter_or_an_order_on_an_assumed_column_marks_the_rows_it_could_see() {
+        use al_builtins::assumptions::{Assumption, take_hits};
+        let a = Assumption::FeatureKeyEnabledModify;
+        let mut t = table();
+        t.keys.push(vec![1]);
+        let m = Mat::new(
+            &t,
+            vec![Entry::ok(row(1, "a")), Entry::ok(row(2, "b")).assuming_in(a, vec![1])],
+        );
+        let name = |v: &str| FieldFilter {
+            lang: al_builtins::filter::filter_language(),
+            field: 1,
+            expr: FilterExpr::Eq(Value::Text(v.into())),
+            group: 0,
+        };
+        take_hits();
+        assert_eq!(m.count(&t, &[name("a")]).unwrap(), 1);
+        assert!(take_hits().contains(&a));
+        assert!(matches!(
+            m.next(&t, &scan(&[name("a")], None, true)).unwrap().as_deref(),
+            Some([Value::Integer(1), ..])
+        ));
+        assert!(take_hits().contains(&a));
+        let by_name = Scan {
+            key: 1,
+            ..scan(&[], None, true)
+        };
+        assert!(matches!(
+            m.next(&t, &by_name).unwrap().as_deref(),
+            Some([Value::Integer(1), ..])
+        ));
+        assert!(take_hits().contains(&a));
+        let own = [id_filter(1, 1), name("a")];
+        assert_eq!(m.count(&t, &own).unwrap(), 1);
+        assert!(m.next(&t, &scan(&own, None, true)).unwrap().is_some());
+        assert!(
+            m.next(
+                &t,
+                &Scan {
+                    key: 1,
+                    ..scan(&own, None, true)
+                }
+            )
+            .unwrap()
+            .is_some()
+        );
+        assert!(!take_hits().contains(&a));
     }
 
     fn scan<'a>(filters: &'a [FieldFilter], after: Option<&'a [Value]>, ascending: bool) -> Scan<'a> {

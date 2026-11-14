@@ -971,7 +971,7 @@ impl VirtualTables for Providers {
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
             Virtual::TenantMedia => self.tenant_media_listing(store, cx, t)?.get(t, pk),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.get(t, pk),
-            Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),
+            Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(self, t, r))),
             Virtual::Media => self.media_of_id(t, pk.first())?.get(t, pk),
             k => self.listed(t, k)?.get(t, pk),
         }
@@ -1158,7 +1158,7 @@ pub fn field_get_by_key_pairs(engine: &Arc<Engine>, extra: &[(i32, i32)]) -> Opt
         i += 1;
     }
     keys.extend(extra.iter().map(|(a, b)| vec![Value::Integer(*a), Value::Integer(*b)]));
-    let field_get = |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| fields::field_get(&t, r)));
+    let field_get = |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| fields::field_get(&p, &t, r)));
     keys.into_iter()
         .map(|pk| {
             let by_listing = field_get(listing.get(&t, &pk));

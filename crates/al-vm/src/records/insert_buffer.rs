@@ -18,6 +18,7 @@
 //!   that sends the queue is itself a duplicate. Whether the valid row stays written is not known: refused.
 
 use super::*;
+use crate::state::WriteOfAl;
 
 /// Rows the queue holds when it is sent.
 const SEND_AT: usize = 5;
@@ -73,10 +74,26 @@ impl Session {
     pub(crate) fn record_op_of_al(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.tx.insert_from_al = method == RecordOp::Insert;
         self.tx.rename_from_al = method == RecordOp::Rename;
-        self.tx.modify_from_al = method == RecordOp::Modify && !self.through_recordref;
+        self.tx.write_of_al = match method {
+            _ if self.through_recordref => None,
+            RecordOp::Insert => Some(WriteOfAl::Insert),
+            RecordOp::Modify => Some(WriteOfAl::Modify),
+            RecordOp::ModifyAll => Some(WriteOfAl::ModifyAll),
+            _ => None,
+        };
         let r = self.record_op(method, rec, args);
-        self.tx.modify_from_al = false;
+        self.tx.write_of_al = None;
         r
+    }
+
+    /// Whether the write starting now is the statement `w` of AL code on a Record variable (`TxState::write_of_al`); takes the
+    /// mark only when it is.
+    pub(crate) fn take_write_of_al(&mut self, w: WriteOfAl) -> bool {
+        let is = self.tx.write_of_al == Some(w);
+        if is {
+            self.tx.write_of_al = None;
+        }
+        is
     }
 
     /// Leaves the error of a duplicate-key Insert of `rec` into table `object` pending, unless one is pending already, and notes
