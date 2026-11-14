@@ -1521,7 +1521,6 @@
 84790 GlobalTriggerManagement_RegisteredTables
 84830 Item40_PageInsert_FilteredView
 84950 AccessByPermission_VirtualTablePage_QB
-84950 WildcardPagePermission_MetadataPermissionRows_CO
 85018 CalcField_RecordIf_NoRead_EmptyTable
 85018 RecordRefOpen_TableInformation
 85018 Subscriber_EmptySet_ReadInSubscriber
@@ -1595,7 +1594,6 @@
 86237 PX_TableNo_BareNamesOutsideOnRun
 86384 FindSet_Plain_DatabaseLocks_QB
 86386 LockTable_FindSet_DatabaseLocks_QB
-86450 RunnerSets_SystemTable
 86504 QF_GLSetup_CorpusRow
 86504 SF_Doc_OpenEdit_ActionWithoutUpdate
 86504 SF_Doc_OpenEdit_PartSetValueThenRefresh

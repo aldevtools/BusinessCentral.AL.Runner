@@ -1,9 +1,27 @@
-//! `DeleteAll`: the rows it deletes, row by row (with delete events, database triggers, OnDelete for DeleteAll(true), the
-//! User table, MarkedOnly) or in one step in the store; a filter on a FlowField goes to `delete_all_flow`.
+//! `Delete` of one row with what it takes along (`delete_one`). `DeleteAll`: the rows it deletes, row by row (with delete
+//! events, database triggers, OnDelete for DeleteAll(true), the User table, MarkedOnly) or in one step in the store; a filter
+//! on a FlowField goes to `delete_all_flow`.
 
 use super::*;
 
 impl Session {
+    /// `Delete(run)` of `rec` on `t`, after the refusals of the Delete arm of `record_op_inner`: the row, and for a stored Tenant
+    /// Permission Set row the permission rows it takes with it (tenant_set_delete.rs).
+    pub(super) fn delete_one(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        rec: &Rec,
+        run: bool,
+    ) -> Result<Value, Signal> {
+        let cascade = self.tenant_set_delete_one(cx, t, rec)?;
+        let deleted = self.delete_row(t, rec, run)?;
+        if let Some(c) = cascade {
+            self.tenant_set_cascade_apply(cx, t, c)?;
+        }
+        Ok(deleted)
+    }
+
     /// `DeleteAll(run)` of `rec` on `t` (the arm of `record_op_inner`; `Session::note_bulk_write` notes it around this call).
     pub(super) fn delete_all(
         &mut self,

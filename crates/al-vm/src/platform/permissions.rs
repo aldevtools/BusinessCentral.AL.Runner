@@ -547,7 +547,7 @@ fn metadata_wildcard_row<O: al_ir::ObjectInfo + ?Sized>(o: &O) -> Option<Grant> 
     let (head, mask) = entry.rsplit_once('=')?;
     let (kind_word, name) = head.trim().split_once(char::is_whitespace)?;
     let measured = kind_word.eq_ignore_ascii_case("page") && name.trim() == "*" && mask.trim() == "X";
-    measured.then(|| Grant {
+    measured.then_some(Grant {
         kind: 8,
         id: 0,
         level: [0, 0, 0, 0, 1],

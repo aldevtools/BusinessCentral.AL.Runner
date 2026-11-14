@@ -912,7 +912,8 @@ impl Session {
                     )));
                 }
                 // Company and Tenant Media under a set that names neither: both answers false (metadata/Y19PermSystemTables.al:36-40,
-                // :58-63, RecordRef.Open(TableId) under `LT Y19 R`).
+                // :58-63, RecordRef.Open(TableId) under `LT Y19 R`); Tenant Media's WritePermission through a Record under the
+                // runner's sets is false too (permissions/testpermissions/QcRunnerSets.al:240, :254).
                 Verdict::Deny { indirect: false, .. } if ANSWER_FALSE_SYSTEM_TABLES.contains(&id) => return Ok(false),
                 Verdict::Deny { .. } if id >= 2_000_000_000 => {
                     refused = refused.or(Some(format!(
