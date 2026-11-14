@@ -30,7 +30,7 @@ mod setrange_filter;
 mod sql_range;
 mod sql_range_code;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
-use sql_range::{InsertShape, ModifyShape};
+use sql_range::InsertShape;
 mod nested_validate;
 pub(crate) use nested_validate::ValidateSite;
 mod op_inner;
