@@ -127,7 +127,7 @@ impl Session {
             (PageMethod::First, Some(true)) => "-",
             (_, Some(true)) => "+",
         };
-        st.borrow_mut().after_new = None;
+        st.borrow_mut().take_after_new();
         if how == PageMethod::Last {
             self.land_on_new_line(st)?;
             self.land_on_new_line(st)?;
@@ -169,7 +169,7 @@ impl Session {
         ) {
             return Self::refuse_unpinned_new_line_move(PageMethod::GoToKey);
         }
-        st.borrow_mut().after_new = None;
+        st.borrow_mut().take_after_new();
         let found = probe.borrow().fields.clone();
         rec.borrow_mut().fields = found;
         self.read_row_off_new_line(st)?;

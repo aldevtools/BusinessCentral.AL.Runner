@@ -30,6 +30,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - record state: temporary, stored, dirty, saved by which call;
   - a flag of a verdict read as a fact about the grant: `Deny { indirect: false }` says the calling object has no object
     grant, not that the session level is blank. Require the session levels the pin measured (al-runner PR 8033).
+  - a "not X" fact that is only proven while a helper is true (`held && last != anchor`): when the helper is false
+    the negation passes. Require the positive fact (`held && last == anchor`) (al-runner PR 8055).
   - BC version: a gate that one major measured is not a gate for the others;
   - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
     differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it
@@ -102,6 +104,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a gate on Modify that excludes ModifyAll by the bulk flag: ModifyAll with RunTrigger = true, RecordRef.Modify and a page
     save reach the same arm. Require the Modify statement of AL code on a Record variable, and that the row exists
     (al-runner PR 8045).
+  - a gate that checks the extension's side of a page and not the base's: the base request page (properties, triggers, the
+    number and place of its fields) and the call that opened and closed the page are pinned facts too. Require the base
+    object's shape, and name the measured open and close calls (al-runner PR 8053).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
