@@ -458,13 +458,9 @@ impl Session {
         {
             let blob = al_builtins::stream::new_blob();
             save_to = Some((p.to_string(), blob.clone()));
-            values[0] = Value::Library(
-                al_builtins::library_kind::LibraryKind::OutStream,
-                std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::OutStream(
-                    blob,
-                    al_builtins::stream::Encoding::default(),
-                ))),
-            );
+            let out = LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None);
+            let out = std::rc::Rc::new(std::cell::RefCell::new(out));
+            values[0] = Value::Library(al_builtins::library_kind::LibraryKind::OutStream, out);
         }
 
         // ADR-056: outside the company build, .NET reads and writes files only in the session's in-memory file system.
@@ -688,7 +684,7 @@ impl Session {
             let blob = al_builtins::stream::new_blob();
             *(if create_book { open_workbook } else { save_to }) = Some((path.to_string(), blob.clone()));
             values[0] = lib(
-                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default()),
+                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None),
                 al_builtins::library_kind::LibraryKind::OutStream,
             );
             return Ok(());
@@ -1154,7 +1150,7 @@ impl Session {
                     return unsupported(format!("DotNet {clr_type}: {why}"));
                 }
                 let blob = match &*h.borrow() {
-                    LibraryValue::OutStream(blob, _) => blob.clone(),
+                    LibraryValue::OutStream(blob, ..) => blob.clone(),
                     other => {
                         return unsupported(format!("CopyStream from a DotNet stream into {}", other.describe()));
                     }
@@ -1426,7 +1422,7 @@ impl Session {
                         at: st.pos.min(st.len()),
                     }
                 }
-                LibraryValue::OutStream(blob, _) => {
+                LibraryValue::OutStream(blob, ..) => {
                     book.outs.push((arg, blob.clone()));
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
