@@ -135,6 +135,7 @@ mod sort_non_key_modify_window;
 mod sql_data_type;
 mod sql_data_type_numeric;
 mod sql_data_type_scope;
+mod sql_date_floor;
 mod stale_buffer;
 mod stale_buffer_6028;
 mod stale_buffer_y76;
