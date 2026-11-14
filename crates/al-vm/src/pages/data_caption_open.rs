@@ -204,7 +204,7 @@ impl Session {
 
     /// What the page's compiled DataCaptionExpression can do at the open (`Engine::caption_open_risk`); `None`: it can neither
     /// raise an error nor leave anything behind.
-    fn data_caption_expression_risk(&self, st: &St) -> Option<String> {
+    pub(super) fn data_caption_expression_risk(&self, st: &St) -> Option<String> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let Some(routine) = engine.program.objects[object]

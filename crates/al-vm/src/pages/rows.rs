@@ -481,7 +481,7 @@ impl Session {
         for i in 0..Self::WINDOW {
             let key = self.row_key(&rec)?;
             let stored = rec.borrow().fields.clone();
-            self.populate_current(st)?;
+            self.populate_window_row(st)?;
             if let Some(controls) = &row_exprs {
                 self.note_row_exprs(st, key.clone(), controls)?;
             }

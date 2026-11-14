@@ -593,7 +593,7 @@ impl Session {
             if unattended {
                 return Ok(());
             }
-            let mut new_line = has_source && self.offers_new_line(st)?;
+            let mut new_line = has_source && self.offers_new_line_at_open(st)?;
             // A record handed to the page filtered to one Enum or Option value the blank row does not hold: no blank line shows
             // (pages/run-modal/CePageRun.al RunModal_EnumFilter_RowsAndNewRowDefault, RunModal_OptionFilter_RowsAndNewRowDefault,
             // `[2][5]`; a Boolean filter the blank row matches keeps it, ui-handlers/TestPageModalNewRowLine_Tests.al:180).
