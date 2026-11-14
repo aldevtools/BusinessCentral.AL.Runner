@@ -60,14 +60,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     // P6924_Counters_StoredInInteger_NotNegative, P6924_Counters_StoredInDecimal_NotNegativeAndWhole); any other type would
     // show its number.
     if let Value::SqlCount(c) = &v {
-        use crate::value::SqlType;
-        return match t {
-            T::Variant => Ok(v),
-            T::BigInteger => Ok(crate::sqlcount::into_number(*c, SqlType::BigInteger)),
-            T::Integer => Ok(crate::sqlcount::into_number(*c, SqlType::Integer)),
-            T::Decimal => Ok(crate::sqlcount::into_number(*c, SqlType::Decimal)),
-            _ => Err(crate::sqlcount::refusal("a conversion to another type")),
-        };
+        return crate::sqlcount::convert(*c, v, t);
     }
     // A Text or Code into a Text or Code, the most common conversion (an assignment or a parameter of text), straight to
     // the arm the general match below would reach: no earlier arm takes a text source into a text target, and a text

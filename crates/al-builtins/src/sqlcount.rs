@@ -288,6 +288,20 @@ impl Cmp {
     }
 }
 
+/// A counter value into a slot of type `t`: tainted in a Variant, a plain number with the slot's type in a number slot, a
+/// refusal for any other type (see `convert`).
+pub fn convert(c: SqlCount, v: Value, t: &crate::value::RtType) -> Result<Value, Signal> {
+    use crate::value::RtType as T;
+    use crate::value::SqlType;
+    match t {
+        T::Variant => Ok(v),
+        T::BigInteger => Ok(into_number(c, SqlType::BigInteger)),
+        T::Integer => Ok(into_number(c, SqlType::Integer)),
+        T::Decimal => Ok(into_number(c, SqlType::Decimal)),
+        _ => Err(refusal("a conversion to another type")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
