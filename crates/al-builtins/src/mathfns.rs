@@ -107,11 +107,11 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 /// `Round(2.5, 0.01)` is `2.50`, `Round(3, 0.25)` is `3.00`, `Round(2, 0.01)` is `2.00`, `Round(1.200001, 0.00001)` is
 /// `1.20000`, `Round(1.4, 0.50)` is `1.50`. Measured on BC 27.5, 28.5 and 29.0 by corpus pull requests 1380
 /// (reports/dataset/DatasetDecimalRoundScale.al, open) and 1377 (reports/dataset/DatasetDecimalRoundScaleSources.al) and by al-runner
-/// issue 7958, and not pinned yet (assumption `round-keeps-the-precision-decimals`). A result of zero, one or minus one shows no
-/// decimals where a scale is seen (the report dataset, al-vm `decimal_column.rs`: `Round(1, 0.00001)` is `1`,
-/// reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450), so its zeros are not marked.
+/// issue 7958, and not pinned yet (assumption `round-keeps-the-precision-decimals`). Only the zeros a Decimal shows are marked,
+/// as `decimal_scale.rs` decides (one shows none: `Round(1, 0.00001)` is `1` in the dataset,
+/// reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450).
 fn round_scale(r: Decimal) -> Decimal {
-    if r.scale() > r.normalize().scale() && !r.is_zero() && r.abs() != Decimal::ONE {
+    if crate::decimal_scale::shows_zeros(r) {
         crate::assumptions::assume(crate::assumptions::Assumption::RoundKeepsThePrecisionDecimals);
     }
     r

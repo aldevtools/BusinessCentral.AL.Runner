@@ -32,6 +32,7 @@ pub mod collections;
 pub mod conv;
 pub mod datatransfer;
 pub mod datefns;
+pub mod decimal_scale;
 pub mod describe;
 pub mod dotnet_sigs;
 pub mod enum_qualifier;
