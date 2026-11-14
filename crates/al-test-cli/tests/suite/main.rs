@@ -211,6 +211,7 @@ mod savevalues_open_page_order;
 mod selection_filter_linked_part_no_row;
 mod single_instance_test_codeunit;
 mod split_key_view_refusals;
+mod split_part_second_control_xrec;
 mod stale_delete_triggers;
 mod stale_rollback_kind;
 mod stale_updlock_read;
