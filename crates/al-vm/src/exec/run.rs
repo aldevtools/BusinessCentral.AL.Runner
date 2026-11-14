@@ -1,6 +1,7 @@
 //! The bytecode loop. Every instruction calls the helpers of its operation (`ops`, `Session::read`, `write`, ...).
 
 use super::*;
+use crate::temp_blob_share::SiteCheck;
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
@@ -980,6 +981,11 @@ impl Session {
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
+        // No operand is by reference, and `temp_blob_share_guard` checks a Blob field only through one: only the OutStreams
+        // the call takes are checked.
+        if site.temp_blob != SiteCheck::Never && crate::temp_blob_share::streams_kept() {
+            self.check_temp_out_streams(site.id, recv.as_ref(), &values)?;
+        }
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
@@ -1119,7 +1125,7 @@ impl Session {
     }
 
     fn run_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
-        let recv = site.receiver.map(|r| take(f, r, nl));
+        let mut recv = site.receiver.map(|r| take(f, r, nl));
         let mut values = if site.arg_regs.is_empty() {
             Vec::new()
         } else {
@@ -1130,6 +1136,11 @@ impl Session {
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
+        let open = match site.temp_blob {
+            SiteCheck::Never => None,
+            SiteCheck::StreamsKept if !crate::temp_blob_share::streams_kept() => None,
+            _ => self.temp_blob_share_guard(site, nl, &mut recv, &values, f)?,
+        };
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
@@ -1267,6 +1278,9 @@ impl Session {
             site.ret_used,
             f,
         );
+        if let (Some(open), Ok(_)) = (open, &result) {
+            self.temp_blob_attach_open(*open);
+        }
         if let (Some(row), Some(ir::Arg::Ref(p)), Ok(_)) = (copy_array_row_back, site.args.first(), &result) {
             self.write(p, row, f)?;
         }

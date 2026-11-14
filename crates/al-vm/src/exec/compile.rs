@@ -578,6 +578,8 @@ impl<'a> Compiler<'a> {
                     all.push(r);
                 }
                 all.extend(args.iter());
+                // From the operands as written: the ones `arg_reg` hands back stand for their registers.
+                let temp_blob = crate::temp_blob_share::site_check(*id, all.iter().copied(), |i| self.locals_ty.get(i));
                 for (i, a) in all.iter().enumerate() {
                     let rest_pure = all[i + 1..].iter().all(|b| arg_pure(b));
                     let (r, arg) = self.arg_reg(a, rest_pure)?;
@@ -599,6 +601,7 @@ impl<'a> Compiler<'a> {
                     args: kept,
                     ret_used: *ret_used,
                     plain,
+                    temp_blob,
                 });
                 let s = (self.chunk.builtins.len() - 1) as u32;
                 self.emit(Op::Builtin { s, d });

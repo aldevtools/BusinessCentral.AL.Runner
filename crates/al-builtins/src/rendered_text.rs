@@ -682,7 +682,7 @@ fn utf8_out(v: &Value) -> bool {
     let Value::Library(_, h) = v else {
         return false;
     };
-    matches!(&*h.borrow(), LibraryValue::OutStream(_, enc) if *enc == crate::stream::Encoding::Utf8)
+    matches!(&*h.borrow(), LibraryValue::OutStream(_, enc, ..) if *enc == crate::stream::Encoding::Utf8)
 }
 
 /// `StrSubstNo(Template, ..)`: the template is known (it holds no mark) and uses value `i` (argument `i`, `%i`) only as `%i`,

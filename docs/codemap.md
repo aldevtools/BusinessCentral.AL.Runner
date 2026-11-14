@@ -404,6 +404,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `dotnet/last_error.rs` (188): The exception `GetLastErrorObject` answers and its `GetType()` (GetLastErrorObject.al). Entry: `types` 168, `exception_text` 70.
 - `dotnet/invoke_exception.rs` (~210): A .NET exception of a DotNet method, property get or constructor the host ran becomes an AL error (al-runner issue 7924): the measured text and code for four classes, an error with an unpinned text for the classes an oracle case shows as an AL error (`shown_as_al_error`), only for a call that sent no stream, and the NavNCLDotNetInvokeException `GetLastErrorObject` answers. Entry: `signal`, `outer_type`, `inner_type`.
 - `dotnet/policy.rs` (269): What is refused before a `DotNet` request is sent (ADR-014 section 8). Entry: `Access` 6, `Policy` 14.
+- `dotnet/zone_rules.rs`: off Windows, the `TimeZoneInfo` checks that need the arguments (a zone passed as an argument, `GetUtcOffset`), after the policy (issue 8012).
 - `dotnet/pure.rs` (~50): The `DotNet` members that answer from their arguments alone; a baseline whose install code calls any other is not kept on disk (`Engine::dotnet_called`, al-testrun `baseline_key`). Entry: `answers_from_arguments`.
 - `dotnet/registry.rs` (113): Runtime-provided .NET classes (ADR-014 section 1). Entry: `MemberKind` 19, `Pin` 28, `MemberFn` 45, `RegistryMember` 47.
 - `dotnet/query_metadata.rs` (200): Microsoft's `QueryMetadataReader` over a query's Application Object Metadata (ReQueryMetadataShapes.al). Entry: `types`, `from_stream`.

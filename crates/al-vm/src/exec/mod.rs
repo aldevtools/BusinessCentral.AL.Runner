@@ -455,6 +455,8 @@ pub(crate) struct BuiltinSite {
     /// A registered native whose receiver and arguments are all values (nothing is written back) and that has no
     /// special handling in `run_builtin`: it runs on the short path (`Session::run_plain_builtin`).
     pub plain: bool,
+    /// When the call runs `Session::temp_blob_share_guard` first (`temp_blob_share::site_check`).
+    pub temp_blob: crate::temp_blob_share::SiteCheck,
 }
 
 pub(crate) enum AuxSite {

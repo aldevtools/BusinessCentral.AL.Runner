@@ -152,6 +152,7 @@ mod tableext_protected_var_cross_app;
 mod tableext_protected_var_member;
 mod tableext_relation_modify;
 mod tableext_sibling_globals;
+mod temp_blob_empty_insert_share;
 mod temp_blob_rewrite_after_insert;
 mod temp_sums_by_ref;
 mod temp_tables;

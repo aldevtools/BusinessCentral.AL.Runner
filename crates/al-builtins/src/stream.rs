@@ -978,6 +978,21 @@ fn blob_of(r: Option<&mut Value>) -> Result<BlobRef, Signal> {
     }
 }
 
+/// What the VM kept when `Blob.CreateOutStream` opened a stream on a Blob field of a temporary record (al-vm
+/// `temp_blob_share.rs`): a later call that takes the stream is checked against it, as the record may have moved to another
+/// key or a row may have come to hold the buffer since.
+#[derive(Debug)]
+pub struct OutOpen {
+    /// The record whose field the stream was opened on.
+    pub record: std::rc::Weak<std::cell::RefCell<crate::value::RecordState>>,
+    /// The position of the Blob field in the record.
+    pub field: usize,
+    /// The record's primary key when the stream was opened.
+    pub key: Vec<Value>,
+    /// The stream writes to the buffer the VM gave the record at the open (assumption `temp-blob-empty-insert-key-change`).
+    pub detached: bool,
+}
+
 pub(crate) fn set_stream(slot: &Value, content: LibraryValue) -> Result<(), Signal> {
     match slot {
         Value::Library(_, h) => {
@@ -1018,7 +1033,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
             buf.write_pos = 0;
             buf.refetch = false;
             drop(buf);
-            set_stream(&a[0], LibraryValue::OutStream(b, enc))?;
+            set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
             return Ok(Value::Null);
         }
         // That case writes over content the record holds. Another unloaded Blob (a temporary record's, a copy of an unloaded
@@ -1040,7 +1055,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.refetch = false;
         buf.persisted = false;
     }
-    set_stream(&a[0], LibraryValue::OutStream(b, enc))?;
+    set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
     Ok(Value::Null)
 }
 
@@ -2032,7 +2047,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
 fn out_buf(r: Option<&mut Value>) -> Result<(BlobRef, Encoding), Signal> {
     match r {
         Some(Value::Library(_, h)) => match &*h.borrow() {
-            LibraryValue::OutStream(b, e) => Ok((b.clone(), *e)),
+            LibraryValue::OutStream(b, e, ..) => Ok((b.clone(), *e)),
             _ => unsupported("use of an OutStream that was never created"),
         },
         other => unsupported(format!("OutStream method on {}", other.describe())),

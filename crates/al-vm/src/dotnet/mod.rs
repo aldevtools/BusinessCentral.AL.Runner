@@ -29,6 +29,7 @@ mod staged_dir;
 mod system_environment;
 mod xml_errors;
 mod zip_entry_streams;
+mod zone_rules;
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
@@ -458,13 +459,9 @@ impl Session {
         {
             let blob = al_builtins::stream::new_blob();
             save_to = Some((p.to_string(), blob.clone()));
-            values[0] = Value::Library(
-                al_builtins::library_kind::LibraryKind::OutStream,
-                std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::OutStream(
-                    blob,
-                    al_builtins::stream::Encoding::default(),
-                ))),
-            );
+            let out = LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None);
+            let out = std::rc::Rc::new(std::cell::RefCell::new(out));
+            values[0] = Value::Library(al_builtins::library_kind::LibraryKind::OutStream, out);
         }
 
         // ADR-056: outside the company build, .NET reads and writes files only in the session's in-memory file system.
@@ -483,18 +480,7 @@ impl Session {
         }
 
         // 2. The host provider, after the policy (ADR-014 section 8).
-        let assembly = match &target {
-            Target::Static(d) => Some(d.assembly.as_str()),
-            _ => None,
-        };
-        let access = if kind == MemberKind::Construct {
-            Access::Construct(values.len())
-        } else if values.iter().any(|v| matches!(v, Value::Text(_) | Value::Code(_))) {
-            Access::MemberWithText(&member)
-        } else {
-            Access::Member(&member)
-        };
-        if let Err(why) = engine.dotnet.policy.check(assembly, &clr_type, access) {
+        if let Err(why) = self.policy_check(&engine.dotnet.policy, &target, &clr_type, &member, kind, &values) {
             return unsupported(format!("DotNet {shown}: {why}"));
         }
         if matches!(target, Target::Internal(..)) {
@@ -688,7 +674,7 @@ impl Session {
             let blob = al_builtins::stream::new_blob();
             *(if create_book { open_workbook } else { save_to }) = Some((path.to_string(), blob.clone()));
             values[0] = lib(
-                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default()),
+                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None),
                 al_builtins::library_kind::LibraryKind::OutStream,
             );
             return Ok(());
@@ -1154,7 +1140,7 @@ impl Session {
                     return unsupported(format!("DotNet {clr_type}: {why}"));
                 }
                 let blob = match &*h.borrow() {
-                    LibraryValue::OutStream(blob, _) => blob.clone(),
+                    LibraryValue::OutStream(blob, ..) => blob.clone(),
                     other => {
                         return unsupported(format!("CopyStream from a DotNet stream into {}", other.describe()));
                     }
@@ -1426,7 +1412,7 @@ impl Session {
                         at: st.pos.min(st.len()),
                     }
                 }
-                LibraryValue::OutStream(blob, _) => {
+                LibraryValue::OutStream(blob, ..) => {
                     book.outs.push((arg, blob.clone()));
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
@@ -1671,6 +1657,34 @@ fn boxed_clr_type(v: &Value) -> Option<&'static str> {
         Value::Guid(_) => "System.Guid",
         _ => return None,
     })
+}
+
+impl Session {
+    /// Step 2 of the router: the policy (ADR-014 section 8), then the zone checks that also need the arguments
+    /// (`zone_rules.rs`). `Err` is the refusal reason.
+    fn policy_check(
+        &self,
+        policy: &Policy,
+        target: &Target,
+        clr_type: &str,
+        member: &str,
+        kind: MemberKind,
+        values: &[Value],
+    ) -> Result<(), String> {
+        let assembly = match target {
+            Target::Static(d) => Some(d.assembly.as_str()),
+            _ => None,
+        };
+        let access = if kind == MemberKind::Construct {
+            Access::Construct(values.len())
+        } else if values.iter().any(|v| matches!(v, Value::Text(_) | Value::Code(_))) {
+            Access::MemberWithText(member)
+        } else {
+            Access::Member(member)
+        };
+        policy.check(assembly, clr_type, access)?;
+        self.zone_rules_check(policy, clr_type, member, target, values)
+    }
 }
 
 fn host_target(t: &Target) -> DotNetTarget {
