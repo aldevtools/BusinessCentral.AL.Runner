@@ -139,8 +139,8 @@ fn table_of<'a>(c: &'a Catalog, i: usize) -> Option<(&'a Object, &'a al_ir::Tabl
 /// Base Application table, and FindFirst and Next of either, give the AllObj ones
 /// (metadata/platform-tables/PlatformMetadataColumnValues.al:287-311). The app under test is the app whose two
 /// ids are equal (`ids::runtime_package_id`). A field a table extension adds keeps its extension's ids
-/// ([`extension_packages`]): BC 29.1 gave them after a Get too (corpus PR 1402, FieldTable_AppPackageIds_OfTableExtensionField_
-/// AreTheExtensionApps).
+/// ([`extension_packages`]): BC gave them after a Get too (metadata/platform-tables/PlatformMetadataColumnValues.al:339-376,
+/// corpus PR 1402, merged, not pinned yet).
 pub(super) fn field_get(p: &Providers, t: &TableDef, mut r: al_data::Row) -> al_data::Row {
     let col = |name: &str| t.fields.iter().position(|x| x.name == name);
     if let (Some(pc), Some(rt)) = (col("App Package ID"), col("App Runtime Package ID")) {
@@ -343,9 +343,10 @@ fn package_columns(c: &Catalog, table: &Object, t: &TableDef) -> Vec<(usize, Val
 }
 
 /// App Package ID and App Runtime Package ID of the Field row of field `f` of `table` when a table extension adds it: the
-/// extension's AllObj ones, not the table's, after Get, FindFirst on the key and in a scan (al-runner issue 8051; corpus PR 1402,
-/// PlatformMetadataColumnValues.al FieldTable_AppPackageIds_OfTableExtensionField_AreTheExtensionApps, measured on BC 29.1 with
-/// the same shapes; assumption `field-row-extension-package-ids` until it is pinned). With `true` when the shape is the measured
+/// extension's AllObj ones, not the table's, after Get, FindFirst on the key and in a scan, and a filter on App Package ID <> the
+/// table's keeps only such fields (al-runner issue 8051; metadata/platform-tables/PlatformMetadataColumnValues.al:339-376 and
+/// :385-405, corpus PR 1402, merged, not pinned yet: assumption `field-row-extension-package-ids` until the bump). With `true`
+/// when the shape is the measured
 /// one: an extension of an app under test on a table of an app under test or of Base Application. Any other extension (of a
 /// dependency app, on another dependency app's table or on a platform table) leaves both columns unknown, with `false`. `None`
 /// for a field the table declares itself, and for a system field.

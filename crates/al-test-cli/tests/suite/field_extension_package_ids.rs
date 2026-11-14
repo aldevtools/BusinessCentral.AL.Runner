@@ -1,8 +1,7 @@
 //! al-runner issue 8051: Field."App Package ID" and "App Runtime Package ID" of a field a table extension adds are the ids of
-//! the extension's app, not the table's. Corpus PR 1402 measures it (tests/al-language/metadata/platform-tables/
-//! PlatformMetadataColumnValues.al, FieldTable_AppPackageIds_OfTableExtensionField_AreTheExtensionApps and
-//! FieldTable_FilterAppPackageIdNotTheTables_KeepsOnlyExtensionFields); until it is pinned the rows run through the assumption
-//! `field-row-extension-package-ids`.
+//! the extension's app, not the table's. Corpus PR 1402 (merged, not pinned yet) measures it:
+//! tests/al-language/metadata/platform-tables/PlatformMetadataColumnValues.al:360-376 and :388-405. Until it is pinned the rows
+//! run through the assumption `field-row-extension-package-ids`.
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
