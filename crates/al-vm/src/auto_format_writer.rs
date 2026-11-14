@@ -79,20 +79,21 @@ impl Session {
     /// parameter (every `var` parameter of the three events is a result: Translation, Result, Resolved).
     fn active_foreign_writer(&self, u: &Unraised) -> bool {
         let program = &self.engine.program;
-        let Some(o) = program.objects.get(u.object) else {
-            return true;
-        };
-        if program
-            .apps
-            .get(o.app as usize)
-            .is_some_and(|a| a.publisher == "Microsoft")
-        {
+        // The head only: a subscriber of Microsoft's apps is not made to be read (ADR-054).
+        let microsoft = program
+            .objects
+            .heads()
+            .get(u.object)
+            .and_then(|h| program.apps.get(h.app as usize))
+            .is_some_and(|a| a.publisher == "Microsoft");
+        if microsoft || (u.manual && !self.is_bound_object(u.object)) {
             return false;
         }
-        if u.manual && !self.is_bound_object(u.object) {
-            return false;
-        }
-        o.routines.get(u.routine).is_none_or(writes_var_parameter)
+        program
+            .objects
+            .get(u.object)
+            .and_then(|o| o.routines.get(u.routine))
+            .is_none_or(writes_var_parameter)
     }
 }
 
