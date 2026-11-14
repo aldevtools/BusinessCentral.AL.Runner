@@ -927,6 +927,7 @@ impl Session {
     ///   QueryLiveWrite.al:25);
     /// - run-time filters only on grouping columns (QueryAggregatedWriteInLoop.al:136-142 SetRange on three of them), no
     ///   TopNumberOfRows and no SecurityFiltering call;
+    ///
     /// The re-read reads the table as it is, so the kind of write is not a fact of the gate; the probes wrote with Insert, Modify,
     /// Delete, ModifyAll and DeleteAll (QueryAggregatedWriteInLoop.al:166-236 and :373-416, QueryLiveWrite.al:90-163). Expected
     /// rows: QueryAggregatedWriteInLoop.al:254-433, QueryLiveWrite.al:108-159.

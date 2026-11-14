@@ -497,8 +497,8 @@ fn a_caption_expression_that_only_fills_a_local_list_still_runs() {
 /// al-runner issues 7424, 7467 and 7391 (record/captions/CaptionClassStateFreeCalls.al): an expression that calls
 /// UserSecurityId, RecordRef.GetTable on a local RecordRef, or reaches Message or Error without taking that branch with the
 /// empty record runs in an open whose count is not pinned (a List with three expression fields). A Message that a run of that
-/// open raises (an empty-record run or the row run) refuses, so does an error of an empty-record run; a GetTable on a global
-/// RecordRef keeps main's refusal.
+/// open raises (an empty-record run or the row run) refuses; an error of an empty-record run fails the open; a GetTable on a
+/// global RecordRef keeps main's refusal.
 const STATE_FREE: &str = r#"
 table 50190 "Sf Row"
 {
@@ -662,17 +662,21 @@ fn state_free_calls_in_a_caption_expression_run_and_a_raised_dialog_or_error_ref
     let outs = run(STATE_FREE, "Sf Tests");
     assert_eq!(outcome(&outs, "StateFree"), &Outcome::Pass);
     match outcome(&outs, "MessageInEmptyRun") {
-        Outcome::NotRun(why) => assert!(why.contains("Message raised by a CaptionClass expression"), "{why}"),
+        Outcome::NotRun(why) => assert!(
+            why.contains("Message raised by a CaptionClass expression on a page"),
+            "{why}"
+        ),
         other => panic!("MessageInEmptyRun: {other:?}"),
     }
     match outcome(&outs, "MessageInRowRun") {
-        Outcome::NotRun(why) => assert!(why.contains("Message raised by a CaptionClass expression"), "{why}"),
+        Outcome::NotRun(why) => assert!(
+            why.contains("Message raised by a CaptionClass expression on a page"),
+            "{why}"
+        ),
         other => panic!("MessageInRowRun: {other:?}"),
     }
-    match outcome(&outs, "ErrorInEmptyRun") {
-        Outcome::NotRun(why) => assert!(why.contains("raised an error with the empty record"), "{why}"),
-        other => panic!("ErrorInEmptyRun: {other:?}"),
-    }
+    // An error ends the open at the first run whatever the number of runs: the open fails, as on main.
+    assert_eq!(outcome(&outs, "ErrorInEmptyRun"), &Outcome::Pass);
     match outcome(&outs, "GlobalRecordRef") {
         Outcome::NotRun(why) => assert!(why.contains("RecordRef.GetTable") && why.contains("5870"), "{why}"),
         other => panic!("GlobalRecordRef: {other:?}"),

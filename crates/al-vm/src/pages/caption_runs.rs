@@ -82,6 +82,7 @@ impl Session {
     /// - a Card opened with OpenEdit whose five field controls show Id and the four expression fields: 11 runs each (:907, :934, :980; page 62415
     ///   at :444-461);
     /// - a CardPart opened alone with OpenView whose one field control shows one of them: 6 runs each (:1013; page 62416 at :463-478).
+    ///
     /// The caller has checked: no host, not modal, OpenView or OpenEdit.
     fn caption_empty_runs_six_fields(
         &self,
@@ -124,9 +125,11 @@ impl Session {
     /// The empty-record runs of a page open whose number is not pinned (the corpus saw 240, 480 and 492 calls for one 12-field
     /// Card open, record/captions/QdCaptionClassAreas.al:657). The number matters only when an expression leaves something
     /// behind that AL code can read later: such an open is refused (`effects.rs`). Every open that runs them is a flagged pass at
-    /// best (owner decision 2026-10-21). A dialog or an error that a run raises is a trace too, so it refuses there (the run-time
-    /// half of `effects.rs`: the walk lets an expression reach Message, Confirm and Error, as long as no run takes that branch;
-    /// record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc with an empty record, al-runner issue 7391).
+    /// best (owner decision 2026-10-21). A dialog that a run raises is a trace too, so it refuses there (the run-time half of
+    /// `effects.rs`: the walk lets an expression reach Message and Confirm, as long as no run takes that branch;
+    /// record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc with an empty record, al-runner issue 7391). An error ends
+    /// the open at the first run whatever the number, as on main (format-evaluate/autoformat/TestCaptionClassResolverFailure.al:116
+    /// for an error raised while a page open resolves a caption).
     pub(super) fn run_caption_empty_unpinned(
         &mut self,
         t: &al_data::TableDef,
@@ -137,22 +140,14 @@ impl Session {
             return unsupported(why);
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount);
-        let r = self.with_caption_dialogs_refused(|this| {
+        self.with_caption_dialogs_refused(|this| {
             for _ in 0..20 {
                 for (pos, expr) in exprs {
                     this.field_caption_class_value(t, *pos, Some(empty), expr)?;
                 }
             }
             Ok(())
-        });
-        match r {
-            Err(Signal::Error(e)) => unsupported(format!(
-                "a CaptionClass expression of table {} raised an error with the empty record of a page open (`{}`), and how many \
-                 times BC runs it then is not pinned",
-                t.name, e.message
-            )),
-            r => r,
-        }
+        })
     }
 
     /// Why the empty-record runs of a page open are refused: the CaptionClass expression of a field of `t` can leave
