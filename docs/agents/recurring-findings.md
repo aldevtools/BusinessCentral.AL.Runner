@@ -260,3 +260,17 @@ read a value that tells them apart.
 A doc comment or area-table row says "X members are pinned" while the gate takes the whole type (any text, any
 Integer). The pins measured a few values. Name the measured values in the comment and gate on them (rounds 1 and 2:
 `yaml_text`, `array_item`, `inner_value`).
+
+## 16. A restore or undo applied because code stopped, justified by a pin where the stopped code would have undone it (al-runner PR 8105)
+
+A restore or undo applied because code stopped, justified by a pin where the stopped code would have undone the change
+itself: require that set-back in the stopped routine, or treat the state as unknown and refuse its readers.
+
+## 17. A gate on code inside a trigger, checked by the frame stack only (al-runner PR 8106)
+
+A gate on code that runs inside a trigger, checked by the frame stack only: the method that started the trigger
+(Delete, DeleteAll(true), RecordRef.Delete, a page delete), its RunTrigger argument and whether the record is temporary
+are pinned facts too. Keep them where the trigger starts and require them.
+
+An entry text that names an argument expression (Code, a field) states a fact. The IR check must compare that argument,
+not only count the arguments (round 2: `SetRange(<field>, 'P1')` passed).

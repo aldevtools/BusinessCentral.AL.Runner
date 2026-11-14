@@ -1389,7 +1389,7 @@ impl Session {
     }
 
     /// The gate for record method `method` on `rec`; a method that reads or writes no row (filters, keys, field
-    /// metadata) is no access. `from_al`: AL code calls the method (a Record or RecordRef method), not the runtime on
+    /// metadata) is no access. `caller`: AL code calls the method (a Record or RecordRef method), or the runtime on
     /// behalf of a page, report, xmlport or validation.
     #[cold]
     #[inline(never)]
@@ -1398,8 +1398,9 @@ impl Session {
         method: al_builtins::record_op::RecordOp,
         rec: &crate::records::Rec,
         args: &[al_builtins::value::Value],
-        from_al: bool,
+        caller: crate::permission_bulk_no_match::RecordCaller,
     ) -> Result<(), Signal> {
+        let from_al = caller.al();
         let Some(op) = record_access(method) else {
             return Ok(());
         };
@@ -1434,7 +1435,7 @@ impl Session {
         match verdict {
             Verdict::Allow => Ok(()),
             Verdict::Refuse(why) => Err(Signal::unsupported(why)),
-            Verdict::Deny { indirect, by } => self.write_denied(method, rec, args, access, indirect, by, from_al),
+            Verdict::Deny { indirect, by } => self.write_denied(method, rec, args, access, indirect, by, caller),
         }
     }
 
@@ -1443,8 +1444,9 @@ impl Session {
     ///
     /// `Sorry, the current permissions prevented the action. (TableData <id> <name> <Op>: <app>)` with the code
     /// `DB:Client<Op>Denied`: Insert, Modify and Delete (TestMockBasics.al:72-78), Rename as Modify (Y19PermWrites.al
-    /// Y19_P1_Rename), DeleteAll and ModifyAll as Delete and Modify on a table with rows, whatever the filter matches
-    /// (Y19_P2_SetR, Y19_P2_SetRI), RecordRef writes the same (Y19_P6_RecordRef), trigger writes (Y19_P3_*);
+    /// Y19_P1_Rename), DeleteAll and ModifyAll as Delete and Modify on a table with rows (Y19_P2_SetR, Y19_P2_SetRI; a
+    /// filter that matches no row: `permission_bulk_no_match.rs`), RecordRef writes the same (Y19_P6_RecordRef),
+    /// trigger writes (Y19_P3_*);
     /// `Indirect<Op>` when the code's object grants the access (Y19_P4_IndirectDeleteAndModify, TestIndirect.al:80-103);
     /// `<app>` the app of the code (Y19PermCrossApp.al). DeleteAll and ModifyAll without triggers on an empty table raise
     /// nothing (TestMockBasics.al:47-50).
@@ -1457,10 +1459,11 @@ impl Session {
         access: Access,
         indirect: bool,
         by: usize,
-        from_al: bool,
+        caller: crate::permission_bulk_no_match::RecordCaller,
     ) -> Result<(), Signal> {
         use al_builtins::record_op::RecordOp as R;
         use al_builtins::value::Value;
+        let from_al = caller.al();
         let refuse = |why: &str| Err(Signal::unsupported(unpinned_denial(access, why)));
         if !Stage::of(access.op).on_by_default() {
             return refuse("ADR-062 stage 3, probes P20-P22");
@@ -1509,6 +1512,22 @@ impl Session {
                     } else {
                         Ok(())
                     };
+                }
+                let filters = rec.borrow().filters.clone();
+                let matching = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
+                    .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
+                if matching == 0 {
+                    use crate::permission_bulk_no_match::NoMatch;
+                    match self.bulk_no_match_verdict(method, rec, args, access, indirect, by, caller, rows)? {
+                        NoMatch::Deny => {}
+                        NoMatch::Allow => return Ok(()),
+                        NoMatch::Refuse => {
+                            return refuse(
+                                "with a filter that matches no row of a table with rows, in a shape no probe measured \
+                                 (record/Y19PermWrites.al:294-307 pins one; al-runner issue 8068)",
+                            );
+                        }
+                    }
                 }
             }
             _ => return refuse("ADR-062 section 2"),

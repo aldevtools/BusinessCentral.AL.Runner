@@ -587,7 +587,7 @@ impl Session {
 
     /// Whether the only code table object `table` can run is its own triggers `triggers` (lower case, exactly these): no
     /// procedure, no field trigger, no table extension and no subscriber to an event of the table.
-    pub(super) fn table_code_is(&self, table: usize, triggers: &[&str]) -> bool {
+    pub(crate) fn table_code_is(&self, table: usize, triggers: &[&str]) -> bool {
         let engine = self.engine();
         let t = &engine.program.objects[table];
         let mut names: Vec<String> = t.routines.iter().map(|r| r.name.to_ascii_lowercase()).collect();
@@ -602,7 +602,7 @@ impl Session {
 
     /// Whether table object `table` runs code only when code calls it: no table or field trigger, no table extension and no
     /// subscriber to an event of the table. Its procedures may exist.
-    pub(super) fn table_runs_no_trigger(&self, table: usize) -> bool {
+    pub(crate) fn table_runs_no_trigger(&self, table: usize) -> bool {
         let engine = self.engine();
         let t = &engine.program.objects[table];
         t.routines.iter().all(|r| !r.is_trigger)

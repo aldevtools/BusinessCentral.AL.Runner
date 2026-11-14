@@ -2416,10 +2416,23 @@ impl Session {
     ) -> Result<Value, Signal> {
         let insert_from_al = std::mem::take(&mut self.tx.insert_from_al);
         // ADR-062: a record method of a restricted session, or of any session when the license limits a table (license_ceiling.rs).
-        if self.permission_checks() {
-            let from_al = std::mem::take(&mut self.permission_from_al);
-            self.permission_gate_record(method, rec, args, from_al)?;
+        // The call stays open while the method runs (`permission_bulk_no_match.rs`, the call that started a trigger).
+        let opened = self.permission_gate_and_open(method, rec, args)?;
+        let r = self.record_op_gated(method, rec, args, insert_from_al);
+        if opened {
+            self.close_record_call();
         }
+        r
+    }
+
+    /// [`Session::record_op_unprofiled`] after the permission gate.
+    fn record_op_gated(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        args: &mut [Value],
+        insert_from_al: bool,
+    ) -> Result<Value, Signal> {
         // A statement-form Insert of AL code is queued by the platform (`insert_buffer.rs`); a table with a Blob or AutoIncrement
         // field is not, and an Insert the platform makes itself stays out of the queue.
         let from_al = insert_from_al;
