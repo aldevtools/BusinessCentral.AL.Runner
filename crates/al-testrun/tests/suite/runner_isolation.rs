@@ -337,6 +337,52 @@ codeunit 50735 "Old Sequence Failed"
     );
 }
 
+// A failed test after an earlier test was refused mid-run: its failure is reported as not trusted, but its body still
+// ended with an AL error, so the sequences it deleted or restarted stay refused for the later tests (review of al-runner
+// issue 8002, round one).
+#[test]
+fn under_a_codeunit_runner_a_failure_reported_as_not_trusted_still_marks_the_sequences_it_changed() {
+    let src = r#"
+codeunit 50736 "Untrusted Failure"
+{
+    Subtype = Test;
+    trigger OnRun() begin NumberSequence.Insert('CS1', 1, 1); NumberSequence.Insert('CS2', 1, 1); NumberSequence.Insert('CS3', 1, 1); end;
+    [Test] procedure T01_RestartFails() begin NumberSequence.Restart('CS1', 7); Error('boom'); end;
+    [Test] procedure T02_NextRefused() begin if NumberSequence.Next('CS1') = 0 then; end;
+    [Test] procedure T03_DeleteFails() begin NumberSequence.Delete('CS2'); NumberSequence.Restart('CS3', 40); Error('boom'); end;
+    [Test] procedure T04_DeletedGone() begin if NumberSequence.Exists('CS2') then Error('exists'); end;
+    [Test] procedure T05_RestartedNext() begin if NumberSequence.Next('CS3') <> 40 then Error('not 40'); end;
+}
+"#;
+    let o = run(src, TestIsolation::Codeunit);
+    assert_eq!(outcome(&o, "T01_RestartFails"), &Outcome::Fail("boom".into()), "{o:?}");
+    assert!(
+        not_run(
+            outcome(&o, "T02_NextRefused"),
+            "T01_RestartFails, failed after number sequence 'CS1'"
+        ),
+        "{o:?}"
+    );
+    assert!(
+        not_run(outcome(&o, "T03_DeleteFails"), "this failure is not trusted"),
+        "{o:?}"
+    );
+    assert!(
+        not_run(
+            outcome(&o, "T04_DeletedGone"),
+            "T03_DeleteFails, failed after number sequence 'CS2'"
+        ),
+        "{o:?}"
+    );
+    assert!(
+        not_run(
+            outcome(&o, "T05_RestartedNext"),
+            "T03_DeleteFails, failed after number sequence 'CS3'"
+        ),
+        "{o:?}"
+    );
+}
+
 // IsolProbeWriter.Codeunit.al:23-77 (W1-W5) and IsolProbeReader.Codeunit.al:16-41 (R1-R3), SdIsolCommitError.Codeunit.al
 // :34-68 (E1-E5) and SdIsolCommitReader.Codeunit.al:21-35 (R1), runners 61304 (Disabled) and 61305 (no property): nothing
 // is rolled back but a failed test's writes since its last Commit(); the next codeunit (a higher id) sees the rest.

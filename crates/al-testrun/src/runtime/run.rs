@@ -599,7 +599,8 @@ fn run_codeunit_inner(
         let mut reach_index: Option<Arc<ReachIndex>> = None;
         let flags = settled_flags(lowered, object);
         let mut panicked = false;
-        // The keys and sequences an earlier codeunit's tests left unmeasured are not this codeunit's (isolation::after_test).
+        // The refusals of the keys and sequences an earlier codeunit's tests changed (isolation::after_test) end here: this
+        // codeunit runs on what the earlier one left, as main ran it; whether BC leaves the same is not measured.
         session.clear_unmeasured();
         // `--skip-after-timeout` (al-runner issue 7517): the test the time limit stopped; the tests after it are not run.
         let mut stopped_at_limit: Option<String> = None;
@@ -988,6 +989,9 @@ fn run_codeunit_inner(
                 al_builtins::assumptions::take_hits();
                 continue;
             }
+            // The test failed, taken before the checks below report a failure as not trusted or not run: its transaction was
+            // rolled back either way, and the end of the test puts back what that rollback covers (isolation::after_test).
+            let failed = matches!(outcome, Outcome::Fail(_));
             // A test that did not run to its end (refused before it started, refused while it ran, failed) left the state the
             // tests of the codeunit share other than BC did: the database (under TestIsolation = Codeunit), the globals of the
             // codeunit and of the codeunits it holds, single-instance codeunits, and session state such as the `Random`
@@ -1164,7 +1168,7 @@ fn run_codeunit_inner(
                 checkpoint.as_ref(),
                 runner_function,
                 sequences_at_start.as_ref(),
-                matches!(outcome, Outcome::Fail(_)),
+                failed,
                 &routine.name,
             );
             if let (Outcome::Fail(_), Some(e)) = (&outcome, &failure) {
