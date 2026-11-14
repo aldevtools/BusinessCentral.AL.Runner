@@ -157,7 +157,7 @@ impl Session {
                 Arg::Unknown(n) => return Err(self.field_not_found(t, &n.to_string())),
             }
         }
-        self.flow_op(
+        self.flow_op_asked(
             RecordOp::SetAutoCalcFields,
             rec,
             &positions,

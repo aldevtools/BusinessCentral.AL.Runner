@@ -1677,7 +1677,7 @@ impl Session {
                 if stored {
                     return unsupported("FieldRef.CalcField of a field that is not a FlowField (not pinned)");
                 }
-                self.flow_op(
+                self.flow_op_asked(
                     RecordOp::CalcFields,
                     &rec,
                     &[Value::Integer(pos as i32)],

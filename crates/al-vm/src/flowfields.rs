@@ -1332,7 +1332,7 @@ impl Session {
     }
 
     /// `CalcFields`, `CalcSums` and `SetAutoCalcFields`; `asked` is the caller a `CalcFields` calculates for.
-    pub(crate) fn flow_op(
+    pub(crate) fn flow_op_asked(
         &mut self,
         method: RecordOp,
         rec: &Rec,

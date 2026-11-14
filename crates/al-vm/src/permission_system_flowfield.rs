@@ -11,6 +11,7 @@ use crate::flowfields::{Asked, CalcFrame};
 use crate::permissions::{Access, Op};
 use crate::records::Rec;
 use al_builtins::filter::{FieldFilter, FilterExpr};
+use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RtType, Value};
 use al_ir as ir;
@@ -63,6 +64,13 @@ impl Session {
         } else {
             Asked::Other
         }
+    }
+
+    /// `CalcFields`, `CalcSums` and `SetAutoCalcFields` on a Record method call: [`Self::flow_op_asked`] with the caller from
+    /// [`Self::asked_by_calc_fields`].
+    pub(crate) fn flow_op(&mut self, method: RecordOp, rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+        let asked = self.asked_by_calc_fields(method, rec);
+        self.flow_op_asked(method, rec, args, asked)
     }
 
     /// Shape 1 starts: the AL call `Record.FindFirst` on a Record variable `rec` that is not temporary and holds the state of
