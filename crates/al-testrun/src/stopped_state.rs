@@ -63,10 +63,11 @@ pub(crate) fn roll_back_stopped_install(
     roll_back_and_restore(session, target);
     (!unknown.is_empty()).then(|| {
         format!(
-            "the session {} after {}, which did not run to its end, is not known (it does not save the value first and set \
-             it back as its last statement)",
+            "the session {} after {}, which did not run to its end, {} not known (it does not save the value first and \
+             set it back as its last statement)",
             unknown.join(" and "),
-            crate::install::label(lowered, root.0, root.1)
+            crate::install::label(lowered, root.0, root.1),
+            if unknown.len() == 1 { "is" } else { "are" }
         )
     })
 }
