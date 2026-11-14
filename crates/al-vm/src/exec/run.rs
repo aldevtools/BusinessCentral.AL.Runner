@@ -173,9 +173,9 @@ impl Session {
                         set(&mut f.locals[i as usize], v);
                     }
                 }
-                Op::StorePlace { p, a } => {
-                    let v = take(f, a, nl);
-                    self.write(&chunk.places[p as usize], v, f)?;
+                Op::StorePlace { p, a } => self.write(&chunk.places[p as usize], take(f, a, nl), f)?,
+                Op::StoreVariantCopy { s, a } => {
+                    self.store_variant_copy(&chunk.variant_copies[s as usize], take(f, a, nl), f)?
                 }
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;

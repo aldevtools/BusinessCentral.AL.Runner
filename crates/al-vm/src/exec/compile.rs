@@ -43,6 +43,7 @@ fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
             specials: Vec::new(),
             faults: Vec::new(),
             ifaces: Vec::new(),
+            variant_copies: Vec::new(),
             nlocals,
             temps: 0,
         },
@@ -53,6 +54,7 @@ fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
         cap_depth: 0,
         debug,
         params: r.params,
+        by_var: &r.by_var,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -89,6 +91,8 @@ struct Compiler<'a> {
     debug: bool,
     /// The number of parameters of the routine.
     params: usize,
+    /// Which parameters are `var`.
+    by_var: &'a [bool],
 }
 
 type R<T> = Result<T, ()>;
@@ -1326,6 +1330,9 @@ impl<'a> Compiler<'a> {
                 });
             }
         }
+        if self.variant_copy(p, e)? {
+            return Ok(());
+        }
         match p {
             // A local of a typed kind takes a proven value of that kind straight into its register.
             ir::Place::Local(i)
@@ -1361,6 +1368,29 @@ impl<'a> Compiler<'a> {
             }
         }
         Ok(())
+    }
+
+    /// `p := Convert(Variant, x)` where `x` may be a Variant (`variant_copy::source_of`): `Op::StoreVariantCopy`, which
+    /// decides at run time what a temporary record does there. False for every other assignment.
+    fn variant_copy(&mut self, p: &'a ir::Place, e: &'a ir::Expr) -> R<bool> {
+        let ir::Expr::Convert(RtType::Variant, inner) = e else {
+            return Ok(false);
+        };
+        let Some(source) = crate::variant_copy::source_of(inner, &self.locals_ty, self.params, self.by_var) else {
+            return Ok(false);
+        };
+        let a = if has_index(p) {
+            self.expr_copy(e)?
+        } else {
+            self.expr_any(e)?
+        };
+        let place = self.rplace(p)?;
+        self.chunk
+            .variant_copies
+            .push(crate::variant_copy::VariantCopySite { place, source });
+        let s = u32::try_from(self.chunk.variant_copies.len() - 1).map_err(|_| ())?;
+        self.emit(Op::StoreVariantCopy { s, a });
+        Ok(true)
     }
 
     /// The arguments of a call that are record field reads (`CallSite::field_reads`).
