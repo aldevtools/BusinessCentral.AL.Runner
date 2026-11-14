@@ -2783,13 +2783,10 @@ impl Session {
             ));
         }
         self.global_group_check(rec, table, method.name())?;
+        let by_record = self.is_al_record_call(method, rec);
         let r = self.record_op(method, rec, args)?;
         let sig = Self::group1_signature(rec);
-        if sig.is_empty() {
-            self.global_group1.remove(&table);
-        } else {
-            self.global_group1.insert(table, sig);
-        }
+        self.global_group1.set(table, sig, by_record);
         Ok(r)
     }
 
@@ -2798,13 +2795,13 @@ impl Session {
     /// Answered when the record carries the same group 1 filters (the setter, or a copy of it such as the record of
     /// Page.Run(Page, Rec)); refused otherwise.
     pub(crate) fn global_group_check(&self, rec: &Rec, table: u32, what: &str) -> Result<(), Signal> {
-        let Some(global) = self.global_group1.get(&table) else {
+        let Some(global) = self.global_group1.signature(table) else {
             return Ok(());
         };
         if what == "FilterGroup" {
             return Ok(());
         }
-        if !rec.borrow().temporary && Self::group1_signature(rec) == *global {
+        if !rec.borrow().temporary && Self::group1_signature(rec) == global {
             return Ok(());
         }
         unsupported(format!(

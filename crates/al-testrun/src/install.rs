@@ -570,6 +570,8 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     };
     crate::install_orders::install_partner_apps(lowered, session, &group, &mut inst);
     session.set_install_session_id(None);
+    // The test session follows: the group 1 filters of the last install session are gone (al-vm `group1_sessions.rs`).
+    session.end_group1_install_session();
     session.set_apps_not_installed(None);
     session.set_apps_install_order_unknown(None);
     session.set_install_written_tables(None);
@@ -626,6 +628,8 @@ fn install_app_under_test(
     let company = company.to_string();
     // A session of its own (A4 item 1): any id that is positive and not the test session's 1.
     session.set_install_session_id(Some(2 + k as i32));
+    // The group 1 filters of the install session before it are gone (al-vm `group1_sessions.rs`).
+    session.end_group1_install_session();
     // Why the session's language or WorkDate is not known since install code stopped (`stopped_state`): the rest of the
     // app's install code is not run.
     let mut unknown: Option<String> = None;
@@ -665,6 +669,9 @@ fn install_app_under_test(
                 }
                 continue;
             }
+            // The shape the group 1 probe measured: the per-company part in the session company (al-vm
+            // `group1_sessions.rs`). Off again before the next company or part.
+            session.set_group1_install_shape(part == Part::Company && in_company == company);
             let open = if part == Part::Company {
                 company_open(lowered, session, with_dependencies)
             } else {
@@ -748,6 +755,7 @@ fn install_app_under_test(
                     }
                 }
             }
+            session.set_group1_install_shape(false);
         }
         session.set_company(&company);
     }

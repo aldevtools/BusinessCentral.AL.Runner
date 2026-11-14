@@ -24,7 +24,7 @@ struct Parked {
     singletons: std::collections::HashMap<usize, Rc<RefCell<Instance>>>,
     si_track: Option<Box<crate::single_track::Track>>,
     bindings: Vec<dispatch::Binding>,
-    global_group1: std::collections::HashMap<u32, String>,
+    global_group1: group1_sessions::Group1Filters,
     last_error: AlError,
     session_id_override: Option<i32>,
     ui_scope: Option<ui::UiScope>,

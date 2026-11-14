@@ -29,6 +29,9 @@ pub(crate) struct RootRun<'a> {
     /// The app whose install session holds a language or WorkDate the runner does not know, and why
     /// (`stopped_state::roll_back_stopped_install`): its later install roots are not run.
     pub unknown_session: Option<(u32, String)>,
+    /// The app whose install session the last root ran in; `None` after a root of no install session (al-vm
+    /// `group1_sessions.rs`).
+    pub install_app: Option<u32>,
 }
 
 impl RootRun<'_> {
@@ -66,6 +69,17 @@ impl RootRun<'_> {
                 .push((crate::baseline::tables_written_or_loaded(self.lowered, oi, ri), false));
             return;
         }
+        if install_session {
+            // Another app's install session begins: the group 1 filters of the one before are gone, and the per-company
+            // part is the shape the probe measured (al-vm `group1_sessions.rs`).
+            if self.install_app != Some(app) {
+                session.end_group1_install_session();
+                self.install_app = Some(app);
+            }
+            session.set_group1_install_shape(!no_company);
+        } else {
+            self.install_app = None;
+        }
         if no_company {
             session.set_company("");
         }
@@ -84,6 +98,7 @@ impl RootRun<'_> {
         };
         session.set_no_client(false);
         session.set_install_without_client(false);
+        session.set_group1_install_shape(false);
         if is_step {
             session.set_company_build(false);
             for m in session.stop_capturing_messages() {
@@ -174,6 +189,8 @@ impl crate::install_orders::AppInstalls for DependencyInstalls<'_, '_> {
     }
 
     fn install(&mut self, session: &mut Session, app: u32) {
+        // Each install of an app, in every order tried, is an install session of its own.
+        self.run.install_app = None;
         for k in self.from..self.to {
             if self.run.lowered.program.objects[self.run.roots[k].0].app == app {
                 self.run.run_root(session, k);
