@@ -374,3 +374,17 @@ fn own_area_expression_open_whose_runs_leave_nothing_is_not_flagged() {
     });
     assert!(!flagged, "{hits:?}");
 }
+
+/// A subscriber's caption the pinned Card filled at the open is read only after the pinned test calls: a `Next` before the read
+/// refuses at the read (`refuse_own_area_expression_read`).
+#[test]
+fn own_area_expression_read_after_a_next_refuses_at_the_read() {
+    assert_not_run(
+        &outcome(
+            &before(FIXTURE, EXPR_CARD_READ, "        Card.Next();\n"),
+            "ExpressionRead",
+        ),
+        "whose own-area CaptionClass expression a subscriber resolved",
+        "Next before the read",
+    );
+}
