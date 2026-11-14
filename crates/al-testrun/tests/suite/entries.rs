@@ -42,13 +42,14 @@ codeunit 50101 BaseInstaller { Subtype = Install;
     trigger OnInstallAppPerCompany() var S: Record Setting; begin S.Code := 'SEEDED'; S.Insert(); end; }";
 
 fn run(main: &str, entries: Vec<EntryRun>) -> CorpusRuntime {
+    run_with(main, vec![("active.txt".into(), b"M0001".to_vec())], entries)
+}
+
+fn run_with(main: &str, resources: Vec<(String, Vec<u8>)>, entries: Vec<EntryRun>) -> CorpusRuntime {
     CorpusRuntime::try_run_suites_with(
         vec![app("main", &["base"], main), app("base", &[], BASE)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
-        &[
-            manifest("Me", vec![("active.txt".into(), b"M0001".to_vec())]),
-            manifest("Microsoft", vec![]),
-        ],
+        &[manifest("Me", resources), manifest("Microsoft", vec![])],
         &Default::default(),
         None,
         Default::default(),
@@ -106,4 +107,30 @@ fn an_entry_with_resource_texts_is_not_run_when_the_install_baseline_read_a_reso
         matches!(&got[1][..], [Outcome::Fail(m)] if m.contains("inst=M0001")),
         "{got:?}"
     );
+}
+
+/// Al-runner issue 8026: an entry holds only the resource texts it replaces; the app's other resource files read as the
+/// program's, and the replaced one as the entry's, in each entry alone.
+#[test]
+fn an_entry_reads_the_files_it_does_not_replace_from_the_app() {
+    let main = "codeunit 60104 T { Subtype = Test;
+        [Test] procedure Both() begin Error('active=%1 other=%2', NavApp.GetResourceAsText('active.txt'), NavApp.GetResourceAsText('other.txt')); end; }";
+    let files = vec![
+        ("active.txt".into(), b"M0001".to_vec()),
+        ("other.txt".into(), b"O0001".to_vec()),
+    ];
+    let rt = run_with(
+        main,
+        files,
+        vec![override_with("M0002"), EntryRun::default(), override_with("M0003")],
+    );
+    let got = outcomes(&rt);
+    assert_eq!(got.len(), 3);
+    for (entry, want) in got.iter().zip([
+        "active=M0002 other=O0001",
+        "active=M0001 other=O0001",
+        "active=M0003 other=O0001",
+    ]) {
+        assert!(matches!(&entry[..], [Outcome::Fail(m)] if m.contains(want)), "{got:?}");
+    }
 }
