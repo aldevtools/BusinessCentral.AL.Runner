@@ -34,6 +34,9 @@ impl Session {
             }
             self.engine.object_facts[s.object as usize].page_type.clone()
         };
+        if let Some(runs) = self.caption_empty_runs_six_fields(st, page_type.as_ref(), exprs) {
+            return Some(runs);
+        }
         let card = match page_type {
             Some(PageType::Card) => true,
             Some(PageType::List) => false,
@@ -60,5 +63,105 @@ impl Session {
             (false, n @ (4 | 15)) => Some(6 + n),
             _ => None,
         }
+    }
+
+    /// The cells of record/captions/CaptionClassStateFreeCalls.al (table 62412 at :218-232: six fields, four of them with
+    /// CaptionClass expressions of different texts), three cycles alike on BC 27, 28 and 29:
+    /// - a Card opened with OpenEdit whose five field controls show Id and the four expression fields: 11 runs each (:907, :934, :980; page 62415
+    ///   at :444-461);
+    /// - a CardPart opened alone with OpenView whose one field control shows one of them: 6 runs each (:1013; page 62416 at :463-478).
+    /// The caller has checked: no host, not modal, OpenView or OpenEdit.
+    fn caption_empty_runs_six_fields(
+        &self,
+        st: &St,
+        page_type: Option<&al_ir::PageType>,
+        exprs: &[(usize, String)],
+    ) -> Option<usize> {
+        use al_ir::PageType;
+        let distinct = exprs.len() == 4
+            && exprs
+                .iter()
+                .enumerate()
+                .all(|(i, (_, e))| exprs[..i].iter().all(|(_, o)| o.trim() != e.trim()));
+        let table = self.page_rec(st).borrow().table as usize;
+        let fields = self.engine.tables[table]
+            .as_ref()
+            .map_or(0, |t| t.fields.iter().filter(|f| f.id < 2_000_000_000).count());
+        if !distinct || fields != 6 {
+            return None;
+        }
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let t = self.engine.tables[table].as_ref()?;
+        let bound: Vec<_> = (0..page.controls.len())
+            .filter_map(|idx| self.control_field(st, idx))
+            .collect();
+        let shown = bound
+            .iter()
+            .filter(|f| exprs.iter().any(|(pos, _)| t.fields[*pos].id == f.id))
+            .count();
+        let mode = st.borrow().mode;
+        // (field controls, of them over an expression field): Id and the four (:454-458), the one cue (:474).
+        match (page_type?, mode, bound.len(), shown) {
+            (PageType::Card, PageMode::Edit, 5, 4) => Some(11),
+            (PageType::Other(kind), PageMode::View, 1, 1) if kind == "cardpart" => Some(6),
+            _ => None,
+        }
+    }
+
+    /// The empty-record runs of a page open whose number is not pinned (the corpus saw 240, 480 and 492 calls for one 12-field
+    /// Card open, record/captions/QdCaptionClassAreas.al:657). The number matters only when an expression leaves something
+    /// behind that AL code can read later: such an open is refused (`effects.rs`). Every open that runs them is a flagged pass at
+    /// best (owner decision 2026-10-21). A dialog or an error that a run raises is a trace too, so it refuses there (the run-time
+    /// half of `effects.rs`: the walk lets an expression reach Message, Confirm and Error, as long as no run takes that branch;
+    /// record/captions/CaptionClassStateFreeCalls.al:168-181 NotTakenCc with an empty record, al-runner issue 7391).
+    pub(super) fn run_caption_empty_unpinned(
+        &mut self,
+        t: &al_data::TableDef,
+        exprs: &[(usize, String)],
+        empty: &Rec,
+    ) -> Result<(), Signal> {
+        if let Some(why) = self.caption_class_lasting_effect(t, exprs) {
+            return unsupported(why);
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount);
+        let outer = std::mem::replace(&mut self.pages.caption_runs_unpinned, true);
+        let r = (|| {
+            for _ in 0..20 {
+                for (pos, expr) in exprs {
+                    self.field_caption_class_value(t, *pos, Some(empty), expr)?;
+                }
+            }
+            Ok(())
+        })();
+        self.pages.caption_runs_unpinned = outer;
+        match r {
+            Err(Signal::Error(e)) => unsupported(format!(
+                "a CaptionClass expression of table {} raised an error with the empty record of a page open (`{}`), and how many \
+                 times BC runs it then is not pinned",
+                t.name, e.message
+            )),
+            r => r,
+        }
+    }
+
+    /// Why the empty-record runs of a page open are refused: the CaptionClass expression of a field of `t` can leave
+    /// something behind (`Engine::lasting_effect`), so how many times BC runs it, which is not pinned, can be read later.
+    /// Writes only to variables of SingleInstance codeunits are kept (`effects::Effect::Kept`): refusing them costs
+    /// baseline cases.
+    fn caption_class_lasting_effect(&self, t: &al_data::TableDef, exprs: &[(usize, String)]) -> Option<String> {
+        let table = self.engine.program.objects[t.object as usize].table.as_ref()?;
+        exprs.iter().find_map(|(pos, _)| {
+            let (object, routine) = table.fields.get(*pos)?.caption_class?;
+            let crate::effects::Effect::Refused(effect) = self.engine.lasting_effect(object, routine)? else {
+                return None;
+            };
+            Some(format!(
+                "the CaptionClass expression of field {} of table {} {effect}, and how many times BC runs it with an empty \
+                 record during a page open is not pinned (al-runner issue 5870)",
+                t.fields[*pos].name,
+                self.engine.program.objects[t.object as usize].name
+            ))
+        })
     }
 }

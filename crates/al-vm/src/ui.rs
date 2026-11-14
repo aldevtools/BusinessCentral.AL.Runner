@@ -306,6 +306,14 @@ impl Session {
         shown: &str,
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
+        // How many dialogs a handler sees depends on how many times the runs ran (record/captions/
+        // CaptionClassStateFreeCalls.al:168-181, al-runner issue 7391).
+        if self.pages.caption_runs_unpinned {
+            return Err(Signal::unsupported(format!(
+                "{} raised by a CaptionClass expression in the empty-record runs of a page open, whose number is not pinned",
+                kind.label()
+            )));
+        }
         let Some(scope) = self.ui_state.scope.as_mut() else {
             return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",

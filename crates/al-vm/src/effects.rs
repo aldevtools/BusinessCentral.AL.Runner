@@ -118,6 +118,8 @@ fn plain_builtin(id: al_builtins::builtin_id::BuiltinId) -> bool {
         "System" => PLAIN_SYSTEM.contains(&method),
         "Record" => PLAIN_RECORD.contains(&method),
         "Text" | "Label" | "TextConst" => true,
+        // The session's user, a value (record/captions/CaptionClassStateFreeCalls.al:160 in CueCc; captions at :606, :655).
+        "Database" => method == "UserSecurityId",
         _ => false,
     }
 }
@@ -456,7 +458,9 @@ impl Walk<'_> {
             } => {
                 if !plain_builtin(*id)
                     && !self.on_confined_collection(*id, receiver.as_deref(), at)
-                    && !self.as_integer_in_table(*id, at)
+                    && !self.as_integer_in_table_or_codeunit(*id, at)
+                    && !get_table_on_local(*id, receiver.as_deref())
+                    && !dialog_checked_at_run_time(*id)
                 {
                     return Err(format!("calls {}", id.name().split('#').next().unwrap_or(id.name())));
                 }
@@ -475,6 +479,30 @@ impl Walk<'_> {
     }
 }
 
+/// `RecordRef.GetTable` on a RecordRef local of the routine: it writes only that local, which dies with the call
+/// (record/captions/CaptionClassStateFreeCalls.al:203 and :332, `RecRef.GetTable(Rec)` in RefCopyCc and in a table extension's
+/// expression; the Card and part captions at :658, :750, :753; al-runner issue 7467).
+fn get_table_on_local(id: al_builtins::builtin_id::BuiltinId, receiver: Option<&Arg>) -> bool {
+    id.name() == "RecordRef.GetTable#1" && receiver.and_then(local_slot).is_some()
+}
+
+/// Message, Confirm and Error: whether a run raises one is a fact of the run, so the walk lets them through and the empty-record
+/// runs whose number is not pinned refuse when one is raised (`Session::run_caption_empty_unpinned`; record/captions/
+/// CaptionClassStateFreeCalls.al:168-181 NotTakenCc, not taken with the empty record, :655-701; al-runner issue 7391).
+fn dialog_checked_at_run_time(id: al_builtins::builtin_id::BuiltinId) -> bool {
+    let name = id.name();
+    // Error with a text (not with an ErrorInfo, which can be collected instead of raised).
+    matches!(
+        name,
+        "Dialog.Message#1"
+            | "Dialog.Confirm#1"
+            | "Dialog.Error#2"
+            | "Dialog.ErrorComputed#1"
+            | "Dialog.ErrorConstant#1"
+            | "Dialog.ErrorNotLiteral#1"
+    )
+}
+
 /// The local slot `arg` names, when it is a plain local (a receiver written as a place or as a load).
 fn local_slot(arg: &Arg) -> Option<usize> {
     match arg {
@@ -487,9 +515,10 @@ impl Walk<'_> {
     /// `Enum.AsInteger` in a procedure of the table itself reads a value and leaves nothing behind: a Card and a List over a
     /// table whose CaptionClass expression calls it open as any other (corpus record/captions/CaptionExpressionPlainText.al:296
     /// CardControlCaptions_PlainExpressions_KindResource, :344 ListControlCaptions_PlainExpressions_KindResource, :368
-    /// CountCard_AsIntegerExpression_RunsAtOpen; BC 27.5, 28.5 and 29.0; al-runner issue 7379). The call inside a codeunit the
-    /// expression calls is not pinned yet (corpus pull request 1289, CaptionClassStateFreeCalls.al): refused as before.
-    fn as_integer_in_table(&self, id: al_builtins::builtin_id::BuiltinId, at: (usize, usize)) -> bool {
+    /// CountCard_AsIntegerExpression_RunsAtOpen; BC 27.5, 28.5 and 29.0; al-runner issue 7379). So does the call inside a
+    /// procedure of a codeunit the expression calls (record/captions/CaptionClassStateFreeCalls.al:111-114 KindNumber, called by
+    /// HelperCc at :188; the Card, List and part captions at :657, :726, :752).
+    fn as_integer_in_table_or_codeunit(&self, id: al_builtins::builtin_id::BuiltinId, at: (usize, usize)) -> bool {
         let name = id.name();
         name.split('#').next() == Some("Enum.AsInteger")
             && self
@@ -497,7 +526,7 @@ impl Walk<'_> {
                 .program
                 .objects
                 .get(at.0)
-                .is_some_and(|o| o.kind == ObjKind::Table)
+                .is_some_and(|o| matches!(o.kind, ObjKind::Table | ObjKind::Codeunit))
     }
 
     /// A method of List or Dictionary called on a collection the routine `at` made itself and never shares: what it writes dies

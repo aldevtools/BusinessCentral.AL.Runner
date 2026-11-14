@@ -493,3 +493,172 @@ fn a_caption_expression_that_only_fills_a_local_list_still_runs() {
         other => panic!("SharedList: {other:?}"),
     }
 }
+
+/// al-runner issues 7424, 7467 and 7391 (record/captions/CaptionClassStateFreeCalls.al): an expression that calls
+/// UserSecurityId, RecordRef.GetTable on a local RecordRef, or reaches Message or Error without taking that branch with the
+/// empty record runs in an open whose count is not pinned (a List with three expression fields). A Message or an error that a
+/// run raises refuses there; a GetTable on a global RecordRef keeps main's refusal.
+const STATE_FREE: &str = r#"
+table 50190 "Sf Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; A; Decimal) { CaptionClass = UserCc(); }
+        field(3; B; Decimal) { CaptionClass = RefCc(); }
+        field(4; C; Decimal) { CaptionClass = BranchCc(); }
+    }
+    keys { key(PK; Id) { } }
+    local procedure UserCc(): Text
+    begin
+        if IsNullGuid(UserSecurityId()) then exit('3,None');
+        exit('3,User');
+    end;
+    local procedure RefCc(): Text
+    var RecRef: RecordRef;
+    begin
+        RecRef.GetTable(Rec);
+        exit('3,Ref');
+    end;
+    local procedure BranchCc(): Text
+    begin
+        if Id = 7 then Message('taken');
+        if Id = 9 then Error('taken error');
+        exit('3,Branch');
+    end;
+}
+table 50191 "Sf Message Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; A; Decimal) { CaptionClass = MsgCc(); }
+        field(3; B; Decimal) { CaptionClass = MsgCc(); }
+        field(4; C; Decimal) { CaptionClass = ErrCc(); }
+    }
+    keys { key(PK; Id) { } }
+    local procedure MsgCc(): Text
+    begin
+        if Id = 0 then Message('empty');
+        exit('3,M');
+    end;
+    local procedure ErrCc(): Text
+    begin
+        exit('3,E');
+    end;
+}
+table 50192 "Sf Error Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; A; Decimal) { CaptionClass = ErrCc(); }
+        field(3; B; Decimal) { CaptionClass = ErrCc(); }
+        field(4; C; Decimal) { CaptionClass = PlainCc(); }
+    }
+    keys { key(PK; Id) { } }
+    local procedure ErrCc(): Text
+    begin
+        if Id = 0 then Error('empty error');
+        exit('3,E');
+    end;
+    local procedure PlainCc(): Text
+    begin
+        exit('3,P');
+    end;
+}
+table 50193 "Sf Global Ref Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; A; Decimal) { CaptionClass = RefCc(); }
+        field(3; B; Decimal) { CaptionClass = PlainCc(); }
+        field(4; C; Decimal) { CaptionClass = '3,C'; }
+    }
+    keys { key(PK; Id) { } }
+    var Kept: Codeunit "Sf Holder";
+    local procedure RefCc(): Text
+    begin
+        Kept.Take(Rec);
+        exit('3,R');
+    end;
+    local procedure PlainCc(): Text
+    begin
+        exit('3,P');
+    end;
+}
+codeunit 50194 "Sf Holder"
+{
+    var RecRef: RecordRef;
+    procedure Take(var Row: Record "Sf Global Ref Row")
+    begin
+        RecRef.GetTable(Row);
+    end;
+}
+page 50190 "Sf List" { PageType = List; SourceTable = "Sf Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } field(B; Rec.B) { } field(C; Rec.C) { } } } } }
+page 50191 "Sf Message List" { PageType = List; SourceTable = "Sf Message Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } } } } }
+page 50192 "Sf Error List" { PageType = List; SourceTable = "Sf Error Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } } } } }
+page 50193 "Sf Global Ref List" { PageType = List; SourceTable = "Sf Global Ref Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } } } } }
+codeunit 50195 "Sf Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure StateFree()
+    var R: Record "Sf Row"; P: TestPage "Sf List";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenView();
+        if P.A.Caption() <> 'User' then Error('A %1', P.A.Caption());
+        if P.C.Caption() <> 'Branch' then Error('C %1', P.C.Caption());
+    end;
+    [Test]
+    [HandlerFunctions('Msg')]
+    procedure MessageInEmptyRun()
+    var R: Record "Sf Message Row"; P: TestPage "Sf Message List";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenView();
+    end;
+    [Test]
+    procedure ErrorInEmptyRun()
+    var R: Record "Sf Error Row"; P: TestPage "Sf Error List";
+    begin
+        R.Id := 1;
+        R.Insert();
+        asserterror P.OpenView();
+    end;
+    [Test]
+    procedure GlobalRecordRef()
+    var R: Record "Sf Global Ref Row"; P: TestPage "Sf Global Ref List";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenView();
+    end;
+    [MessageHandler]
+    procedure Msg(Text: Text[1024])
+    begin
+    end;
+}
+"#;
+
+#[test]
+fn state_free_calls_in_a_caption_expression_run_and_a_raised_dialog_or_error_refuses() {
+    let outs = run(STATE_FREE, "Sf Tests");
+    assert_eq!(outcome(&outs, "StateFree"), &Outcome::Pass);
+    match outcome(&outs, "MessageInEmptyRun") {
+        Outcome::NotRun(why) => assert!(why.contains("Message raised by a CaptionClass expression"), "{why}"),
+        other => panic!("MessageInEmptyRun: {other:?}"),
+    }
+    match outcome(&outs, "ErrorInEmptyRun") {
+        Outcome::NotRun(why) => assert!(why.contains("raised an error with the empty record"), "{why}"),
+        other => panic!("ErrorInEmptyRun: {other:?}"),
+    }
+    match outcome(&outs, "GlobalRecordRef") {
+        Outcome::NotRun(why) => assert!(why.contains("RecordRef.GetTable") && why.contains("5870"), "{why}"),
+        other => panic!("GlobalRecordRef: {other:?}"),
+    }
+}

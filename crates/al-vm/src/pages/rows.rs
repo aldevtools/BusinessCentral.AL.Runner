@@ -128,21 +128,7 @@ impl Session {
                     }
                 }
             } else {
-                // Any other shape: the number is not pinned (the corpus saw 240, 480 and 492 calls for one 12-field Card open,
-                // QdCaptionClassAreas.al:657), and it matters only when an expression leaves something behind that AL code can
-                // read later: such an open is refused (`effects.rs`). Every open that runs them is a flagged pass at best
-                // (owner decision 2026-10-21).
-                if let Some(why) = self.caption_class_lasting_effect(&t, &exprs) {
-                    return unsupported(why);
-                }
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount,
-                );
-                for _ in 0..20 {
-                    for (pos, expr) in &exprs {
-                        self.field_caption_class_value(&t, *pos, Some(&empty), expr)?;
-                    }
-                }
+                self.run_caption_empty_unpinned(&t, &exprs, &empty)?;
             }
         } else {
             // The other rows the open reads and a Next() run no expression, and Caption() keeps the open's value
@@ -312,26 +298,6 @@ impl Session {
         let r = self.fill_field_caption_expressions(st);
         st.borrow_mut().field_captions_fill_first = false;
         r
-    }
-
-    /// Why the empty-record runs of a page open are refused: the CaptionClass expression of a field of `t` can leave
-    /// something behind (`Engine::lasting_effect`), so how many times BC runs it, which is not pinned, can be read later.
-    /// Writes only to variables of SingleInstance codeunits are kept (`effects::Effect::Kept`): refusing them costs
-    /// baseline cases.
-    fn caption_class_lasting_effect(&self, t: &al_data::TableDef, exprs: &[(usize, String)]) -> Option<String> {
-        let table = self.engine.program.objects[t.object as usize].table.as_ref()?;
-        exprs.iter().find_map(|(pos, _)| {
-            let (object, routine) = table.fields.get(*pos)?.caption_class?;
-            let crate::effects::Effect::Refused(effect) = self.engine.lasting_effect(object, routine)? else {
-                return None;
-            };
-            Some(format!(
-                "the CaptionClass expression of field {} of table {} {effect}, and how many times BC runs it with an empty \
-                 record during a page open is not pinned (al-runner issue 5870)",
-                t.fields[*pos].name,
-                self.engine.program.objects[t.object as usize].name
-            ))
-        })
     }
 
     /// The page shapes whose CaptionClass expression runs are pinned (record/captions/QdCaptionClassAreas.al): a

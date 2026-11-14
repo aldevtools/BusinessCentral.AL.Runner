@@ -248,6 +248,9 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// The empty-record CaptionClass runs of a page open whose number is not pinned are running
+    /// (`Session::run_caption_empty_unpinned`): a dialog they raise refuses.
+    pub(crate) caption_runs_unpinned: bool,
     /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
     /// written its by-reference task id back (see `Session::bg_enqueue`).
     pub(crate) bg_drain_after_call: Option<Rc<RefCell<crate::pages::PageState>>>,

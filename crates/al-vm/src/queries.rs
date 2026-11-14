@@ -940,9 +940,7 @@ impl Session {
         };
         let normal = |pos: usize| table.fields.get(pos).is_some_and(|f| f.stored);
         let group = |c: &ir::QueryColumn| {
-            c.method.is_none()
-                && c.field.is_some_and(normal)
-                && matches!(c.ty, RtType::Code(_) | RtType::Integer)
+            c.method.is_none() && c.field.is_some_and(normal) && matches!(c.ty, RtType::Code(_) | RtType::Integer)
         };
         let column = |c: &ir::QueryColumn| {
             !c.filter_element
