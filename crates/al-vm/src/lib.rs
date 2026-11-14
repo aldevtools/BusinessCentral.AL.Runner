@@ -107,12 +107,14 @@ pub mod observer_tap;
 mod pages;
 mod partial;
 mod permission_shadow;
+mod permission_system_flowfield;
 mod permission_triggers;
 mod permissions;
 mod platform;
 mod profile;
 mod queries;
 mod query_date_filter;
+mod query_reopen;
 mod query_save_as;
 mod raise_to;
 mod rdlc_fields;
@@ -1001,6 +1003,13 @@ pub struct Session {
     /// True while a page calculates the FlowFields of its controls: BC drops such a control when the session cannot read the
     /// source table (Y24PermReads.al Y24_P15, `testpage_field`), which the runtime does not model, so a denial refuses.
     pub(crate) permission_page_calc: bool,
+    /// True while the AL call `Record.FindFirst` of a fresh, stored record scans for its row and loads it (`Session::as_find_first`): the FlowField filters checked
+    /// then are checked for it (permission_system_flowfield.rs).
+    pub(crate) find_first_read: bool,
+    /// The record method AL code is calling on a Record variable, with that variable's identity (`Ctx::record`,
+    /// `Session::begin_al_record_call`): the one fact of an AL call site the system FlowField permission reads
+    /// (permission_system_flowfield.rs).
+    pub(crate) al_record_call: Option<(usize, al_builtins::record_op::RecordOp)>,
     /// The source table (object index) of a page while it opens (`open_page_as`): a read the page makes of it, when the table is
     /// empty, raises nothing (`Session::page_open_read_allowed`).
     pub(crate) permission_opening_source: Option<usize>,
@@ -1015,6 +1024,8 @@ pub struct Session {
     pub(crate) permission_run_object: Option<usize>,
     /// The query whose method runs (the object index), for the read check of `query_rows`.
     pub(crate) query_object: usize,
+    /// The global variable (object index of the routine, slot) a query method is called on, from `run_native` to `query_op`.
+    pub(crate) query_receiver: Option<(usize, usize)>,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -1385,11 +1396,14 @@ impl Session {
             setfilter_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
+            find_first_read: false,
+            al_record_call: None,
             permission_opening_source: None,
             report_refusal_after_denial: None,
             permission_caller: None,
             permission_run_object: None,
             query_object: 0,
+            query_receiver: None,
             permissions: None,
             test_object: None,
             http_policy: None,

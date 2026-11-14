@@ -1114,6 +1114,9 @@ pub struct QueryItem {
     pub link_items: Vec<usize>,
     /// `DataItemTableFilter`: conditions on fields of this table.
     pub table_filter: Vec<CalcCond>,
+    /// The names of the properties the dataitem sets, lower case, as written.
+    #[serde(default)]
+    pub properties: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1147,6 +1150,9 @@ pub struct QueryColumn {
     /// calculated per row.
     #[serde(default)]
     pub flow_below_join: bool,
+    /// The names of the properties the element sets, lower case, as written.
+    #[serde(default)]
+    pub properties: Vec<String>,
 }
 
 /// A page object as the test client sees it (ADR-012). The AL code of a page
