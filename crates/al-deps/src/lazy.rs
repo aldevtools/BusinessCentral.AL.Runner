@@ -266,6 +266,9 @@ impl al_ir::TranslationSource for PackageTranslations {
 
     /// An app folder: the name and content of each translation file, read now (al-runner issue 8073: the compile cache keys a
     /// folder by its AL files, so the install baseline's key needs these). A package: `None`, its layer key holds the package.
+    /// Cost: every translation file of the folder is read and hashed once per run that builds the key, whether the baseline
+    /// comes from the cache or not (measured, al-runner PR 8105 review: about 100-150 ms more on a warm run with 173 MB of
+    /// .xlf files).
     fn identity(&self) -> Option<[u8; 32]> {
         if !self.path.is_dir() {
             return None;

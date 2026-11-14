@@ -388,6 +388,7 @@ pub fn run_traced_halting(
         steps_built: 0,
         step_failed: false,
         refused: Vec::new(),
+        unknown_session: None,
     };
     let mut k = 0;
     while k < roots.len() {

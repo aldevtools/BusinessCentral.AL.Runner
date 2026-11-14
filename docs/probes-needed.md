@@ -780,14 +780,20 @@ No probe is written yet, so every shape below is REFUSED.
   `(true)`, and the property form, before `CopyFields` (same table, source filter, constant value) and before `CopyRows`
   (another table); read `SystemModifiedAt`, `SystemModifiedBy`, `SystemCreatedAt` and `SystemRowVersion` of changed and
   unchanged rows before and after; the call before `SetTables` in install code; the call twice with different values.
-- **Filter group 1 across sessions (8071): implemented from two pins, probe welcome.** The filter stays for the session
-  (types/text-code-char/P145PageRunView.al:232-235) and each app installs in a session of its own
-  (record/BfInstallTests.al:142-144), so the next app's install session and the test session start without it
-  (al-vm `Session::set_install_session_id`). A probe that sets a group 1 filter in one app's install code and reads the
-  table with a fresh record in a second app's install code and in a test would confirm it.
-- **Session state after a stopped install root (8072).** A root the runner stops is rolled back and its session
-  language and WorkDate go back with it, as for a refused test (al-testrun `install::roll_back_stopped`). A stopped
-  Company-Initialize keeps its rows and its session state (main's behavior).
+- **Filter group 1 across sessions (8071): REFUSED (main's refusal), probe wanted.** No pin shows what another session
+  sees of a group 1 filter. Cells: (a) app A's `OnInstallAppPerCompany` sets a group 1 filter on its own table through a
+  local record and leaves it set; app B (depends on A) reads the table with a new record in its `OnInstallAppPerCompany`
+  (`GetFilters`, `Count`) and logs it; a test reads the log and the table with a new record. (b) The same with a
+  dependency of the test app in place of B's install code. (c) The al-runner issue 7586 comment variant: a
+  `System Initialization`.`OnAfterLogin` subscriber sets the group 1 filter, and install code clears it
+  (`FilterGroup(1); Reset()` or `SetRange(Field)`); a test reads the table with a new record.
+- **Session state after stopped install code (8072).** The runner rolls back the rows of install code it stopped. Per part
+  (language, WorkDate) that changed: set back to the state before the code only where the stopped routine saved the value
+  first (`V := GlobalLanguage();`) and sets it back as its last statements (`GlobalLanguage(V);`) after the stopped
+  statement, the shape of reports/runtime/BdRegionTests.al:1327-1339 (al-testrun `stopped_state.rs`). In any other shape
+  (no set-back, a set-back that is not last, an AL error) the state is unknown: the later install code of that install
+  session is REFUSED. A stopped Company-Initialize keeps its rows and its session state (main's behavior). The state at
+  the start of the next app's install session is carried from the previous one (main's behavior), not probed.
 
 ## Assumptions in force (generated from the registry)
 

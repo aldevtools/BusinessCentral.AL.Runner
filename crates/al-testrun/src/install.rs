@@ -626,6 +626,9 @@ fn install_app_under_test(
     let company = company.to_string();
     // A session of its own (A4 item 1): any id that is positive and not the test session's 1.
     session.set_install_session_id(Some(2 + k as i32));
+    // Why the session's language or WorkDate is not known since install code stopped (`stopped_state`): the rest of the
+    // app's install code is not run.
+    let mut unknown: Option<String> = None;
     for part in [Part::Company, Part::Database] {
         let routines = app.part(part);
         if routines.is_empty() {
@@ -648,15 +651,29 @@ fn install_app_under_test(
             // apps stay in the session company (decision 5): in another company only the subscribers of the apps
             // under test run (decided without owner review, 2026-10-29, ADR-046 amendment 2).
             let with_dependencies = in_company == company;
-            let before = session.carried_state();
+            if let Some(why) = &unknown {
+                let subscribers = if part == Part::Company {
+                    company_open_subscribers(lowered, &engine.events, |o| {
+                        installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
+                    })
+                } else {
+                    Vec::new()
+                };
+                for &(oi, ri) in subscribers.iter().chain(routines) {
+                    let why = format!("install code {} was not run: {why}", label(lowered, oi, ri));
+                    refuse(lowered, session, skipped, &in_company, &company, ((oi, ri), why));
+                }
+                continue;
+            }
             let open = if part == Part::Company {
                 company_open(lowered, session, with_dependencies)
             } else {
                 Ok(())
             };
             match open {
-                Err(why) => {
-                    roll_back_stopped(session, before);
+                Err(stopped) => {
+                    unknown = stopped.roll_back(lowered, session);
+                    let why = stopped.why;
                     // What the subscribers wrote before the one that could not run is rolled back, and BC would have
                     // kept it: a test that touches what any of them can write is not run either.
                     for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
@@ -703,9 +720,11 @@ fn install_app_under_test(
                 Ok(()) => {
                     session.commit_transaction();
                     for &(oi, ri) in routines {
-                        let before = session.carried_state();
-                        if let Some(why) = run_routine(lowered, session, oi, ri) {
-                            roll_back_stopped(session, before);
+                        if let Some(why) = &unknown {
+                            let why = format!("install code {} was not run: {why}", label(lowered, oi, ri));
+                            refuse(lowered, session, skipped, &in_company, &company, ((oi, ri), why));
+                        } else if let Err(stopped) = run_routine(lowered, session, oi, ri) {
+                            unknown = stopped.roll_back(lowered, session);
                             refuse(
                                 lowered,
                                 session,
@@ -714,7 +733,11 @@ fn install_app_under_test(
                                 &company,
                                 (
                                     (oi, ri),
-                                    format!("install routine {} could not run: {why}", label(lowered, oi, ri)),
+                                    format!(
+                                        "install routine {} could not run: {}",
+                                        label(lowered, oi, ri),
+                                        stopped.why
+                                    ),
                                 ),
                             );
                         } else {
@@ -982,7 +1005,7 @@ fn company_open_subscribers(
 ///
 /// `with_dependencies` false (a company other than the session company under `--companies`): the dependency apps' subscribers
 /// do not run there, since the dependency apps stay in the session company (ADR-046 decision 5, amendment 2).
-fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: bool) -> Result<(), String> {
+fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: bool) -> Result<(), Stopped> {
     let engine = session.engine.clone();
     // What the session sees while the app installs (`InstallView::apply_ordered`, set by the caller).
     let unknown = session.apps_install_order_unknown().cloned().unwrap_or_default();
@@ -994,11 +1017,16 @@ fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: boo
     .first()
     {
         session.note_order_unknown_hit(objs[o].app);
-        return Err(format!(
-            "Company Triggers subscriber {} is in an app with no dependency path to the app that installs; the install \
-             order of the two is not known",
-            label(lowered, o, r)
-        ));
+        return Err(Stopped {
+            why: format!(
+                "Company Triggers subscriber {} is in an app with no dependency path to the app that installs; the \
+                 install order of the two is not known",
+                label(lowered, o, r)
+            ),
+            root: (o, r),
+            before: session.carried_state(),
+            by_runner: true,
+        });
     }
     let all = company_open_subscribers(lowered, &engine.events, |o| {
         (lowered.dependency[o] || !not_installed.contains(&objs[o].app))
@@ -1009,16 +1037,10 @@ fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: boo
 }
 
 /// Runs `subs` in order; why the first that cannot run cannot.
-fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usize)]) -> Result<(), String> {
+fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usize)]) -> Result<(), Stopped> {
     for &(o, r) in subs {
-        if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
-            return Err(reason);
-        }
-        match session.call_parameterless_subscriber(o, r) {
-            Ok(()) => {}
-            Err(Signal::Unsupported(r)) => return Err(r.into_reason()),
-            Err(Signal::Error(e)) => return Err(format!("failed (behaviour not pinned): {}", e.message)),
-            Err(_) => return Ok(()),
+        if !run_install_code(lowered, session, (o, r), true)? {
+            return Ok(());
         }
     }
     Ok(())
@@ -1636,32 +1658,60 @@ fn replayable(
         .collect()
 }
 
-/// Ends install code that did not run to its end (a root of the install baseline, a routine or the Company Triggers of an app
-/// under test): its rows are rolled back, and the session language and WorkDate it set go back with them (al-runner issue
-/// 8072), as for a test refused while it ran (al-testrun `run.rs`: without that restore, the `BdSetterLanguage_*` tests of
-/// reports/runtime/BdRegionTests.al:926 ran in the language that the refused BdSummaryML_1040 (:1327) had set before its own
-/// switch back). `before`: the state taken before that code ran.
-pub(crate) fn roll_back_stopped(session: &mut Session, before: al_vm::CarriedState) {
-    session.rollback_transaction();
-    session.restore_carried(before);
+/// Install code that did not run to its end: why, and what `stopped_state::roll_back_stopped_install` needs.
+struct Stopped {
+    why: String,
+    root: (usize, usize),
+    /// The session language and WorkDate right before `root` ran.
+    before: al_vm::CarriedState,
+    /// The runner refused it (not an AL error).
+    by_runner: bool,
+}
+
+impl Stopped {
+    /// Rolls back what it wrote and settles the session state (`stopped_state`); `Some(why)`: the state after it is
+    /// not known.
+    fn roll_back(&self, lowered: &Lowered, session: &mut Session) -> Option<String> {
+        crate::stopped_state::roll_back_stopped_install(lowered, session, self.root, self.before, self.by_runner)
+    }
 }
 
 /// Runs one install routine; why it did not run to its end, if it did not.
-fn run_routine(lowered: &Lowered, session: &mut Session, oi: usize, ri: usize) -> Option<String> {
+fn run_routine(lowered: &Lowered, session: &mut Session, oi: usize, ri: usize) -> Result<(), Stopped> {
+    let subscriber = !is_install(&lowered.program.objects.heads()[oi]);
+    run_install_code(lowered, session, (oi, ri), subscriber).map(|_| ())
+}
+
+/// Runs install routine or subscriber `(oi, ri)`. `Ok(false)`: another signal left it (main stops the Company Triggers
+/// subscribers after it).
+fn run_install_code(
+    lowered: &Lowered,
+    session: &mut Session,
+    (oi, ri): (usize, usize),
+    subscriber: bool,
+) -> Result<bool, Stopped> {
+    let before = session.carried_state();
+    let stopped = |why, by_runner| Stopped {
+        why,
+        root: (oi, ri),
+        before,
+        by_runner,
+    };
     if let Some(reason) = crate::runtime::blocked_reason(lowered, oi, ri) {
-        return Some(reason);
+        return Err(stopped(reason, true));
     }
-    let called = if is_install(&lowered.program.objects.heads()[oi]) {
+    session.clear_fault_site();
+    let called = if subscriber {
+        session.call_parameterless_subscriber(oi, ri)
+    } else {
         let inst = session.instance(oi);
         session.call(oi, ri, inst, Vec::new()).map(|_| ())
-    } else {
-        session.call_parameterless_subscriber(oi, ri)
     };
     match called {
-        Ok(()) => None,
-        Err(Signal::Unsupported(r)) => Some(r.into_reason()),
-        Err(Signal::Error(e)) => Some(format!("failed (behaviour not pinned): {}", e.message)),
-        Err(_) => None,
+        Ok(()) => Ok(true),
+        Err(Signal::Unsupported(r)) => Err(stopped(r.into_reason(), true)),
+        Err(Signal::Error(e)) => Err(stopped(format!("failed (behaviour not pinned): {}", e.message), false)),
+        Err(_) => Ok(false),
     }
 }
 
