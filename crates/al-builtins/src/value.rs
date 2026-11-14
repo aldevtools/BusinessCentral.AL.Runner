@@ -455,8 +455,8 @@ pub struct RecordState {
     pub row_origin: Option<RowOrigin>,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
-    /// The state is a declared Record variable's own, and nothing stored, read or replaced its buffer (see [`OwnVariable`]).
-    pub own_variable: OwnVariable,
+    /// The record is a source the Blob copy probes measured (see [`ProbedSource`]).
+    pub probed_source: ProbedSource,
     /// The table's and its extensions' global variables of this record variable (ADR-021).
     pub globals: TableGlobals,
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
@@ -467,21 +467,20 @@ pub struct RecordState {
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
 }
 
-/// The record state is the one a declared Record variable started with (a local variable of a routine or a global of an
-/// object, al-vm `blob_transfer::new_variable`), and since then only field writes, streams on its Blob fields and the record
-/// methods al-vm `blob_transfer::keeps_own_variable` names ran on it: it was never inserted, modified or read, and no other
-/// record's buffer came into it. These are the source records the Blob copy probe measured for a record passed by value,
-/// `Record.Copy`, `TransferFields` with flags and a Blob moved into a Variant that is not local (corpus PR 1372,
-/// streams/BlobValueCopyShapes.al:590-990). `false` for every other state. It never becomes `true` again.
+/// The record is one whose Blobs the Blob copy probes measured as the source of a record-wide move (a record passed by
+/// value, `Record.Copy`, `TransferFields` with flags, `SetTable(Rec, true)`, a Blob moved into a Variant that is not local):
+/// al-vm `blob_transfer` sets it on a declared variable, keeps it through the record methods and builtins the probes ran, and
+/// ends it at every other one (`blob_transfer::Holder`). The byte is the kind of measured record in al-vm `blob_transfer`'s
+/// encoding, 0 for every other record; the number is the session's commit count when the byte was set (a Commit since ends
+/// it).
 ///
-/// `Clone` gives `false`: a copy of a record state (`:=`, a record passed by value, a Variant's record, xRec, a RecordRef's
-/// copy) is not that variable.
+/// `Clone` gives 0: a copy of a record state (a record passed by value, a Variant's record, xRec) is not that variable.
 #[derive(Debug, Default)]
-pub struct OwnVariable(pub bool);
+pub struct ProbedSource(pub u8, pub u64);
 
-impl Clone for OwnVariable {
+impl Clone for ProbedSource {
     fn clone(&self) -> Self {
-        OwnVariable(false)
+        ProbedSource(0, 0)
     }
 }
 

@@ -77,10 +77,15 @@ impl Session {
         let p = &engine.events.publishers[&(object, routine)];
         self.note_event(p.object, &p.event, None);
         let r = &engine.program.objects[object].routines[routine];
+        let blob_publisher = crate::blob_transfer::measured_publisher(engine.program.objects[object].kind, r);
         let mut values = Vec::with_capacity(r.params);
         for (i, a) in args.into_iter().enumerate().take(r.params) {
             values.push(match (a, r.by_var.get(i).copied().unwrap_or(false)) {
-                (Value::Record(rc), false) => self.record_by_value_unmeasured(&rc),
+                (Value::Record(rc), false) => {
+                    let copy = self.record_by_value_unmeasured(&rc);
+                    crate::blob_transfer::publisher_copy(blob_publisher.is_some(), &rc, &copy);
+                    copy
+                }
                 // A Notification handed by value to an event is the caller's own notification: a subscriber's SetData and Message
                 // reach the publisher's caller (events/binding-senders/NotificationByValue.al:Event_ByValueArgument_SubscriberChanges).
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), false) => a,
@@ -174,6 +179,7 @@ impl Session {
         });
         self.profile_enter(object, routine, true);
         self.events.publish_frame = true;
+        self.events.blob_publisher = blob_publisher;
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
         self.events.publisher_var_lens = lens;
@@ -243,6 +249,7 @@ impl Session {
         let (object, event, element, isolated) = (*object, *event, *element, *isolated);
         let engine = self.engine.clone();
         let sender_refused = self.events.sender_refused.take();
+        let blob_publisher = std::mem::take(&mut self.events.blob_publisher);
         let origins = std::mem::take(&mut self.events.var_origins);
         // The declared lengths of the publisher's `var` Text and Code arguments: a subscriber's `var` parameter reports the
         // length of the publisher's argument (text/text-methods/MaxStrLen.Codeunit.al:172-201,
@@ -341,6 +348,7 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
+            self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
             let manual_inst = s.manual.then(|| inst.clone());
             // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the
             // pinned shapes only (an event a codeunit publishes, a table's OnAfterModifyEvent).
@@ -365,6 +373,7 @@ impl Session {
                     }
                     Err(_why) => {
                         self.events.next_is_subscriber = false;
+                        self.events.next_blob_event = false;
                         self.events.next_aliases.clear();
                         self.events.next_var_lens.clear();
                         let app = engine.program.objects[s.object].app;
@@ -383,6 +392,7 @@ impl Session {
                 }
             }
             self.events.next_is_subscriber = false;
+            self.events.next_blob_event = false;
             if let Some(i) = manual_inst {
                 if !self.is_bound(&i) {
                     self_unbound.push(i);

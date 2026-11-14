@@ -124,6 +124,11 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 - A mark on a record variable that its own methods follow must also end where another object writes the
   variable's buffer (RecordRef.SetTable, Page.GetRecord). The call that starts the mark is checked as strictly
   as the call that reads it: its arguments, its triggers and subscribers, and the variable's state.
+- A mark on a record variable that is ended by a list of calls misses the next platform fill (Page.RunModal handing back the
+  picked row, SetSelectionFilter). End it at the one place a record goes by reference into platform code, and exempt by name
+  only the calls the pin made (al-runner PR 7951, round 3).
+- A buffer written again after Insert, Modify or Init has the flags of one written in memory. A state the probe names (mem,
+  ins) is a fact of the record's history: keep it on the record, set by the calls the probe made (al-runner PR 7981).
 
 ## 7. State that outlives its shape (6 of 34)
 
@@ -151,6 +156,8 @@ it on only while the measured read runs and its landing facts still hold, and ta
 ## 8. Citations (6 of 34)
 
 - Cite `file:line`, not only a test name.
+- The cited line must run the same move with the same kinds of source and target as the cell it is cited for (a field read
+  is not a record assignment; a stored record is not a temporary one) (al-runner PR 7981).
 - A citation to a probe that is not in the pinned corpus yet is an assumption entry that cites the open
   probe PR, not a plain citation. "Probe queued" is true only when the spec is written down.
 
