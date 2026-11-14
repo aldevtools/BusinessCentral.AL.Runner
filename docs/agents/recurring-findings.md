@@ -36,6 +36,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
     differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it
     was read).
+  - an Insert cell checked without "no row has the key": the probe inserted a new key. An Insert of a stored key has a
+    second error (the duplicate) and its order against the measured error is not measured. Require that no row has the
+    key in every Insert cell of a deferred or raised error, through one helper (al-runner PRs 8058 and 8111).
   - "the test's filter" read from "filter group 0": page code (OnOpenPage, the record handed to Page.Run) writes group 0
     too. Keep which fields the test filtered, with the typed text, on the page state and require that (al-runner PR 8009).
   - the record handed to Page.Run checked by its filters and key only: its field values are state the page's code reads
