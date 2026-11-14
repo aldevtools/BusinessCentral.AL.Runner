@@ -11,7 +11,7 @@ use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::record_op::RecordOp;
 
-/// The most rows a measured view had: None, rows A B C (DataCaptionGetOpen.al:9, :340 `runs` 3).
+/// The most rows a measured view had: None, rows A B C (DataCaptionGetOpen.al:9, :338 `runs` 3).
 const MOST_ROWS: usize = 3;
 
 /// The start of a refusal of a page in this family's cells whose expression did what no cell measured.
@@ -43,7 +43,7 @@ fn integer_range(f: &FieldFilter) -> bool {
     )
 }
 
-/// The handed record's filters in a measured combination: none (:300), one filter in a measured form (:307, :309, :311), or
+/// The handed record's filters in a measured combination: none (:9, `None`), one filter in a measured form (:307, :309, :311), or
 /// the two of Two: a SetRange to one Code value and an Integer range on another field (:302-305).
 fn measured_filters(filters: &[FieldFilter]) -> bool {
     match filters {
@@ -99,7 +99,7 @@ impl Session {
 
     /// The runs of the expression before the handler (DataCaptionGetOpen.al): on an empty view twice, and the handler reads the
     /// globals it assigned (:526 `runs` 2, `g=cap-ran`; :1109 `DC=none` twice); on a view of rows once per row in key order with
-    /// Rec on that row, and the handler reads the globals as they were before (:340 three runs, `g=`; :977 `DC=Alpha`, `DC=Beta`,
+    /// Rec on that row, and the handler reads the globals as they were before (:337-338 three runs, `g=`; :977 `DC=Alpha`, `DC=Beta`,
     /// `DC=Gamma`; :463 two; :589 one). The caption shows the value of the run on the first row (:977 `cap=DCG WS Own - Alpha`).
     fn data_caption_get_runs(&mut self, st: &St, rows: &[Vec<Value>]) -> Result<(), Signal> {
         if rows.is_empty() {
