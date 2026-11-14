@@ -1346,8 +1346,15 @@ impl Session {
         }
     }
 
-    /// `RecordRef.SetTable(Rec [, ShareTable])` and `RecordRef.SetTable(Variant)`.
+    /// `RecordRef.SetTable(Rec [, ShareTable])` and `RecordRef.SetTable(Variant)`; after it, whatever it gave, the record of the
+    /// RecordRef is a GetTable copy no longer (`blob_transfer::recordref_set_table_ran`).
     fn rr_set_table(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
+        let done = self.rr_set_table_into(rec, lib, args);
+        crate::blob_transfer::recordref_set_table_ran(rec);
+        done
+    }
+
+    fn rr_set_table_into(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
         // A Variant argument (types/WcSetTableVariant.al): an empty Variant and a RecordRef in it.
         if args.len() == 1 {
             match args.first() {
@@ -1417,9 +1424,9 @@ impl Session {
             let before = std::mem::replace(&mut d.fields, s.fields.clone());
             // The Blobs move as `BlobMove::set_table` says.
             if let Some(how) = BlobMove::set_table(args.len(), share) {
-                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, Holder::Other)?;
+                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, self.holder(&s))?;
             }
-            crate::blob_transfer::buffer_replaced(&mut d);
+            d.probed_source = crate::blob_transfer::set_table_target(&d, share, self.commits);
             d.filters = s.filters.clone();
             d.key = s.key;
             d.adhoc = s.adhoc.clone();

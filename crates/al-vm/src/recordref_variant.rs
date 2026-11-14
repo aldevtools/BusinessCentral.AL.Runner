@@ -41,6 +41,14 @@ pub(crate) fn own_copy(h: &Lib) -> Value {
     Value::Library(LibraryKind::RecordRef, copy)
 }
 
+/// RecordRef `h` goes into a Variant or a parameter: its record is a measured Blob source no longer
+/// (`blob_transfer::recordref_aliased`). A RecordRef assignment keeps it.
+fn handed_on(h: &Lib) {
+    if let LibraryValue::RecordRef(rec) = &*h.borrow() {
+        crate::blob_transfer::recordref_aliased(rec);
+    }
+}
+
 /// Whether a RecordRef handed to a parameter of type `ty` goes through `VariantRefs::param_value`: by value to a RecordRef or
 /// Variant parameter, or bound to a `var` Variant parameter. A `var` RecordRef parameter keeps the caller's handle as it is.
 pub(crate) fn takes_param(ty: &RtType, by_var: bool) -> bool {
@@ -57,6 +65,7 @@ impl VariantRefs {
     /// Bound to a `var` Variant: the Variant holds the caller's handle, noted as Variant-held, so a RecordRef assigned from
     /// it is no typed alias.
     pub(crate) fn param_value(&mut self, handle: Lib, ty: &RtType, by_var: bool, is_subscriber: bool) -> Value {
+        handed_on(&handle);
         match ty {
             RtType::Variant if by_var => {
                 self.note_variant_held(&handle);
@@ -70,6 +79,7 @@ impl VariantRefs {
 
     /// The copy of RecordRef `source` that a Variant gets (`own_copy`); its handle is noted as held by a Variant.
     pub(crate) fn variant_copy(&mut self, source: &Lib) -> Value {
+        handed_on(source);
         let copy = own_copy(source);
         if let Value::Library(_, handle) = &copy {
             self.note_variant_held(handle);

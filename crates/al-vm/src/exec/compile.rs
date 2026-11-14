@@ -1341,7 +1341,8 @@ impl<'a> Compiler<'a> {
                 };
                 let rp = self.rplace(p)?;
                 // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
-                if let Some(read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
+                if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
+                    read.global = matches!(p, ir::Place::Global(_));
                     self.emit(Op::BlobFieldRead { r: a, read });
                 }
                 let pi = self.place(&rp);

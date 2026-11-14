@@ -31,6 +31,8 @@ pub struct Fetched {
     pub files: Vec<String>,
     /// Their inflated size in bytes.
     pub bytes: u64,
+    /// The names of a set ([`ServiceTier::ensure_set`]) the service folder does not hold.
+    pub missing: Vec<String>,
 }
 
 /// Fetches service-tier assemblies of one build on demand. Safe to share between threads.
@@ -130,6 +132,60 @@ impl<C: Cdn> ServiceTier<C> {
         Ok(out)
     }
 
+    /// Makes exactly the files `names` (simple names) present in [`Self::dir`], following no reference: a named set of
+    /// the report render process ([`crate::render_set`]). A file already there with the size the archive records is not
+    /// fetched again. A name the service folder does not hold is listed in [`Fetched::missing`]. With downloading off, a
+    /// file that is not on disk is an error.
+    pub fn ensure_set(&self, names: &[&str]) -> Result<Fetched, String> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = self.dir();
+        let mut out = Fetched::default();
+        for name in names {
+            let lower = name.to_ascii_lowercase();
+            if self.present(&dir, &lower, &mut st)? {
+                continue;
+            }
+            // `--no-download`: a cached central directory would still let `fetch` read the entry from the feed.
+            if !self.download {
+                return Err(format!(
+                    "{name}.dll of build {} is not in the artifact cache and downloading is off",
+                    self.build
+                ));
+            }
+            match self.fetch(&dir, &lower, &mut st)? {
+                Some((file, b)) => {
+                    out.bytes += b.len() as u64;
+                    out.files.push(file);
+                }
+                None => out.missing.push((*name).to_string()),
+            }
+        }
+        Ok(out)
+    }
+
+    /// Whether `name`'s file is in `dir` with the size the archive records. Opens the archive's index (from the cache)
+    /// only when a file is there, to compare the size; a name the index lacks is not present.
+    fn present(&self, dir: &Path, name: &str, st: &mut State<C::Src>) -> Result<bool, String> {
+        let Some(len) = std::fs::read_dir(dir).ok().and_then(|rd| {
+            rd.flatten().find_map(|e| {
+                let f = e.file_name().to_string_lossy().to_ascii_lowercase();
+                (f == format!("{name}.dll") || f == format!("{name}.exe"))
+                    .then(|| e.metadata().ok().map(|m| m.len()))?
+            })
+        }) else {
+            return Ok(false);
+        };
+        let index = st
+            .index
+            .get_or_insert_with(|| self.open())
+            .as_ref()
+            .map_err(Clone::clone)?;
+        Ok(index
+            .by_name
+            .get(name)
+            .is_some_and(|&i| index.zip.entries[i].size as u64 == len))
+    }
+
     /// The bytes of `name` when its file is already in `dir` and, if the archive is open, has the recorded size.
     fn local(&self, dir: &Path, name: &str, st: &mut State<C::Src>) -> Option<Vec<u8>> {
         let path = std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| {
@@ -209,7 +265,7 @@ impl<C: Cdn> ServiceTier<C> {
     }
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("no parent directory")?;
     std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     let tmp = path.with_extension(format!("tmp{}", std::process::id()));
@@ -330,6 +386,35 @@ mod tests {
             again.ensure("Microsoft.Dynamics.Nav.OpenXml").unwrap(),
             Fetched::default()
         );
+    }
+
+    #[test]
+    fn a_named_set_fetches_exactly_its_files_and_follows_no_reference() {
+        let t = tempfile::tempdir().unwrap();
+        let tier = ServiceTier::new(Platform(platform(t.path())), &t.path().join("c"), build(), true);
+        let got = tier
+            .ensure_set(&["Microsoft.Dynamics.Nav.OpenXml", "QrProvider", "Not.In.The.Folder"])
+            .unwrap();
+        assert_eq!(
+            names(&tier.dir()),
+            vec!["Microsoft.Dynamics.Nav.OpenXml.dll", "QrProvider.dll"]
+        );
+        assert_eq!(got.files.len(), 2);
+        assert_eq!(got.missing, vec!["Not.In.The.Folder".to_string()]);
+        // Downloading off: a file that is not on disk is not read from the feed, even with the central directory cached.
+        let off = ServiceTier::new(Platform(platform(t.path())), &t.path().join("c"), build(), false);
+        let e = off.ensure_set(&["DocumentFormat.OpenXml"]).unwrap_err();
+        assert!(e.contains("downloading is off"), "{e}");
+        assert_eq!(
+            off.ensure_set(&["Microsoft.Dynamics.Nav.OpenXml"]).unwrap(),
+            Fetched::default()
+        );
+        // Asked again, nothing is fetched; the missing name is still reported.
+        let again = tier
+            .ensure_set(&["Microsoft.Dynamics.Nav.OpenXml", "Not.In.The.Folder"])
+            .unwrap();
+        assert!(again.files.is_empty());
+        assert_eq!(again.missing, vec!["Not.In.The.Folder".to_string()]);
     }
 
     #[test]

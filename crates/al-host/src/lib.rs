@@ -19,6 +19,7 @@ pub mod dotnet;
 pub mod inproc;
 pub mod license;
 pub mod random;
+pub mod render;
 pub mod seed;
 pub mod testdata;
 pub mod time_zone_table;

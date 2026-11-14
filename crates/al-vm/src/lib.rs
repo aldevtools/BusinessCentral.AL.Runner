@@ -1040,6 +1040,8 @@ pub struct Session {
     /// it around a test method to see whether the method committed (test isolation, `isolation.rs`
     /// in al-test-cli).
     pub commits: u64,
+    /// Whether a record of the session may be a measured Blob source (`blob_transfer::Sources`).
+    pub(crate) blob_sources: blob_transfer::Sources,
     /// The `[ErrorBehavior(Collect)]` scopes on the call stack and the errors they hold
     /// (see `errorcollect.rs`).
     pub(crate) error_scopes: errorcollect::Scopes,
@@ -1394,6 +1396,7 @@ impl Session {
             constants: Default::default(),
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             commits: 0,
+            blob_sources: Default::default(),
             error_scopes: Default::default(),
             initial_cache: Default::default(),
             adhoc_tables: Default::default(),
@@ -1427,6 +1430,8 @@ impl Session {
                 var_origins: Vec::new(),
                 next_aliases: Vec::new(),
                 next_is_subscriber: false,
+                blob_publisher: None,
+                next_blob_event: false,
                 subscriber_stack: Vec::new(),
                 next_var_lens: Vec::new(),
                 publisher_var_lens: Vec::new(),
@@ -1681,7 +1686,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
-                    own_variable: Default::default(),
+                    probed_source: Default::default(),
                     globals: Default::default(),
                     unpinned_buffer: None,
                     run_page_link: None,
@@ -2069,7 +2074,9 @@ impl Session {
         let engine = self.engine.clone();
         let globals = self.slot_defaults(&engine.program.objects[object].globals);
         if engine.program.objects[object].kind == ir::ObjKind::Codeunit {
-            globals.iter().for_each(blob_transfer::new_variable);
+            globals
+                .iter()
+                .for_each(|v| blob_transfer::new_variable(v, self.commits, &mut self.blob_sources));
         }
         al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
@@ -2430,6 +2437,7 @@ impl Session {
     ) -> Result<(Value, Vec<Value>), Signal> {
         let aliases = std::mem::take(&mut self.events.next_aliases);
         let subscriber = std::mem::take(&mut self.events.next_is_subscriber);
+        let measured_event = std::mem::take(&mut self.events.next_blob_event);
         self.note_routine(object, routine);
         if self.coverage.cells.is_some() {
             self.tap_cells(object, routine, &instance);
@@ -2453,16 +2461,16 @@ impl Session {
                 locals.push(Value::Null);
             } else {
                 let v = self.slot_default(s);
-                if i >= r.params {
-                    blob_transfer::new_variable(&v);
+                if blob_transfer::measured_local(engine.program.objects[object].kind, r, i) {
+                    blob_transfer::new_variable(&v, self.commits, &mut self.blob_sources);
                 }
                 locals.push(v);
             }
         }
         let mut args = args;
-        // A procedure without attributes, called as a procedure: the call whose by-value arguments `blob_transfer::Argument`
-        // measures.
-        let measured_call = !subscriber && !r.is_trigger && r.attributes.is_empty();
+        // The call whose by-value arguments `blob_transfer::Argument` measures.
+        let measured_call =
+            blob_transfer::Argument::measured_call(engine.program.objects[object].kind, r, measured_event);
         for (i, a) in args.drain(..).enumerate().take(r.params) {
             // No arm below is for these pairs, and the last one hands them back unchanged.
             if passed_unchanged(&a, &r.locals[i].ty) {
@@ -2470,7 +2478,8 @@ impl Session {
                 continue;
             }
             let by_var = r.by_var.get(i).copied().unwrap_or(false);
-            let argument = blob_transfer::Argument::of(&a, measured_call && !by_var, &r.locals[i].ty);
+            let argument =
+                blob_transfer::Argument::of(&a, measured_call.filter(|_| !by_var), &r.locals[i].ty, self.commits);
             let bound = match (a, by_var) {
                 // A temporary record handed to a Variant parameter keeps its table: the callee counts the
                 // caller's rows through the Variant, though a by-value copy is an empty buffer
