@@ -972,6 +972,7 @@ impl Session {
     /// OnInsertRecord decides whether the typed record is inserted at all (corpus
     /// testpage/TestPageRecordTriggers.al:76 OnInsertRecord_ReturningFalse_SuppressesTheInsert).
     pub(super) fn insert_draft(&mut self, st: &St) -> Result<(), Signal> {
+        self.refuse_delayed_blank_not_blank_key(st)?;
         let rec = self.page_rec(st);
         // A part line whose host is a new, unsaved record with a blank link key: BC saves the host first (its OnInsert numbers it)
         // and links the line to it. Which order the triggers run in, and what the line's key holds, are not pinned: refused.
