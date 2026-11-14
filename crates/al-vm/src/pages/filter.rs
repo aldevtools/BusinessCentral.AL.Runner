@@ -154,12 +154,17 @@ impl Session {
                 }
                 // An empty text or one of spaces takes the user's filter off the field: GetFilter reads empty and every row shows
                 // (testpage/AoTests.al:673-695 TestFilter_SetFilterSpace, _SetFilterEmpty, :930-940
-                // SF_TestFilter_SetFilterTwoSpaces). A text that starts with `=` sets no filter in the cell `eq_text_sets_no_filter` measured
-                // (testpage/filters/TempListOffPageBooleanFilter.al:343-348, :447): the field has no test filter there, so this takes nothing
-                // off. Where the page stands right after it is not measured (each pinned case moves with First() next); it takes the
-                // empty text's path.
-                if text.trim().is_empty() || self.eq_text_sets_no_filter(st, &rec, pos, &ty, &text) {
+                // SF_TestFilter_SetFilterTwoSpaces).
+                if text.trim().is_empty() {
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
+                    self.filter_changed(st, true)?;
+                    return Ok(Value::Null);
+                }
+                // A text that starts with `=` sets no filter in the cells `eq_text_sets_no_filter` measured and leaves an earlier
+                // filter on the field as it was (testpage/filters/TempListOffPageBooleanFilter.al:343-348, :447; corpus PR 1392
+                // WorksheetEnumEqFilter.al:565). Where the page stands right after it is not measured (each measured case moves with
+                // First() next); the page reads its view again, as after the empty text.
+                if self.eq_text_sets_no_filter(st, &rec, pos, &ty, &text) {
                     self.filter_changed(st, true)?;
                     return Ok(Value::Null);
                 }
