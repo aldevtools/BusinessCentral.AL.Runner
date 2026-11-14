@@ -1638,8 +1638,9 @@ fn replayable(
 
 /// Ends install code that did not run to its end (a root of the install baseline, a routine or the Company Triggers of an app
 /// under test): its rows are rolled back, and the session language and WorkDate it set go back with them (al-runner issue
-/// 8072), as for a test refused while it ran (reports/runtime/BdRegionTests.al:1327, the `BdSetterLanguage_*` tests from :926
-/// ran in the language the refused test had set; al-testrun `run.rs`). `before`: the state taken before that code ran.
+/// 8072), as for a test refused while it ran (al-testrun `run.rs`: without that restore, the `BdSetterLanguage_*` tests of
+/// reports/runtime/BdRegionTests.al:926 ran in the language that the refused BdSummaryML_1040 (:1327) had set before its own
+/// switch back). `before`: the state taken before that code ran.
 pub(crate) fn roll_back_stopped(session: &mut Session, before: al_vm::CarriedState) {
     session.rollback_transaction();
     session.restore_carried(before);
