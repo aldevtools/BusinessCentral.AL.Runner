@@ -270,6 +270,8 @@ pub struct Engine {
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
     pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
+    /// What a run of a page's DataCaptionExpression can raise or leave behind (`effects/open_risk.rs`), per (object, routine).
+    pub(crate) caption_open_risks: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<String>>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
     facts: Arc<[std::sync::OnceLock<Box<[RoutineFacts]>>]>,
     /// The register bytecode of the routines, compiled on first call (`exec/`).
@@ -511,6 +513,7 @@ impl Engine {
             catalog_maps: Default::default(),
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
+            caption_open_risks: Default::default(),
             profile_seeds: Default::default(),
             seed_tables: Default::default(),
             seed_rows: Default::default(),
@@ -562,6 +565,7 @@ impl Engine {
             catalog_maps: self.catalog_maps.clone(),
             delete_subscribed: Default::default(),
             lasting_effects: Default::default(),
+            caption_open_risks: Default::default(),
             profile_seeds: Default::default(),
             seed_tables: self.seed_tables.clone(),
             seed_rows: Default::default(),
@@ -644,6 +648,7 @@ impl Engine {
             private_test_rows: _,
             delete_subscribed: _,
             lasting_effects: _,
+            caption_open_risks: _,
             positions_by_object: _,
             enumerable_fields: _,
             served_tables: _,

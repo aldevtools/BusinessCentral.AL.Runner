@@ -43,6 +43,7 @@ mod corpus_bump_from_pr;
 mod corpus_bump_script;
 mod data_caption_expression;
 mod data_caption_open;
+mod data_caption_pure;
 mod data_driven_tests;
 mod data_fixes;
 mod deferred_insert_at_test_end;
