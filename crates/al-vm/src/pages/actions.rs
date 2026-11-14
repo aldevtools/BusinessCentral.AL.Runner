@@ -1594,7 +1594,7 @@ impl Session {
             s.refresh_update_false = false;
             s.draft = false;
             s.new_by_call = false;
-            s.after_new = None;
+            s.take_after_new();
             if let Some(c) = cursor {
                 s.cursor = c;
             }

@@ -703,7 +703,7 @@ impl Session {
             ids::REPORT_SAVEASHTML_2 => self.report_save_as_file(id, receiver, args, "Html", true),
             ids::REPORT_WORDXMLPART_1 | ids::REPORT_WORDXMLPART_2 => self.report_word_xml_part(id, receiver, args),
             ids::REPORT_RUNREQUESTPAGE_1 | ids::REPORT_RUNREQUESTPAGE_2 => {
-                let (inst, schema, seed) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
+                let (inst, schema, seed, pinned_call) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
                     let inst = self.report_instance(receiver, false)?.0;
                     // After a RunModal of the variable: the error, and no page opens
                     // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
@@ -711,7 +711,7 @@ impl Session {
                         return Err(running::already_run());
                     }
                     let schema = self.report_schema(&inst)?;
-                    (inst, schema, args.first())
+                    (inst, schema, args.first(), false)
                 } else {
                     // The static form raises SubstituteReport with RunMode ParametersOnly first, once, with an empty
                     // RequestPageXml also when old parameters are given (events/platform-triggers/PeVTests.al:465, :660:
@@ -729,15 +729,15 @@ impl Session {
                     if self.report_init(&inst)? {
                         return unsupported("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)");
                     }
-                    (inst, schema, args.get(1))
+                    (inst, schema, args.get(1), args.len() == 1 && number.is_none())
                 };
+                self.request_ok_only_call(schema.object, pinned_call)?;
                 // Only the empty string and the text this runtime produced are understood; how BC
                 // loads a parameters string into the page is pinned only by its result
                 // (reports/TestReportInstanceRunReqPage.al:SeededWithParameters_StillRunsTheHandler).
                 let seed = match seed {
-                    None => None,
-                    Some(Value::Text(s)) if s.is_empty() => None,
-                    Some(Value::Text(s)) => Some(s.clone()),
+                    Some(Value::Text(s)) if !s.is_empty() => Some(s.clone()),
+                    None | Some(Value::Text(_)) => None,
                     Some(other) => return unsupported(format!("{id} seeded with {}", other.describe())),
                 };
                 // RunRequestPage always shows the page, so it always enters a transaction world
@@ -1679,11 +1679,6 @@ impl Session {
         }
     }
 
-    /// The instances a run executes (the report, and the reportextension that changes it) with
-    /// every data item's own view in force. The views are in force before the request page opens
-    /// (reports/TestReportMultiLineDataItemView.al: "the request page applies those views to the
-    /// data items before the handler runs") and before OnPreReport, which may refine them
-    /// (reports/TestReportGetFilterInTriggers.al:43-52 reads the view there).
     /// The `Schema` of the report `inst` is an instance of.
     pub(crate) fn report_schema_of(&self, inst: &Inst) -> Result<Schema, Signal> {
         self.report_schema(inst)
@@ -1719,6 +1714,10 @@ impl Session {
             })
     }
 
+    /// The instances a run executes (the report, and the reportextension that changes it) with every data item's own view in
+    /// force. The views are in force before the request page opens (reports/TestReportMultiLineDataItemView.al: "the request
+    /// page applies those views to the data items before the handler runs") and before OnPreReport, which may refine them
+    /// (reports/TestReportGetFilterInTriggers.al:43-52 reads the view there).
     fn report_prepare(&mut self, inst: &Inst, schema: &Schema, zero_date_pinned: bool) -> Result<Run, Signal> {
         self.report.zero_date_view_failed = false;
         // ShowPrintStatus is inert (al-sema reports.rs `INERT_OBJECT_PROPERTIES`): `false` with Report.Run

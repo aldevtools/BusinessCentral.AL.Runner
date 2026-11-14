@@ -77,21 +77,9 @@ impl Session {
             });
         }
         if insert_denied {
-            // The text names the page and its id, the code is DB:ClientInsertDenied (corpus
-            // pages/extensions/ZPageExtProps.al:ZInsertAllowed_1, _4).
-            let o = &engine.program.objects[object];
-            let id = if self.is_request_page(st) { Some(0) } else { o.id };
-            let Some(id) = id else {
-                return unsupported("New() on a page without an id denied by InsertAllowed (the text is not pinned)");
-            };
-            return Err(error_code(
-                format!(
-                    "New method failed because Insert is not allowed. Page = {}, Id = {id}.",
-                    o.name
-                ),
-                "DB:ClientInsertDenied",
-            ));
+            return Err(self.new_denied_error(st)?);
         }
+        self.part_new_on_view_host(st)?;
         let (left, origin) = self.traced(st, |s| s.leave_row(st, PageMethod::New));
         if let (Err(Signal::Error(_)), Some("onmodifyrecord")) = (&left, origin.as_deref()) {
             return unsupported("an error in OnModifyRecord on New() (only Next() is pinned)");
@@ -112,6 +100,24 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// The error of a `New()` the page denies: the text names the page and its id, the code is DB:ClientInsertDenied (corpus
+    /// pages/extensions/ZPageExtProps.al:ZInsertAllowed_1, _4).
+    pub(super) fn new_denied_error(&self, st: &St) -> Result<Signal, Signal> {
+        let engine = self.engine();
+        let o = &engine.program.objects[st.borrow().object as usize];
+        let id = if self.is_request_page(st) { Some(0) } else { o.id };
+        let Some(id) = id else {
+            return unsupported("New() on a page without an id denied by InsertAllowed (the text is not pinned)");
+        };
+        Ok(error_code(
+            format!(
+                "New method failed because Insert is not allowed. Page = {}, Id = {id}.",
+                o.name
+            ),
+            "DB:ClientInsertDenied",
+        ))
     }
 
     /// The error of `TestPage.OpenNew` on an API page: `Sorry, the current permissions prevented the action. (Page <id> <name>
@@ -532,6 +538,7 @@ impl Session {
             s.after_new_by_update = anchor.is_some() && s.saved_by_update;
             s.saved_by_update = false;
             s.after_new = anchor;
+            s.new_line_writes = None;
         }
         let table = rec.borrow().table as usize;
         let fresh = self.initial_fields(table);
@@ -574,6 +581,7 @@ impl Session {
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
         st.borrow_mut().draft_start = Some(rec.borrow().fields.clone());
+        st.borrow_mut().new_line_writes = Some(self.write_mark());
         // A card opened with OpenNew whose OnNewRecord inserts the new row itself still holds it as a new row: the next write to
         // a field outside the key inserts it again (corpus testpage/CfPageLeads.al:241-289
         // Card_OnNewRecordInserts_OpenNewSetClose: `OnInsertRecord:DOC1,Doc.OnInsert:DOC1` at SetValue). Only that shape is
@@ -969,6 +977,17 @@ impl Session {
         Ok(())
     }
 
+    /// For a part whose whole view the client holds (`part_view_held`): whether the line was started below the view's last row.
+    /// `None` when the client does not hold the whole view or holds no row.
+    pub(super) fn part_line_started_at_view_end(&self, st: &St, anchor: &[Value]) -> Result<Option<bool>, Signal> {
+        if !self.part_view_held(st) {
+            return Ok(None);
+        }
+        let table = self.table(&self.page_rec(st))?;
+        let key = table.primary_key(anchor);
+        Ok(st.borrow().window.last().map(|w| Self::same_key(&w.key, &key)))
+    }
+
     /// OnInsertRecord decides whether the typed record is inserted at all (corpus
     /// testpage/TestPageRecordTriggers.al:76 OnInsertRecord_ReturningFalse_SuppressesTheInsert).
     pub(super) fn insert_draft(&mut self, st: &St) -> Result<(), Signal> {
@@ -1009,18 +1028,16 @@ impl Session {
         // lt-qj-part-propagation/QjPartPropagation.al:3000 QN_PartDelayedOnly_NewTyped_ThenNew `D.INSR(0 a=7 x=3 x.ln=30000)` after
         // New() from row 30000 of two; :3106, :3212, :3318, :3424). From the last row the insert keeps the blank xRec (:925
         // QJ_SubformSaveRecord_NewRow `S.INSR(20000 r=5 x=0 x.ln=0)`).
-        let table = self.table(&rec)?;
-        let part_middle = |s: &Self, a: &Vec<Value>| {
-            s.part_view_held(st)
-                && st
-                    .borrow()
-                    .window
-                    .last()
-                    .is_some_and(|w| !Self::same_key(&w.key, &table.primary_key(a)))
+        let anchor = match anchor {
+            Some(a)
+                if self.is_list(st)
+                    && (st.borrow().host.is_none() || self.part_line_started_at_view_end(st, &a)? == Some(false)) =>
+            {
+                Some(a)
+            }
+            _ => None,
         };
-        if let Some(anchor) =
-            anchor.filter(|a| self.is_list(st) && (st.borrow().host.is_none() || part_middle(self, a)))
-        {
+        if let Some(anchor) = anchor {
             // The insert sees the row the line was started below as xRec (testpage/W2BelowXRec.al:NewInTheMiddle_*).
             self.set_xrec_fields(st, anchor);
         }
@@ -1199,7 +1216,7 @@ impl Session {
             _ => false,
         };
         if st.borrow().draft && in_row && prev.is_some() && !delayed && non_key {
-            self.insert_draft(st)?;
+            self.insert_at_second_control(st, setting_value)?;
             self.inserted_outside_view(st, idx)?;
         }
         Ok(())

@@ -225,6 +225,7 @@ mod empty_list_one_row;
 mod param_read;
 mod part_tree_typed;
 mod part_unsettled;
+mod part_view_host_new;
 mod parts;
 mod qualified_name;
 mod read_backwards;
@@ -232,10 +233,12 @@ mod relation_lookup;
 pub(crate) mod relation_lookup_close;
 mod row_var_outside_call;
 mod split_key_view;
+mod split_part_second_control_xrec;
 mod text_control_value;
 use text_control_value::TextConv;
 pub(crate) mod request;
 mod request_expr_params;
+mod request_ok_only;
 pub(crate) mod request_options;
 pub(crate) use request::{ParamsCall, RequestClosed};
 mod access_by_permission;
@@ -358,6 +361,7 @@ impl Session {
         match page {
             Value::TestPage(p) => {
                 let p = into_st(p);
+                self.request_ok_only_control(&p)?;
                 // A part control reads as the page it shows (a `TestPart`).
                 let is_part = {
                     let engine = self.engine();

@@ -893,6 +893,8 @@ pub struct Context<'a> {
     pub extension_assumes: Vec<al_builtins::assumptions::Assumption>,
     /// The reportextensions (object indices) that change what a run does, in object id order.
     pub extensions: Vec<usize>,
+    /// `lower/ext_request_page.rs` admits the request page with triggers on its extensions' request pages.
+    pub request_page_ok_only: bool,
 }
 
 fn table_object(ws: &Workspace, file: usize, name: &str) -> Option<usize> {
@@ -1398,6 +1400,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         assumes: cx.extension_assumes.clone(),
         request_flag_slot: cx.request_flag_slot,
         request_rec_routines: request_rec_routines(&o, obj),
+        request_page_ok_only: cx.request_page_ok_only,
         output: layout.output.clone(),
         unsupported: reasons,
         caption: layout.caption.clone(),
