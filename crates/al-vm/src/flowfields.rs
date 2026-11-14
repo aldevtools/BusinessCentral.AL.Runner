@@ -23,18 +23,19 @@ use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
 
-/// A FlowField being calculated: its table and field, and who asked for it.
+/// A FlowField being calculated: its table and field, whether its record is temporary, and who asked for it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CalcFrame {
     pub(crate) table: usize,
     pub(crate) field: usize,
+    pub(crate) temporary: bool,
     pub(crate) asked: Asked,
 }
 
 /// Who asked for the value of a FlowField.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Asked {
-    /// `Record.CalcFields` (records/op_inner.rs). Other callers of `Session::calc_fields` (SetAutoCalcFields, pages,
+    /// The AL call `Record.CalcFields` on a Record variable (`Session::asked_by_calc_fields`). Other callers of `Session::calc_fields` (SetAutoCalcFields, pages,
     /// reports, xmlports, table relations) pass `Other`.
     CalcFields,
     /// A source row's condition on a FlowField of its own table.
@@ -705,6 +706,7 @@ impl Session {
         stack.push(CalcFrame {
             table,
             field: pos,
+            temporary: rec.borrow().temporary,
             asked,
         });
         let r = self.calc_value_inner(rec, pos, stack);

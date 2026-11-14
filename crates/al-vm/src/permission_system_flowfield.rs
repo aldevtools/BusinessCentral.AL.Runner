@@ -4,13 +4,15 @@
 //! `system-flowfield-reads-internal-table` (al-runner issue 8038, corpus PR 1395). Every other shape keeps the refusal of
 //! `Session::permission_gate_flowfield_decided`.
 
+use std::rc::Rc;
+
 use crate::Session;
 use crate::flowfields::{Asked, CalcFrame};
 use crate::permissions::{Access, Op};
 use crate::records::Rec;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::record_op::RecordOp;
-use al_builtins::value::Value;
+use al_builtins::value::{RtType, Value};
 use al_ir as ir;
 
 /// "Published Application".
@@ -27,13 +29,58 @@ const SYSTEM_TABLES: u32 = 2_000_000_000;
 
 impl Session {
     /// Runs `f`, a step of the Find method `method` on `rec` (its scan for the first row, the load of the row it found), with
-    /// `find_first_read` set while it runs when `method` is FindFirst and `rec` is not temporary.
+    /// `find_first_read` set while it runs when it is shape 1: [`Session::is_al_find_first_of_fresh_record`].
     pub(crate) fn as_find_first<T>(&mut self, method: RecordOp, rec: &Rec, f: impl FnOnce(&mut Self) -> T) -> T {
-        let stored = !rec.borrow().temporary;
-        let saved = std::mem::replace(&mut self.find_first_read, method == RecordOp::FindFirst && stored);
+        let shape = method == RecordOp::FindFirst && self.is_al_find_first_of_fresh_record(rec);
+        let saved = std::mem::replace(&mut self.find_first_read, shape);
         let r = f(self);
         self.find_first_read = saved;
         r
+    }
+
+    /// Notes that AL code calls `method` on the Record variable `rec` (`Ctx::record`), until the returned value is put back
+    /// with [`Session::end_al_record_call`]. A RecordRef method and the runtime's own record calls (pages, reports,
+    /// xmlports, record links) do not note it.
+    pub(crate) fn begin_al_record_call(&mut self, method: RecordOp, rec: &Rec) -> Option<(usize, RecordOp)> {
+        self.al_record_call.replace((Rc::as_ptr(rec) as usize, method))
+    }
+
+    /// Ends the call [`Session::begin_al_record_call`] noted, back to what it replaced.
+    pub(crate) fn end_al_record_call(&mut self, before: Option<(usize, RecordOp)>) {
+        self.al_record_call = before;
+    }
+
+    /// Whether AL code called `method` on the Record variable `rec` and that call is running.
+    pub(crate) fn is_al_record_call(&self, method: RecordOp, rec: &Rec) -> bool {
+        self.al_record_call == Some((Rc::as_ptr(rec) as usize, method))
+    }
+
+    /// Who asks for the FlowFields of `Record.CalcFields`, `CalcSums` or `SetAutoCalcFields` on `rec`: [`Asked::CalcFields`]
+    /// for the AL call `Record.CalcFields` on a Record variable, [`Asked::Other`] for every other caller of the record method.
+    pub(crate) fn asked_by_calc_fields(&self, method: RecordOp, rec: &Rec) -> Asked {
+        if method == RecordOp::CalcFields && self.is_al_record_call(RecordOp::CalcFields, rec) {
+            Asked::CalcFields
+        } else {
+            Asked::Other
+        }
+    }
+
+    /// Shape 1 starts: the AL call `Record.FindFirst` on a Record variable `rec` that is not temporary and holds the state of
+    /// Guided Experience's fresh variable (`GetExtensionLogo`): default key, ascending, no SetLoadFields, no
+    /// SetAutoCalcFields, default SecurityFiltering and ReadIsolation (the first option of each), filter group 0 current.
+    fn is_al_find_first_of_fresh_record(&self, rec: &Rec) -> bool {
+        let r = rec.borrow();
+        self.is_al_record_call(RecordOp::FindFirst, rec)
+            && !r.temporary
+            && r.key == 0
+            && r.adhoc.is_none()
+            && r.ascending
+            && r.field_descending == 0
+            && r.load.request.is_none()
+            && r.auto_calc.is_empty()
+            && r.security_filtering == 0
+            && r.read_isolation == 0
+            && r.filter_group == 0
     }
 
     /// Whether the read of source table `table` (object index) for the FlowField on top of `stack`, of record `rec`, is a
@@ -67,10 +114,10 @@ impl Session {
     }
 
     /// Shape 1 (Guided Experience Impl. `GetExtensionLogo`, reached by Microsoft's Guided Experience tests):
-    /// `SetRange(ID, X)`, `SetRange("Tenant Visible", true)` and `FindFirst` on a stored Published Application record. The
-    /// FlowField is asked for by that record's filter while FindFirst of a record that is not temporary scans for its row and
-    /// loads it (`find_first_read`), alone on the stack, and the record holds exactly
-    /// those two filters, in filter group 0.
+    /// `SetRange(ID, X)`, `SetRange("Tenant Visible", true)` and `FindFirst` on a Published Application Record variable. The
+    /// FlowField is asked for by that record's filter while the AL call FindFirst of a fresh, stored record scans for its row
+    /// and loads it (`find_first_read`, [`Session::is_al_find_first_of_fresh_record`]), alone on the stack, and the record
+    /// holds exactly those two filters, in filter group 0.
     fn find_first_on_tenant_visible(&self, rec: &Rec, stack: &[CalcFrame]) -> bool {
         let [inner] = stack else {
             return false;
@@ -93,10 +140,10 @@ impl Session {
         inner.asked == Asked::RecordFilter && self.find_first_read && filters
     }
 
-    /// Shape 2 ("Guided Experience Item"."Extension Name", reached by the same tests through `CalcFields`; the issue's repro;
+    /// Shape 2 ("Guided Experience Item"."Extension Name", reached by the same tests through the AL call `Record.CalcFields`; the issue's repro;
     /// probe PR 1395 SysFlowFieldPerm.al `PARead_Found_CalcNamePublisher`, `PARead_Found_CalcExistCount`, the same on 27.5, 28.5
-    /// and 29.0): a FlowField of an app table (id below 2000000000) that `Record.CalcFields` calculates, not negated, with
-    /// exactly the conditions ID = field(..) and "Tenant Visible" = const(true), that is a Lookup of Published Application
+    /// and 29.0): a FlowField of an app table (id below 2000000000) that `Record.CalcFields` calculates on a record that is
+    /// not temporary, not negated, with exactly the conditions ID = field(F), F a stored Guid field, and "Tenant Visible" = const(true), that is a Lookup of Published Application
     /// Name or Publisher, an Exist or a Count. The stack holds that FlowField and "Tenant Visible", asked for by the condition
     /// of a source row.
     fn lookup_on_tenant_visible(&self, stack: &[CalcFrame]) -> bool {
@@ -115,7 +162,16 @@ impl Session {
             return false;
         };
         let cond_is = |c: &ir::CalcCond, id: u32| self.field_id(inner.table, c.field) == Some(id);
-        let id_cond = |c: &ir::CalcCond| cond_is(c, PA_ID) && matches!(c.value, ir::CalcValue::Field(_));
+        // The ID condition compares with a stored (normal) Guid field of the outer table, as the probe's and the issue's table do.
+        let stored_guid = |pos: usize| {
+            self.engine.program.objects[outer.table]
+                .table
+                .as_ref()
+                .and_then(|d| d.fields.get(pos))
+                .is_some_and(|f| f.stored && !f.flow_filter && f.ty == RtType::Guid)
+        };
+        let id_cond =
+            |c: &ir::CalcCond| cond_is(c, PA_ID) && matches!(c.value, ir::CalcValue::Field(pos) if stored_guid(pos));
         let visible_cond = |c: &ir::CalcCond| {
             cond_is(c, PA_TENANT_VISIBLE) && c.value == ir::CalcValue::Const(ir::Const::Boolean(true))
         };
@@ -131,6 +187,7 @@ impl Session {
         };
         let plain = !calc.negate;
         outer.asked == Asked::CalcFields
+            && !outer.temporary
             && inner.asked == Asked::SourceRow
             && outer_is_app_table
             && method

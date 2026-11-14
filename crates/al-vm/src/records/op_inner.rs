@@ -2226,9 +2226,10 @@ impl Session {
                 }
             }
             RecordOp::Truncate => self.truncate_all(&cx, &t, rec, arg_bool(args, 0)?),
-            // A Record method: `Record.CalcFields` (al-vm permission_system_flowfield.rs reads it).
+            // Only the AL call `Record.CalcFields` asks as `Asked::CalcFields` (permission_system_flowfield.rs).
             RecordOp::CalcFields | RecordOp::CalcSums | RecordOp::SetAutoCalcFields => {
-                self.flow_op(method, rec, args, crate::flowfields::Asked::CalcFields)
+                let asked = self.asked_by_calc_fields(method, rec);
+                self.flow_op(method, rec, args, asked)
             }
             RecordOp::LoadFields => self.load_fields_row(rec, &t, args),
             RecordOp::SetLoadFields
