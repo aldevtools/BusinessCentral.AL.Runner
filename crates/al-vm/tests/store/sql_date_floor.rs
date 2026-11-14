@@ -1,5 +1,5 @@
 //! A Date or DateTime in the year 1753 written to a database table (assumption `sql-date-first-year`, al-runner issue 8006:
-//! the reporter's measurement on BC 28.4). The pinned Insert cells stay clean (record/filters/P130DateFilters.al:255-293).
+//! the reporter's measurement on Business Central 28.4). The pinned Insert cells stay clean (record/filters/P130DateFilters.al:255-293).
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;
