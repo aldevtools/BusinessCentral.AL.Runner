@@ -36,15 +36,7 @@ pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<
                 continue;
             }
             if entry[word.len()..].trim_start().starts_with('*') {
-                push(
-                    out,
-                    ws,
-                    file,
-                    at,
-                    "AL0107",
-                    "Syntax error, identifier expected. Provide a valid name (letters, digits, and underscores only)."
-                        .into(),
-                );
+                push(out, ws, file, at, "AL0107", super::IDENTIFIER_EXPECTED.into());
                 push(out, ws, file, at, "AL0104", "Syntax error, '=' expected".into());
                 push(out, ws, file, at, "AL0104", "Syntax error, ',' expected".into());
             }

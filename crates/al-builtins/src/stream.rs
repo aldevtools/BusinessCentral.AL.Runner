@@ -78,6 +78,10 @@ pub struct BlobBuf {
     /// The id of the `DotNet` System.IO.Stream an `OutStream` on this buffer was given to (al-vm `dotnet/blob_stream.rs`), or 0.
     /// `CreateOutStream` and `Import` set it back to 0: what the .NET stream does after that is not pinned.
     pub dotnet_view: u32,
+    /// The buffer is the copy `Target.Field := Source.Blob` stored, in the cell of assumption `blob-assign-counts-as-write`
+    /// (al-vm `blob_transfer::assigned_copy`, al-runner issue 7961), and nothing saved, fetched or wrote it since:
+    /// `CalcFields` keeps it as it keeps an unsaved stream write (al-vm `Session::load_blobs`). A copy does not keep it.
+    pub assigned_unsaved: bool,
     /// The empty Blob `FieldRef.Value` hands out for a stored row's Blob that holds content and was not read with CalcFields
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
@@ -373,6 +377,7 @@ pub fn new_blob() -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
         utf16_binary: false,
         unicode_read: None,
     }))
@@ -415,6 +420,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
         utf16_binary: b.utf16_binary,
         unicode_read: None,
     }))
@@ -429,6 +435,7 @@ pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
     let mut copy = b.borrow().clone();
     copy.dotnet_view = 0;
     copy.temp_inserted = false;
+    copy.assigned_unsaved = false;
     std::sync::Arc::new(BlobCell::new(copy))
 }
 
@@ -460,6 +467,7 @@ pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
 fn write_bytes_at(b: &BlobRef, bytes: &[u8]) -> bool {
     let mut buf = b.borrow_mut();
     buf.unicode_read = None;
+    buf.assigned_unsaved = false;
     if !buf.written {
         buf.written_base = Some(buf.bytes.clone());
     }
@@ -514,7 +522,7 @@ pub enum Encoding {
 }
 
 /// Unicode of the code page 437 bytes 0x80..=0xFF.
-const CP437_HIGH: [char; 128] = [
+pub(crate) const CP437_HIGH: [char; 128] = [
     'Ç', 'ü', 'é', 'â', 'ä', 'à', 'å', 'ç', 'ê', 'ë', 'è', 'ï', 'î', 'ì', 'Ä', 'Å', 'É', 'æ', 'Æ', 'ô', 'ö', 'ò', 'û',
     'ù', 'ÿ', 'Ö', 'Ü', '¢', '£', '¥', '₧', 'ƒ', 'á', 'í', 'ó', 'ú', 'ñ', 'Ñ', 'ª', 'º', '¿', '⌐', '¬', '½', '¼', '¡',
     '«', '»', '░', '▒', '▓', '│', '┤', '╡', '╢', '╖', '╕', '╣', '║', '╗', '╝', '╜', '╛', '┐', '└', '┴', '┬', '├', '─',
@@ -805,6 +813,17 @@ pub struct InState {
     /// A ReadText returned the mark of untracked call stack frames: where the stream stands now is not known
     /// (`stream_call_stack::position_unknown`). Moving the position clears it.
     pub past_call_stack_mark: bool,
+    /// `Base64Convert.ToBase64(InStream, true[, OutStream])` ran on the stream: where it stands now is not measured, so every
+    /// use but the same InStream form again, `ResetPosition` and `Position := n` is refused (see [`line_break_source`]).
+    pub after_line_break_call: AfterLineBreakCall,
+}
+
+/// Which `ToBase64(InStream, true ...)` form last ran on a stream (see [`InState::after_line_break_call`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AfterLineBreakCall {
+    No,
+    InStreamForm,
+    OutStreamForm,
 }
 
 impl InState {
@@ -819,6 +838,7 @@ impl InState {
             not_initialized: false,
             len0_over_mark: false,
             past_call_stack_mark: false,
+            after_line_break_call: AfterLineBreakCall::No,
         }
     }
 
@@ -833,6 +853,7 @@ impl InState {
             not_initialized: false,
             len0_over_mark: false,
             past_call_stack_mark: false,
+            after_line_break_call: AfterLineBreakCall::No,
         }
     }
 
@@ -970,6 +991,21 @@ fn blob_of(r: Option<&mut Value>) -> Result<BlobRef, Signal> {
     }
 }
 
+/// What the VM kept when `Blob.CreateOutStream` opened a stream on a Blob field of a temporary record (al-vm
+/// `temp_blob_share.rs`): a later call that takes the stream is checked against it, as the record may have moved to another
+/// key or a row may have come to hold the buffer since.
+#[derive(Debug)]
+pub struct OutOpen {
+    /// The record whose field the stream was opened on.
+    pub record: std::rc::Weak<std::cell::RefCell<crate::value::RecordState>>,
+    /// The position of the Blob field in the record.
+    pub field: usize,
+    /// The record's primary key when the stream was opened.
+    pub key: Vec<Value>,
+    /// The stream writes to the buffer the VM gave the record at the open (assumption `temp-blob-empty-insert-key-change`).
+    pub detached: bool,
+}
+
 pub(crate) fn set_stream(slot: &Value, content: LibraryValue) -> Result<(), Signal> {
     match slot {
         Value::Library(_, h) => {
@@ -1010,7 +1046,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
             buf.write_pos = 0;
             buf.refetch = false;
             drop(buf);
-            set_stream(&a[0], LibraryValue::OutStream(b, enc))?;
+            set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
             return Ok(Value::Null);
         }
         // That case writes over content the record holds. Another unloaded Blob (a temporary record's, a copy of an unloaded
@@ -1032,7 +1068,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.refetch = false;
         buf.persisted = false;
     }
-    set_stream(&a[0], LibraryValue::OutStream(b, enc))?;
+    set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
     Ok(Value::Null)
 }
 
@@ -1076,6 +1112,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
         utf16_binary: false,
         unicode_read: None,
     });
@@ -1287,6 +1324,40 @@ pub fn hand_to_content(v: &mut Value) -> Result<Vec<u8>, Signal> {
     })
 }
 
+/// The bytes `ToBase64(InStream, true[, OutStream])` converts: every byte of the Blob buffer the stream reads, whatever its
+/// read position (`out_form` false: the InStream form, true: the OutStream form, which is measured only at position 0). The
+/// stream is then marked: where it stands is not measured, and only the same InStream form may run on it again. `Ok(None)`
+/// when the stream does not read a Blob buffer, or reads a file's; `Err` for a use of the stream the pin does not cover.
+/// Its one caller cites what it pins.
+pub fn line_break_source(v: &mut Value, out_form: bool) -> Result<Option<Vec<u8>>, Signal> {
+    with_in_unknown_ok(Some(v), |s| {
+        let reads_blob = matches!(&s.source, Source::Live(b) if matches!(&*b.borrow(), BlobBuf { file: false, .. }));
+        if !reads_blob {
+            return Ok(None);
+        }
+        match (s.after_line_break_call, out_form) {
+            (AfterLineBreakCall::No, false) | (AfterLineBreakCall::InStreamForm, false) => {}
+            (AfterLineBreakCall::No, true) if s.pos == 0 => {}
+            (AfterLineBreakCall::No, true) => {
+                return unsupported(
+                    "Base64Convert.ToBase64(InStream, true, OutStream) on a stream not at position 0 (not measured)",
+                );
+            }
+            _ => {
+                return unsupported(
+                    "Base64Convert.ToBase64(InStream, true ...) on a stream a ToBase64(InStream, true ...) call ran on, other than the InStream form again (not measured)",
+                );
+            }
+        }
+        s.after_line_break_call = if out_form {
+            AfterLineBreakCall::OutStreamForm
+        } else {
+            AfterLineBreakCall::InStreamForm
+        };
+        Ok(Some(s.with_data(<[u8]>::to_vec)))
+    })
+}
+
 pub fn drain_in(v: &mut Value) -> Result<Vec<u8>, Signal> {
     with_in(Some(v), |s| Ok(s.drain()))
 }
@@ -1394,6 +1465,24 @@ fn with_in_of<T>(
     handed_ok: bool,
     f: impl FnOnce(&mut InState) -> Result<T, Signal>,
 ) -> Result<T, Signal> {
+    with_in_core(r, handed_ok, false, f)
+}
+
+/// A use that may run on a stream whose position a `ToBase64(InStream, true ...)` call left unknown: the call itself,
+/// `ResetPosition` and `Position := n`.
+fn with_in_unknown_ok<T>(
+    r: Option<&mut Value>,
+    f: impl FnOnce(&mut InState) -> Result<T, Signal>,
+) -> Result<T, Signal> {
+    with_in_core(r, false, true, f)
+}
+
+fn with_in_core<T>(
+    r: Option<&mut Value>,
+    handed_ok: bool,
+    unknown_ok: bool,
+    f: impl FnOnce(&mut InState) -> Result<T, Signal>,
+) -> Result<T, Signal> {
     let mut g = in_state(r)?;
     match &mut *g {
         LibraryValue::InStream(s) => {
@@ -1405,6 +1494,11 @@ fn with_in_of<T>(
             }
             if s.not_initialized {
                 return unsupported("use of an InStream a Report layout call left uncreated (only EOS is pinned)");
+            }
+            if !unknown_ok && s.after_line_break_call != AfterLineBreakCall::No {
+                return unsupported(
+                    "use of an InStream after Base64Convert.ToBase64(InStream, true ...) (where it stands is not measured; ResetPosition or Position := first)",
+                );
             }
             f(s)
         }
@@ -1486,9 +1580,10 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
 }
 
 fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
-    with_in(r, |s| {
+    with_in_unknown_ok(r, |s| {
         s.pos = 0;
         s.past_call_stack_mark = false;
+        s.after_line_break_call = AfterLineBreakCall::No;
         Ok(Value::Boolean(true))
     })
 }
@@ -1533,7 +1628,7 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             Value::BigInteger(n) => *n,
             other => return unsupported(format!("InStream.Position := {}", other.describe())),
         };
-        return with_in(r, |s| {
+        return with_in_unknown_ok(r, |s| {
             let len = s.len() as i64;
             if p < 1 || p > len {
                 return crate::native::raise(
@@ -1546,6 +1641,7 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             }
             s.pos = (p - 1) as usize;
             s.past_call_stack_mark = false;
+            s.after_line_break_call = AfterLineBreakCall::No;
             Ok(Value::Null)
         });
     }
@@ -2023,7 +2119,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
 fn out_buf(r: Option<&mut Value>) -> Result<(BlobRef, Encoding), Signal> {
     match r {
         Some(Value::Library(_, h)) => match &*h.borrow() {
-            LibraryValue::OutStream(b, e) => Ok((b.clone(), *e)),
+            LibraryValue::OutStream(b, e, ..) => Ok((b.clone(), *e)),
             _ => unsupported("use of an OutStream that was never created"),
         },
         other => unsupported(format!("OutStream method on {}", other.describe())),

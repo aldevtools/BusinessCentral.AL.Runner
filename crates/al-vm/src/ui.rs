@@ -132,6 +132,17 @@ pub(crate) struct UiScope {
 }
 
 impl Session {
+    /// The (object, routine) of each handler of `kind` bound to the running test method.
+    pub(crate) fn bound_handlers(&self, kind: UiKind) -> Vec<(usize, usize)> {
+        self.ui_state.scope.as_ref().map_or_else(Vec::new, |s| {
+            s.handlers
+                .iter()
+                .filter(|h| h.kind == kind)
+                .map(|h| (h.object, h.routine))
+                .collect()
+        })
+    }
+
     /// Checks that routine `routine` of `object` has the signature BC requires
     /// of a handler of `kind`, and binds it to `instance` (the test codeunit's).
     pub fn ui_handler(
@@ -295,6 +306,11 @@ impl Session {
         shown: &str,
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
+        // A dialog of a CaptionClass run is measured only where `CaptionDialogs` lets it run (record/captions/
+        // CaptionClassStateFreeCalls.al:891-914, al-runner issue 7391).
+        if let Some(why) = self.caption_dialog_refusal(kind.label(), kind == UiKind::Message) {
+            return Err(Signal::unsupported(why));
+        }
         let Some(scope) = self.ui_state.scope.as_mut() else {
             return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",

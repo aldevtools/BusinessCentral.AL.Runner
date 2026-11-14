@@ -371,6 +371,36 @@ fn a_missing_type_or_member_is_a_refusal_not_an_exception() {
     sess.close();
 }
 
+// A property, an indexer or a field of an instance on a variable that holds no object (a static target here) is refused as
+// "the variable holds no object", as an instance method is; a name no member carries stays "not found on" (refusal text only).
+#[test]
+fn an_instance_property_or_indexer_on_a_variable_holding_no_object_says_so() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let why = refused(sess.get_property(st("System.Uri"), "AbsoluteUri"));
+    assert!(
+        why.contains("'System.Uri.AbsoluteUri' is an instance member and the variable holds no object"),
+        "{why}"
+    );
+    let why = refused(sess.set_property(st("System.UriBuilder"), "Query", DotNetValue::Str("a=b".into())));
+    assert!(
+        why.contains("'System.UriBuilder.Query' is an instance member and the variable holds no object"),
+        "{why}"
+    );
+    let why = refused(sess.invoke(
+        st("System.Collections.ArrayList"),
+        "Item",
+        vec![arg(DotNetValue::Int32(0))],
+    ));
+    assert!(
+        why.contains("'System.Collections.ArrayList.Item' is an instance member and the variable holds no object"),
+        "{why}"
+    );
+    let why = refused(sess.get_property(st("System.Uri"), "NoSuchProperty"));
+    assert!(why.contains("not found on 'System.Uri'"), "{why}");
+    sess.close();
+}
+
 // A method that is generic only, with its one type parameter as its return type (OpenXml's `T GetWorksheetByName<T>(string)`),
 // is refused by a plain call with a text that says so, and runs when the call names the type argument.
 #[test]
@@ -1872,7 +1902,9 @@ fn a_text_that_is_no_guid_or_an_overload_set_that_is_not_one_guid_stays_refused(
 
 /// P12 of the ADR-040 amendment of 2026-11-12 (`al_builtins::rendered_text::DOTNET_ALLOWED`): the real `Regex.Replace` with the
 /// pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb` hands a text that holds rendered content back
-/// with every mark, so `dotnet_result` takes the answer (in the changed form); a text the pattern matches keeps its marks too.
+/// with every mark, so `dotnet_result` takes the answer (in the changed form). The known text beside a mark is rewritten as BC
+/// does (corpus pull request 1371, reports/html-email-body/RxEmailBodyTests.al:250 alpha 1 becomes `rgb(r, g, b)`, :227 another
+/// alpha stays).
 #[test]
 fn the_rgba_replace_keeps_every_mark_of_rendered_content() {
     use al_builtins::rendered_text::{self, DOTNET_ALLOWED, Form};
@@ -1885,10 +1917,18 @@ fn the_rgba_replace_keeps_every_mark_of_rendered_content() {
     });
     let n = rendered_text::register("Sidecar Report", "Html", "WordOne").expect("a render");
     let mark = rendered_text::mark_text(n, Form::Whole);
+    let changed = rendered_text::to_changed(&mark);
     let mut sess = h.open_session(&DotNetSessionConfig::default());
-    for input in [
-        mark.clone(),
-        format!("<p style=\"color: rgba(1, 2, 3, 0)\">{mark}</p>{mark}"),
+    for (input, want) in [
+        (mark.clone(), changed.clone()),
+        (
+            format!("<p style=\"color: rgba(1, 2, 3, 0.5)\">{mark}</p>{mark}"),
+            format!("<p style=\"color: rgba(1, 2, 3, 0.5)\">{changed}</p>{changed}"),
+        ),
+        (
+            format!("{mark}<p style=\"color: rgba(1,2,3,1)\">sig</p>"),
+            format!("{changed}<p style=\"color: rgb(1, 2, 3)\">sig</p>"),
+        ),
     ] {
         let r = sess
             .invoke(
@@ -1898,10 +1938,7 @@ fn the_rgba_replace_keeps_every_mark_of_rendered_content() {
             )
             .unwrap();
         let out = rendered_text::dotnet_result(&input, text_of(&r)).expect("every mark kept");
-        assert_eq!(
-            rendered_text::marks(&out).map(|m| m.len()),
-            rendered_text::marks(&input).map(|m| m.len())
-        );
+        assert_eq!(out, want);
     }
     sess.close();
 }

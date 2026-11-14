@@ -11,6 +11,7 @@ impl Lowerer<'_> {
     ) -> L<Option<Res>> {
         let resolution = self.res(node).cloned();
         if let Some(Res::Builtin(id)) = &resolution {
+            self.system_function_named_like_a_rec_field(node, receiver)?;
             self.coverage_test_id_call(id, receiver, args)?;
             if id == "Page.SaveRecord#1"
                 && self.ws.objects[self.oi].kind == ObjKind::Page
@@ -914,7 +915,7 @@ impl Lowerer<'_> {
                         } else {
                             None
                         };
-                        match (places, without_expression.or(expression)) {
+                        let lowered = match (places, without_expression.or(expression)) {
                             _ if !self.decimal_field_declares_format(a) || self.decimal_field_is_plain(a) => {
                                 ir::Arg::Value(self.format_option_field(true, false, a)?)
                             }
@@ -947,6 +948,10 @@ impl Lowerer<'_> {
                             (None, None) => ir::Arg::Value(ir::Expr::Refused(
                                 "StrSubstNo, Message or Error %n of a Decimal field with this DecimalPlaces or AutoFormat: its places are not pinned (docs/probes-needed.md)".into(),
                             )),
+                        };
+                        match lowered {
+                            ir::Arg::Value(e) => ir::Arg::Value(self.auto_format_writer_guard(a, e)?),
+                            other => other,
                         }
                     } else {
                         ir::Arg::Value(self.expr(a)?)
@@ -1015,12 +1020,16 @@ impl Lowerer<'_> {
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(places))));
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(mode))));
                 }
-                Ok(ir::Expr::Builtin {
+                let lowered = ir::Expr::Builtin {
                     id: builtin_id(&emit_id)?,
                     receiver,
                     args: out,
                     ret_used: true,
-                })
+                };
+                match args.first() {
+                    Some(a) if id == "System.Format#1" || id == "System.Format#2" => self.auto_format_writer_guard(a, lowered),
+                    _ => Ok(lowered),
+                }
             }
             // The checker refused a builtin of a newer runtime (ADR-015 3.3): say why.
             None if self.runtime_refusal(node).is_some() => Err(self.runtime_refusal(node).unwrap_or_default()),

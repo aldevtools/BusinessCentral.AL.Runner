@@ -180,6 +180,7 @@ impl<'a> Seq<'a> {
 pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a Seq<'a>, oi: usize) -> Lowerer<'a> {
     Lowerer {
         rec_slot: None,
+        declared_rec_slot: None,
         table_of: &sh.table_of,
         ws: sh.ws,
         members: sh.members,
@@ -542,6 +543,7 @@ pub(crate) fn lower_object<'a>(
     }
     let (mut rec_slot, mut xrec_slot) = (None, None);
     if let Some(t) = table_of[oi] {
+        global_reasons.extend(super::table_no_rec::declared_rec_refusal(&mut lw, o.kind, &obj, t));
         for (name, slot) in [("Rec", &mut rec_slot), ("xRec", &mut xrec_slot)] {
             // A codeunit has no xRec.
             if name == "xRec" && o.kind == ObjKind::Codeunit {

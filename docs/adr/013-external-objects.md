@@ -1532,7 +1532,8 @@ corpus front end passes one entry less.
 
 Not a seam change; it changes when a selection compiles a second time.
 
-**Why.** A compile for a selection (`--explain`, `--codeunit`, `--test`, a warm server's request) leaves out the test
+**Why.** A compile for a selection (`--explain`, `--codeunit`, `--test`, and until ADR-028's amendment of 2026-11-13 a
+warm server's request, which now compiles every test codeunit) leaves out the test
 codeunits it does not keep and the procedures no selected test names. Install code of an app under test runs before
 every test and can reach one of them by an id no workspace text shows, for example through a dependency app's code
 that runs a codeunit by an id from a table, as Microsoft's Test Runner app does. The selection then gave another outcome

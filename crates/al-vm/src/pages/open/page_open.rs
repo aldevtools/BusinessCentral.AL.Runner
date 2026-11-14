@@ -198,7 +198,13 @@ impl Session {
         record: Option<Rec>,
         bind: Option<UiKind>,
     ) -> Result<Option<Handler>, Signal> {
-        self.open_page_as(st, mode, record, bind, false)
+        let handed = self.data_caption_handed(st, record.as_ref(), bind);
+        let handler = self.open_page_as(st, mode, record, bind, false)?;
+        let trapped = bind.is_none() && st.borrow().caught_by_trap;
+        if handler.is_some() || trapped {
+            self.data_caption_at_handled_open(st, bind, handed)?;
+        }
+        Ok(handler)
     }
 
     /// `page_instance`, for the open of a page in a session whose permissions a test lowered (ADR-062 stage 3): a page opened without
@@ -307,12 +313,14 @@ impl Session {
             s.new_row_inserted_by_trigger = false;
             s.test_opened_new = test_open && mode == PageMode::New;
             s.opened_by_test = test_open;
+            s.mode_switched_since_open = false;
             s.forget_pinned_scenario();
             s.closed_by = None;
             s.never_stored = false;
             s.dirty = false;
             s.frozen_visible = Vec::new();
             s.control_captions = Vec::new();
+            s.literal_field_caption_contexts.clear();
             s.forget_field_captions();
             s.moving_next = false;
             s.window = Vec::new();
@@ -505,12 +513,7 @@ impl Session {
             }
             // `Editable(false)` on the variable before it runs applies after OnInit: OnInit still
             // reads Yes (corpus pages/PWPageVariableEditable.al:221-240).
-            {
-                let mut s = st.borrow_mut();
-                s.editable_off = s.editable_preset == Some(false);
-                s.editable_off_in_open = false;
-                s.editable_set_later = None;
-            }
+            st.borrow_mut().editable_after_init();
             // The parts' OnInit runs between the host's OnInit and its OnOpenPage (corpus
             // testpage/parts/TestPartTriggerOrderAndRefresh.al:236-247).
             self.init_parts(st)?;
@@ -1576,6 +1579,7 @@ fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.draft_start = None;
     s.part_accessed = false;
     s.new_host_part_rows = false;
+    s.trapped_blank_part_edit = false;
     s.host_stored_blank_key = false;
     s.part_insert_swallowed = false;
     s.blank_key_edit_reread = false;

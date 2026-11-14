@@ -64,6 +64,10 @@ pub(crate) struct TxState {
     /// Set by a Rename that AL code calls on a Record or a RecordRef, taken by the Rename arm of `record_op_inner`: only such
     /// a Rename is in a measured cell of `rename_blank_key.rs`. The page client's rename at close clears it.
     pub(crate) rename_from_al: bool,
+    /// Set by a Modify that AL code calls on a Record variable (not a RecordRef), taken by the Modify arm of `record_op_inner`
+    /// and cleared when the call returns: only such a Modify is in the measured cell of `sql_range.rs`. ModifyAll, a page's save
+    /// and the platform's own Modify do not set it.
+    pub(crate) modify_from_al: bool,
     /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
     /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
     pub(crate) deferred_by: Option<usize>,
@@ -194,6 +198,7 @@ impl TxState {
             insert_buffer: Vec::new(),
             insert_from_al: false,
             rename_from_al: false,
+            modify_from_al: false,
             deferred_by: None,
             deferred_raised: 0,
             immediate_errors: false,
@@ -235,6 +240,8 @@ pub(crate) struct UiState {
 /// What the TestPage client keeps between calls.
 #[derive(Default)]
 pub(crate) struct PageClients {
+    /// What the action running now did (`pages/action_tally.rs`); armed only around an action of an empty List on its new-row line.
+    pub(crate) action_tally: Option<crate::pages::action_tally::ActionTally>,
     /// The TestPage variables whose `Trap()` waits for the next plain `Page.Run` of their page (ADR-012). Several wait at
     /// once, one per page: a test traps the preview page and, inside it, the entries page its action opens.
     /// The variable-bound control values each SaveValues page stored when it closed: (owner, global slot, value), the owner
@@ -248,6 +255,8 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
+    pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
     /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
     /// written its by-reference task id back (see `Session::bg_enqueue`).
     pub(crate) bg_drain_after_call: Option<Rc<RefCell<crate::pages::PageState>>>,
@@ -312,6 +321,8 @@ pub(crate) struct PageClients {
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
+    /// Successful binding and language changes invalidate literal field caption reuse.
+    pub(crate) caption_context_revision: u64,
     /// Manual bindings whose bound instance the globals of a page reached when they were made (`page_held_bindings.rs`,
     /// al-runner issue 6924).
     pub(crate) page_held: Vec<crate::page_held_bindings::PageHeld>,
@@ -335,6 +346,12 @@ pub(crate) struct EventState {
     pub(crate) next_aliases: Vec<(usize, Rc<RefCell<crate::Instance>>, usize)>,
     /// Set just before a subscriber is called, taken by its frame: the call is an event subscriber dispatch.
     pub(crate) next_is_subscriber: bool,
+    /// Set by `publish` for a publisher `blob_transfer::measured_publisher` names and by `table_event` for an event
+    /// `blob_transfer::measured_table_event` names, just before the raise; taken by `raise_to_subscribers`.
+    pub(crate) blob_publisher: Option<crate::blob_transfer::BlobEvent>,
+    /// Set just before a subscriber is called, taken by its frame, cleared after the call: the raise of a `blob_publisher`
+    /// event to a subscriber `blob_transfer::measured_subscriber` names (`blob_transfer::Argument::measured_call`).
+    pub(crate) next_blob_event: bool,
     /// The event subscriber calls on the stack, innermost last: (publisher object, subscriber object, subscriber routine) for
     /// the shapes whose event recursion error text is pinned, `None` for another (the call-depth error names event
     /// recursion when any is on the stack).

@@ -101,6 +101,12 @@ pub trait Ctx: FormatCtx {
         Ok(None)
     }
 
+    /// `Error` with a text is about to raise: a context may refuse it where the error is not measured (al-vm, a CaptionClass
+    /// run of a page). A context without pages lets it raise.
+    fn error_text_raise(&self) -> Result<(), Signal> {
+        Ok(())
+    }
+
     fn last_error(&self) -> AlError;
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.
@@ -206,6 +212,11 @@ pub trait Ctx: FormatCtx {
         Err(Signal::Unsupported(
             "Format of a field with an AutoFormatExpression outside a session".into(),
         ))
+    }
+    /// Why `Format` in code of a Decimal field of AutoFormatType `kind` is refused while a subscriber could write the AutoFormat
+    /// result (al-vm `auto_format_writer`); `None` where the context has no session.
+    fn auto_format_writer_refusal(&self, _kind: &str) -> Option<String> {
+        None
     }
     /// `CopyStream` where one side is a `DotNet` stream (ADR-024). `None` where the context has no
     /// .NET host.

@@ -86,10 +86,16 @@ impl Session {
                 reason: "a call of the test after a part with OnFindRecord read its rows again after its own CurrPage.Update(true), \
                          other than a read and Close (not pinned)",
                 reads: true,
+                caption: false,
+                part_reads: false,
                 one_action: false,
                 first_ends: false,
                 part_visible: false,
+                part_moves: false,
+                no_writes: false,
                 next: NextEnd::Refused,
+                close: true,
+                ok: false,
             });
         }
         let r = self.sync_part(host, c, st);

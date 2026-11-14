@@ -176,6 +176,7 @@ impl Session {
 
     /// The key of sequence `args[0]`; `scope` is the position of the optional CompanySpecific
     /// argument (company specific when omitted, as the default overload is: session-system/TestNumberSequence.al:15-30).
+    /// Refused when an earlier test of the codeunit left that sequence unmeasured (`storage_checkpoint.rs`).
     fn sequence_key(&self, args: &[Value], scope: usize) -> Result<(String, String), Signal> {
         let Some(name) = args.first().and_then(al_builtins::native::text_of) else {
             return unsupported("a number sequence name that is not text");
@@ -191,6 +192,7 @@ impl Session {
             String::new()
         };
         let key = (company, name.to_string());
+        self.check_unmeasured_sequence(&key)?;
         Ok(key)
     }
 
@@ -650,6 +652,7 @@ impl Session {
             return r;
         }
         let scope = self.storage_scope(scope_at.and_then(|i| args.get(i)))?;
+        self.check_unmeasured_key(&scope, &key)?;
         // A key that matches a stored key only without their trailing spaces (isolated_storage_reads.rs `trailing_twin`).
         let slot = self.trailing_twin(method, scope, &key)?;
         let found = self.ret_used;

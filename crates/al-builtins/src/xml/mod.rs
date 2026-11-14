@@ -54,6 +54,7 @@ pub(crate) use dom::uninitialized;
 pub use dom::{XData, XMLNS_URI, XmlCell};
 pub use lists::node_list_items;
 pub use manager::{NsDecl, NsScopes};
+pub(crate) use queries::variant_node_is_element;
 pub(crate) use read_tree::{read_tree, read_tree_in};
 pub(crate) use write::{escape_attr, escape_text};
 use write_to::*;

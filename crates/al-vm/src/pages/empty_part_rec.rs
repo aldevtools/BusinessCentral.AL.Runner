@@ -27,6 +27,7 @@
 //! any other test call on the host or its parts that starts inside it (`Session::reading_empty_list_rec`,
 //! `Session::end_read_at_test_call`). Code that the Invoke runs itself (the action body and what it calls) reads the values.
 
+use super::empty_part_rec_list::ListCell;
 use super::parts::LINK_GROUP;
 use super::pinned_shape::{PartStep, TestCall};
 use super::*;
@@ -53,15 +54,23 @@ impl Session {
         };
         match self.empty_part_rec_shape(st, &host)? {
             Shape::Measured => self.stamp_from_filters(st, false)?,
-            Shape::ListCell(reads) => {
+            Shape::ListCell(cell) => {
                 // The values are on Rec only inside a measured read (`reading_empty_list_rec`).
                 unknown_filtered_fields(&rec, OUTSIDE_READ);
                 st.borrow_mut().empty_list_landing = Self::part_steps(st).map(|steps| EmptyListLanding {
                     steps: steps.len(),
-                    reads,
+                    reads: cell.reads,
+                    triggers: cell.triggers,
                     store: self.landing_store_state(),
                     reading: false,
                 });
+                // A part in edit mode (its host opened for edit with CurrPage.Editable true) lands here without running
+                // OnAfterGetCurrRecord on its way; a part in view mode ran it already (`land`). On a host with the page triggers of
+                // probe 1378 BC runs it once, with the link values on Rec (EmptyPartRecListHostTriggers.al:608 `open | hcur |
+                // pcur=76860/A/0 | act=...`, the host opened for edit and editable; :2038 the reporter's form).
+                if cell.triggers && st.borrow().mode == PageMode::Edit {
+                    self.trigger_cell_curr_record(st)?;
+                }
             }
             Shape::Miss(miss) if self.top_list(&host) => {
                 let why = format!(
@@ -98,13 +107,18 @@ impl Session {
         if !self.measured_read(st, &landing, call) {
             return f(self);
         }
-        assumptions::assume(Assumption::EmptyPartRecListHost);
+        assume_list_cell(landing.triggers);
         if let Some(l) = st.borrow_mut().empty_list_landing.as_mut() {
             l.reading = true;
         }
-        let r = self.link_values_on_rec(st).and_then(|()| f(self));
+        let mut r = self.link_values_on_rec(st).and_then(|()| f(self));
         // A landing inside `f` withheld the values itself and is not `reading`; a part that read a row holds no landing.
         let still_reading = st.borrow().empty_list_landing.is_some_and(|l| l.reading);
+        // On a host with the page triggers of probe 1378 the part runs its OnAfterGetCurrRecord once more after the action, with
+        // the link values still on Rec (EmptyPartRecListHostTriggers.al:608 `... | act=76860/A/0/ | pcur=76860/A/0`, :2038).
+        if landing.triggers && still_reading && st.borrow().cursor == Cursor::None && r.is_ok() {
+            r = self.curr_record_trigger(st).and(r);
+        }
         if still_reading && st.borrow().cursor == Cursor::Row {
             st.borrow_mut().empty_list_landing = None;
         } else if still_reading {
@@ -150,6 +164,20 @@ impl Session {
             }
         }
         self.stamp_from_filters(st, false)
+    }
+
+    /// The part's OnAfterGetCurrRecord and its subscribers run with the link values on Rec (`link_values_on_rec`); after, the
+    /// fields its filters name are unknown again, as outside every measured read.
+    fn trigger_cell_curr_record(&mut self, st: &St) -> Result<(), Signal> {
+        let r = self.link_values_on_rec(st).and_then(|()| self.curr_record_trigger(st));
+        unknown_filtered_fields(&self.page_rec(st), OUTSIDE_READ);
+        r
+    }
+
+    /// The part's OnAfterGetCurrRecord and its subscribers.
+    fn curr_record_trigger(&mut self, st: &St) -> Result<(), Signal> {
+        self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+        self.page_event(st, "onaftergetcurrrecordevent", None, None).map(|_| ())
     }
 
     /// Part `st` reads its view again, or its page code calls a method of the page: the landing of a List-host cell it held is
@@ -250,12 +278,12 @@ impl Session {
                 "a filter of the part that is not its SubPageLink on a key field",
             ));
         }
-        let Ok(reads) = list_cell else {
+        let Ok(cell) = list_cell else {
             return Ok(Shape::Measured);
         };
         // A test whose part landed in a cell is flagged, whether or not it reads the values.
-        assumptions::assume(Assumption::EmptyPartRecListHost);
-        Ok(Shape::ListCell(reads))
+        assume_list_cell(cell.triggers);
+        Ok(Shape::ListCell(cell))
     }
 }
 
@@ -266,10 +294,19 @@ pub struct EmptyListLanding {
     steps: usize,
     /// The number of reads by an action of the part the landing's cell measured.
     reads: usize,
+    /// The host has the page triggers of probe 1378 (`ListCell::triggers`).
+    triggers: bool,
     /// The store's state at the landing (`Session::landing_store_state`).
     store: (u64, u64),
     /// A measured read runs: Rec holds the link values (`Session::reading_empty_list_rec`).
     reading: bool,
+}
+
+impl EmptyListLanding {
+    /// The host has the page triggers of probe 1378.
+    pub(super) fn triggers(&self) -> bool {
+        self.triggers
+    }
 }
 
 /// What `empty_part_rec` puts on Rec of a part that shows no row.
@@ -277,8 +314,8 @@ enum Shape {
     /// The pinned Card or Document shape: the link's single values.
     Measured,
     /// A List-host cell (`empty_part_rec_list.rs`): the link's single values, through the assumption, only inside the reads the
-    /// cell measured, with this many reads by an action of the part (`Session::reading_empty_list_rec`).
-    ListCell(usize),
+    /// cell measured (`Session::reading_empty_list_rec`).
+    ListCell(ListCell),
     /// Outside both, with the first fact that left them.
     Miss(&'static str),
 }
@@ -287,6 +324,15 @@ enum Shape {
 const OUTSIDE_READ: &str = "a read of Rec of a part that shows no row, on a field its filters name, on a List host outside the \
      reads the List-host cells measured (an action of the part the test invokes right after the landing, with no other call, \
      write to the store, rollback or error since): whether BC keeps the filter's value on Rec there is not pinned";
+
+/// Marks the assumptions a List-host cell runs through: `empty-part-rec-list-host`, and on a host with the page triggers of
+/// probe 1378 also `empty-part-rec-list-host-triggers`.
+fn assume_list_cell(triggers: bool) {
+    assumptions::assume(Assumption::EmptyPartRecListHost);
+    if triggers {
+        assumptions::assume(Assumption::EmptyPartRecListHostTriggers);
+    }
+}
 
 /// The fields the filters of `rec` name hold a `Value::Unknown` whose read is refused with `why`.
 fn unknown_filtered_fields(rec: &Rec, why: &str) {

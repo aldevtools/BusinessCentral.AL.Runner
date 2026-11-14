@@ -318,6 +318,7 @@ impl Session {
             }
             other => other?,
         }
+        self.trapped_card_blank_part_closed(st)?;
         self.stale_parts_read_at_close(st, host_saves)?;
         let members: std::sync::Arc<[String]> = al_builtins::value::ACTION_MEMBERS
             .iter()

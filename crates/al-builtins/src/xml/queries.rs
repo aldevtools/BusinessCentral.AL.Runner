@@ -195,3 +195,8 @@ pub(super) fn get_descendant_elements(_: &mut dyn Ctx, r: Option<&mut Value>, a:
     });
     Ok(list_of(v))
 }
+
+/// Whether a Variant that holds an XmlNode holds an element (see `native::variant_is`).
+pub(crate) fn variant_node_is_element(c: &mut dyn Ctx, r: Option<&mut Value>) -> Result<bool, Signal> {
+    Ok(matches!(is_element(c, r, &mut [])?, Value::Boolean(true)))
+}

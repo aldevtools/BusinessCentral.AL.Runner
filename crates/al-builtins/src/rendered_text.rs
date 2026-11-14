@@ -45,6 +45,24 @@ pub struct Render {
     pub report: String,
     pub format: String,
     pub layout: String,
+    /// Whether the rgba replace of [`DOTNET_ALLOWED`] is measured on this render: the `rgba` column of the row of al-vm's
+    /// save table (`report_save`) that wrote it.
+    pub rgba_replace: RgbaReplace,
+}
+
+/// The rgba column of the save's row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RgbaReplace {
+    Measured,
+    /// Not measured, with the reason for the refusal (the facts that differ from the nearest measured rows).
+    NotMeasured(String),
+}
+
+impl Default for RgbaReplace {
+    /// A render nothing is known of.
+    fn default() -> Self {
+        RgbaReplace::NotMeasured("nothing is known of the render".into())
+    }
 }
 
 /// The renders of the process. A marked text can outlive the session that read it (a SingleInstance global, a stored row, the
@@ -60,14 +78,20 @@ pub fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-/// Registers a render and gives its number, `None` once the numbers are used up (the read then refuses).
+/// Registers a render nothing more is known of ([`register_with`]).
 pub fn register(report: &str, format: &str, layout: &str) -> Option<u32> {
+    register_with(report, format, layout, RgbaReplace::default())
+}
+
+/// Registers a render and gives its number, `None` once the numbers are used up (the read then refuses).
+pub fn register_with(report: &str, format: &str, layout: &str, rgba_replace: RgbaReplace) -> Option<u32> {
     let mut list = RENDERS.lock().unwrap_or_else(|e| e.into_inner());
     let n = u32::try_from(list.len()).ok().filter(|n| *n < MAX_RENDERS)?;
     list.push(Render {
         report: report.to_string(),
         format: format.to_string(),
         layout: layout.to_string(),
+        rgba_replace,
     });
     Some(n)
 }
@@ -658,7 +682,7 @@ fn utf8_out(v: &Value) -> bool {
     let Value::Library(_, h) = v else {
         return false;
     };
-    matches!(&*h.borrow(), LibraryValue::OutStream(_, enc) if *enc == crate::stream::Encoding::Utf8)
+    matches!(&*h.borrow(), LibraryValue::OutStream(_, enc, ..) if *enc == crate::stream::Encoding::Utf8)
 }
 
 /// `StrSubstNo(Template, ..)`: the template is known (it holds no mark) and uses value `i` (argument `i`, `%i`) only as `%i`,
@@ -699,8 +723,10 @@ fn percent_only(args: &[Value], i: usize) -> bool {
 }
 
 /// The .NET calls a marked argument may reach (A5): (type, member). One entry, P12: `Email Message Impl.`
-/// `ReplaceRgbaColorsWithRgb` (System Application) calls `Regex.Replace(Body, Pattern, Replacement)` on every body
-/// `Email Message.Create` is given, with exactly this pattern and replacement.
+/// `ReplaceRgbaColorsWithRgb` (System Application) calls `Regex.Replace(Body, Pattern, Replacement)` on a `DotNet` variable
+/// that holds no object, with exactly this pattern and replacement, for every body that is not empty: `Email Message.Create`
+/// and `CreateReply` (through `UpdateMessage`), `SetBody` and `AppendToBody` (corpus pull request 1371,
+/// reports/html-email-body/RxEmailBodyTests.al:5-8).
 pub static DOTNET_ALLOWED: &[DotNetEntry] = &[DotNetEntry {
     ty: "System.Text.RegularExpressions.Regex",
     member: "Replace",
@@ -716,13 +742,14 @@ pub struct DotNetEntry {
     pub replacement: &'static str,
 }
 
-/// The pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb`. The replacement is never empty, so a text
-/// that is not empty stays not empty.
-const RGBA_PATTERN: &str = r"rgba\((\d+), ?(\d+), ?(\d+), ?\d+\)";
+/// The pattern and replacement of `Email Message Impl.`.`ReplaceRgbaColorsWithRgb`, the same text in System Application
+/// of the three BC majors the corpus runs (RxEmailBodyTests.al:5-6).
+const RGBA_PATTERN: &str = r"rgba\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3}),\s*1(\.0{0,2})?\)";
 const RGBA_REPLACEMENT: &str = "rgb($1, $2, $3)";
 
-/// Refuses a .NET call given a marked argument unless it is an entry of [`DOTNET_ALLOWED`]; `Ok(true)` when it is one (the
-/// caller then runs it with [`dotnet_result`] on the answer).
+/// Refuses a .NET call given a marked argument unless it is an entry of [`DOTNET_ALLOWED`] on renders the entry is measured
+/// for; `Ok(true)` when it is one (the caller then runs it with [`dotnet_result`] on the answer). `Ok(false)`: no argument holds
+/// rendered content.
 pub fn dotnet_guard(ty: &str, member: &str, args: &[Value]) -> Result<bool, Signal> {
     let Some(s) = held(args) else {
         return Ok(false);
@@ -735,15 +762,36 @@ pub fn dotnet_guard(ty: &str, member: &str, args: &[Value]) -> Result<bool, Sign
         e.ty.eq_ignore_ascii_case(ty)
             && e.member.eq_ignore_ascii_case(member)
             && args.len() == 3
-            && value_text(&args[0]).is_some()
+            && matches!(&args[0], Value::Text(_))
             && known(1).as_deref() == Some(e.pattern)
             && known(2).as_deref() == Some(e.replacement)
     });
+    let call = format!("the DotNet member {ty}.{member} given the value");
     if !entry {
-        return Err(refusal(&s, &format!("the DotNet member {ty}.{member} given the value")));
+        return Err(refusal(&s, &call));
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::EmailBodyRgbaReplaceKeepsContent);
-    Ok(true)
+    // One render per body was measured; a body that joins two (a signature report after the body report) is not.
+    let renders = marks(&s).map(|m| m.into_iter().map(|(n, _)| render(n)).collect::<Option<Vec<_>>>());
+    let Some(Some(renders)) = renders else {
+        return Err(refusal(&s, &format!("{call}, with a mark that names no render")));
+    };
+    let r = match renders.as_slice() {
+        [r] => r,
+        more => return Err(refusal(&s, &format!("{call}: the body joins {} renders", more.len()))),
+    };
+    match &r.rgba_replace {
+        RgbaReplace::Measured => {
+            crate::assumptions::assume(crate::assumptions::Assumption::EmailBodyRgbaReplaceKeepsContent);
+            Ok(true)
+        }
+        RgbaReplace::NotMeasured(why) => Err(refusal(
+            &s,
+            &format!(
+                "{call}: the rgba replace of Email Message Impl. is not measured on the Html of report {}: {why}",
+                r.report
+            ),
+        )),
+    }
 }
 
 /// The text a [`DOTNET_ALLOWED`] call answered for `input`: every mark in the changed form; refused when the answer lost or

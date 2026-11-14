@@ -305,7 +305,7 @@ fn report_no_output_the_instance_form_and_the_other_formats_run_too() {
 fn report_no_output_a_report_that_is_not_listed_keeps_the_refusal() {
     for proc in ["NotListedStaysRefused", "NotListedStreamStaysRefused"] {
         match run(proc) {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{proc}: {why}"),
+            Err(Signal::Unsupported(why)) => assert!(why.contains("not measured on BC"), "{proc}: {why}"),
             other => panic!("{proc}: {other:?}"),
         }
     }
@@ -320,7 +320,7 @@ fn report_no_output_a_same_named_report_of_another_app_is_not_listed() {
         files: vec![("f.al".into(), fixture(""))],
     }]));
     match b.run_in("RNO Tests", "RunsToAFile") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{why}"),
+        Err(Signal::Unsupported(why)) => assert!(why.contains("not measured on BC"), "{why}"),
         other => panic!("{other:?}"),
     }
 }
@@ -510,12 +510,12 @@ fn report_no_output_in_the_company_build_save_as_pdf_to_a_file_runs_the_report_a
     }
     for proc in ["CompanyBuildWord", "CompanyBuildPdfStream"] {
         match b.run_in("RNO Tests", proc) {
-            Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{proc}: {why}"),
+            Err(Signal::Unsupported(why)) => assert!(why.contains("not measured on BC"), "{proc}: {why}"),
             other => panic!("{proc}: {other:?}"),
         }
     }
     match run("CompanyBuildPdf") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("layout renderer"), "{why}"),
+        Err(Signal::Unsupported(why)) => assert!(why.contains("not measured on BC"), "{why}"),
         other => panic!("outside the company build: {other:?}"),
     }
 }

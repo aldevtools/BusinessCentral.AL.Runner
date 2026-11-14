@@ -342,6 +342,13 @@ pub struct TempId(Rc<TempToken>);
 struct TempToken {
     id: u64,
     release: Rc<RefCell<Vec<u64>>>,
+    /// The table was made for a record handed by value (al-vm `record_by_value`): the record it was copied from. The copy's Blob
+    /// fields may still share their buffers with that record and its rows.
+    by_value_of: Option<std::rc::Weak<RefCell<RecordState>>>,
+    /// The primary key of the row the table's last Insert stored while a Blob of the record was empty: a row that may share a
+    /// record's Blob buffer once the record moves on (al-vm `temp_blob_share.rs`). Where to look first, never more: the row is
+    /// looked up, and the other rows are still searched while holders stay unaccounted for.
+    empty_blob_insert_key: RefCell<Option<Vec<Value>>>,
 }
 
 impl Drop for TempToken {
@@ -352,11 +359,54 @@ impl Drop for TempToken {
 
 impl TempId {
     pub fn new(id: u64, release: Rc<RefCell<Vec<u64>>>) -> TempId {
-        TempId(Rc::new(TempToken { id, release }))
+        TempId(Rc::new(TempToken {
+            id,
+            release,
+            by_value_of: None,
+            empty_blob_insert_key: RefCell::new(None),
+        }))
+    }
+
+    /// The table of a temporary record's copy handed by value; `source` is the record it was copied from.
+    pub fn new_by_value_copy(id: u64, release: Rc<RefCell<Vec<u64>>>, source: &Rc<RefCell<RecordState>>) -> TempId {
+        TempId(Rc::new(TempToken {
+            id,
+            release,
+            by_value_of: Some(Rc::downgrade(source)),
+            empty_blob_insert_key: RefCell::new(None),
+        }))
     }
 
     pub fn id(&self) -> u64 {
         self.0.id
+    }
+
+    /// How many record states share the table (`Copy(x, true)`, a record state clone), this one included.
+    pub fn sharers(&self) -> usize {
+        Rc::strong_count(&self.0)
+    }
+
+    /// Whether the table was made for a record handed by value ([`TempId::new_by_value_copy`]).
+    pub fn is_by_value_copy(&self) -> bool {
+        self.0.by_value_of.is_some()
+    }
+
+    /// The record a by-value copy was made from, while it lives ([`TempId::new_by_value_copy`]).
+    pub fn by_value_source(&self) -> Option<Rc<RefCell<RecordState>>> {
+        self.0.by_value_of.as_ref().and_then(std::rc::Weak::upgrade)
+    }
+
+    /// An Insert into the table stored a row while a Blob of the record was empty, under the primary key `key` yields.
+    pub fn note_empty_blob_insert<'a>(&self, key: impl Iterator<Item = &'a Value>) {
+        let mut slot = self.0.empty_blob_insert_key.borrow_mut();
+        let kept = slot.get_or_insert_with(Vec::new);
+        kept.clear();
+        kept.extend(key.cloned());
+    }
+
+    /// `f` of the key [`TempId::note_empty_blob_insert`] last noted.
+    pub fn with_empty_blob_insert_key<R>(&self, f: impl FnOnce(Option<&[Value]>) -> R) -> R {
+        f(self.0.empty_blob_insert_key.borrow().as_deref())
     }
 }
 
@@ -455,6 +505,8 @@ pub struct RecordState {
     pub row_origin: Option<RowOrigin>,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
+    /// The record is a source the Blob copy probes measured (see [`ProbedSource`]).
+    pub probed_source: ProbedSource,
     /// The table's and its extensions' global variables of this record variable (ADR-021).
     pub globals: TableGlobals,
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
@@ -463,6 +515,23 @@ pub struct RecordState {
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
+}
+
+/// The record is one whose Blobs the Blob copy probes measured as the source of a record-wide move (a record passed by
+/// value, `Record.Copy`, `TransferFields` with flags, `SetTable(Rec, true)`, a Blob moved into a Variant that is not local):
+/// al-vm `blob_transfer` sets it on a declared variable, keeps it through the record methods and builtins the probes ran, and
+/// ends it at every other one (`blob_transfer::Holder`). The byte is the kind of measured record in al-vm `blob_transfer`'s
+/// encoding, 0 for every other record; the number is the session's commit count when the byte was set (a Commit since ends
+/// it).
+///
+/// `Clone` gives 0: a copy of a record state (a record passed by value, a Variant's record, xRec) is not that variable.
+#[derive(Debug, Default)]
+pub struct ProbedSource(pub u8, pub u64);
+
+impl Clone for ProbedSource {
+    fn clone(&self) -> Self {
+        ProbedSource(0, 0)
+    }
 }
 
 /// A record variable inserted a row with `Insert()` and then read it with `Get`, with nothing written to the record's store
@@ -617,6 +686,20 @@ impl DirtyBase {
 }
 
 impl RecordState {
+    /// How many of the record's own copies of its fields hold Blob buffer `b` at position `pos`: the fields and the snapshots
+    /// IsDirty, RecordRef.IsDirty and Modify compare with (`is_dirty_base`, `dirty_base`, `last_modify`).
+    pub fn blob_copies_of(&self, pos: usize, b: &crate::stream::BlobRef) -> usize {
+        let holds = |row: &[Value]| matches!(row.get(pos), Some(Value::Blob(o)) if std::sync::Arc::ptr_eq(o, b));
+        let mut rows: Vec<&[Value]> = vec![&self.fields];
+        rows.extend(self.dirty_base.as_deref());
+        rows.extend(self.last_modify.as_deref());
+        if let DirtyBase::Row { base, alt, .. } = &self.is_dirty_base {
+            rows.push(base);
+            rows.extend(alt.as_deref());
+        }
+        rows.into_iter().filter(|r| holds(r)).count()
+    }
+
     /// A copy of the record that is a variable of its own: a by-value parameter (also a temporary one). It reads the
     /// original's DECLARED value, not its current one, and `Clear` on it goes back to that value; the original keeps its
     /// current value (al-language/reports/runtime/ACAttributes.al:397, :411-414; al-language/reports/runtime/
@@ -779,6 +862,20 @@ impl TableGlobals {
         let data = self.data();
         let d = data.borrow();
         d.xrec.share()
+    }
+
+    /// Calls `f` for every instance of the set, and of `xRec`'s set, when no other handle shares them
+    /// (`instance_cycles`).
+    pub(crate) fn owned_instances(&self, f: &mut dyn FnMut(&Rc<RefCell<Instance>>)) {
+        let Ok(data) = self.data.try_borrow() else { return };
+        let Some(d) = data.as_ref().filter(|d| Rc::strong_count(d) == 1) else {
+            return;
+        };
+        let Ok(d) = d.try_borrow() else { return };
+        for (_, i) in &d.instances {
+            f(i);
+        }
+        d.xrec.owned_instances(f);
     }
 }
 
@@ -1225,6 +1322,8 @@ pub struct Instance {
     pub born: Born,
     /// The session watches this single instance's globals (al-vm `single_track.rs`).
     pub single: bool,
+    /// Counts the instance as live while it exists (`instance_cycles::live`).
+    pub live: crate::instance_cycles::LiveCount,
 }
 
 thread_local! {
@@ -1373,8 +1472,13 @@ pub enum LibraryValue {
     XmlNamespaces(crate::xml::NsScopes),
     /// An InStream: a snapshot being read.
     InStream(crate::stream::InState),
-    /// An OutStream: appends to a Blob buffer.
-    OutStream(crate::stream::BlobRef, crate::stream::Encoding),
+    /// An OutStream: appends to a Blob buffer. The last part is what the VM kept when the stream was opened on a Blob field of
+    /// a temporary record ([`crate::stream::OutOpen`]).
+    OutStream(
+        crate::stream::BlobRef,
+        crate::stream::Encoding,
+        Option<Rc<crate::stream::OutOpen>>,
+    ),
 }
 
 impl Value {
@@ -1512,10 +1616,10 @@ impl Value {
                 let n = dims.iter().map(|d| *d as usize).product();
                 Value::Array(Rc::new(RefCell::new((0..n).map(|_| Value::default_for(el)).collect())))
             }
-            RtType::Codeunit(id) => Value::Codeunit(Rc::new(RefCell::new(Instance {
+            RtType::Codeunit(id) => Value::Codeunit(crate::instance_cycles::shared(Instance {
                 object: *id,
                 ..Default::default()
-            }))),
+            })),
             // An unassigned interface holds nothing.
             RtType::Interface(_) => Value::Null,
             RtType::TestPage(id) | RtType::Page(id) => Value::TestPage(PageHandle::closed(*id)),

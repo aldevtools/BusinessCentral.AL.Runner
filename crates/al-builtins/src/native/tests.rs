@@ -36,7 +36,7 @@ pub(crate) struct TestCtx {
     err: AlError,
     install: bool,
     in_test: bool,
-    result_ignored: bool,
+    pub(crate) result_ignored: bool,
 }
 impl FormatCtx for TestCtx {
     fn enum_name(&self, _id: u32, o: i32) -> String {
@@ -169,6 +169,7 @@ fn every_registered_id_is_in_the_catalog() {
         "Record.ValidateVariant#1",
         "System.FormatDecimalField#1",
         "System.FormatAutoFormatField#1",
+        "System.AutoFormatWriterGuard#1",
         "System.FormatOptionColumn#1",
         "System.ClearWithEventsTimer#1",
         "System.OptionCaptionML#1",
@@ -181,6 +182,7 @@ fn every_registered_id_is_in_the_catalog() {
         "Media.ToVariant#1",
         "Interface.AssertAssigned#1",
         "Variant.FromTextConstant#1",
+        "Variant.FromTransactionType#1",
         "Variant.IntoInteger#1",
         "Variant.IntoOption#1",
         "Variant.Into#1",

@@ -594,44 +594,14 @@ impl Session {
                 }
                 let mut stored = Self::to_store(rec, view);
                 self.webhook_application_id(&t, rec, &mut stored)?;
-                if let Some(e) = self.sql_columns(rec, &t, &mut stored)? {
-                    // A value the SQL column cannot hold: the Insert does not fail, the next access of the table does
-                    // (record/filters/P130DateFilters.al:255-275, stage `get`), as for a duplicate key. With a Blob
-                    // field, an AutoIncrement field, the result used, an after-insert trigger or event, or a page write it is
-                    // not pinned.
-                    let has_blob = t
-                        .fields
-                        .iter()
-                        .any(|f| matches!(&f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob)));
-                    // A CRM table has no SQL column: what its table connection does with such a value is not pinned.
-                    if self.ret_used
-                        || rec.borrow().crm
-                        || has_blob
-                        || auto.is_some()
-                        || self.tx.immediate_errors
-                        || (run && !self.ext_triggers(&t, "OnAfterInsert").is_empty())
-                        || self.listened(&t, "onafterinsertevent", None)?
-                    {
-                        return unsupported(format!(
-                            "an Insert into {} of a value its SQL column cannot hold, in a form the corpus does not pin",
-                            t.name
-                        ));
-                    }
-                    Self::restore_row_version(rec, old_version);
-                    Self::unstamp(rec, stamped);
-                    self.defer_insert(rec, t.object, e);
-                    return Ok(Value::Boolean(true));
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                    let shape = InsertShape {
+                        auto: auto.is_some(),
+                        run,
+                    };
+                    return self.defer_insert_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
-                // A temporary table holds the record's own Blob object (streams/TestBlobUncommittedWriteIsolation.al:171); one
-                // that holds content now is copied by the next CreateOutStream on the record (`BlobBuf::temp_inserted`).
-                if rec.borrow().temporary {
-                    for v in &stored {
-                        if let Value::Blob(b) = v {
-                            let mut b = b.borrow_mut();
-                            b.temp_inserted = !b.bytes.is_empty();
-                        }
-                    }
-                }
+                let empty_blob = Self::temp_insert_blobs(rec, &stored);
                 Self::mark_blobs_inserted(rec, &stored, true);
                 let before = self.store.change_counter();
                 // The SQL counters' buffer before their first read (sqlcount.rs, `SqlCounters::pre_insert`).
@@ -648,6 +618,7 @@ impl Session {
                             self.sql.pre_inserted(al_data::memory::store_ops());
                         }
                         self.note_insert(rec, &t, before);
+                        Self::note_empty_blob_insert(rec, &t, empty_blob);
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
                         if !rec.borrow().temporary {
@@ -810,6 +781,7 @@ impl Session {
             }
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
+                let from_al = std::mem::take(&mut self.tx.modify_from_al);
                 self.tenant_license_state_refuses(&t, "modify")?;
                 self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
@@ -942,9 +914,12 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, view);
-                // Only the Insert of a value the SQL column cannot hold is pinned (record/filters/P130DateFilters.al:234-275).
-                if self.sql_columns(rec, &t, &mut stored)?.is_some() {
-                    return unsupported("a Modify of a value its SQL column cannot hold (not pinned)");
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                    let shape = ModifyShape {
+                        from_al,
+                        row_exists: stored_row.is_some(),
+                    };
+                    return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
                 Self::mark_blobs_inserted(rec, &stored, false);
                 let before = self.store.change_counter();
@@ -1068,8 +1043,7 @@ impl Session {
                 if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
                 }
-                self.tenant_set_delete_one_refuses(&cx, &t, rec)?;
-                self.delete_row(&t, rec, run)
+                self.delete_one(&cx, &t, rec, run)
             }
             RecordOp::DeleteAll => {
                 let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll);
@@ -1505,6 +1479,7 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::SetFilter => {
+                let from_al = std::mem::take(&mut self.setfilter_from_al);
                 let pos = arg_pos(args, 0)?;
                 rec.borrow_mut().position = None;
                 let ty = t.fields[pos].ty.clone();
@@ -1612,17 +1587,8 @@ impl Session {
                         let (type_name, value) = e[al_builtins::filter::NOT_EVALUATED.len()..]
                             .split_once('\t')
                             .expect("type and value");
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The value \"{value}\" can't be evaluated into type {type_name}.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = format!("The value \"{value}\" can't be evaluated into type {type_name}.");
+                        return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     // A number filter that starts with a placeholder kept as written next to a wildcard
                     // (record/filters/W4Filters.al:694 `num_star_after`).
@@ -1631,33 +1597,17 @@ impl Session {
                             && self.global_language == 1033 =>
                     {
                         let value = &e[al_builtins::filter::VARIABLE_NOT_UNDERSTOOD.len()..];
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The variable \"{value}\" was not understood.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = format!("The variable \"{value}\" was not understood.");
+                        return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     // The German error of a date no Date filter reads (P143Date_DePlain.al, _DeRanges.al, _DeFormulas.al).
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1033 => {
                         // P81DateFilters.al:SetFilter_Date_InvalidTexts.
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. The format of the Date '{bad}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = format!(
+                            "The format of the Date '{bad}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
+                        );
+                        return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     Err(e) if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language == 1033 => {
                         let inner = &e[al_builtins::filter::FILTER_SYNTAX.len()..];
@@ -1665,16 +1615,7 @@ impl Session {
                             Some(i) => (text.as_str(), i),
                             None => (text.trim(), inner),
                         };
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{shown}\" is not valid for the {} field on the {} table. {inner}",
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        return Err(self.filter_error(&t, pos, shown, inner));
                     }
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) => {
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
@@ -1699,17 +1640,14 @@ impl Session {
                     }
                     // types/date-time/P143Guid_Filters.al:P143_GuidInvalid, P143Date_FieldRef.al:P143_FieldRefGuid.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_GUID) => {
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: format!(
-                                "The filter \"{}\" is not valid for the {} field on the {} table. Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-                                text.trim(),
-                                self.field_caption(&t, pos),
-                                self.caption(&t)
-                            ),
-                            code: "Filter:CSide".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
+                        let reason = "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.";
+                        return Err(self.filter_error(&t, pos, text.trim(), reason));
+                    }
+                    // An empty side of `|` in the measured shapes (`setfilter_empty_or_side`); every other text main refused.
+                    Err(e) if e == al_builtins::filter::EMPTY_TERM => {
+                        return Err(self
+                            .setfilter_empty_or_side(from_al, &t, pos, rec, args)
+                            .unwrap_or_else(|| Signal::unsupported(format!("SetFilter: {e}"))));
                     }
                     Err(e) => return Err(Signal::unsupported(format!("SetFilter: {e}"))),
                 };
@@ -2077,6 +2015,8 @@ impl Session {
                 }
                 // After the All Profile key check: a tenant profile renamed from the empty App ID gets that error
                 // (profiles/TestAllProfileTable.al:186).
+                // A stale record gets DB:RecordChanged before the blank-key error (stale_rename.rs).
+                self.stale_rename(&cx, rec, &t, &old, &new, from_al, rename_note.0)?;
                 let blank_key = self.blank_key_rename(&cx, rec, &t, &refs, &old, &new, from_al)?;
                 // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
                 // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).
@@ -2268,10 +2208,7 @@ impl Session {
                     }
                 }
             }
-            RecordOp::Truncate => {
-                self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Truncate);
-                self.truncate(&t, rec, arg_bool(args, 0)?)
-            }
+            RecordOp::Truncate => self.truncate_all(&cx, &t, rec, arg_bool(args, 0)?),
             RecordOp::CalcFields | RecordOp::CalcSums | RecordOp::SetAutoCalcFields => self.flow_op(method, rec, args),
             RecordOp::LoadFields => self.load_fields_row(rec, &t, args),
             RecordOp::SetLoadFields

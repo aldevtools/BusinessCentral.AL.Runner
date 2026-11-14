@@ -4735,7 +4735,7 @@ codeunit 50000 "T" { Subtype = Test;
 // The platform renders the layout Tenant Report Layout Selection names for the report. A Pdf save writes a placeholder only
 // while that layout is an RDLC or Word layout of the report (ADR-040 amendment "A placeholder PDF"); an Excel layout writes no
 // output on BC (reports/layouts-saveas/AMReportOutputTests.al:257 ExcelLayout_SaveAsPdf), so a selection of one refuses.
-// The report writes one dataset row: a save of a Word report with no row is a separate rule (`no_row_save`, refused but for
+// The report writes one dataset row: a save of a Word report with no row is a separate rule (`report_save` rows with no dataset row, refused but for
 // the pinned Html-to-stream shape), and this test is about the layout selection.
 #[test]
 fn a_pdf_save_follows_tenant_report_layout_selection_or_refuses() {

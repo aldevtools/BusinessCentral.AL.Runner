@@ -73,7 +73,10 @@ impl Session {
     pub(crate) fn record_op_of_al(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.tx.insert_from_al = method == RecordOp::Insert;
         self.tx.rename_from_al = method == RecordOp::Rename;
-        self.record_op(method, rec, args)
+        self.tx.modify_from_al = method == RecordOp::Modify && !self.through_recordref;
+        let r = self.record_op(method, rec, args);
+        self.tx.modify_from_al = false;
+        r
     }
 
     /// Leaves the error of a duplicate-key Insert of `rec` into table `object` pending, unless one is pending already, and notes

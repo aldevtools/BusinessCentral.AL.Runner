@@ -1,7 +1,7 @@
 //! A Blob that moves through `FieldRef.Value :=`, `FieldRef.Validate`, `RecordRef.GetTable` / `SetTable`, `TransferFields` or a
 //! Variant is a copy taken at that moment (assumption `blob-transfer-copies`: corpus PR 1369,
 //! recordref-fieldref/fieldref/FieldRefValueBlobCopy.al; al-runner issue 7935). The shapes below repeat cells of that file; the
-//! expected values are the ones it asserts. `hv:` / `nohv:` is `HasValue`, then the text a stream reads.
+//! expected values are the ones it asserts. The shapes of the second probe are in `blob_value_copy_shapes.rs`. `hv:` / `nohv:` is `HasValue`, then the text a stream reads.
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;
@@ -290,7 +290,7 @@ codeunit 50437 C
         exit(Rd(Dst));
     end;
 
-    // Not measured: a field a table extension declares.
+    // A field a table extension declares.
     procedure ExtensionFieldWithContent(): Text
     var
         Src: Record "RM Row" temporary;
@@ -302,7 +302,7 @@ codeunit 50437 C
         exit('ran');
     end;
 
-    // Not measured: Compressed = false.
+    // Compressed = false.
     procedure UncompressedFieldWithContent(): Text
     var
         Src: Record "RM Row" temporary;
@@ -326,7 +326,7 @@ codeunit 50437 C
         exit('ran');
     end;
 
-    // Not measured: GetTable of a record whose extension field holds content.
+    // GetTable of a record whose extension field holds content.
     procedure GetTableExtensionFieldWithContent(): Text
     var
         Src: Record "RM Row" temporary;
@@ -339,7 +339,7 @@ codeunit 50437 C
         exit('ran');
     end;
 
-    // Not measured: TransferFields of a record whose Compressed = false field holds content.
+    // TransferFields of a record whose Compressed = false field holds content.
     procedure TransferFieldsUncompressedWithContent(): Text
     var
         Src: Record "RM Row" temporary;
@@ -367,7 +367,7 @@ codeunit 50437 C
         exit('ran');
     end;
 
-    // Out of scope, main's result (the buffer is shared): TransferFields with InitPrimaryKeyFields written.
+    // TransferFields with InitPrimaryKeyFields written.
     procedure TransferFieldsTwoArguments(): Text
     var
         Src: Record "RM Row" temporary;
@@ -398,7 +398,7 @@ codeunit 50437 C
     var
         GV: Variant;
 
-    // Out of scope, main's result (the buffer is shared): a global Variant.
+    // A global Variant.
     procedure GlobalVariant(): Text
     var
         Src: Record "RM Row" temporary;
@@ -516,20 +516,32 @@ fn a_variant_holds_a_copy() {
 
 #[test]
 fn content_into_or_from_a_field_that_is_not_measured_is_refused() {
-    refused("ExtensionFieldWithContent");
-    refused("UncompressedFieldWithContent");
     refused("FlowFieldWithContent");
-    refused("GetTableExtensionFieldWithContent");
-    refused("TransferFieldsUncompressedWithContent");
-    refused("ExtensionFieldFromUnreadSource");
+}
+
+/// Refused until corpus PR 1372 measured that a table extension field and a Compressed = false field copy as the others do
+/// (streams/BlobValueCopyShapes.al:1174, :1190, :1206); the values are in `blob_value_copy_shapes.rs`.
+#[test]
+fn moves_of_an_extension_or_uncompressed_field_run() {
+    assert_eq!(run("GetTableExtensionFieldWithContent"), ("ran".into(), true));
+    assert_eq!(run("TransferFieldsUncompressedWithContent"), ("ran".into(), true));
+    assert_eq!(run("ExtensionFieldWithContent"), ("ran".into(), true));
+    assert_eq!(run("UncompressedFieldWithContent"), ("ran".into(), true));
+    assert_eq!(run("ExtensionFieldFromUnreadSource"), ("ran".into(), true));
+}
+
+/// Shared until corpus PR 1372 measured them: TransferFields(Rec, true) (streams/BlobValueCopyShapes.al:741) and a global
+/// Variant (:672) copy.
+#[test]
+fn transferfields_with_a_flag_and_a_global_variant_copy() {
+    assert_eq!(run("TransferFieldsTwoArguments"), ("hv:alpha".into(), true));
+    assert_eq!(run("GlobalVariant"), ("hv:alpha".into(), true));
 }
 
 #[test]
 fn call_forms_that_are_not_measured_keep_mains_result() {
-    assert_eq!(run("TransferFieldsTwoArguments"), ("hv:betaa".into(), false));
-    // GetTable copied (flagged); the two SetTable calls share the RecordRef's buffer as before.
+    // GetTable copied (flagged); the two SetTable(Rec, false) calls share the RecordRef's buffer as before.
     assert_eq!(run("SetTableTwoArguments").0, "hv:zzpha");
-    assert_eq!(run("GlobalVariant"), ("hv:betaa".into(), false));
 }
 
 #[test]
@@ -540,5 +552,7 @@ fn empty_blobs_of_fields_that_are_not_measured_keep_mains_result() {
 
 #[test]
 fn gettable_of_a_row_read_without_calcfields_keeps_mains_result() {
-    assert_eq!(run("GetTableUnloadedRow"), ("hv:alpha".into(), false));
+    // The value as before. The SetTable on the way now gives the record a not-loaded Blob of its own (flagged; corpus PR 1372,
+    // streams/BlobValueCopyShapes.al:368 N1, :417 N3).
+    assert_eq!(run("GetTableUnloadedRow"), ("hv:alpha".into(), true));
 }

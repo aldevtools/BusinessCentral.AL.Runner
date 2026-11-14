@@ -79,7 +79,7 @@ impl Session {
     pub(super) fn xp_export_declaration_only(&mut self, inst: &Inst, schema: &Schema) -> Result<Value, Signal> {
         let blob = match inst.borrow().globals[schema.xp().destination_slot].clone() {
             Value::Library(_, h) => match &*h.borrow() {
-                LibraryValue::OutStream(blob, _) => blob.clone(),
+                LibraryValue::OutStream(blob, ..) => blob.clone(),
                 // An OutStream variable that no stream was set into.
                 _ => al_builtins::stream::new_blob(),
             },
@@ -98,7 +98,7 @@ impl Session {
         // The document is written in its own encoding whatever the stream's own.
         let blob = match inst.borrow().globals[xp.destination_slot].clone() {
             Value::Library(_, h) => match &*h.borrow() {
-                LibraryValue::OutStream(blob, _) => blob.clone(),
+                LibraryValue::OutStream(blob, ..) => blob.clone(),
                 // An OutStream variable that no stream was set into.
                 _ => al_builtins::stream::new_blob(),
             },

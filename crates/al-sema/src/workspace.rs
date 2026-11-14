@@ -239,6 +239,9 @@ pub struct Workspace {
     /// later. The default is the corpus symbol of the gate's BC major (`BC<major>PLUS`); a compile with a target sets it from the target's runtime
     /// ([`Workspace::set_user_name_fields_for`]).
     user_name_fields: bool,
+    /// The ids (lower case) of the apps the platform package's `InternalsVisibleTo` grants access to its internal
+    /// members, matched by id and publisher by the caller ([`Workspace::set_internals_granted`]).
+    internals_granted: Vec<String>,
 }
 
 /// The gate that says from which BC major every table has the user-name system FlowFields.
@@ -255,6 +258,18 @@ impl Workspace {
         if let Some(m) = bc_major {
             self.user_name_fields = m >= USER_NAME_FIELDS_GATE.since_bc();
         }
+    }
+
+    /// Sets the apps the platform package's `InternalsVisibleTo` grants (ids; issue 7853). The caller matches each grant
+    /// by app id and publisher, as alc 18.0.39.10160 does.
+    pub fn set_internals_granted(&mut self, app_ids: Vec<String>) {
+        self.internals_granted = app_ids;
+    }
+
+    /// Whether the platform package grants app `app` access to its internal members (see `set_internals_granted`).
+    pub fn internals_granted_to(&self, app: usize) -> bool {
+        let id = &self.apps[app].id;
+        self.internals_granted.iter().any(|g| g.eq_ignore_ascii_case(id))
     }
 
     /// The preprocessor symbols app `app` was parsed with.
@@ -337,6 +352,7 @@ impl Workspace {
             lazy_text: Vec::new(),
             loaded_files: 0,
             user_name_fields: symbols.contains(&format!("BC{}PLUS", USER_NAME_FIELDS_GATE.since_bc())),
+            internals_granted: Vec::new(),
         };
         let all: Vec<&AppSource> = apps.iter().collect();
         ws.visible = (0..apps.len()).map(|i| visible_from(&all, i)).collect();

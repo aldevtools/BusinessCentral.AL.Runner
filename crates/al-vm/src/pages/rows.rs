@@ -116,33 +116,8 @@ impl Session {
             let Value::Record(empty) = self.default_value(&RtType::Record(t.object, false)) else {
                 return unsupported("an empty record of the page's source table");
             };
-            // How many times: writer SX pinned it for a Card or a List opened with OpenView or OpenEdit over a table with one
-            // CaptionClass expression field (Card 8, List 7) or two with the same expression (Card 18, List 16 in all; corpus
-            // record/captions/SxCaptionClassCount.al:190 SX_CardOne_OpenEdit, :236 SX_CardTwo_OpenEdit, :282
-            // SX_ListOne_OpenEdit, :328 SX_ListTwo_OpenEdit and their OpenView twins, the same in three cycles on every
-            // supported major; al-runner issue 5870).
-            if let Some(runs) = self.caption_empty_runs_pinned(st, &exprs) {
-                for _ in 0..runs {
-                    for (pos, expr) in &exprs {
-                        self.field_caption_class_value(&t, *pos, Some(&empty), expr)?;
-                    }
-                }
-            } else {
-                // Any other shape: the number is not pinned (the corpus saw 240, 480 and 492 calls for one 12-field Card open,
-                // QdCaptionClassAreas.al:657), and it matters only when an expression leaves something behind that AL code can
-                // read later: such an open is refused (`effects.rs`). Every open that runs them is a flagged pass at best
-                // (owner decision 2026-10-21).
-                if let Some(why) = self.caption_class_lasting_effect(&t, &exprs) {
-                    return unsupported(why);
-                }
-                al_builtins::assumptions::assume(
-                    al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount,
-                );
-                for _ in 0..20 {
-                    for (pos, expr) in &exprs {
-                        self.field_caption_class_value(&t, *pos, Some(&empty), expr)?;
-                    }
-                }
+            if self.run_caption_open_empty_runs(st, &t, &exprs, &empty)? {
+                return Ok(());
             }
         } else {
             // The other rows the open reads and a Next() run no expression, and Caption() keeps the open's value
@@ -170,40 +145,6 @@ impl Session {
             }
         }
         self.fill_field_captions_with_row(st, &t, &exprs, runs)
-    }
-
-    /// Runs the CaptionClass expression of each control over such a field with the current row, `runs` times, and keeps the
-    /// last caption for `Caption()`.
-    fn fill_field_captions_with_row(
-        &mut self,
-        st: &St,
-        t: &al_data::TableDef,
-        exprs: &[(usize, String)],
-        runs: usize,
-    ) -> Result<(), Signal> {
-        let rec = self.page_rec(st);
-        let engine = self.engine();
-        let page = page_of(&engine, st);
-        for _ in 0..runs {
-            for (idx, c) in page.controls.iter().enumerate() {
-                if c.prop("captionclass").is_some() {
-                    continue;
-                }
-                let Some(field) = self.control_field(st, idx) else {
-                    continue;
-                };
-                let Some((pos, expr)) = exprs.iter().find(|(pos, _)| t.fields[*pos].id == field.id) else {
-                    continue;
-                };
-                let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
-                let caption = self.control_expression_caption(&t.fields[*pos].name, &class)?;
-                let mut s = st.borrow_mut();
-                s.field_captions.retain(|(i, _)| *i != idx);
-                s.field_captions.push((idx, caption));
-            }
-        }
-        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.clone());
-        Ok(())
     }
 
     /// The page shapes whose CaptionClass expression runs on GoToKey, GoToRecord, First, Last and Previous are pinned
@@ -312,26 +253,6 @@ impl Session {
         let r = self.fill_field_caption_expressions(st);
         st.borrow_mut().field_captions_fill_first = false;
         r
-    }
-
-    /// Why the empty-record runs of a page open are refused: the CaptionClass expression of a field of `t` can leave
-    /// something behind (`Engine::lasting_effect`), so how many times BC runs it, which is not pinned, can be read later.
-    /// Writes only to variables of SingleInstance codeunits are kept (`effects::Effect::Kept`): refusing them costs
-    /// baseline cases.
-    fn caption_class_lasting_effect(&self, t: &al_data::TableDef, exprs: &[(usize, String)]) -> Option<String> {
-        let table = self.engine.program.objects[t.object as usize].table.as_ref()?;
-        exprs.iter().find_map(|(pos, _)| {
-            let (object, routine) = table.fields.get(*pos)?.caption_class?;
-            let crate::effects::Effect::Refused(effect) = self.engine.lasting_effect(object, routine)? else {
-                return None;
-            };
-            Some(format!(
-                "the CaptionClass expression of field {} of table {} {effect}, and how many times BC runs it with an empty \
-                 record during a page open is not pinned (al-runner issue 5870)",
-                t.fields[*pos].name,
-                self.engine.program.objects[t.object as usize].name
-            ))
-        })
     }
 
     /// The page shapes whose CaptionClass expression runs are pinned (record/captions/QdCaptionClassAreas.al): a
@@ -2387,18 +2308,10 @@ impl Session {
         let mut found = false;
         // The last block this scan read: whether it was full and the key of its last row.
         let mut block: Option<(bool, Vec<Value>)> = None;
-        // A Document host walks its rows from the first one, and its parts read their rows for each host row it passes whose
-        // lines they do not already show (pages/parts/QjPartPropagation.al:1183 QL_Both_GoToKey_Counts
-        // `log-gotokey-h2-again` = H1 with the part's reads, then H2 with them; :1210 QL_Default_GoToKey_Counts). Pinned for a
-        // Document page; another host keeps the earlier reads.
-        let doc_host = {
-            let object = st.borrow().object as usize;
-            self.engine.object_facts[object].page_type == Some(al_ir::PageType::Document)
-        } && !self.is_list(st)
-            && st.borrow().host.is_none()
-            && !st.borrow().parts.is_empty();
-        let mut parts_show =
-            (doc_host && before_cursor == Cursor::Row && !before_draft).then(|| table.primary_key(&before_fields));
+        // The parts read their rows for each host row the walk passes (`walk_parts.rs`).
+        let walk = self.walk_reads_parts(st);
+        let mut parts_show = (walk.is_some() && before_cursor == Cursor::Row && !before_draft)
+            .then(|| table.primary_key(&before_fields));
         st.borrow_mut().walk_synced_parts = false;
         while at {
             st.borrow_mut().cursor = Cursor::Row;
@@ -2423,9 +2336,8 @@ impl Session {
             }
             if let Some(shown) = &parts_show {
                 if !Self::same_key(shown, &here) {
-                    self.sync_parts(st)?;
+                    self.sync_parts_passed(st, walk)?;
                     parts_show = Some(here.clone());
-                    st.borrow_mut().walk_synced_parts = true;
                 }
             }
             at = self.nav_next(st, 1)?;

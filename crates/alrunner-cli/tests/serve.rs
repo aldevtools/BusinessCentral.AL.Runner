@@ -383,6 +383,87 @@ fn another_test_runner_is_compiled_again() {
     assert_eq!(run(&mut s, None).last().unwrap()["cached"], true);
 }
 
+/// The reporter's repro of al-runner issue 7978, with a third codeunit.
+const CACHE_PROBE: &str = r#"
+codeunit 50120 "Cache Probe A"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesA()
+    begin
+    end;
+}
+
+codeunit 50121 "Cache Probe B"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesB()
+    begin
+    end;
+}
+
+codeunit 50122 "Cache Probe C"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesC()
+    begin
+    end;
+}
+"#;
+
+/// The compile depends on the sources, not on the `test` filter: a request that selects another codeunit of the same
+/// sources reuses the compile, and runs only what it selects (al-runner issue 7978).
+#[test]
+fn another_test_filter_on_the_same_sources_reuses_the_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "cacheprobe", CACHE_PROBE);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let mut run = |test: &str, coverage: bool| {
+        let mut request = json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "test", "test": test});
+        if coverage {
+            request["coverage"] = json!(true);
+            request["perTestCoverage"] = json!(true);
+        }
+        s.send(request);
+        let lines = s.until_summary();
+        let ran: Vec<String> = lines
+            .iter()
+            .filter(|l| l["type"] == "test" && l["status"] == "pass")
+            .map(|l| l["name"].as_str().unwrap_or_default().to_string())
+            .collect();
+        let summary = lines.last().unwrap().clone();
+        (summary["cached"].clone(), summary["total"].clone(), ran)
+    };
+    let one = |name: &str| vec![name.to_string()];
+    assert_eq!(
+        run("Codeunit50120.", false),
+        (json!(false), json!(1), one("Codeunit50120.PassesA")),
+        "the first request compiles"
+    );
+    assert_eq!(
+        run("Codeunit50121.", false),
+        (json!(true), json!(1), one("Codeunit50121.PassesB"))
+    );
+    assert_eq!(
+        run("Codeunit50121.", false),
+        (json!(true), json!(1), one("Codeunit50121.PassesB"))
+    );
+    assert_eq!(
+        run("Codeunit50122.", true),
+        (json!(true), json!(1), one("Codeunit50122.PassesC"))
+    );
+    assert_eq!(
+        run("Codeunit50120.", true),
+        (json!(true), json!(1), one("Codeunit50120.PassesA"))
+    );
+}
+
 const TWO_UNITS: &str = r#"
 codeunit 50400 "Boom Tests"
 {
@@ -1014,6 +1095,35 @@ fn tdd_true_on_run_tests_runs_against_stubs_and_flags_the_line_and_the_summary()
     let summary = lines.last().unwrap();
     assert_eq!(summary["cached"], false, "{summary}");
     assert_no_tdd_al0132(&lines);
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+/// The kept compile holds every test codeunit (ADR-028 amendment of 2026-11-13), so with a `test` filter the summary's
+/// `generatedStubs` still lists the stubs of the test codeunits the filter leaves out.
+#[test]
+fn with_tdd_and_a_test_filter_the_summary_lists_the_stubs_of_unselected_test_codeunits() {
+    let d = tempfile::tempdir().unwrap();
+    let a = tdd_app(d.path());
+    write(
+        &a,
+        "src/Other.al",
+        "codeunit 50112 \"Serve Other Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Alone()\n    begin\n    end;\n}\n",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": true, "test": "Codeunit50112."}));
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 1, "{lines:?}");
+    assert_eq!(line_of(&lines, "Alone")["status"], "pass", "{lines:?}");
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["generatedStubs"], json!([DOUBLE_IT]), "{summary}");
+    assert_eq!(
+        summary["stubbed"],
+        json!({"passed": 0, "failed": 0, "error": 0}),
+        "{summary}"
+    );
     s.send(json!({"command": "shutdown"}));
     s.line();
 }

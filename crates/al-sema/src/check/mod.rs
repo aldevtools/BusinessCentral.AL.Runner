@@ -209,9 +209,6 @@ pub enum Res {
     DotNetMember(String),
     /// `--tdd` (ADR-051): a call of a procedure the target object does not declare, in a test app. It runs as a stub.
     TddStub(Box<tdd::TddSite>),
-    /// `X` before `::` read as enum type `object` although the implicit Rec has a field `X` of another type
-    /// (al-runner issue 6129, assumption `EnumTypeBeforeRecField`; `infer.rs` `enum_type_before_rec_field`).
-    EnumTypeBeforeRecField(usize),
     /// `Ns.Sub."Enum"` as the receiver of `FromInteger`: enum `object` named through its namespace (al-runner issue 7920,
     /// assumption `NamespacedEnumReceiver`; `infer.rs` `member_receiver`).
     NamespacedEnumReceiver(usize),
@@ -1198,6 +1195,9 @@ pub(crate) struct ObjCtx {
     /// The protected variables of other extensions of the same page this page extension sees, by lower-case name, with
     /// the extension that declares each (they are also in `globals`).
     ext_vars: std::rc::Rc<HashMap<String, usize>>,
+    /// In a codeunit with TableNo, the globals its procedures see: the object's own variables, without the implicit
+    /// `Rec` and `xRec` (`object_ctx`).
+    table_no_procedure_globals: Option<std::rc::Rc<posmap::FxMap<String, Ty>>>,
 }
 
 /// The `this` keyword: the object whose code is running (Microsoft Learn, "this keyword"). Only the unquoted spelling

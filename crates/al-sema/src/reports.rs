@@ -143,6 +143,8 @@ pub struct Layout {
     pub rendering: Vec<(String, String, String, String)>,
     /// `DefaultRenderingLayout`.
     pub default_rendering: Option<String>,
+    /// `ir::Report::layout_properties`.
+    pub layout_properties: Vec<String>,
 }
 
 /// The entries of a `labels` section: `Name = 'text'` with optional `Comment`, `MaxLength` and `Locked` after a comma,
@@ -351,6 +353,11 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
         dataset_reasons: Vec::new(),
         labels: Vec::new(),
         rendering: rendering_layouts(obj),
+        layout_properties: [("RDLCLayout", "rdlc"), ("WordLayout", "word"), ("ExcelLayout", "excel")]
+            .iter()
+            .filter(|(n, _)| obj.properties().any(|p| p.name().eq_ignore_ascii_case(n)))
+            .map(|(_, kind)| kind.to_string())
+            .collect(),
         default_rendering: obj
             .properties()
             .find(|p| p.name().eq_ignore_ascii_case("DefaultRenderingLayout"))
@@ -1414,6 +1421,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
             .collect(),
         default_rendering_layout: layout.default_rendering.clone(),
         default_layout_kind: layout.default_layout_kind.clone(),
+        layout_properties: layout.layout_properties.clone(),
     }
 }
 
@@ -1818,8 +1826,8 @@ mod tests {
     }
 
     /// The syntax of a column source (reports/dataset/DatasetDecimalPlacesValueOrigins.al:47 `D05`, :52 `Row.D05`, :71
-    /// `RecLiteral.D05`, :79 `VarLiteral`; :53 `D05 * 1` is an expression). A name may still lower to a call; al-vm
-    /// `decimal_column.rs` reads the routine for that.
+    /// `RecLiteral.D05`, :79 `VarLiteral`; :53 `D05 * 1` is an expression). al-vm `decimal_column.rs` marks the trailing zeros a
+    /// name or two names write as an assumption; an expression's are pinned.
     #[test]
     fn a_column_source_is_a_name_two_names_or_other() {
         use ir::SourceSyntax::{Member, Name, Other};

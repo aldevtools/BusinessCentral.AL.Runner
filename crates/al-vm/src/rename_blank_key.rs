@@ -340,7 +340,7 @@ impl Session {
 
     /// How the record got the row it renames. It holds the stored row as it is, every stored field: read by Get of a
     /// committed row (the base cell), or inserted by the variable itself (:2674, :3007, from blank). A stale record gets
-    /// another error on Business Central (:2894), which is not modelled.
+    /// another error on Business Central (:2894), raised before this rule by `Session::stale_rename` (stale_rename.rs).
     fn buffer_fact(&self, rec: &Rec, t: &TableDef, stored: &[Value], old: &[Value], from_blank: bool) -> Fact {
         let same = |i: usize| ops::compare(&stored[i], &old[i]).ok() == Some(Ordering::Equal);
         if !t.fields.iter().enumerate().all(|(i, f)| !f.stored || same(i)) {

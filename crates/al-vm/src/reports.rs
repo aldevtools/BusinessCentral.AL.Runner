@@ -1562,7 +1562,7 @@ impl Session {
                 );
             }
         }
-        let shows_page = entry == Entry::Run && window;
+        let shows_page = self.note_report_start(entry == Entry::Run && window);
         self.report.report_preview_pinned.push(match entry {
             Entry::Run => crate::state::ReportStart::Run,
             Entry::Execute | Entry::Print => crate::state::ReportStart::Execute,
@@ -2471,7 +2471,7 @@ impl<'a> ItemTree<'a> {
 
 // ---------------------------------------------------------------------- Report.SaveAs
 
-use crate::report_placeholder::{Rendered, SaveOutput};
+use crate::report_placeholder::SaveOutput;
 
 /// Where a rendering save puts its output.
 pub(crate) enum SaveTarget {
@@ -2545,7 +2545,7 @@ impl Session {
         };
         let blob = match args.get(at + 2) {
             Some(Value::Library(_, h)) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+                al_builtins::value::LibraryValue::OutStream(blob, ..) => blob.clone(),
                 other => return unsupported(format!("{id} to {}, which is not an OutStream", other.describe())),
             },
             other => return unsupported(format!("{id} to {}", other.describe())),
@@ -2660,7 +2660,7 @@ impl Session {
             // subscriber that substitutes another report is not pinned.
             if record_ref.is_none()
                 && matches!(target, SaveTarget::Stream(_))
-                && crate::report_placeholder::format_refused_by_layout(&schema, &format)
+                && self.format_unsupported_by_layout(&schema, &format)
                 && self
                     .engine
                     .events
@@ -2717,11 +2717,11 @@ impl Session {
                 return Err(Signal::Error(Box::new(e)));
             }
         }
-        // ADR-040 and its amendments: the format x layout grid (`report_placeholder::grid`).
+        // ADR-040 and its amendments: the save table (`report_save`).
         if format != "Xml" {
-            match self.rendered_save(&schema, &format, &target, result_used, custom.is_some())? {
-                Rendered::Write(o) => output = o,
-                Rendered::False(e) => {
+            match self.static_or_variable_save(&schema, &format, &target, result_used, custom.is_some())? {
+                Ok(o) => output = o,
+                Err(e) => {
                     self.last_error = e;
                     return Ok(Value::Boolean(false));
                 }
@@ -2935,7 +2935,7 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                let saved = self.write_save_output(target, output, &schema, &bytes, rows, Some(result_used))?;
+                let saved = self.write_save_output(target, output, &schema, &bytes, rows)?;
                 Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
@@ -3125,14 +3125,13 @@ impl Session {
             .iter()
             .map(|n| n.to_string())
             .collect();
+        let source = LibraryValue::InStream(InState::live(document, Encoding::Utf8));
+        let target = LibraryValue::OutStream(output.clone(), Encoding::Utf8, None);
         let mut args = vec![
             Value::Integer(self.object_id_of(schema.object as u32) as i32),
             al_builtins::json::unpinned_object("the ObjectPayload of OnDocumentReady is not pinned"),
-            stream(
-                "InStream",
-                LibraryValue::InStream(InState::live(document, Encoding::Utf8)),
-            ),
-            stream("OutStream", LibraryValue::OutStream(output.clone(), Encoding::Utf8)),
+            stream("InStream", source),
+            stream("OutStream", target),
             Value::Boolean(false),
         ];
         let call = crate::dispatch::EventCall {
@@ -3481,7 +3480,7 @@ impl Session {
                 "InStream",
                 LibraryValue::InStream(InState::snapshot(layout_bytes, Encoding::Utf8)),
             ),
-            stream("OutStream", LibraryValue::OutStream(blob.clone(), Encoding::Utf8)),
+            stream("OutStream", LibraryValue::OutStream(blob.clone(), Encoding::Utf8, None)),
             Value::Boolean(false),
         ];
         let call = crate::dispatch::EventCall {
@@ -3860,24 +3859,6 @@ impl Session {
     /// as their captions, a Duration as words, a Guid without braces, and a Decimal in full with a
     /// `decimalformatter` attribute from `DecimalPlaces` of the column, else of the field. Every other
     /// type is refused. A column that asks for its caption adds to the Labels block.
-    /// The `decimalformatter` of a Decimal column: from `DecimalPlaces` of the column, else of the field (`dataset::decimal_formatter`).
-    /// Without either it is `#,##0.00` on every version (reports/runtime/YReportPropsTests.al:40, 1234567.891;
-    /// reports/W3ReportObjectIdPreviewLanguage.al:448). BC follows General Ledger Setup "Amount Decimal Places" as the
-    /// session first read it; the corpus tests read it at the default 2:2 after SelectLatestVersion (corpus bump 28: the
-    /// earlier BC 28 `#,##0.00###` was a value left by an earlier test).
-    fn decimal_column_formatter(
-        &self,
-        t: &Option<Arc<al_data::TableDef>>,
-        c: &ir::ReportColumn,
-    ) -> Result<String, Signal> {
-        let from_field = match (t, c.field, c.places_table.zip(c.places_field)) {
-            (Some(t), Some(pos), _) => self.field_property(t, pos, "DecimalPlaces"),
-            (_, None, Some(at)) => crate::column_formatter::field_places(&self.engine.program, at),
-            _ => None,
-        };
-        crate::column_formatter::of_column(c, from_field.as_deref())
-    }
-
     fn dataset_column(
         &mut self,
         c: &ir::ReportColumn,
@@ -4018,7 +3999,7 @@ impl Session {
                 let Value::Decimal(d) = &value else {
                     unreachable!("matched a Decimal")
                 };
-                crate::decimal_column::text(&self.engine.program, object, c, *d)
+                crate::decimal_column::text(c, *d)
             }
             // The column's OptionCaptionML: the caption of the session language, ENU where it has none
             // (record/table-properties/XTablePropsTests.al:741-785, `EnuOnly` shows `Only B` in 1031).

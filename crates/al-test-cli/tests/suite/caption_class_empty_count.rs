@@ -493,3 +493,495 @@ fn a_caption_expression_that_only_fills_a_local_list_still_runs() {
         other => panic!("SharedList: {other:?}"),
     }
 }
+
+/// al-runner issues 7424, 7467 and 7391 (record/captions/CaptionClassStateFreeCalls.al): an expression that calls
+/// UserSecurityId, RecordRef.GetTable on a local RecordRef, or reaches Message or Error without taking that branch with the
+/// empty record runs in an open whose count is not pinned (a List with three expression fields). A Message that a run of that
+/// open raises (an empty-record run or the row run) refuses; an error of an empty-record run fails the open; a GetTable on a
+/// global RecordRef keeps main's refusal.
+const STATE_FREE: &str = r#"
+table 50190 "Sf Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; A; Decimal) { CaptionClass = UserCc(); }
+        field(3; B; Decimal) { CaptionClass = RefCc(); }
+        field(4; C; Decimal) { CaptionClass = BranchCc(); }
+    }
+    keys { key(PK; Id) { } }
+    local procedure UserCc(): Text
+    begin
+        if IsNullGuid(UserSecurityId()) then exit('3,None');
+        exit('3,User');
+    end;
+    local procedure RefCc(): Text
+    var RecRef: RecordRef;
+    begin
+        RecRef.GetTable(Rec);
+        exit('3,Ref');
+    end;
+    local procedure BranchCc(): Text
+    begin
+        if Id = 7 then Message('taken');
+        if Id = 8 then if Confirm('taken?') then;
+        if Id = 9 then Error('taken error');
+        exit('3,Branch');
+    end;
+}
+table 50191 "Sf Message Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; A; Decimal) { CaptionClass = MsgCc(); }
+        field(3; B; Decimal) { CaptionClass = MsgCc(); }
+        field(4; C; Decimal) { CaptionClass = ErrCc(); }
+    }
+    keys { key(PK; Id) { } }
+    local procedure MsgCc(): Text
+    begin
+        if Id = 0 then Message('empty');
+        exit('3,M');
+    end;
+    local procedure ErrCc(): Text
+    begin
+        exit('3,E');
+    end;
+}
+table 50192 "Sf Error Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; A; Decimal) { CaptionClass = ErrCc(); }
+        field(3; B; Decimal) { CaptionClass = ErrCc(); }
+        field(4; C; Decimal) { CaptionClass = PlainCc(); }
+    }
+    keys { key(PK; Id) { } }
+    local procedure ErrCc(): Text
+    begin
+        if Id = 0 then Error('empty error');
+        exit('3,E');
+    end;
+    local procedure PlainCc(): Text
+    begin
+        exit('3,P');
+    end;
+}
+table 50193 "Sf Global Ref Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; A; Decimal) { CaptionClass = RefCc(); }
+        field(3; B; Decimal) { CaptionClass = PlainCc(); }
+        field(4; C; Decimal) { CaptionClass = '3,C'; }
+    }
+    keys { key(PK; Id) { } }
+    var Kept: Codeunit "Sf Holder";
+    local procedure RefCc(): Text
+    begin
+        Kept.Take(Rec);
+        exit('3,R');
+    end;
+    local procedure PlainCc(): Text
+    begin
+        exit('3,P');
+    end;
+}
+codeunit 50194 "Sf Holder"
+{
+    var RecRef: RecordRef;
+    procedure Take(var Row: Record "Sf Global Ref Row")
+    begin
+        RecRef.GetTable(Row);
+    end;
+}
+page 50190 "Sf List" { PageType = List; SourceTable = "Sf Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } field(B; Rec.B) { } field(C; Rec.C) { } } } } }
+page 50194 "Sf Card" { PageType = Card; SourceTable = "Sf Row"; layout { area(Content) { field(Id; Rec.Id) { } field(C; Rec.C) { } } } }
+page 50191 "Sf Message List" { PageType = List; SourceTable = "Sf Message Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } } } } }
+page 50192 "Sf Error List" { PageType = List; SourceTable = "Sf Error Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } } } } }
+page 50193 "Sf Global Ref List" { PageType = List; SourceTable = "Sf Global Ref Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } } } } }
+codeunit 50195 "Sf Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure StateFree()
+    var R: Record "Sf Row"; P: TestPage "Sf List";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenView();
+        if P.A.Caption() <> 'User' then Error('A %1', P.A.Caption());
+        if P.C.Caption() <> 'Branch' then Error('C %1', P.C.Caption());
+    end;
+    [Test]
+    [HandlerFunctions('Msg')]
+    procedure MessageInRowRun()
+    var R: Record "Sf Row"; P: TestPage "Sf Card";
+    begin
+        R.DeleteAll();
+        R.Id := 7;
+        R.Insert();
+        P.OpenEdit();
+    end;
+    [Test]
+    [HandlerFunctions('Msg')]
+    procedure MessageInEmptyRun()
+    var R: Record "Sf Message Row"; P: TestPage "Sf Message List";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenView();
+    end;
+    [Test]
+    procedure ErrorInEmptyRun()
+    var R: Record "Sf Error Row"; P: TestPage "Sf Error List";
+    begin
+        R.Id := 1;
+        R.Insert();
+        asserterror P.OpenView();
+    end;
+    [Test]
+    procedure GlobalRecordRef()
+    var R: Record "Sf Global Ref Row"; P: TestPage "Sf Global Ref List";
+    begin
+        R.Id := 1;
+        R.Insert();
+        P.OpenView();
+    end;
+    [Test]
+    [HandlerFunctions('Msg')]
+    procedure LastToMessageRow()
+    var R: Record "Sf Row"; P: TestPage "Sf Card";
+    begin
+        R.DeleteAll();
+        R.Id := 1;
+        R.Insert();
+        R.Id := 7;
+        R.Insert();
+        P.OpenView();
+        P.Last();
+    end;
+    [Test]
+    [HandlerFunctions('Cnf')]
+    procedure LastToConfirmRow()
+    var R: Record "Sf Row"; P: TestPage "Sf Card";
+    begin
+        R.DeleteAll();
+        R.Id := 1;
+        R.Insert();
+        R.Id := 8;
+        R.Insert();
+        P.OpenView();
+        P.Last();
+    end;
+    [Test]
+    procedure ErrorInRowRun()
+    var R: Record "Sf Row"; P: TestPage "Sf Card";
+    begin
+        R.DeleteAll();
+        R.Id := 9;
+        R.Insert();
+        asserterror P.OpenView();
+    end;
+    [Test]
+    procedure AssertErrorLastToErrorRow()
+    var R: Record "Sf Row"; P: TestPage "Sf Card";
+    begin
+        R.DeleteAll();
+        R.Id := 1;
+        R.Insert();
+        R.Id := 9;
+        R.Insert();
+        P.OpenEdit();
+        asserterror P.Last();
+    end;
+    [MessageHandler]
+    procedure Msg(Text: Text[1024])
+    begin
+    end;
+    [ConfirmHandler]
+    procedure Cnf(Question: Text[1024]; var Reply: Boolean)
+    begin
+        Reply := true;
+    end;
+}
+"#;
+
+#[test]
+fn state_free_calls_in_a_caption_expression_run_and_any_raised_dialog_or_error_refuses() {
+    let outs = run(STATE_FREE, "Sf Tests");
+    assert_eq!(outcome(&outs, "StateFree"), &Outcome::Pass);
+    match outcome(&outs, "MessageInEmptyRun") {
+        Outcome::NotRun(why) => assert!(
+            why.contains("Message raised by a CaptionClass expression on a page"),
+            "{why}"
+        ),
+        other => panic!("MessageInEmptyRun: {other:?}"),
+    }
+    match outcome(&outs, "MessageInRowRun") {
+        Outcome::NotRun(why) => assert!(
+            why.contains("Message raised by a CaptionClass expression on a page"),
+            "{why}"
+        ),
+        other => panic!("MessageInRowRun: {other:?}"),
+    }
+    // Main refused these opens from the code (the expression can reach Message, Confirm or Error). A dialog or an Error with a
+    // text that any CaptionClass run of such a page raises keeps that refusal: the open's own runs, and the row runs of a later
+    // Last(), also under asserterror.
+    for name in [
+        "ErrorInEmptyRun",
+        "ErrorInRowRun",
+        "LastToMessageRow",
+        "LastToConfirmRow",
+        "AssertErrorLastToErrorRow",
+    ] {
+        match outcome(&outs, name) {
+            Outcome::NotRun(why) => assert!(
+                why.contains("raised by a CaptionClass expression on a page"),
+                "{name}: {why}"
+            ),
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+    match outcome(&outs, "GlobalRecordRef") {
+        Outcome::NotRun(why) => assert!(why.contains("RecordRef.GetTable") && why.contains("5870"), "{why}"),
+        other => panic!("GlobalRecordRef: {other:?}"),
+    }
+}
+
+/// The six-field table of record/captions/CaptionClassStateFreeCalls.al:218-232 (four expression fields of different texts).
+/// The Card the probe opened with OpenEdit (page 62415 at :444-461) runs each expression 11 times with the empty record, the
+/// CardPart opened alone with OpenView (page 62416 at :463-478) 6 times (:907, :1013). A neighbor of either takes the path of
+/// every unpinned count: 20 runs each, flagged. A dialog in a run of the pinned Card other than the Message and the Error of the open's row
+/// run (:891-936) refuses.
+const SIX: &str = r#"
+table 50300 "Six Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Kind; Integer) { }
+        field(10; A; Decimal) { CaptionClass = ACc(); }
+        field(11; B; Decimal) { CaptionClass = BCc(); }
+        field(12; C; Code[20]) { CaptionClass = CCc(); }
+        field(13; D; Text[50]) { CaptionClass = DCc(); }
+    }
+    keys { key(PK; Id) { } }
+    var Log: Codeunit "Six Log";
+    local procedure ACc(): Text begin Log.Hit(Id); exit('3,A'); end;
+    local procedure BCc(): Text
+    begin
+        Log.Hit(Id);
+        if Id = 777 then Message('row message');
+        if Id = 778 then if Confirm('row confirm?') then;
+        if Id = 779 then Error('row error');
+        exit('3,B');
+    end;
+    local procedure CCc(): Text begin Log.Hit(Id); exit('3,C'); end;
+    local procedure DCc(): Text begin Log.Hit(Id); exit('3,D'); end;
+}
+codeunit 50301 "Six Log"
+{
+    SingleInstance = true;
+    var EmptyRuns: Integer; RowRuns: Integer;
+    procedure Hit(RowId: Integer) begin if RowId = 0 then EmptyRuns += 1 else RowRuns += 1; end;
+    procedure Take() Result: Text
+    begin
+        Result := Format(EmptyRuns) + '/' + Format(RowRuns);
+        EmptyRuns := 0;
+        RowRuns := 0;
+    end;
+}
+page 50302 "Six Card" { PageType = Card; SourceTable = "Six Row"; UsageCategory = None; layout { area(Content) { field(Id; Rec.Id) { ApplicationArea = All; } field(A; Rec.A) { ApplicationArea = All; } field(B; Rec.B) { ApplicationArea = All; } field(C; Rec.C) { ApplicationArea = All; } field(D; Rec.D) { ApplicationArea = All; } } } }
+page 50303 "Six Group Card" { PageType = Card; SourceTable = "Six Row"; UsageCategory = None; layout { area(Content) { group(G) { field(Id; Rec.Id) { ApplicationArea = All; } field(A; Rec.A) { ApplicationArea = All; } field(B; Rec.B) { ApplicationArea = All; } field(C; Rec.C) { ApplicationArea = All; } field(D; Rec.D) { ApplicationArea = All; } } } } }
+page 50304 "Six Trigger Card"
+{
+    PageType = Card; SourceTable = "Six Row"; UsageCategory = None;
+    layout { area(Content) { field(Id; Rec.Id) { ApplicationArea = All; } field(A; Rec.A) { ApplicationArea = All; } field(B; Rec.B) { ApplicationArea = All; } field(C; Rec.C) { ApplicationArea = All; } field(D; Rec.D) { ApplicationArea = All; } } }
+    trigger OnOpenPage() begin Rec.SetFilter(Id, '<>0'); end;
+}
+page 50305 "Six ReadOnly Card" { PageType = Card; SourceTable = "Six Row"; UsageCategory = None; Editable = false; layout { area(Content) { field(Id; Rec.Id) { ApplicationArea = All; } field(A; Rec.A) { ApplicationArea = All; } field(B; Rec.B) { ApplicationArea = All; } field(C; Rec.C) { ApplicationArea = All; } field(D; Rec.D) { ApplicationArea = All; } } } }
+page 50306 "Six Cues" { PageType = CardPart; SourceTable = "Six Row"; layout { area(Content) { cuegroup(Cues) { field(A; Rec.A) { ApplicationArea = All; } } } } }
+page 50307 "Six Plain Part" { PageType = CardPart; SourceTable = "Six Row"; layout { area(Content) { field(A; Rec.A) { ApplicationArea = All; } } } }
+codeunit 50308 "Six Tests"
+{
+    Subtype = Test;
+    var Log: Codeunit "Six Log";
+
+    local procedure Seed(RowId: Integer)
+    var R: Record "Six Row";
+    begin
+        R.DeleteAll();
+        if RowId = 0 then exit;
+        R.Id := RowId;
+        R.Insert();
+    end;
+
+    [Test]
+    procedure PinnedCard()
+    var P: TestPage "Six Card";
+    begin
+        Seed(1); Log.Take();
+        P.OpenEdit();
+        Error('OBS %1', Log.Take());
+    end;
+    [Test]
+    procedure TrappedPageRun()
+    var P: TestPage "Six Card";
+    begin
+        Seed(1); Log.Take();
+        P.Trap();
+        Page.Run(Page::"Six Card");
+        Error('OBS %1', Log.Take());
+    end;
+    [Test]
+    procedure EmptyTable()
+    var P: TestPage "Six Card";
+    begin
+        Seed(0); Log.Take();
+        P.OpenEdit();
+        Error('OBS %1', Log.Take());
+    end;
+    [Test]
+    procedure OpenView()
+    var P: TestPage "Six Card";
+    begin
+        Seed(1); Log.Take();
+        P.OpenView();
+        Error('OBS %1', Log.Take());
+    end;
+    [Test]
+    procedure GroupCard()
+    var P: TestPage "Six Group Card";
+    begin
+        Seed(1); Log.Take();
+        P.OpenEdit();
+        Error('OBS %1', Log.Take());
+    end;
+    [Test]
+    procedure TriggerCard()
+    var P: TestPage "Six Trigger Card";
+    begin
+        Seed(1); Log.Take();
+        P.OpenEdit();
+        Error('OBS %1', Log.Take());
+    end;
+    [Test]
+    procedure ReadOnlyCard()
+    var P: TestPage "Six ReadOnly Card";
+    begin
+        Seed(1); Log.Take();
+        P.OpenEdit();
+        Error('OBS %1', Log.Take());
+    end;
+    [Test]
+    procedure PinnedCues()
+    var P: TestPage "Six Cues";
+    begin
+        Seed(1); Log.Take();
+        P.OpenView();
+        Error('OBS %1', Log.Take());
+    end;
+    [Test]
+    procedure PlainPart()
+    var P: TestPage "Six Plain Part";
+    begin
+        Seed(1); Log.Take();
+        P.OpenView();
+        Error('OBS %1', Log.Take());
+    end;
+    [Test]
+    [HandlerFunctions('Msg')]
+    procedure PinnedCardRowMessage()
+    var P: TestPage "Six Card";
+    begin
+        Seed(777);
+        P.OpenEdit();
+    end;
+    [Test]
+    procedure PinnedCardRowError()
+    var P: TestPage "Six Card";
+    begin
+        Seed(779);
+        asserterror P.OpenEdit();
+        if GetLastErrorText() <> 'row error' then Error('text %1', GetLastErrorText());
+    end;
+    [Test]
+    [HandlerFunctions('Cnf')]
+    procedure PinnedCardRowConfirm()
+    var P: TestPage "Six Card";
+    begin
+        Seed(778);
+        P.OpenEdit();
+    end;
+    [Test]
+    [HandlerFunctions('Msg')]
+    procedure PinnedCardLastToMessageRow()
+    var R: Record "Six Row"; P: TestPage "Six Card";
+    begin
+        Seed(1);
+        R.Id := 777;
+        R.Insert();
+        P.OpenEdit();
+        P.Last();
+    end;
+    [MessageHandler]
+    procedure Msg(Text: Text[1024])
+    begin
+    end;
+    [ConfirmHandler]
+    procedure Cnf(Question: Text[1024]; var Reply: Boolean)
+    begin
+        Reply := true;
+    end;
+}
+"#;
+
+fn observed(outs: &[(String, Outcome)], name: &str) -> String {
+    match outcome(outs, name) {
+        Outcome::Fail(msg) => msg.strip_prefix("OBS ").unwrap_or(msg).to_string(),
+        other => format!("{other:?}"),
+    }
+}
+
+#[test]
+fn the_six_field_cells_run_their_pinned_counts_and_their_neighbors_keep_main() {
+    let outs = run(SIX, "Six Tests");
+    assert_eq!(observed(&outs, "PinnedCard"), "44/4");
+    assert_eq!(observed(&outs, "PinnedCues"), "24/1");
+    // Neighbors of the pinned Card and CardPart take the path of every unpinned count: 20 runs each, flagged (the empty table's
+    // row run runs with an empty record too).
+    assert_eq!(observed(&outs, "EmptyTable"), "84/0");
+    for name in [
+        "TrappedPageRun",
+        "OpenView",
+        "GroupCard",
+        "TriggerCard",
+        "ReadOnlyCard",
+        "PlainPart",
+    ] {
+        let got = observed(&outs, name);
+        assert!(got.starts_with("80/"), "{name}: {got}");
+    }
+}
+
+#[test]
+fn a_dialog_in_the_pinned_six_field_card_runs_only_where_the_probe_measured_it() {
+    let outs = run(SIX, "Six Tests");
+    // The Message and the Error of the open's row run (CaptionClassStateFreeCalls.al:891-936).
+    assert_eq!(outcome(&outs, "PinnedCardRowMessage"), &Outcome::Pass);
+    assert_eq!(outcome(&outs, "PinnedCardRowError"), &Outcome::Pass);
+    // A Confirm in that run, and a Message in the row run of a later move, are not measured.
+    for name in ["PinnedCardRowConfirm", "PinnedCardLastToMessageRow"] {
+        match outcome(&outs, name) {
+            Outcome::NotRun(why) => assert!(
+                why.contains("raised by a CaptionClass expression on a page"),
+                "{name}: {why}"
+            ),
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+}

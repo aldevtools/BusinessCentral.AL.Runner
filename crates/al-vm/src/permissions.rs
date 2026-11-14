@@ -663,6 +663,18 @@ const SYSTEM: i32 = 10;
 /// AllObj, Field and Page Control Field: a narrow set reads them (Y19PermSystemTables.al, P13; Page Control Field: Y84PermAbp.al
 /// Y84_Abp_PageControlFieldRows, which lists the page's 19 field controls under a set with no table data grant).
 const ALWAYS_READABLE: [u32; 3] = [2_000_000_038, 2_000_000_041, 2_000_000_192];
+/// The cells of Company and Tenant Media whose ReadPermission or WritePermission answer false, by the session's levels of
+/// Read, Insert, Modify and Delete on the table (0 blank, 1 Yes, 2 Indirect) and the method. Measured, and no other:
+/// - Company or Tenant Media, ReadPermission or WritePermission, all four levels blank (metadata/Y19PermSystemTables.al:36-40,
+///   :58-63, through `RecordRef.Open(TableId)` under `LT Y19 R`; Company through a Record is not told apart from it);
+/// - Tenant Media, WritePermission, levels Yes, Indirect, Indirect, Indirect, through a Record under the runner's sets
+///   (permissions/testpermissions/QcRunnerSets.al:240, :254, :258: `Yes,Indirect,Indirect,Indirect`).
+///
+/// Every other level combination of these tables keeps the refusal of `permission_query`.
+fn answers_false_measured(id: u32, write: bool, levels: [u8; 4]) -> bool {
+    let both = id == crate::companies::COMPANY_TABLE || id == TENANT_MEDIA;
+    (both && levels == [0, 0, 0, 0]) || (id == TENANT_MEDIA && write && levels == [1, 2, 2, 2])
+}
 /// Tenant Media: the one system table whose write denial is pinned (Y19PermSystemTables.al, P13: Insert error).
 pub(crate) const TENANT_MEDIA: u32 = 2_000_000_184;
 
@@ -859,7 +871,8 @@ impl Session {
     /// as an access (direct Yes, or Indirect completed by the calling object's `Permissions` property).
     /// Pinned: Y24PermReads.al Y24_P19_ReadWritePermission (indirect `r`, `i`, `im`, `imd`, `rimd`, and inside an object
     /// whose Permissions names the table), and the Y75 probe for R, RI, RIM, RIMD and RecordRef (Y75PermReadWrite.al).
-    /// Not pinned, so refused when the answer would be false: a temporary record and a system table.
+    /// Not pinned, so refused when the answer would be false: a temporary record and a system table other than Company and
+    /// Tenant Media.
     pub(crate) fn permission_answer_decided(
         &mut self,
         rec: &crate::records::Rec,
@@ -907,6 +920,8 @@ impl Session {
                         if write { "WritePermission" } else { "ReadPermission" }
                     )));
                 }
+                // Company and Tenant Media in the cells `answers_false_measured` lists; any other session level of them refuses below.
+                Verdict::Deny { indirect: false, .. } if self.answers_false_cell(id, write) => return Ok(false),
                 Verdict::Deny { .. } if id >= 2_000_000_000 => {
                     refused = refused.or(Some(format!(
                         "{} on a system table under sets that do not grant it is not pinned (ADR-062 probe P19)",
@@ -921,6 +936,17 @@ impl Session {
             Some(why) => Err(Signal::unsupported(why)),
             None => Ok(true),
         }
+    }
+
+    /// Whether the session's levels on table `id` are one of the cells `answers_false_measured` lists.
+    fn answers_false_cell(&self, id: u32, write: bool) -> bool {
+        let Some(eff) = &self.permissions else { return false };
+        let level = |op| eff.level(Access { kind: 0, id, op });
+        answers_false_measured(
+            id,
+            write,
+            [level(Op::Read), level(Op::Insert), level(Op::Modify), level(Op::Delete)],
+        )
     }
 
     /// The gate for a call of routine `routine` of `object` on `instance` (an Execute access, stage 3, probe P20).

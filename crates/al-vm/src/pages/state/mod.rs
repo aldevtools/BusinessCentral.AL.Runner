@@ -55,6 +55,20 @@ pub(crate) fn closed_page(object: u32) -> PageHandle {
 /// makes a value, so no handle of a run holds anything but a `PageState`.
 pub(crate) fn register_closed_page() {
     al_builtins::page_handle::set_closed_page(closed_page);
+    al_builtins::instance_cycles::set_page_instances(page_instance);
+}
+
+/// The instance of a page value that no other value shares (`al_builtins::instance_cycles`).
+fn page_instance(handle: &PageHandle, f: &mut dyn FnMut(&Rc<RefCell<Instance>>)) {
+    let Some(st) = handle
+        .get::<Rc<RefCell<PageState>>>()
+        .filter(|st| Rc::strong_count(st) == 1)
+    else {
+        return;
+    };
+    if let Some(i) = st.try_borrow().ok().as_ref().and_then(|s| s.instance.as_ref()) {
+        f(i);
+    }
 }
 
 /// How a page was opened by the test client.
@@ -177,6 +191,9 @@ pub struct PageState {
     /// The caption each control's CaptionClass resolved to when the page filled: (control index, class text, caption).
     /// `Caption()` reads it without raising OnResolveCaptionClass again (corpus testpage/W2CaptionClass.al:113-116).
     pub control_captions: Vec<(usize, String, String)>,
+    /// The context of each field caption `read_literal_field_caption` resolved or reused: (control index, the session's caption
+    /// context revision, the bound subscriptions, the length of the page tree's call log at that read).
+    pub literal_field_caption_contexts: Vec<(usize, u64, Vec<usize>, usize)>,
     /// Why the caption in `control_captions` of a control is not known: (control index, refusal). `Caption()` refuses with it.
     /// Only read together with a `control_captions` entry of the same control, which an open clears.
     pub caption_refusals: Vec<(usize, String)>,
@@ -185,6 +202,9 @@ pub struct PageState {
     pub field_captions: Vec<(usize, String)>,
     /// The open ran the CaptionClass expressions of the source table's fields with an empty record (`field_captions`).
     pub field_captions_opened: bool,
+    /// The open ran the empty-record CaptionClass runs without a pinned number, or in a cell of `Session::caption_state_free_pin`:
+    /// a dialog or an Error with a text raised by a later row run of the page refuses (`Session::fill_field_captions_with_row`).
+    pub caption_dialogs_refused: bool,
     /// The open has filled its first rows (`field_captions` no longer changes at the fills of the open itself).
     pub field_captions_settled: bool,
     /// The row (its field values) the CaptionClass expressions last ran with for the controls' captions.
@@ -308,6 +328,21 @@ pub struct PageState {
     /// A row trigger ran since the DataCaptionExpression last did: it runs before the next trigger other than OnAfterGetRecord
     /// and before the test code touches the page.
     pub data_caption_due: bool,
+    /// The static `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` of AL code runs this page with a record and no field number
+    /// (`PageState::static_run`).
+    pub static_run_record_only: bool,
+    /// What page code assigned to `CurrPage.Editable` while this page opened (`OpenEditable`). Set again at each open.
+    pub open_editable: OpenEditable,
+    /// The filters the test's `TestFilter.SetFilter` put on fields of Rec, with the text it typed (`filter.rs`). Read through
+    /// `PageState::test_typed_filter`, which checks that the filter is still on the field. Cleared at the open and the close.
+    pub test_filters: Vec<TestTypedFilter>,
+    /// The DataCaptionExpression of this page ran at the open as `data_caption_open.rs` measured: a TestPage's Caption() shows
+    /// what that run left (`data_caption_value`) and does not evaluate the expression again. Cleared at the next open.
+    pub data_caption_at_open: bool,
+    /// The DataCaptionExpression of this Worksheet may have run at the open, which no measured cell covers: main's open is kept
+    /// and a test read of what that run changes refuses, naming the fact the page misses (`data_caption_open.rs`). Cleared at
+    /// the next open.
+    pub data_caption_open_unmeasured: Option<&'static str>,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
     /// (`lookup_start.rs`).
     pub lookup_held_row: bool,
@@ -434,6 +469,8 @@ pub struct PageState {
     pub trapping: bool,
     /// `CurrPage.Update` was called: the client re-reads the row once the call that made it returns.
     pub refresh: bool,
+    /// The host row to reread before its next SetValue after a CardPart drilldown.
+    pub deferred_part_drilldown_refresh: Option<crate::pages::part_host_update::DeferredReread>,
     /// `CurrPage.SaveRecord` ran in the action being invoked.
     pub save_record_called: bool,
     /// A SetValue on a control of this page is running its validation (CurrPage.SaveRecord inside it keeps xRec).
@@ -529,6 +566,12 @@ pub struct PageState {
     /// A list opened for edit over an empty view went back to its new-row line after an action stored one row through another
     /// variable: First then reads that row as the list reads it on open (testpage/PnGShowRow.al:223).
     pub empty_list_row_behind: bool,
+    /// Rec's fields as the action that set `empty_list_row_behind` left them, before the list went back to its new-row line;
+    /// set and taken with that flag (`empty_list_one_row.rs`).
+    pub empty_list_rec_left: Vec<Value>,
+    /// The action that set `empty_list_row_behind` did what the one-row pin's action did (`empty_list_one_row.rs`,
+    /// `Session::one_row_action_pinned`); set and taken with that flag.
+    pub empty_list_action_pinned: bool,
     /// An action put a list that showed stored rows on a row the client did not hold before it (an insert through Rec): what a
     /// move reads next is not pinned (testpage/PnGShowRow.al:144 NonEmptyListInsertViaRec `first-after` reads
     /// nothing, the Next after it reads the row it lands on twice); a move is refused.
@@ -615,6 +658,9 @@ pub struct PageState {
     /// The action's refresh just ran the new-row line of a list that lost its only row three times (`settle_after_action`); read
     /// by `post_left_other_key_settled` and cleared when the action ends (al-runner issue 7821).
     pub gone_new_line_settled: bool,
+    /// A Card landed on a header whose Provider part shows no row, in the shape `provider_no_row.rs` admits; its parts then
+    /// sync again under the `PinnedEnd` that landing set (al-runner issue 7392).
+    pub provider_no_row_landed: bool,
     /// A rule pinned for one scenario ran on this page or one of its parts, and the scenario does nothing after it but the
     /// calls `PinnedEnd` lets through: every other test call is refused (`Session::refuse_after_pinned_end`).
     pub pinned_end: Option<crate::pages::pinned_shape::PinnedEnd>,
@@ -656,6 +702,8 @@ pub struct PageState {
     pub test_opened_new: bool,
     /// The last open was the test's own `TestPage.OpenEdit`, `OpenView` or `OpenNew` (not a run by AL code).
     pub opened_by_test: bool,
+    /// The built-in Edit or View action switched the page's mode since it opened (`switch_mode`).
+    pub mode_switched_since_open: bool,
     /// What closed the page the last time (`None` before the first close, reset when the page opens). Decides what the
     /// page's code reaches through a part after the close (`pages/held_page_part.rs`).
     pub closed_by: Option<ClosedBy>,
@@ -733,6 +781,9 @@ pub struct PageState {
     /// and a read of a host field are pinned for it, and a part field read or First that inserts it (pages/
     /// lt-part-line-before-host-key/PartLineBeforeHostKey.al QH_BlankRows_*).
     pub new_host_part_rows: bool,
+    /// The measured SetValue of `trapped_card_blank_part.rs` ran on this host: only a read of a host field and Close may
+    /// follow, and the row Close stores must have a key that is not blank.
+    pub trapped_blank_part_edit: bool,
     /// New() on the request page of a report landed on a blank row that nothing stores (Y80_RX_New_*).
     pub request_new_blank: bool,
     /// A new host card or document that a first part access stored with its blank key (pages/new-host-key-entry/Y80NewHostKey.al
@@ -892,11 +943,60 @@ impl std::fmt::Debug for PageState {
 }
 
 impl PageState {
+    /// Sets `empty_list_row_behind` to `behind`, with Rec's fields as the action left them (`empty_list_rec_left`).
+    pub(crate) fn set_row_behind(&mut self, behind: bool, rec_left: Vec<Value>, action_pinned: bool) {
+        self.empty_list_row_behind = behind;
+        self.empty_list_rec_left = rec_left;
+        self.empty_list_action_pinned = action_pinned;
+    }
+
     /// The page is one the test's own `TestPage.OpenEdit` opened, at the top level: not a page AL code ran that the test
     /// trapped or a handler got (`opened_by_test`), not a modal page, not a part. The entry condition of every rule whose pins
     /// all open with OpenEdit; another open keeps the earlier behavior or is refused there.
     pub(crate) fn test_open_edit(&self) -> bool {
         self.opened_by_test && self.mode == PageMode::Edit && !self.modal && self.host.is_none()
+    }
+
+    /// The same for the test's own `TestPage.OpenView`: the entry condition of a rule whose pins all open with OpenView.
+    pub(crate) fn test_open_view(&self) -> bool {
+        self.opened_by_test && self.mode == PageMode::View && !self.modal && self.host.is_none()
+    }
+
+    /// A static `Page.Run` (`modal` false) or `Page.RunModal` of AL code runs the page; `record`: it got a record. A RunModal
+    /// takes `static_run_modal` with the other arguments.
+    pub(crate) fn static_run(&mut self, modal: bool, used: bool, record: bool, field: bool, from_table: bool) {
+        self.static_run_record_only = record && !field;
+        if modal {
+            self.static_run_modal(used, record, field, from_table);
+        }
+    }
+
+    /// OnInit has run: the Editable set on the page variable before it ran applies now, and what OnInit assigned to
+    /// `CurrPage.Editable` is forgotten (`open_editable` keeps that it happened).
+    pub(crate) fn editable_after_init(&mut self) {
+        self.editable_off = self.editable_preset == Some(false);
+        self.editable_off_in_open = false;
+        self.editable_set_later = None;
+        self.open_editable = self.open_editable.after_init();
+    }
+
+    /// The text the test typed for the filter on field `field` of `rec`, while that filter is the test's: the one group 0 filter
+    /// on the field is still the one the test's `TestFilter.SetFilter` set (page code did not replace or remove it).
+    pub(crate) fn test_typed_filter(&self, rec: &RecordState, field: usize) -> Option<&str> {
+        let typed = self.test_filters.iter().find(|t| t.field == field)?;
+        let mut on = rec.filters.iter().filter(|f| f.field == field && f.group == 0);
+        match (on.next(), on.next()) {
+            (Some(f), None) if crate::records::same_expr(&f.expr, &typed.expr) => Some(&typed.text),
+            _ => None,
+        }
+    }
+
+    /// The test's `TestFilter.SetFilter` set `expr` on field `field` with `text` (`None`: it took the field's filter off).
+    pub(crate) fn note_test_filter(&mut self, field: usize, typed: Option<(String, al_builtins::filter::FilterExpr)>) {
+        self.test_filters.retain(|t| t.field != field);
+        if let Some((text, expr)) = typed {
+            self.test_filters.push(TestTypedFilter { field, text, expr });
+        }
     }
 
     /// A static `Page.RunModal(Id [, Rec [, Field]])` runs the page: `used` says its return value is used, `record` that it
@@ -941,6 +1041,11 @@ impl PageState {
         self.empty_list_landing = None;
         self.typed_key_dropped = false;
         self.pinned_end = None;
+        self.data_caption_at_open = false;
+        self.data_caption_open_unmeasured = None;
+        self.test_filters = Vec::new();
+        self.open_editable = OpenEditable::Unset;
+        self.provider_no_row_landed = false;
         self.empty_selection_given = false;
         self.temp_ws_edit = None;
         self.temp_ws_preloaded = false;
@@ -951,6 +1056,7 @@ impl PageState {
     pub(crate) fn forget_field_captions(&mut self) {
         self.field_captions = Vec::new();
         self.field_captions_opened = false;
+        self.caption_dialogs_refused = false;
         self.field_captions_settled = false;
         self.field_captions_row = None;
         self.field_captions_quiet = false;
@@ -968,6 +1074,46 @@ impl PageState {
 }
 
 /// What a `TestControl` stands for.
+/// What page code assigned to `CurrPage.Editable` while the page opened (`PageState::open_editable`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OpenEditable {
+    /// No assignment.
+    #[default]
+    Unset,
+    /// One assignment, in OnOpenPage, of this value.
+    InOpenPage(bool),
+    /// An assignment in OnInit, or more than one.
+    Other,
+}
+
+impl OpenEditable {
+    /// Page code assigns `on` while the page opens.
+    pub(crate) fn assigned(self, on: bool) -> Self {
+        match self {
+            OpenEditable::Unset => OpenEditable::InOpenPage(on),
+            _ => OpenEditable::Other,
+        }
+    }
+
+    /// OnInit has run: an assignment made in it is `Other`.
+    pub(crate) fn after_init(self) -> Self {
+        match self {
+            OpenEditable::Unset => OpenEditable::Unset,
+            _ => OpenEditable::Other,
+        }
+    }
+}
+
+/// A filter the test's `TestFilter.SetFilter` put on a field (`PageState::test_filters`).
+#[derive(Debug, Clone)]
+pub struct TestTypedFilter {
+    pub field: usize,
+    /// The text the test typed.
+    pub text: String,
+    /// The filter that text set (filter group 0).
+    pub expr: al_builtins::filter::FilterExpr,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlTarget {
     /// A control of the page by index into its control list.

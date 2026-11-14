@@ -22,6 +22,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("System.FormatDecimalField#1", format_decimal_field),
     ("System.FormatAutoFormatField#1", format_auto_format_field),
+    ("System.AutoFormatWriterGuard#1", auto_format_writer_guard),
     ("System.FormatOptionColumn#1", format_option_column),
     ("System.OptionCaptionML#1", option_caption_ml),
     ("System.Evaluate#1", crate::evaluate::evaluate),
@@ -453,7 +454,8 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         Ok(v)
     }),
     ("Variant.IsDateFormula#1", |_, r, _| is(r, "DateFormula")),
-    ("Variant.IsOption#1", |_, r, _| is(r, "Option")),
+    super::variant_is::OPTION,
+    super::variant_is::FROM_TRANSACTION_TYPE,
     ("Variant.IsList#1", |_, r, _| is(r, "List")),
     ("Variant.IsDictionary#1", |_, r, _| is(r, "Dictionary")),
     ("Variant.IsCodeunit#1", |_, r, _| is(r, "Codeunit")),
@@ -490,6 +492,7 @@ pub(super) fn all() -> impl Iterator<Item = &'static (&'static str, NativeFn)> {
         .chain(crate::media_orphans::REGISTRY)
         .chain(crate::moduleinfo::REGISTRY)
         .chain(crate::conv::REGISTRY)
+        .chain(super::variant_is::REGISTRY)
 }
 
 /// Implementations chosen per catalog signature instead of being listed by id
@@ -560,6 +563,7 @@ pub const INVENTED_IDS: &[&str] = &[
     "TextBuilder.AppendFieldValue#1",
     "Interface.AssertAssigned#1",
     "Variant.FromTextConstant#1",
+    "Variant.FromTransactionType#1",
     "Variant.IntoInteger#1",
     "Variant.IntoOption#1",
     "Variant.Into#1",

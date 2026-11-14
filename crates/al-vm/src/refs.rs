@@ -7,7 +7,7 @@
 //! does not pin raises `Signal::Unsupported` instead of guessing.
 
 use crate::Session;
-use crate::blob_transfer::BlobMove;
+use crate::blob_transfer::{BlobMove, Holder};
 use al_builtins::catalog::Catalog;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FilterExpr;
@@ -963,7 +963,7 @@ impl Session {
                     copy.unpinned_buffer = None;
                     copy.run_page_link = None;
                 }
-                *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
+                self.variant_refs.install_get_table_buffer(lib, copy, !from_variant);
                 return Ok(Value::Null);
             }
 
@@ -1346,8 +1346,15 @@ impl Session {
         }
     }
 
-    /// `RecordRef.SetTable(Rec [, ShareTable])` and `RecordRef.SetTable(Variant)`.
+    /// `RecordRef.SetTable(Rec [, ShareTable])` and `RecordRef.SetTable(Variant)`; after it, whatever it gave, the record of the
+    /// RecordRef is a GetTable copy no longer (`blob_transfer::recordref_set_table_ran`).
     fn rr_set_table(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
+        let done = self.rr_set_table_into(rec, lib, args);
+        crate::blob_transfer::recordref_set_table_ran(rec);
+        done
+    }
+
+    fn rr_set_table_into(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
         // A Variant argument (types/WcSetTableVariant.al): an empty Variant and a RecordRef in it.
         if args.len() == 1 {
             match args.first() {
@@ -1415,10 +1422,11 @@ impl Session {
             // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
             d.read_isolation = s.read_isolation;
             let before = std::mem::replace(&mut d.fields, s.fields.clone());
-            // The one-argument call moves its Blobs as `blob_transfer::moved` says; with ShareTable they come as before.
-            if args.len() == 1 {
-                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), BlobMove::SetTable)?;
+            // The Blobs move as `BlobMove::set_table` says.
+            if let Some(how) = BlobMove::set_table(args.len(), share) {
+                self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, self.holder(&s))?;
             }
+            d.probed_source = crate::blob_transfer::set_table_target(&d, share, self.commits);
             d.filters = s.filters.clone();
             d.key = s.key;
             d.adhoc = s.adhoc.clone();
@@ -1490,12 +1498,11 @@ impl Session {
             _ if matches!(method, "Name" | "Number" | "Type" | "Length" | "Record")
                 || (method == "Value" && args.is_empty()) =>
             {
-                return Err(Signal::Error(Box::new(AlError {
-                    message: "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.".into(),
-                    code: "NotInitialized".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                })));
+                return Err(fieldref_not_initialized());
+            }
+            LibraryValue::Empty if unassigned_filter_member_measured(method, args) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldrefUnassignedFilters);
+                return Err(fieldref_not_initialized());
             }
             _ => {
                 return unsupported(format!(
@@ -1595,9 +1602,14 @@ impl Session {
                     }
                     let v = self.fieldref_value_into(&t, pos, &field.ty, v)?;
                     let mut r = rec.borrow_mut();
-                    let v = crate::blob_transfer::moved(Some(&r.fields[pos]), v, BlobMove::FieldRefValue, || {
-                        self.blob_field_measured(t.object as usize, pos)
-                    })?;
+                    let kind = || self.blob_field_kind(t.object as usize, pos);
+                    let v = crate::blob_transfer::moved(
+                        Some(&r.fields[pos]),
+                        v,
+                        BlobMove::FieldRefValue,
+                        Holder::Other,
+                        kind,
+                    )?;
                     r.fields[pos] = v;
                     if r.load.partial {
                         r.load.written(pos);
@@ -1751,6 +1763,29 @@ impl Session {
             }
             other => unsupported(format!("FieldRef.{other}")),
         }
+    }
+}
+
+/// The error of a member called on a FieldRef that holds no field (types/PSUnassignedFieldRef.al UnassignedFieldRef_Members).
+pub(crate) fn fieldref_not_initialized() -> Signal {
+    Signal::Error(Box::new(AlError {
+        message: "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.".into(),
+        code: "NotInitialized".into(),
+        call_stack: String::new(),
+        ..Default::default()
+    }))
+}
+
+/// The filter members corpus PR 1382 measured on a FieldRef that holds no field, both never assigned and after `Clear`, which
+/// the runtime cannot tell apart (recordref-fieldref/fieldref/FieldRefUnassignedFilters.al:88-127, not pinned yet, assumption
+/// `fieldref-unassigned-filters`): SetRange with no argument or one Text, SetFilter with one Text and no placeholder value,
+/// GetFilter and GetRangeMin. SetRange with an Integer or two values, SetFilter(''), GetRangeMax were measured only never
+/// assigned (:88, :106) and keep the refusal.
+fn unassigned_filter_member_measured(method: &str, args: &[Value]) -> bool {
+    match (method, args) {
+        ("SetRange" | "GetFilter" | "GetRangeMin", []) => true,
+        ("SetRange", [Value::Text(t)]) | ("SetFilter", [Value::Text(t)]) => !t.is_empty(),
+        _ => false,
     }
 }
 

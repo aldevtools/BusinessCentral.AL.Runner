@@ -3,7 +3,7 @@
 
 use crate::describe::Describe;
 use crate::native::raise;
-use crate::native::{Signal, unsupported};
+use crate::native::{Signal, date_invalid, unsupported};
 use crate::value::{LibraryValue, RtType, Value};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -1369,10 +1369,6 @@ fn datetime_moved(moved: Option<i64>, ms: Option<i64>) -> Result<Value, Signal> 
 
 /// The largest DateTime, 9999-12-31 23:59:59.999, as the runtime counts it (`datefns::create_datetime`).
 const MAX_DATETIME: i64 = 3_652_059 * 86_400_000;
-
-fn date_invalid<T>() -> Result<T, Signal> {
-    raise("The date is not valid.", "DateInvalid")
-}
 
 /// `=` on two values in AL code: as [`compare_operator`]. A Guid compared with a Text that is no Guid leaves its text under
 /// GetLastErrorText(true) (errors/last-error/LastErrorFlagRuntimeCodes.al DateAndConversionSites_ExcludeFlag `guidtext_true`,

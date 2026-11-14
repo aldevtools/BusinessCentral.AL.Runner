@@ -157,10 +157,7 @@ impl Session {
                         al_builtins::value::LibraryValue::FieldRef(..)
                             | al_builtins::value::LibraryValue::KeyFieldRef(..)
                     ) {
-                        return Err(error_code(
-                            "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.",
-                            "NotInitialized",
-                        ));
+                        return Err(crate::refs::fieldref_not_initialized());
                     }
                 }
                 // Id 0 with a record resolves the page from the record's table LookupPageId; a
@@ -224,9 +221,8 @@ impl Session {
                 // :916 Shape_ReturnNotUsed_WalkOnly, :949 Shape_ReturnInIf_WalkOnly, :1100-1126 Shape_RunModalZero_*).
                 // Without a record the same: a statement leaves a card without its Cancel action
                 // (ui-handlers/P132TwoModalHandlers.al:466 PW_ProbeB_Statement, :508 PW_ProbeB_InIf).
-                if method == PageOp::PageRunModalStatic {
-                    st.borrow_mut().static_run_modal(used, record.is_some(), field, n == 0);
-                }
+                let modal = method == PageOp::PageRunModalStatic;
+                st.borrow_mut().static_run(modal, used, record.is_some(), field, n == 0);
                 // A record of another table than the page's is refused before anything opens, and so is a field number the table
                 // lacks (a negative one or 0 goes on; pages/parts/P106RunErrors.al: Err_WrongTableRecord,
                 // Err_FieldNoNotExisting).
@@ -346,15 +342,15 @@ impl Session {
             self.first_part_access(st, name, false)?;
         } else if st.borrow().new_host_part_rows
             && st.borrow().host.is_none()
-            && !matches!(
+            && (!matches!(
                 name,
                 PageMethod::Close | PageMethod::New | PageMethod::OK | PageMethod::Next | PageMethod::Last
-            )
+            ) || (st.borrow().trapped_blank_part_edit && name != PageMethod::Close))
         {
             // A new host whose part shows rows of the blank key: Close and New() are pinned (PartLineBeforeHostKey.al:1944
             // QH_BlankRows_OpenNew_CloseOnly, :1909 QH_BlankRows_HostNew_ThenClose), and Next and Last, which answer No, run no
             // trigger and store nothing (pages/activate-field-blank-host-rows/Y17ActivateNewHost.al:573 QH_BlankRows_HostNext, :602
-            // QH_BlankRows_HostLast); nothing else.
+            // QH_BlankRows_HostLast); nothing else. After the SetValue of `trapped_card_blank_part.rs`, only Close.
             return unsupported(format!(
                 "TestPage.{name} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
             ));
@@ -406,16 +402,19 @@ impl Session {
         // empty view, the list is back on that line (`actions.rs`, empty_page_after_action). First then reads the row twice and
         // runs OnAfterGetCurrRecord with xRec on it (testpage/PnGShowRow.al:223
         // QG_EmptyList_InsertViaOtherVariable_StepLog `first_log` `List.AGR(NEW2,Created);List.AGR(NEW2,Created);
-        // List.AGCR(NEW2,NEW2)`, :56 EmptyListInsertViaOtherVariable); Close reads nothing (`close_log` empty). Other calls are not
-        // pinned.
+        // List.AGCR(NEW2,NEW2)`, :56 EmptyListInsertViaOtherVariable); Close reads nothing (`close_log` empty). OK, Next, Previous, Last and
+        // GoToKey go on in the cells `empty_list_one_row.rs` admits; other calls are not pinned.
         if method.recv() != PageRecv::Page && std::mem::take(&mut st.borrow_mut().empty_list_row_behind) {
+            let rec_left = std::mem::take(&mut st.borrow_mut().empty_list_rec_left);
+            let action_pinned = std::mem::take(&mut st.borrow_mut().empty_list_action_pinned);
             match name {
                 PageMethod::First
                     if st.borrow().open && st.borrow().cursor == Cursor::NewLine && !st.borrow().dirty =>
                 {
                     return self.first_after_empty_list_action(st);
                 }
-                PageMethod::Close => {}
+                _ if name == PageMethod::Close
+                    || self.one_row_behind_call_pinned(st, name, args, &rec_left, action_pinned)? => {}
                 _ => {
                     return unsupported(format!(
                         "TestPage.{} after an action stored a row behind the new-row line of an empty list (not pinned)",
@@ -952,6 +951,8 @@ impl Session {
                     Some(v) => {
                         let on = ops::truthy(v)?;
                         if st.borrow().opening {
+                            let open_editable = st.borrow().open_editable.assigned(on);
+                            st.borrow_mut().open_editable = open_editable;
                             if !on {
                                 let mut s = st.borrow_mut();
                                 if !s.editable_off {

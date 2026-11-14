@@ -590,20 +590,22 @@ impl Session {
         let inst = st.borrow().instance.clone().expect("open page");
         let schema = self.report_schema_of(&inst)?;
         // ADR-040 amendments of 2026-11-08 and 2026-11-11: a format the default layout gives writes a placeholder
-        // (`report_placeholder::grid`).
+        // (`report_save`).
         let target = crate::reports::SaveTarget::File(name);
-        let placeholder = match crate::report_placeholder::Format::from_name(format) {
-            Some(f) => self.placeholder_allowed(&schema, f, &target)?,
-            None => None,
+        // `None`: the ADR-040 allow-list's answer, run and write nothing.
+        let placeholder = {
+            use crate::report_save::{AnswerForm, BeforeRun};
+            let Some(f) = crate::report_placeholder::Format::from_name(format) else {
+                return unsupported(format!("SaveAs{format} of \"{}\"", schema.name()));
+            };
+            match self.save_before_run(&schema, f, &target, AnswerForm::None, false)? {
+                BeforeRun::Run(plan) => Some(crate::report_placeholder::SaveOutput::Rendered(Box::new(plan))),
+                BeforeRun::Discard => None,
+                // No row of the request page's form answers before the run (`report_save` test
+                // `report_save_the_request_page_form_answers_only_after_a_run`).
+                BeforeRun::Dataset | BeforeRun::False(_) => unreachable!("a request page save answers after its run"),
+            }
         };
-        if placeholder.is_none() && !self.output_is_ignored(&schema) {
-            return unsupported(format!(
-                "SaveAs{format} of \"{}\": only the Xml dataset and placeholders of the formats a default layout gives are \
-                 produced (a rendered format needs a layout renderer, and the Linux tier the corpus was measured on does not \
-                 render them either)",
-                schema.name()
-            ));
-        }
         // What the handler sees of a layout without a file, or of a processing-only report, is not pinned here.
         let report = schema.report();
         if report.layout_file_missing || report.processing_only {
@@ -625,7 +627,7 @@ impl Session {
         let rows = written.rows;
         drop(written);
         let output = placeholder.unwrap_or(crate::report_placeholder::SaveOutput::Discard);
-        self.write_save_output(target, output, &schema, &[], rows, None)?;
+        self.write_save_output(target, output, &schema, &[], rows)?;
         st.borrow_mut().result = Some(format!("SaveAs{format}"));
         self.mark_closed(st);
         Ok(Value::Null)

@@ -430,6 +430,8 @@ pub(super) struct GSet {
     includes: Vec<String>,
     excluded: bool,
     declared: Result<Vec<Grant>, String>,
+    /// The Metadata Permission row of a set whose whole `Permissions` is the measured wildcard (`metadata_wildcard_row`).
+    metadata_wildcard: Option<Grant>,
 }
 
 pub(super) struct Built {
@@ -482,6 +484,12 @@ impl Grants {
                             includes,
                             excluded: prop(o, "ExcludedPermissionSets").is_some(),
                             declared: parse_grants(o, &ids),
+                            metadata_wildcard: metadata_wildcard_row(
+                                o,
+                                c.objects
+                                    .iter()
+                                    .any(|e| e.kind == al_ir::ObjKind::PermissionSetExtension && e.extends_id == o.id),
+                            ),
                         });
                     }
                     Built { sets, by_name }
@@ -532,6 +540,32 @@ impl Grants {
         self.expanded.borrow_mut().insert(i, result.clone());
         result
     }
+}
+
+/// The one Metadata Permission row of a set that is exactly the pinned one (events/CoPermissionLeads.al:104-107, :461-478):
+/// `Assignable = true`, no `IncludedPermissionSets`, no `ExcludedPermissionSets`, no permission set extension (`extended`), and
+/// `Permissions` exactly `page * = X`. BC lists Object Type Page, Object ID 0, Execute Yes and no other right (`row count` 1,
+/// `Page 0 R=  I=  M=  D=  X=Yes;`). Any other set or wildcard is not measured: `None`, and the read keeps the refusal of
+/// `parse_grants`. A Caption on the set and an upper-case `PAGE` run the same way (the Role Name is the existing rule; AL is
+/// case-insensitive).
+fn metadata_wildcard_row<O: al_ir::ObjectInfo + ?Sized>(o: &O, extended: bool) -> Option<Grant> {
+    if extended
+        || !prop(o, "Assignable").is_some_and(truthy)
+        || prop(o, "IncludedPermissionSets").is_some()
+        || prop(o, "ExcludedPermissionSets").is_some()
+    {
+        return None;
+    }
+    let entries = split_entries(prop(o, "Permissions")?);
+    let [entry] = entries.as_slice() else { return None };
+    let (head, mask) = entry.rsplit_once('=')?;
+    let (kind_word, name) = head.trim().split_once(char::is_whitespace)?;
+    let measured = kind_word.eq_ignore_ascii_case("page") && name.trim() == "*" && mask.trim() == "X";
+    measured.then_some(Grant {
+        kind: 8,
+        id: 0,
+        level: [0, 0, 0, 0, 1],
+    })
 }
 
 /// Which grants table is being read.
@@ -623,7 +657,10 @@ pub(super) fn grants_mat(
             k
         };
         let grants = match which {
-            GrantTable::Metadata => s.declared.clone().map(Rc::new),
+            GrantTable::Metadata => match &s.metadata_wildcard {
+                Some(row) => Ok(Rc::new(vec![row.clone()])),
+                None => s.declared.clone().map(Rc::new),
+            },
             _ => g.expanded(&b, i, &mut Vec::new()),
         };
         match grants {

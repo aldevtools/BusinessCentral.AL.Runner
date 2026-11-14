@@ -75,17 +75,36 @@ pub(crate) struct HostMove {
     /// The move stayed on the row and its parts read again through `sync_parts_stayed` (a GoToKey or GoToRecord to the row the
     /// host stands on). False for every other move, a GoToRecord the `pageops.rs` last branch syncs included.
     pub(crate) stayed: bool,
+    /// The host passes this row on its way to the row a GoToRecord finds (`walk_parts.rs`).
+    pub(crate) passing: bool,
 }
 
 impl HostMove {
     /// A move whose parts read again outside `sync_parts_stayed`.
     pub(crate) fn moved(method: al_builtins::page_op::PageMethod) -> Self {
-        HostMove { method, stayed: false }
+        HostMove {
+            method,
+            stayed: false,
+            passing: false,
+        }
     }
 
     /// A GoToKey or GoToRecord that stayed on the row; its parts read again through `sync_parts_stayed`.
     pub(crate) fn stayed(method: al_builtins::page_op::PageMethod) -> Self {
-        HostMove { method, stayed: true }
+        HostMove {
+            method,
+            stayed: true,
+            passing: false,
+        }
+    }
+
+    /// A row a GoToRecord passes on its way to the row it finds; the parts read again there (`walk_parts.rs`).
+    pub(crate) fn passing(method: al_builtins::page_op::PageMethod) -> Self {
+        HostMove {
+            method,
+            stayed: false,
+            passing: true,
+        }
     }
 }
 
@@ -185,6 +204,7 @@ type Handler = (usize, usize, Rc<RefCell<al_builtins::value::Instance>>);
 
 mod action_enabled_row;
 mod areas;
+mod auto_format_writer_cell;
 mod background;
 mod end_move_no_read;
 mod flowfield_hidden;
@@ -193,10 +213,15 @@ mod choice_entry;
 mod document_handler_error;
 mod filter;
 mod filter_enum;
+mod filter_eq_text;
 mod filter_link_numbers;
+mod filter_option_ne;
 mod modal_handler_error;
 mod page_run_close;
 pub(crate) use page_run_close::PageRunCall;
+pub(crate) mod action_tally;
+mod blank_enum_rows;
+mod empty_list_one_row;
 mod param_read;
 mod part_tree_typed;
 mod part_unsettled;
@@ -221,6 +246,7 @@ mod caption_class;
 mod caption_expr_list;
 mod caption_relation;
 mod caption_runs;
+pub(crate) use caption_runs::CaptionDialogs;
 mod caption_translation;
 mod clear_test_page;
 mod close_save_failed;
@@ -230,7 +256,9 @@ mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
 mod currpage_run_typed_key;
+mod data_caption_open;
 mod data_caption_run;
+mod delayed_blank_key_save;
 mod dev_endpoint;
 mod dirty_step;
 mod draft;
@@ -270,6 +298,8 @@ mod no_source_events;
 use no_source_events::NoSourceNew;
 mod open;
 pub(crate) mod pinned_shape;
+mod trapped_card_blank_part;
+use trapped_card_blank_part::blank_part_host_refusal;
 mod ui_caption_translate;
 mod update_refresh_card;
 pub(crate) mod validate_xrec;
@@ -279,6 +309,7 @@ mod action_body;
 mod card_part_new_host;
 mod empty_part_rec;
 mod empty_part_rec_list;
+mod empty_part_rec_list_triggers;
 mod hidden_part_journal;
 mod hidden_part_journal_code;
 mod list_card_action;
@@ -287,6 +318,7 @@ mod page_get_record;
 mod page_var_modeless_temp;
 mod page_var_view;
 mod pageops;
+mod part_assist_edit;
 mod part_filter_find;
 mod part_filter_unsaved_host;
 mod part_host_update;
@@ -296,6 +328,7 @@ mod part_visible_gate;
 mod pinned_body;
 mod post_left_new_line;
 mod provider_hidden;
+mod provider_no_row;
 mod record_trigger_answer;
 mod refill;
 mod refresh_new_line;
@@ -311,10 +344,11 @@ mod temp_list_gone_row;
 mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
+mod walk_parts;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, ReadBackwards, WindowRow, control_of,
-    into_st, page_value, st_of, test_control,
+    ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, OpenEditable, PageMode, PageState, ReadBackwards,
+    WindowRow, control_of, into_st, page_value, st_of, test_control,
 };
 
 impl Session {

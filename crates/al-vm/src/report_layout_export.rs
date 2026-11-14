@@ -93,7 +93,7 @@ impl Session {
         }
         match args.first() {
             Some(Value::Library(_, h)) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::OutStream(blob, _) => al_builtins::stream::write_bytes(blob, bytes),
+                al_builtins::value::LibraryValue::OutStream(blob, ..) => al_builtins::stream::write_bytes(blob, bytes),
                 _ => {
                     return unsupported(
                         "Media.ExportStream of a Report Layout List Layout into something not an OutStream",

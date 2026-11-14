@@ -22,10 +22,14 @@ mod boolean_filter_error;
 mod delete_all;
 mod delete_all_flow;
 mod empty_find_origin;
+mod filter_error;
 mod flowfield_key;
 mod insert_buffer;
+mod setfilter_empty_or_side;
 mod setrange_filter;
+mod sql_range;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
+use sql_range::{InsertShape, ModifyShape};
 mod nested_validate;
 pub(crate) use nested_validate::ValidateSite;
 mod op_inner;
@@ -173,7 +177,8 @@ pub(crate) fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
         })
 }
 
-fn same_expr(a: &FilterExpr, b: &FilterExpr) -> bool {
+/// Whether two filter expressions are the same filter.
+pub(crate) fn same_expr(a: &FilterExpr, b: &FilterExpr) -> bool {
     let v = |x: &Value, y: &Value| ops::compare(x, y).is_ok_and(|o| o.is_eq());
     let ov = |x: &Option<Value>, y: &Option<Value>| match (x, y) {
         (None, None) => true,
@@ -376,7 +381,7 @@ impl Session {
             return Vec::new();
         };
         let fields: Vec<Value> = t.fields.iter().map(|f| self.initial_field(f)).collect();
-        let fresh = fields
+        let fresh: Rc<[usize]> = fields
             .iter()
             .enumerate()
             .filter(|(_, v)| {
@@ -403,13 +408,13 @@ impl Session {
             })
             .map(|(i, _)| i)
             .collect();
-        self.initial_cache.insert(
-            table,
-            InitialFields {
-                values: fields.clone(),
-                fresh,
-            },
-        );
+        // The cache keeps no shared object of this record: its slots are built fresh on every copy, and a Blob buffer the
+        // cache held would count as one more holder of this record's buffer (`temp_blob_share.rs`).
+        let mut values = fields.clone();
+        for &i in fresh.iter() {
+            values[i] = Value::Null;
+        }
+        self.initial_cache.insert(table, InitialFields { values, fresh });
         let mut fields = fields;
         self.clear_uninstalled_init_values(table, &mut fields);
         fields
@@ -927,6 +932,8 @@ impl Session {
             names: &names,
             sender: None,
         };
+        // A by-value subscriber of a measured table event takes Rec as `blob_transfer::Argument` says.
+        self.events.blob_publisher = crate::blob_transfer::measured_table_event(event, rec.borrow().temporary);
         self.raise(&call, &mut args)
     }
 
@@ -1434,9 +1441,7 @@ impl Session {
     }
 
     /// Whether an insert or modify of `t` would run table code (a trigger, an extension trigger
-    /// or an event subscriber). XmlPort import refuses such tables: whether it runs them is not
-    /// pinned (docs/probes-needed.md).
-    #[allow(dead_code)] // the XmlPort import ran no hooks before; it runs them now
+    /// or an event subscriber).
     pub(crate) fn has_write_hooks(&mut self, t: &TableDef) -> Result<bool, Signal> {
         let mut any = ["OnInsert", "OnModify"]
             .iter()
@@ -1926,14 +1931,19 @@ impl Session {
 
     /// The Date, Time and DateTime values of a database table's row as its SQL columns hold them (`sqltime`): `Some` error
     /// for a value the column cannot hold. A temporary table keeps the values as they are.
-    fn sql_columns(&self, rec: &Rec, t: &TableDef, row: &mut [Value]) -> Result<Option<AlError>, Signal> {
+    fn sql_columns(
+        &self,
+        rec: &Rec,
+        t: &TableDef,
+        row: &mut [Value],
+    ) -> Result<Option<crate::sqltime::BadValue>, Signal> {
         if rec.borrow().temporary {
             return Ok(None);
         }
         let caption = self.caption(t);
         match crate::sqltime::store(t, &|i| self.field_caption(t, i), &caption, row)? {
             crate::sqltime::Stored::Fits => Ok(None),
-            crate::sqltime::Stored::Bad(e) => Ok(Some(e)),
+            crate::sqltime::Stored::Bad(bad) => Ok(Some(bad)),
         }
     }
 
@@ -2023,6 +2033,14 @@ impl Session {
                     }
                     _ => false,
                 };
+            // An assigned Blob that nothing saved or wrote since is kept, as an unsaved stream write is, when the stored row's
+            // Blob is empty (assumption `blob-assign-counts-as-write`: al-runner issue 7961, the reporter's repro on real BC).
+            let stored_empty =
+                matches!(stored.as_ref().map(|row| &row[pos]), Some(Value::Blob(src)) if src.borrow().bytes.is_empty());
+            if keeps_content && stored_empty && buf.borrow().assigned_unsaved {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobAssignCountsAsWrite);
+                continue;
+            }
             if stale {
                 // Pinned: streams/CalcFieldsBlobStaleBuffer.al (empty, loaded-earlier and unsaved-write buffers).
             } else if copied_write {
@@ -2048,6 +2066,7 @@ impl Session {
             b.bytes = bytes;
             b.written = false;
             b.written_base = None;
+            b.assigned_unsaved = false;
             b.fetched = true;
             // ADR-040: the stored row carries the mark of an output that was never produced.
             b.render_pending = pending;
@@ -2064,6 +2083,7 @@ impl Session {
                 let mut b = b.borrow_mut();
                 b.written = false;
                 b.written_base = None;
+                b.assigned_unsaved = false;
                 // A Blob the record read without CalcFields stays as stored by the save (record/load-fields/
                 // P81LoadFields.al:700-711) and stays unloaded: a later CalcFields fetches it (streams/TestBlob.al
                 // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), it does not keep the empty view the buffer shows.
@@ -2373,12 +2393,16 @@ impl Session {
     /// A record method: [`Session::record_op_inner`], with what it does to the snapshot `Record.IsDirty` compares with
     /// (isdirty.rs).
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        self.probed_source_before(method, rec, args);
         let inserted = self.own_read_before(method, rec, args);
         let r = if self.coverage.profiler.is_some() {
             self.record_op_profiled(method, rec, args)
         } else {
             self.record_op_unprofiled(method, rec, args)
         };
+        if let Some(tally) = self.pages.action_tally.as_mut() {
+            tally.note_record_op(method, rec.borrow().table as usize, args.is_empty());
+        }
         self.own_read_after(method, rec, inserted, matches!(r, Ok(Value::Boolean(true))));
         r
     }

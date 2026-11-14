@@ -422,29 +422,11 @@ codeunit 50957 "RPP Layout Subscriber"
 "#;
 
 // Base Application's ReportManagement answers SelectedBuiltinLayoutType and SelectReportLayoutCode from table 9651 "Report
-// Layout Selection" and from the SingleInstance codeunit 9654 "Design-time Report Selection" (the platform's Tenant Report
-// Layout Selection: al-test-cli tests/platform_tables.rs). A selection there can pick a layout that is not the report's default (an Excel layout writes no output:
+// Layout Selection" and from the SingleInstance codeunit 9654 "Design-time Report Selection" (`report_management_stand_in`
+// holds them). A selection there can pick a layout that is not the report's default (an Excel layout writes no output:
 // reports/layouts-saveas/AMReportOutputTests.al:257 ExcelLayout_SaveAsPdf), so a placeholder is written only while none of
 // them selects something other than an RDLC or Word layout of the report.
 const SELECTION: &str = r#"
-table 9651 "Report Layout Selection"
-{
-    fields
-    {
-        field(1; "Report ID"; Integer) { }
-        field(3; "Company Name"; Text[30]) { }
-        field(4; Type; Option) { OptionMembers = "RDLC (built-in)","Word (built-in)","Custom Layout","Excel Layout","External Layout"; }
-    }
-    keys { key(PK; "Report ID", "Company Name") { } }
-}
-
-codeunit 9654 "Design-time Report Selection"
-{
-    SingleInstance = true;
-    var SelectedCustomLayoutCode: Code[20]; SelectedPlatformLayoutName: Text[250];
-    procedure SetSelectedLayout(Name: Text[250]) begin SelectedPlatformLayoutName := Name; end;
-}
-
 codeunit 50959 "RPP Selection Tests"
 {
     local procedure Save(Id: Integer): Text
@@ -494,20 +476,23 @@ codeunit 50959 "RPP Selection Tests"
 "#;
 
 fn refused_with(src: &str, codeunit: &str, proc: &str, want: &str) {
-    match Built::from_source(src).run_in(codeunit, proc) {
+    match super::report_management_stand_in::built(src).run_in(codeunit, proc) {
         Err(Signal::Unsupported(why)) => assert!(why.contains(want), "{why}"),
         other => panic!("expected a refusal naming {want}, got {other:?}"),
     }
 }
 
 #[test]
-fn report_pdf_placeholder_a_report_layout_selection_of_a_custom_layout_is_refused() {
+fn report_pdf_placeholder_a_report_layout_selection_of_a_custom_layout_with_no_code_writes_a_pdf() {
+    // Base Application's ReportManagement answers SelectReportLayoutCode with nothing for a Custom Layout row whose code is
+    // empty, and SelectedBuiltinLayoutType with 0 (`report_management_stand_in`): no selection, the RDLC layout's placeholder.
+    // Main read the row itself and refused.
     let src = format!("{SRC}{SELECTION}");
-    refused_with(
-        &src,
-        "RPP Selection Tests",
-        "CustomSelection",
-        "Report Layout Selection",
+    assert_eq!(
+        al_testkit::text(
+            super::report_management_stand_in::built(&src).run_in("RPP Selection Tests", "CustomSelection")
+        ),
+        "Yes"
     );
 }
 
@@ -515,7 +500,9 @@ fn report_pdf_placeholder_a_report_layout_selection_of_a_custom_layout_is_refuse
 fn report_pdf_placeholder_a_report_layout_selection_of_the_builtin_rdlc_layout_writes_a_pdf() {
     let src = format!("{SRC}{SELECTION}");
     assert_eq!(
-        al_testkit::text(Built::from_source(&src).run_in("RPP Selection Tests", "BuiltinSelection")),
+        al_testkit::text(
+            super::report_management_stand_in::built(&src).run_in("RPP Selection Tests", "BuiltinSelection")
+        ),
         "Yes"
     );
 }
@@ -527,7 +514,7 @@ fn report_pdf_placeholder_a_design_time_layout_selection_is_refused() {
         &src,
         "RPP Selection Tests",
         "DesignTimeSelection",
-        "Design-time Report Selection",
+        "layout selection = a design-time selection",
     );
 }
 
@@ -538,7 +525,7 @@ fn report_pdf_placeholder_html_of_an_rdlc_report_while_a_design_time_selection_i
         &src,
         "RPP Selection Tests",
         "DesignTimeSelectionHtml",
-        "Design-time Report Selection",
+        "layout selection = a design-time selection",
     );
 }
 
@@ -590,7 +577,7 @@ fn report_pdf_placeholder_an_excel_layout_keeps_the_refusal() {
 }
 
 // An RDLC layout saved as Word writes the Word placeholder (CiReportRunLeads.al:674-692 SaveAs_RdlcOnly_WordExcel; ADR-040
-// amendment 2026-11-11, `report_placeholder::grid`).
+// amendment 2026-11-11, `report_save`).
 #[test]
 fn report_pdf_placeholder_an_rdlc_layout_saved_as_word_writes_the_word_placeholder() {
     assert!(run(SRC, "WordFormat").is_ok());

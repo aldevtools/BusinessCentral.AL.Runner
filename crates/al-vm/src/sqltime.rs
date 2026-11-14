@@ -102,22 +102,136 @@ pub(crate) enum Stored {
     /// Every value fits; the row now holds them as the columns do.
     Fits,
     /// A value the column cannot hold, with the error the platform raises for it.
-    Bad(AlError),
+    Bad(BadValue),
 }
 
-/// Rounds the Time and DateTime values of `row` and checks its dates against what the column holds. Only the values the corpus
-/// pins raise the platform's error (P130DateFilters.al:255-293, :306-318): the Dates 1753-01-01 and 1752-12-31 (also as a
-/// closing date), the DateTimes 1753-01-01 00:00 and 1752-12-31 12:00, and a DateTime that rounds past 9999-12-31. Any other
-/// value before 1753-01-02 is refused. 0001-01-01 reads back as it was written (:261-262: Format gives '' and it equals
-/// the value written, which a blank date would not: types/date-time/Arithmetic.al:111-116).
+/// A value the column cannot hold: the platform's error and which evidence measured the value.
+pub(crate) struct BadValue {
+    pub(crate) error: AlError,
+    pub(crate) evidence: Evidence,
+}
+
+/// Which evidence measured a value the column cannot hold.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Evidence {
+    /// Its Insert is pinned, and its date is not in 1753 (1752-12-31, a value past 9999-12-31: P130DateFilters.al:255-293,
+    /// :306-318).
+    InsertPinned,
+    /// Its Insert is pinned (the Date 1753-01-01 and the DateTime 1753-01-01 00:00: P130DateFilters.al:255-293), and the
+    /// reporter of al-runner issue 8006 measured its Modify.
+    InsertPinnedIn1753,
+    /// Another value in 1753: the reporter of al-runner issue 8006 measured its Insert and Modify (assumption
+    /// `sql-date-first-year`).
+    Reporter1753,
+}
+
+/// How a Date or DateTime the column cannot hold shows in the error, and which evidence measured it.
+struct Shown {
+    value: String,
+    evidence: Evidence,
+}
+
+/// The days of 1752-12-31, 1753-01-01 and 1754-01-01.
+fn edge_days() -> (i64, i64, i64) {
+    (
+        i64::from(day_from_civil(1752, 12, 31)),
+        i64::from(day_from_civil(1753, 1, 1)),
+        i64::from(day_from_civil(1754, 1, 1)),
+    )
+}
+
+/// A Date before 1754-01-01 the column cannot hold, or `None` when it fits. Pinned: 1753-01-01 and 1752-12-31 (also as a
+/// closing date) fail, 0D and 0001-01-01 store (P130DateFilters.al:255-293; 0001-01-01 reads back as it was written, :261-262,
+/// which a blank date would not: types/date-time/Arithmetic.al:111-116). Assumed (`sql-date-first-year`, al-runner issue
+/// 8006): every other date in 1753 that is not a closing date fails. Every other date before 1754-01-01 is refused.
+fn bad_date(d: i32, closing: bool) -> Result<Option<Shown>, Signal> {
+    let (d1752, d1753, d1754) = edge_days();
+    let day = i64::from(d);
+    if day >= d1754 || (d <= 1 && !closing) {
+        return Ok(None);
+    }
+    let (y, m, dd) = al_builtins::format::civil_from_day(d);
+    let shown = |prefix: &str, evidence| Shown {
+        value: format!("{prefix}{m:02}/{dd:02}/{y:04}"),
+        evidence,
+    };
+    Ok(Some(match (day, closing) {
+        (d, false) if d == d1753 => shown("", Evidence::InsertPinnedIn1753),
+        (d, false) if d == d1752 => shown("", Evidence::InsertPinned),
+        (d, true) if d == d1752 => shown("C", Evidence::InsertPinned),
+        (d, false) if d > d1753 && d < d1754 => shown("", Evidence::Reporter1753),
+        _ => {
+            return Err(Signal::unsupported(
+                "a Date before 1754-01-01 in a database table, other than the measured ones (not pinned)",
+            ));
+        }
+    }))
+}
+
+/// A DateTime the column cannot hold, or `None` when it fits. Pinned: 1753-01-01
+/// 00:00 and 1752-12-31 12:00 fail, and a value that rounds past 9999-12-31, which shows to the minute
+/// (P130DateFilters.al:285-293, :315). Assumed (`sql-date-first-year`, al-runner issue 8006): every other value on a day in
+/// 1753 fails and shows to the minute with AM or PM (`12:00 AM` for 00:00:01, `11:59 PM` for 23:59:59); a one-digit hour
+/// (whether it is padded is not measured) and a value the rounding moves into another minute are refused. Every other value
+/// before 1754-01-01 is refused.
+fn bad_datetime(v: i64) -> Result<Option<Shown>, Signal> {
+    let (d1752, d1753, d1754) = edge_days();
+    let (day, in_day) = ((v - 1).div_euclid(MS_PER_DAY) + 1, (v - 1).rem_euclid(MS_PER_DAY));
+    let r = round_datetime(v);
+    if (r - 1).div_euclid(MS_PER_DAY) + 1 > i64::from(day_from_civil(9999, 12, 31)) {
+        return Ok(Some(Shown {
+            value: "12/31/9999 11:59 PM".into(),
+            evidence: Evidence::InsertPinned,
+        }));
+    }
+    if day >= d1754 {
+        return Ok(None);
+    }
+    let refuse = || {
+        Signal::unsupported(
+            "a DateTime before 1754-01-01 in a database table, other than the measured ones (not pinned)",
+        )
+    };
+    match (day, in_day) {
+        (d, 0) if d == d1753 => {
+            return Ok(Some(Shown {
+                value: "01/01/1753 12:00 AM".into(),
+                evidence: Evidence::InsertPinnedIn1753,
+            }));
+        }
+        (d, 43_200_000) if d == d1752 => {
+            return Ok(Some(Shown {
+                value: "12/31/1752 12:00 PM".into(),
+                evidence: Evidence::InsertPinned,
+            }));
+        }
+        (d, _) if d < d1753 => return Err(refuse()),
+        _ => {}
+    }
+    let (hour, minute) = (in_day / 3_600_000, in_day / 60_000 % 60);
+    let hour12 = if hour % 12 == 0 { 12 } else { hour % 12 };
+    // Measured: 12 AM, 12 PM and 11 PM; a 12-hour clock hour of two digits shows the same padded or not.
+    let two_digit_hour = matches!(hour12, 10..=12);
+    let same_minute = (r - 1).div_euclid(60_000) == (v - 1).div_euclid(60_000);
+    if !(two_digit_hour && same_minute) {
+        return Err(refuse());
+    }
+    let (y, m, dd) = al_builtins::format::civil_from_day(day as i32);
+    let half = if hour < 12 { "AM" } else { "PM" };
+    Ok(Some(Shown {
+        value: format!("{m:02}/{dd:02}/{y:04} {hour12}:{minute:02} {half}"),
+        evidence: Evidence::Reporter1753,
+    }))
+}
+
+/// Rounds the Time and DateTime values of `row` and checks its dates against what the column holds (`bad_date`,
+/// `bad_datetime`).
 pub(crate) fn store(
     t: &TableDef,
     field_caption: &dyn Fn(usize) -> String,
     table_caption: &str,
     row: &mut [Value],
 ) -> Result<Stored, Signal> {
-    let first_good = i64::from(day_from_civil(1753, 1, 2));
-    let (d1752, d1753) = (day_from_civil(1752, 12, 31), day_from_civil(1753, 1, 1));
     for (i, f) in t.fields.iter().enumerate() {
         // The system fields (SystemCreatedAt, SystemModifiedAt) are the platform's stamps: whether the buffer then holds the
         // rounded value is not pinned, and they keep the value the runtime stamps.
@@ -127,57 +241,28 @@ pub(crate) fn store(
         // A primary key field the rounding changes is stored rounded like any other field: the row stands under the
         // rounded key while the record keeps its own value (P130DateFilters.al:527-735, al-runner issue 5689).
         let bad = match (&f.ty, &row[i]) {
-            (RtType::Date, Value::Date(0, false)) => None,
-            (RtType::Date, Value::Date(1, false)) => None,
-            (RtType::Date, Value::Date(d, closing)) if i64::from(*d) < first_good => {
-                let (y, m, dd) = al_builtins::format::civil_from_day(*d);
-                match (*d, *closing) {
-                    (d, false) if d == d1753 || d == d1752 => Some(format!("{m:02}/{dd:02}/{y:04}")),
-                    (d, true) if d == d1752 => Some(format!("C{m:02}/{dd:02}/{y:04}")),
-                    _ => {
-                        return Err(Signal::Unsupported(
-                            "a Date before 1753-01-02 in a database table, other than the pinned ones (not pinned)"
-                                .into(),
-                        ));
-                    }
-                }
-            }
+            (RtType::Date, Value::Date(d, closing)) => bad_date(*d, *closing)?,
             (RtType::Time, Value::Time(_)) => {
                 row[i] = rounded(&row[i]);
                 None
             }
             (RtType::DateTime, Value::DateTime(v)) if *v != 0 => {
-                let total = v - 1;
-                let (day, in_day) = (total.div_euclid(MS_PER_DAY) + 1, total.rem_euclid(MS_PER_DAY));
-                let r = round_datetime(*v);
-                if (r - 1).div_euclid(MS_PER_DAY) + 1 > i64::from(day_from_civil(9999, 12, 31)) {
-                    // 9999-12-31 23:59:59.999 shows to the minute (P130DateFilters.al:315).
-                    Some("12/31/9999 11:59 PM".to_string())
-                } else if day < first_good {
-                    match (day, in_day) {
-                        (d, 0) if d == i64::from(d1753) => Some("01/01/1753 12:00 AM".to_string()),
-                        (d, 43_200_000) if d == i64::from(d1752) => Some("12/31/1752 12:00 PM".to_string()),
-                        _ => {
-                            return Err(Signal::Unsupported(
-                                "a DateTime before 1753-01-02 in a database table, other than the pinned ones (not pinned)".into(),
-                            ));
-                        }
-                    }
-                } else {
-                    row[i] = Value::DateTime(r);
-                    None
+                let bad = bad_datetime(*v)?;
+                if bad.is_none() {
+                    row[i] = Value::DateTime(round_datetime(*v));
                 }
+                bad
             }
             _ => None,
         };
-        if let Some(value) = bad {
+        if let Some(Shown { value, evidence }) = bad {
             // The text names the field and the table; whether by name or caption is not pinned (the corpus table has neither).
             if field_caption(i) != f.name || table_caption != t.name {
                 return Err(Signal::Unsupported(
                     "the SQL range error of a field or table with a caption (whether it names the caption is not pinned)".into(),
                 ));
             }
-            return Ok(Stored::Bad(AlError {
+            let error = AlError {
                 message: format!(
                     "Cannot write the value {value} to the field {} in the table {} because the value is either too long or the content is invalid.",
                     f.name, t.name
@@ -185,7 +270,8 @@ pub(crate) fn store(
                 code: "NDBCS:BadCSideData".into(),
                 call_stack: String::new(),
                 ..Default::default()
-            }));
+            };
+            return Ok(Stored::Bad(BadValue { error, evidence }));
         }
     }
     Ok(Stored::Fits)

@@ -474,6 +474,7 @@ impl Session {
         self.isolated_written_in_codeunit.clear();
         self.sequences = b.sequences.clone();
         self.sequences_changed.clear();
+        self.clear_unmeasured();
         // The install ran on a clock that its own Sleep calls had moved forward (hours, in Business Central's install
         // code); the session starts on the real clock again, and a stamp must not stay ahead of it: a row inserted by the
         // first test would otherwise be stamped hours after CurrentDateTime (corpus record/TestSystemFieldStampsContracts.al:

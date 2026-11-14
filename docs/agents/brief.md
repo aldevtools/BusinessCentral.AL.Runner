@@ -59,7 +59,7 @@ finding goes into `docs/agents/recurring-findings.md`, not into one prompt.
 11. **Never `git commit -a` or `git add -A`.** Stage paths by name. Check `git submodule status` first.
 12. **Nothing local in the repo.** No host names, URLs, user names, home paths, partner names or
     Microsoft code in commits, pull requests or issues.
-13. **Hand off at 250k tokens.** Commit, write your hand-off file (done, next steps in order, traps),
+13. **Hand off at 150k tokens.** Commit, write your hand-off file (done, next steps in order, traps),
     report HANDOFF. Do not start sub-agents.
 14. **Error texts come from the corpus.** Never invent one.
 15. **Seams change only through an ADR. Caps and budgets never go up.** Stop that part and report it.

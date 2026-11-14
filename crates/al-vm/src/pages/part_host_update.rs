@@ -8,12 +8,128 @@
 //! reads of the row at the end. After a host action that calls Update, BC reads the part before the action runs; that needs a
 //! look into the action, so the Update is refused there (`refuse_update_in_action`).
 
+use super::pinned_shape::TestCall;
 use super::*;
+use al_builtins::page_op::PageMethod;
 
 /// A part's view (up to a window of rows) and the place of its row in it.
 type LaterRow = (Vec<Vec<Value>>, usize);
 
+/// The reread a Document host owes after a CardPart drilldown (`PageState::deferred_part_drilldown_refresh`).
+#[derive(Debug, Clone)]
+pub(crate) enum DeferredReread {
+    /// The measured drilldown changed the stored header of this key: the host's next SetValue rereads it first.
+    Pending(Vec<Value>),
+    /// A second drilldown on the part came while one was pending: no reread, and it sets no new one (not measured).
+    Spent,
+}
+
 impl Session {
+    /// AL Runner issue 7886, corpus pull request 1348 (pages/parts/TestCardPartDrilldownRefresh.al), assumption
+    /// `card-part-drilldown-deferred-host-refresh`: after a drilldown of a CardPart (UpdatePropagation = Both) that changed the
+    /// stored header and called Update(false), the Document host still shows the old value, and its next SetValue validates
+    /// against the stored header. Measured sequence: the drilldown, reads of host fields, then the host's SetValue; every
+    /// other test call on the page tree ends the pending reread (`end_deferred_host_reread`).
+    pub(super) fn defer_host_refresh_after_part_drilldown(&mut self, part: &St) -> Result<(), Signal> {
+        let (host, index) = {
+            let child = part.borrow();
+            if !child.open
+                || child.cursor != Cursor::Row
+                || child.draft
+                || child.dirty
+                || !child.refresh
+                || !child.refresh_by_update
+                || !child.refresh_update_false
+                || self.engine.object_facts[child.object as usize].page_type_lower() != "cardpart"
+            {
+                return Ok(());
+            }
+            let Some((host, index)) = child.host.as_ref().and_then(|(h, i)| h.upgrade().map(|h| (h, *i))) else {
+                return Ok(());
+            };
+            (host, index)
+        };
+        if !self.clean_document_refresh_row(&host) || !self.unextended_unsubscribed(&host) || !self.has_source(part) {
+            return Ok(());
+        }
+        let engine = self.engine();
+        let control = &page_of(&engine, &host).controls[index];
+        if !matches!(control.prop("updatepropagation"), Some(ir::PropVal::Lit(v)) if v.eq_ignore_ascii_case("both")) {
+            return Ok(());
+        }
+        let hrec = self.page_rec(&host);
+        let crec = self.page_rec(part);
+        let table = self.table(&hrec)?;
+        if hrec.borrow().temporary
+            || hrec.borrow().table != crec.borrow().table
+            || !control.part_link.as_ref().is_some_and(|link| {
+                matches!((table.keys[0].as_slice(), link.entries.as_slice()), ([key], [ir::LinkEntry::Field(child, parent)]) if key == child && key == parent)
+                    && link.provider.is_none()
+                    && link.view.is_none()
+            })
+        {
+            return Ok(());
+        }
+        let key = self.row_key(&hrec)?;
+        if Self::same_key(&key, &self.row_key(&crec)?)
+            && self
+                .stored_row(&hrec)?
+                .is_some_and(|stored| !Self::same_values(&stored, &hrec.borrow().fields))
+        {
+            let mut h = host.borrow_mut();
+            if h.deferred_part_drilldown_refresh.is_none() {
+                h.deferred_part_drilldown_refresh = Some(DeferredReread::Pending(key));
+            }
+        }
+        Ok(())
+    }
+
+    fn clean_document_refresh_row(&self, st: &St) -> bool {
+        let state = st.borrow();
+        state.open
+            && state.cursor == Cursor::Row
+            && !state.draft
+            && !state.dirty
+            && state.host.is_none()
+            && self.engine.object_facts[state.object as usize].page_type == Some(ir::PageType::Document)
+            && self.has_source(st)
+            && !self.declares(st, "onfindrecord")
+            && !self.declares(st, "onnextrecord")
+    }
+
+    /// The test makes call `call` (method `method`) on page `st`: a pending reread of its page tree's host stays only for the
+    /// measured next steps, a read of a host field and a SetValue of a host control (which takes it,
+    /// `refresh_host_before_set_value`). A drilldown on a part leaves it `Spent`; any other call ends it, `Value := x` too.
+    pub(super) fn end_deferred_host_reread(st: &St, call: Option<TestCall>, method: PageMethod) {
+        let Some(call) = call else { return };
+        let (root, part) = Self::tree_root(st);
+        let mut r = root.borrow_mut();
+        if r.deferred_part_drilldown_refresh.is_none() {
+            return;
+        }
+        r.deferred_part_drilldown_refresh = match (part, call) {
+            (None, TestCall::Read) => r.deferred_part_drilldown_refresh.take(),
+            (None, TestCall::Write(_)) if method == PageMethod::SetValue => r.deferred_part_drilldown_refresh.take(),
+            (Some(_), TestCall::Other(PageMethod::DrillDown)) => Some(DeferredReread::Spent),
+            _ => None,
+        };
+    }
+
+    pub(super) fn refresh_host_before_set_value(&mut self, st: &St) -> Result<(), Signal> {
+        let pending = st.borrow_mut().deferred_part_drilldown_refresh.take();
+        let Some(DeferredReread::Pending(key)) = pending else {
+            return Ok(());
+        };
+        if self.clean_document_refresh_row(st) && Self::same_key(&key, &self.row_key(&self.page_rec(st))?) {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::CardPartDrilldownDeferredHostRefresh,
+            );
+            st.borrow_mut().refresh = true;
+            self.run_refresh(st)?;
+        }
+        Ok(())
+    }
+
     /// Whether `child` is a linked ListPart on a stored row of its view other than the first, within a window, and the view
     /// and its row: `None` when it is not (it then reads as before).
     fn part_on_later_row(&mut self, child: &St) -> Result<Option<LaterRow>, Signal> {

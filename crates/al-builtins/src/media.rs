@@ -350,7 +350,7 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         let Some(Value::Library(_, h)) = a.first() else {
             return unsupported("Media.ExportStream without an OutStream");
         };
-        let LibraryValue::OutStream(blob, _) = &*h.borrow() else {
+        let LibraryValue::OutStream(blob, ..) = &*h.borrow() else {
             return unsupported("Media.ExportStream to a value that is not an OutStream");
         };
         crate::stream::write_bytes(blob, &obj.bytes);
@@ -364,7 +364,7 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
         return unsupported("Media.ExportStream without an OutStream");
     };
     match &*h.borrow() {
-        LibraryValue::OutStream(blob, _) if docx_mark => {
+        LibraryValue::OutStream(blob, ..) if docx_mark => {
             let mut buf = blob.borrow_mut();
             buf.bytes.clear();
             buf.loaded = true;
@@ -372,11 +372,11 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             buf.render_pending = Some(crate::stream::MEDIA_DOCX_REZIPPED.into());
         }
         // The file's bytes come back on BC 27 and 28 (MediaFiles.al:510-512 'export length', 'export is the file').
-        LibraryValue::OutStream(blob, _) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
+        LibraryValue::OutStream(blob, ..) if obj.mime == DOCX_MIME => crate::stream::write_bytes(blob, &obj.bytes),
         // A 300 dpi JFIF JPEG that Media.ImportFile read comes back unchanged on Windows BC 29.0 (probe cu 61288
         // SC_DemoTool_Media_ExportStream, case JD; the DemoTool's pictures). No corpus test pins it yet: a registered assumption
         // under the Microsoft-test exception (CLAUDE.md rule 3).
-        LibraryValue::OutStream(blob, _)
+        LibraryValue::OutStream(blob, ..)
             if obj.mime == "image/jpeg"
                 && obj.file_column.is_some()
                 && jfif_300_dpi(&obj.bytes)
@@ -387,10 +387,10 @@ fn media_export(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
             crate::stream::write_bytes(blob, &obj.bytes)
         }
         // Text and binary content that is no picture comes back as the same bytes (media_export.rs).
-        LibraryValue::OutStream(blob, _) if crate::media_export::exports_unchanged(&obj) => {
+        LibraryValue::OutStream(blob, ..) if crate::media_export::exports_unchanged(&obj) => {
             crate::stream::write_bytes(blob, &obj.bytes)
         }
-        LibraryValue::OutStream(blob, _) => {
+        LibraryValue::OutStream(blob, ..) => {
             // An imported PNG comes back re-encoded on every major: 68 bytes export as 99 other bytes on Windows BC 27, 28 and 29
             // (types/W7Media.al:141-145, ExportStream_OfAnImportedPicture, corpus bump 34; bc-linux #161). The export itself
             // succeeds (streams/StTMedia.al:170 and :213, MediaExportStream and MediaExportAfterReload). The re-encoded bytes are

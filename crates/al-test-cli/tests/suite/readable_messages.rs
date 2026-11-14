@@ -51,6 +51,11 @@ const KEPT: &[(&str, &str, &str)] = &[
     ),
     (
         "al-testrun/src/runtime/baseline_key.rs",
+        r#"format!("{platform_internals_visible_to:?}").as_bytes(),"#,
+        "a cache key text, not a message",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
         r#"put("logo", format!("{logo:?}").as_bytes());"#,
         "a cache key text, not a message",
     ),
@@ -302,8 +307,9 @@ fn no_message_formats_a_value_with_the_debug_format() {
     let mut found = Vec::new();
     for f in &files {
         let rel = f.strip_prefix(root()).unwrap().to_string_lossy().replace('\\', "/");
+        // Unit test modules (`tests.rs`, `src/**/tests/`) print values for a failing test.
         // `al-testkit` is a dev-dependency: its messages are what a failing test prints about a value.
-        if rel.ends_with("tests.rs") || rel.starts_with("crates/al-testkit/") {
+        if rel.ends_with("tests.rs") || rel.contains("/tests/") || rel.starts_with("crates/al-testkit/") {
             continue;
         }
         let text = std::fs::read_to_string(f).unwrap();

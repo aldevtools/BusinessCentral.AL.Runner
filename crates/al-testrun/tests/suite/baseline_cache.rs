@@ -89,6 +89,7 @@ fn run_full(
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
@@ -400,6 +401,7 @@ codeunit 60103 ResourceTests
             translation_source: None,
             runtime: None,
             app_json_keys: Vec::new(),
+            platform_internals_visible_to: Vec::new(),
             symbols: vec![],
         };
         CorpusRuntime::try_run_suites_with(
@@ -485,6 +487,7 @@ fn login_run(cache: &Path) -> Outcome {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     let rt = CorpusRuntime::try_run_suites_with(
@@ -585,6 +588,7 @@ fn run_apps(
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
@@ -961,6 +965,7 @@ codeunit 60101 DataTests { Subtype = Test;
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     let go = || {

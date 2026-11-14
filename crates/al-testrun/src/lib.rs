@@ -38,6 +38,8 @@ pub mod observe;
 pub mod profiling;
 pub mod reach;
 pub mod refusals;
+pub mod report_render;
+pub mod report_render_pieces;
 pub mod runtime;
 pub mod seed;
 pub mod stability;
