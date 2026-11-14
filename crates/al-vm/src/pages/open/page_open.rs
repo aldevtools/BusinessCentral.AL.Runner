@@ -200,7 +200,8 @@ impl Session {
     ) -> Result<Option<Handler>, Signal> {
         let handed = self.data_caption_handed(st, record.as_ref(), bind);
         let handler = self.open_page_as(st, mode, record, bind, false)?;
-        if handler.is_some() {
+        let trapped = bind.is_none() && st.borrow().caught_by_trap;
+        if handler.is_some() || trapped {
             self.data_caption_at_handled_open(st, bind, handed)?;
         }
         Ok(handler)

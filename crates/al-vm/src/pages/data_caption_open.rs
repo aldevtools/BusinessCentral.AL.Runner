@@ -1,14 +1,16 @@
 //! When the DataCaptionExpression of a Worksheet, or of a Card with DelayedInsert, runs as AL code opens the page with
 //! `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and a TestPage handler answers it (al-runner issue 6924, APPD). Measured by
 //! corpus PR 1392, pages/properties/DataCaptionExprWorksheet.al (its CI passed on all three BC majors the corpus runs); the cells
-//! run under the assumption `data-caption-run-at-open`. Such a Worksheet in another shape refuses
-//! (`data_caption_open_neighbor`); every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
+//! run under the assumption `data-caption-run-at-open`. Such a Worksheet in another shape or run (`data_caption_open_neighbor`)
+//! refuses at the open when its expression can leave something behind, else at the first test read of what the run changes
+//! (`refuse_unmeasured_caption_read`); every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
 
-use super::pinned_shape::{NextEnd, PinnedEnd};
+use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
 use super::*;
 use crate::ui::UiKind;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
+use al_builtins::page_op::PageMethod;
 
 /// What the handler may do after the measured open: read the caption and the controls (DataCaptionExprWorksheet.al:627, :633,
 /// :639, :645), and the page closes.
@@ -136,10 +138,13 @@ impl Session {
         })
     }
 
-    /// The page `st` that AL code opened with `bind`'s handler bound and the record `handed`: in a measured cell, the expression
-    /// runs as the probe saw it before the handler, and only the handler's caption and control reads and the close follow
-    /// (`OPENED_END`). A page of the cells' neighborhood (`data_caption_open_neighbor`) in no cell refuses, naming the fact it
-    /// misses; every other page keeps main's path.
+    /// The page `st` that AL code opened with `bind`'s handler bound (or that a Trap caught, `bind` empty) and the record
+    /// `handed`: in a measured cell, the expression runs as the probe saw it before the handler, and only the handler's caption
+    /// and control reads and the close follow (`OPENED_END`). A page of the cells' neighborhood (`data_caption_open_neighbor`) in
+    /// no cell keeps main's open when its expression leaves nothing behind (`Engine::own_instance_effect`): the run at the open
+    /// then changes only what the caption and the controls on page variables or expressions show, and the first test read of
+    /// those refuses (`refuse_unmeasured_caption_read`). With an expression that can leave something behind it refuses at the
+    /// open, naming the fact it misses. Every other page keeps main's path.
     pub(super) fn data_caption_at_handled_open(
         &mut self,
         st: &St,
@@ -153,11 +158,18 @@ impl Session {
         let runs = match cell {
             Ok(runs) => runs,
             Err(miss) if self.data_caption_open_neighbor(st, bind) => {
-                return Err(Signal::unsupported(format!(
-                    "a Worksheet with DataCaptionExpression that AL code ran with a record and a handler answered, outside \
-                     the measured cells: {miss} (the expression runs at the open only in the shape DataCaptionExprWorksheet.al of corpus PR \
-                     1392 measured; al-runner issue 6924)"
-                )));
+                return match self.data_caption_expression_effect(st) {
+                    None => {
+                        st.borrow_mut().data_caption_open_unmeasured = Some(miss);
+                        Ok(())
+                    }
+                    Some(effect) => Err(Signal::unsupported(format!(
+                        "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the \
+                         measured cells: {miss}; the expression {effect}, so its runs at the open can be seen later (the \
+                         expression runs at the open only in the shape DataCaptionExprWorksheet.al of corpus PR 1392 measured; \
+                         al-runner issue 6924)"
+                    ))),
+                };
             }
             Err(_) => return Ok(()),
         };
@@ -176,6 +188,70 @@ impl Session {
         s.data_caption_at_open = runs != Runs::CardOnce;
         s.pinned_end = Some(OPENED_END);
         Ok(())
+    }
+
+    /// What the page's DataCaptionExpression can leave behind when it runs on the page's own instance; `None` when nothing. An
+    /// expression the lowering did not compile counts as an effect.
+    fn data_caption_expression_effect(&self, st: &St) -> Option<String> {
+        let object = st.borrow().object as usize;
+        let engine = self.engine();
+        let Some(routine) = engine.program.objects[object]
+            .routines
+            .iter()
+            .position(|r| r.name == ir::DATA_CAPTION_ROUTINE)
+        else {
+            return Some("was not compiled".to_string());
+        };
+        engine.own_instance_effect(object, routine).map(|e| match e {
+            crate::effects::Effect::Kept(what) | crate::effects::Effect::Refused(what) => what,
+        })
+    }
+
+    /// The test reads, on page `st`, its caption (`control` empty) or the control at index `control`: on a Worksheet whose
+    /// expression may have run at the open outside the measured cells (`data_caption_open_unmeasured`), a read of the caption or
+    /// of a control bound to a page variable or an expression refuses; main's path answers the reads of Rec's controls, the
+    /// actions and the close.
+    pub(super) fn refuse_unmeasured_caption_read(
+        &self,
+        st: &St,
+        call: Option<TestCall>,
+        control: Option<usize>,
+    ) -> Result<(), Signal> {
+        let Some(miss) = st.borrow().data_caption_open_unmeasured else {
+            return Ok(());
+        };
+        let read = match (call, control) {
+            (Some(TestCall::Page(PageMethod::Caption)), None) => "the caption",
+            (Some(TestCall::Read), Some(i)) => self.data_caption_open_bound_read(st, i),
+            (Some(TestCall::Other(m)), Some(i)) if m == PageMethod::AssertEquals || Self::field_read(m) => {
+                self.data_caption_open_bound_read(st, i)
+            }
+            _ => return Ok(()),
+        };
+        if read.is_empty() {
+            return Ok(());
+        }
+        unsupported(format!(
+            "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the measured cells: \
+             {miss}; the test read {read}, which can differ where the expression ran at the open (measured only in the shape \
+             DataCaptionExprWorksheet.al of corpus PR 1392 measured; al-runner issue 6924)"
+        ))
+    }
+
+    /// "a control on a page variable or an expression" when the control at index `i` of page `st` is bound to one; else empty.
+    fn data_caption_open_bound_read(&self, st: &St, i: usize) -> &'static str {
+        let engine = self.engine();
+        let bound = page_of(&engine, st).controls.get(i).is_some_and(|c| {
+            matches!(
+                c.binding,
+                ir::Binding::Var(_) | ir::Binding::BaseVar(_) | ir::Binding::Expr(_)
+            )
+        });
+        if bound {
+            "a control on a page variable or an expression"
+        } else {
+            ""
+        }
     }
 
     /// The caption of a Worksheet whose expression ran at the open (`data_caption_at_open`): the page caption, ` - ` and the
@@ -260,18 +336,20 @@ impl Session {
     }
 
     /// Whether page `st` is in the neighborhood of the measured cells where main's path is not an answer: a Worksheet (the
-    /// measured page type, DataCaptionExprWorksheet.al:81, :177) with a DataCaptionExpression of its own, that AL code ran with
-    /// `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and no field number while `bind`'s handler is bound, at the top level, with
-    /// any number of rows. BC ran the expression twice before the handler on an empty view and once on one row (:412, :439,
-    /// :572, :586), while main's path runs it only at a caption read, so main's controls can differ from BC's (the cells' value
-    /// reads: :627, :633); no row count is measured outside the cells, so they all refuse.
+    /// measured page type, DataCaptionExprWorksheet.al:81, :177) with a DataCaptionExpression of its own and a source table, at
+    /// the top level, that AL code opened while `bind`'s handler is bound or that a Trap caught (every run: static or through a
+    /// page variable, with or without a record or a field number, Run or RunModal; and an action's RunObject), with any number of
+    /// rows. BC ran the expression twice before the handler on an empty view and once on one row (:412, :439, :572, :586), while
+    /// main's path runs it only at a caption read, so what the caption and the controls show can differ from BC's (the cells'
+    /// reads: :627, :633); no other run or row count is measured.
     fn data_caption_open_neighbor(&self, st: &St, bind: Option<UiKind>) -> bool {
         let run = {
             let s = st.borrow();
-            matches!(bind, Some(UiKind::Page | UiKind::ModalPage))
-                && s.static_run_record_only
-                && s.open
-                && s.host.is_none()
+            let opened = match bind {
+                Some(kind) => matches!(kind, UiKind::Page | UiKind::ModalPage),
+                None => s.caught_by_trap,
+            };
+            opened && s.open && s.host.is_none()
         };
         let worksheet = {
             let engine = self.engine();

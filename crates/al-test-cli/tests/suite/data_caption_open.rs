@@ -314,15 +314,11 @@ fn neighbors_of_the_measured_open_keep_main_outcome_or_refuse() {
     for t in ["D00_OneRow", "D01_Empty", "D02_EmptyEditableOff"] {
         assert_eq!(get(t), "Some(Pass)", "{t}");
     }
-    // A field argument is outside the neighborhood: main's refusal at the caption read.
-    let field_arg = get("D04_FieldArg");
-    assert!(
-        field_arg.contains("NotRun") && field_arg.contains("on a new row"),
-        "{field_arg}"
-    );
-    // The others are Worksheets AL code ran with a record, in no measured cell: they refuse at the open and name the fact they
-    // miss.
+    // Worksheets AL code ran, in no measured cell, whose expression writes page variables and the log: they refuse at the open
+    // and name the fact they miss (a field argument too, review of al-runner PR 8023). D13's expression, a field of Rec, leaves
+    // nothing behind: it refuses at the handler's caption read.
     for (t, miss) in [
+        ("D04_FieldArg", "not one AL code ran with Page.Run(Id, Rec)"),
         ("D11_OpenSetRange", "changed Rec's filters"),
         ("D12_OpenInsert", "wrote to the database"),
         ("D15_OpenSwap", "changed Rec's filters"),
@@ -345,6 +341,7 @@ fn neighbors_of_the_measured_open_keep_main_outcome_or_refuse() {
             "{t}: {o}"
         );
     }
+    assert!(get("D13_FieldExpr").contains("the test read the caption"));
 }
 
 // The page of al-runner issue 6924 (APPD), as the reporter described it: filter controls with OnValidate and OnLookup, a third
@@ -484,4 +481,148 @@ fn the_reported_list_keeps_main_outcome_and_a_row_refuses() {
             && one_row.contains("a control has a trigger"),
         "{one_row}"
     );
+}
+
+// A Worksheet with its own DataCaptionExpression outside the measured cells (review of al-runner PR 8023: every run kind, and a
+// handler that reads none of what the open changes). BC ran the expression at the open in the measured cells
+// (DataCaptionExprWorksheet.al:412, :439, :572, :586); main runs it at a caption read. An expression that leaves nothing behind
+// changes only what the caption and the controls on page variables or expressions show: main's open is kept and the first such read
+// refuses. An expression that can leave something behind refuses at the open, for every run kind.
+const LAZY: &str = r#"
+table 69970 "DL Row" { fields { field(1; "Item No."; Code[20]) { } field(2; "Vendor No."; Code[20]) { } } keys { key(PK; "Item No.", "Vendor No.") { } } }
+page 69971 "DL Ws Field"
+{
+    PageType = Worksheet; SourceTable = "DL Row"; Caption = 'DL WS'; DataCaptionExpression = Rec."Item No."; UsageCategory = None;
+    layout { area(Content) { group(F) { field(NoteCtl; Note) { } } repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
+    var Note: Text[30];
+}
+page 69972 "DL Ws Pure"
+{
+    PageType = Worksheet; SourceTable = "DL Row"; Caption = 'DL WSP'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    layout { area(Content) { group(F) { field(NoteCtl; Note) { } } repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
+    var Note: Text[30];
+    local procedure GetCaption(): Text[250] begin exit('Cap ' + Rec."Item No."); end;
+}
+page 69973 "DL Ws Lit"
+{
+    PageType = Worksheet; SourceTable = "DL Row"; Caption = 'DL WSL'; DataCaptionExpression = 'Lit'; UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
+}
+page 69974 "DL Ws Fx"
+{
+    PageType = Worksheet; SourceTable = "DL Row"; Caption = 'DL WSX'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    layout { area(Content) { group(F) { field(NoteCtl; Note) { } } repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
+    var Note: Text[30];
+    local procedure GetCaption(): Text[250] begin Note := 'x'; exit('Cap'); end;
+}
+codeunit 69975 T
+{
+    Subtype = Test;
+    var Seen: Text;
+    local procedure Seed(Rows: Integer; var Row: Record "DL Row")
+    var i: Integer;
+    begin
+        Row.DeleteAll(); Seen := '';
+        for i := 1 to Rows do begin Row.Init(); Row."Item No." := 'I1'; Row."Vendor No." := 'V' + Format(i); Row.Insert(); end;
+        Row.Reset(); Row.SetRange("Item No.", 'I1');
+    end;
+    // Static Page.Run(Id, Rec): the handler reads nothing the open changes, or a control of Rec.
+    [Test] [HandlerFunctions('FieldClose')] procedure L01_Static_Close()
+    var Row: Record "DL Row";
+    begin Seed(0, Row); Page.Run(Page::"DL Ws Field", Row); if Seen <> 'closed' then Error('%1', Seen); end;
+    [Test] [HandlerFunctions('FieldCaption')] procedure L02_Static_Caption()
+    var Row: Record "DL Row";
+    begin Seed(2, Row); Page.Run(Page::"DL Ws Field", Row); end;
+    [Test] [HandlerFunctions('PureItem')] procedure L03_Static_RecControl()
+    var Row: Record "DL Row";
+    begin Seed(2, Row); Page.Run(Page::"DL Ws Pure", Row); if Seen <> 'item=I1' then Error('%1', Seen); end;
+    [Test] [HandlerFunctions('PureNote')] procedure L04_Static_VarControl()
+    var Row: Record "DL Row";
+    begin Seed(2, Row); Page.Run(Page::"DL Ws Pure", Row); end;
+    [Test] [HandlerFunctions('LitClose')] procedure L05_Static_Literal_Close()
+    var Row: Record "DL Row";
+    begin Seed(1, Row); Page.Run(Page::"DL Ws Lit", Row); if Seen <> 'closed' then Error('%1', Seen); end;
+    // A page variable set up with SetTableView or SetRecord, then Run or RunModal.
+    [Test] [HandlerFunctions('FieldCaption')] procedure L06_Var_Caption()
+    var Row: Record "DL Row"; Pg: Page "DL Ws Field";
+    begin Seed(2, Row); Pg.SetTableView(Row); Pg.Run(); end;
+    [Test] [HandlerFunctions('PureItemModal')] procedure L07_VarModal_RecControl()
+    var Row: Record "DL Row"; Pg: Page "DL Ws Pure";
+    begin Seed(2, Row); Row.FindFirst(); Pg.SetRecord(Row); Pg.RunModal(); if Seen <> 'item=I1' then Error('%1', Seen); end;
+    [Test] [HandlerFunctions('FieldClose')] procedure L08_Var_Close()
+    var Row: Record "DL Row"; Pg: Page "DL Ws Field";
+    begin Seed(2, Row); Pg.SetTableView(Row); Pg.Run(); if Seen <> 'closed' then Error('%1', Seen); end;
+    // A field number argument.
+    [Test] [HandlerFunctions('FieldCaption')] procedure L09_FieldNo_Caption()
+    var Row: Record "DL Row";
+    begin Seed(2, Row); Page.Run(Page::"DL Ws Field", Row, Row."Vendor No."); end;
+    [Test] [HandlerFunctions('FieldClose')] procedure L10_FieldNo_Close()
+    var Row: Record "DL Row";
+    begin Seed(2, Row); Page.Run(Page::"DL Ws Field", Row, Row."Vendor No."); if Seen <> 'closed' then Error('%1', Seen); end;
+    // A Trap instead of a handler.
+    [Test] procedure L11_Trap_Caption()
+    var Row: Record "DL Row"; P: TestPage "DL Ws Field";
+    begin Seed(2, Row); P.Trap(); Page.Run(Page::"DL Ws Field", Row); Seen := P.Caption(); end;
+    [Test] procedure L12_Trap_RecControl()
+    var Row: Record "DL Row"; P: TestPage "DL Ws Field";
+    begin Seed(2, Row); P.Trap(); Page.Run(Page::"DL Ws Field", Row); if P.ItemNoCtl.Value <> 'I1' then Error('%1', P.ItemNoCtl.Value); P.Close(); end;
+    // An expression that writes a variable of the page: refused at the open, for every run kind.
+    [Test] [HandlerFunctions('FxClose')] procedure L13_Fx_Var_Close()
+    var Row: Record "DL Row"; Pg: Page "DL Ws Fx";
+    begin Seed(2, Row); Pg.SetTableView(Row); Pg.Run(); end;
+    [Test] procedure L14_Fx_Trap()
+    var Row: Record "DL Row"; P: TestPage "DL Ws Fx";
+    begin Seed(2, Row); P.Trap(); Page.Run(Page::"DL Ws Fx", Row); P.Close(); end;
+    [Test] [HandlerFunctions('FxClose')] procedure L15_Fx_Static_Close()
+    var Row: Record "DL Row";
+    begin Seed(2, Row); Page.Run(Page::"DL Ws Fx", Row); end;
+    [PageHandler] procedure FieldClose(var P: TestPage "DL Ws Field") begin Seen := 'closed'; P.Close(); end;
+    [PageHandler] procedure FieldCaption(var P: TestPage "DL Ws Field") begin Seen := P.Caption(); end;
+    [PageHandler] procedure PureItem(var P: TestPage "DL Ws Pure") begin P.First(); Seen := 'item=' + P.ItemNoCtl.Value; end;
+    [ModalPageHandler] procedure PureItemModal(var P: TestPage "DL Ws Pure") begin Seen := 'item=' + P.ItemNoCtl.Value; end;
+    [PageHandler] procedure PureNote(var P: TestPage "DL Ws Pure") begin Seen := P.NoteCtl.Value; end;
+    [PageHandler] procedure LitClose(var P: TestPage "DL Ws Lit") begin Seen := 'closed'; P.Close(); end;
+    [PageHandler] procedure FxClose(var P: TestPage "DL Ws Fx") begin P.Close(); end;
+}
+"#;
+
+#[test]
+fn an_unmeasured_worksheet_open_refuses_at_the_read_it_changes() {
+    let outcomes = outcomes_in(LAZY, "T");
+    let get = |name: &str| {
+        let o = outcomes.iter().find(|(n, _)| n == name).map(|(_, o)| o);
+        format!("{o:?}")
+    };
+    // Main's outcome where the test reads nothing the open changes.
+    for t in [
+        "L01_Static_Close",
+        "L03_Static_RecControl",
+        "L05_Static_Literal_Close",
+        "L07_VarModal_RecControl",
+        "L08_Var_Close",
+        "L10_FieldNo_Close",
+        "L12_Trap_RecControl",
+    ] {
+        assert_eq!(get(t), "Some(Pass)", "{t}");
+    }
+    for (t, read) in [
+        ("L02_Static_Caption", "the caption"),
+        ("L04_Static_VarControl", "a control on a page variable or an expression"),
+        ("L06_Var_Caption", "the caption"),
+        ("L09_FieldNo_Caption", "the caption"),
+        ("L11_Trap_Caption", "the caption"),
+    ] {
+        let o = get(t);
+        assert!(
+            o.contains("NotRun") && o.contains("outside the measured cells") && o.contains(read),
+            "{t}: {o}"
+        );
+    }
+    for t in ["L13_Fx_Var_Close", "L14_Fx_Trap", "L15_Fx_Static_Close"] {
+        let o = get(t);
+        assert!(
+            o.contains("NotRun") && o.contains("outside the measured cells") && o.contains("writes the variable Note"),
+            "{t}: {o}"
+        );
+    }
 }
