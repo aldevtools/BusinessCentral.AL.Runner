@@ -82,6 +82,12 @@ pub(super) fn clear_with_events_timer(
     Ok(Value::Null)
 }
 
+/// Whether `Clear` of the Blob buffer `b` empties it in place (every holder of the buffer sees it empty) rather than giving
+/// the variable a new buffer: see the Blob arm of [`clear`].
+pub fn blob_clears_in_place(ctx: &dyn Ctx, b: &crate::stream::BlobRef) -> bool {
+    !b.borrow().temp_inserted && !ctx.xrec_holds_blob(b)
+}
+
 /// `Clear(var X)`: the default of the value's own kind. Records go to the VM.
 pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
     let v = &mut args[0];
@@ -160,7 +166,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // replaced as before: what a Clear of it leaves on the row is not pinned. So is a buffer a live xRec shares with Rec (a
         // Clear in OnModify or in a table event): nothing pins what xRec shows after the Clear, so Rec gets a new buffer and xRec
         // keeps its content, as before issue 6791 (crates/al-vm/tests/store/blob_clear_shared_xrec.rs).
-        Value::Blob(b) if !b.borrow().temp_inserted && !ctx.xrec_holds_blob(b) => {
+        Value::Blob(b) if blob_clears_in_place(&*ctx, b) => {
             let fresh = crate::stream::new_blob().borrow().clone();
             *b.borrow_mut() = fresh;
             Value::Blob(b.clone())

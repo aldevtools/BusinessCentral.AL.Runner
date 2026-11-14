@@ -99,7 +99,7 @@ impl Session {
             ));
         }
         let state = match &*h.borrow() {
-            LibraryValue::OutStream(blob, _) => {
+            LibraryValue::OutStream(blob, ..) => {
                 let mut buf = blob.borrow_mut();
                 plain(&buf)?;
                 if buf.write_pos != buf.bytes.len() {

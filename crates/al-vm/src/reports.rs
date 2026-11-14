@@ -2545,7 +2545,7 @@ impl Session {
         };
         let blob = match args.get(at + 2) {
             Some(Value::Library(_, h)) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+                al_builtins::value::LibraryValue::OutStream(blob, ..) => blob.clone(),
                 other => return unsupported(format!("{id} to {}, which is not an OutStream", other.describe())),
             },
             other => return unsupported(format!("{id} to {}", other.describe())),
@@ -3132,7 +3132,10 @@ impl Session {
                 "InStream",
                 LibraryValue::InStream(InState::live(document, Encoding::Utf8)),
             ),
-            stream("OutStream", LibraryValue::OutStream(output.clone(), Encoding::Utf8)),
+            stream(
+                "OutStream",
+                LibraryValue::OutStream(output.clone(), Encoding::Utf8, None),
+            ),
             Value::Boolean(false),
         ];
         let call = crate::dispatch::EventCall {
@@ -3481,7 +3484,7 @@ impl Session {
                 "InStream",
                 LibraryValue::InStream(InState::snapshot(layout_bytes, Encoding::Utf8)),
             ),
-            stream("OutStream", LibraryValue::OutStream(blob.clone(), Encoding::Utf8)),
+            stream("OutStream", LibraryValue::OutStream(blob.clone(), Encoding::Utf8, None)),
             Value::Boolean(false),
         ];
         let call = crate::dispatch::EventCall {

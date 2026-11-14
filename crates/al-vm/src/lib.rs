@@ -148,6 +148,7 @@ mod stale_rename;
 mod state_stamp;
 mod table_facts;
 mod tasks;
+mod temp_blob_share;
 mod tenant_layout_cfg;
 mod tenant_layouts;
 mod tenant_set_delete;
@@ -1763,6 +1764,12 @@ impl Session {
         al_builtins::value::TempId::new(self.next_temp, self.temp_release.clone())
     }
 
+    /// [`Session::new_temp_id`] for the table of a temporary record's copy handed by value (`TempId::is_by_value_copy`).
+    pub(crate) fn new_by_value_temp_id(&mut self, source: &Rc<RefCell<RecordState>>) -> al_builtins::value::TempId {
+        self.next_temp += 1;
+        al_builtins::value::TempId::new_by_value_copy(self.next_temp, self.temp_release.clone(), source)
+    }
+
     /// The runner marks the time install codeunits run: `DataTransfer` is usable in it. Changes
     /// install code makes to rows the restored company holds are allowed and written down
     /// (ADR-020 amendment).
@@ -2174,7 +2181,7 @@ impl Session {
         st.filters.clear();
         st.filter_group = 0;
         st.temporary = true;
-        st.temp_id = Some(self.new_temp_id());
+        st.temp_id = Some(self.new_by_value_temp_id(rc));
         Value::Record(Rc::new(RefCell::new(st)))
     }
 
@@ -2184,7 +2191,7 @@ impl Session {
     pub(crate) fn record_by_value(&mut self, rc: &Rc<RefCell<RecordState>>) -> Value {
         let mut st = rc.borrow().copy_as_new_variable();
         if st.temporary {
-            st.temp_id = Some(self.new_temp_id());
+            st.temp_id = Some(self.new_by_value_temp_id(rc));
         }
         // A by-value copy of a record with a key on a Media field answers the primary key as its key (record/W4SortKeys.al:471);
         // the rest stays refused (`records::MEDIA_KEY`).
