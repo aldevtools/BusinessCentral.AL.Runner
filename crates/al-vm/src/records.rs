@@ -2416,9 +2416,15 @@ impl Session {
     ) -> Result<Value, Signal> {
         let insert_from_al = std::mem::take(&mut self.tx.insert_from_al);
         // ADR-062: a record method of a restricted session, or of any session when the license limits a table (license_ceiling.rs).
+        let from_recordref = std::mem::take(&mut self.permission_from_recordref);
         if self.permission_checks() {
-            let from_al = std::mem::take(&mut self.permission_from_al);
-            self.permission_gate_record(method, rec, args, from_al)?;
+            use crate::permission_bulk_no_match::RecordCaller;
+            let caller = match (std::mem::take(&mut self.permission_from_al), from_recordref) {
+                (false, _) => RecordCaller::Runtime,
+                (true, false) => RecordCaller::Record,
+                (true, true) => RecordCaller::RecordRef,
+            };
+            self.permission_gate_record(method, rec, args, caller)?;
         }
         // A statement-form Insert of AL code is queued by the platform (`insert_buffer.rs`); a table with a Blob or AutoIncrement
         // field is not, and an Insert the platform makes itself stays out of the queue.

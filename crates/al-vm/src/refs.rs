@@ -1134,7 +1134,8 @@ impl Session {
             "GetBySystemId" => {
                 // The same read as Record.GetBySystemId (AEDependencyTableReads.al `Customer_getbysystemid_*`).
                 if self.permission_checks() {
-                    self.permission_gate_record(RecordOp::GetBySystemId, &rec, args, true)?;
+                    use crate::permission_bulk_no_match::RecordCaller;
+                    self.permission_gate_record(RecordOp::GetBySystemId, &rec, args, RecordCaller::RecordRef)?;
                 }
                 self.get_by_system_id(&rec, &t, args)
             }
@@ -1172,6 +1173,7 @@ impl Session {
                 // ADR-062: a RecordRef write is checked like a record write (Y19PermWrites.al Y19_P6_RecordRef).
                 if self.permission_checks() {
                     self.permission_from_al = true;
+                    self.permission_from_recordref = true;
                 }
                 // A RecordRef.Insert of AL code is queued as a Record's (`insert_buffer.rs`).
                 self.recordref_record_op(method, &rec, args)

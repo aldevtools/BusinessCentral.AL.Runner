@@ -65,6 +65,7 @@ mod permission_license;
 mod permission_open_page_named_grant;
 mod permission_read_write;
 mod permission_report_after_denial;
+mod permission_role_id_and_bulk;
 mod permission_set_name_scope;
 mod permission_unguarded_part;
 mod permission_wildcard_scope;

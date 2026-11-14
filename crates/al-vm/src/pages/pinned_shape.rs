@@ -593,7 +593,7 @@ impl Session {
 
     /// Whether table object `table` runs code only when code calls it: no table or field trigger, no table extension and no
     /// subscriber to an event of the table. Its procedures may exist.
-    pub(super) fn table_runs_no_trigger(&self, table: usize) -> bool {
+    pub(crate) fn table_runs_no_trigger(&self, table: usize) -> bool {
         let engine = self.engine();
         let t = &engine.program.objects[table];
         t.routines.iter().all(|r| !r.is_trigger)

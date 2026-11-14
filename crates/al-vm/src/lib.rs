@@ -106,6 +106,7 @@ mod native_rows;
 pub mod observer_tap;
 mod pages;
 mod partial;
+mod permission_bulk_no_match;
 mod permission_shadow;
 mod permission_system_flowfield;
 mod permission_triggers;
@@ -995,6 +996,8 @@ pub struct Session {
     pub(crate) shadow_lower_bound: bool,
     /// Set by AL code's record method call right before `record_op` of a restricted session, taken there (ADR-062).
     pub(crate) permission_from_al: bool,
+    /// With `permission_from_al`: the call is a RecordRef's (`refs.rs`), taken by `record_op` with it.
+    pub(crate) permission_from_recordref: bool,
     /// Set by AL code's `Record.SetFilter` right before `record_op_from_al`, taken by the SetFilter of `record_op_inner`.
     pub(crate) setfilter_from_al: bool,
     /// True while the fields of `SetAutoCalcFields` are calculated after a read: that read is allowed (Y24PermReads.al
@@ -1393,6 +1396,7 @@ impl Session {
             shadow_active: false,
             shadow_lower_bound: false,
             permission_from_al: false,
+            permission_from_recordref: false,
             setfilter_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,
