@@ -30,6 +30,7 @@ impl Session {
                     Rc::new(std::cell::RefCell::new(LibraryValue::OutStream(
                         al_builtins::stream::new_blob(),
                         al_builtins::stream::Encoding::default(),
+                        None,
                     ))),
                 );
                 Self::xp_run_use_request_page_refused(schema)?;

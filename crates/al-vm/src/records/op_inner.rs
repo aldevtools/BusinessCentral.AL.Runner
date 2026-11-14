@@ -622,16 +622,7 @@ impl Session {
                     self.defer_insert(rec, t.object, e);
                     return Ok(Value::Boolean(true));
                 }
-                // A temporary table holds the record's own Blob object (streams/TestBlobUncommittedWriteIsolation.al:171); one
-                // that holds content now is copied by the next CreateOutStream on the record (`BlobBuf::temp_inserted`).
-                if rec.borrow().temporary {
-                    for v in &stored {
-                        if let Value::Blob(b) = v {
-                            let mut b = b.borrow_mut();
-                            b.temp_inserted = !b.bytes.is_empty();
-                        }
-                    }
-                }
+                let empty_blob = Self::temp_insert_blobs(rec, &stored);
                 Self::mark_blobs_inserted(rec, &stored, true);
                 let before = self.store.change_counter();
                 // The SQL counters' buffer before their first read (sqlcount.rs, `SqlCounters::pre_insert`).
@@ -648,6 +639,7 @@ impl Session {
                             self.sql.pre_inserted(al_data::memory::store_ops());
                         }
                         self.note_insert(rec, &t, before);
+                        Self::note_empty_blob_insert(rec, &t, empty_blob);
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
                         if !rec.borrow().temporary {
