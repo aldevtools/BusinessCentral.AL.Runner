@@ -215,7 +215,13 @@ impl Session {
             && code == TableCode::PlainWithBlob
             && cell_value
             && blob_insert_measured(shape.run, Self::blobs_empty(rec), bad.kind);
-        if blob_cell && !self.key_stored(rec, t)? {
+        // The cells below insert a key no row has (Outside_Date_Insert, Outside_DateTime_Insert, Extra_SubscriberReadsDate, the
+        // Blob cells); a stored key adds the duplicate-key error, whose order against the value's error is not measured.
+        let keyed_cell = blob_cell
+            || (base && shape.of_al && code == TableCode::AfterReader)
+            || (base && bad.insert == InsertEvidence::ProbeOutside && shape.of_al && code == TableCode::Plain);
+        let key_free = keyed_cell && !self.key_stored(rec, t)?;
+        if blob_cell && key_free {
             assume(Assumption::SqlDateFirstYear);
             Self::restore_row_version(rec, old_version);
             Self::unstamp(rec, stamped);
@@ -228,7 +234,8 @@ impl Session {
             && shape.of_al
             && shape.run
             && cell_value
-            && (code == TableCode::Subscribers || (code == TableCode::AfterReader && bad.kind == BadKind::Date1753));
+            && (code == TableCode::Subscribers
+                || (code == TableCode::AfterReader && bad.kind == BadKind::Date1753 && key_free));
         // Main's shape. A value only corpus PR 1398 measured runs only by the Insert statement into the tables it measured
         // (`InsertEvidence`).
         let value_measured = match bad.insert {
@@ -237,7 +244,7 @@ impl Session {
                 shape.of_al && (code == TableCode::Plain || (code == TableCode::OwnTrigger && shape.run))
             }
             InsertEvidence::ProbePlain => shape.of_al && code == TableCode::Plain,
-            InsertEvidence::ProbeOutside => shape.of_al && !shape.run && code == TableCode::Plain,
+            InsertEvidence::ProbeOutside => shape.of_al && !shape.run && code == TableCode::Plain && key_free,
         };
         let main_shape = base
             && value_measured

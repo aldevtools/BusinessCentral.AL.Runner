@@ -570,6 +570,20 @@ codeunit 69992 C
         exit(Stage + '|' + GetLastErrorText() + '|' + L.Dump());
     end;
 
+    procedure SubReadInsertStored(Dt: Date)
+    var R: Record "SDF Sub Read";
+    begin
+        R.Id := 1; R.Insert(false);
+        R.Dt := Dt; R.Insert(true);
+    end;
+
+    procedure InsertStoredKey(Dt: Date)
+    var R: Record "SDF Row";
+    begin
+        R.Id := 1; R.Insert();
+        R.Dt := Dt; R.Insert();
+    end;
+
     procedure RenameMissingText(Dt: Date): Text
     var R: Record "SDF Date Key"; Other: Record "SDF Date Key";
     begin
@@ -1091,6 +1105,15 @@ fn an_after_insert_subscriber_sees_the_value() {
         "SubReadInsert",
         vec![BLANK_DT, datetime(1753, 6, 15, 3 * 3_600_000), Value::Boolean(true)],
     );
+}
+
+// A key a row has: which error BC reports first (the duplicate key or the value) and whether the After event fires is not
+// measured, so the reader subscriber cell and the pre-1753 Insert cell refuse (Extra_SubscriberReadsDate and
+// Outside_Date_Insert insert a key no row has).
+#[test]
+fn an_insert_of_a_stored_key_refuses_in_the_new_cells() {
+    refused("SubReadInsertStored", vec![date(1753, 6, 15, false)]);
+    refused("InsertStoredKey", vec![date(1700, 1, 1, false)]);
 }
 
 // Extra_RenameAbsentKey_1: the Rename of a key no row has raises RecordNotFound before the value's error. The Date 1752-12-31
