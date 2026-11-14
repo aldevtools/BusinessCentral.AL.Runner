@@ -44,6 +44,7 @@ const TURN_END: PinnedEnd = PinnedEnd {
     reason: "a call of the test after an action turned the hidden part of the journal shape visible, other than the part's \
              Visible, one Next and Close (not pinned)",
     reads: false,
+    caption: false,
     part_reads: false,
     one_action: false,
     first_ends: false,

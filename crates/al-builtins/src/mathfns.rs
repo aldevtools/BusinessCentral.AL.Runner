@@ -98,47 +98,23 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     };
     let whole = steps.round_dp_with_strategy(0, strategy);
     match whole.checked_mul(precision) {
-        Some(r) => Ok(Value::Decimal(
-            r.normalize_to(precision).no_wider_than(number, precision),
-        )),
+        Some(r) => Ok(Value::Decimal(round_scale(r))),
         None => unsupported("Round outside the Decimal range"),
     }
 }
 
-trait NormalizeTo {
-    fn normalize_to(self, precision: Decimal) -> Decimal;
-    fn no_wider_than(self, number: Decimal, precision: Decimal) -> Decimal;
-}
-
-impl NormalizeTo for Decimal {
-    /// Drops trailing zeros beyond the precision's own scale (`2.50` stays `2.50` for 0.01, `3` for 1).
-    fn normalize_to(mut self, precision: Decimal) -> Decimal {
-        let keep = precision.normalize().scale();
-        if self.scale() > keep {
-            self.rescale(keep);
-        }
-        self
+/// The result `r` (the rounded steps times the precision as written) keeps the decimals of the precision, zeros included:
+/// `Round(2.5, 0.01)` is `2.50`, `Round(3, 0.25)` is `3.00`, `Round(2, 0.01)` is `2.00`, `Round(1.200001, 0.00001)` is
+/// `1.20000`, `Round(1.4, 0.50)` is `1.50`. Measured on BC 27.5, 28.5 and 29.0 by corpus pull requests 1380
+/// (reports/dataset/DatasetDecimalRoundScale.al, open) and 1377 (reports/dataset/DatasetDecimalRoundScaleSources.al) and by al-runner
+/// issue 7958, and not pinned yet (assumption `round-keeps-the-precision-decimals`). Every trailing zero the result holds is
+/// marked, those of zero, one and minus one too: the dataset shows none of them (`decimal_scale.rs`), but a calculation and a
+/// JSON value see them (`Round(1, 0.01) * 2.50` is `2.5000`).
+fn round_scale(r: Decimal) -> Decimal {
+    if r.scale() > r.normalize().scale() {
+        crate::assumptions::assume(crate::assumptions::Assumption::RoundKeepsThePrecisionDecimals);
     }
-
-    /// Drops the trailing zeros the rounding added beyond the scale of the rounded `number`: `Round(1, 0.00001)` is `1`,
-    /// not `1.00000` (reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450 and :525-530: a variable, an array element
-    /// and a field set to it, times one or negated, show `1` and `-1` in the dataset, which writes a Decimal with its scale,
-    /// reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309). Digits the rounding needs stay.
-    /// Pinned only for a whole number written without decimals and a precision of a power of ten; a number with decimals
-    /// (`Round(2.5, 0.01)` is `2.5`) or another precision (`Round(3, 0.25)` is `3`) is assumed (al-runner issue 7440,
-    /// assumption `round-scale-no-wider-than-number`).
-    fn no_wider_than(mut self, number: Decimal, precision: Decimal) -> Decimal {
-        let keep = number.scale();
-        if self.scale() > keep && self.round_dp(keep) == self {
-            let p = precision.normalize();
-            let power_of_ten = p.mantissa() == 1 && p.scale() > 0;
-            if keep != 0 || !power_of_ten {
-                crate::assumptions::assume(crate::assumptions::Assumption::RoundScaleNoWiderThanNumber);
-            }
-            self.rescale(keep);
-        }
-        self
-    }
+    r
 }
 
 /// A result that no Decimal holds: a too large result, zero to a negative power, a negative base to a fractional power
@@ -339,38 +315,52 @@ mod tests {
     }
 
     #[test]
-    fn round_marks_the_scale_shapes_no_probe_measured() {
+    fn round_marks_the_scale_shapes_no_pin_measured() {
         use crate::assumptions::{Assumption, clear_hits, take_hits};
         let marked = |n: &str, p: &str| {
             clear_hits();
             let _ = call("System.Round#1", vec![d(n), d(p)]);
-            take_hits().contains(&Assumption::RoundScaleNoWiderThanNumber)
+            take_hits().contains(&Assumption::RoundKeepsThePrecisionDecimals)
         };
-        // Pinned (reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450): a whole number without decimals and a
-        // precision of a power of ten, and a result that needs every digit; a result whose scale nothing trims.
-        assert!(!marked("1", "0.00001"));
+        // Pinned: a result that needs every digit.
         assert!(!marked("1.234567", "0.00001"));
-        assert!(!marked("2.50", "0.01"));
-        // Trimmed beyond the precision, not measured: a number with decimals, a precision that is not a power of ten.
+        // Every trailing zero the result holds is marked, also for zero, one and minus one: a calculation or a JSON value sees
+        // them (Round(1, 0.01) * 2.50 is 2.5000; maintainer's review of al-runner PR 7969).
+        assert!(marked("1", "0.00001"));
+        assert!(marked("-1", "0.01"));
+        // Zeros of the precision kept, measured by corpus pull requests 1380 and 1377, not pinned yet.
         assert!(marked("2.5", "0.01"));
+        assert!(marked("2.50", "0.01"));
         assert!(marked("3", "0.25"));
+        assert!(marked("2", "0.01"));
+        assert!(marked("2.5", "0.10"));
     }
 
     #[test]
-    fn the_result_keeps_no_scale_beyond_the_precision_or_the_number() {
-        let scale = |r: Result<Value, Signal>| match r {
-            Ok(Value::Decimal(d)) => d.scale(),
+    fn the_result_keeps_the_decimals_of_the_precision() {
+        let text = |n: &str, p: Value| match call("System.Round#1", vec![d(n), p]) {
+            Ok(Value::Decimal(d)) => d.to_string(),
             other => panic!("{other:?}"),
         };
-        // 2.5 for a precision of 0.01 (no zero is added beyond the number: Round(1, 0.00001) is 1, reports/dataset/
-        // DatasetDecimalPlacesValueOrigins.al:425-450), 3 for 1, and a precision written 0.50 counts as 0.5.
-        assert_eq!(scale(call("System.Round#1", vec![d("2.5"), d("0.01")])), 1);
-        assert_eq!(scale(call("System.Round#1", vec![d("1"), d("0.00001")])), 0);
-        assert_eq!(scale(call("System.Round#1", vec![d("1.234567"), d("0.00001")])), 5);
-        assert_eq!(scale(call("System.Round#1", vec![d("2.50"), d("0.01")])), 2);
-        assert_eq!(scale(call("System.Round#1", vec![d("2.5"), Value::Integer(1)])), 0);
-        assert_eq!(scale(call("System.Round#1", vec![d("1.4"), d("0.50")])), 1);
-        is_dec(call("System.Round#1", vec![d("1.4"), d("0.50")]), "1.5");
+        // Pinned: a result that needs every digit keeps them (reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450).
+        assert_eq!(text("1.234567", d("0.00001")), "1.23457");
+        assert_eq!(text("2.5", Value::Integer(1)), "3");
+        // Measured on BC 27.5, 28.5 and 29.0 by corpus pull requests 1380 (run 43173667684) and 1377, and al-runner issue 7958.
+        assert_eq!(text("2.5", d("0.01")), "2.50");
+        assert_eq!(text("2.50", d("0.01")), "2.50");
+        assert_eq!(text("2.500", d("0.01")), "2.50");
+        assert_eq!(text("1.200001", d("0.00001")), "1.20000");
+        assert_eq!(text("3", d("0.25")), "3.00");
+        assert_eq!(text("3.5", d("0.25")), "3.50");
+        assert_eq!(text("-2.5", d("0.01")), "-2.50");
+        assert_eq!(text("2.25", d("0.1")), "2.3");
+        assert_eq!(text("2", d("0.01")), "2.00");
+        assert_eq!(text("2.0", d("0.01")), "2.00");
+        assert_eq!(text("3.0", d("0.25")), "3.00");
+        assert_eq!(text("1.4", d("0.50")), "1.50");
+        assert_eq!(text("2.5", d("0.10")), "2.50");
+        // One keeps the precision's zeros in the value; the dataset writes it as `1` (al-vm `decimal_column.rs`).
+        assert_eq!(text("1", d("0.00001")), "1.00000");
     }
 
     #[test]

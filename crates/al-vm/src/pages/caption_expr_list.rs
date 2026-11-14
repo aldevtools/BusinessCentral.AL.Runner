@@ -13,8 +13,12 @@ impl Session {
     /// - the page's DataCaptionFields add nothing next to the expression (:436-437);
     /// - a ListPart shows the value alone, without its caption (:452 `Part Alpha`); empty or on no row it is not pinned.
     ///
-    /// A new row is not pinned and is refused.
+    /// A new row is not pinned and is refused. A Worksheet whose expression ran at the open shows what that run left
+    /// (`data_caption_open.rs`).
     pub(super) fn list_data_caption_expression_caption(&mut self, st: &St, base: String) -> Result<String, Signal> {
+        if let Some(caption) = self.data_caption_open_caption(st, &base) {
+            return caption;
+        }
         let part = st.borrow().host.is_some();
         {
             let s = st.borrow();

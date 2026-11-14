@@ -4018,7 +4018,7 @@ impl Session {
                 let Value::Decimal(d) = &value else {
                     unreachable!("matched a Decimal")
                 };
-                crate::decimal_column::text(&self.engine.program, object, c, *d)
+                crate::decimal_column::text(c, *d)
             }
             // The column's OptionCaptionML: the caption of the session language, ENU where it has none
             // (record/table-properties/XTablePropsTests.al:741-785, `EnuOnly` shows `Only B` in 1031).
