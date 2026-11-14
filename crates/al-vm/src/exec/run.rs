@@ -979,6 +979,7 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
+        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
         let open = self.temp_blob_share_guard(site, nl, &mut recv, &values, f)?;
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
@@ -1132,6 +1133,7 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
+        crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv.as_ref(), &values);
         let open = self.temp_blob_share_guard(site, nl, &mut recv, &values, f)?;
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;

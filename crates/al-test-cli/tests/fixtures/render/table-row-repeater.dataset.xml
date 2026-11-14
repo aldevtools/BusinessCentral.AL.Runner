@@ -1,0 +1,70 @@
+<?xml version="1.0" standalone="yes"?>
+<ReportDataSet name="Spike Invoice" id="50100" language="en-US" formatRegion="en-US">
+  <BCReportInformation>
+    <ReportMetadata>
+      <ExtensionId>5a0c9d1e-2b7f-4c3a-9e11-7d2f0b6a4c90</ExtensionId>
+      <ExtensionName>Word PDF Spike by Spike</ExtensionName>
+      <ExtensionPublisher>Spike</ExtensionPublisher>
+      <ExtensionVersion>1.0.0.0</ExtensionVersion>
+      <ReportId>50100</ReportId>
+      <ReportName>Spike Invoice</ReportName>
+      <AboutThisReportTitle></AboutThisReportTitle>
+      <AboutThisReportText></AboutThisReportText>
+      <ReportHelpLink></ReportHelpLink>
+    </ReportMetadata>
+    <ReportRequest>
+      <TenantEntraId></TenantEntraId>
+      <EnvironmentName></EnvironmentName>
+      <EnvironmentType></EnvironmentType>
+      <CompanyName>CRONUS International Ltd.</CompanyName>
+      <CompanyDisplayName>CRONUS International Ltd.</CompanyDisplayName>
+      <CompanyId>c0a1bdfa-0000-0000-0000-43524f4e5553</CompanyId>
+      <UserName>TESTUSER</UserName>
+      <DateAndTime>2026-11-13T12:00:00</DateAndTime>
+      <Language>en-US</Language>
+      <FormatRegion>en-US</FormatRegion>
+      <DateTimeValues>
+        <Year>2026</Year>
+        <MonthNumber>11</MonthNumber>
+        <DayNumber>13</DayNumber>
+        <Hour>12</Hour>
+        <Minute>0</Minute>
+      </DateTimeValues>
+    </ReportRequest>
+  </BCReportInformation>
+  <Labels>
+    <Label name="TitleLbl">Spike Invoice</Label>
+  </Labels>
+  <DataItems>
+    <DataItem language="en-US" formatRegion="en-US" name="Hdr" tableId="50100" systemId="de4194c6-0e8e-4eb1-963d-75c5109f9c94">
+      <Columns>
+        <Column name="HdrNo">INV-1001</Column>
+        <Column name="HdrCustomer">Spike &amp; &lt;Co&gt; Ltd</Column>
+        <Column name="HdrDate">11/13/2026</Column>
+      </Columns>
+      <DataItems>
+        <DataItem name="Line" tableId="50101" systemId="0f2d004c-0956-3aeb-4731-664ec39c32a6">
+          <Columns>
+            <Column name="LineNo">10000</Column>
+            <Column name="LineDesc">Spike line 1</Column>
+            <Column name="LineAmount" decimalformatter="#,##0.00">12.5</Column>
+          </Columns>
+        </DataItem>
+        <DataItem name="Line" tableId="50101" systemId="87a6fcac-9f00-8590-56f2-6646a220a99b">
+          <Columns>
+            <Column name="LineNo">20000</Column>
+            <Column name="LineDesc">Spike line 2</Column>
+            <Column name="LineAmount" decimalformatter="#,##0.00">25</Column>
+          </Columns>
+        </DataItem>
+        <DataItem name="Line" tableId="50101" systemId="efd6624b-5a7e-8e16-57a3-f985f21c8245">
+          <Columns>
+            <Column name="LineNo">30000</Column>
+            <Column name="LineDesc">Spike line 3</Column>
+            <Column name="LineAmount" decimalformatter="#,##0.00">37.5</Column>
+          </Columns>
+        </DataItem>
+      </DataItems>
+    </DataItem>
+  </DataItems>
+</ReportDataSet>
