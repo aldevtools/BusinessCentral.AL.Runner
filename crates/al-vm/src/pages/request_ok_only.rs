@@ -64,7 +64,8 @@ impl Session {
         }
         match open(self) {
             Ok((RequestClosed::Ok, parameters)) => Ok((RequestClosed::Ok, parameters)),
-            Ok((closed, _)) => self.refuse_ok_only(object, &format!("a close by {closed:?}")),
+            Ok((RequestClosed::Cancel, _)) => self.refuse_ok_only(object, "a close by Cancel"),
+            Ok(_) => self.refuse_ok_only(object, "a close other than OK"),
             Err(Signal::Error(_)) => self.refuse_ok_only(object, "an error raised while the page is open"),
             Err(other) => Err(other),
         }
