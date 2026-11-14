@@ -59,6 +59,7 @@ mod page_variable_control_no_insert;
 mod permission_abp;
 mod permission_abp_actionref;
 mod permission_abp_shapes;
+mod permission_bulk_no_match_repro;
 mod permission_execute;
 mod permission_execute_triggers;
 mod permission_license;

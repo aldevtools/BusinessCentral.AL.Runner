@@ -5,12 +5,10 @@
 //! characters are different sets.
 //!
 //! al-runner issue 8068: a ModifyAll or DeleteAll whose filter matches no row of a table that holds rows is denied only in
-//! the shape record/Y19PermWrites.al:294-307 pins (Y19_P2_SetR, Y19_P2_SetRI). The reporter's shape (ModifyAll of the
-//! filter field in a table's OnDelete trigger, one row in the table) runs under assumption
-//! `bulk-write-no-match-in-delete-trigger`. Every other no-match shape is refused.
+//! the shape record/Y19PermWrites.al:294-307 pins (Y19_P2_SetR, Y19_P2_SetRI). The reporter's own repro and its neighbor
+//! shapes run in `permission_bulk_no_match_repro.rs`. The no-match shapes here, outside a trigger, are refused.
 
 use super::permission_writes::{BASE, run_main_on};
-use al_builtins::assumptions::Assumption;
 use al_testrun::Outcome;
 use al_testrun::runtime::{CorpusRuntime, RunOptions};
 
@@ -32,31 +30,20 @@ permissionset 51601 "Repro Perm Set Aaaaa X1"
     Permissions = tabledata "RI Item B" = RIMD;
 }
 
+// Not assignable, 28 characters: its Role ID is the whole name (Y12PermSetNames.al:45), not its first 20 characters.
+permissionset 51603 "RI Long Role Name Set Thirty"
+{
+    Assignable = false;
+    Permissions = tabledata "RI Item A" = RIMD;
+}
+
 permissionset 51602 "Repro Perm Set Aaaaa X2"
 {
     Assignable = false;
     Permissions = tabledata "RI Item A" = RIMD;
 }
 
-// al-runner issue 8068, the reporter's objects.
-table 51610 "Repro Parent"
-{
-    fields
-    {
-        field(1; Code; Code[10]) { }
-        field(2; "Primary Child No."; Code[10]) { }
-    }
-    keys { key(PK; Code) { Clustered = true; } }
-
-    trigger OnDelete()
-    var
-        ReproOther: Record "Repro Other";
-    begin
-        ReproOther.SetRange("Parent Code", Code);
-        ReproOther.ModifyAll("Parent Code", '');
-    end;
-}
-
+// Objects of the shape of al-runner issue 8068 (the reporter's own repro runs in `permission_bulk_no_match_repro.rs`).
 table 51611 "Repro Other"
 {
     fields
@@ -66,22 +53,6 @@ table 51611 "Repro Other"
         field(3; Note; Code[10]) { }
     }
     keys { key(PK; Code) { Clustered = true; } }
-}
-
-// As Repro Parent, but the trigger writes a field outside the filter (the shape of a Base Application delete trigger
-// the reporter names, not measured).
-table 51612 "Repro Parent Other Field"
-{
-    fields { field(1; Code; Code[10]) { } }
-    keys { key(PK; Code) { Clustered = true; } }
-
-    trigger OnDelete()
-    var
-        ReproOther: Record "Repro Other";
-    begin
-        ReproOther.SetRange("Parent Code", Code);
-        ReproOther.ModifyAll(Note, '');
-    end;
 }
 
 // As "LT Y19 Row" of the pinned shape (Y19PermObjects.al:9-18).
@@ -98,8 +69,7 @@ table 51613 "RI Row"
 permissionset 51610 "Repro Parent Edit"
 {
     Assignable = true;
-    Permissions = tabledata "Repro Parent" = RIMD, tabledata "Repro Parent Other Field" = RIMD, tabledata "Repro Other" = R,
-        tabledata "RI Row" = R;
+    Permissions = tabledata "Repro Other" = R, tabledata "RI Row" = R;
 }
 "#;
 
@@ -137,6 +107,19 @@ codeunit 51620 "RI Tests"
         PermissionsMock.Stop();
     end;
 
+    // Set of the first 20 characters of a longer set's name: no set has that Role ID. Main took the longer set.
+    [Test]
+    procedure SetOfTheFirst20CharactersOfALongerName()
+    var
+        ItemA: Record "RI Item A";
+    begin
+        PermissionsMock.Start();
+        PermissionsMock.Set('RI Long Role Name Se');
+        ItemA.Code := 'A2';
+        ItemA.Insert();
+        PermissionsMock.Stop();
+    end;
+
     local procedure SeedOther(Rows: Integer)
     var
         ReproOther: Record "Repro Other";
@@ -148,54 +131,6 @@ codeunit 51620 "RI Tests"
             ReproOther."Parent Code" := 'X';
             ReproOther.Insert();
         end;
-    end;
-
-    // al-runner issue 8068, the reporter's test (Set of an own set in place of D365 BASIC plus Assign).
-    [Test]
-    procedure DeleteParentWhoseTriggerCallsModifyAllOnAnEmptyFilter()
-    var
-        ReproParent: Record "Repro Parent";
-    begin
-        PermissionsMock.Start();
-        PermissionsMock.ClearAssignments();
-        ReproParent.Code := 'P1';
-        ReproParent.Insert();
-        SeedOther(1);
-        PermissionsMock.Set('Repro Parent Edit');
-        ReproParent.Delete(true);
-        PermissionsMock.Stop();
-    end;
-
-    // The same with two rows in the target table: not measured.
-    [Test]
-    procedure DeleteParentTriggerModifyAllTwoRows()
-    var
-        ReproParent: Record "Repro Parent";
-    begin
-        PermissionsMock.Start();
-        PermissionsMock.ClearAssignments();
-        ReproParent.Code := 'P1';
-        ReproParent.Insert();
-        SeedOther(2);
-        PermissionsMock.Set('Repro Parent Edit');
-        ReproParent.Delete(true);
-        PermissionsMock.Stop();
-    end;
-
-    // The trigger writes a field outside the filter: not measured.
-    [Test]
-    procedure DeleteParentTriggerModifyAllOtherField()
-    var
-        ReproParent: Record "Repro Parent Other Field";
-    begin
-        PermissionsMock.Start();
-        PermissionsMock.ClearAssignments();
-        ReproParent.Code := 'P1';
-        ReproParent.Insert();
-        SeedOther(1);
-        PermissionsMock.Set('Repro Parent Edit');
-        ReproParent.Delete(true);
-        PermissionsMock.Stop();
     end;
 
     // The reporter's ModifyAll made by the test codeunit itself, not by a trigger: not measured.
@@ -330,17 +265,16 @@ fn sets_sharing_their_first_20_characters_are_different_sets() {
 }
 
 #[test]
-fn the_reporters_no_match_modify_all_in_a_delete_trigger_runs_flagged() {
-    let r = result("DeleteParentWhoseTriggerCallsModifyAllOnAnEmptyFilter");
-    assert_eq!(r.outcome, Outcome::Pass);
-    assert_eq!(r.assumptions, vec![Assumption::BulkWriteNoMatchInDeleteTrigger]);
+fn a_set_of_the_first_20_characters_of_a_longer_name_is_refused() {
+    refused(
+        "SetOfTheFirst20CharactersOfALongerName",
+        "has the Role ID 'RI LONG ROLE NAME SE'",
+    );
 }
 
 #[test]
 fn no_match_shapes_no_case_measures_are_refused() {
     for test in [
-        "DeleteParentTriggerModifyAllTwoRows",
-        "DeleteParentTriggerModifyAllOtherField",
         "ModifyAllOfTheFilterFieldInTheTest",
         "DeleteAllOnANonKeyFilterInTheTest",
         "NoMatchDeleteAllThroughARecordRef",

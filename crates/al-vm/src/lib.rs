@@ -998,6 +998,8 @@ pub struct Session {
     pub(crate) permission_from_al: bool,
     /// With `permission_from_al`: the call is a RecordRef's (`refs.rs`), taken by `record_op` with it.
     pub(crate) permission_from_recordref: bool,
+    /// The record methods that run while the permission gate is on, innermost last (`permission_bulk_no_match.rs`).
+    pub(crate) record_calls: Vec<crate::permission_bulk_no_match::RecordCall>,
     /// Set by AL code's `Record.SetFilter` right before `record_op_from_al`, taken by the SetFilter of `record_op_inner`.
     pub(crate) setfilter_from_al: bool,
     /// True while the fields of `SetAutoCalcFields` are calculated after a read: that read is allowed (Y24PermReads.al
@@ -1397,6 +1399,7 @@ impl Session {
             shadow_lower_bound: false,
             permission_from_al: false,
             permission_from_recordref: false,
+            record_calls: Vec::new(),
             setfilter_from_al: false,
             permission_autocalc: false,
             permission_page_calc: false,

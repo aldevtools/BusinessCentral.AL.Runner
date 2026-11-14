@@ -742,9 +742,7 @@ impl Session {
         let request = rec.borrow_mut().load.request.take();
         // RecordRef.Get(RecordId) of an existing row is a denied read like Record.Get (AEDependencyTableReads.al
         // `Customer_recref_get_recordid`).
-        if self.permission_checks() {
-            self.permission_from_al = true;
-        }
+        self.recordref_permission_call();
         let got = self.record_op(RecordOp::Get, rec, &mut a);
         rec.borrow_mut().load.request = request;
         got

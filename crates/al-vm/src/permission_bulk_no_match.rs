@@ -30,6 +30,20 @@ impl RecordCaller {
     }
 }
 
+/// A record method that runs while the permission gate is on: the facts of the call that started a trigger.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) struct RecordCall {
+    method: RecordOp,
+    caller: RecordCaller,
+    /// The table object of the record.
+    table: usize,
+    temporary: bool,
+    /// The arguments are exactly `true` (RunTrigger).
+    run_trigger: bool,
+    /// The call is a statement: its return value is not used.
+    statement: bool,
+}
+
 /// What a denied no-match bulk write does.
 pub(crate) enum NoMatch {
     /// BC's denial (the pinned shape).
@@ -47,7 +61,12 @@ struct Target {
     filter: Option<(usize, Value)>,
     /// The primary key's field positions.
     key: Vec<usize>,
+    /// How many keys the table has.
+    keys: usize,
     types: Vec<RtType>,
+    table: u32,
+    /// The record reads in primary key order, ascending, and has read no row.
+    fresh_order: bool,
 }
 
 impl Session {
@@ -57,6 +76,45 @@ impl Session {
             self.permission_from_al = true;
             self.permission_from_recordref = true;
         }
+    }
+
+    /// The permission gate of a record method `record_op` runs, while the gate is on: it checks the call and opens it in
+    /// `record_calls`. Returns whether it opened it; the caller closes it with [`Session::close_record_call`] when the method
+    /// returns, also with an error.
+    pub(crate) fn permission_gate_and_open(
+        &mut self,
+        method: RecordOp,
+        rec: &crate::records::Rec,
+        args: &[Value],
+    ) -> Result<bool, Signal> {
+        let from_recordref = std::mem::take(&mut self.permission_from_recordref);
+        if !self.permission_checks() {
+            return Ok(false);
+        }
+        let caller = match (std::mem::take(&mut self.permission_from_al), from_recordref) {
+            (false, _) => RecordCaller::Runtime,
+            (true, false) => RecordCaller::Record,
+            (true, true) => RecordCaller::RecordRef,
+        };
+        self.permission_gate_record(method, rec, args, caller)?;
+        let (table, temporary) = {
+            let r = rec.borrow();
+            (r.table as usize, r.temporary)
+        };
+        self.record_calls.push(RecordCall {
+            method,
+            caller,
+            table,
+            temporary,
+            run_trigger: matches!(args, [Value::Boolean(true)]),
+            statement: !self.ret_used,
+        });
+        Ok(true)
+    }
+
+    /// Closes the record method [`Session::permission_gate_and_open`] opened.
+    pub(crate) fn close_record_call(&mut self) {
+        self.record_calls.pop();
     }
 
     /// The verdict for a denied `method` (ModifyAll or DeleteAll) on `rec` whose filters match no row while the table holds
@@ -91,13 +149,21 @@ impl Session {
                 rows,
                 filter,
                 key: t.keys[0].clone(),
+                keys: t.keys.len(),
                 types: t.fields.iter().map(|f| f.ty.clone()).collect(),
+                table: r.table,
+                fresh_order: r.key == 0
+                    && r.adhoc.is_none()
+                    && r.ascending
+                    && r.field_descending == 0
+                    && r.position.is_none(),
             }
         };
         // Facts both shapes share: a Record variable (not a RecordRef), code whose object grants nothing on the table, a
         // table that runs no trigger (Y19PermObjects.al:9-27 "LT Y19 Row"; the reporter's "Repro Other").
         let table = rec.borrow().table as usize;
-        if caller != RecordCaller::Record || indirect || !self.table_runs_no_trigger(table) {
+        let shared = caller == RecordCaller::Record && !indirect && self.table_runs_no_trigger(table);
+        if !shared {
             return Ok(NoMatch::Refuse);
         }
         if self.pinned_no_match(method, args, access, by, &target) {
@@ -139,24 +205,87 @@ impl Session {
             && self.only_test_codeunit_frames(by, 0)
     }
 
-    /// al-runner issue 8068 (the reporter's repro on BC 28.5, assumption `bulk-write-no-match-in-delete-trigger`): in the
-    /// OnDelete trigger of table "Repro Parent", reached by `Delete(true)` from a test method, `ReproOther.SetRange("Parent
-    /// Code", Code)` then `ReproOther.ModifyAll("Parent Code", '')`: a Code field outside the primary key, the filter field
-    /// written blank, without RunTrigger. "Repro Other" holds one row; the sets give R on it.
+    /// al-runner issue 8068 (the reporter's repro on BC 28.5, assumption `bulk-write-no-match-in-delete-trigger`), its
+    /// facts by equality: the running frame is the OnDelete trigger of table "Repro Parent", whose body is
+    /// `ReproOther.SetRange("Parent Code", Code); ReproOther.ModifyAll("Parent Code", '');` on its one local Record; the
+    /// trigger was started by the statement `ReproParent.Delete(true)` of a Record variable of that table, not temporary,
+    /// in a procedure of a test codeunit; the filter value is not blank; the filter field and the primary key field are
+    /// Code[10] (the table's first field is the primary key, the second the filter field), the table has one key and one row, inserted in the open transaction (no Commit since), and nothing is
+    /// locked; the sets give R on it.
     fn reported_no_match(&self, method: RecordOp, args: &[Value], access: Access, by: usize, t: &Target) -> bool {
         let Some((field, value)) = &t.filter else {
             return false;
         };
-        let is_code = |p: usize| matches!(t.types.get(p), Some(RtType::Code(_)));
+        let code10 = |p: usize| t.types.get(p) == Some(&RtType::Code(Some(10)));
+        let started_by = RecordCall {
+            method: RecordOp::Delete,
+            caller: RecordCaller::Record,
+            table: by,
+            temporary: false,
+            run_trigger: true,
+            statement: true,
+        };
         method == RecordOp::ModifyAll
+            && self
+                .engine
+                .target
+                .as_ref()
+                .is_some_and(|v| al_version::bulk_write_no_match_in_delete_trigger_reported(v.bc.major))
             && matches!(args, [Value::Integer(p), Value::Text(v) | Value::Code(v)] if *p as usize == *field && v.as_str().is_empty())
+            && matches!(value, Value::Code(v) if !v.as_str().is_empty())
             && t.rows == 1
-            && !t.key.contains(field)
-            && is_code(*field)
-            && matches!(value, Value::Code(_))
+            && t.keys == 1
+            && t.key.as_slice() == [0]
+            && *field == 1
+            && code10(0)
+            && code10(1)
+            && t.fresh_order
             && self.levels_are(access, &[[1, 0, 0, 0]])
-            && self.delete_trigger_of(by)
+            && self.record_calls.last() == Some(&started_by)
+            && self
+                .delete_trigger_of(by)
+                .is_some_and(|routine| self.reported_trigger_body(by, routine))
             && self.only_test_codeunit_frames(by, 1)
+            && self.rows_inserted_in_open_transaction(t.table, t.rows)
+            && self.nothing_locked()
+    }
+
+    /// Whether routine `routine` of object `by` declares one local, a Record, and its body is a SetRange and then a
+    /// ModifyAll of two arguments on that local, both statements (the reporter's OnDelete, al-runner issue 8068).
+    fn reported_trigger_body(&self, by: usize, routine: usize) -> bool {
+        use al_builtins::builtin_id::ids;
+        use al_ir::{Arg, Expr, Place, Stmt};
+        let engine = self.engine.clone();
+        let Some(r) = engine.program.objects[by].routines.get(routine) else {
+            return false;
+        };
+        let on_local = |s: &Stmt, id| {
+            matches!(s, Stmt::Expr(Expr::Builtin { id: i, receiver: Some(recv), args, ret_used: false })
+                if *i == id && args.len() == 2
+                    && matches!(&**recv, Arg::Ref(Place::Local(0)) | Arg::Value(Expr::Load(Place::Local(0)))))
+        };
+        let stmts: Vec<&Stmt> = r.body.stmts().iter().filter(|s| !matches!(s, Stmt::Pos(_))).collect();
+        r.params == 0
+            && r.locals.len() == 1
+            && matches!(r.locals[0].ty, RtType::Record(..))
+            && matches!(stmts.as_slice(), [a, b] if on_local(a, ids::RECORD_SETRANGE_1) && on_local(b, ids::RECORD_MODIFYALL_1))
+    }
+
+    /// Whether the open transaction's writes of table `table` are exactly `rows` Inserts (no Commit since they were made).
+    fn rows_inserted_in_open_transaction(&self, table: u32, rows: usize) -> bool {
+        let mut writes = self.tx.writes.iter().filter(|w| w.table == table);
+        let all_inserts = writes
+            .clone()
+            .all(|w| matches!(w.kind, crate::state::TxWriteKind::Insert));
+        all_inserts && writes.by_ref().count() == rows
+    }
+
+    /// Whether the open transaction holds no lock (no LockTable, no RecordRef.LockTable, no locking read).
+    fn nothing_locked(&self) -> bool {
+        !self.tx.lock_tx
+            && !self.tx.recref_lock_tx
+            && self.tx.lock_unpinned.is_none()
+            && self.tx.locked_tables.is_empty()
     }
 
     /// Whether the session's levels Read, Insert, Modify and Delete on the accessed table are one of `allowed`.
@@ -168,18 +297,18 @@ impl Session {
         allowed.contains(&levels)
     }
 
-    /// Whether the running frame is the OnDelete trigger of table object `by`.
-    fn delete_trigger_of(&self, by: usize) -> bool {
+    /// The routine of the running frame when it is the OnDelete trigger of table object `by`.
+    fn delete_trigger_of(&self, by: usize) -> Option<usize> {
         let engine = self.engine.clone();
         let o = &engine.program.objects[by];
-        o.kind == al_ir::ObjKind::Table
+        let f = self.call_stack.last()?;
+        let is_delete = o.kind == al_ir::ObjKind::Table
             && self.frames.last() == Some(&by)
-            && self.call_stack.last().is_some_and(|f| {
-                !f.event
-                    && o.routines
-                        .get(f.routine)
-                        .is_some_and(|r| r.is_trigger && r.field.is_none() && r.name.eq_ignore_ascii_case("OnDelete"))
-            })
+            && !f.event
+            && o.routines
+                .get(f.routine)
+                .is_some_and(|r| r.is_trigger && r.field.is_none() && r.name.eq_ignore_ascii_case("OnDelete"));
+        is_delete.then_some(f.routine)
     }
 
     /// Whether every frame of the test, but the last `skip`, is a procedure (not a trigger, not an event) of one test
