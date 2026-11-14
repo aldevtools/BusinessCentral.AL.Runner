@@ -187,7 +187,9 @@ impl Session {
     /// and every row shows, as under OpenView. Every other text, page or source opened with OpenEdit is not measured.
     fn eq_text_open_edit_cell(list: bool, temporary: bool, unfiltered: bool, kind: EqText) -> EqCell {
         match (list, temporary, unfiltered, kind) {
-            (false, true, true, EqText::Boolean(w)) if TEMP_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::AssumedOpenEdit,
+            (false, true, true, EqText::Boolean(w)) if TEMP_WORKSHEET_BOOLEAN_WORDS.contains(&w) => {
+                EqCell::AssumedOpenEdit
+            }
             _ => EqCell::Unmeasured(
                 "that the test opened with OpenEdit (only the Boolean words 0 and 1 on a temporary Worksheet, with no earlier \
                  filter on the field, are measured there)",

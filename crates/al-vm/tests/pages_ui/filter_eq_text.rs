@@ -142,7 +142,8 @@ fn shapes_outside_the_cell_keep_the_filter() {
 #[test]
 fn unmeasured_shapes_on_a_list_refuse() {
     for (proc, why) in [
-        ("EditBoolean", "did not open with its own OpenView"),
+        // OpenEdit is measured on a temporary Worksheet only (WorksheetOpenEditTemp.al, corpus PR 1401).
+        ("EditBoolean", "opened with OpenEdit"),
         ("ViewBooleanOtherWord", "not a measured Boolean word"),
         ("ViewBooleanAfterOwnFilter", "after a filter on the field"),
     ] {
@@ -356,7 +357,8 @@ fn unmeasured_worksheet_shapes_refuse() {
         let arg = al_builtins::value::Value::Text(arg.to_string().into());
         refusal(al_testkit::run_with(WS_SRC, "C", proc, vec![arg]).map(|(v, _)| v))
     };
-    assert!(refused("WsEditEnum", "=Order").contains("did not open with its own OpenView"));
+    // OpenEdit is measured with the Boolean words only (WorksheetOpenEditTemp.al, corpus PR 1401).
+    assert!(refused("WsEditEnum", "=Order").contains("opened with OpenEdit"));
     for t in ["=2", "=order"] {
         assert!(
             refused("WsEnum", t).contains("not a measured Boolean word, member name or ordinal"),
@@ -746,14 +748,14 @@ fn his(proc: &str, args: &[&str]) -> Result<al_builtins::value::Value, al_builti
     al_testkit::run_with(HIS_SRC, "C", proc, args).map(|(v, _)| v)
 }
 
-// al-runner issue 6924 (HIS): the test fills header controls, so it opened the page with OpenEdit; WorksheetEnumEqFilter.al opened
-// every page with OpenView (:260, :319, :378). Main applied the `'=1'` filter there and the row was gone, a wrong result. Not
-// measured: it refuses before the first `=` text takes effect.
+// al-runner issue 6924 (HIS): the test fills header controls, so it opened the page with OpenEdit. The `'=1'` on the Boolean field
+// of the temporary Worksheet is the cell WorksheetOpenEditTemp.al (corpus PR 1401) measured under OpenEdit: it sets no filter. The
+// `'=Quote'` on the six-member Enum that follows is not measured under OpenEdit: it refuses before it takes effect.
 #[test]
 fn an_eq_text_on_a_page_the_test_opened_for_edit_refuses() {
     let why = refusal(his("EditSearch", &[]));
     assert!(
-        why.contains("'=1'") && why.contains("did not open with its own OpenView"),
+        why.contains("'=Quote'") && why.contains("opened with OpenEdit"),
         "{why}"
     );
 }
