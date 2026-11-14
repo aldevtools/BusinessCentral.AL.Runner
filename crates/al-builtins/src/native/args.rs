@@ -23,6 +23,7 @@ pub fn text_of(v: &Value) -> Option<crate::text::Txt> {
         Value::Text(s) | Value::Code(s) if s.has_marker() => None,
         Value::Text(s) | Value::Code(s) => Some(s.clone()),
         Value::Char(c) => char::from_u32(u32::from(*c)).map(|c| c.to_string().into()),
+        Value::TextConst(_) => text_of(&crate::conv::text_const_as_text(v.clone())),
         _ => None,
     }
 }

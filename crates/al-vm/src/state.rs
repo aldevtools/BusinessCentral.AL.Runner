@@ -459,6 +459,9 @@ pub(crate) struct ReportState {
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// Report variables whose `UseRequestPage(false)`, as their first use, ran an OnInitReport that quit: their next Run or
+    /// RunModal runs nothing (`reports/quit_in_init.rs`).
+    pub(crate) report_quit_deferred: Vec<std::rc::Weak<RefCell<Instance>>>,
     /// Report instances whose Run, RunModal or Execute is running now, innermost last (`RunningReport`).
     pub(crate) report_running: Vec<RunningReport>,
     /// `RequestOptionsPage.Caption` set by the code of a report outside its request page's OnOpenPage, by report instance: the

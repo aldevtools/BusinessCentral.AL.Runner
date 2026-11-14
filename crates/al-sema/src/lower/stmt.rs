@@ -14,6 +14,26 @@ pub(crate) enum OptionCaptions {
 }
 
 impl Lowerer<'_> {
+    /// The TextConst and Label facts of the local `n` declared with type `t`, by lowercase name.
+    fn note_local_text_facts(&mut self, t: Option<&ast::TypeRef>, n: &str) {
+        let key = n.to_lowercase();
+        if is_textconst(t) {
+            self.local_textconsts.insert(key.clone());
+        }
+        if let Some(texts) = t.and_then(textconst_languages) {
+            self.local_textconst_languages.insert(key.clone(), texts);
+        }
+        if t.is_some_and(label_locked) {
+            self.local_locked_labels.insert(key.clone());
+        }
+        if t.is_some_and(label_maxlength) {
+            self.local_maxlength_labels.insert(key.clone());
+        }
+        if t.is_some_and(plain_text_declaration) {
+            self.local_plain_text_decls.insert(key);
+        }
+    }
+
     pub(crate) fn routine(&mut self, r: &ast::Routine) -> ir::Routine {
         #[cfg(test)]
         if r.name() == "InjectedLowerPanic" {
@@ -41,6 +61,7 @@ impl Lowerer<'_> {
         self.local_textconst_languages.clear();
         self.local_locked_labels.clear();
         self.local_maxlength_labels.clear();
+        self.local_plain_text_decls.clear();
         self.local_var_attrs.clear();
         self.tys.clear();
         self.tys_on = true;
@@ -83,6 +104,7 @@ impl Lowerer<'_> {
             ret_local = Some(locals.len());
             add(self, n, t.clone(), &mut locals);
         }
+        self.declared_locals_from = locals.len();
         for v in r.local_var_decls() {
             let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
             let label = v.type_ref().as_ref().and_then(label_text);
@@ -110,18 +132,7 @@ impl Lowerer<'_> {
                         self.local_label_xliff.insert(n.to_lowercase(), id);
                     }
                 }
-                if is_textconst(v.type_ref().as_ref()) {
-                    self.local_textconsts.insert(n.to_lowercase());
-                }
-                if let Some(texts) = v.type_ref().as_ref().and_then(textconst_languages) {
-                    self.local_textconst_languages.insert(n.to_lowercase(), texts);
-                }
-                if v.type_ref().as_ref().is_some_and(label_locked) {
-                    self.local_locked_labels.insert(n.to_lowercase());
-                }
-                if v.type_ref().as_ref().is_some_and(label_maxlength) {
-                    self.local_maxlength_labels.insert(n.to_lowercase());
-                }
+                self.note_local_text_facts(v.type_ref().as_ref(), &n);
                 if let Some(why) = refusal {
                     self.reasons.push(format!("`{n}`: {why}"));
                 }
@@ -1538,6 +1549,9 @@ impl Lowerer<'_> {
         }
         let place = self.place(&kids[0])?;
         let target_ty = self.ty_of(&kids[0]);
+        if let Some(v) = self.assigned_text_constant(n, kids)? {
+            return Ok(ir::Stmt::Assign(place, v));
+        }
         self.refuse_label_ternary_into_variant(&target_ty, &kids[1])?;
         let rhs = self.run_on_client_assigned(n, &target_ty, &kids[1]);
         let rhs = rhs.map_or_else(|| self.expr_into(&target_ty, &kids[1]), Ok)?;

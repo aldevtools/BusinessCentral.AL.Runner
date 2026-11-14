@@ -206,6 +206,8 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         local_locked_labels: Default::default(),
         global_maxlength_labels: Default::default(),
         local_maxlength_labels: Default::default(),
+        global_plain_text_decls: Default::default(),
+        local_plain_text_decls: Default::default(),
         global_var_attrs: HashMap::default(),
         local_var_attrs: HashMap::default(),
         run_refusals: Default::default(),
@@ -227,6 +229,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         stream_scope: Vec::new(),
         loops: Vec::new(),
         var_params: Vec::new(),
+        declared_locals_from: usize::MAX,
         reads_var_max_len: false,
         ret_decl: None,
         routine_nodes: &tl.nodes,
@@ -295,7 +298,10 @@ fn note_global_label_facts(lw: &mut Lowerer<'_>, v: &ast::VarDecl, n: &str, labe
         lw.global_locked_labels.insert(key.clone());
     }
     if v.type_ref().as_ref().is_some_and(label_maxlength) {
-        lw.global_maxlength_labels.insert(key);
+        lw.global_maxlength_labels.insert(key.clone());
+    }
+    if v.type_ref().as_ref().is_some_and(plain_text_declaration) {
+        lw.global_plain_text_decls.insert(key);
     }
 }
 
@@ -1212,6 +1218,27 @@ pub(crate) fn label_maxlength(t: &ast::TypeRef) -> bool {
         .collect();
     toks.windows(2)
         .any(|w| w[0].text().eq_ignore_ascii_case("maxlength") && w[1].kind() == SyntaxKind::Eq)
+}
+
+/// Whether a declaration is just `Label 'text'` (no Locked, MaxLength or Comment) or `TextConst ENU = 'text'` (one text,
+/// language ENU): the declarations the Label-into-Variant pins use (lower/label_variant.rs).
+pub(crate) fn plain_text_declaration(t: &ast::TypeRef) -> bool {
+    let toks: Vec<_> = t
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|k| !k.kind().is_trivia())
+        .collect();
+    match toks.as_slice() {
+        [kind, text] => kind.text().eq_ignore_ascii_case("label") && text.kind() == SyntaxKind::StringLit,
+        [kind, lang, eq, text] => {
+            kind.text().eq_ignore_ascii_case("textconst")
+                && lang.text().eq_ignore_ascii_case("enu")
+                && eq.kind() == SyntaxKind::Eq
+                && text.kind() == SyntaxKind::StringLit
+        }
+        _ => false,
+    }
 }
 
 /// Whether a declaration is of type `TextConst`.

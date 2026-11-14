@@ -94,6 +94,11 @@ fn is_kind(c: &mut dyn Ctx, r: Option<&mut Value>, kind: &str) -> Result<Value, 
     {
         return Ok(Value::Boolean(true));
     }
+    // A TextConstant answers false to all three: pinned by types/variant/VaTTextConst.al:287-289 (a TextConst assigned, handed
+    // through a Variant parameter and back, and a Label assigned: `more=TextConstant,` only).
+    if matches!(r.as_deref(), Some(Value::TextConst(_))) {
+        return Ok(Value::Boolean(false));
+    }
     assume(Assumption::VariantIsMatrix);
     let answer = match r {
         None | Some(Value::Null) => false,

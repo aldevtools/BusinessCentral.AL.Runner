@@ -25,6 +25,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 type Inst = Rc<RefCell<Instance>>;
+use quit_in_init::InitQuit;
 type Rec = Rc<RefCell<al_builtins::value::RecordState>>;
 
 /// What a report trigger asked for with `CurrReport.Skip`, `Break` or `Quit`.
@@ -122,6 +123,7 @@ impl Session {
                 .and_then(|b| b.upgrade())
                 .unwrap_or_else(|| running.clone())
         };
+        self.refuse_method_after_kept_quit(id, &receiver)?;
         match id {
             // `IsReadOnly()` of the running report is No, in a procedure of a variable never run and in OnPreReport
             // (Y36BareReportMember.al:191-247 `readonly=No/No`, a processing-only report). A report variable is not pinned.
@@ -143,7 +145,7 @@ impl Session {
                 // Without a receiver (`SetTableView(R)` bare in a procedure of the report) it is the report whose code runs: the
                 // next run reads only the filtered rows (Y36BareReportMember.al:328-342 Y36_BareSetTableView_ThenRun).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, false)?.0;
+                let inst = self.report_instance(receiver, InitQuit::Refuses)?.0;
                 let schema = self.report_schema(&inst)?;
                 self.report_set_view(&inst, &schema, args.first())?;
                 Ok(Value::Null)
@@ -415,7 +417,7 @@ impl Session {
                 // `CurrReport.ObjectId` has no receiver value: it is the running report
                 // (recordref-fieldref/PWRefusedBuiltins.al:ReportObjectId_CurrReportInCaptionedReport).
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, false)?.0;
+                let inst = self.report_instance(receiver, InitQuit::Refuses)?.0;
                 let schema = self.report_schema(&inst)?;
                 let o = &schema.engine.program.objects[schema.object];
                 let names = match args.first() {
@@ -466,8 +468,12 @@ impl Session {
                 // reports/TestReportRuntimeContracts.al:416-440 for a variable).
                 // The report's own code, not a reportextension's, read without a receiver (`use_request_page_getter`).
                 let own_code = receiver.is_none() && running.borrow().base.is_none();
+                // UseRequestPage(false) on a variable as its first use (ReportQuitInOnInit.al:265, `quit_in_init`).
+                let defers = receiver.is_some() && matches!(args.first(), Some(Value::Boolean(false)));
                 let receiver = receiver.or_else(|| Some(Value::Codeunit(report_of_running())));
-                let inst = self.report_instance(receiver, false)?.0;
+                let inst = self
+                    .report_instance(receiver, if defers { InitQuit::Defers } else { InitQuit::Refuses })?
+                    .0;
                 let schema = self.report_schema(&inst)?;
                 let slot = schema.report().request_flag_slot;
                 // The getter answers what the next Run does; the setter overrides the report's own
@@ -479,7 +485,7 @@ impl Session {
                 Ok(Value::Null)
             }
             ids::REPORT_RUN_1 | ids::REPORT_RUNMODAL_1 => {
-                let (inst, quit) = self.report_instance(receiver, true)?;
+                let (inst, quit) = self.report_instance(receiver, InitQuit::StopsTakingDeferred)?;
                 self.run_of_running_instance(id, &inst)?;
                 // An instance that already ran (one a variable gave up after its Run) cannot run again, and the attempt resets it
                 // (reports/runtime/P141ThisStored.al:P141_StoredAfterRun_RunAgain: the error, then a blank marker).
@@ -615,7 +621,7 @@ impl Session {
                     .map(|()| Value::Null)
             }
             ids::REPORT_EXECUTE_1 => {
-                let (inst, quit) = self.report_instance(receiver, true)?;
+                let (inst, quit) = self.report_instance(receiver, InitQuit::Stops)?;
                 let schema = self.report_schema(&inst)?;
                 let parameters = self.report_execute_args(id, args.first(), args.get(1))?;
                 let is = |list: &Vec<std::rc::Weak<RefCell<Instance>>>| {
@@ -679,7 +685,7 @@ impl Session {
             }
             ids::REPORT_PRINT_1 | ids::REPORT_PRINT_2 => {
                 let schema = if id == ids::REPORT_PRINT_1 {
-                    let inst = self.report_instance(receiver, false)?.0;
+                    let inst = self.report_instance(receiver, InitQuit::Refuses)?.0;
                     self.report_schema(&inst)?
                 } else {
                     self.report_by_number(id, args.first())?.1
@@ -704,7 +710,10 @@ impl Session {
             ids::REPORT_WORDXMLPART_1 | ids::REPORT_WORDXMLPART_2 => self.report_word_xml_part(id, receiver, args),
             ids::REPORT_RUNREQUESTPAGE_1 | ids::REPORT_RUNREQUESTPAGE_2 => {
                 let (inst, schema, seed) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
-                    let inst = self.report_instance(receiver, false)?.0;
+                    let (inst, quit) = self.report_instance(receiver, InitQuit::Stops)?;
+                    if quit {
+                        return self.request_page_after_quit(&self.report_schema(&inst)?);
+                    }
                     // After a RunModal of the variable: the error, and no page opens
                     // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
                     if self.report_run_modal_done_on(&inst) {
@@ -727,7 +736,7 @@ impl Session {
                     // OnInitReport runs first, so the views the data items get next are what the handler sees
                     // (reports/W3ReportRequestPageRun.al:280, RunRequestPage_OrderOfReportAndRequestPageTriggers: `view=[1..3]`).
                     if self.report_init(&inst)? {
-                        return unsupported("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)");
+                        return self.request_page_after_quit(&schema);
                     }
                     (inst, schema, args.get(1))
                 };
@@ -794,30 +803,6 @@ impl Session {
                 let c = &self.report.variable_culture[i];
                 (i, c.language, c.region.clone())
             })
-    }
-
-    /// The report instance behind a receiver, initialised: the first use of a report variable
-    /// runs `OnInitReport` (reports/TestReportOnInitReportTiming.al:50-60).
-    /// Returns whether that trigger quit the report; a caller that cannot stop refuses it.
-    fn report_instance(&mut self, receiver: Option<Value>, can_stop: bool) -> Result<(Inst, bool), Signal> {
-        match receiver {
-            Some(Value::Codeunit(rc)) => {
-                // Used again after a Run, it is a new instance: OnInitReport runs.
-                // A second Run on one variable runs OnInitReport again (reports/request-page/RptTriggerOrder.al:353
-                // VariableRun_Twice_InitReportEachTime; reports/PnH5aExt.al:396).
-                if std::mem::take(&mut rc.borrow_mut().rerun) {
-                    rc.borrow_mut().initialized = false;
-                }
-                let quit = !rc.borrow().initialized && self.report_init(&rc)?;
-                if quit && !can_stop {
-                    return unsupported(
-                        "CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)",
-                    );
-                }
-                Ok((rc, quit))
-            }
-            other => unsupported(format!("a Report method on {}", other.describe())),
-        }
     }
 
     /// The report object of a report variable for a method that reads the report's metadata. Whether the call runs
@@ -941,7 +926,7 @@ impl Session {
     /// and `Execute`; a `Run` and a `Clear` drop it (reports/extensions/W3RpExtProcedures.al:ExtensionProcedure_*).
     /// The first use of the variable runs `OnInitReport`, as a call of any of its procedures does.
     pub(crate) fn report_extension_instance(&mut self, base: &Inst, ext: usize) -> Result<Inst, Signal> {
-        let (base, _) = self.report_instance(Some(Value::Codeunit(base.clone())), false)?;
+        let (base, _) = self.report_instance(Some(Value::Codeunit(base.clone())), InitQuit::Refuses)?;
         if let Some((_, i)) = base.borrow().exts.iter().find(|(e, _)| *e as usize == ext) {
             return Ok(i.clone());
         }
@@ -1020,6 +1005,7 @@ impl Session {
 
     /// First use of an instance: its globals are made and, for a report, `OnInitReport` runs once.
     pub(crate) fn first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
+        self.refuse_after_kept_quit(inst)?;
         // A report variable a `Run` just reset starts again with its next call of anything but `Run`: `OnInitReport`
         // runs again, so a procedure called after a Run sees what OnInitReport set (corpus
         // pages/triggers/P84ReportSender.al:Triggers_Run_SenderInEachTrigger: `GetMarker()` after `Run()` is
@@ -1059,10 +1045,7 @@ impl Session {
         let object = inst.borrow().object as usize;
         let engine = self.engine.clone();
         let o = &engine.program.objects[object];
-        if o.report.is_none() {
-            return Ok(());
-        }
-        let Some(page) = o.page.as_ref() else {
+        let Some(page) = o.page.as_ref().filter(|_| o.report.is_some()) else {
             return Ok(());
         };
         if page.ext_triggers.iter().any(|(n, _, _)| n == "oninit") {
@@ -2605,7 +2588,7 @@ impl Session {
         // The SaveAs raised SubstituteReport, so OnDocumentReady follows the dataset.
         let mut document_ready = false;
         let (inst, schema, quit) = if at == 0 {
-            let (inst, quit) = self.report_instance(receiver, true)?;
+            let (inst, quit) = self.report_instance(receiver, InitQuit::Stops)?;
             let schema = self.report_schema(&inst)?;
             // A SaveAs on a variable that already ran (an earlier SaveAs that wrote its dataset or stopped at the missing
             // layout) answers false with this text (text/PnBReportSaveAs.al:387-391 OtherFormats_NoLayout;
@@ -2734,10 +2717,9 @@ impl Session {
             // The Xml SaveAs of a processing-only report runs OnInitReport before it answers false
             // (reports/request-page/RptTriggerOrder.al:308,:324 SaveAs_NestedItems_Order, SaveAs_Siblings_Order;
             // reports/PnH5aExt.al:380). For the other formats that is not pinned and no trigger runs.
+            let stream = matches!(target, SaveTarget::Stream(_)) && record_ref.is_none() && parameters.is_empty();
             if format == "Xml" && at != 0 && self.report_init(&inst)? {
-                return unsupported(
-                    "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
-                );
+                return self.save_as_after_quit(&schema, stream, result_used);
             }
             // The request page's OnInit follows, as in a run without the page (reports/reporthandler/AeReportHandler.al:
             // 133-145 SaveAs_WithReportHandler `OnInitReport;RP OnInit ...;` with an empty parameters string; with parameters the
@@ -2746,9 +2728,7 @@ impl Session {
                 self.request_page_init_unshown(&inst, &schema)?;
             }
             if format == "Xml" && at == 0 && quit {
-                return unsupported(
-                    "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
-                );
+                return self.save_as_after_quit(&schema, stream, result_used);
             }
             let error = al_builtins::native::AlError {
                 message: format!(
@@ -4459,6 +4439,7 @@ pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod html_record;
+mod quit_in_init;
 mod request_caption;
 mod request_unshown;
 mod running;

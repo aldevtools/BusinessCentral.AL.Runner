@@ -66,13 +66,48 @@ pub(super) fn reject_attributes(nodes: &[Handle]) -> Result<(), Signal> {
     Ok(())
 }
 
-pub(super) fn add_first(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+pub(super) fn add_first(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     reject_unassigned_element_content(&h, a, "AddFirst")?;
     let nodes = content_nodes(a)?;
     reject_declaration_in_document(&h, &nodes)?;
+    if !c.ret_used() && add_first_attribute_raises(&h, &nodes) {
+        return Err(nav_argument());
+    }
     insert(&h, Some(0), nodes)?;
     Ok(Value::Boolean(true))
+}
+
+/// AddFirst, as a statement, of an attribute to an element raises an Argument error and leaves the element as it was, in the
+/// cell xml/XmlElement.al:372-386 Add_Basic measured (`af296`, `addfirstattr`), each fact by equality:
+/// - the element `a`: made by `XmlElement.Create`, never had a parent, no prefix or namespace, with child nodes (two elements, a
+///   text, a comment) and attributes without a prefix or namespace (`k`);
+/// - one argument, the attribute `k2`: made by `XmlAttribute.Create`, never had a parent, no prefix or namespace, and no
+///   attribute of the element has its name.
+///
+/// Every other shape keeps main's path (the attribute is added, or a duplicate name raises).
+fn add_first_attribute_raises(h: &Handle, nodes: &[Handle]) -> bool {
+    let [n] = nodes else { return false };
+    let element_plain = with(
+        h,
+        |d| matches!(d, XData::Element { prefix, ns, .. } if prefix.is_empty() && ns.is_empty()),
+    );
+    let attrs = attrs_of(h);
+    let name = |a: &Handle| {
+        with(a, |d| match d {
+            XData::Attribute { local, .. } => local.clone(),
+            _ => String::new(),
+        })
+    };
+    element_plain
+        && never_attached(h)
+        && !children_of(h).is_empty()
+        && !attrs.is_empty()
+        && attrs.iter().all(attribute_without_namespace)
+        && kind(n) == "XmlAttribute"
+        && never_attached(n)
+        && attribute_without_namespace(n)
+        && !attrs.iter().any(|a| name(a) == name(n))
 }
 
 /// Content of a sibling operation of a text, CDATA, comment, processing instruction, document type or declaration
@@ -216,7 +251,12 @@ pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) ->
     }
     if parent_of(&h).is_none() {
         // A node of these kinds without a parent (DocTypeNode.al:Remove_DetachedDocType, P90*Edit.al:Remove_Detached_Twice).
-        if detached_is_invalid(&h) && !c.ret_used() {
+        // An attribute created alone or already removed from its element, statement form (xml/xml/P97AttrMisc.al:125
+        // Remove_Detached `remove`, :98 Remove_Attached `remove_twice`; xml/XmlAttributes.al:422 Attribute_Parent_Remove
+        // `lone_remove`). An attribute whose element is no longer referenced is not one of them (`parent_dropped`).
+        // Each pin's attribute has no prefix and no namespace.
+        let lone_attribute = attribute_without_namespace(&h) && !parent_dropped(&h);
+        if (detached_is_invalid(&h) || lone_attribute) && !c.ret_used() {
             return Err(error(
                 "The requested operation cannot be performed in this context.",
                 "InvalidOperation",
@@ -232,8 +272,11 @@ pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) ->
     Ok(Value::Boolean(true))
 }
 
-pub(super) fn replace_with(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+pub(super) fn replace_with(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv_text_kind_or_uninit(r)?;
+    if let Some(v) = attr_replace::replace_attribute(c, &h, a) {
+        return Ok(v);
+    }
     reject_unassigned_sibling_arg(&h, a)?;
     if parent_of(&h).is_none() && with(&h, |d| matches!(d, XData::DocType { .. })) {
         // DocTypeNode.al:ReplaceWith_DetachedDocType.
@@ -393,6 +436,13 @@ pub(super) fn get_document_type(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 pub(super) fn get_document(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv_or_uninit(r, "XmlNode")?;
     let root = root_of(&h);
+    // BC keeps the document of a node alive after the last document variable is gone and answers Yes (xml/XmlElement.al:349
+    // Navigation_Parent_Document, xml/XmlNodes.al:363 Node_Navigation); the runtime holds parents weakly and cannot answer.
+    if parent_dropped(&root) {
+        return unsupported(
+            "GetDocument of a node whose document is no longer referenced (the runtime does not keep it)",
+        );
+    }
     // A declaration belongs to no document as far as GetDocument goes (xml/xml/P104TreeBDecl.al:
     // P104_Remove_InDoc `document1`).
     if with(&h, |d| !matches!(d, XData::Declaration { .. })) && with(&root, |d| matches!(d, XData::Document { .. })) {

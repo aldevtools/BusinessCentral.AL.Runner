@@ -435,6 +435,13 @@ impl Lowerer<'_> {
                                 continue;
                             }
                         }
+                        if receiver_node.is_none() && !self.supplied_by_with(node) && matches!(p.ty, Ty::Variant) {
+                            let site = super::label_variant::Site::Arg { object, routine };
+                            if let Some(v) = self.text_constant_into_variant(a, site)? {
+                                out.push(ir::Arg::Value(v));
+                                continue;
+                            }
+                        }
                         let value = self.expr_into(&p.ty, a)?;
                         // A Variant handed to a by-value Text or Code parameter goes in as it is: the callee's binding converts it, and
                         // raises TypeConversion for a number, Boolean, Date, Enum or Option (types/variant/

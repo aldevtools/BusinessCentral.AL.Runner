@@ -117,7 +117,7 @@ impl super::Lowerer<'_> {
     /// `V := B ? x : y` into a Variant with a Label branch and one of another type: in BC the Variant holds the branch taken
     /// with its own type, a Label answering no Is... test and a Code staying a Code (types/operators-expressions/
     /// Y31ConvCd.al, LT Y31 Cd Label `Label_Text`, `Label_Code10`: `|abc` and `Code|A`). A Label is a Text in a Variant here
-    /// (`refuse_textconst_into_variant`), so the shape is refused.
+    /// (lower/label_variant.rs), so the shape is refused.
     pub(super) fn refuse_label_ternary_into_variant(
         &mut self,
         target: &Ty,

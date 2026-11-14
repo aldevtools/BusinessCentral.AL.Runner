@@ -567,23 +567,29 @@ fn the_stored_length_of_a_blob_is_given_only_for_the_pinned_sizes() {
 }
 
 #[test]
-fn a_textconst_going_into_a_variant_is_refused() {
-    // types/variant/VaTTextConst.al:144-151 (TextConst_In_Variant): the Variant then answers no Is... test while Format reads the
-    // text. That value kind is not built, so the conversion is refused. A Label goes into a Variant as a Text, as before.
+fn a_textconst_going_into_a_variant_is_refused_outside_the_pinned_cells() {
+    // types/variant/VaTTextConst.al:144-151 (TextConst_In_Variant) and :287-288: a global TextConst assigned to a local Variant
+    // or handed to a Variant parameter of a local procedure holds a TextConstant, which Format reads as its text
+    // (al-sema lower/label_variant.rs). As the exit value of a Variant function it is not pinned and stays refused. A Label
+    // formats as its text in all three.
     let src = |decl: &str, body: &str| {
         format!(
-            "codeunit 50200 C {{ var Simple: {decl}; procedure Take(V: Variant): Text begin exit(Format(V)); end; \
+            "codeunit 50200 C {{ var Simple: {decl}; local procedure Take(V: Variant): Text begin exit(Format(V)); end; \
              procedure Give(): Variant begin exit(Simple); end; \
              procedure F(): Text var V: Variant; begin {body} end; }}"
         )
     };
-    for body in [
-        "V := Simple; exit(Format(V));",
-        "exit(Take(Simple));",
-        "V := Give(); exit(Format(V));",
+    for (body, pinned) in [
+        ("V := Simple; exit(Format(V));", true),
+        ("exit(Take(Simple));", true),
+        ("V := Give(); exit(Format(V));", false),
     ] {
         let r = out(al_testkit::run_in(&src("TextConst ENU = 'Hello'", body), "C", "F"));
-        assert!(r.starts_with("refused:") && r.contains("TextConst"), "{body}: {r}");
+        if pinned {
+            assert_eq!(r, "Hello", "{body}");
+        } else {
+            assert!(r.starts_with("refused:") && r.contains("TextConst"), "{body}: {r}");
+        }
         assert_eq!(
             out(al_testkit::run_in(&src("Label 'Hello'", body), "C", "F")),
             "Hello",

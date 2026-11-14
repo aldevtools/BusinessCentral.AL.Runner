@@ -5,4 +5,4 @@
 "crates/al-testrun/src/runtime/tests.rs" = 3760
 "crates/al-vm/src/pages/actions.rs" = 3468
 "crates/al-vm/src/pages/rows.rs" = 3156
-"crates/al-vm/src/reports.rs" = 4478
+"crates/al-vm/src/reports.rs" = 4448

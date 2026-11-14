@@ -268,6 +268,10 @@ pub(crate) struct Lowerer<'a> {
     /// The Label variables declared with `MaxLength`, by lowercase name (a conditional expression pairs them only where pinned).
     global_maxlength_labels: std::collections::HashSet<String>,
     local_maxlength_labels: std::collections::HashSet<String>,
+    /// The Label and TextConst variables declared as just `Label 'text'` or `TextConst ENU = 'text'`, by lowercase name
+    /// ([`shared::plain_text_declaration`]; lower/label_variant.rs).
+    global_plain_text_decls: std::collections::HashSet<String>,
+    local_plain_text_decls: std::collections::HashSet<String>,
     /// Attributes of variables the lowering reads (`shared::var_attribute_names`), by lowercase name.
     global_var_attrs: HashMap<String, Vec<String>>,
     local_var_attrs: HashMap<String, Vec<String>>,
@@ -324,6 +328,9 @@ pub(crate) struct Lowerer<'a> {
     loops: Vec<bool>,
     /// `by_var` of the parameters of the routine being lowered.
     var_params: Vec<bool>,
+    /// The first local slot of the routine being lowered that its `var` section declares (after its parameters and named
+    /// return value); `usize::MAX` outside a routine.
+    declared_locals_from: usize,
     /// The routine being lowered reads MaxStrLen of a `var` parameter, or hands one on to a `var` parameter
     /// (`ir::Routine::reads_var_max_len`).
     reads_var_max_len: bool,
@@ -615,6 +622,7 @@ mod dotnet_arg;
 mod expr;
 mod ext_order;
 mod extend;
+mod label_variant;
 
 #[cfg(test)]
 mod abp_refusal_tests;

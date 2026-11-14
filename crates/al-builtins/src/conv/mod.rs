@@ -15,7 +15,7 @@ pub use arith::arith_cell;
 pub(crate) use arith::datetime_fraction_error;
 pub use compare::compare_cell;
 pub use engine::{convert_cell, variant_convert, variant_error};
-pub use variant::{AS_CONDITION, AT_ASSIGNMENT, REGISTRY, kind_code, variant_into};
+pub use variant::{AS_CONDITION, AT_ASSIGNMENT, REGISTRY, kind_code, text_const_as_text, variant_into};
 pub use variant_records::record_slot_code;
 
 /// A type of the matrix. Text[N] and Text are one kind, as are the Code lengths and an Enum with or without an interface.
