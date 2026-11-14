@@ -35,7 +35,16 @@ fn outcomes_app(app_id: &str, main: &str) -> Vec<(String, Outcome)> {
 /// The outcome of each test of the codeunit named `codeunit` in `main` (compiled as [`outcomes`] does), with the assumptions
 /// each test went through.
 pub(crate) fn outcomes_with_hits(main: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
-    let (engine, l) = compile_on_system("main", main);
+    outcomes_with_hits_app("main", main, codeunit)
+}
+
+/// [`outcomes_with_hits`] with the id of the app under test chosen (a platform table lists apps by Guid).
+pub(crate) fn outcomes_with_hits_app(
+    app_id: &str,
+    main: &str,
+    codeunit: &str,
+) -> Vec<(String, Outcome, Vec<Assumption>)> {
+    let (engine, l) = compile_on_system(app_id, main);
     let oi = l
         .program
         .objects
