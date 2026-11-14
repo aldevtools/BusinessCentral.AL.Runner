@@ -21,8 +21,9 @@ pub struct Policy {
     off_windows: Vec<String>,
     allow_type: Vec<String>,
     deny_member: Vec<(String, String, String)>,
-    /// `deny-member-off-windows` rules (`Type.Member`): kept in `deny_member` unless the host runs .NET on Windows.
-    off_windows_members: Vec<(String, String)>,
+    /// `members-off-windows` rules: a type whose objects, unless the host runs .NET on Windows, take only the listed
+    /// members (type, members, rule).
+    off_windows_members: Vec<(String, Vec<String>, String)>,
     /// `deny-member-with-text` rules: refused only when a Text or Code argument is passed.
     deny_member_text: Vec<(String, String, String)>,
     deny_new_no_args: Vec<(String, String)>,
@@ -43,21 +44,25 @@ impl Policy {
     /// The rules shipped with the runtime for a .NET host on Windows (`windows`) or elsewhere. The front end that
     /// starts the sidecar decides (ADR-006: the core does not ask the OS). On Windows the `deny-type-off-windows`
     /// rules are lifted: those types run for real (ADR-027 row 14, amended 2026-10-29). So are the
-    /// `deny-member-off-windows` rules: there .NET reads the same Windows data as BC.
+    /// `members-off-windows` rules: there .NET reads the same Windows data as BC.
     pub fn builtin_for(windows: bool) -> Policy {
         let mut p = Policy::parse(include_str!("policy.txt")).expect("policy.txt is well formed");
         if windows {
             let lifted = std::mem::take(&mut p.off_windows);
             p.deny_type
                 .retain(|(t, _)| !lifted.iter().any(|l| l.eq_ignore_ascii_case(t)));
-            let lifted = std::mem::take(&mut p.off_windows_members);
-            p.deny_member.retain(|(t, m, _)| {
-                !lifted
-                    .iter()
-                    .any(|(lt, lm)| lt.eq_ignore_ascii_case(t) && lm.eq_ignore_ascii_case(m))
-            });
+            p.off_windows_members.clear();
         }
         p
+    }
+
+    /// The rule of the `members-off-windows` allowlist of `clr_type` while it is in force (the host does not run .NET on
+    /// Windows), for the checks that also need the arguments (`zone_rules.rs`).
+    pub fn off_windows_members_rule(&self, clr_type: &str) -> Option<&str> {
+        self.off_windows_members
+            .iter()
+            .find(|(t, ..)| t.eq_ignore_ascii_case(clr_type))
+            .map(|(.., rule)| rule.as_str())
     }
 
     pub fn parse(text: &str) -> Result<Policy, String> {
@@ -83,10 +88,17 @@ impl Policy {
                     let (ty, member) = subject.rsplit_once('.').ok_or_else(|| bad("expected Type.Member"))?;
                     p.deny_member.push((ty.to_string(), member.to_string(), rule));
                 }
-                "deny-member-off-windows" => {
-                    let (ty, member) = subject.rsplit_once('.').ok_or_else(|| bad("expected Type.Member"))?;
-                    p.off_windows_members.push((ty.to_string(), member.to_string()));
-                    p.deny_member.push((ty.to_string(), member.to_string(), rule));
+                "members-off-windows" => {
+                    let mut words = subject.split_whitespace().map(str::to_string);
+                    let ty = words.next().expect("the subject is not empty");
+                    let members: Vec<String> = words.collect();
+                    if members.is_empty() {
+                        return Err(bad("expected Type Member..."));
+                    }
+                    if p.off_windows_members.iter().any(|(t, ..)| t.eq_ignore_ascii_case(&ty)) {
+                        return Err(bad("a second members-off-windows rule for the type"));
+                    }
+                    p.off_windows_members.push((ty, members, rule));
                 }
                 "deny-member-with-text" => {
                     let (ty, member) = subject.rsplit_once('.').ok_or_else(|| bad("expected Type.Member"))?;
@@ -151,6 +163,19 @@ impl Policy {
                 }
             }
             Access::Construct(_) => {}
+        }
+        if let Some((_, members, rule)) = self
+            .off_windows_members
+            .iter()
+            .find(|(t, ..)| t.eq_ignore_ascii_case(clr_type))
+        {
+            match access {
+                Access::Member(m) | Access::MemberWithText(m) if members.iter().any(|l| l.eq_ignore_ascii_case(m)) => {}
+                Access::Member(m) | Access::MemberWithText(m) => {
+                    return Err(format!("refused by policy: member '{clr_type}.{m}' ({rule})"));
+                }
+                Access::Construct(_) => return Err(format!("refused by policy: constructing '{clr_type}' ({rule})")),
+            }
         }
         let server = assembly.is_some_and(|a| self.server_prefix.iter().any(|p| starts_with_ci(a, p)))
             || self.server_prefix.iter().any(|p| starts_with_ci(clr_type, p));
@@ -455,42 +480,47 @@ mod tests {
         );
     }
 
-    /// Issue 8012: off Windows the sidecar's .NET answers these `TimeZoneInfo` members from the host's IANA zone data,
-    /// where BC reads the Windows zone data. They are refused there and reach .NET on Windows. The members the
-    /// in-process stand-in serves, and `Id`, keep reaching the host on both.
+    /// Issue 8012: off Windows the sidecar's .NET answers `TimeZoneInfo` members from the host's IANA and ICU data, where
+    /// BC reads the Windows zone data. There a zone takes only the listed members; on Windows every member reaches .NET.
     #[test]
-    fn time_zone_rule_members_are_refused_off_windows_and_sent_to_dotnet_on_windows() {
+    fn time_zone_members_off_windows_are_an_allowlist_lifted_on_windows() {
         let (off, on) = (Policy::builtin_for(false), Policy::builtin_for(true));
+        let zone = "System.TimeZoneInfo";
         for m in [
             "SupportsDaylightSavingTime",
             "IsDaylightSavingTime",
-            "GetAdjustmentRules",
-            "IsAmbiguousTime",
-            "IsInvalidTime",
-            "GetAmbiguousTimeOffsets",
-            "HasSameRules",
-            "StandardName",
-            "DaylightName",
             "DisplayName",
-            "ToSerializedString",
-            "ConvertTime",
-            "ConvertTimeFromUtc",
-            "ConvertTimeToUtc",
-            "ConvertTimeBySystemTimeZoneId",
-            "GetSystemTimeZones",
+            "ToString",
+            "Equals",
+            "HasIanaId",
         ] {
             refused(
-                off.check(None, "System.TimeZoneInfo", Access::Member(m)),
-                &[&format!("System.TimeZoneInfo.{m}"), "Windows zone data"],
+                off.check(None, zone, Access::Member(m)),
+                &[&format!("{zone}.{m}"), "Windows zone data"],
             );
-            assert!(on.check(None, "System.TimeZoneInfo", Access::Member(m)).is_ok(), "{m}");
+            assert!(on.check(None, zone, Access::Member(m)).is_ok(), "{m}");
         }
-        for m in ["FindSystemTimeZoneById", "BaseUtcOffset", "GetUtcOffset", "Id"] {
-            assert!(off.check(None, "System.TimeZoneInfo", Access::Member(m)).is_ok(), "{m}");
-            assert!(on.check(None, "System.TimeZoneInfo", Access::Member(m)).is_ok(), "{m}");
+        refused(
+            off.check(None, zone, Access::Construct(0)),
+            &["constructing", "Windows zone data"],
+        );
+        for m in [
+            "FindSystemTimeZoneById",
+            "Utc",
+            "CreateCustomTimeZone",
+            "Id",
+            "BaseUtcOffset",
+            "GetUtcOffset",
+        ] {
+            assert!(off.check(None, zone, Access::Member(m)).is_ok(), "{m}");
+            assert!(off.check(None, zone, Access::MemberWithText(m)).is_ok(), "{m}");
+            assert!(on.check(None, zone, Access::Member(m)).is_ok(), "{m}");
         }
-        // `TimeZoneInfo.Local` stays refused on both: it is a plain `deny-member`.
-        assert!(on.check(None, "System.TimeZoneInfo", Access::Member("Local")).is_err());
+        assert!(off.off_windows_members_rule(zone).is_some());
+        assert!(on.off_windows_members_rule(zone).is_none());
+        assert!(off.off_windows_members_rule("System.DateTimeOffset").is_none());
+        // `TimeZoneInfo.Local` stays refused on both: it is a plain `deny-member`, which the lift does not touch.
+        assert!(on.check(None, zone, Access::Member("Local")).is_err());
     }
 
     #[test]
@@ -500,6 +530,7 @@ mod tests {
         assert!(Policy::parse("frobnicate X | y").is_err());
         assert!(Policy::parse("deny-member NoDot | y").is_err());
         assert!(Policy::parse("deny-member-with-text NoDot | y").is_err());
-        assert!(Policy::parse("deny-member-off-windows NoDot | y").is_err());
+        assert!(Policy::parse("members-off-windows T | y").is_err());
+        assert!(Policy::parse("members-off-windows T A | y\nmembers-off-windows t B | y").is_err());
     }
 }

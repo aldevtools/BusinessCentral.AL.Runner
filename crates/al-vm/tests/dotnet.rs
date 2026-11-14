@@ -99,6 +99,10 @@ impl DotNetSession for FakeSession {
         self.0.log.lock().unwrap().push(Req::StreamRead(handle));
         Ok(b"hello".to_vec())
     }
+    /// Handle 8 is the zone of the id `UTC` as the in-process stand-in makes it (`linux_zone_host`).
+    fn is_in_process_utc_zone(&self, handle: DotNetHandle) -> bool {
+        handle == 8
+    }
     fn release(&mut self, handles: &[DotNetHandle]) {
         self.0.log.lock().unwrap().push(Req::Release(handles.to_vec()));
     }
@@ -137,6 +141,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.IO.MemoryStream\"; \"MemoryStream\") { }
     type(\"System.Text.Encoding\"; \"Encoding\") { }
     type(\"System.DateTime\"; \"ClrDateTime\") { }
+    type(\"System.DateTimeOffset\"; \"ClrDateTimeOffset\") { }
     type(\"System.Byte\"; \"ClrByte\") { }
     type(\"System.IO.File\"; \"File\") { }
     type(\"System.IO.Directory\"; \"Directory\") { }
@@ -755,15 +760,22 @@ fn a_key_vault_provider_variable_never_constructed_is_not_instantiated() {
     assert_eq!(text(r), "DotNetVariableNotCreated");
 }
 
-/// A `TimeZoneInfo` host as .NET on Linux answers for `Hawaiian Standard Time` (al-runner issue 8012): the IANA data
-/// of Pacific/Honolulu has DST in 1933-1947, so `SupportsDaylightSavingTime` is true, where BC on Windows reads the
-/// Windows zone data. Every other member answers a fixed value, so a test sees whether the call reached the host.
+/// A `TimeZoneInfo` host as .NET on Linux answers (al-runner issue 8012): the IANA data of Pacific/Honolulu has DST in
+/// 1933-1947, so `SupportsDaylightSavingTime` is true and the 1945 offset is -9:30, where BC on Windows reads the Windows
+/// zone data. Handle 7 is `Hawaiian Standard Time`, handle 8 the zone of the id `UTC`; every other member answers a fixed
+/// value, so a test sees whether the call reached the host.
 fn linux_zone_host() -> Fake {
     Fake::new(|r| match r {
-        Req::Invoke(DotNetTarget::Static(t), m, _)
+        Req::Invoke(DotNetTarget::Static(t), m, a)
             if t.name == "System.TimeZoneInfo" && m == "FindSystemTimeZoneById" =>
         {
-            reply(handle(7, "System.TimeZoneInfo"))
+            let utc = matches!(a.first().map(|a| &a.value), Some(DotNetValue::Str(s)) if s == "UTC");
+            reply(handle(if utc { 8 } else { 7 }, "System.TimeZoneInfo"))
+        }
+        Req::Construct(t, _) if t == "System.DateTimeOffset" => reply(handle(9, "System.DateTimeOffset")),
+        Req::Construct(t, _) if t == "System.Text.StringBuilder" => reply(handle(10, "System.Text.StringBuilder")),
+        Req::Invoke(DotNetTarget::Instance(10), m, _) if m == "Append" => {
+            reply(handle(10, "System.Text.StringBuilder"))
         }
         Req::Get(DotNetTarget::Instance(7), m) | Req::Invoke(DotNetTarget::Instance(7), m, _)
             if m == "SupportsDaylightSavingTime" =>
@@ -775,8 +787,22 @@ fn linux_zone_host() -> Fake {
         {
             reply(DotNetValue::TimeSpan(-36_000 * 10_000_000))
         }
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "GetUtcOffset" => {
+            reply(DotNetValue::TimeSpan(-34_200 * 10_000_000))
+        }
+        Req::Invoke(DotNetTarget::Instance(8), m, _) if m == "GetUtcOffset" => reply(DotNetValue::TimeSpan(0)),
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "ToString" => {
+            reply(DotNetValue::Str("(UTC-10:00) Hawaii-Aleutian Time (Honolulu)".into()))
+        }
         other => panic!("unexpected {other:?}"),
     })
+}
+
+/// Whether a request of `member` reached the host.
+fn reached(host: &Fake, member: &str) -> bool {
+    host.calls()
+        .iter()
+        .any(|c| matches!(c, Req::Get(_, m) | Req::Invoke(_, m, _) if m == member))
 }
 
 fn zone_cfg(host: &Fake, windows: bool) -> DotNetConfig {
@@ -799,14 +825,7 @@ fn supports_daylight_saving_time_is_refused_off_windows() {
         why.contains("System.TimeZoneInfo.SupportsDaylightSavingTime") && why.contains("Windows zone data"),
         "{why}"
     );
-    assert!(
-        !host
-            .calls()
-            .iter()
-            .any(|c| matches!(c, Req::Get(_, m) | Req::Invoke(_, m, _) if m == "SupportsDaylightSavingTime")),
-        "{:?}",
-        host.calls()
-    );
+    assert!(!reached(&host, "SupportsDaylightSavingTime"), "{:?}", host.calls());
 }
 
 /// On a Windows .NET host the sidecar reads the Windows zone data, as BC does: the member keeps reaching .NET.
@@ -828,13 +847,153 @@ fn base_utc_offset_still_reaches_dotnet_off_windows() {
         ": Text",
     );
     assert!(r.result.is_ok(), "{:?}", r.result);
+    assert!(reached(&host, "BaseUtcOffset"), "{:?}", host.calls());
+}
+
+const ZONE_VARS: &str = "Z: DotNet TimeZoneInfo; D: Duration;";
+const HAWAII: &str = "Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time');";
+
+/// `GetUtcOffset` on `Hawaiian Standard Time` for 1945 (the session clock is in 2024): off Windows the host answers from
+/// the IANA data (DST in 1933-1947), Windows has no DST for the zone. Refused before the host (issue 8012).
+#[test]
+fn utc_offset_of_another_year_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let body = format!("{HAWAII} D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)); exit(Format(D));");
+    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    let why = unsupported(&r);
     assert!(
-        host.calls()
-            .iter()
-            .any(|c| matches!(c, Req::Get(_, m) | Req::Invoke(_, m, _) if m == "BaseUtcOffset")),
-        "{:?}",
-        host.calls()
+        why.contains("System.TimeZoneInfo.GetUtcOffset") && why.contains("Windows zone data"),
+        "{why}"
     );
+    assert!(!reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+}
+
+/// The `DateTimeOffset` overload of `GetUtcOffset` is refused off Windows, also for a date of the session clock's year.
+#[test]
+fn utc_offset_of_a_datetimeoffset_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let body = format!(
+        "{HAWAII} O := O.DateTimeOffset(CreateDateTime(DMY2Date(1, 7, 2024), 120000T)); D := Z.GetUtcOffset(O); exit(Format(D));"
+    );
+    let r = run_with(
+        zone_cfg(&host, false),
+        "Z: DotNet TimeZoneInfo; O: DotNet ClrDateTimeOffset; D: Duration;",
+        &body,
+        ": Text",
+    );
+    let why = unsupported(&r);
+    assert!(why.contains("System.TimeZoneInfo.GetUtcOffset"), "{why}");
+    assert!(!reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+}
+
+/// `ToString()` and `Format` of a zone give its display name, which off Windows comes from the host's ICU data, where
+/// BC gives the Windows text (record/table-properties/UvTimeZoneRows.al:45 pins "(UTC-10:00) Hawaii"). Refused there.
+#[test]
+fn text_of_a_zone_is_refused_off_windows() {
+    for text in ["exit(Z.ToString());", "exit(Format(Z));"] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, false), ZONE_VARS, &format!("{HAWAII} {text}"), ": Text");
+        let why = unsupported(&r);
+        assert!(
+            why.contains("System.TimeZoneInfo.ToString") && why.contains("Windows zone data"),
+            "{text}: {why}"
+        );
+        assert!(!reached(&host, "ToString"), "{text}: {:?}", host.calls());
+    }
+}
+
+/// A zone passed to a member of another type (`StringBuilder.Append(Object)` calls the zone's `ToString` in .NET) is
+/// refused off Windows: the zone's data would reach AL code past the member list.
+#[test]
+fn a_zone_passed_to_another_member_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let body = format!("{HAWAII} SB := SB.StringBuilder(); SB.Append(Z); exit('');");
+    let r = run_with(
+        zone_cfg(&host, false),
+        "Z: DotNet TimeZoneInfo; SB: DotNet StringBuilder;",
+        &body,
+        ": Text",
+    );
+    let why = unsupported(&r);
+    assert!(
+        why.contains("System.TimeZoneInfo") && why.contains("Windows zone data"),
+        "{why}"
+    );
+    assert!(!reached(&host, "Append"), "{:?}", host.calls());
+}
+
+/// Neighbor that keeps main's result: one `DateTime` of the session clock's year (2024, the fixed test clock) reaches
+/// the host off Windows (Base App TypeHelper passes the current UTC time).
+#[test]
+fn utc_offset_of_the_session_year_reaches_dotnet_off_windows() {
+    let host = linux_zone_host();
+    let body = format!("{HAWAII} D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 2024), 120000T)); exit(Format(D));");
+    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    assert!(r.result.is_ok(), "{:?}", r.result);
+    assert!(reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+}
+
+/// The zone of the id `UTC` made in process keeps main's answer for one `DateTime` of any year (ADR-038 amendment
+/// 2026-10-27). Its other members are refused like any zone's, and so is the `DateTimeOffset` overload.
+#[test]
+fn the_utc_zone_keeps_its_offset_for_any_year_and_nothing_else_off_windows() {
+    let utc = "Z := Z.FindSystemTimeZoneById('UTC');";
+    let host = linux_zone_host();
+    let body = format!("{utc} D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)); exit(Format(D));");
+    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    assert!(r.result.is_ok(), "{:?}", r.result);
+    assert!(reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+    for (vars, body) in [
+        (ZONE_VARS, "exit(Format(Z.SupportsDaylightSavingTime));"),
+        (ZONE_VARS, "exit(Z.ToString());"),
+        (
+            "Z: DotNet TimeZoneInfo; O: DotNet ClrDateTimeOffset; D: Duration;",
+            "O := O.DateTimeOffset(CreateDateTime(DMY2Date(1, 7, 1975), 120000T)); D := Z.GetUtcOffset(O); exit(Format(D));",
+        ),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, false), vars, &format!("{utc} {body}"), ": Text");
+        assert!(unsupported(&r).contains("Windows zone data"), "{body}");
+    }
+}
+
+/// A `Date` of the session clock's year is not the measured shape (one `DateTime`): refused off Windows.
+#[test]
+fn utc_offset_of_a_date_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let body = format!("{HAWAII} D := Z.GetUtcOffset(DMY2Date(1, 6, 2024)); exit(Format(D));");
+    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    let why = unsupported(&r);
+    assert!(
+        why.contains("System.TimeZoneInfo.GetUtcOffset") && why.contains("Windows zone data"),
+        "{why}"
+    );
+    assert!(!reached(&host, "GetUtcOffset"), "{:?}", host.calls());
+}
+
+/// On a Windows .NET host every member keeps reaching .NET, whatever the year or the overload.
+#[test]
+fn every_zone_member_reaches_dotnet_on_windows() {
+    for (vars, body) in [
+        (
+            ZONE_VARS,
+            "D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)); exit(Format(D));",
+        ),
+        (
+            "Z: DotNet TimeZoneInfo; O: DotNet ClrDateTimeOffset; D: Duration;",
+            "O := O.DateTimeOffset(CreateDateTime(DMY2Date(1, 7, 1975), 120000T)); D := Z.GetUtcOffset(O); exit(Format(D));",
+        ),
+        (ZONE_VARS, "exit(Z.ToString());"),
+        (ZONE_VARS, "exit(Format(Z));"),
+        (
+            "Z: DotNet TimeZoneInfo; SB: DotNet StringBuilder;",
+            "SB := SB.StringBuilder(); SB.Append(Z); exit('');",
+        ),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, true), vars, &format!("{HAWAII} {body}"), ": Text");
+        assert!(r.result.is_ok(), "{body}: {:?}", r.result);
+    }
 }
 
 // ---- lifetime ----------------------------------------------------------------------------

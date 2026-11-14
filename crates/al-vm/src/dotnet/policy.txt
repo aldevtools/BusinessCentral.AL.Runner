@@ -8,7 +8,7 @@
 #   deny-type <name>                this CLR type; a name ending in `.` is a namespace prefix
 #   deny-type-off-windows <name>    as deny-type, but lifted when the .NET host runs on Windows
 #   deny-member <Type.Member>       this member of this CLR type
-#   deny-member-off-windows <Type.Member>  as deny-member, but lifted when the .NET host runs on Windows
+#   members-off-windows <Type> <Member>...  unless the .NET host runs on Windows, this type takes only these members
 #   deny-new-without-args <Type>    construction with no arguments
 #   server-prefix <prefix>          assemblies and types that are server classes
 #   pure <Type>                     a server class shown to work with no session
@@ -103,24 +103,10 @@ deny-member System.Diagnostics.Stopwatch.ElapsedMilliseconds | clock that bypass
 deny-member System.Diagnostics.Stopwatch.ElapsedTicks | clock that bypasses the host
 deny-member System.TimeZoneInfo.Local | time zone that bypasses the host
 
-# Members whose answer comes from the host's time zone data (al-runner issue 8012). BC reads the Windows zone
-# data; .NET on any other OS reads the IANA data of the host, which differs (it carries past DST periods, such as
-# Pacific/Honolulu's in 1933-1947, so SupportsDaylightSavingTime is true for Hawaiian Standard Time). No corpus test
-# pins these members; on Windows the sidecar reads the same data as BC and they reach .NET. BaseUtcOffset and the
-# UTC zone's GetUtcOffset are served in process (ADR-038 amendments 2026-10-17 and 2026-10-27).
-deny-member-off-windows System.TimeZoneInfo.SupportsDaylightSavingTime | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.IsDaylightSavingTime | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.GetAdjustmentRules | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.IsAmbiguousTime | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.IsInvalidTime | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.GetAmbiguousTimeOffsets | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.HasSameRules | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.StandardName | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.DaylightName | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.DisplayName | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.ToSerializedString | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.ConvertTime | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.ConvertTimeFromUtc | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.ConvertTimeToUtc | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.ConvertTimeBySystemTimeZoneId | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
-deny-member-off-windows System.TimeZoneInfo.GetSystemTimeZones | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host
+# Zones off Windows (al-runner issue 8012). BC reads the Windows zone data; .NET on any other OS reads the IANA and ICU
+# data of the host, which differ (past DST periods such as Pacific/Honolulu's in 1933-1947, display names). No corpus
+# test pins a member whose answer depends on them, so off Windows a zone takes only these members. FindSystemTimeZoneById,
+# Utc, CreateCustomTimeZone and Id carry no zone rules; BaseUtcOffset keeps main's answer (in process from the latest
+# rules, ADR-038 amendment 2026-10-17; the forwarded ids from the host); GetUtcOffset runs only on the arguments `zone_rules.rs` allows. On Windows the sidecar
+# reads the same data as BC and every member reaches .NET.
+members-off-windows System.TimeZoneInfo FindSystemTimeZoneById Utc CreateCustomTimeZone Id BaseUtcOffset GetUtcOffset | the Windows zone data BC reads differs from the IANA data of a non-Windows .NET host

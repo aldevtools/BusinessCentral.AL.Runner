@@ -29,6 +29,7 @@ mod staged_dir;
 mod system_environment;
 mod xml_errors;
 mod zip_entry_streams;
+mod zone_rules;
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
@@ -483,18 +484,7 @@ impl Session {
         }
 
         // 2. The host provider, after the policy (ADR-014 section 8).
-        let assembly = match &target {
-            Target::Static(d) => Some(d.assembly.as_str()),
-            _ => None,
-        };
-        let access = if kind == MemberKind::Construct {
-            Access::Construct(values.len())
-        } else if values.iter().any(|v| matches!(v, Value::Text(_) | Value::Code(_))) {
-            Access::MemberWithText(&member)
-        } else {
-            Access::Member(&member)
-        };
-        if let Err(why) = engine.dotnet.policy.check(assembly, &clr_type, access) {
+        if let Err(why) = self.policy_check(&engine.dotnet.policy, &target, &clr_type, &member, kind, &values) {
             return unsupported(format!("DotNet {shown}: {why}"));
         }
         if matches!(target, Target::Internal(..)) {
@@ -1671,6 +1661,34 @@ fn boxed_clr_type(v: &Value) -> Option<&'static str> {
         Value::Guid(_) => "System.Guid",
         _ => return None,
     })
+}
+
+impl Session {
+    /// Step 2 of the router: the policy (ADR-014 section 8), then the zone checks that also need the arguments
+    /// (`zone_rules.rs`). `Err` is the refusal reason.
+    fn policy_check(
+        &self,
+        policy: &Policy,
+        target: &Target,
+        clr_type: &str,
+        member: &str,
+        kind: MemberKind,
+        values: &[Value],
+    ) -> Result<(), String> {
+        let assembly = match target {
+            Target::Static(d) => Some(d.assembly.as_str()),
+            _ => None,
+        };
+        let access = if kind == MemberKind::Construct {
+            Access::Construct(values.len())
+        } else if values.iter().any(|v| matches!(v, Value::Text(_) | Value::Code(_))) {
+            Access::MemberWithText(member)
+        } else {
+            Access::Member(member)
+        };
+        policy.check(assembly, clr_type, access)?;
+        self.zone_rules_check(policy, clr_type, member, target, values)
+    }
 }
 
 fn host_target(t: &Target) -> DotNetTarget {
