@@ -975,6 +975,8 @@ impl CorpusRuntime {
         opts: &RunOptions,
         keep: bool,
     ) -> CorpusRuntime {
+        // Declared first, so it drops last: once the run is done, what its AL code made on this thread is released.
+        let _run_end = al_builtins::instance_cycles::RunEnd::new();
         let Compiled {
             ws,
             lowered,
@@ -1084,19 +1086,6 @@ impl CorpusRuntime {
             }
             engine
         };
-        // The tests' engine (with several test threads) shares what `make_engine` worked out from the program with the
-        // install baseline's engine (`Engine::sibling`); what `make_engine` sets on top is set again.
-        let sibling_of = |engine: &Arc<Engine>| {
-            let mut sibling = engine.sibling();
-            if let Some(e) = Arc::get_mut(&mut sibling) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
-            }
-            sibling
-        };
         // A warm server's engines of the last request over this compile, set again for this one (al-runner issue 5856).
         let engine_key = keep.then(|| kept_engine_key(target, &dotnet, opts));
         let (reused_install, mut reused_tests) = match &engine_key {
@@ -1159,7 +1148,7 @@ impl CorpusRuntime {
                 .then(|| {
                     std::thread::Builder::new()
                         .stack_size(64 << 20)
-                        .spawn_scoped(scope, || sibling_of(&engine))
+                        .spawn_scoped(scope, || sibling_of(&engine, opts))
                         .ok()
                 })
                 .flatten();
@@ -1255,7 +1244,7 @@ impl CorpusRuntime {
             }
             baseline_ids = crate::baseline::NoteFacts::of(&b.notes);
             if baseline_engine.is_some() {
-                engine = spare_engine.take().unwrap_or_else(|| sibling_of(&engine));
+                engine = spare_engine.take().unwrap_or_else(|| sibling_of(&engine, opts));
             }
             if let Some(e) = Arc::get_mut(&mut engine) {
                 e.unseeded = unseeded;
@@ -1971,6 +1960,20 @@ impl CorpusRuntime {
             met: install_met,
         }
     }
+}
+
+/// The tests' engine (with several test threads): it shares what `make_engine` worked out from the program with the
+/// install baseline's engine (`Engine::sibling`); what `make_engine` sets on top is set again.
+fn sibling_of(engine: &Arc<Engine>, opts: &RunOptions) -> Arc<Engine> {
+    let mut sibling = engine.sibling();
+    if let Some(e) = Arc::get_mut(&mut sibling) {
+        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+        e.license = opts.license.clone();
+        e.write_in_try_allowed = opts.allow_write_in_try_functions;
+        e.dependencies_published_global = opts.dependencies_published_global;
+        e.skipped_apps = opts.skipped_dependencies.clone();
+    }
+    sibling
 }
 
 /// What the install code met on the run's engines that the compile left out (`narrowing::take_install`), and what the
