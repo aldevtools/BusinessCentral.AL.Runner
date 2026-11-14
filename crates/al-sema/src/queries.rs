@@ -539,6 +539,7 @@ impl Builder<'_> {
             reverse_sign,
             ty: rt,
             static_filter,
+            flow_below_join: false,
         });
         self.tys.push(ty);
     }
@@ -616,6 +617,39 @@ impl Builder<'_> {
         out
     }
 
+    /// A filter() element or a plain column over a Lookup, Count or Exist FlowField of a left-outer-joined dataitem one level
+    /// below the top dataitem's child: it is calculated per joined row, and a row without a match of the dataitem meets a filter
+    /// with the field's default (queries/flowfields-filters/QueryOuterFlowBelowJoin.al:695-812, al-runner issue 7401). Pinned
+    /// shape (QueryOuterFlowBelowJoin.al:99-281): three dataitems in one chain, top > child > grandchild, each linked to the one
+    /// above; the child joined with InnerJoin or LeftOuterJoin (also by default), the grandchild with LeftOuterJoin (also by
+    /// default); no Method column in the query, no ColumnFilter, no DataItemTableFilter, no right or full outer join; filter()
+    /// elements with InnerJoin, LeftOuterJoin and default joins (:99, :151, :203), plain columns with InnerJoin and
+    /// LeftOuterJoin on the child (:125, :177).
+    fn outer_flow_below_join_pinned(&self, c: &ir::QueryColumn, kind: Option<&str>) -> bool {
+        let [top, child, grand] = self.items.as_slice() else {
+            return false;
+        };
+        let chain = top.parent.is_none()
+            && child.parent == Some(0)
+            && grand.parent == Some(1)
+            && !top.left_outer
+            && grand.left_outer
+            && self.items.iter().all(|i| {
+                !i.right_outer && i.table_filter.is_empty() && i.link_items.is_empty() && i.table != usize::MAX
+            })
+            && child.link.len() == 1
+            && grand.link.len() == 1;
+        chain
+            && c.item == 2
+            && c.method.is_none()
+            && !c.reverse_sign
+            && matches!(kind, Some("lookup" | "count" | "exist"))
+            && self
+                .columns
+                .iter()
+                .all(|o| o.method.is_none() && o.static_filter.is_none() && !o.reverse_sign)
+    }
+
     /// Combinations whose result the corpus does not pin.
     fn validate(&mut self) {
         // Aggregates over a left outer join skip the missing side: sum 0 and count 0 for a parent
@@ -630,7 +664,8 @@ impl Builder<'_> {
         // ColumnFilter, a deeper dataitem or a right or full outer join in the query are not pinned.
         let any_right = self.items.iter().any(|i| i.right_outer);
         let grouped = self.columns.iter().any(|c| c.method.is_some());
-        for c in &self.columns {
+        let mut below_join = Vec::new();
+        for (ci, c) in self.columns.iter().enumerate() {
             let item = &self.items[c.item];
             let Some(field) = c.field else { continue };
             if item.left_outer && item.parent.is_some() && item.table != usize::MAX {
@@ -671,6 +706,10 @@ impl Builder<'_> {
                 // row; a parent without a child meets it with the field's default (QueryOuterFlowFilters.al
                 // OuterFilterElem_Count_Rows, OuterFilterElem_LookupExist_Rows; issue 6990). Other kinds are not pinned.
                 let filter_pinned = c.method.is_none() && matches!(kind, Some("count" | "lookup" | "exist"));
+                if f.class == FieldClass::FlowField && self.outer_flow_below_join_pinned(c, kind) {
+                    below_join.push(ci);
+                    continue;
+                }
                 let pinned = f.class == FieldClass::FlowField
                     && kind_pinned
                     && top_child
@@ -687,6 +726,9 @@ impl Builder<'_> {
                     self.reasons.push(r);
                 }
             }
+        }
+        for ci in below_join {
+            self.columns[ci].flow_below_join = true;
         }
         // A static filter or table filter on the optional side of an outer join acts after the join: a parent row
         // whose joined row is missing or fails the filter is gone, so the join is an inner join in effect

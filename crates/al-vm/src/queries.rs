@@ -724,6 +724,16 @@ impl Session {
     /// `ColumnCaption`: the `Caption` property, else the caption of the source field.
     fn column_caption(&self, def: &ir::Query, col: usize) -> Result<String, Signal> {
         let c = &def.columns[col];
+        // GetFilters names a filter on such a FlowField by another field's caption (`Name`, `Line No.` and `timestamp` for the
+        // Lookup, Count and Exist FlowFields of queries/flowfields-filters/QueryOuterFlowBelowJoin.al:648-685); which field is
+        // not known, so the caption is refused, with or without a Caption property.
+        if c.flow_below_join {
+            return unsupported(format!(
+                "the caption of query column {} over a FlowField of a dataitem below the top dataitem's child (BC prints \
+                 another field's caption; not pinned)",
+                c.name
+            ));
+        }
         if let Some(caption) = &c.caption {
             return Ok(caption.clone());
         }
@@ -1137,6 +1147,13 @@ impl Session {
                 let outer_child = item.left_outer && item.parent.is_some_and(|p| def.items[p].parent.is_none());
                 let below_outer = std::iter::successors(Some(c.item), |&i| def.items[i].parent)
                     .any(|i| def.items[i].left_outer && def.items[i].parent.is_some());
+                // One level deeper, in the shape the compile pinned (`ir::QueryColumn::flow_below_join`), a filter() element and a
+                // filter on the column both filter the joined rows by the value calculated per row, the default for a row without
+                // a match (queries/flowfields-filters/QueryOuterFlowBelowJoin.al:695-812, al-runner issue 7401).
+                if c.flow_below_join {
+                    plan.post.push((ci, expr));
+                    continue;
+                }
                 if c.filter_element && ((below_outer && !outer_child) || has_right) {
                     return unsupported(
                         "a filter() element over a FlowField of a joined data item, or in a query with a right or full outer join (not pinned)",
