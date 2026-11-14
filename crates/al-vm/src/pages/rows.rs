@@ -5,10 +5,10 @@ use al_builtins::record_op::RecordOp;
 const FIELD_ARGUMENT_WITH_HANDLER: &str = "Page.Run or Page.RunModal with a field argument and a handler for the page (what the handler sees and what the field takes is not pinned)";
 
 impl Session {
-    /// The expressions every row population evaluates, whatever the control's Visible
-    /// (corpus format-evaluate/autoformat/TestAutoFormatExpressionTiming.al:5-12): AutoFormatExpression and
-    /// CaptionClass. They run after OnOpenPage and before OnAfterGetRecord.
+    /// The expressions every row population evaluates, whatever the control's Visible (format-evaluate/autoformat/
+    /// TestAutoFormatExpressionTiming.al:5-12): AutoFormatExpression, CaptionClass; after OnOpenPage, before OnAfterGetRecord.
     pub(super) fn populate_expressions(&mut self, st: &St) -> Result<(), Signal> {
+        self.resolve_literal_field_classes_at_open(st)?;
         let engine = self.engine();
         let page = page_of(&engine, st);
         for (idx, c) in page.controls.iter().enumerate() {

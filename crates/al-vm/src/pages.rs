@@ -254,6 +254,7 @@ mod clear_test_page;
 mod close_save_failed;
 mod code_close_veto;
 mod modal_close_save_error;
+mod own_area_caption;
 mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
@@ -349,8 +350,8 @@ mod typed_handler_temp;
 mod walk_parts;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, OpenEditable, PageMode, PageState, ReadBackwards,
-    WindowRow, control_of, into_st, page_value, st_of, test_control,
+    ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind, OpenEditable, PageMode, PageState,
+    ReadBackwards, WindowRow, control_of, into_st, page_value, st_of, test_control,
 };
 
 impl Session {

@@ -711,7 +711,7 @@ impl Session {
             // A field read off what a procedure returns is the field of the returned copy (corpus record/
             // lt-record-conversion-assumptions/RecordResultField.al).
             AuxSite::FieldOf { pos } => self.read_record_field(v, *pos)?,
-            AuxSite::QueryColumn { column } => self.query_column(v, *column)?,
+            AuxSite::QueryColumn { column, global } => self.query_column(v, *column, global.map(|g| (f.object, g)))?,
             AuxSite::Fit { max, why } => match &v {
                 Value::Text(s) | Value::Code(s) if Value::text_len(s) > *max as usize => {
                     return Err(Signal::unsupported(why.clone()));

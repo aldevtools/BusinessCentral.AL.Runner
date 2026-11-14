@@ -194,12 +194,16 @@ pub struct PageState {
     /// The context of each field caption `read_literal_field_caption` resolved or reused: (control index, the session's caption
     /// context revision, the bound subscriptions, the length of the page tree's call log at that read).
     pub literal_field_caption_contexts: Vec<(usize, u64, Vec<usize>, usize)>,
+    /// Whether the open resolved the literal CaptionClass texts of the source table's fields (`own_area_caption.rs`):
+    /// set by the first row fill since the open, cleared by the next open.
+    pub literal_classes_at_open: LiteralClassesAtOpen,
     /// Why the caption in `control_captions` of a control is not known: (control index, refusal). `Caption()` refuses with it.
     /// Only read together with a `control_captions` entry of the same control, which an open clears.
     pub caption_refusals: Vec<(usize, String)>,
     /// The caption of each control over a table field whose CaptionClass is an expression, as the page filled it: (control
-    /// index, caption). `Caption()` reads it and runs nothing (record/captions/QdCaptionClassAreas.al:422-481).
-    pub field_captions: Vec<(usize, String)>,
+    /// index, caption, whether it is a subscriber's for an own area). `Caption()` reads it and runs nothing
+    /// (record/captions/QdCaptionClassAreas.al:422-481); a subscriber's only while `own_area_control_caption_pinned` holds.
+    pub field_captions: Vec<(usize, String, bool)>,
     /// The open ran the CaptionClass expressions of the source table's fields with an empty record (`field_captions`).
     pub field_captions_opened: bool,
     /// The open ran the empty-record CaptionClass runs without a pinned number, or in a cell of `Session::caption_state_free_pin`:
@@ -1061,7 +1065,15 @@ impl PageState {
         self.journal_stayed = false;
     }
 
-    /// The page opens: the field captions of its last run are gone.
+    /// The page opens: the captions its controls and fields resolved on the last run are gone.
+    pub(crate) fn forget_captions_at_open(&mut self) {
+        self.control_captions = Vec::new();
+        self.literal_field_caption_contexts.clear();
+        self.literal_classes_at_open = LiteralClassesAtOpen::Unchecked;
+        self.forget_field_captions();
+    }
+
+    /// The field captions of the last run are gone.
     pub(crate) fn forget_field_captions(&mut self) {
         self.field_captions = Vec::new();
         self.field_captions_opened = false;
@@ -1252,4 +1264,18 @@ mod tests {
         assert_eq!(s.triggers_run, 0);
         assert_eq!(s.areas, "");
     }
+}
+
+/// What the first row fill since the open did with the literal CaptionClass texts of the source table's fields
+/// (`Session::resolve_literal_field_classes_at_open`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum LiteralClassesAtOpen {
+    /// No row fill since the open yet.
+    #[default]
+    Unchecked,
+    /// The page is not the pinned shape: `Caption()` takes main's path (`read_literal_field_caption`).
+    Main,
+    /// The open resolved them in field order through the session's translations; `Caption()` reads those while the session's
+    /// caption context (`caption_context_revision`: language, bindings) is still this one.
+    Resolved { revision: u64 },
 }

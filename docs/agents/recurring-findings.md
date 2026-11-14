@@ -60,6 +60,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
     call handed over, has effects that the failed call's reply does not carry. Require the measured argument kinds.
   - a body-shape check that accepts any call statement or any condition: Rec and CurrPage methods and procedures of
     the page pass too. Require the kind of callee and the kind of condition the pin has.
+  - a pinned call on a variable checked by its current state only: the pin starts from a new or cleared variable. An
+    earlier run, a filter set and removed, a Close, or a copy of the variable leave the same current state. Keep "first
+    use since new or Clear" as a fact on the variable and require it (al-runner PR 8048; page records in al-runner PR 8009).
   - a body with branches (`case`, `if`) checked by its form only: the pin measured one branch. Require the branch that
     ran (a run-time fact), and the exact branches.
   - a static check over the lowered body (writes, reads, effects): lowering removes exactly the statements it could not
@@ -112,6 +115,9 @@ refusal on a shape main ran is a regression, often in Base App code that partner
 - Add Rust tests that out-of-scope shapes keep main's outcome. Compare with a main binary.
 - Keep a refusal only as wide as its reason. Check its order: look the fact up first, refuse only when it
   matters.
+- Work moved to the open (a resolve, a fill) carries every refusal of the function it calls to tests that never read the
+  value. Before the move, require in the gate every fact that function refuses on, and return to main's path when one fails
+  (al-runner PR 8052).
 
 ## 3. Text that does not match the code or CI (comments 13, pull request body or ADR 9)
 

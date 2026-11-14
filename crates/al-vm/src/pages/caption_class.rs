@@ -187,7 +187,9 @@ impl Session {
             return Ok((rest.to_string(), None));
         }
         let (area, expr) = text.split_once(',').unwrap_or(("", text));
-        // An empty area before the comma is not resolved either (P84Captions.al: c14 ',x', no event call).
+        // An empty area before the comma goes to the translation too, which raises OnResolveCaptionClass with the empty area
+        // (record/captions/CaptionClassOwnArea.al:377, :443, :490 `(|ccao# noarea|s)`; P84Captions.al c14 `,x` raises nothing
+        // only because the session translated it before).
         if text.contains(',') && (area.trim().parse::<u32>().is_ok() || area.is_empty()) {
             // A numeric area other than 3 (dimension, VAT, county, currency captions of Base Application) goes to the platform's
             // translation as FieldCaption does: Base Application's subscribers resolve it (record/captions/
@@ -215,6 +217,18 @@ impl Session {
         }
     }
 
+    /// Whether `caption_class_translate` of `text`, a text `format::raises_resolve` holds for, would refuse before it raises an
+    /// event: a subscriber of UI Helper Triggers' CaptionClassTranslate (`refuse_caption_class_translate`), or a translation of
+    /// `text` the session made under another language (`caption_class_translate_unrefused`). Its other refusal is for a numeric
+    /// area (`setup_caption_refusal`).
+    pub(super) fn caption_class_translate_refuses_now(&self, text: &str) -> bool {
+        self.refuse_caption_class_translate().is_err()
+            || self
+                .caption_translations
+                .iter()
+                .any(|(t, language, _)| t == text && *language != self.global_language)
+    }
+
     /// `caption_class_translate` with the refusal of `setup_caption_refusal` returned beside the caption.
     pub(crate) fn caption_class_translate_deferring(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
         self.refuse_caption_class_translate()?;
@@ -233,9 +247,6 @@ impl Session {
         };
         if area == "3" && !after {
             return Ok((expr.to_string(), None));
-        }
-        if area.is_empty() && after {
-            return self.raise_unclaimed_after_resolve(text);
         }
         // An area 3 text is kept per language: a language that has not translated it yet raises the event again
         // (Y71CaptionClassEvents.al CaptionClass_LanguageChangedBetweenOpens: `lang_1036_second|log`, `lang_1031_third|log` empty).
@@ -275,12 +286,12 @@ impl Session {
         Ok((caption, why))
     }
 
-    /// A table field's CaptionClass with no comma, or with an empty area, while a subscriber listens to OnAfterCaptionClassResolve:
-    /// the first read raises the event once with the expression as both the expression and the caption, and the caption is
-    /// what the subscribers leave (corpus record/captions/WcExtFieldAfterResolve.al WcExtField_NoComma_FieldCaption `WCNOCOMMA`,
-    /// WcExtField_EmptyArea_FieldCaption `,WC empty area`; BC 27.5, 28.5, 29.0). OnResolveCaptionClass is not raised for an
-    /// empty area (pages/triggers/P84Captions.al c14 `,x`); for no comma the probe cannot tell (its OnResolve subscribers
-    /// claim only their own areas), so none is raised there either.
+    /// A table field's CaptionClass with no comma while a subscriber listens to OnAfterCaptionClassResolve: the first read raises
+    /// the event once with the expression as both the expression and the caption, and the caption is what the subscribers leave
+    /// (corpus record/captions/WcExtFieldAfterResolve.al WcExtField_NoComma_FieldCaption `WCNOCOMMA`; BC 27.5, 28.5, 29.0).
+    /// OnResolveCaptionClass is not raised for it (record/captions/CaptionClassOwnArea.al:374 `CCAOCA` ev=none, with the static
+    /// OnAfterCaptionClassResolve subscriber of WcExtFieldAfterResolve.al in the same run). An empty area raises both events
+    /// (`caption_class_translate_unrefused`).
     fn raise_unclaimed_after_resolve(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
         if text.is_empty() {
             // The empty text comes back unchanged (types/PSCaptionClass.al:5-8); that it raises no event is an assumption
@@ -398,14 +409,25 @@ impl Session {
 
     /// The caption a page control over field `field` shows for the text `class` its CaptionClass expression gave: an empty
     /// text and `3,` read as the empty text (QdCaptionClassAreas.al Page_ControlCaptions `exprEmpty`, `expr3`), the rest as on a
-    /// table read (`recmeta::ExprCaption`).
-    pub(super) fn control_expression_caption(&mut self, field: &str, class: &str) -> Result<String, Signal> {
+    /// table read (`recmeta::ExprCaption`). The flag: the caption is a subscriber's for an own area, shown only on the pages
+    /// `own_area_control_caption_pinned` names, and `Caption()` reads it only while that still holds.
+    pub(super) fn control_expression_caption(
+        &mut self,
+        st: &St,
+        field: &str,
+        class: &str,
+    ) -> Result<(String, bool), Signal> {
         use crate::recmeta::ExprCaption;
         match crate::recmeta::expression_class(class) {
-            ExprCaption::FieldCaption => Ok(String::new()),
-            ExprCaption::Text(c) => self.expression_text_caption(class, c),
-            ExprCaption::Translate => self.caption_class_translate(class),
-            ExprCaption::Plain => self.expression_plain_caption(field, class),
+            ExprCaption::FieldCaption => Ok((String::new(), false)),
+            ExprCaption::Text(c) => Ok((self.expression_text_caption(class, c)?, false)),
+            ExprCaption::Translate => Ok((self.caption_class_translate(class)?, false)),
+            ExprCaption::Plain => {
+                let caption =
+                    self.expression_plain_caption(field, class, |this| this.own_area_control_caption_pinned(st))?;
+                let own_area = caption != class;
+                Ok((caption, own_area))
+            }
         }
     }
 
@@ -418,14 +440,22 @@ impl Session {
     /// (types/PSCaptionClass.al:5-8), or OnAfterCaptionClassResolve once per session while a subscriber listens
     /// (record/captions/WcExtFieldAfterResolve.al WcExtField_NoComma_FieldCaption; the corpus run that pins the captions above
     /// has that static subscriber, WcExtFieldAfterResolve.al:248); an area that is not a number raises OnResolveCaptionClass
-    /// (record/captions/R6985FieldCaptionArea.al:88-151, with the static subscriber at :61). That an expression result raises
-    /// them as a literal does only a subscriber's log can tell (docs/probes-needed.md). A caption a subscriber changed is not
-    /// pinned for an expression (al-runner issue 7431): refused.
-    pub(crate) fn expression_plain_caption(&mut self, field: &str, class: &str) -> Result<String, Signal> {
+    /// once per session and text (record/captions/R6985FieldCaptionArea.al:88-151, with the static subscriber at :61).
+    /// For a text with an area before a comma, the caption the translation gives (a subscriber's) is the caption when
+    /// `pinned_reader` holds: a table read (record/captions/CaptionClassOwnArea.al:359-422 FieldCaption and FieldRef.Caption of 14
+    /// text forms, :518-541 al-runner issue 7431's StrSubstNo over a label) or a control of the pages
+    /// `own_area_control_caption_pinned` names: the expression's text is translated as the literal (the same events, :359-516).
+    /// Elsewhere, and for a text with no comma that a subscriber changed, it is refused.
+    pub(crate) fn expression_plain_caption(
+        &mut self,
+        field: &str,
+        class: &str,
+        pinned_reader: impl FnOnce(&mut Self) -> Result<bool, Signal>,
+    ) -> Result<String, Signal> {
         let caption = self.caption_class_translate(class)?;
-        if caption != class {
+        if caption != class && !(class.contains(',') && pinned_reader(self)?) {
             return unsupported(format!(
-                "the caption of field {field} whose CaptionClass expression gives `{class}`, a text with no comma or with an area that is not a number, which a subscriber resolves (not pinned for an expression, al-runner issue 7431)"
+                "the caption of field {field} whose CaptionClass expression gives `{class}`, a text with no comma or with an area that is not a number, which a subscriber resolves (not pinned for an expression on this page, al-runner issue 7431)"
             ));
         }
         Ok(caption)
