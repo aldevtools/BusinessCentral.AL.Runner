@@ -82,10 +82,22 @@ impl Session {
         f: &mut Frame,
     ) -> Result<Value, Signal> {
         self.ret_used = ret_used;
+        // The global a query method is called on, for `query_reopen`; cleared once the native returns.
+        let query_call = matches!(recv, Some(Value::Query(_)));
+        if query_call {
+            self.query_receiver = match receiver {
+                Some(ir::Arg::Ref(ir::Place::Global(g))) => Some((f.object, *g)),
+                _ => None,
+            };
+        }
         // A background task this call enqueued runs once the call wrote its arguments back; one that a call further out
         // enqueued waits for that call.
         let drain_pending = self.pages.bg_drain_after_call.is_some();
-        let ret = native(self, recv.as_mut(), &mut values)?;
+        let ret = native(self, recv.as_mut(), &mut values);
+        if query_call {
+            self.query_receiver = None;
+        }
+        let ret = ret?;
         // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
         al_builtins::text::check_unaudited()?;
         if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
