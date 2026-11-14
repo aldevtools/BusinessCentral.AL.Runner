@@ -568,6 +568,7 @@ impl Session {
         // The globals of the single instances may hold records the earlier session marked as Blob sources.
         if !moved.singletons.is_empty() {
             self.blob_sources.records_marked();
+            self.blob_sources.table_copy_made();
         }
         self.singles_unclaimed.extend(moved.singletons.keys().copied());
         self.singletons.extend(moved.singletons);

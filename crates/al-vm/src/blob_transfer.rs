@@ -212,21 +212,37 @@ pub(crate) fn new_variable(v: &Value, commits: u64, sources: &mut Sources) {
 
 /// Whether a record of the session may be a measured source: the session marked a record [`FRESH`] ([`new_variable`]) or
 /// took over the single instances of an earlier session (`Session::adopt_single_instances`), whose globals may hold such
-/// records. Every other non-zero `RecordState::probed_source` comes from one of these (a clone gives 0), so while this is
-/// `false` no record of the session is a measured source and [`records_into_builtin`] has nothing to end. It is never reset.
+/// records. Every other non-zero `RecordState::probed_source` comes from one of these (a clone gives 0), so while `records`
+/// is `false` no record of the session is a measured source and [`records_into_builtin`] has nothing to end. `table_copies`
+/// says the same of a [`TABLE_COPY`] record: only `Session::gettable_copy` stamps one, and adopted single instances may
+/// hold one. Neither is ever reset.
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct Sources(bool);
+pub(crate) struct Sources {
+    records: bool,
+    table_copies: bool,
+}
 
 impl Sources {
     /// Whether any record of the session may be a measured source.
     #[inline]
     pub(crate) fn any(self) -> bool {
-        self.0
+        self.records
     }
 
     /// A record of the session may be a measured source from now on.
     pub(crate) fn records_marked(&mut self) {
-        self.0 = true;
+        self.records = true;
+    }
+
+    /// Whether a RecordRef of the session may work on a [`TABLE_COPY`] record.
+    #[inline]
+    fn table_copies(self) -> bool {
+        self.table_copies
+    }
+
+    /// A RecordRef of the session may work on a [`TABLE_COPY`] record from now on.
+    pub(crate) fn table_copy_made(&mut self) {
+        self.table_copies = true;
     }
 }
 
@@ -264,7 +280,7 @@ fn builtin_keeps_probed(id: BuiltinId) -> bool {
 /// `ShareFindCalc`, `ShareFieldValue`, `ShareModify`, `ShareInsert`, `ShareSetRange`, `ShareReset`): `RecordRef.Field(No)`,
 /// `FindFirst()`, `Modify()`, `Insert()`, `Reset()`, `FieldRef.CalcField()`, `FieldRef.SetRange` with one value,
 /// `FieldRef.Value :=` (one operand), and SetTable(Rec, true) itself, which moves the Blobs ([`BlobMove::SetTableShared`]).
-/// The record methods these reach are [`after`]'s.
+/// Every SetTable ends the mark after it ran ([`recordref_set_table_ran`]). The record methods these reach are [`after`]'s.
 fn recordref_keeps_table_copy(id: BuiltinId, operands: &[Value]) -> bool {
     matches!(
         (id, operands.len()),
@@ -285,10 +301,15 @@ fn recordref_keeps_table_copy(id: BuiltinId, operands: &[Value]) -> bool {
 
 /// The [`TABLE_COPY`] record of RecordRef, FieldRef or KeyRef value `v` is a measured source no longer.
 fn end_table_copy(v: &Value) {
-    if let Some(rc) = ref_record(v)
-        && rc.borrow().probed_source.0 == TABLE_COPY
-    {
-        rc.borrow_mut().probed_source.0 = 0;
+    if let Some(rc) = ref_record(v) {
+        end_record_table_copy(&rc);
+    }
+}
+
+/// Record `r`, if it is a [`TABLE_COPY`] record, is a measured source no longer.
+fn end_record_table_copy(r: &Rc<RefCell<RecordState>>) {
+    if r.borrow().probed_source.0 == TABLE_COPY {
+        r.borrow_mut().probed_source.0 = 0;
     }
 }
 
@@ -313,12 +334,18 @@ fn ref_record(v: &Value) -> Option<Rc<RefCell<RecordState>>> {
 /// builtin. A Record receiver is the record of a record method, which reaches `Session::record_op` and is [`after`]'s. The
 /// [`TABLE_COPY`] record of a RecordRef, FieldRef or KeyRef receiver or operand ends too, unless the receiver's call is one
 /// [`recordref_keeps_table_copy`] names. `sources` is the session's [`Sources`]: without any measured source there is
-/// nothing to end.
+/// nothing to end, and without a [`TABLE_COPY`] record no RecordRef, FieldRef or KeyRef needs a look.
 #[inline]
 pub(crate) fn records_into_builtin(sources: Sources, id: BuiltinId, recv: Option<&Value>, operands: &[Value]) {
-    if !sources.any() {
-        return;
+    if sources.any() {
+        end_sources_into_builtin(sources, id, recv, operands);
     }
+}
+
+/// [`records_into_builtin`] once a record of the session may be a measured source; kept out of line so that the builtin
+/// call sites stay as small as they are without the Blob rule.
+#[inline(never)]
+fn end_sources_into_builtin(sources: Sources, id: BuiltinId, recv: Option<&Value>, operands: &[Value]) {
     let own = recv.filter(|v| !matches!(v, Value::Record(_)));
     for v in own.into_iter().chain(operands) {
         if let Value::Record(rc) = v
@@ -327,6 +354,9 @@ pub(crate) fn records_into_builtin(sources: Sources, id: BuiltinId, recv: Option
         {
             rc.borrow_mut().probed_source.0 = 0;
         }
+    }
+    if !sources.table_copies() {
+        return;
     }
     if let (Some(r), false) = (recv, recordref_keeps_table_copy(id, operands)) {
         end_table_copy(r);
@@ -427,9 +457,14 @@ pub(crate) fn validated_through_fieldref(r: &mut RecordState) {
 /// A second RecordRef handle on record `r` was made through a Variant or a parameter: a [`TABLE_COPY`] record is a measured
 /// source no longer (a RecordRef assignment keeps it, PR 1387 :2446 `ShareAssigned`).
 pub(crate) fn recordref_aliased(r: &Rc<RefCell<RecordState>>) {
-    if r.borrow().probed_source.0 == TABLE_COPY {
-        r.borrow_mut().probed_source.0 = 0;
-    }
+    end_record_table_copy(r);
+}
+
+/// `RecordRef.SetTable` ran on the RecordRef of record `r`, after any move of its Blobs: a [`TABLE_COPY`] record is a
+/// measured source no longer. PR 1387 (streams/BlobCopyNeighbors.al:2446) measured SetTable(Rec, true) with no SetTable on
+/// the RecordRef since GetTable; an earlier SetTable(Rec, false) or SetTable(Rec, true) shares as before (not measured).
+pub(crate) fn recordref_set_table_ran(r: &Rc<RefCell<RecordState>>) {
+    end_record_table_copy(r);
 }
 
 /// What an argument of a procedure call is for the Blob rule, read before the call binds it to its parameter.
@@ -969,7 +1004,7 @@ impl Session {
     /// The record a RecordRef holds after `RecordRef.GetTable(src)`. From a Record (`from_record`) its Blobs are moved as
     /// [`moved`] says; from a RecordRef a Variant holds, the copy is as before.
     pub(crate) fn gettable_copy(
-        &self,
+        &mut self,
         src: &Rc<RefCell<RecordState>>,
         from_record: bool,
     ) -> Result<RecordState, Signal> {
@@ -986,6 +1021,7 @@ impl Session {
         // streams/BlobCopyNeighbors.al:2446).
         if from_record && measured {
             copy.probed_source = ProbedSource(TABLE_COPY, self.commits);
+            self.blob_sources.table_copy_made();
         }
         if from_record {
             self.move_blobs(copy.table as usize, &mut copy.fields, None, BlobMove::GetTable, holder)?;

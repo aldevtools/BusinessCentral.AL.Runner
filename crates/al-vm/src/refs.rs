@@ -1346,8 +1346,15 @@ impl Session {
         }
     }
 
-    /// `RecordRef.SetTable(Rec [, ShareTable])` and `RecordRef.SetTable(Variant)`.
+    /// `RecordRef.SetTable(Rec [, ShareTable])` and `RecordRef.SetTable(Variant)`; after it, whatever it gave, the record of the
+    /// RecordRef is a GetTable copy no longer (`blob_transfer::recordref_set_table_ran`).
     fn rr_set_table(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
+        let done = self.rr_set_table_into(rec, lib, args);
+        crate::blob_transfer::recordref_set_table_ran(rec);
+        done
+    }
+
+    fn rr_set_table_into(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
         // A Variant argument (types/WcSetTableVariant.al): an empty Variant and a RecordRef in it.
         if args.len() == 1 {
             match args.first() {

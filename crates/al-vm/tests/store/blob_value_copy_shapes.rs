@@ -1319,6 +1319,7 @@ codeunit 50444 C
     var
         Src: Record "BS Row" temporary;
         Dst: Record "BS Row" temporary;
+        Mid: Record "BS Row" temporary;
         RR: RecordRef;
         RR2: RecordRef;
         FR: FieldRef;
@@ -1355,6 +1356,10 @@ codeunit 50444 C
                     RR2.Open(Database::"BS Row", true);
                     RR2.Copy(RR);
                 end;
+            10:
+                RR.SetTable(Mid, false);
+            11:
+                RR.SetTable(Mid, true);
         end;
         RR.SetTable(Dst, true);
         W(Dst, 'zz');
@@ -1399,6 +1404,16 @@ codeunit 50444 C
     procedure NeighborRrCopiedFrom(): Text
     begin
         exit(RrCallThenShare(9));
+    end;
+
+    procedure NeighborRrSetTableFalseFirst(): Text
+    begin
+        exit(RrCallThenShare(10));
+    end;
+
+    procedure NeighborRrSetTableTrueFirst(): Text
+    begin
+        exit(RrCallThenShare(11));
     end;
 
     procedure RrFieldSetRange(): Text
@@ -1684,6 +1699,10 @@ fn a_recordref_call_not_measured_before_settable_sharetable_shares_as_before() {
         "NeighborRrFieldRead",
         "NeighborRrFieldSetFilter",
         "NeighborRrCopiedFrom",
+        // An earlier SetTable(Rec, false) or SetTable(Rec, true) on the RecordRef (probe r3probe RR3_SetTableFalseFirst,
+        // RR3_SetTableTrueFirst: the runner before shared too).
+        "NeighborRrSetTableFalseFirst",
+        "NeighborRrSetTableTrueFirst",
     ] {
         assert_eq!(run(routine).0, "hv:zzpha", "{routine}");
     }
