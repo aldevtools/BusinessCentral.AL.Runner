@@ -170,7 +170,7 @@ impl Session {
                 // filter on the field as it was (testpage/filters/TempListOffPageBooleanFilter.al:343-348, :447; corpus PR 1392
                 // WorksheetEnumEqFilter.al:565). Where the page stands right after it is not measured (each measured case moves with
                 // First() next); the page reads its view again, as after the empty text.
-                if self.eq_text_sets_no_filter(st, &rec, pos, &ty, &text) {
+                if self.eq_text_sets_no_filter(st, &rec, pos, &ty, &text)? {
                     self.filter_changed(st, true)?;
                     return Ok(Value::Null);
                 }

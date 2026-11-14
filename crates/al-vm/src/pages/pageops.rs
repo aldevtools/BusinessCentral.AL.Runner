@@ -221,13 +221,8 @@ impl Session {
                 // :916 Shape_ReturnNotUsed_WalkOnly, :949 Shape_ReturnInIf_WalkOnly, :1100-1126 Shape_RunModalZero_*).
                 // Without a record the same: a statement leaves a card without its Cancel action
                 // (ui-handlers/P132TwoModalHandlers.al:466 PW_ProbeB_Statement, :508 PW_ProbeB_InIf).
-                st.borrow_mut().static_run(
-                    method == PageOp::PageRunModalStatic,
-                    used,
-                    record.is_some(),
-                    field,
-                    n == 0,
-                );
+                let modal = method == PageOp::PageRunModalStatic;
+                st.borrow_mut().static_run(modal, used, record.is_some(), field, n == 0);
                 // A record of another table than the page's is refused before anything opens, and so is a field number the table
                 // lacks (a negative one or 0 goes on; pages/parts/P106RunErrors.al: Err_WrongTableRecord,
                 // Err_FieldNoNotExisting).

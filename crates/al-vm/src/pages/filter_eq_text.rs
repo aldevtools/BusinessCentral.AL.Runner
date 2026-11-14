@@ -1,8 +1,8 @@
 //! A `TestPage.Filter.SetFilter` text that starts with `=` (`'=1'`, `'=Yes'`, `'=Quote'`): Business Central sets no filter. The
 //! filter reads back as it was (empty, or the test's earlier filter on the field) and the rows stay, whether the field has a control
-//! on the page or not, on a temporary and on a database source table (corpus testpage/filters/TempListOffPageBooleanFilter.al;
-//! al-runner issue 6924). Only the measured shapes take this path (`eq_text_sets_no_filter`); every other text and page keeps the
-//! filter `filter.rs` parses.
+//! on the page or not (corpus testpage/filters/TempListOffPageBooleanFilter.al; al-runner issue 6924). Only the measured shapes take
+//! this path (`eq_text_sets_no_filter`); such a shape on a database source the corpus did not measure refuses, and every other text
+//! and page keeps the filter `filter.rs` parses.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -32,42 +32,88 @@ impl Session {
     /// - the page holds no test filter (filter group 0) on the field yet, or the page is the temporary Worksheet with an Enum
     ///   (WorksheetEnumEqFilter.al:554-566: `Order`, then `=Quote` keeps `Order`; the only shape measured with one).
     ///
-    /// The shapes TempListOffPageBooleanFilter.al pins (a List, a Boolean word or the Option's first member, no earlier filter)
-    /// run clean; the others run under the assumption `testpage-filter-eq-text-dropped` (corpus PR 1392).
-    pub(super) fn eq_text_sets_no_filter(&self, st: &St, rec: &Rec, pos: usize, ty: &RtType, text: &str) -> bool {
+    /// The source table decides what was measured for such a shape:
+    /// - a temporary source: every shape above (the List at TempListOffPageBooleanFilter.al:335-373, :440 and
+    ///   WorksheetEnumEqFilter.al:575-614; the Worksheet at :398-476);
+    /// - a database List: only a Boolean word (TempListOffPageBooleanFilter.al:508-521, :534-547). Any other such shape refuses;
+    /// - a database Worksheet: member names and Boolean words (WorksheetEnumEqFilter.al:620-642). An ordinal refuses (measured
+    ///   only on the temporary sources, :409-410, :452, :607).
+    ///
+    /// The shapes TempListOffPageBooleanFilter.al pins (a List, a Boolean word, or the Option's first member on the temporary
+    /// List; no earlier filter) run clean; the others run under the assumption `testpage-filter-eq-text-dropped` (corpus PR 1392).
+    pub(super) fn eq_text_sets_no_filter(
+        &self,
+        st: &St,
+        rec: &Rec,
+        pos: usize,
+        ty: &RtType,
+        text: &str,
+    ) -> Result<bool, Signal> {
         let Some(rest) = text.strip_prefix('=') else {
-            return false;
+            return Ok(false);
         };
+        let list = self.is_list_page(st);
         let worksheet =
             self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
-        if !(st.borrow().test_open_view() && (self.is_list_page(st) || worksheet)) {
-            return false;
+        if !(st.borrow().test_open_view() && (list || worksheet)) {
+            return Ok(false);
+        }
+        let Some(value) = self.eq_value(ty, rest) else {
+            return Ok(false);
+        };
+        let temporary = rec.borrow().temporary;
+        let unfiltered = rec.borrow().filters.iter().all(|f| !(f.field == pos && f.group == 0));
+        let temp_worksheet_enum = worksheet && temporary && matches!(ty, RtType::Enum(_));
+        if !(unfiltered || temp_worksheet_enum) {
+            return Ok(false);
+        }
+        let boolean_word = matches!(ty, RtType::Boolean);
+        let measured = temporary || (list && boolean_word) || (worksheet && value == EqValue::Name);
+        if !measured {
+            return Err(Signal::unsupported(format!(
+                "TestPage.Filter.SetFilter: the text '{text}' on a {} page over a database table (Business Central drops a text \
+                 that starts with '=' there only for {}; al-runner issue 6924)",
+                if list { "List" } else { "Worksheet" },
+                if list {
+                    "a Boolean word"
+                } else {
+                    "a member name or a Boolean word"
+                },
+            )));
         }
         let first_member = matches!(ty, RtType::Option(m) if m.first().is_some_and(|m| m.as_str() == rest));
-        let value_measured = match ty {
-            RtType::Boolean => BOOLEAN_WORDS.contains(&rest),
-            RtType::Option(members) => {
-                members.iter().any(|m| !m.is_empty() && m.as_str() == rest) || OPTION_ORDINALS.contains(&rest)
-            }
-            RtType::Enum(id) => {
-                let members = &self.engine.program.objects[*id as usize].enum_values;
-                members.iter().any(|(_, n)| n.as_str() == rest)
-                    || (ENUM_ORDINALS.contains(&rest) && members.iter().any(|(o, _)| o.to_string() == rest))
-            }
-            _ => false,
-        };
-        if !value_measured {
-            return false;
-        }
-        let unfiltered = rec.borrow().filters.iter().all(|f| !(f.field == pos && f.group == 0));
-        let temp_worksheet_enum = worksheet && rec.borrow().temporary && matches!(ty, RtType::Enum(_));
-        if !(unfiltered || temp_worksheet_enum) {
-            return false;
-        }
-        let pinned = self.is_list_page(st) && unfiltered && (matches!(ty, RtType::Boolean) || first_member);
+        let pinned = list && unfiltered && (boolean_word || (temporary && first_member));
         if !pinned {
             assume(Assumption::TestpageFilterEqTextDropped);
         }
-        true
+        Ok(true)
     }
+
+    /// The kind of the text after the `=` when it is one the corpus measured on field type `ty`: a Boolean word or a member's
+    /// name (`Name`), or an Enum or Option ordinal (`Ordinal`).
+    fn eq_value(&self, ty: &RtType, rest: &str) -> Option<EqValue> {
+        match ty {
+            RtType::Boolean => BOOLEAN_WORDS.contains(&rest).then_some(EqValue::Name),
+            RtType::Option(members) if members.iter().any(|m| !m.is_empty() && m.as_str() == rest) => {
+                Some(EqValue::Name)
+            }
+            RtType::Option(_) => OPTION_ORDINALS.contains(&rest).then_some(EqValue::Ordinal),
+            RtType::Enum(id) => {
+                let members = &self.engine.program.objects[*id as usize].enum_values;
+                if members.iter().any(|(_, n)| n.as_str() == rest) {
+                    Some(EqValue::Name)
+                } else {
+                    (ENUM_ORDINALS.contains(&rest) && members.iter().any(|(o, _)| o.to_string() == rest))
+                        .then_some(EqValue::Ordinal)
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EqValue {
+    Name,
+    Ordinal,
 }
