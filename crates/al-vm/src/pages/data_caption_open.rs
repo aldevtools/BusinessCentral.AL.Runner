@@ -79,6 +79,14 @@ const CELLS: [(Shape, bool, i32, bool, Runs); 10] = [
     (Shape::CardDelayedInsert, false, 1, true, Runs::CardOnce),
 ];
 
+/// The start of a refusal of a page of the cells' neighborhood in no cell (`data_caption_open_neighbor`).
+const UNMEASURED_OPEN: &str =
+    "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the measured cells";
+
+/// The end of that refusal: what the corpus measured.
+const MEASURED_SHAPE: &str = "the expression runs at the open only in the shape DataCaptionExprWorksheet.al of corpus PR \
+                              1392 measured; al-runner issue 6924";
+
 /// Why a page is not in a measured cell: the fact of the cell it misses.
 type Miss = &'static str;
 
@@ -157,6 +165,7 @@ impl Session {
         };
         let runs = match cell {
             Ok(runs) => runs,
+            Err(_) if self.data_caption_read_pinned(st, bind) => return Ok(()),
             Err(miss) if self.data_caption_open_neighbor(st, bind) => {
                 return match self.data_caption_expression_effect(st) {
                     None => {
@@ -164,10 +173,8 @@ impl Session {
                         Ok(())
                     }
                     Some(effect) => Err(Signal::unsupported(format!(
-                        "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the \
-                         measured cells: {miss}; the expression {effect}, so its runs at the open can be seen later (the \
-                         expression runs at the open only in the shape DataCaptionExprWorksheet.al of corpus PR 1392 measured; \
-                         al-runner issue 6924)"
+                        "{UNMEASURED_OPEN}: {miss}; the expression {effect}, so its runs at the open can be seen later \
+                         ({MEASURED_SHAPE})"
                     ))),
                 };
             }
@@ -232,9 +239,8 @@ impl Session {
             return Ok(());
         }
         unsupported(format!(
-            "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the measured cells: \
-             {miss}; the test read {read}, which can differ where the expression ran at the open (measured only in the shape \
-             DataCaptionExprWorksheet.al of corpus PR 1392 measured; al-runner issue 6924)"
+            "{UNMEASURED_OPEN}: {miss}; the test read {read}, which can differ where the expression ran at the open \
+             ({MEASURED_SHAPE})"
         ))
     }
 
@@ -361,6 +367,15 @@ impl Session {
                     .any(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
         };
         run && worksheet && self.has_source(st)
+    }
+
+    /// Whether the open of page `st` is the one pages/properties/Y50ListCaptionExpr.al pins main's caption for: a page
+    /// variable's `RunModal()` with no other call of AL code on the page (no SetRecord, no SetTableView: :381-382 calls only a
+    /// procedure of the page first) and a ModalPageHandler (:458-465), where the caption is the expression evaluated at each
+    /// read (:383-385). Main's path answers it.
+    fn data_caption_read_pinned(&self, st: &St, bind: Option<UiKind>) -> bool {
+        let s = st.borrow();
+        bind == Some(UiKind::ModalPage) && s.code_calls.as_slice() == [PageMethod::RunModal]
     }
 
     /// Whether the page is editable after OnOpenPage, when OnInit and OnOpenPage left what the probe's left: Rec with the handed

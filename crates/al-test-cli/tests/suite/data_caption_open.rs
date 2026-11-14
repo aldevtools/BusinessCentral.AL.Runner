@@ -576,6 +576,14 @@ codeunit 69975 T
     [Test] [HandlerFunctions('FxClose')] procedure L15_Fx_Static_Close()
     var Row: Record "DL Row";
     begin Seed(2, Row); Page.Run(Page::"DL Ws Fx", Row); end;
+    // A page variable's RunModal() with no SetRecord or SetTableView: main's caption is pinned there (Y50ListCaptionExpr.al:376-386).
+    [Test] [HandlerFunctions('PureCaptionModal')] procedure L16_VarModal_NoRecord_Caption()
+    var Row: Record "DL Row"; Pg: Page "DL Ws Pure";
+    begin Seed(2, Row); Pg.RunModal(); if Seen <> 'DL WSP - Cap I1' then Error('%1', Seen); end;
+    [Test] [HandlerFunctions('PureCaptionModal')] procedure L17_VarModal_SetTableView_Caption()
+    var Row: Record "DL Row"; Pg: Page "DL Ws Pure";
+    begin Seed(2, Row); Pg.SetTableView(Row); Pg.RunModal(); end;
+    [ModalPageHandler] procedure PureCaptionModal(var P: TestPage "DL Ws Pure") begin Seen := P.Caption(); end;
     [PageHandler] procedure FieldClose(var P: TestPage "DL Ws Field") begin Seen := 'closed'; P.Close(); end;
     [PageHandler] procedure FieldCaption(var P: TestPage "DL Ws Field") begin Seen := P.Caption(); end;
     [PageHandler] procedure PureItem(var P: TestPage "DL Ws Pure") begin P.First(); Seen := 'item=' + P.ItemNoCtl.Value; end;
@@ -602,6 +610,7 @@ fn an_unmeasured_worksheet_open_refuses_at_the_read_it_changes() {
         "L08_Var_Close",
         "L10_FieldNo_Close",
         "L12_Trap_RecControl",
+        "L16_VarModal_NoRecord_Caption",
     ] {
         assert_eq!(get(t), "Some(Pass)", "{t}");
     }
@@ -611,6 +620,7 @@ fn an_unmeasured_worksheet_open_refuses_at_the_read_it_changes() {
         ("L06_Var_Caption", "the caption"),
         ("L09_FieldNo_Caption", "the caption"),
         ("L11_Trap_Caption", "the caption"),
+        ("L17_VarModal_SetTableView_Caption", "the caption"),
     ] {
         let o = get(t);
         assert!(
