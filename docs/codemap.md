@@ -115,6 +115,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `pagebuiltins.rs` (123): `TestPage`, `TestPart`, `TestField`, `TestAction` and `TestFilter` methods (ADR-012).
 - `pagefmt.rs` (683): The text a page control shows for a value (ADR-012), en-US. Entry: `Blank` 11, `ControlFormat` 37, `parse_decimal_places` 50, `parse_precision` 62.
 - `platform.rs` (259): The registry of platform tables that have a native row provider (ADR-013 decision 7, ADR-019). Entry: `Provider` 14, `Virtual` 23, `provider` 157, `virtual_table` 162.
+- `query_reopen_step.rs` (~55): `ReopenStep`, the step a query variable reached in the pinned second-Open sequence (al-vm `query_reopen` moves it; `Clear` refuses after the second Open).
 - `querybuiltins.rs` (31): `Query` variable methods.
 - `refs.rs` (259): `RecordRef`, `FieldRef` and `KeyRef` methods.
 - `sessionfns.rs` (66): Builtins that act on session state.
@@ -532,9 +533,9 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `platform/permissions.rs` (572): The permission set tables.
 - `platform/ranges.rs` (164): Filters on one integer-like field as a sorted set of closed intervals, for the generated tables (Integer, Date), whose r. Entry: `Iv` 8, `Set` 11, `intersect` 26, `of_expr` 60.
 - `platform/seed.rs` (73): The rows a tenant holds before any AL runs, for the stored platform tables whose rows AL reads as facts about the sessio.
-- `queries.rs` (881): Query objects: Open, Read, column values, SaveAs. Entry: `query_op` 107, `query_column` 350.
+- `queries.rs` (1765): Query objects: Open, Read, column values, SaveAs. Entry: `query_op` 157, `query_open_started`, `query_column` 680.
 - `query_save_as.rs`: the bytes Query.SaveAsXml (a .NET DataSet) and SaveAsJson write. Entry: `render`.
-- `query_reopen.rs`: the pinned second Query.Open while rows are left (al-runner issue 7827) and the calls it lets through after it. Entry: `query_reopen_rows_left_pinned`, `query_reopen_gate`.
+- `query_reopen.rs`: the pinned second Query.Open while rows are left (al-runner issue 7827): every call on a query variable moves its `ReopenStep` (al-builtins `query_reopen_step.rs`) along the pinned call sequence; after the second Open only the pinned end runs. Entry: `query_reopen_step`.
 - `recmeta.rs` (734): Record builtins that read table metadata or guard on session state. Entry: `string_literal` 29, `mentions_table` 49, `is_blank` 60.
 - `records.rs` (2694): Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry: `record_op` 733, `table_event` 205, `run_trigger` 499, `delete_row` 297, `scan` 545, `unique_violation` 346.
 - `get_key_value.rs` (~240): The primary key a `Record.Get` looks for (each given value converted to its key field's type; an omitted key field is its InitValue for an Integer, else the blank of a pinned type, other shapes refuse) and the key values its not-found error names. Used by the Get arm of `records/op_inner.rs` and by `permissions.rs`. Entry: `get_key`, `get_not_found_ident`, `get_key_value`.

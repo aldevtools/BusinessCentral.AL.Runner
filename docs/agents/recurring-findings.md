@@ -58,6 +58,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
     call handed over, has effects that the failed call's reply does not carry. Require the measured argument kinds.
   - a body-shape check that accepts any call statement or any condition: Rec and CurrPage methods and procedures of
     the page pass too. Require the kind of callee and the kind of condition the pin has.
+  - a pinned call on a variable checked by its current state only: the pin starts from a new or cleared variable. An
+    earlier run, a filter set and removed, a Close, or a copy of the variable leave the same current state. Keep "first
+    use since new or Clear" as a fact on the variable and require it (al-runner PR 8048; page records in al-runner PR 8009).
   - a body with branches (`case`, `if`) checked by its form only: the pin measured one branch. Require the branch that
     ran (a run-time fact), and the exact branches.
   - a static check over the lowered body (writes, reads, effects): lowering removes exactly the statements it could not

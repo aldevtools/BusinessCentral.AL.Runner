@@ -8,6 +8,7 @@
 //! `Signal::Unsupported`; the open questions are in docs/probes-needed.md.
 
 use crate::Session;
+use crate::query_reopen::ReopenCall;
 use al_builtins::collation;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -159,6 +160,8 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        // The global the call goes through, when `run_native` saw one (`query_reopen`).
+        let receiver = self.query_receiver.take();
         if method == "SaveAsCsvStatic" {
             return self.query_save_csv_static(args);
         }
@@ -206,28 +209,15 @@ impl Session {
                 _ => {}
             }
         }
-        Self::query_reopen_gate(&qs, method, args)?;
+        if self.query_reopen_step(def, &qs, ReopenCall::Method(method, args), receiver)? {
+            return Ok(Value::Boolean(true));
+        }
         match method {
             "Open" => {
                 // Opening an open query is not an error (queries/TestQueryRuntimeContracts.al:
                 // Query_StateMisuse_DoesNotThrow); once rows were read what it does is not pinned.
                 if qs.borrow().run.as_ref().is_some_and(|r| r.started) {
-                    // While rows are left, with no filter change: the shape `query_reopen` owns.
-                    if self.query_reopen_rows_left_pinned(def, object, &qs) {
-                        Self::query_reopen_rows_left(&qs);
-                        return Ok(Value::Boolean(true));
-                    }
-                    // After a filter changed mid-read it runs again with the new filters
-                    // (queries/read-lifecycle/PnAQueryOpenRead.al:125-170, SetRangeAndOpenAfterRead: `next-entry` 4).
-                    // After the last row (with or without a SetRange or SetFilter since) it runs again too,
-                    // with the new filters (queries/read-lifecycle/QueryReadToEnd.al:88,130,172:
-                    // SetRange_AfterLastRow_ThenOpenAndRead, SetFilter_AfterLastRow_ThenOpenAndRead,
-                    // Open_Twice_AfterLastRow).
-                    let filters_changed = qs.borrow().run.as_ref().is_some_and(|r| r.filters_changed);
-                    if !Self::query_read_to_the_end(&qs) && !filters_changed {
-                        return unsupported("Open on a query that is already open and was read from (not pinned)");
-                    }
-                    qs.borrow_mut().run = None;
+                    Self::query_open_started(&qs)?;
                 }
                 // OnBeforeOpen runs inside Open, after the filters set so far, and a filter it sets
                 // applies to this read (queries/TestQueryOnBeforeOpenVariablesContracts.al:104-140).
@@ -244,17 +234,7 @@ impl Session {
                 }
                 // Open does not run the query; the first Read does.
                 qs.borrow_mut().closed = false;
-                qs.borrow_mut().run = Some(QueryRun {
-                    started: false,
-                    filters_changed: false,
-                    rows: Vec::new(),
-                    next: 0,
-                    current: None,
-                    last_key: None,
-                    returned: 0,
-                    stamps: Vec::new(),
-                    reopened_rows_left: false,
-                });
+                qs.borrow_mut().run = Some(QueryRun::opened());
                 Ok(Value::Boolean(true))
             }
             "Read" => self.query_read(def, &qs),
@@ -696,16 +676,23 @@ impl Session {
     }
 
     /// The value of column `column` in the row `Read` returned last.
-    pub(crate) fn query_column(&mut self, q: Value, column: usize) -> Result<Value, Signal> {
+    /// `global` is the global variable the read goes through (object index of the routine, slot), if it is one.
+    pub(crate) fn query_column(
+        &mut self,
+        q: Value,
+        column: usize,
+        global: Option<(usize, usize)>,
+    ) -> Result<Value, Signal> {
         let Value::Query(qs) = q else {
             return unsupported(format!("a query column of {}", q.describe()));
         };
-        let qs = qs.borrow();
-        Self::query_reopen_column_gate(&qs)?;
-        let def = self.engine.program.objects[qs.object as usize]
+        let engine = self.engine.clone();
+        let def = engine.program.objects[qs.borrow().object as usize]
             .query
             .as_ref()
             .expect("a query object");
+        self.query_reopen_step(def, &qs, ReopenCall::Column(column), global)?;
+        let qs = qs.borrow();
         if def.columns[column].filter_element {
             // A filter() element read before Open, or after Open without a Read, raises as a column read without a
             // row does (corpus branch al-runtime-rs-staging-uh ab6c6eb2, PR 799: errors/lt-ms-refusals-131/
@@ -852,6 +839,21 @@ impl Session {
             placed.insert(at.unwrap_or(placed.len()), i);
         }
         Ok(placed.into_iter().map(|i| filters[i].clone()).collect())
+    }
+
+    /// `Open` on a query that was read from. After a filter changed mid-read it runs again with the new filters
+    /// (queries/read-lifecycle/PnAQueryOpenRead.al:125-170, SetRangeAndOpenAfterRead: `next-entry` 4). After the last row
+    /// (with or without a SetRange or SetFilter since) it runs again too, with the new filters
+    /// (queries/read-lifecycle/QueryReadToEnd.al:88,130,172: SetRange_AfterLastRow_ThenOpenAndRead,
+    /// SetFilter_AfterLastRow_ThenOpenAndRead, Open_Twice_AfterLastRow). The one pinned Open while rows are left is
+    /// `query_reopen`'s; any other is not pinned.
+    fn query_open_started(qs: &Qs) -> Result<(), Signal> {
+        let filters_changed = qs.borrow().run.as_ref().is_some_and(|r| r.filters_changed);
+        if !Self::query_read_to_the_end(qs) && !filters_changed {
+            return unsupported("Open on a query that is already open and was read from (not pinned)");
+        }
+        qs.borrow_mut().run = None;
+        Ok(())
     }
 
     /// Whether the query was read to its last row (its last Read returned false).

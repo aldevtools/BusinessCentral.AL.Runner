@@ -1,94 +1,135 @@
 //! A second `Open` on a query that was read from while rows were left, with no filter change between (al-runner issue 7827).
 //!
-//! Pinned by queries/read-lifecycle/QueryClosedAfterLastRow.al:162-182 (Query_RowsLeft_OpenAgainAndSetRange): a query of one
-//! data item with two plain columns (:10-22), no filter set (`Seed` clears it, :42), opened and read once with rows left
-//! (:165-166, :174); `Open` as a statement raises nothing (:168, :175); then `SetRange` on a column with one value (:169) and `Open`
-//! (:170) read the rows of the new filter (:171, :179). What any other call does right after the second `Open` (a `Read`, a
-//! column read, another `Open`, `SetFilter`, `Close`) is not pinned and refuses, as does every other shape of the second `Open`.
+//! Pinned by queries/read-lifecycle/QueryClosedAfterLastRow.al:162-182 (Query_RowsLeft_OpenAgainAndSetRange), and only in
+//! its shape. The query (:10-22): one dataitem and two columns, an Integer and a Code[10] over stored fields, no property but
+//! `QueryType = Normal`, no trigger, procedure or variable. The variable: a global of the codeunit, cleared (:31, :42). The
+//! calls, all through that global and with no commit between: `Open` as a statement (:165, :48), one `Read` whose result is
+//! used and one read of the first column (:166, :69-70), the second `Open` as a statement while rows are left and nothing
+//! was written (:168). That `Open` raises nothing (:175). Then one `SetRange` with one value on the Code column (:169, :54)
+//! and `Open` as a statement (:170) read the rows of the new filter (:171, :179). Each call moves the variable one
+//! `ReopenStep` on. A call that is not the next step before the second `Open` leaves the sequence: it and every later call
+//! take the usual path. After the second `Open` such a call refuses, until the pinned `Open` ends the sequence.
 
 use crate::Session;
 use al_builtins::native::{Signal, unsupported};
-use al_builtins::value::{QueryRun, QueryState};
+use al_builtins::query_reopen_step::{ReopenStep, ReopenTrack};
+use al_builtins::value::{QueryRun, QueryState, RtType, Value};
 use al_ir as ir;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 type Qs = Rc<RefCell<QueryState>>;
 
+/// One call on a query variable.
+pub(crate) enum ReopenCall<'a> {
+    /// A method, with its arguments (a column is its position).
+    Method(&'a str, &'a [Value]),
+    /// A read of the column at this position.
+    Column(usize),
+}
+
 impl Session {
-    /// Whether this `Open` of a started query is the pinned second `Open` (the module comment). Each fact is a line of the pin.
-    pub(crate) fn query_reopen_rows_left_pinned(&self, def: &ir::Query, object: usize, qs: &Qs) -> bool {
+    /// Moves the variable one step on before the call runs. `global` is the global variable the call goes through. Returns
+    /// true when the call was the pinned second `Open` (it raised nothing, and nothing else runs).
+    pub(crate) fn query_reopen_step(
+        &mut self,
+        def: &ir::Query,
+        qs: &Qs,
+        call: ReopenCall<'_>,
+        global: Option<(usize, usize)>,
+    ) -> Result<bool, Signal> {
+        let step = std::mem::replace(&mut qs.borrow_mut().reopen, ReopenStep::Off);
+        let open = matches!(call, ReopenCall::Method("Open", _)) && !self.ret_used;
+        let same = |t: &ReopenTrack, s: &Self| global == Some(t.global) && t.commits == s.commits;
+        let next = match (step, &call) {
+            (ReopenStep::Fresh, _) if open => match global {
+                Some(g) => ReopenStep::Opened(ReopenTrack {
+                    global: g,
+                    commits: self.commits,
+                    stamps: Vec::new(),
+                }),
+                None => ReopenStep::Off,
+            },
+            (ReopenStep::Opened(t), ReopenCall::Method("Read", _)) if self.ret_used && same(&t, self) => {
+                ReopenStep::ReadOne(t)
+            }
+            (ReopenStep::ReadOne(t), ReopenCall::Column(0)) if same(&t, self) => ReopenStep::ColumnRead(t),
+            (ReopenStep::ColumnRead(mut t), _) if open && same(&t, self) => {
+                match self.query_reopen_rows_left(def, qs, &t) {
+                    Some(stamps) => {
+                        t.stamps = stamps;
+                        let mut q = qs.borrow_mut();
+                        q.run = Some(QueryRun::opened());
+                        q.reopen = ReopenStep::Reopened(t);
+                        return Ok(true);
+                    }
+                    None => ReopenStep::Off,
+                }
+            }
+            (ReopenStep::Reopened(t), ReopenCall::Method("SetRange", [Value::Integer(1), Value::Text(_)]))
+                if same(&t, self) && self.query_stamps(def) == t.stamps =>
+            {
+                ReopenStep::Ranged(t)
+            }
+            (ReopenStep::Ranged(t), _) if open && same(&t, self) && self.query_stamps(def) == t.stamps => {
+                ReopenStep::Off
+            }
+            (step @ (ReopenStep::Reopened(_) | ReopenStep::Ranged(_)), _) => {
+                qs.borrow_mut().reopen = step;
+                let what = match call {
+                    ReopenCall::Method(m, _) => format!("Query.{m}"),
+                    ReopenCall::Column(_) => "a column read".to_string(),
+                };
+                return unsupported(format!(
+                    "{what} on a query opened again while rows were left, with no filter change (not pinned)"
+                ));
+            }
+            _ => ReopenStep::Off,
+        };
+        qs.borrow_mut().reopen = next;
+        Ok(false)
+    }
+
+    /// Whether the query and its run are the pinned ones at the second `Open` (the module comment); the versions of the
+    /// query's tables the rows were read at, when they are.
+    fn query_reopen_rows_left(&self, def: &ir::Query, qs: &Qs, t: &ReopenTrack) -> Option<Vec<(u32, u64)>> {
         let engine = self.engine.clone();
-        let no_on_before_open = !engine.program.objects[object]
-            .routines
-            .iter()
-            .any(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnBeforeOpen"));
-        // One data item without a table filter, plain columns, no OrderBy and no top (QueryClosedAfterLastRow.al:10-22).
-        let plain_query = matches!(&def.items[..], [item] if item.parent.is_none() && item.table_filter.is_empty())
-            && def.columns.iter().all(|c| {
-                c.method.is_none()
-                    && !c.filter_element
-                    && !c.reverse_sign
-                    && c.static_filter.is_none()
-                    && !c.flow_below_join
-            })
-            && def.order_by.is_empty()
-            && def.top == 0;
+        let objects = &engine.program.objects;
+        let query = &objects[qs.borrow().object as usize];
+        // A global of a codeunit (:29-31).
+        let codeunit = objects[t.global.0].kind == ir::ObjKind::Codeunit;
+        // No trigger, procedure or variable; only `QueryType = Normal` (:10-13).
+        let plain_object = query.routines.is_empty()
+            && query.globals.len() == 1
+            && query.rec_slot == Some(0)
+            && matches!(&query.properties[..], [(n, v)] if n.eq_ignore_ascii_case("QueryType") && v.trim().eq_ignore_ascii_case("Normal"));
+        // One dataitem with no property (:16).
+        let item = match &def.items[..] {
+            [item] if item.parent.is_none() && item.properties.is_empty() => item,
+            _ => return None,
+        };
+        let fields = &objects[item.table].table.as_ref()?.fields;
+        // Exactly `column(Id; Id)` over an Integer and `column(Grp; Grp)` over a Code[10], stored fields, no property
+        // (:18-19; the field types: _fixtures/tables/ALTShapeTables.al:266-267).
+        let column = |c: &ir::QueryColumn, ty: &RtType| {
+            c.item == 0
+                && !c.filter_element
+                && c.properties.is_empty()
+                && c.ty == *ty
+                && c.field.is_some_and(|f| fields[f].stored)
+        };
+        let columns = matches!(&def.columns[..], [id, grp] if column(id, &RtType::Integer) && column(grp, &RtType::Code(Some(10))));
         let now = self.query_stamps(def);
         let q = qs.borrow();
-        // No filter, top or security filtering set (:42); read once with rows left and nothing written since (:165-166, :174).
-        let state = q.filters.is_empty()
-            && q.top.is_none()
-            && q.security_filtering.is_none()
-            && q.run.as_ref().is_some_and(|r| {
-                r.started
-                    && !r.filters_changed
-                    && !r.reopened_rows_left
-                    && r.returned == 1
-                    && r.current.is_some()
-                    && r.next < r.rows.len()
-                    && r.stamps == now
-            });
-        // `Open` as a statement (:48, TryOpen).
-        no_on_before_open && plain_query && state && !self.ret_used
-    }
-
-    /// The pinned second `Open`: it raises nothing and leaves the query in the state that lets only the pinned next calls through.
-    pub(crate) fn query_reopen_rows_left(qs: &Qs) {
-        qs.borrow_mut().run = Some(QueryRun {
-            started: false,
-            filters_changed: false,
-            rows: Vec::new(),
-            next: 0,
-            current: None,
-            last_key: None,
-            returned: 0,
-            stamps: Vec::new(),
-            reopened_rows_left: true,
-        });
-    }
-
-    /// After the pinned second `Open`, only `SetRange` on a column with one value (:169), and then `Open` (:170), are pinned.
-    pub(crate) fn query_reopen_gate(qs: &Qs, method: &str, args: &[al_builtins::value::Value]) -> Result<(), Signal> {
-        let Some(run) = qs.borrow().run.as_ref().filter(|r| r.reopened_rows_left).cloned() else {
-            return Ok(());
-        };
-        let pinned = (method == "SetRange" && args.len() == 2) || (method == "Open" && run.filters_changed);
-        if pinned {
-            return Ok(());
-        }
-        unsupported(format!(
-            "Query.{method} on a query opened again while rows were left, with no filter change (not pinned)"
-        ))
-    }
-
-    /// A column read right after the pinned second `Open` is not pinned.
-    pub(crate) fn query_reopen_column_gate(qs: &QueryState) -> Result<(), Signal> {
-        if qs.run.as_ref().is_some_and(|r| r.reopened_rows_left) {
-            return unsupported(
-                "a column read on a query opened again while rows were left, with no filter change (not pinned)",
-            );
-        }
-        Ok(())
+        // Read once, rows left, nothing written since (:166, :174).
+        let run = q.run.as_ref().filter(|r| {
+            r.started
+                && !r.filters_changed
+                && r.returned == 1
+                && r.current.is_some()
+                && r.next < r.rows.len()
+                && r.stamps == now
+        })?;
+        (codeunit && plain_object && columns).then(|| run.stamps.clone())
     }
 }
