@@ -175,6 +175,8 @@ pub(crate) struct Maps {
     tables: HashMap<u32, usize>,
     /// Page id to the page extensions that extend it, in program order.
     page_extensions: HashMap<u32, Vec<usize>>,
+    /// Ids of the tables that a table extension of the table's own app extends ([`Catalog::extended_in_own_app`]).
+    extended_in_own_app: HashMap<u32, bool>,
 }
 
 impl<'a> Catalog<'a> {
@@ -214,6 +216,21 @@ impl<'a> Catalog<'a> {
                     }
                 }
             }
+            for (i, o) in self
+                .objects
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.kind == al_ir::ObjKind::TableExtension)
+            {
+                let Some((base, &t)) = o.extends_id.and_then(|b| Some((b, m.tables.get(&b)?))) else {
+                    continue;
+                };
+                if self.objects[t].app == o.app {
+                    let declares = (self.objects[t].table.as_ref())
+                        .is_some_and(|s| s.fields.iter().any(|f| f.declared_in == Some(i as u32)));
+                    *m.extended_in_own_app.entry(base).or_default() |= declares;
+                }
+            }
             m.sees = sees(self.apps);
             m
         })
@@ -223,6 +240,12 @@ impl<'a> Catalog<'a> {
     pub(super) fn page_extensions_of(&self, id: Option<u32>) -> Vec<&'a Object> {
         id.and_then(|id| self.maps().page_extensions.get(&id))
             .map_or_else(Vec::new, |v| v.iter().map(|&i| &self.full[i]).collect())
+    }
+
+    /// Whether a table extension of the app of table `id` (the one [`table_by_id`](Self::table_by_id) finds) extends it:
+    /// `None` when none does, `Some(true)` when one of them declares a field, `Some(false)` when none of them does.
+    pub(super) fn extended_in_own_app(&self, id: u32) -> Option<bool> {
+        self.maps().extended_in_own_app.get(&id).copied()
     }
 
     /// The first table object with this id.
