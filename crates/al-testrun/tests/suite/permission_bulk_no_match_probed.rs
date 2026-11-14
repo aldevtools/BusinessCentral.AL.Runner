@@ -19,8 +19,29 @@ table 51700 "NP Target"
         field(2; "Parent Code"; Code[10]) { }
         field(3; Value; Integer) { }
         field(4; Wide; Code[30]) { }
+        field(5; FF; Code[10]) { FieldClass = FlowFilter; }
     }
     keys { key(PK; Id) { Clustered = true; } }
+}
+
+// As "NP Target", shared by all companies (the probe's tables were per company).
+table 51710 "NP Shared Target"
+{
+    DataPerCompany = false;
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; "Parent Code"; Code[10]) { }
+        field(3; Value; Integer) { }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
+// The test codeunit's own subscriber is raised by its Insert(true).
+table 51711 "NP Parent Ins"
+{
+    fields { field(1; Code; Code[10]) { } }
+    keys { key(PK; Code) { Clustered = true; } }
 }
 
 // As "LT NM Parent" (Y19PermNoMatchShapes.al:29-42).
@@ -123,15 +144,36 @@ permissionset 51708 "NP R"
         tabledata "NP Parent Wide" = RIMD, tabledata "NP Parent Modify" = RIMD, tabledata "NP Parent Sub" = RIMD;
 }
 
+// The probe's sets granted only what Mock.Set assigned: All Objects and one set. This one stands for the reporter's
+// D365 BASIC, assigned before the set of the target (al-runner issue 8068).
+permissionset 51712 "NP Other"
+{
+    Assignable = true;
+    Permissions = tabledata "NP Parent Ins" = R;
+}
+
 // R and D on the target: the probe measured R and RI.
 permissionset 51709 "NP RD"
 {
     Assignable = true;
     Permissions = tabledata "NP Target" = RD, tabledata "NP Parent" = RIMD;
 }
+
+permissionset 51713 "NP R Wide"
+{
+    Assignable = true;
+    Permissions = tabledata "NP Target" = R, tabledata "NP Shared Target" = R, tabledata "NP Parent Ins" = RIMD;
+}
 "#;
 
 const MAIN: &str = r#"
+// The set of the target declared by another app than the target's (the probe's sets were declared with the table).
+permissionset 51730 "NP Main R"
+{
+    Assignable = true;
+    Permissions = tabledata "NP Target" = R;
+}
+
 codeunit 51720 "NP Tests"
 {
     Subtype = Test;
@@ -139,6 +181,7 @@ codeunit 51720 "NP Tests"
 
     var
         PermissionsMock: Codeunit "Permissions Mock";
+        HandlerWritesPinned: Boolean;
 
     local procedure Seed(Rows: Integer)
     var
@@ -269,6 +312,214 @@ codeunit 51720 "NP Tests"
         Writer.ClearParentCode('P1');
     end;
 
+    // The pinned shape (record/Y19PermWrites.al:294-307) and a measured shape in a TryFunction of the test codeunit.
+    [Test]
+    procedure PinnedShapeInTryFunction()
+    begin
+        PermissionsMock.Start();
+        Seed(2);
+        PermissionsMock.Set('NP R');
+        if not TryWritePinned() then
+            Error(GetLastErrorText());
+    end;
+
+    [Test]
+    procedure MeasuredShapeInTryFunction()
+    begin
+        PermissionsMock.Start();
+        Seed(1);
+        PermissionsMock.Set('NP R');
+        if not TryWriteMeasured() then
+            Error(GetLastErrorText());
+    end;
+
+    [TryFunction]
+    local procedure TryWritePinned()
+    var
+        Target: Record "NP Target";
+    begin
+        Target.SetRange(Id, 100);
+        Target.ModifyAll(Value, 99);
+    end;
+
+    [TryFunction]
+    local procedure TryWriteMeasured()
+    var
+        Target: Record "NP Target";
+    begin
+        Target.SetRange("Parent Code", 'P1');
+        Target.ModifyAll("Parent Code", '');
+    end;
+
+    // Both shapes in a MessageHandler of the test codeunit.
+    [Test]
+    [HandlerFunctions('MsgHandler')]
+    procedure PinnedShapeInMessageHandler()
+    begin
+        PermissionsMock.Start();
+        Seed(2);
+        PermissionsMock.Set('NP R');
+        HandlerWritesPinned := true;
+        Message('go');
+    end;
+
+    [Test]
+    [HandlerFunctions('MsgHandler')]
+    procedure MeasuredShapeInMessageHandler()
+    begin
+        PermissionsMock.Start();
+        Seed(1);
+        PermissionsMock.Set('NP R');
+        HandlerWritesPinned := false;
+        Message('go');
+    end;
+
+    [MessageHandler]
+    procedure MsgHandler(Msg: Text[1024])
+    var
+        Target: Record "NP Target";
+    begin
+        if HandlerWritesPinned then begin
+            Target.SetRange(Id, 100);
+            Target.ModifyAll(Value, 99);
+        end else begin
+            Target.SetRange("Parent Code", 'P1');
+            Target.ModifyAll("Parent Code", '');
+        end;
+    end;
+
+    // Both shapes in the test codeunit's own subscriber, raised by Insert(true).
+    [Test]
+    procedure PinnedShapeInOwnSubscriber()
+    var
+        Parent: Record "NP Parent Ins";
+    begin
+        PermissionsMock.Start();
+        Seed(2);
+        PermissionsMock.Set('NP R Wide');
+        Parent.Code := 'Q9';
+        Parent.Insert(true);
+    end;
+
+    [Test]
+    procedure MeasuredShapeInOwnSubscriber()
+    var
+        Parent: Record "NP Parent Ins";
+    begin
+        PermissionsMock.Start();
+        Seed(1);
+        PermissionsMock.Set('NP R Wide');
+        Parent.Code := 'P9';
+        Parent.Insert(true);
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"NP Parent Ins", 'OnAfterInsertEvent', '', false, false)]
+    local procedure OnAfterInsertParent(var Rec: Record "NP Parent Ins"; RunTrigger: Boolean)
+    var
+        Target: Record "NP Target";
+    begin
+        if Rec.Code = 'Q9' then begin
+            Target.SetRange(Id, 100);
+            Target.ModifyAll(Value, 99);
+        end;
+        if Rec.Code = 'P9' then begin
+            Target.SetRange("Parent Code", 'P1');
+            Target.ModifyAll("Parent Code", '');
+        end;
+    end;
+
+    // The reporter's sets: Set of another set, then Assign of the target's set (al-runner issue 8068).
+    [Test]
+    procedure ReporterSetsInTrigger()
+    var
+        Parent: Record "NP Parent";
+    begin
+        PermissionsMock.Start();
+        Seed(1);
+        Parent.Code := 'P1';
+        Parent.Insert();
+        PermissionsMock.Set('NP Other');
+        PermissionsMock.Assign('NP R');
+        Parent.Delete(true);
+    end;
+
+    [Test]
+    procedure ReporterSetsInTest()
+    var
+        Target: Record "NP Target";
+    begin
+        PermissionsMock.Start();
+        Seed(1);
+        PermissionsMock.Set('NP Other');
+        PermissionsMock.Assign('NP R');
+        Target.SetRange("Parent Code", 'P1');
+        Target.DeleteAll();
+    end;
+
+    [Test]
+    procedure SetOfAnotherApp()
+    var
+        Target: Record "NP Target";
+    begin
+        PermissionsMock.Start();
+        Seed(1);
+        PermissionsMock.Set('NP Main R');
+        Target.SetRange("Parent Code", 'P1');
+        Target.DeleteAll();
+    end;
+
+    [Test]
+    procedure FlowFilterFilter()
+    var
+        Target: Record "NP Target";
+    begin
+        PermissionsMock.Start();
+        Seed(1);
+        PermissionsMock.Set('NP R');
+        Target.SetRange(FF, 'P1');
+        Target.ModifyAll("Parent Code", '');
+    end;
+
+    [Test]
+    procedure TableSharedByCompanies()
+    var
+        Target: Record "NP Shared Target";
+    begin
+        PermissionsMock.Start();
+        Target.DeleteAll();
+        Target.Id := 1;
+        Target."Parent Code" := 'X';
+        Target.Insert();
+        PermissionsMock.Set('NP R Wide');
+        Target.SetRange("Parent Code", 'P1');
+        Target.DeleteAll();
+    end;
+
+    // Integer values the probe did not measure (it filtered Id to 100 and wrote 99).
+    [Test]
+    procedure IntegerFilterValueNotMeasured()
+    var
+        Target: Record "NP Target";
+    begin
+        PermissionsMock.Start();
+        Seed(1);
+        PermissionsMock.Set('NP R');
+        Target.SetRange(Id, 101);
+        Target.ModifyAll(Value, 99);
+    end;
+
+    [Test]
+    procedure IntegerWrittenValueNotMeasured()
+    var
+        Target: Record "NP Target";
+    begin
+        PermissionsMock.Start();
+        Seed(1);
+        PermissionsMock.Set('NP R');
+        Target.SetRange(Id, 100);
+        Target.ModifyAll(Value, 98);
+    end;
+
     [Test]
     procedure SetsGrantReadAndDelete()
     var
@@ -279,6 +530,71 @@ codeunit 51720 "NP Tests"
         Parent.Code := 'P1';
         Parent.Insert();
         PermissionsMock.Set('NP RD');
+        Parent.Delete(true);
+    end;
+}
+
+// A test codeunit that binds its own subscriber (the probe's subscriber was in a codeunit of the app).
+codeunit 51721 "NP Bound Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    EventSubscriberInstance = Manual;
+
+    var
+        PermissionsMock: Codeunit "Permissions Mock";
+
+    [Test]
+    procedure OwnBoundSubscriber()
+    var
+        Me: Codeunit "NP Bound Tests";
+        Target: Record "NP Target";
+        Parent: Record "NP Parent Sub";
+    begin
+        PermissionsMock.Start();
+        Target.DeleteAll();
+        Target.Id := 1;
+        Target."Parent Code" := 'X';
+        Target.Insert();
+        Parent.Code := 'P1';
+        Parent.Insert();
+        BindSubscription(Me);
+        PermissionsMock.Set('NP R');
+        Parent.Delete(true);
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"NP Parent Sub", 'OnBeforeDeleteEvent', '', false, false)]
+    local procedure OnBeforeDeleteParent(var Rec: Record "NP Parent Sub"; RunTrigger: Boolean)
+    var
+        Target: Record "NP Target";
+    begin
+        Target.SetRange("Parent Code", Rec.Code);
+        Target.ModifyAll("Parent Code", '');
+    end;
+}
+
+// A test codeunit without TestPermissions (the reporter's had none, al-runner issue 8068).
+codeunit 51722 "NP Default Perm Tests"
+{
+    Subtype = Test;
+
+    var
+        PermissionsMock: Codeunit "Permissions Mock";
+
+    [Test]
+    procedure TriggerWithoutTestPermissionsDisabled()
+    var
+        Target: Record "NP Target";
+        Parent: Record "NP Parent";
+    begin
+        PermissionsMock.Start();
+        Target.DeleteAll();
+        Target.Id := 1;
+        Target."Parent Code" := 'X';
+        Target.Insert();
+        Parent.Code := 'P1';
+        Parent.Insert();
+        PermissionsMock.Set('NP R');
         Parent.Delete(true);
     end;
 }
@@ -308,6 +624,7 @@ fn measured_no_match_shapes_are_denied_flagged() {
 
 #[test]
 fn neighbors_the_probe_did_not_measure_keep_the_refusal() {
+    let mut wrong = Vec::new();
     for test in [
         "ThreeRows",
         "WrittenValueNotMeasured",
@@ -316,10 +633,26 @@ fn neighbors_the_probe_did_not_measure_keep_the_refusal() {
         "OnAfterDeleteSubscriber",
         "AppCodeunitWithAProperty",
         "SetsGrantReadAndDelete",
+        "PinnedShapeInTryFunction",
+        "MeasuredShapeInTryFunction",
+        "PinnedShapeInMessageHandler",
+        "MeasuredShapeInMessageHandler",
+        "PinnedShapeInOwnSubscriber",
+        "MeasuredShapeInOwnSubscriber",
+        "OwnBoundSubscriber",
+        "ReporterSetsInTrigger",
+        "ReporterSetsInTest",
+        "SetOfAnotherApp",
+        "TriggerWithoutTestPermissionsDisabled",
+        "FlowFilterFilter",
+        "TableSharedByCompanies",
+        "IntegerFilterValueNotMeasured",
+        "IntegerWrittenValueNotMeasured",
     ] {
         match &result(test).outcome {
-            Outcome::NotRun(why) => assert!(why.contains("a filter that matches no row"), "{test}: {why}"),
-            other => panic!("{test}: {other:?}"),
+            Outcome::NotRun(why) if why.contains("a filter that matches no row") => {}
+            other => wrong.push(format!("{test}: {other:?}")),
         }
     }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }

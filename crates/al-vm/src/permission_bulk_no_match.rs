@@ -48,11 +48,16 @@ pub(crate) struct RecordCall {
 /// The rows of the target table and the facts of the record that the measured shapes compare.
 struct Target {
     rows: usize,
-    /// The one filter: (field position, value), a SetRange to one value in filter group 0.
+    /// The one filter: (field position, value), a range of one value in filter group 0, whatever call set it (SetRange
+    /// with one or two equal values, SetRecFilter, CopyFilters).
     filter: Option<(usize, Value)>,
     /// The field positions of each key, the primary key first.
     keys: Vec<Vec<usize>>,
     types: Vec<RtType>,
+    /// The FieldClass of each field.
+    classes: Vec<al_ir::FieldClass>,
+    /// The table is per company (`DataPerCompany` is not false).
+    per_company: bool,
 }
 
 impl Target {
@@ -144,6 +149,11 @@ impl Session {
                 filter,
                 keys: t.keys.clone(),
                 types: t.fields.iter().map(|f| f.ty.clone()).collect(),
+                classes: self.engine.field_facts[t.object as usize]
+                    .iter()
+                    .map(|f| f.class)
+                    .collect(),
+                per_company: t.per_company,
             }
         };
         // Facts every measured shape shares: a Record variable (not a RecordRef), code whose object grants nothing on the
@@ -158,6 +168,7 @@ impl Session {
         }
         if probed_no_match_write(method, args, &target)
             && self.levels_are(access, &[[1, 0, 0, 0], [1, 1, 0, 0]])
+            && self.probed_sets(table)
             && self.probed_no_match_caller(by)
         {
             assume(Assumption::BulkWriteNoMatchDenied);
@@ -192,21 +203,46 @@ impl Session {
             && t.types.get(*field) == Some(&RtType::Integer)
             && matches!(value, Value::Integer(_))
             && self.levels_are(access, &[[1, 0, 0, 0], [1, 1, 0, 0]])
-            && self.only_test_codeunit_frames(by, 0)
+            && self.test_codeunit_code(by)
+    }
+
+    /// The sets corpus PR 1403 measured: `Permissions Mock.Set(X)` assigned 'All Objects' and then one set X, declared by
+    /// the app that declares table `table` (Y19PermNoMatchShapes.al:112-126, :296; Y19PermNoMatchTriggers.al:158-167, :314),
+    /// in a test codeunit with `TestPermissions = Disabled` (Y19PermNoMatchShapes.al:131, Y19PermNoMatchTriggers.al:172).
+    fn probed_sets(&self, table: usize) -> bool {
+        let [all, set] = self.permission_roles.as_slice() else {
+            return false;
+        };
+        let heads = self.engine.program.objects.heads();
+        let mut declaring = heads
+            .iter()
+            .filter(|o| o.kind == al_ir::ObjKind::PermissionSet && o.id.is_some() && o.name.to_uppercase() == *set);
+        let set_app = match (declaring.next(), declaring.next()) {
+            (Some(o), None) => Some(o.app),
+            _ => None,
+        };
+        let disabled = self.frames.get(self.test_frame_base()).is_some_and(|&t| {
+            heads[t]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case("TestPermissions") && v.trim().eq_ignore_ascii_case("Disabled"))
+        });
+        all == "ALL OBJECTS" && set_app == Some(heads[table].app) && disabled
     }
 
     /// The code that makes the access in a shape corpus PR 1403 measured (assumption `bulk-write-no-match-denied`):
-    /// - a procedure of the test codeunit, with only procedures of it below (Y19PermNoMatchShapes.al:342-371, ops 1-6);
+    /// - a procedure of the test codeunit, with only procedures of it below, while no record method runs
+    ///   (Y19PermNoMatchShapes.al:342-371, ops 1-6);
     /// - a procedure of a codeunit of the app without properties, called by procedures of the test codeunit while no record
     ///   method runs (Y19PermNoMatchShapes.al:93-110, :392-395, ops 21 and 22);
     /// - the OnDelete trigger of a table, called by procedures of the test codeunit through one of the record calls in
-    ///   [`probed_delete_start`] (Y19PermNoMatchShapes.al:372-391, ops 11-14; Y19PermNoMatchTriggers.al:386-458, ops 31-34,
-    ///   51-102, 131);
+    ///   [`probed_delete_start`], the one record method that runs (Y19PermNoMatchShapes.al:372-391, ops 11-14;
+    ///   Y19PermNoMatchTriggers.al:386-458, ops 31-34, 51-102, 131);
     /// - a subscriber of a codeunit without properties to the OnBeforeDeleteEvent of a table and to no other event, raised by
-    ///   the statement `Delete(true)` of a Record variable of that table in a procedure of the test codeunit
-    ///   (Y19PermNoMatchTriggers.al:146-156, :447-451, op 122).
+    ///   the statement `Delete(true)` of a Record variable of that table in a procedure of the test codeunit, the one record
+    ///   method that runs (Y19PermNoMatchTriggers.al:146-156, :447-451, op 122).
     fn probed_no_match_caller(&self, by: usize) -> bool {
-        if self.only_test_codeunit_frames(by, 0) {
+        if self.test_codeunit_code(by) {
             return true;
         }
         let engine = self.engine.clone();
@@ -217,7 +253,10 @@ impl Session {
         let Some(routine) = o.routines.get(f.routine) else {
             return false;
         };
-        let start = self.record_calls.last();
+        let start = match self.record_calls.as_slice() {
+            [c] => Some(c),
+            _ => None,
+        };
         let app_procedure = o.kind == al_ir::ObjKind::Codeunit
             && o.properties.is_empty()
             && !routine.is_trigger
@@ -256,8 +295,16 @@ impl Session {
         is_delete.then_some(f.routine)
     }
 
-    /// Whether every frame of the test, but the last `skip`, is a procedure (not a trigger, not an event) of one test
-    /// codeunit, which is `by` when `skip` is 0.
+    /// The access is made by a procedure of test codeunit `by` with only its procedures below, while no record method runs
+    /// (record/Y19PermWrites.al:257-265, :294-307; Y19PermNoMatchShapes.al:274-371).
+    fn test_codeunit_code(&self, by: usize) -> bool {
+        self.record_calls.is_empty() && self.only_test_codeunit_frames(by, 0)
+    }
+
+    /// Whether every frame of the test, but the last `skip`, is a procedure of one test codeunit, which is `by` when `skip`
+    /// is 0: the first frame the test method, with the one attribute `[Test]`, and each frame above it a procedure without
+    /// attributes (no subscriber, handler or try function), as the measured RunCase and Op (record/Y19PermWrites.al:257-265;
+    /// Y19PermNoMatchShapes.al:274-398; Y19PermNoMatchTriggers.al:180-330).
     fn only_test_codeunit_frames(&self, by: usize, skip: usize) -> bool {
         let base = self.test_frame_base();
         let end = self.frames.len().saturating_sub(skip);
@@ -275,7 +322,16 @@ impl Session {
             && (skip != 0 || first == by)
             && (base..end).all(|i| {
                 let f = &self.call_stack[i];
-                self.frames[i] == first && !f.event && o.routines.get(f.routine).is_some_and(|r| !r.is_trigger)
+                let attributes_ok = |r: &al_ir::Routine| match (i == base, r.attributes.as_slice()) {
+                    (true, [a]) => a.name.eq_ignore_ascii_case("Test") && a.args.is_empty(),
+                    (false, []) => true,
+                    _ => false,
+                };
+                self.frames[i] == first
+                    && !f.event
+                    && o.routines
+                        .get(f.routine)
+                        .is_some_and(|r| !r.is_trigger && attributes_ok(r))
             })
     }
 }
@@ -318,18 +374,21 @@ fn probed_subscriber_start(table: usize) -> RecordCall {
 
 /// The written shape of a no-match bulk write corpus PR 1403 measured (Y19PermNoMatchShapes.al:15-26 "LT NM Target", one
 /// key; Y19PermNoMatchTriggers.al:19-34 "LT NT Target", a second key on the Code[10] field "Parent Code"; both an Integer
-/// primary key Id as first field), one or two rows, none matching (Seed, Y19PermNoMatchShapes.al:302-330), and one filter:
-/// - `SetRange` of the primary key to an Integer (ops 1, 13, 22: `SetRange(Id, 100)`), or of a Code[10] or Code[20] field
-///   outside the primary key to a Code value (the other ops; blank in Y19PermNoMatchTriggers.al op 61, Code[20] op 81);
-/// - `DeleteAll()` (ops 6 and 14), or `ModifyAll` of a field outside the primary key: an Integer field to an Integer
-///   (ops 1, 2, 13, 22: `ModifyAll(Value, 99)`), or a Code[10] or Code[20] field to '' or 'Y' (ops 3, 4, 11, 12, 21, 81);
-///   with RunTrigger true as third argument (op 5) or no third argument.
+/// primary key Id as first field; per company), one or two rows, none matching (Seed, Y19PermNoMatchShapes.al:302-330),
+/// and one filter, a range of one value in filter group 0, on a field of FieldClass Normal:
+/// - the primary key to 100 (ops 1, 13, 22: `SetRange(Id, 100)`), or a Code[10] or Code[20] field outside the primary key
+///   to 'P1' or '' (the other ops: the parent's Code 'P1', Y19PermNoMatchShapes.al:322-328, Y19PermNoMatchTriggers.al:352-369;
+///   blank in Y19PermNoMatchTriggers.al op 61, :358; Code[20] op 81);
+/// - `DeleteAll()` (ops 6 and 14), or `ModifyAll` of a field of FieldClass Normal outside the primary key: an Integer field
+///   to 99 (ops 1, 2, 13, 22: `ModifyAll(Value, 99)`), or a Code[10] or Code[20] field to '' or 'Y' (ops 3, 4, 11, 12, 21,
+///   81); with RunTrigger true as third argument (op 5) or no third argument.
 fn probed_no_match_write(method: RecordOp, args: &[Value], t: &Target) -> bool {
     let Some((field, value)) = &t.filter else {
         return false;
     };
-    let int = |p: usize| t.types.get(p) == Some(&RtType::Integer);
-    let code = |p: usize| matches!(t.types.get(p), Some(RtType::Code(Some(10 | 20))));
+    let normal = |p: usize| t.classes.get(p) == Some(&al_ir::FieldClass::Normal);
+    let int = |p: usize| normal(p) && t.types.get(p) == Some(&RtType::Integer);
+    let code = |p: usize| normal(p) && matches!(t.types.get(p), Some(RtType::Code(Some(10 | 20))));
     let outside_key = |p: usize| !t.key().contains(&p);
     let table_ok = t.key() == [0]
         && int(0)
@@ -338,18 +397,20 @@ fn probed_no_match_write(method: RecordOp, args: &[Value], t: &Target) -> bool {
             [_, k2] => matches!(k2.as_slice(), [p] if t.types.get(*p) == Some(&RtType::Code(Some(10)))),
             _ => false,
         };
-    let filter_ok = (t.key() == [*field] && matches!(value, Value::Integer(_)))
-        || (outside_key(*field) && code(*field) && matches!(value, Value::Code(_)));
+    let filter_ok = (t.key() == [*field] && matches!(value, Value::Integer(100)))
+        || (outside_key(*field)
+            && code(*field)
+            && matches!(value, Value::Code(s) if s.as_str().is_empty() || s.as_str() == "P1"));
     let written_ok = match (method, args) {
         (RecordOp::DeleteAll, []) => true,
         (RecordOp::ModifyAll, [Value::Integer(p), v] | [Value::Integer(p), v, Value::Boolean(true)]) => {
             let p = *p as usize;
             outside_key(p)
-                && ((int(p) && matches!(v, Value::Integer(_)))
+                && ((int(p) && matches!(v, Value::Integer(99)))
                     || (code(p)
                         && matches!(v, Value::Text(s) | Value::Code(s) if s.as_str().is_empty() || s.as_str() == "Y")))
         }
         _ => false,
     };
-    table_ok && filter_ok && written_ok && matches!(t.rows, 1 | 2)
+    table_ok && t.per_company && filter_ok && written_ok && matches!(t.rows, 1 | 2)
 }
