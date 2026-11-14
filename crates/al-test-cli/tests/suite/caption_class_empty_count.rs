@@ -496,8 +496,9 @@ fn a_caption_expression_that_only_fills_a_local_list_still_runs() {
 
 /// al-runner issues 7424, 7467 and 7391 (record/captions/CaptionClassStateFreeCalls.al): an expression that calls
 /// UserSecurityId, RecordRef.GetTable on a local RecordRef, or reaches Message or Error without taking that branch with the
-/// empty record runs in an open whose count is not pinned (a List with three expression fields). A Message or an error that a
-/// run raises refuses there; a GetTable on a global RecordRef keeps main's refusal.
+/// empty record runs in an open whose count is not pinned (a List with three expression fields). A Message that a run of that
+/// open raises (an empty-record run or the row run) refuses, so does an error of an empty-record run; a GetTable on a global
+/// RecordRef keeps main's refusal.
 const STATE_FREE: &str = r#"
 table 50190 "Sf Row"
 {
@@ -597,6 +598,7 @@ codeunit 50194 "Sf Holder"
     end;
 }
 page 50190 "Sf List" { PageType = List; SourceTable = "Sf Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } field(B; Rec.B) { } field(C; Rec.C) { } } } } }
+page 50194 "Sf Card" { PageType = Card; SourceTable = "Sf Row"; layout { area(Content) { field(Id; Rec.Id) { } field(C; Rec.C) { } } } }
 page 50191 "Sf Message List" { PageType = List; SourceTable = "Sf Message Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } } } } }
 page 50192 "Sf Error List" { PageType = List; SourceTable = "Sf Error Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } } } } }
 page 50193 "Sf Global Ref List" { PageType = List; SourceTable = "Sf Global Ref Row"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } field(A; Rec.A) { } } } } }
@@ -612,6 +614,16 @@ codeunit 50195 "Sf Tests"
         P.OpenView();
         if P.A.Caption() <> 'User' then Error('A %1', P.A.Caption());
         if P.C.Caption() <> 'Branch' then Error('C %1', P.C.Caption());
+    end;
+    [Test]
+    [HandlerFunctions('Msg')]
+    procedure MessageInRowRun()
+    var R: Record "Sf Row"; P: TestPage "Sf Card";
+    begin
+        R.DeleteAll();
+        R.Id := 7;
+        R.Insert();
+        P.OpenEdit();
     end;
     [Test]
     [HandlerFunctions('Msg')]
@@ -652,6 +664,10 @@ fn state_free_calls_in_a_caption_expression_run_and_a_raised_dialog_or_error_ref
     match outcome(&outs, "MessageInEmptyRun") {
         Outcome::NotRun(why) => assert!(why.contains("Message raised by a CaptionClass expression"), "{why}"),
         other => panic!("MessageInEmptyRun: {other:?}"),
+    }
+    match outcome(&outs, "MessageInRowRun") {
+        Outcome::NotRun(why) => assert!(why.contains("Message raised by a CaptionClass expression"), "{why}"),
+        other => panic!("MessageInRowRun: {other:?}"),
     }
     match outcome(&outs, "ErrorInEmptyRun") {
         Outcome::NotRun(why) => assert!(why.contains("raised an error with the empty record"), "{why}"),

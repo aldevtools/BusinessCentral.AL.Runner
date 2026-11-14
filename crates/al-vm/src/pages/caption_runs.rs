@@ -65,6 +65,18 @@ impl Session {
         }
     }
 
+    /// Runs `f` with every dialog refused (`Session::dispatch_ui_returning`): the CaptionClass runs of a page open whose empty-record
+    /// runs are not pinned, the row runs of that open included (a dialog in a row run of such an open is not measured either).
+    pub(super) fn with_caption_dialogs_refused<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, Signal>,
+    ) -> Result<T, Signal> {
+        let outer = std::mem::replace(&mut self.pages.caption_runs_unpinned, true);
+        let r = f(self);
+        self.pages.caption_runs_unpinned = outer;
+        r
+    }
+
     /// The cells of record/captions/CaptionClassStateFreeCalls.al (table 62412 at :218-232: six fields, four of them with
     /// CaptionClass expressions of different texts), three cycles alike on BC 27, 28 and 29:
     /// - a Card opened with OpenEdit whose five field controls show Id and the four expression fields: 11 runs each (:907, :934, :980; page 62415
@@ -125,16 +137,14 @@ impl Session {
             return unsupported(why);
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount);
-        let outer = std::mem::replace(&mut self.pages.caption_runs_unpinned, true);
-        let r = (|| {
+        let r = self.with_caption_dialogs_refused(|this| {
             for _ in 0..20 {
                 for (pos, expr) in exprs {
-                    self.field_caption_class_value(t, *pos, Some(empty), expr)?;
+                    this.field_caption_class_value(t, *pos, Some(empty), expr)?;
                 }
             }
             Ok(())
-        })();
-        self.pages.caption_runs_unpinned = outer;
+        });
         match r {
             Err(Signal::Error(e)) => unsupported(format!(
                 "a CaptionClass expression of table {} raised an error with the empty record of a page open (`{}`), and how many \
@@ -163,5 +173,56 @@ impl Session {
                 self.engine.program.objects[t.object as usize].name
             ))
         })
+    }
+
+    /// Runs the CaptionClass expression of each control over such a field with the current row, `runs` times, and keeps the
+    /// last caption for `Caption()`. On a page whose open ran the empty-record runs without a pinned number, a dialog these runs
+    /// raise refuses (`PageState::caption_dialogs_refused`): how many row runs BC makes on such a page is not measured either.
+    pub(super) fn fill_field_captions_with_row(
+        &mut self,
+        st: &St,
+        t: &al_data::TableDef,
+        exprs: &[(usize, String)],
+        runs: usize,
+    ) -> Result<(), Signal> {
+        if st.borrow().caption_dialogs_refused {
+            return self
+                .with_caption_dialogs_refused(|this| this.fill_field_captions_with_row_unguarded(st, t, exprs, runs));
+        }
+        self.fill_field_captions_with_row_unguarded(st, t, exprs, runs)
+    }
+
+    /// [`Session::fill_field_captions_with_row`] without the dialog guard: runs the CaptionClass expression of each control over such a field with the current row, `runs` times, and keeps the
+    /// last caption for `Caption()`.
+    fn fill_field_captions_with_row_unguarded(
+        &mut self,
+        st: &St,
+        t: &al_data::TableDef,
+        exprs: &[(usize, String)],
+        runs: usize,
+    ) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        for _ in 0..runs {
+            for (idx, c) in page.controls.iter().enumerate() {
+                if c.prop("captionclass").is_some() {
+                    continue;
+                }
+                let Some(field) = self.control_field(st, idx) else {
+                    continue;
+                };
+                let Some((pos, expr)) = exprs.iter().find(|(pos, _)| t.fields[*pos].id == field.id) else {
+                    continue;
+                };
+                let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
+                let caption = self.control_expression_caption(&t.fields[*pos].name, &class)?;
+                let mut s = st.borrow_mut();
+                s.field_captions.retain(|(i, _)| *i != idx);
+                s.field_captions.push((idx, caption));
+            }
+        }
+        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.clone());
+        Ok(())
     }
 }

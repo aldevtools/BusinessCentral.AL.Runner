@@ -202,6 +202,9 @@ pub struct PageState {
     pub field_captions: Vec<(usize, String)>,
     /// The open ran the CaptionClass expressions of the source table's fields with an empty record (`field_captions`).
     pub field_captions_opened: bool,
+    /// The open ran the empty-record CaptionClass runs without a pinned number: a dialog raised by a later row run of the
+    /// page refuses (`Session::fill_field_captions_with_row`).
+    pub caption_dialogs_refused: bool,
     /// The open has filled its first rows (`field_captions` no longer changes at the fills of the open itself).
     pub field_captions_settled: bool,
     /// The row (its field values) the CaptionClass expressions last ran with for the controls' captions.
@@ -1035,6 +1038,7 @@ impl PageState {
     pub(crate) fn forget_field_captions(&mut self) {
         self.field_captions = Vec::new();
         self.field_captions_opened = false;
+        self.caption_dialogs_refused = false;
         self.field_captions_settled = false;
         self.field_captions_row = None;
         self.field_captions_quiet = false;

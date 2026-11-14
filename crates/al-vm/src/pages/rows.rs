@@ -129,6 +129,8 @@ impl Session {
                 }
             } else {
                 self.run_caption_empty_unpinned(&t, &exprs, &empty)?;
+                return self
+                    .with_caption_dialogs_refused(|this| this.fill_field_captions_with_row(st, &t, &exprs, runs));
             }
         } else {
             // The other rows the open reads and a Next() run no expression, and Caption() keeps the open's value
@@ -156,40 +158,6 @@ impl Session {
             }
         }
         self.fill_field_captions_with_row(st, &t, &exprs, runs)
-    }
-
-    /// Runs the CaptionClass expression of each control over such a field with the current row, `runs` times, and keeps the
-    /// last caption for `Caption()`.
-    fn fill_field_captions_with_row(
-        &mut self,
-        st: &St,
-        t: &al_data::TableDef,
-        exprs: &[(usize, String)],
-        runs: usize,
-    ) -> Result<(), Signal> {
-        let rec = self.page_rec(st);
-        let engine = self.engine();
-        let page = page_of(&engine, st);
-        for _ in 0..runs {
-            for (idx, c) in page.controls.iter().enumerate() {
-                if c.prop("captionclass").is_some() {
-                    continue;
-                }
-                let Some(field) = self.control_field(st, idx) else {
-                    continue;
-                };
-                let Some((pos, expr)) = exprs.iter().find(|(pos, _)| t.fields[*pos].id == field.id) else {
-                    continue;
-                };
-                let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
-                let caption = self.control_expression_caption(&t.fields[*pos].name, &class)?;
-                let mut s = st.borrow_mut();
-                s.field_captions.retain(|(i, _)| *i != idx);
-                s.field_captions.push((idx, caption));
-            }
-        }
-        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.clone());
-        Ok(())
     }
 
     /// The page shapes whose CaptionClass expression runs on GoToKey, GoToRecord, First, Last and Previous are pinned
