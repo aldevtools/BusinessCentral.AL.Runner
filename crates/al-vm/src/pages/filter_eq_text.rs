@@ -1,8 +1,8 @@
 //! A `TestPage.Filter.SetFilter` text that starts with `=` (`'=1'`, `'=Yes'`, `'=Quote'`): Business Central sets no filter. The
 //! filter reads back as it was (empty, or the test's earlier filter on the field) and the rows stay, whether the field has a control
 //! on the page or not (corpus testpage/filters/TempListOffPageBooleanFilter.al; al-runner issue 6924). Only the measured shapes take
-//! this path (`eq_text_sets_no_filter`). Another text that starts with `=` on a Boolean, Enum or Option field of a List or
-//! Worksheet refuses; a text on another page type or field type keeps the filter `filter.rs` parses.
+//! this path (`eq_text_sets_no_filter`). Another text that starts with `=` (also after blanks) on a Boolean, Enum or Option field
+//! of a List or Worksheet refuses; a text on another page type or field type keeps the filter `filter.rs` parses.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -74,9 +74,9 @@ enum EqCell {
 impl Session {
     /// Whether `text` on the field at `pos` of `table` is a filter text Business Central drops on page `st`.
     ///
-    /// The rule's neighborhood is a text that starts with `=` on a Boolean, Enum or Option field of a List or Worksheet page:
-    /// the probe found the text dropped on every such shape it measured (WorksheetEnumEqFilter.al:14-17), so main's filter is not
-    /// an answer there. In it, a measured cell (`eq_text_measured`) sets no filter and every other shape refuses. A text on
+    /// The rule's neighborhood is a text that starts with `=`, after any blanks, on a Boolean, Enum or Option field of a List or
+    /// Worksheet page: the probe found the text dropped on every such shape it measured (WorksheetEnumEqFilter.al:14-17), so main's
+    /// filter is not an answer there. In it, a measured cell (`eq_text_measured`) sets no filter and every other shape refuses. A text on
     /// another page type or field type keeps the filter `filter.rs` parses.
     pub(super) fn eq_text_sets_no_filter(
         &self,
@@ -86,9 +86,9 @@ impl Session {
         pos: usize,
         text: &str,
     ) -> Result<bool, Signal> {
-        let Some(rest) = text.strip_prefix('=') else {
+        if !text.trim_start().starts_with('=') {
             return Ok(false);
-        };
+        }
         let list = self.is_list_page(st);
         let worksheet =
             self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
@@ -99,7 +99,13 @@ impl Session {
         if !((list || worksheet) && measured_field) {
             return Ok(false);
         }
-        match self.eq_text_measured(st, rec, table, pos, rest, list) {
+        // The probes wrote every text with the `=` first (WorksheetEnumEqFilter.al:412-419, :634-640;
+        // TempListOffPageBooleanFilter.al:335-373): a blank before it is in the neighborhood and not measured.
+        let cell = match text.strip_prefix('=') {
+            Some(rest) => self.eq_text_measured(st, rec, table, pos, rest, list),
+            None => EqCell::Unmeasured("with a blank before the '=' (only a text with the '=' first is measured)"),
+        };
+        match cell {
             EqCell::Pinned => Ok(true),
             EqCell::Assumed => {
                 assume(Assumption::TestpageFilterEqTextDropped);

@@ -758,6 +758,20 @@ fn an_eq_text_on_a_page_the_test_opened_for_edit_refuses() {
     );
 }
 
+// A blank before the `=` (review of al-runner PR 8023): WorksheetEnumEqFilter.al wrote every text with the `=` first (:412-419,
+// :634-640). Main parsed `' =1'` and `' =Quote'` as filters. Not measured: each refuses, on the database and the temporary sources.
+#[test]
+fn an_eq_text_with_a_blank_before_the_eq_refuses() {
+    let refused = |proc: &str, arg: &str| {
+        let arg = al_builtins::value::Value::Text(arg.to_string().into());
+        refusal(al_testkit::run_with(WS_SRC, "C", proc, vec![arg]).map(|(v, _)| v))
+    };
+    for (proc, t) in [("WsBoolean", " =1"), ("WsEnum", " =Quote"), ("TempListEnum", " =Quote")] {
+        let why = refused(proc, t);
+        assert!(why.contains("a blank before the '='"), "{proc} {t}: {why}");
+    }
+}
+
 // The probe's enum has three members (WorksheetEnumEqFilter.al:25-32); the issue's has six. Main filtered on `=Quote` there (the
 // page read the filter back as `Quote`, BC reads ''), right only by chance for the row kept. Not measured: it refuses.
 #[test]
