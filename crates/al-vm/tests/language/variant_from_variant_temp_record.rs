@@ -257,7 +257,7 @@ fn refused(routine: &str) -> String {
     }
 }
 
-/// The reporter's three failing tests (al-runner issue 8070; BC 28.5 passes all of them).
+/// The reporter's three failing tests (al-runner issue 8070; real Business Central passes all of them).
 #[test]
 fn a_variant_from_a_returned_variant_keeps_the_temporary_rows() {
     assert_eq!(run("ReturnValueStored"), ("2".into(), true));

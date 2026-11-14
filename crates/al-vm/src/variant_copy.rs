@@ -8,7 +8,7 @@
 //! Variant parameter keeps its table (PWRecordMisc.al:221-231, `call_inner`).
 //!
 //! Not pinned: the corpus has no case of a Variant assigned from another Variant that holds a temporary record. The
-//! reporter's run on BC 28.5 (al-runner issue 8070) measured two shapes, and only those run, under the assumption
+//! reporter's run on real Business Central (al-runner issue 8070) measured two shapes, and only those run, under the assumption
 //! `variant-from-variant-temp-record-keeps-rows` ([`measured`]): the new Variant holds a record over the same temporary
 //! table. Every other shape of a temporary record going from a Variant into a Variant is refused; anything that is not a
 //! temporary record keeps main's store.
@@ -96,7 +96,7 @@ impl Session {
         if let Some(why) = self.unmeasured(&site.source, i, &rc.borrow(), f) {
             return Err(refusal(why));
         }
-        // The reporter's shapes (al-runner issue 8070, BC 28.5): the new Variant holds a record over the source's
+        // The reporter's shapes (al-runner issue 8070, the reporter's run on real Business Central): the new Variant holds a record over the source's
         // temporary table, a copy as a Variant parameter's is (`call_inner`).
         assume(Assumption::VariantFromVariantTempRecordKeepsRows);
         let st = rc.borrow().copy_as_unmeasured_variable();
