@@ -30,6 +30,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - record state: temporary, stored, dirty, saved by which call;
   - a flag of a verdict read as a fact about the grant: `Deny { indirect: false }` says the calling object has no object
     grant, not that the session level is blank. Require the session levels the pin measured (al-runner PR 8033).
+  - a "not X" fact that is only proven while a helper is true (`held && last != anchor`): when the helper is false
+    the negation passes. Require the positive fact (`held && last == anchor`) (al-runner PR 8055).
   - BC version: a gate that one major measured is not a gate for the others;
   - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
     differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it

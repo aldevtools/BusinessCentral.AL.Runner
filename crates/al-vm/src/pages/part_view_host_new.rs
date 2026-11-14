@@ -1,24 +1,26 @@
 //! `New()` on a ListPart of a host the test opened with OpenView. BC denies it: "New method failed because Insert is not
 //! allowed. Page = <part>, Id = <id>.", code DB:ClientInsertDenied, and no trigger runs (open corpus PR 1399, pages/parts/
 //! PartSplitKeyInsertTiming.al:1353 Doc_OpenView_New `view|text`, `log` `[]`; :1385 Card_OpenView_New; all three majors
-//! alike). The measured shape raises that error under the assumption `part-new-on-view-host-denied`; every other part on such
-//! a host refuses the `New()`.
+//! alike). The measured shape, a direct part of that page, raises that error under the assumption
+//! `part-new-on-view-host-denied`; every other part below such a page, at any depth, refuses the `New()`.
 
 use super::pinned_shape::{PartStep, PinnedPart, TestCall};
 use super::*;
 use al_builtins::page_op::PageMethod;
 
 impl Session {
-    /// Before a part's `New()` leaves its row: on a part whose top-level host the test opened with OpenView, the measured shape
-    /// raises BC's error, any other shape refuses. A part of any other host keeps the earlier path.
+    /// Before a part's `New()` leaves its row: on a part at any depth below a page the test opened with OpenView, the measured
+    /// shape (a direct part of that page) raises BC's error, any other shape refuses. A part of any other page keeps the
+    /// earlier path.
     pub(super) fn part_new_on_view_host(&mut self, st: &St) -> Result<(), Signal> {
-        let (host, Some(_)) = Self::tree_root(st) else {
+        let Some(host) = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(());
         };
-        if !host.borrow().test_open_view() {
+        let root = super::shown::shown_root(&host);
+        if !root.borrow().test_open_view() {
             return Ok(());
         }
-        if !self.view_host_new_pinned(st)? {
+        if !Rc::ptr_eq(&root, &host) || !self.view_host_new_pinned(st)? {
             return unsupported(
                 "New() on a part of a page the test opened with OpenView, other than the measured shape (not pinned)",
             );

@@ -47,6 +47,16 @@ page 69987 "XS Card PK"
     PageType = Card; SourceTable = "XS Head"; ApplicationArea = All; UsageCategory = None;
     layout { area(Content) { field(Code; Rec.Code) { } part(Lines; "XS Lines") { SubPageLink = "Head Code" = field(Code); } } }
 }
+page 69988 "XS Mid"
+{
+    PageType = CardPart; SourceTable = "XS Head"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field(Code; Rec.Code) { } part(Lines; "XS Lines") { SubPageLink = "Head Code" = field(Code); } } }
+}
+page 69989 "XS Card Nested"
+{
+    PageType = Card; SourceTable = "XS Head"; ApplicationArea = All; UsageCategory = None;
+    layout { area(Content) { field(Code; Rec.Code) { } part(Mid; "XS Mid") { SubPageLink = Code = field(Code); } } }
+}
 codeunit 69986 C
 {
     Subtype = Test;
@@ -102,10 +112,30 @@ codeunit 69986 C
         asserterror P.Lines.New();
     end;
 }
+codeunit 69990 C2
+{
+    Subtype = Test;
+
+    // Not measured: a part of a part of the host the test opened with OpenView (main ran the New() with no error).
+    [Test]
+    procedure T_ViewNestedPart()
+    var P: TestPage "XS Card Nested"; Head: Record "XS Head"; Line: Record "XS Line";
+    begin
+        Line.DeleteAll(); Head.DeleteAll();
+        Head.Code := 'H1'; Head.Insert();
+        Line."Head Code" := 'H1'; Line."Line No." := 10000; Line.Insert();
+        P.OpenView(); P.GoToKey('H1');
+        asserterror P.Mid.Lines.New();
+    end;
+}
 "#;
 
 fn outcome(name: &str) -> Outcome {
-    al_testkit::outcomes_in(SRC, "C")
+    outcome_in("C", name)
+}
+
+fn outcome_in(codeunit: &str, name: &str) -> Outcome {
+    al_testkit::outcomes_in(SRC, codeunit)
         .into_iter()
         .find(|(n, _)| n == name)
         .unwrap_or_else(|| panic!("no test {name}"))
@@ -124,5 +154,13 @@ fn new_on_another_part_of_a_view_host_is_refused() {
             Outcome::NotRun(why) => assert!(why.contains("the test opened with OpenView"), "{name}: {why}"),
             other => panic!("{name}: {other:?}"),
         }
+    }
+}
+
+#[test]
+fn new_on_a_part_of_a_part_of_a_view_host_is_refused() {
+    match outcome_in("C2", "T_ViewNestedPart") {
+        Outcome::NotRun(why) => assert!(why.contains("the test opened with OpenView"), "{why}"),
+        other => panic!("{other:?}"),
     }
 }

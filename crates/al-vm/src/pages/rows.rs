@@ -1347,7 +1347,7 @@ impl Session {
             let s = st.borrow();
             s.cursor == Cursor::Row && s.dirty && !s.draft
         } && !Self::same_values(&self.page_rec(st).borrow().fields, &self.page_xrec_fields(st));
-        let anchor = st.borrow_mut().after_new.take();
+        let anchor = st.borrow_mut().take_after_new();
         let writes = self.write_mark();
         let (left, origin) = self.traced(st, |s| s.leave_row(st, how));
         let left = match (left, origin.as_deref()) {
@@ -2166,7 +2166,7 @@ impl Session {
         let off_new_line = self.off_new_line_pinned(st, PageMethod::GoToKey)?;
         self.save_row(st)?;
         // The cursor leaves the new row: the row it was started below no longer decides where Next goes.
-        st.borrow_mut().after_new = None;
+        st.borrow_mut().take_after_new();
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
         // A lowercase text is no key of a Code field: the client compares as typed (pages/run-modal/P82TestPage.al:

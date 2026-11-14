@@ -538,6 +538,7 @@ impl Session {
             s.after_new_by_update = anchor.is_some() && s.saved_by_update;
             s.saved_by_update = false;
             s.after_new = anchor;
+            s.new_line_writes = None;
         }
         let table = rec.borrow().table as usize;
         let fresh = self.initial_fields(table);
@@ -580,6 +581,7 @@ impl Session {
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
         st.borrow_mut().draft_start = Some(rec.borrow().fields.clone());
+        st.borrow_mut().new_line_writes = Some(self.write_mark());
         // A card opened with OpenNew whose OnNewRecord inserts the new row itself still holds it as a new row: the next write to
         // a field outside the key inserts it again (corpus testpage/CfPageLeads.al:241-289
         // Card_OnNewRecordInserts_OpenNewSetClose: `OnInsertRecord:DOC1,Doc.OnInsert:DOC1` at SetValue). Only that shape is
@@ -975,56 +977,15 @@ impl Session {
         Ok(())
     }
 
-    /// Whether a line of a part whose whole view the client holds was started below a row other than the view's last row
-    /// (see `insert_draft`).
-    fn part_line_started_mid_view(&self, st: &St, anchor: &[Value]) -> Result<bool, Signal> {
-        let table = self.table(&self.page_rec(st))?;
-        Ok(self.part_view_held(st)
-            && st
-                .borrow()
-                .window
-                .last()
-                .is_some_and(|w| !Self::same_key(&w.key, &table.primary_key(anchor))))
-    }
-
-    /// A line of an AutoSplitKey ListPart without DelayedInsert, inserted when SetValue moves the focus to a second control of
-    /// the line, under the assumption `part-split-key-second-control-xrec` (open corpus PR 1399, pages/parts/
-    /// PartSplitKeyInsertTiming.al:552 Timing_Card_Two_DescrSeq `INS 35000 x=20000`, :582, :612, :644; :921 Timing_CardPK_Two
-    /// `INS 50000 x=40000`, :953): OnInsertRecord sees the row the line was started below as xRec, also when that row is the last
-    /// row of the view. Every fact the probe measured is required:
-    /// - the pages, link, calls and host of `auto_split_part_pinned` (a Card host; the calls are values typed, no Activate);
-    /// - the host opened by the test's OpenEdit (the probe's cells; the modal handler of the pin starts on no row or mid view);
-    /// - the part read ascending, in the primary key (:921) or in a secondary key its SubPageView sets (:552), not by a
-    ///   SourceTableView of the part page;
-    /// - the part declares OnInsertRecord, the one reader of this xRec (the insert sets xRec to the row after it);
-    /// - a line started below a stored row (`PageState::after_new`) that is the last row of the view: below a row mid view
-    ///   `insert_draft` already hands that row (W2BelowXRec.al), on no row the xRec stays blank (PartSplitKeyRunModalShapes.al:375).
-    fn xrec_of_split_part_line_at_second_control(&mut self, st: &St) -> Result<(), Signal> {
-        let Some(anchor) = st.borrow().after_new.clone() else {
-            return Ok(());
-        };
-        let rec = self.page_rec(st);
-        let measured_order = {
-            let r = rec.borrow();
-            r.ascending
-                && (r.key == 0
-                    || self
-                        .object_property(st.borrow().object as usize, "SourceTableView")
-                        .is_none())
-        };
-        if !measured_order
-            || !self.has_auto_split_key(st)
-            || !self.is_list(st)
-            || Self::part_host_opened(st) != Some((true, PageMode::Edit, false, false))
-            || !self.declares(st, "oninsertrecord")
-            || !self.auto_split_part_pinned(st, &rec)?
-            || self.part_line_started_mid_view(st, &anchor)?
-        {
-            return Ok(());
+    /// For a part whose whole view the client holds (`part_view_held`): whether the line was started below the view's last row.
+    /// `None` when the client does not hold the whole view or holds no row.
+    pub(super) fn part_line_started_at_view_end(&self, st: &St, anchor: &[Value]) -> Result<Option<bool>, Signal> {
+        if !self.part_view_held(st) {
+            return Ok(None);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartSplitKeySecondControlXrec);
-        self.set_xrec_fields(st, anchor);
-        Ok(())
+        let table = self.table(&self.page_rec(st))?;
+        let key = table.primary_key(anchor);
+        Ok(st.borrow().window.last().map(|w| Self::same_key(&w.key, &key)))
     }
 
     /// OnInsertRecord decides whether the typed record is inserted at all (corpus
@@ -1069,7 +1030,8 @@ impl Session {
         // QJ_SubformSaveRecord_NewRow `S.INSR(20000 r=5 x=0 x.ln=0)`).
         let anchor = match anchor {
             Some(a)
-                if self.is_list(st) && (st.borrow().host.is_none() || self.part_line_started_mid_view(st, &a)?) =>
+                if self.is_list(st)
+                    && (st.borrow().host.is_none() || self.part_line_started_at_view_end(st, &a)? == Some(false)) =>
             {
                 Some(a)
             }
@@ -1254,10 +1216,7 @@ impl Session {
             _ => false,
         };
         if st.borrow().draft && in_row && prev.is_some() && !delayed && non_key {
-            if setting_value {
-                self.xrec_of_split_part_line_at_second_control(st)?;
-            }
-            self.insert_draft(st)?;
+            self.insert_at_second_control(st, setting_value)?;
             self.inserted_outside_view(st, idx)?;
         }
         Ok(())
