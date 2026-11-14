@@ -648,6 +648,7 @@ fn install_app_under_test(
             // apps stay in the session company (decision 5): in another company only the subscribers of the apps
             // under test run (decided without owner review, 2026-10-29, ADR-046 amendment 2).
             let with_dependencies = in_company == company;
+            let before = session.carried_state();
             let open = if part == Part::Company {
                 company_open(lowered, session, with_dependencies)
             } else {
@@ -655,7 +656,7 @@ fn install_app_under_test(
             };
             match open {
                 Err(why) => {
-                    session.rollback_transaction();
+                    roll_back_stopped(session, before);
                     // What the subscribers wrote before the one that could not run is rolled back, and BC would have
                     // kept it: a test that touches what any of them can write is not run either.
                     for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
@@ -702,8 +703,9 @@ fn install_app_under_test(
                 Ok(()) => {
                     session.commit_transaction();
                     for &(oi, ri) in routines {
+                        let before = session.carried_state();
                         if let Some(why) = run_routine(lowered, session, oi, ri) {
-                            session.rollback_transaction();
+                            roll_back_stopped(session, before);
                             refuse(
                                 lowered,
                                 session,
@@ -1632,6 +1634,15 @@ fn replayable(
             _ => None,
         })
         .collect()
+}
+
+/// Ends install code that did not run to its end (a root of the install baseline, a routine or the Company Triggers of an app
+/// under test): its rows are rolled back, and the session language and WorkDate it set go back with them (al-runner issue
+/// 8072), as for a test refused while it ran (reports/runtime/BdRegionTests.al:1327, the `BdSetterLanguage_*` tests from :926
+/// ran in the language the refused test had set; al-testrun `run.rs`). `before`: the state taken before that code ran.
+pub(crate) fn roll_back_stopped(session: &mut Session, before: al_vm::CarriedState) {
+    session.rollback_transaction();
+    session.restore_carried(before);
 }
 
 /// Runs one install routine; why it did not run to its end, if it did not.

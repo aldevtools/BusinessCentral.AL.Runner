@@ -263,6 +263,32 @@ impl al_ir::TranslationSource for PackageTranslations {
             crate::xliff::translation_file(head.name.clone(), bytes.and_then(|b| crate::xliff::parse(&b)))
         })
     }
+
+    /// An app folder: the name and content of each translation file, read now (al-runner issue 8073: the compile cache keys a
+    /// folder by its AL files, so the install baseline's key needs these). A package: `None`, its layer key holds the package.
+    fn identity(&self) -> Option<[u8; 32]> {
+        if !self.path.is_dir() {
+            return None;
+        }
+        let mut h = Sha256::new();
+        for (name, p) in crate::load::translation_file_paths(&self.path) {
+            let content = std::fs::read(&p).map_err(|e| e.to_string());
+            h.update((name.len() as u64).to_le_bytes());
+            h.update(name.as_bytes());
+            match content {
+                Ok(c) => {
+                    h.update([1]);
+                    h.update((c.len() as u64).to_le_bytes());
+                    h.update(&c);
+                }
+                Err(e) => {
+                    h.update([0]);
+                    h.update(e.as_bytes());
+                }
+            }
+        }
+        Some(h.finalize().into())
+    }
 }
 
 /// Reads the manifest and the central directory of the package at `path`. `None`: the package

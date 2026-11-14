@@ -1974,9 +1974,11 @@ impl Session {
 
     /// The session runs as an install session with id `id`, or again as the host's session (`None`). BC installs each
     /// app in a session of its own, which is not the test session (record/BfInstallTests.al:142-144,
-    /// :168; ADR-046 amendment 1, A4 item 1).
+    /// :168; ADR-046 amendment 1, A4 item 1). Another session does not see the filters this one set in filter group 1, which
+    /// stay for the session that set them (types/text-code-char/P145PageRunView.al:232-235; al-runner issue 8071).
     pub fn set_install_session_id(&mut self, id: Option<i32>) {
         self.session_id_override = id;
+        self.global_group1.clear();
     }
 
     /// Drops the session's SingleInstance codeunit instances: the next use starts from the initial state. BC's install

@@ -54,6 +54,7 @@ impl RootRun<'_> {
             session.set_company("");
         }
         session.clear_fault_site();
+        let before = session.carried_state();
         // A Message while the company is built goes to the run log (`company_data::MESSAGE_NOTE`).
         if is_step {
             session.capture_messages();
@@ -97,7 +98,7 @@ impl RootRun<'_> {
                 if keep_prefix {
                     session.commit_transaction();
                 } else {
-                    session.rollback_transaction();
+                    crate::install::roll_back_stopped(session, before);
                 }
                 if is_step {
                     self.step_failed = true;
