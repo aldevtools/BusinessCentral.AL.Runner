@@ -841,6 +841,7 @@ pub fn walk_page_contribution<V: RefVisitor>(c: &mut crate::sym::PageContributio
     for m in mods {
         let crate::sym::ControlMod {
             target: _,
+            name: _,
             props,
             triggers: _,
         } = m;
@@ -889,6 +890,7 @@ fn walk_control<V: RefVisitor>(
         part_link,
         owner,
         ext_triggers,
+        caption_modifies,
         ext_replaced: _,
         run_object,
         action_ref: _,
@@ -951,6 +953,9 @@ fn walk_control<V: RefVisitor>(
     object_opt(v, part_page);
     for (_, ext, r) in ext_triggers {
         v.routine(r, *ext);
+        obj(v, ext);
+    }
+    for (ext, _) in caption_modifies {
         obj(v, ext);
     }
     if let Some(r) = run_object {
