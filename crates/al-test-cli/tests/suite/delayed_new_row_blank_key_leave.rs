@@ -166,7 +166,7 @@ fn with_code(key_type: &str, code: InsertCode) -> Outcome {
 }
 
 /// Insert-time code that can fill the key keeps main's outcome: the table's OnInsert, a table extension's OnBeforeInsert or
-/// OnInsert, a subscriber to the table's OnBeforeInsertEvent or OnAfterInsertEvent, the page's OnInsertRecord, and a database
+/// OnInsert, a subscriber to the table's OnBeforeInsertEvent or OnAfterInsertEvent or the page's OnInsertRecordEvent, the page's OnInsertRecord, and a database
 /// insert trigger the setup turns on.
 #[test]
 fn insert_time_code_keeps_main_outcome() {
@@ -215,6 +215,17 @@ fn insert_time_code_keeps_main_outcome() {
             ..Default::default()
         },
     ));
+    // A subscriber to the page's OnInsertRecordEvent runs before the write with var Rec.
+    assert_main_kept(&with_code(
+        "Code[20]",
+        InsertCode {
+            objects: "codeunit 99706 \"LT NB PageSub\" { \
+                [EventSubscriber(ObjectType::Page, Page::\"LT NB List\", 'OnInsertRecordEvent', '', false, false)] \
+                local procedure Fill(var Rec: Record \"LT NB Row\"; BelowxRec: Boolean; var xRec: Record \"LT NB Row\"; var AllowInsert: Boolean) \
+                begin if Rec.\"Code\" = '' then Rec.\"Code\" := 'AUTO'; end; }",
+            ..Default::default()
+        },
+    ));
     assert_main_kept(&with_code(
         "Code[20]",
         InsertCode {
@@ -252,4 +263,43 @@ fn database_trigger_off_is_refused() {
             ..Default::default()
         },
     ));
+}
+
+/// OK and a part line (left by the host's Close or the part's Next) are refused too, as Next, Previous and Close on a List are.
+/// First, Last, GoToKey, an action and page code are not tested here.
+#[test]
+fn ok_and_part_line_are_refused() {
+    assert_refused(&outcome(&src("Code[20]", true, true, true, "P.OK().Invoke(); exit;")));
+    for step in ["P.Close(); exit;", "P.Lines.Next();"] {
+        let part = format!(
+            r#"
+table 99710 "LT NB Hdr" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(2; D; Text[30]) {{ }} }} keys {{ key(PK; "No.") {{ Clustered = true; }} }} }}
+table 99711 "LT NB Line" {{ fields {{ field(1; "Doc No."; Code[20]) {{ }} field(2; "Item"; Code[20]) {{ NotBlank = true; }} field(3; D; Text[30]) {{ }} }}
+    keys {{ key(PK; "Doc No.", "Item") {{ Clustered = true; }} }} }}
+page 99712 "LT NB Part" {{ PageType = ListPart; SourceTable = "LT NB Line"; DelayedInsert = true;
+    layout {{ area(Content) {{ repeater(R) {{ field(ItemF; Rec."Item") {{ }} field(DF; Rec.D) {{ }} }} }} }} }}
+page 99713 "LT NB Card" {{ PageType = Card; SourceTable = "LT NB Hdr";
+    layout {{ area(Content) {{ group(G) {{ field(NoF; Rec."No.") {{ }} }} part(Lines; "LT NB Part") {{ SubPageLink = "Doc No." = field("No."); }} }} }} }}
+codeunit 99714 T
+{{
+    Subtype = Test;
+    [Test]
+    procedure LeaveNewLine()
+    var
+        H: Record "LT NB Hdr";
+        P: TestPage "LT NB Card";
+    begin
+        H."No." := 'H1';
+        H.Insert();
+        P.OpenEdit();
+        P.GoToRecord(H);
+        P.Lines.New();
+        P.Lines.DF.SetValue('abc');
+        {step}
+    end;
+}}
+"#
+        );
+        assert_refused(&outcome(&part));
+    }
 }

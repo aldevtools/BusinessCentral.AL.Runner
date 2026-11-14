@@ -37,16 +37,21 @@ impl Session {
     }
 
     /// Whether code or the platform can run between the save and the write of `rec`: the page's or a page extension's
-    /// OnInsertRecord, an AutoSplitKey on the page, an AutoIncrement field of the table, the table's OnInsert, a table
+    /// OnInsertRecord, a subscriber (bound or not) to the page's OnInsertRecordEvent (`insert_draft` raises it with `var Rec`
+    /// before the write), an AutoSplitKey on the page, an AutoIncrement field of the table, the table's OnInsert, a table
     /// extension's OnBeforeInsert or OnInsert, a subscriber (bound or not) to the table's OnBeforeInsertEvent or
     /// OnAfterInsertEvent, or the database insert trigger (`Global Triggers` OnDatabaseInsert) on for the table. The database
-    /// trigger setup is asked last, only when nothing else can run: the insert asks it then anyway, with no AL code between.
+    /// trigger setup is asked last, only when nothing else can run: the insert asks it then anyway, after the page code and
+    /// events above, which are all in the list.
     fn key_can_be_filled_on_insert(&mut self, st: &St, rec: &Rec) -> Result<bool, Signal> {
         let engine = self.engine();
         let t = self.table(rec)?;
         let page = page_of(&engine, st);
         let page_code = page.triggers.iter().any(|(n, _)| n == "oninsertrecord")
             || page.ext_triggers.iter().any(|(n, _, _)| n == "oninsertrecord");
+        let page_event_sub = engine
+            .events
+            .is_subscribed(st.borrow().object as usize, "oninsertrecordevent");
         let auto_increment = engine.program.objects[t.object as usize]
             .table
             .as_ref()
@@ -57,7 +62,7 @@ impl Session {
         let subscribed = ["onbeforeinsertevent", "onafterinsertevent"]
             .iter()
             .any(|e| engine.events.is_subscribed(t.object as usize, e));
-        if page_code || self.has_auto_split_key(st) || auto_increment || table_code || subscribed {
+        if page_code || page_event_sub || self.has_auto_split_key(st) || auto_increment || table_code || subscribed {
             return Ok(true);
         }
         // A temporary record raises no database event and asks no setup (globaltriggers.rs `global_trigger`).
