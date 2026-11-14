@@ -411,6 +411,51 @@ page 56029 "ZR RBlocked"
     local procedure GetCaption(): Text begin exit(Helper()); end;
     local procedure Helper(): Text begin exit('h'); end;
 }
+page 56030 "ZR RStrSubstNoVar"
+{
+    PageType = Worksheet; SourceTable = "ZR Row"; Caption = 'ZR RStrSubstNoVar'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
+    var Fmt: Text;
+    trigger OnOpenPage() begin Fmt := '%1'; end;
+    local procedure GetCaption(): Text begin exit(StrSubstNo(Fmt, Rec.Name)); end;
+    
+}
+page 56031 "ZR RSub"
+{
+    PageType = Worksheet; SourceTable = "ZR Row"; Caption = 'ZR RSub'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
+    var Big: Integer;
+    trigger OnOpenPage() begin Big := 5; end;
+    local procedure GetCaption(): Text begin exit(Format(Big - 1)); end;
+    
+}
+page 56032 "ZR RConvert"
+{
+    PageType = Worksheet; SourceTable = "ZR Row"; Caption = 'ZR RConvert'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
+    var Dec: Decimal;
+    trigger OnOpenPage() begin Dec := 5; end;
+    local procedure GetCaption(): Text var I: Integer; begin I := Dec; exit(Format(I)); end;
+    
+}
+page 56033 "ZR RArray"
+{
+    PageType = Worksheet; SourceTable = "ZR Row"; Caption = 'ZR RArray'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
+    var Arr: array[2] of Text;
+    
+    local procedure GetCaption(): Text begin exit(Arr[2]); end;
+    
+}
+page 56034 "ZR RFixedLocal"
+{
+    PageType = Worksheet; SourceTable = "ZR Row"; Caption = 'ZR RFixedLocal'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
+    
+    
+    local procedure GetCaption(): Text var T: Text[3]; begin T := Rec.Name; exit(T); end;
+    
+}
 codeunit 56002 T
 {
     Subtype = Test;
@@ -528,6 +573,36 @@ codeunit 56002 T
         R.Init(); R."Item No." := 'A'; R.Name := 'First'; if R.Insert() then;
         P.Trap(); Page.Run(Page::"ZR RFindSetLock"); P.Close();
     end;
+    [Test] procedure RStrSubstNoVar()
+    var P: TestPage "ZR RStrSubstNoVar"; R: Record "ZR Row";
+    begin
+        R.Init(); R."Item No." := 'A'; R.Name := 'First'; if R.Insert() then;
+        P.Trap(); Page.Run(Page::"ZR RStrSubstNoVar"); P.Close();
+    end;
+    [Test] procedure RSub()
+    var P: TestPage "ZR RSub"; R: Record "ZR Row";
+    begin
+        R.Init(); R."Item No." := 'A'; R.Name := 'First'; if R.Insert() then;
+        P.Trap(); Page.Run(Page::"ZR RSub"); P.Close();
+    end;
+    [Test] procedure RConvert()
+    var P: TestPage "ZR RConvert"; R: Record "ZR Row";
+    begin
+        R.Init(); R."Item No." := 'A'; R.Name := 'First'; if R.Insert() then;
+        P.Trap(); Page.Run(Page::"ZR RConvert"); P.Close();
+    end;
+    [Test] procedure RArray()
+    var P: TestPage "ZR RArray"; R: Record "ZR Row";
+    begin
+        R.Init(); R."Item No." := 'A'; R.Name := 'First'; if R.Insert() then;
+        P.Trap(); Page.Run(Page::"ZR RArray"); P.Close();
+    end;
+    [Test] procedure RFixedLocal()
+    var P: TestPage "ZR RFixedLocal"; R: Record "ZR Row";
+    begin
+        R.Init(); R."Item No." := 'A'; R.Name := 'First'; if R.Insert() then;
+        P.Trap(); Page.Run(Page::"ZR RFixedLocal"); P.Close();
+    end;
     [Test] procedure RBlocked()
     var P: TestPage "ZR RBlocked"; R: Record "ZR Row";
     begin
@@ -566,6 +641,14 @@ fn an_expression_that_can_raise_or_leave_state_refuses_at_the_open_and_names_why
         ("RFor", "runs a loop"),
         ("RFindSetLock", "calls Record.FindSet with an argument"),
         ("RBlocked", "the runtime cannot run"),
+        (
+            "RStrSubstNoVar",
+            "calls Text.StrSubstNo with a format that is not a text constant or a label",
+        ),
+        ("RSub", "subtracts or multiplies"),
+        ("RConvert", "converts a value to a type other than"),
+        ("RArray", "reads an array element"),
+        ("RFixedLocal", "writes a local Text or Code of a fixed length"),
     ] {
         let (o, flagged) = get(&outcomes, t);
         if flagged
