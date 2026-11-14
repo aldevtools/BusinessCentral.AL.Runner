@@ -182,6 +182,26 @@ fn own_events(lowered: &Lowered, events: &Registry) -> Vec<OwnEvent> {
     out
 }
 
+/// The automatic subscribers, of any app, to "System Initialization".`OnAfterLogin` ([`LOGIN_EVENTS`]): the routines in
+/// which an install session's group 1 filter ends with the session (al-vm `group1_sessions.rs`, `Group1InstallShape::Login`).
+pub(crate) fn after_login_subscribers(lowered: &Lowered, events: &Registry) -> std::rc::Rc<[(usize, usize)]> {
+    let objects = &lowered.program.objects;
+    let Some(&(id, name, event)) = LOGIN_EVENTS.iter().find(|e| e.2 == "onafterlogin") else {
+        return std::rc::Rc::from([]);
+    };
+    (objects.heads().iter().enumerate())
+        .filter(|(i, o)| {
+            o.is_kind(al_ir::ObjKind::Codeunit)
+                && lowered.dependency.get(*i).copied().unwrap_or(false)
+                && o.id == Some(id)
+                && o.name.eq_ignore_ascii_case(name)
+        })
+        .flat_map(|(i, _)| events.subscribers.get(&(i, event.to_string())).into_iter().flatten())
+        .filter(|s| !s.manual)
+        .map(|s| (s.object, s.routine))
+        .collect()
+}
+
 /// Why the apps under test's login subscribers `subs` read what the dependency apps' login code writes before they run,
 /// so that alone they would see other state than inside the login (review of al-runner issue 7717, rounds three and
 /// four: alone, a subscriber that asks `Checklist.ShouldInitializeChecklist`, `SystemInitialization.IsInProgress()` or

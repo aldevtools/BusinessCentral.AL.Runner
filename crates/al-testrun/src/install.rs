@@ -18,6 +18,7 @@ use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_sema::lower::Lowered;
+use al_vm::group1_sessions::Group1InstallShape;
 use al_vm::{Engine, InstallFacts, Session};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -571,7 +572,7 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     crate::install_orders::install_partner_apps(lowered, session, &group, &mut inst);
     session.set_install_session_id(None);
     // The test session follows: the group 1 filters of the last install session are gone (al-vm `group1_sessions.rs`).
-    session.end_group1_install_session();
+    session.end_group1_install_sessions();
     session.set_apps_not_installed(None);
     session.set_apps_install_order_unknown(None);
     session.set_install_written_tables(None);
@@ -630,6 +631,7 @@ fn install_app_under_test(
     session.set_install_session_id(Some(2 + k as i32));
     // The group 1 filters of the install session before it are gone (al-vm `group1_sessions.rs`).
     session.end_group1_install_session();
+    let login = crate::login::after_login_subscribers(lowered, &engine.events);
     // Why the session's language or WorkDate is not known since install code stopped (`stopped_state`): the rest of the
     // app's install code is not run.
     let mut unknown: Option<String> = None;
@@ -669,9 +671,14 @@ fn install_app_under_test(
                 }
                 continue;
             }
-            // The shape the group 1 probe measured: the per-company part in the session company (al-vm
-            // `group1_sessions.rs`). Off again before the next company or part.
-            session.set_group1_install_shape(part == Part::Company && in_company == company);
+            // The group 1 probe measured the per-company part in the session company (al-vm `group1_sessions.rs`): there the
+            // Company Triggers run in the `Login` shape. Off again before the next company or part.
+            let measured = part == Part::Company && in_company == company;
+            session.set_group1_install_shape(if measured {
+                Group1InstallShape::Login(login.clone())
+            } else {
+                Group1InstallShape::Off
+            });
             let open = if part == Part::Company {
                 company_open(lowered, session, with_dependencies)
             } else {
@@ -727,6 +734,7 @@ fn install_app_under_test(
                 Ok(()) => {
                     session.commit_transaction();
                     for &(oi, ri) in routines {
+                        session.set_group1_install_shape(group1_trigger_shape(lowered, measured, (oi, ri)));
                         if let Some(why) = &unknown {
                             let why = format!("install code {} was not run: {why}", label(lowered, oi, ri));
                             refuse(lowered, session, skipped, &in_company, &company, ((oi, ri), why));
@@ -755,9 +763,24 @@ fn install_app_under_test(
                     }
                 }
             }
-            session.set_group1_install_shape(false);
+            session.set_group1_install_shape(Group1InstallShape::Off);
         }
         session.set_company(&company);
+    }
+}
+
+/// The group 1 shape install routine `(oi, ri)` runs in (al-vm `group1_sessions.rs`): `InstallTrigger` for an install
+/// codeunit's OnInstallAppPerCompany trigger where the probe measured it (`measured`: the per-company part in the session
+/// company, G1sXaInstall.al:115-117); `Off` for every other routine (an "Extension Triggers" subscriber among them).
+pub(crate) fn group1_trigger_shape(lowered: &Lowered, measured: bool, (oi, ri): (usize, usize)) -> Group1InstallShape {
+    let objs = &lowered.program.objects;
+    if measured
+        && is_install(&objs.heads()[oi])
+        && crate::baseline::trigger(&objs[oi], Part::Company.event()) == Some(ri)
+    {
+        Group1InstallShape::InstallTrigger
+    } else {
+        Group1InstallShape::Off
     }
 }
 

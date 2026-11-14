@@ -624,11 +624,13 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`, al-vm
+    /// `group1_sessions.rs`), outside install code.
     pub(crate) fn install_assumed(&self, object: u32) {
         if self.install_scope {
             return;
         }
+        self.group1_flagged_touch(object);
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };
@@ -2751,7 +2753,7 @@ impl Session {
     }
 
     /// The filters of `rec` in filter group 1, as text to compare.
-    fn group1_signature(rec: &Rec) -> String {
+    pub(crate) fn group1_signature(rec: &Rec) -> String {
         let r = rec.borrow();
         let mut v: Vec<String> = r
             .filters
@@ -2786,7 +2788,7 @@ impl Session {
         let by_record = self.is_al_record_call(method, rec);
         let r = self.record_op(method, rec, args)?;
         let sig = Self::group1_signature(rec);
-        self.global_group1.set(table, sig, by_record);
+        self.note_group1(table, sig, by_record);
         Ok(r)
     }
 
@@ -2796,6 +2798,7 @@ impl Session {
     /// Page.Run(Page, Rec)); refused otherwise.
     pub(crate) fn global_group_check(&self, rec: &Rec, table: u32, what: &str) -> Result<(), Signal> {
         let Some(global) = self.global_group1.signature(table) else {
+            self.group1_ended_check(rec, table, what);
             return Ok(());
         };
         if what == "FilterGroup" {

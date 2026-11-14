@@ -70,13 +70,17 @@ impl RootRun<'_> {
             return;
         }
         if install_session {
-            // Another app's install session begins: the group 1 filters of the one before are gone, and the per-company
-            // part is the shape the probe measured (al-vm `group1_sessions.rs`).
+            // Another app's install session begins: the group 1 filters of the one before are gone (al-vm
+            // `group1_sessions.rs`). The dependency apps' per-company part runs in the session company.
             if self.install_app != Some(app) {
                 session.end_group1_install_session();
                 self.install_app = Some(app);
             }
-            session.set_group1_install_shape(!no_company);
+            session.set_group1_install_shape(crate::install::group1_trigger_shape(
+                self.lowered,
+                !no_company,
+                (oi, ri),
+            ));
         } else {
             self.install_app = None;
         }
@@ -98,7 +102,7 @@ impl RootRun<'_> {
         };
         session.set_no_client(false);
         session.set_install_without_client(false);
-        session.set_group1_install_shape(false);
+        session.set_group1_install_shape(al_vm::group1_sessions::Group1InstallShape::Off);
         if is_step {
             session.set_company_build(false);
             for m in session.stop_capturing_messages() {

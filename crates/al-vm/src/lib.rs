@@ -93,7 +93,7 @@ mod filterpage;
 mod flowfields;
 mod geturl;
 mod globaltriggers;
-mod group1_sessions;
+pub mod group1_sessions;
 mod hostvalues;
 mod http;
 pub mod impact;

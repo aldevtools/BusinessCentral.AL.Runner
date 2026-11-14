@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// The first bytes of a file: what it is and which layout it has.
-const MAGIC: &[u8; 8] = b"ALBRUN\0\x04";
+const MAGIC: &[u8; 8] = b"ALBRUN\0\x05";
 
 /// The extension of the entry files (the layers have `alcc`, the source index `alci`).
 pub const EXTENSION: &str = "albr";
