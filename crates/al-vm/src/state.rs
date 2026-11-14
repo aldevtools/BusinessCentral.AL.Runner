@@ -64,10 +64,11 @@ pub(crate) struct TxState {
     /// Set by a Rename that AL code calls on a Record or a RecordRef, taken by the Rename arm of `record_op_inner`: only such
     /// a Rename is in a measured cell of `rename_blank_key.rs`. The page client's rename at close clears it.
     pub(crate) rename_from_al: bool,
-    /// Set by a Modify that AL code calls on a Record variable (not a RecordRef), taken by the Modify arm of `record_op_inner`
-    /// and cleared when the call returns: only such a Modify is in the measured cell of `sql_range.rs`. ModifyAll, a page's save
-    /// and the platform's own Modify do not set it.
-    pub(crate) modify_from_al: bool,
+    /// Which write statement of AL code on a Record variable (not a RecordRef) is starting: set by `record_op_of_al`, and by
+    /// ModifyAll(.., true) of such a statement for each row it modifies; taken by the arm it starts (`Session::take_write_of_al`)
+    /// and cleared when the call returns. Only such a write is in the measured cells of `records/sql_range.rs`. A page's save
+    /// and the platform's own writes do not set it.
+    pub(crate) write_of_al: Option<WriteOfAl>,
     /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
     /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
     pub(crate) deferred_by: Option<usize>,
@@ -117,6 +118,16 @@ pub(crate) struct TxState {
     /// (a FindFirst, FindSet, FindLast or another Find under an isolation set in an earlier transaction): `lock_unpinned`
     /// then refuses IsInWriteTransaction. Without it, the pinned reads that set `lock_unpinned` open no write transaction.
     pub(crate) locking_read_tx_unpinned: bool,
+}
+
+/// A write statement of AL code on a Record variable (`TxState::write_of_al`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum WriteOfAl {
+    Insert,
+    Modify,
+    ModifyAll,
+    /// The Modify of one row by ModifyAll(.., true) of such a statement.
+    ModifyAllRow,
 }
 
 /// What kind of Record write a [`TxWrite`] was.
@@ -198,7 +209,7 @@ impl TxState {
             insert_buffer: Vec::new(),
             insert_from_al: false,
             rename_from_al: false,
-            modify_from_al: false,
+            write_of_al: None,
             deferred_by: None,
             deferred_raised: 0,
             immediate_errors: false,
