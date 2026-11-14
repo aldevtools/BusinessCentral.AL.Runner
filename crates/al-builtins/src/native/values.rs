@@ -181,17 +181,8 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // (queries/TestQueryRuntimeContracts.al:Query_GetFilters_ThreeFilters_OrderIsNotColumnOrder).
         Value::Query(q) => {
             let object = q.borrow().object;
-            Value::Query(Rc::new(std::cell::RefCell::new(crate::value::QueryState {
-                object,
-                filters: Vec::new(),
-                filter_replaced: false,
-                top: None,
-                security_filtering: None,
-                run: None,
-                instance: None,
-                in_before_open: false,
-                closed: false,
-            })))
+            q.borrow_mut().reopen.cleared()?;
+            Value::Query(Rc::new(std::cell::RefCell::new(crate::value::QueryState::new(object))))
         }
         // A codeunit or report variable nothing has used yet has no instance to release, so
         // clearing it changes nothing (reports/TestReportRunWithRequestPage.al: `Clear(Probe)`

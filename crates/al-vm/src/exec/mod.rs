@@ -477,6 +477,8 @@ pub(crate) enum AuxSite {
     },
     QueryColumn {
         column: usize,
+        /// The query is a global variable of the routine's object: its slot (`query_reopen`).
+        global: Option<usize>,
     },
     /// `--tdd` (ADR-051 decision 4): the initial value of `ty` (`Null` for a statement), noting that the stub ran.
     TddStub {
