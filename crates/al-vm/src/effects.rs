@@ -18,6 +18,8 @@ use crate::Engine;
 use al_ir::{Arg, Expr, ObjKind, Place, SetElem, Stmt};
 use std::collections::HashSet;
 
+mod open_risk;
+
 /// The builtins without a receiver that read their arguments and the clock or the session settings, and write only a
 /// `var` argument (which the call site checks like any other write).
 const PLAIN_SYSTEM: &[&str] = &[
@@ -128,6 +130,9 @@ struct Walk<'a> {
     seen: HashSet<(usize, usize, Inst)>,
     /// The first write to a variable of a SingleInstance codeunit, which is kept (see [`Effect::Kept`]).
     kept: Option<String>,
+    /// The walk of [`Engine::caption_open_risk`]: what can raise an error counts too, and only locals may be written
+    /// (`open_risk.rs`). False for [`Engine::lasting_effect`], whose walk it leaves as it is.
+    strict: bool,
 }
 
 /// The instance code runs on, for what its writes to the instance's variables do.
@@ -170,6 +175,7 @@ impl Engine {
             engine: self,
             seen: HashSet::new(),
             kept: None,
+            strict: false,
         };
         let found = match w.routine(object, routine, Inst::Transient) {
             Err(why) => Some(Effect::Refused(why)),
@@ -215,6 +221,9 @@ impl Walk<'_> {
             ));
         };
         let at = (object, routine);
+        if self.strict {
+            self.strict_routine(at)?;
+        }
         self.stmts(r.body.stmts(), at, inst)?;
         // An event publisher also runs its subscribers, each on its own instance: the session's one instance of a
         // SingleInstance codeunit, the bound one of a manual subscriber, else a fresh one.
@@ -239,6 +248,9 @@ impl Walk<'_> {
     /// A write to `place` dies with the call: a local, or a variable of a transient instance; a variable of a SingleInstance
     /// codeunit is noted as kept.
     fn place(&mut self, place: &Place, at: (usize, usize), inst: Inst) -> Found {
+        if self.strict {
+            return self.strict_place(place, at);
+        }
         match place {
             Place::Local(_) => Ok(()),
             Place::Global(slot) => {
@@ -307,6 +319,9 @@ impl Walk<'_> {
     }
 
     fn stmt(&mut self, s: &Stmt, at: (usize, usize), inst: Inst) -> Found {
+        if self.strict {
+            self.strict_stmt(s, at)?;
+        }
         match s {
             Stmt::Assign(p, e) => {
                 self.place(p, at, inst)?;
@@ -372,6 +387,9 @@ impl Walk<'_> {
     }
 
     fn expr(&mut self, e: &Expr, at: (usize, usize), inst: Inst) -> Found {
+        if self.strict && self.strict_expr(e, at, inst)? {
+            return Ok(());
+        }
         match e {
             // Code the runtime refuses or fails when it runs: the run ends there, with every number of runs.
             Expr::Const(_)
