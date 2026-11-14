@@ -288,12 +288,10 @@ pub(crate) fn build_shared<'a>(
             }
         }
     }
-    // Extensions apply dependencies first, then by object id: when two modify one property, the
-    // later one wins (corpus pages/extensions/TestPageExtensionModifyCaption_Tests.al: a higher object id wins
-    // within an app, `Twice2Ctl`; the app that depends on the other wins whatever the ids, `FxBoth2Ctl`).
     for list in page_extensions.values_mut() {
-        list.sort_by_key(|&e| (ws.app_depth(ws.objects[e].app), ws.objects[e].id, ws.objects[e].offset));
+        list.sort_by_key(|&e| super::ext_order::page_extension_key(ws, e));
     }
+    let mut request_page_order: HashMap<usize, Vec<usize>> = HashMap::default();
     let mut page_reasons: Vec<Vec<String>> = vec![Vec::new(); ws.objects.len()];
     // The page objects each page shows as parts.
     let mut page_parts: Vec<Vec<usize>> = vec![Vec::new(); ws.objects.len()];
@@ -587,11 +585,20 @@ pub(crate) fn build_shared<'a>(
         // The request page: its controls and the data items a handler can filter. Why the test
         // client cannot drive it yet becomes a reason on the page, not on the report: a run
         // that never opens the page (UseRequestPage = false) does not need it.
+        // The request page's extensions apply in the order of `page_extensions`; for the one shape with triggers on the
+        // extensions' request pages that the corpus pins, `ext_request_page` gives that order.
+        let changing_here = changing.get(&oi).cloned().unwrap_or_default();
+        let request_exts = page_extensions.get(&oi).cloned().unwrap_or_default();
+        let pinned = super::ext_request_page::pinned_request_page(ws, &obj, &request_exts, &changing_here);
+        if let Some(p) = &pinned {
+            page_extensions.insert(oi, p.order.clone());
+            request_page_order.insert(oi, p.order.clone());
+        }
         let exts: Vec<(usize, ast::Object)> = page_extensions
             .get(&oi)
             .map(|v| v.iter().map(|&e| (e, ws.object_ast(e))).collect())
             .unwrap_or_default();
-        let (request, request_section) = crate::reports::request_layout(&obj, &l.items, &exts);
+        let (mut request, request_section) = crate::reports::request_layout(&obj, &l.items, &exts);
         page_reasons[oi].extend(request.reasons.iter().cloned());
         // A request page that declares `SourceTable` has a `Rec` of that table (corpus
         // reports/TestReportRequestPageSourceTableCompiledContracts.al).
@@ -613,52 +620,16 @@ pub(crate) fn build_shared<'a>(
                     && p.value_text().trim().eq_ignore_ascii_case("true")
             })
         });
-        // A reportextension that changes the run and extends the request page binds its controls to its variables after the
-        // base items' records (`ext_slot_table`): a value the request page handler sets reaches the extension's triggers
-        // (reports/WdReportExtRequestPage.al:98 WD_ReportExt_RequestPageFieldsReachTheRun, corpus master 930653fe, al-runner issue 6302).
-        // Pinned there for fields bound to the extension's own variables on a page without SaveValues. A field of such an
-        // extension bound to a variable of the report reads apart from the report's own control (reportext/
-        // W3RpExtRequestPage.al:214 Run_ExtensionControls_ReachTheVariablesAndTheRunIsUnchanged `after ext after=6: main=[5]`),
-        // and SaveValues keeps the extension's variables (reports/AqTests.al:479 SavedExt_2_NextRunShows): neither is
-        // built, so both stay refused, as does a field bound to anything else, and a trigger on the extension's request page
-        // or its fields (none in the pin).
-        let save_values = request_section.as_ref().is_some_and(|s| {
-            s.properties().any(|p| {
-                p.name().eq_ignore_ascii_case("SaveValues") && p.value_text().trim().eq_ignore_ascii_case("true")
-            })
-        });
-        for (e, ext) in &exts {
-            if !changing.get(&oi).is_some_and(|c| c.contains(e)) {
-                continue;
-            }
-            let own: std::collections::HashSet<String> = ext
-                .var_decls()
-                .flat_map(|v| v.names())
-                .map(|n| n.to_lowercase())
-                .collect();
-            let foreign = foreign_request_control(&request, *e, &own, &obj, &l.items);
-            // Triggers on the extension's request page or its fields are not pinned with an extension that changes the run.
-            fn has_trigger(s: &ast::Section) -> bool {
-                s.triggers().next().is_some() || s.sections().any(|c| has_trigger(&c))
-            }
-            let triggers = ext
-                .sections()
-                .filter(|s| s.name().eq_ignore_ascii_case("requestpage"))
-                .any(|s| has_trigger(&s));
-            // SaveValues: the SaveAsXml and Cancel closes are pinned (al-language-onprem/reports/layouts-saveas/
-            // Y60ReportExtSaveAsXml.al); the VM refuses the other closes (`refuse_ext_save_values_close`).
-            let why = match (save_values, foreign, triggers) {
-                (true, Some(_), _) | (true, None, true) => Some("a request page with SaveValues".to_string()),
-                (false, Some(c), _) => Some(format!("field {} not bound to a variable of the extension", c.name)),
-                (false, None, true) => Some("a trigger on the extension's request page".to_string()),
-                (_, None, false) => None,
-            };
-            if let Some(why) = why {
-                page_reasons[oi].push(format!(
-                    "reportextension `{}` changes the run and extends the request page: {why} (not supported yet)",
-                    ws.objects[*e].name
-                ));
-            }
+        page_reasons[oi].extend(super::ext_request_page::reasons(
+            ws,
+            (&request, request_section.as_ref()),
+            (&obj, &l.items),
+            &exts,
+            &changing_here,
+            pinned.is_some(),
+        ));
+        if let Some(p) = pinned {
+            request.assumes.extend(p.assumes);
         }
         layouts[oi] = Some(request);
         let (exts, extension_reasons, extension_assumes) =
@@ -747,6 +718,7 @@ pub(crate) fn build_shared<'a>(
     }
     let driven = DrivenCtx {
         page_extensions,
+        request_page_order,
         page_parts,
         page_runs,
         runs_triggers: ws
@@ -855,48 +827,6 @@ pub(crate) fn build_shared<'a>(
         shared,
         uncompiled_subscribers,
     }
-}
-
-/// The first field control of reportextension `e`'s request page that is bound to none of what a reportextension that changes
-/// the run may bind (reports/extensions/W3RpExtRequestPage.al:325-490): its own variable (`own`), a variable of the base report
-/// `base`, a field of one of the report's data items `items`, or a field of its own record variable (W3RpExtRequestPage.al:1250
-/// Run_OwnRecordControls_ReachOnBeforePreDataItemAndPreReport, corpus PR 1202, al-runner issue 6924).
-fn foreign_request_control<'a>(
-    request: &'a crate::pages::Layout,
-    e: usize,
-    own: &std::collections::HashSet<String>,
-    base: &ast::Object,
-    items: &[crate::reports::RawItem],
-) -> Option<&'a crate::pages::RawControl> {
-    let base_vars: std::collections::HashSet<String> = base
-        .var_decls()
-        .flat_map(|v| v.names())
-        .map(|n| n.to_lowercase())
-        .collect();
-    request.controls.iter().find(|c| {
-        let source = c.section.args_raw().get(1).cloned();
-        let named = |names: &std::collections::HashSet<String>| {
-            source
-                .as_deref()
-                .and_then(crate::pages::plain_name)
-                .is_some_and(|n| names.contains(&n.to_lowercase()))
-        };
-        let item_field = source
-            .as_deref()
-            .and_then(crate::pages::var_and_field)
-            .is_some_and(|(i, _)| items.iter().any(|x| x.name.eq_ignore_ascii_case(&i)));
-        let own_record_field = source
-            .as_deref()
-            .and_then(crate::pages::var_and_field)
-            .is_some_and(|(v, _)| own.contains(&v.to_lowercase()));
-        c.owner == Some(e)
-            && !own_record_field
-            && c.kind == ir::ControlKind::Field
-            && !c.section.name().eq_ignore_ascii_case("label")
-            && !named(own)
-            && !named(&base_vars)
-            && !item_field
-    })
 }
 
 /// The heads, positions, drivers and (with `export`) the blocks of a cache layer, from the objects as linked
@@ -1398,7 +1328,11 @@ pub(crate) fn lower_core(
         let id = o.id.map_or(0, |x| x.saturating_add(1));
         match list {
             al_ir::sym::ListKind::TableExtensions => (0, 0, 0),
-            al_ir::sym::ListKind::PageExtensions => (ws.app_depth(o.app) as u32, id, o.offset as u32),
+            // A request page that `ext_request_page` admits takes the order it gave (`DrivenCtx::request_page_order`).
+            al_ir::sym::ListKind::PageExtensions => extends(e)
+                .and_then(|r| shared.driven.request_page_order.get(&r))
+                .and_then(|list| list.iter().position(|&x| x == e))
+                .map_or_else(|| super::ext_order::page_extension_key(ws, e), |p| (p as u32, 0, 0)),
             // The order `ext_order.rs` gave the extensions that change the report's run; any other by object id.
             al_ir::sym::ListKind::ReportExtensions => {
                 let at = extends(e)
