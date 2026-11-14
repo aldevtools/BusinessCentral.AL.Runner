@@ -958,17 +958,13 @@ fn run_codeunit_inner(
                                 Outcome::Fail(message)
                             }
                             // A refused test did not run: what it wrote before the refusal must not
-                            // reach the next test of the codeunit, nor the session language or WorkDate it set (the
-                            // BdSetterLanguage_* tests after BdSummaryML_1040 in reports/runtime/BdRegionTests.al
-                            // ran in 1040: the refusal came before that test's own `GlobalLanguage(Original)`).
+                            // reach the next test of the codeunit, nor the session language or WorkDate it set.
                             Err(Signal::Unsupported(_)) if execute && crate::events::cancelled() => {
-                                session.rollback_transaction();
-                                session.restore_carried(carried);
+                                crate::stopped_state::roll_back_refused_test(session, carried);
                                 Outcome::NotRun("cancelled".into())
                             }
                             Err(Signal::Unsupported(r)) => {
-                                session.rollback_transaction();
-                                session.restore_carried(carried);
+                                crate::stopped_state::roll_back_refused_test(session, carried);
                                 Outcome::NotRun(not_run_reason(r))
                             }
                             Err(other) => Outcome::Fail(format!("unexpected signal {}", other.describe())),
