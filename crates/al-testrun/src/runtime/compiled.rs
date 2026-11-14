@@ -276,7 +276,8 @@ pub struct EntryRun {
     pub run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
     /// The callbacks of this entry's tests.
     pub hooks: crate::events::Hooks,
-    /// The resource files this entry gives some apps in place of theirs: (app as the caller numbered it, resources).
+    /// The resource files this entry replaces in some apps: (app as the caller numbered it, the replaced files only).
+    /// The app's other files are read from the program, which every entry shares (al-runner issue 8026).
     pub resources: Vec<(usize, ResourceFiles)>,
 }
 

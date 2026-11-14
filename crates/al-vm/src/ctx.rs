@@ -379,13 +379,19 @@ impl al_builtins::native::Ctx for Session {
         self.engine
             .resources_read
             .store(true, std::sync::atomic::Ordering::Relaxed);
-        let resources = self
-            .engine
-            .resource_overrides
-            .read()
-            .ok()
-            .and_then(|o| o.get(&index).map(|r| r.as_ref().clone()))
-            .unwrap_or_else(|| app.resources.clone());
+        // The program's files, each replaced one with the run's content (`ResourceOverrides`).
+        let overrides = self.engine.resource_overrides.read().ok();
+        let replaced = overrides.as_ref().and_then(|o| o.get(&index));
+        let resources = app
+            .resources
+            .iter()
+            .map(|(name, content)| {
+                let content = replaced
+                    .and_then(|r| r.iter().find(|(n, _)| n == name))
+                    .map_or(content, |(_, c)| c);
+                (name.clone(), content.clone())
+            })
+            .collect();
         // BC names the app `<name> by <publisher> <version>` (session-system/W5NavAppResources.al:GetResourceAsText_NameMatching).
         Some((format!("{} by {} {}", app.name, app.publisher, app.version), resources))
     }

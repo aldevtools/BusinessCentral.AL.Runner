@@ -1,8 +1,8 @@
 //! A `TestPage.Filter.SetFilter` text that starts with `=` (`'=1'`, `'=Yes'`, `'=Quote'`): Business Central sets no filter. The
 //! filter reads back as it was (empty, or the test's earlier filter on the field) and the rows stay, whether the field has a control
 //! on the page or not (corpus testpage/filters/TempListOffPageBooleanFilter.al; al-runner issue 6924). Only the measured shapes take
-//! this path (`eq_text_sets_no_filter`); such a shape on a database source the corpus did not measure refuses, and every other text
-//! and page keeps the filter `filter.rs` parses.
+//! this path (`eq_text_sets_no_filter`). Another text that starts with `=` (also after blanks) on a Boolean, Enum or Option field
+//! of a List or Worksheet refuses; a text on another page type or field type keeps the filter `filter.rs` parses.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -67,27 +67,17 @@ enum EqCell {
     Pinned,
     /// Measured by WorksheetEnumEqFilter.al (corpus PR 1392): the text sets no filter, under the assumption.
     Assumed,
-    /// Not measured on a database source: refused.
-    Refused,
-    /// The first member of an Option with captions on a List: main drops it as the pinned Option without captions; not measured.
-    RefusedCaptions,
-    /// Not measured: main's filter.
-    Main,
+    /// Not measured, for this reason: refused.
+    Unmeasured(&'static str),
 }
 
 impl Session {
-    /// Whether `text` on the field at `pos` of `table` is a filter text Business Central drops on page `st`. Every fact is required
-    /// as the corpus measured it:
-    /// - the page: PageType = List (TempListOffPageBooleanFilter.al:47, :142; WorksheetEnumEqFilter.al:129) or Worksheet
-    ///   (WorksheetEnumEqFilter.al:81, :177), opened by the test's own `OpenView` (TempListOffPageBooleanFilter.al:273, :293,
-    ///   :435, :461; WorksheetEnumEqFilter.al:260, :319, :378), at the top level (not a part, not a page AL code ran);
-    /// - the text after the `=`, exactly as written (`eq_text_kind`), and the page and source table it was measured on
-    ///   (`eq_text_cell`);
-    /// - no filter of group 0 on the field yet; or, on the temporary Worksheet with an Enum member's name, the test's own filter
-    ///   typed as a member's name (WorksheetEnumEqFilter.al:554-560: `Order`, then `=Quote` and `=Invoice` keep `Order`), which
-    ///   stays.
+    /// Whether `text` on the field at `pos` of `table` is a filter text Business Central drops on page `st`.
     ///
-    /// A shape of the rule on a database source the corpus did not measure refuses; every other text keeps main's filter.
+    /// The rule's neighborhood is a text that starts with `=`, after any blanks, on a Boolean, Enum or Option field of a List or
+    /// Worksheet page: the probe found the text dropped on every such shape it measured (WorksheetEnumEqFilter.al:14-17), so main's
+    /// filter is not an answer there. In it, a measured cell (`eq_text_measured`) sets no filter and every other shape refuses. A text on
+    /// another page type or field type keeps the filter `filter.rs` parses.
     pub(super) fn eq_text_sets_no_filter(
         &self,
         st: &St,
@@ -96,71 +86,104 @@ impl Session {
         pos: usize,
         text: &str,
     ) -> Result<bool, Signal> {
-        let Some(rest) = text.strip_prefix('=') else {
+        if !text.trim_start().starts_with('=') {
             return Ok(false);
-        };
+        }
         let list = self.is_list_page(st);
         let worksheet =
             self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
-        if !(st.borrow().test_open_view() && (list || worksheet)) {
+        let measured_field = matches!(
+            table.fields[pos].ty,
+            RtType::Boolean | RtType::Option(_) | RtType::Enum(_)
+        );
+        if !((list || worksheet) && measured_field) {
             return Ok(false);
         }
-        let Some(kind) = self.eq_text_kind(table, pos, rest) else {
-            return Ok(false);
+        // The probes wrote every text with the `=` first (WorksheetEnumEqFilter.al:412-419, :634-640;
+        // TempListOffPageBooleanFilter.al:335-373): a blank before it is in the neighborhood and not measured.
+        let cell = match text.strip_prefix('=') {
+            Some(rest) => self.eq_text_measured(st, rec, table, pos, rest, list),
+            None => EqCell::Unmeasured("with a blank before the '=' (only a text with the '=' first is measured)"),
         };
-        let temporary = rec.borrow().temporary;
-        let unfiltered = rec.borrow().filters.iter().all(|f| !(f.field == pos && f.group == 0));
-        if !unfiltered {
-            let earlier_name = {
-                let s = st.borrow();
-                let r = rec.borrow();
-                s.test_typed_filter(&r, pos)
-                    .is_some_and(|t| matches!(self.eq_text_kind(table, pos, t), Some(EqText::EnumName(_))))
-            };
-            let kept = worksheet && temporary && matches!(kind, EqText::EnumName(_)) && earlier_name;
-            if kept {
-                assume(Assumption::TestpageFilterEqTextDropped);
-            }
-            return Ok(kept);
-        }
-        match Self::eq_text_cell(list, temporary, kind) {
+        match cell {
             EqCell::Pinned => Ok(true),
             EqCell::Assumed => {
                 assume(Assumption::TestpageFilterEqTextDropped);
                 Ok(true)
             }
-            EqCell::Main => Ok(false),
-            EqCell::RefusedCaptions => Err(Signal::unsupported(format!(
-                "TestPage.Filter.SetFilter: the text '{text}' names the first member of an Option with captions or a name of more than \
-                 one word on a List page (not measured; al-runner issue 6924)"
-            ))),
-            EqCell::Refused => Err(Signal::unsupported(format!(
-                "TestPage.Filter.SetFilter: the text '{text}' on a {} page over a database table (Business Central drops a text \
-                 that starts with '=' there only for {}; al-runner issue 6924)",
+            EqCell::Unmeasured(why) => Err(Signal::unsupported(format!(
+                "TestPage.Filter.SetFilter: the text '{text}' on a {} page over a {} table {why} (Business Central sets no \
+                 filter for a text that starts with '=' on every shape the corpus measured; this shape is not measured; \
+                 al-runner issue 6924)",
                 if list { "List" } else { "Worksheet" },
-                if list {
-                    "a Boolean word"
+                if rec.borrow().temporary {
+                    "temporary"
                 } else {
-                    "the Enum members at the positions 0 and 1 (ordinals equal to positions), the Option member at position 1, or the \
-                     Boolean word 1"
+                    "database"
                 },
             ))),
         }
     }
 
+    /// The cell of the text after the `=` (`rest`) on a List (`list`) or Worksheet `st`. Every fact is required as the corpus
+    /// measured it:
+    /// - the page opened by the test's own `OpenView` (TempListOffPageBooleanFilter.al:273, :293, :435, :461;
+    ///   WorksheetEnumEqFilter.al:260, :319, :378), at the top level (not a part, not a page AL code ran);
+    /// - the text after the `=`, exactly as written (`eq_text_kind`), and the page and source table it was measured on
+    ///   (`eq_text_cell`);
+    /// - no filter of group 0 on the field yet; or, on the temporary Worksheet with an Enum member's name, the test's own filter
+    ///   typed as a member's name (WorksheetEnumEqFilter.al:554-560: `Order`, then `=Quote` and `=Invoice` keep `Order`), which
+    ///   stays.
+    fn eq_text_measured(&self, st: &St, rec: &Rec, table: &TableDef, pos: usize, rest: &str, list: bool) -> EqCell {
+        if !st.borrow().test_open_view() {
+            return EqCell::Unmeasured("that the test did not open with its own OpenView (only OpenView is measured)");
+        }
+        let Some(kind) = self.eq_text_kind(table, pos, rest) else {
+            return EqCell::Unmeasured(
+                "whose text after the '=' is not a measured Boolean word, member name or ordinal",
+            );
+        };
+        let temporary = rec.borrow().temporary;
+        let unfiltered = rec.borrow().filters.iter().all(|f| !(f.field == pos && f.group == 0));
+        if unfiltered {
+            return Self::eq_text_cell(list, temporary, kind);
+        }
+        let earlier_name = {
+            let s = st.borrow();
+            let r = rec.borrow();
+            s.test_typed_filter(&r, pos)
+                .is_some_and(|t| matches!(self.eq_text_kind(table, pos, t), Some(EqText::EnumName(_))))
+        };
+        if !list && temporary && matches!(kind, EqText::EnumName(_)) && earlier_name {
+            return EqCell::Assumed;
+        }
+        EqCell::Unmeasured(
+            "after a filter on the field (only the test's own Enum member name, then an Enum member name, on a temporary \
+             Worksheet is measured)",
+        )
+    }
+
     /// The measured cells of a text `kind` on a List (`list`) or Worksheet over a temporary or database table, with no earlier
     /// filter on the field.
     fn eq_text_cell(list: bool, temporary: bool, kind: EqText) -> EqCell {
+        const DATABASE_LIST: &str = "with a member name or ordinal (only the Boolean words are measured there)";
+        const DATABASE_WORKSHEET: &str = "with a text other than the Enum members at the positions 0 and 1 (ordinals equal to \
+                                          positions), the Option member at position 1, or the Boolean word 1";
+        const CAPTIONS: &str =
+            "with a member name of an Enum or Option that shows captions, or a name of more than one word";
+        const SIZE: &str = "with a member of an Enum or Option that does not have the measured 3 members at the positions \
+                            0-2 (Enum ordinals equal to positions, no enumextension member)";
         match (list, temporary, kind) {
             // TempListOffPageBooleanFilter.al:335-373 (temporary), :508-547 (database).
             (true, _, EqText::Boolean(w)) if LIST_BOOLEAN_WORDS.contains(&w) => EqCell::Pinned,
             // TempListOffPageBooleanFilter.al:440 `'=Quote'`, the first of `Quote,"Order"` (:35).
             (true, true, EqText::OptionName(0) | EqText::UnmeasuredOptionFirst) => EqCell::Pinned,
-            // Main drops the first member of an Option on a List whatever its captions or its form; neither is measured.
-            (true, true, EqText::OtherName { option_first: true }) => EqCell::RefusedCaptions,
             // WorksheetEnumEqFilter.al:587-592 (Enum names), :609-610 (Option names), :612 (`=1`).
             (true, true, EqText::EnumName(_) | EqText::OptionName(_) | EqText::OptionOrdinal) => EqCell::Assumed,
-            (true, false, _) => EqCell::Refused,
+            (true, true, EqText::EnumOrdinal) => {
+                EqCell::Unmeasured("with an Enum ordinal (measured on the Worksheet only)")
+            }
+            (true, false, _) => EqCell::Unmeasured(DATABASE_LIST),
             // WorksheetEnumEqFilter.al:412-419 (Enum), :434-435 (Enum without a control), :453-458 (Option), :472-473 (Boolean).
             (false, true, EqText::Boolean(w)) if TEMP_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::Assumed,
             (
@@ -168,13 +191,14 @@ impl Session {
                 true,
                 EqText::EnumName(_) | EqText::EnumOrdinal | EqText::OptionName(_) | EqText::OptionOrdinal,
             ) => EqCell::Assumed,
+            (_, true, EqText::Boolean(_)) => EqCell::Unmeasured("with a Boolean word not measured on this page"),
             // WorksheetEnumEqFilter.al:634-635, :638 (Enum `=Quote`, `=Order`), :639 (Option `=Order`), :640 (`=1`).
             (false, false, EqText::Boolean(w)) if DATABASE_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::Assumed,
             (false, false, EqText::EnumName(i)) if DATABASE_WORKSHEET_ENUM_POSITIONS.contains(&i) => EqCell::Assumed,
             (false, false, EqText::OptionName(i)) if i == DATABASE_WORKSHEET_OPTION_POSITION => EqCell::Assumed,
-            (false, _, EqText::OtherName { .. }) => EqCell::Main,
-            (false, false, _) => EqCell::Refused,
-            _ => EqCell::Main,
+            (_, _, EqText::OtherName { .. }) => EqCell::Unmeasured(CAPTIONS),
+            (_, true, EqText::UnmeasuredEnum | EqText::UnmeasuredOptionFirst) => EqCell::Unmeasured(SIZE),
+            (false, false, _) => EqCell::Unmeasured(DATABASE_WORKSHEET),
         }
     }
 
