@@ -139,11 +139,10 @@ fn table_of<'a>(c: &'a Catalog, i: usize) -> Option<(&'a Object, &'a al_ir::Tabl
 /// value each (`key_scan`). A field the table declares gives null ids unless a table extension of the table's own app extends the
 /// table; then, and for a system field and a field another app's extension adds ([`extension_packages`]), the row keeps the ids a
 /// scan gives (metadata/platform-tables/PlatformMetadataColumnValues.al:287-311 for a table of the app under test and Item;
-/// :516-532, corpus PR 1404, for System Application's and Base Application's tables; corpus PR 1407,
-/// FieldTable_AppPackageIds_KeyLookupOfOwnField_NullUnlessSameAppTableExtension and _GetOfSystemField_IsTheTablesWithoutSameApp
-/// TableExtension, for the rule, the key FindFirst and FindSet, and the system fields). Where the answer differs from the earlier
+/// :516-532 for System Application's and Base Application's tables; :569-605 for the rule and the key FindFirst and FindSet;
+/// :618-646 for the system fields; corpus PRs 1404 and 1407, merged, not pinned yet). Where the answer differs from the earlier
 /// rule (null exactly for a table of the app under test, whose two ids are equal, on a Get), assumption
-/// `field-key-lookup-package-ids` until PR 1407 is pinned. A row the rule does not know (the user-name system rows, a table whose
+/// `field-key-lookup-package-ids` until the corpus bump pins them. A row the rule does not know (the user-name system rows, a table whose
 /// same-app extensions declare no field) keeps the earlier rule on a Get and the scan's ids on a key scan.
 pub(super) fn key_lookup(p: &Providers, t: &TableDef, mut r: al_data::Row, key_scan: bool) -> al_data::Row {
     let col = |name: &str| t.fields.iter().position(|x| x.name == name);

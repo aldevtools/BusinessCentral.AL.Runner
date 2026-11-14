@@ -376,9 +376,9 @@ codeunit 50120 T
     );
 }
 
-/// A table extension in the table's own app makes a key lookup of the table's Field rows give the table's ids (corpus PR 1407,
-/// PlatformMetadataColumnValues.al FieldTable_AppPackageIds_KeyLookupOfOwnField_NullUnlessSameAppTableExtension; #1404 :516-532
-/// for an extension field of the table's own app on Base Application's 6502). The field's row gets no extension ids
+/// A table extension in the table's own app makes a key lookup of the table's Field rows give the table's ids
+/// (PlatformMetadataColumnValues.al:569-605, corpus PR 1407; :516-532 for an extension field of the table's own app on Base
+/// Application's 6502). The field's row gets no extension ids
 /// (`extension_packages` takes only another app's extension), and a `<>` filter on the table's id finds no row.
 #[test]
 fn issue_8051_extension_in_the_tables_own_app_gives_the_tables_ids_on_a_key_lookup() {
@@ -434,9 +434,8 @@ table 50100 "Plain Line"
 
 /// A key lookup (Get, or a FindFirst or FindSet with TableNo and No. set to one value each) of a declared field of a table no
 /// extension of its own app extends gives null ids, whichever app owns the table; a range of No. and a system field give the
-/// table's ids (corpus PR 1407, PlatformMetadataColumnValues.al FieldTable_AppPackageIds_KeyLookupOfOwnField_
-/// NullUnlessSameAppTableExtension and _GetOfSystemField_IsTheTablesWithoutSameAppTableExtension; #1404 :516-532 for System
-/// Application's tables). Here the table is a dependency app's, where main gave the table's ids: flagged.
+/// table's ids (PlatformMetadataColumnValues.al:569-605 and :618-646, corpus PR 1407; :516-532 for System Application's tables).
+/// Here the table is a dependency app's, where main gave the table's ids: flagged.
 #[test]
 fn issue_8051_key_lookup_of_a_dependency_table_without_same_app_extension_is_null() {
     let test = r#"

@@ -715,7 +715,7 @@ impl Providers {
 
     /// A scan of the Field table whose filters set TableNo and No. to one value each: BC answers it as a `Get`
     /// ([`fields::key_lookup`]). With a filter on a package column too, a row the lookup gives null ids is refused: BC finds no
-    /// row there for a filter its Count keeps (corpus PR 1407 probe), which is not measured further.
+    /// row there for a filter its Count keeps (the probe behind corpus PR 1407), which is not measured further.
     fn field_key_scan(&self, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
         let listed = self.listed(t, Virtual::Field)?;
         if fields::filters_package(t, scan.filters)
