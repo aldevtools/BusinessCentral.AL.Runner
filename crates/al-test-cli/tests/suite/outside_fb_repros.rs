@@ -1,4 +1,4 @@
-//! The reporter's repros of al-runner issues 6114 to 6119 (green on real BC), run here until the corpus writer's pins land:
+//! The reporter's repros of al-runner issues 6114 to 6119 and 7958 (green on real BC), run here until the corpus writer's pins land:
 //! copies of the app and test files in fixtures/outside-fb, with a stand-in for Microsoft's Library Assert. Each test names
 //! the outcome every test codeunit of a repro must have. Delete this file and the fixtures when the pins are in the corpus.
 
@@ -15,6 +15,18 @@ fn all_pass(file: &str, codeunit: &str) {
     let o = outcomes(file, codeunit);
     let bad: Vec<_> = o.iter().filter(|(_, r)| *r != Outcome::Pass).collect();
     assert!(bad.is_empty(), "{bad:#?}");
+}
+
+/// Issue 7958: a Price column (DecimalPlaces = 0 : 5) over a variable set from Round keeps the precision's decimals in the
+/// XML dataset (`2.50`, `3.00`, `2.50`, `1.20000`), while `Format(..., 0, 9)` of the same values drops them. Measured by the
+/// reporter on BC 29.1; corpus PR 1377 (reports/dataset/DatasetDecimalRoundScaleSources.al
+/// Dataset_Decimal_RoundScale_VariableColumnWithDecimalPlaces_FourRows) measures it on BC 27.5, 28.5 and 29.0.
+#[test]
+fn issue_7958_round_keeps_the_precision_decimals_in_the_dataset() {
+    all_pass(
+        include_str!("../fixtures/outside-fb/Issue7958.al"),
+        "Repro Round Scale Tests",
+    );
 }
 
 /// Issue 6119: Expand and collapse on a tree page with OnAfterGetRecord and OnAfterGetCurrRecord run no row trigger.
