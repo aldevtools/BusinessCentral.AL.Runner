@@ -15,7 +15,23 @@ impl Session {
         // The platform takes no delete on Tenant License State (record/TestPlatformTablesWritableContracts.al:96-101).
         self.tenant_license_state_refuses(t, "delete")?;
         self.document_service_trigger_refused(t, rec, run, "DeleteAll")?;
-        self.tenant_set_delete_all_refuses(cx, t, rec)?;
+        // A stored Tenant Permission Set row takes its permission rows with it (tenant_set_delete.rs).
+        let cascade = self.tenant_set_delete_all(cx, t, rec)?;
+        let deleted = self.delete_all_selected(t, rec, cx, run)?;
+        if let Some(c) = cascade {
+            self.tenant_set_cascade_apply(cx, t, c)?;
+        }
+        Ok(deleted)
+    }
+
+    /// The rows `delete_all` deletes, after its refusals.
+    fn delete_all_selected(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        cx: &al_data::AccessContext,
+        run: bool,
+    ) -> Result<Value, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
         if !flow_field_filters.is_empty() {
             return self.delete_all_flow_filtered(t, rec, run);

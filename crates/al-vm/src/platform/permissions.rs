@@ -430,6 +430,8 @@ pub(super) struct GSet {
     includes: Vec<String>,
     excluded: bool,
     declared: Result<Vec<Grant>, String>,
+    /// The Metadata Permission row of a set whose whole `Permissions` is the measured wildcard (`metadata_wildcard_row`).
+    metadata_wildcard: Option<Grant>,
 }
 
 pub(super) struct Built {
@@ -482,6 +484,7 @@ impl Grants {
                             includes,
                             excluded: prop(o, "ExcludedPermissionSets").is_some(),
                             declared: parse_grants(o, &ids),
+                            metadata_wildcard: metadata_wildcard_row(o),
                         });
                     }
                     Built { sets, by_name }
@@ -532,6 +535,23 @@ impl Grants {
         self.expanded.borrow_mut().insert(i, result.clone());
         result
     }
+}
+
+/// The one Metadata Permission row of a set whose `Permissions` is exactly `page * = X`: Object Type Page, Object ID 0,
+/// Execute Yes and no other right (events/CoPermissionLeads.al:104-107, :461-478: `row count` 1, `Page 0 R=  I=  M=  D=
+/// X=Yes;`). A wildcard of another object type or mask, or beside other entries, is not measured: `None`, and the read keeps
+/// the refusal of `parse_grants`.
+fn metadata_wildcard_row<O: al_ir::ObjectInfo + ?Sized>(o: &O) -> Option<Grant> {
+    let entries = split_entries(prop(o, "Permissions")?);
+    let [entry] = entries.as_slice() else { return None };
+    let (head, mask) = entry.rsplit_once('=')?;
+    let (kind_word, name) = head.trim().split_once(char::is_whitespace)?;
+    let measured = kind_word.eq_ignore_ascii_case("page") && name.trim() == "*" && mask.trim() == "X";
+    measured.then(|| Grant {
+        kind: 8,
+        id: 0,
+        level: [0, 0, 0, 0, 1],
+    })
 }
 
 /// Which grants table is being read.
@@ -623,7 +643,10 @@ pub(super) fn grants_mat(
             k
         };
         let grants = match which {
-            GrantTable::Metadata => s.declared.clone().map(Rc::new),
+            GrantTable::Metadata => match &s.metadata_wildcard {
+                Some(row) => Ok(Rc::new(vec![row.clone()])),
+                None => s.declared.clone().map(Rc::new),
+            },
             _ => g.expanded(&b, i, &mut Vec::new()),
         };
         match grants {

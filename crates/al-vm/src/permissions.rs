@@ -663,6 +663,9 @@ const SYSTEM: i32 = 10;
 /// AllObj, Field and Page Control Field: a narrow set reads them (Y19PermSystemTables.al, P13; Page Control Field: Y84PermAbp.al
 /// Y84_Abp_PageControlFieldRows, which lists the page's 19 field controls under a set with no table data grant).
 const ALWAYS_READABLE: [u32; 3] = [2_000_000_038, 2_000_000_041, 2_000_000_192];
+/// Company and Tenant Media: the system tables whose ReadPermission and WritePermission under a set that does not name them are
+/// pinned (`permission_query`).
+const ANSWER_FALSE_SYSTEM_TABLES: [u32; 2] = [crate::companies::COMPANY_TABLE, TENANT_MEDIA];
 /// Tenant Media: the one system table whose write denial is pinned (Y19PermSystemTables.al, P13: Insert error).
 pub(crate) const TENANT_MEDIA: u32 = 2_000_000_184;
 
@@ -859,7 +862,8 @@ impl Session {
     /// as an access (direct Yes, or Indirect completed by the calling object's `Permissions` property).
     /// Pinned: Y24PermReads.al Y24_P19_ReadWritePermission (indirect `r`, `i`, `im`, `imd`, `rimd`, and inside an object
     /// whose Permissions names the table), and the Y75 probe for R, RI, RIM, RIMD and RecordRef (Y75PermReadWrite.al).
-    /// Not pinned, so refused when the answer would be false: a temporary record and a system table.
+    /// Not pinned, so refused when the answer would be false: a temporary record and a system table other than Company and
+    /// Tenant Media.
     pub(crate) fn permission_answer_decided(
         &mut self,
         rec: &crate::records::Rec,
@@ -907,6 +911,9 @@ impl Session {
                         if write { "WritePermission" } else { "ReadPermission" }
                     )));
                 }
+                // Company and Tenant Media under a set that names neither: both answers false (metadata/Y19PermSystemTables.al:36-40,
+                // :58-63, RecordRef.Open(TableId) under `LT Y19 R`).
+                Verdict::Deny { indirect: false, .. } if ANSWER_FALSE_SYSTEM_TABLES.contains(&id) => return Ok(false),
                 Verdict::Deny { .. } if id >= 2_000_000_000 => {
                     refused = refused.or(Some(format!(
                         "{} on a system table under sets that do not grant it is not pinned (ADR-062 probe P19)",

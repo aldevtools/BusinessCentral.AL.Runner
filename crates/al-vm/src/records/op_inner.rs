@@ -1060,8 +1060,13 @@ impl Session {
                 if !rec.borrow().temporary {
                     self.load_missing_fields(rec, None)?;
                 }
-                self.tenant_set_delete_one_refuses(&cx, &t, rec)?;
-                self.delete_row(&t, rec, run)
+                // A stored Tenant Permission Set row takes its permission rows with it (tenant_set_delete.rs).
+                let cascade = self.tenant_set_delete_one(&cx, &t, rec)?;
+                let deleted = self.delete_row(&t, rec, run)?;
+                if let Some(c) = cascade {
+                    self.tenant_set_cascade_apply(&cx, &t, c)?;
+                }
+                Ok(deleted)
             }
             RecordOp::DeleteAll => {
                 let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll);
