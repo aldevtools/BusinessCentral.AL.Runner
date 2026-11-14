@@ -28,6 +28,8 @@ const LANDED_END: PinnedEnd = PinnedEnd {
     part_moves: true,
     no_writes: true,
     next: NextEnd::Refused,
+    close: true,
+    ok: false,
 };
 
 /// The globals the compiler gives every page; a page of the probe declares no other.

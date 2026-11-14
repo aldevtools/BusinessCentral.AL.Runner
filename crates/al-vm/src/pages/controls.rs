@@ -377,8 +377,8 @@ impl Session {
             return unsupported(why);
         }
         // The rows of a list whose enum's first member has the caption ' ' (`blank_enum_rows.rs`, al-runner issue 7380).
-        let blank_list_rows =
-            matches!(ty, RtType::Enum(id) if rec_bound && self.blank_enum_list_rows_pinned(st, idx, id)?);
+        let blank_list_rows = matches!(ty, RtType::Enum(id)
+            if rec_bound && self.blank_enum_list_rows_pinned(st, idx, id, &arg, from_variant)?);
         let pinned_list_not_blank = pinned_list_not_blank || blank_list_rows;
         let mut blank_enum = None;
         if let (RtType::Enum(id), Value::Text(t) | Value::Code(t)) = (&ty, &arg) {
@@ -681,7 +681,7 @@ impl Session {
                 }
             }
         }
-        if self.blank_enum_new_line_unchanged(st, idx, blank_list_rows, blank_enum.as_ref(), &current) {
+        if self.blank_enum_new_line_unchanged(st, blank_list_rows, blank_enum.as_ref(), &current) {
             return Ok(Value::Null);
         }
         let parsed = match blank_enum {

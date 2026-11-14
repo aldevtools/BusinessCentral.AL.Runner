@@ -1768,7 +1768,7 @@ impl Session {
             self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
             self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
             self.land_on_new_line(st)?;
-            st.borrow_mut().empty_list_row_behind = true;
+            st.borrow_mut().set_row_behind(true, Vec::new());
             return Ok(true);
         }
         if n == 0 {
@@ -1780,7 +1780,7 @@ impl Session {
             st.borrow_mut().refresh = false;
             st.borrow_mut().save_record_called = false;
             // No row is behind the line any more (RmWorksheetGoneRow.al SH_WsWithNew_EmptyOpen_FillThenDeleteAllUpdate `first` No).
-            st.borrow_mut().empty_list_row_behind = false;
+            st.borrow_mut().set_row_behind(false, Vec::new());
             self.land_on_new_line(st)?;
             self.land_on_new_line(st)?;
             return Ok(true);
@@ -1799,7 +1799,7 @@ impl Session {
                 found.fields.clone()
             }
         };
-        rec.borrow_mut().fields = fields.clone();
+        let left = std::mem::replace(&mut rec.borrow_mut().fields, fields.clone());
         {
             let mut s = st.borrow_mut();
             s.cursor = Cursor::Row;
@@ -1840,7 +1840,7 @@ impl Session {
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
         if back_to_new_line {
             self.land_on_new_line(st)?;
-            st.borrow_mut().empty_list_row_behind = true;
+            st.borrow_mut().set_row_behind(true, left);
         }
         Ok(true)
     }

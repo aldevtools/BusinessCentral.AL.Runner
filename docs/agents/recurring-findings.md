@@ -83,6 +83,12 @@ finds the next neighbor shape. Write the gate in allowlist form:
     raises the pinned error from the value, before it checks the key, also raises it for comments, wrapped flow
     collections and other valid input. Check every fact of the pinned line (key, value, position) before the error
     (al-runner PR 8017).
+  - a "same value, nothing to do" shortcut: skipping the write also skips the validation. The corpus pins that SetValue of
+    the held value still runs OnValidate (testpage/TestPageRuntimeContracts.al:199). Require no control, field or extension
+    validate trigger and no subscriber before the shortcut (al-runner PR 8029).
+  - `page_declares_within` checks page triggers, properties, extensions and subscribers, not control triggers and not table
+    code. A gate whose text says "no trigger" needs the control check (`controls_are_rec_fields`) and the table check
+    (`table_code_is`, `table_runs_no_code_for`) too (al-runner PR 8029).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
