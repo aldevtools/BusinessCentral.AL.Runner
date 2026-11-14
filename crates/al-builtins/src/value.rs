@@ -322,6 +322,9 @@ pub struct QueryRun {
     pub returned: usize,
     /// Version of each table the query reads (table object, stamp) when `rows` were read.
     pub stamps: Vec<(u32, u64)>,
+    /// Opened again as a statement while rows were left, with no filter change (`al-vm` `query_reopen`): until a SetRange and
+    /// an Open follow, every other call on the query refuses.
+    pub reopened_rows_left: bool,
 }
 
 #[derive(Debug, Clone)]

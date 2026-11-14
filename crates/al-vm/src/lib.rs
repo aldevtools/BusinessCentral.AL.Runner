@@ -113,6 +113,7 @@ mod platform;
 mod profile;
 mod queries;
 mod query_date_filter;
+mod query_reopen;
 mod query_save_as;
 mod raise_to;
 mod rdlc_fields;

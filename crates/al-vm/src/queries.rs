@@ -206,11 +206,17 @@ impl Session {
                 _ => {}
             }
         }
+        Self::query_reopen_gate(&qs, method, args)?;
         match method {
             "Open" => {
                 // Opening an open query is not an error (queries/TestQueryRuntimeContracts.al:
                 // Query_StateMisuse_DoesNotThrow); once rows were read what it does is not pinned.
                 if qs.borrow().run.as_ref().is_some_and(|r| r.started) {
+                    // While rows are left, with no filter change: the shape `query_reopen` owns.
+                    if self.query_reopen_rows_left_pinned(def, object, &qs) {
+                        Self::query_reopen_rows_left(&qs);
+                        return Ok(Value::Boolean(true));
+                    }
                     // After a filter changed mid-read it runs again with the new filters
                     // (queries/read-lifecycle/PnAQueryOpenRead.al:125-170, SetRangeAndOpenAfterRead: `next-entry` 4).
                     // After the last row (with or without a SetRange or SetFilter since) it runs again too,
@@ -247,6 +253,7 @@ impl Session {
                     last_key: None,
                     returned: 0,
                     stamps: Vec::new(),
+                    reopened_rows_left: false,
                 });
                 Ok(Value::Boolean(true))
             }
@@ -694,6 +701,7 @@ impl Session {
             return unsupported(format!("a query column of {}", q.describe()));
         };
         let qs = qs.borrow();
+        Self::query_reopen_column_gate(&qs)?;
         let def = self.engine.program.objects[qs.object as usize]
             .query
             .as_ref()
@@ -978,7 +986,7 @@ impl Session {
     }
 
     /// The version of every table the query reads.
-    fn query_stamps(&self, def: &ir::Query) -> Stamps {
+    pub(crate) fn query_stamps(&self, def: &ir::Query) -> Stamps {
         let mut out = Stamps::new();
         for item in &def.items {
             let t = self.engine.tables[item.table].as_ref().expect("table");

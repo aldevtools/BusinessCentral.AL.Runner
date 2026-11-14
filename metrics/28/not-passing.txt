@@ -880,7 +880,6 @@
 73570 P130_IncludeCaptionOnVariableField_LabelsAndRows
 73581 DateFormula_SetFilter_EmptyText
 73581 DateFormula_SetFilter_Formulas
-73584 Query_RowsLeft_OpenAgainAndSetRange
 73626 P131_EvaluateDateTime_TimeOnlyForm
 73701 P132_CalcDate_InnerBrackets
 73701 P132_CalcDate_MissingSignErrors

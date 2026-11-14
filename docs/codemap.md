@@ -534,6 +534,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `platform/seed.rs` (73): The rows a tenant holds before any AL runs, for the stored platform tables whose rows AL reads as facts about the sessio.
 - `queries.rs` (881): Query objects: Open, Read, column values, SaveAs. Entry: `query_op` 107, `query_column` 350.
 - `query_save_as.rs`: the bytes Query.SaveAsXml (a .NET DataSet) and SaveAsJson write. Entry: `render`.
+- `query_reopen.rs`: the pinned second Query.Open while rows are left (al-runner issue 7827) and the calls it lets through after it. Entry: `query_reopen_rows_left_pinned`, `query_reopen_gate`.
 - `recmeta.rs` (734): Record builtins that read table metadata or guard on session state. Entry: `string_literal` 29, `mentions_table` 49, `is_blank` 60.
 - `records.rs` (2694): Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry: `record_op` 733, `table_event` 205, `run_trigger` 499, `delete_row` 297, `scan` 545, `unique_violation` 346.
 - `get_key_value.rs` (~240): The primary key a `Record.Get` looks for (each given value converted to its key field's type; an omitted key field is its InitValue for an Integer, else the blank of a pinned type, other shapes refuse) and the key values its not-found error names. Used by the Get arm of `records/op_inner.rs` and by `permissions.rs`. Entry: `get_key`, `get_not_found_ident`, `get_key_value`.
