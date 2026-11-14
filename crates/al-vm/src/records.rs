@@ -471,7 +471,26 @@ impl Session {
         }
     }
 
-    pub(crate) fn store_for(&mut self, rec: &Rec) -> &mut MemStore {
+    /// The store that holds the rows of `rec`'s table. Refused for a temporary table whose rows the corpus does not measure
+    /// (`TableUnmeasured::Rows`, set in `variant_copy.rs`): every read of its rows and every write comes here.
+    pub(crate) fn store_for(&mut self, rec: &Rec) -> Result<&mut MemStore, Signal> {
+        if rec
+            .borrow()
+            .temp_id
+            .as_ref()
+            .is_some_and(|t| t.unmeasured() == al_builtins::value::TableUnmeasured::Rows)
+        {
+            return Err(crate::variant_copy::rows_refusal());
+        }
+        Ok(self.store_of(rec))
+    }
+
+    /// The change counter of `rec`'s store: it reads no row, so it is not refused where [`Self::store_for`] is.
+    pub(crate) fn store_changes(&mut self, rec: &Rec) -> u64 {
+        self.store_of(rec).change_counter()
+    }
+
+    fn store_of(&mut self, rec: &Rec) -> &mut MemStore {
         // A CRM table's rows are its default table connection's (crm.rs).
         if let Some(name) = self.crm_connection_of(rec)
             && let Some(s) = self.crm_stores.get_mut(&name)
@@ -1134,7 +1153,7 @@ impl Session {
         if !rec.borrow().temporary && t.fields.iter().any(|f| f.id == 2_000_000_005) {
             let pk = Self::sql_key(rec, t, &rec.borrow().fields);
             let stored = self
-                .store_for(rec)
+                .store_for(rec)?
                 .get(&cx, t, &pk)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
             let i = t.fields.iter().position(|f| f.id == 2_000_000_005).expect("checked");
@@ -1248,7 +1267,7 @@ impl Session {
                 true => Vec::new(),
                 false => {
                     let stored = self
-                        .store_for(rec)
+                        .store_for(rec)?
                         .get(&cx, t, &pk)
                         .map_err(|e| Signal::unsupported(format!("{e}")))?;
                     // The Delete removes the Tenant Media rows of the items still in a MediaSet; an item removed from the set
@@ -1273,7 +1292,7 @@ impl Session {
         };
         let before = self.store.change_counter();
         match self
-            .store_for(rec)
+            .store_for(rec)?
             .delete(&cx, t, &pk)
             .map_err(|e| Signal::unsupported(format!("{e}")))?
         {
@@ -1360,7 +1379,7 @@ impl Session {
         if own.is_none() {
             let pk = Self::sql_key(rec, t, row);
             if self
-                .store_for(rec)
+                .store_for(rec)?
                 .get(&cx, t, &pk)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?
                 .is_some()
@@ -1370,7 +1389,7 @@ impl Session {
         }
         let current = match own {
             Some(pk) => self
-                .store_for(rec)
+                .store_for(rec)?
                 .get(&cx, t, pk)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?,
             None => None,
@@ -1386,7 +1405,7 @@ impl Session {
                 })
                 .collect();
             let mut n = self
-                .store_for(rec)
+                .store_for(rec)?
                 .count(&cx, t, &filters)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
             // The row being rewritten matches itself when its key values do not change.
@@ -1740,7 +1759,7 @@ impl Session {
         let cx = self.cx_for(rec, t)?;
         let mut after = after;
         loop {
-            let store = self.store_for(rec);
+            let store = self.store_for(rec)?;
             let row = store
                 .next(
                     &cx,
@@ -1816,7 +1835,7 @@ impl Session {
         }];
         let cx = self.cx_for(rec, t)?;
         let taken = self
-            .store_for(rec)
+            .store_for(rec)?
             .count(&cx, t, &filters)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
         Ok(taken > 0)
@@ -2009,7 +2028,7 @@ impl Session {
                 let fields = rec.borrow().fields.clone();
                 let pk = Self::exact_key(rec, &t, &fields, "a Blob read")?;
                 stored = self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
             }
@@ -2709,7 +2728,7 @@ impl Session {
             return None;
         }
         let cx = self.cx_for(rec, &t).ok()?;
-        self.store_for(rec).count(&cx, &t, &[]).ok()
+        self.store_for(rec).ok()?.count(&cx, &t, &[]).ok()
     }
 
     /// A record method AL code calls (a Record or a RecordRef): [`Session::record_op`], with the global filter group checked

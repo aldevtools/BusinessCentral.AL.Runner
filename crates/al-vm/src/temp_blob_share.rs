@@ -347,7 +347,7 @@ impl Session {
         let sharers = rc.borrow().temp_id.as_ref().map_or(1, TempId::sharers);
         let total = Arc::strong_count(b);
         let is_b = |v: &Value| matches!(v, Value::Blob(o) if Arc::ptr_eq(o, b));
-        let store = self.store_for(rc);
+        let store = self.store_for(rc)?;
         let holders = |first: Option<&[Value]>| {
             if sharers == 1 {
                 // Every other holder is a row: one walk that stops once they are all found tells the row under the key from

@@ -1690,6 +1690,7 @@ impl Session {
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
                 let copy = self.record_by_value_unmeasured(rc);
+                crate::variant_copy::keep_rows_mark(&rc.borrow(), &copy);
                 // An assignment to a Variant the probes measured moves the copy's Blobs as `Session::blobs_by_value` says.
                 if let (true, Some(taker)) = (assign, crate::blob_transfer::Taker::variant_at(p)) {
                     let (temporary, holder) = {

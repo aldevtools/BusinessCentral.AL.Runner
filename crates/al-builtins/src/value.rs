@@ -385,6 +385,23 @@ struct TempToken {
     /// record's Blob buffer once the record moves on (al-vm `temp_blob_share.rs`). Where to look first, never more: the row is
     /// looked up, and the other rows are still searched while holders stay unaccounted for.
     empty_blob_insert_key: RefCell<Option<Vec<Value>>>,
+    /// What the corpus does not measure about the table (al-vm `variant_copy.rs`, al-runner issue 8070); set once, never
+    /// cleared: it ends with the table.
+    unmeasured: std::cell::Cell<TableUnmeasured>,
+}
+
+/// What the corpus does not measure about a temporary table ([`TempId::mark_unmeasured`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TableUnmeasured {
+    /// Everything about it is measured, or nothing marked it.
+    #[default]
+    No,
+    /// A Variant's by-value copy whose rows real Business Central may not have left empty: every read of its rows and every
+    /// write refuses (al-vm `Session::store_for`).
+    Rows,
+    /// A table one Variant's copy shares with the Variant it came from: whether a write shows through the other holder is
+    /// not measured, so every write refuses (al-vm `Session::record_op_inner`); reads run.
+    Writes,
 }
 
 impl Drop for TempToken {
@@ -400,6 +417,7 @@ impl TempId {
             release,
             by_value_of: None,
             empty_blob_insert_key: RefCell::new(None),
+            unmeasured: Default::default(),
         }))
     }
 
@@ -410,6 +428,7 @@ impl TempId {
             release,
             by_value_of: Some(Rc::downgrade(source)),
             empty_blob_insert_key: RefCell::new(None),
+            unmeasured: Default::default(),
         }))
     }
 
@@ -420,6 +439,19 @@ impl TempId {
     /// How many record states share the table (`Copy(x, true)`, a record state clone), this one included.
     pub fn sharers(&self) -> usize {
         Rc::strong_count(&self.0)
+    }
+
+    /// Marks what the corpus does not measure about the table, for every record that shares it. `Rows` is the stronger mark
+    /// and is kept once set.
+    pub fn mark_unmeasured(&self, what: TableUnmeasured) {
+        if self.0.unmeasured.get() != TableUnmeasured::Rows {
+            self.0.unmeasured.set(what);
+        }
+    }
+
+    /// What [`TempId::mark_unmeasured`] marked.
+    pub fn unmeasured(&self) -> TableUnmeasured {
+        self.0.unmeasured.get()
     }
 
     /// Whether the table was made for a record handed by value ([`TempId::new_by_value_copy`]).

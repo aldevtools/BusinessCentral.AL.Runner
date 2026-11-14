@@ -764,7 +764,7 @@ impl Session {
                 let cx = self.cx_for(rec, t)?;
                 let pk = t.primary_key(&fields);
                 let stored = self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .get(&cx, t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 match stored {

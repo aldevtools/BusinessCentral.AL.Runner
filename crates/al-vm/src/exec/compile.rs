@@ -55,6 +55,7 @@ fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
         debug,
         params: r.params,
         by_var: &r.by_var,
+        body: &r.body,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -93,6 +94,8 @@ struct Compiler<'a> {
     params: usize,
     /// Which parameters are `var`.
     by_var: &'a [bool],
+    /// The routine's statements.
+    body: &'a [ir::Stmt],
 }
 
 type R<T> = Result<T, ()>;
@@ -1385,9 +1388,12 @@ impl<'a> Compiler<'a> {
             self.expr_any(e)?
         };
         let place = self.rplace(p)?;
-        self.chunk
-            .variant_copies
-            .push(crate::variant_copy::VariantCopySite { place, source });
+        let target_written_once = crate::variant_copy::local_written_once(p, self.body);
+        self.chunk.variant_copies.push(crate::variant_copy::VariantCopySite {
+            place,
+            source,
+            target_written_once,
+        });
         let s = u32::try_from(self.chunk.variant_copies.len() - 1).map_err(|_| ())?;
         self.emit(Op::StoreVariantCopy { s, a });
         Ok(true)

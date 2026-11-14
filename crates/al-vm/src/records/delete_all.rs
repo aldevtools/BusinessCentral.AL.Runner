@@ -78,7 +78,7 @@ impl Session {
             self.global_setup_asked(t)?;
         }
         let n = self
-            .store_for(rec)
+            .store_for(rec)?
             .count(cx, t, &filters)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
         // A platform table whose fresh-tenant rows nothing pins (`UNSEEDED_ROWS`): a DeleteAll without filters removes
@@ -99,7 +99,7 @@ impl Session {
                     t.name
                 ));
             }
-            self.store_for(rec)
+            self.store_for(rec)?
                 .delete_all(cx, t, &filters)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?;
             self.deletes += 1;
@@ -146,7 +146,7 @@ impl Session {
                 // (Tests-SCM-Manufacturing B42538_UserIDOnReqLine; assumption delete-all-skips-rows-deleted-meanwhile).
                 let pk: Vec<Value> = t.keys[0].iter().map(|&f| row[f].clone()).collect();
                 let still_there = self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .get(cx, t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?
                     .is_some();
@@ -166,7 +166,7 @@ impl Session {
                 "DeleteAll on the Company table without delete events (a deleted company's rows go with it; not pinned)",
             );
         }
-        self.store_for(rec)
+        self.store_for(rec)?
             .delete_all(cx, t, &filters)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
         self.deletes += 1;

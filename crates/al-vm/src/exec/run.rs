@@ -69,6 +69,24 @@ fn release(f: &mut Frame, r: u16, nl: u16) {
 }
 
 impl Session {
+    /// `Op::StoreVariantCopy`: a value `Op::StoreLocal` stores straight into its register is no record, and goes there as main
+    /// stores it; every other value goes to `Session::store_variant_copy`.
+    #[inline]
+    fn variant_copy_op(
+        &mut self,
+        site: &crate::variant_copy::VariantCopySite,
+        v: Value,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        match site.place {
+            al_ir::Place::Local(i) if !matches!(v, Value::Record(_) | Value::Library(..) | Value::Blob(_)) => {
+                set(&mut f.locals[i], v);
+                Ok(())
+            }
+            _ => self.store_variant_copy(site, v, f),
+        }
+    }
+
     /// Runs `chunk` on frame `f`. The frame's locals already hold the temporaries.
     pub(crate) fn run_chunk(&mut self, chunk: &Chunk, f: &mut Frame) -> Result<(), Signal> {
         self.run_range::<false>(chunk, f, 0, chunk.code.len()).map(|_| ())
@@ -175,7 +193,7 @@ impl Session {
                 }
                 Op::StorePlace { p, a } => self.write(&chunk.places[p as usize], take(f, a, nl), f)?,
                 Op::StoreVariantCopy { s, a } => {
-                    self.store_variant_copy(&chunk.variant_copies[s as usize], take(f, a, nl), f)?
+                    self.variant_copy_op(&chunk.variant_copies[s as usize], take(f, a, nl), f)?
                 }
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;

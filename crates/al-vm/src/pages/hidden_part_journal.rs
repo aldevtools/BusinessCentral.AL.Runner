@@ -420,9 +420,9 @@ impl Session {
     /// read that writes to the database or to the part's own table is refused.
     fn journal_read(&mut self, st: &St, i: usize, child: &St) -> Result<(), Signal> {
         let rec = self.page_rec(child);
-        let before = (self.store.change_counter(), self.store_for(&rec).change_counter());
+        let before = (self.store.change_counter(), self.store_changes(&rec));
         self.sync_part(st, i, child)?;
-        if (self.store.change_counter(), self.store_for(&rec).change_counter()) != before {
+        if (self.store.change_counter(), self.store_changes(&rec)) != before {
             return unsupported("a read of the hidden part of the journal shape that writes (not pinned)");
         }
         Ok(())

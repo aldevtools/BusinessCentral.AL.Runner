@@ -1194,7 +1194,7 @@ impl Session {
         let mut after: Option<Vec<Value>> = None;
         loop {
             let store = match rec {
-                Some(r) => self.store_for(r),
+                Some(r) => self.store_for(r)?,
                 None => &mut self.store,
             };
             let next = store

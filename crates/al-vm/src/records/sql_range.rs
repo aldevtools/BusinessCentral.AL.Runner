@@ -329,7 +329,7 @@ impl Session {
         let cx = self.cx_for(rec, t)?;
         let key = Self::sql_key(rec, t, &rec.borrow().fields);
         let row = self
-            .store_for(rec)
+            .store_for(rec)?
             .get(&cx, t, &key)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
         Ok(row.is_some())
@@ -341,7 +341,7 @@ impl Session {
         let cx = self.cx_for(rec, t)?;
         let key = Self::sql_key(rec, t, fields);
         let Some(row) = self
-            .store_for(rec)
+            .store_for(rec)?
             .get(&cx, t, &key)
             .map_err(|e| Signal::unsupported(format!("{e}")))?
         else {
