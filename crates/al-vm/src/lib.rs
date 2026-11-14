@@ -93,6 +93,7 @@ mod filterpage;
 mod flowfields;
 mod geturl;
 mod globaltriggers;
+pub mod group1_sessions;
 mod hostvalues;
 mod http;
 pub mod impact;
@@ -1068,9 +1069,8 @@ pub struct Session {
     pub(crate) scratch_messages: Option<Vec<String>>,
     /// `--tdd` (ADR-051 decision 5): the stubs that ran since the last [`Session::take_tdd_reached`].
     pub(crate) tdd_reached: std::collections::BTreeSet<String>,
-    /// The filters in filter group 1 (the global group) last set on a database record, per table object: BC keeps them on
-    /// every record of the table for the rest of the session (records.rs `global_group_check`).
-    pub(crate) global_group1: std::collections::HashMap<u32, String>,
+    /// The filters in filter group 1 (the global group) per table object, and when they end (`group1_sessions.rs`).
+    pub(crate) global_group1: group1_sessions::Group1Filters,
     /// Value capture and loop tracking (`capture.rs`); `None`: off, and the statements run as they always did.
     pub(crate) capture: Option<Box<capture::Capture>>,
     /// Which executable form the next routine runs (one byte): the plain one, the captured one (a capture is on and the

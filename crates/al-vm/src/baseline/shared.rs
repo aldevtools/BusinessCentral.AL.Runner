@@ -23,6 +23,7 @@ pub struct SharedBaseline {
     company_built: bool,
     company_unknown: Vec<(String, u32, String)>,
     full_copies: Vec<String>,
+    group1_flagged: std::collections::BTreeSet<u32>,
     origin: u64,
     /// `Baseline::to_bytes` of the frozen baseline, to check at the end of a run that nothing wrote to it.
     bytes: Vec<u8>,
@@ -73,6 +74,7 @@ impl Baseline {
             company_built: copy.company_built,
             company_unknown: copy.company_unknown,
             full_copies: copy.full_copies,
+            group1_flagged: copy.group1_flagged,
             origin: self.origin,
             bytes,
         })
@@ -98,6 +100,7 @@ impl SharedBaseline {
             install_rows: None,
             company_unknown: self.company_unknown.clone(),
             full_copies: self.full_copies.clone(),
+            group1_flagged: self.group1_flagged.clone(),
             origin: self.origin,
         };
         match engine {

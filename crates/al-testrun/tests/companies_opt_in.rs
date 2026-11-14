@@ -431,3 +431,26 @@ fn a_company_made_in_the_run_starts_without_company_information_and_copies() {
         "{other:?}"
     );
 }
+
+// A group 1 filter A's install routine set in the other company (not the session company the probe measured, al-vm
+// `group1_sessions.rs`) keeps main's refusal: it does not end with A's install session, and B's install code that reads
+// the table is not run.
+#[test]
+fn a_group1_filter_set_in_the_other_company_keeps_mains_refusal() {
+    let a = format!(
+        "table 60950 Item {{ fields {{ field(1; No; Code[20]) {{ }} field(2; Blocked; Boolean) {{ }} }} }}
+        codeunit 60952 InstA {{ Subtype = Install;
+            trigger OnInstallAppPerCompany() var I: Record Item;
+            begin if CompanyName() <> '{OTHER}' then exit; I.FilterGroup(1); I.SetRange(Blocked, false); I.FilterGroup(0); end; }}"
+    );
+    let b = "table 60960 Setup { fields { field(1; K; Code[10]) { } } }
+        codeunit 60961 InstB { Subtype = Install;
+            trigger OnInstallAppPerCompany() var I: Record Item; S: Record Setup; begin if I.IsEmpty() then; if S.Insert() then; end; }
+        codeunit 60962 T { Subtype = Test;
+            [Test] procedure InstallRan() var S: Record Setup; begin S.Get(); end; }";
+    let o = outcomes_of_apps(&[("a", &[], &a), ("b", &["a"], b)]);
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("filter group 1")),
+        "{o:?}"
+    );
+}

@@ -389,6 +389,7 @@ pub fn run_traced_halting(
         step_failed: false,
         refused: Vec::new(),
         unknown_session: None,
+        install_app: None,
     };
     let mut k = 0;
     while k < roots.len() {
@@ -442,13 +443,6 @@ pub fn run_traced_halting(
     session.set_apps_install_order_unknown(None);
     session.set_environment(run_environment);
     session.trace_faults(false);
-    // The baseline is not a test, so no test carries its marks; the run says what the shared start relied on.
-    for a in al_builtins::assumptions::take_hits() {
-        notes.push(format!(
-            "{ASSUMPTION_NOTE}`{}` (--list-assumptions describes it)",
-            a.info().id
-        ));
-    }
     // ADR-046 amendment 4: under `--companies`, a run without test data models the corpus CI database, whose session
     // company is an evaluation company (record/BfInstallTests.al:61). Its Company-Initialize ran
     // with the row of the default mode, which gives Experience Tier Essential there
@@ -463,6 +457,14 @@ pub fn run_traced_halting(
     // Tables whose rows depend on the install order of two partner dependency apps (ADR-046 amendment 7): a test that
     // touches one is not run, as for an app under test's install routine that could not run.
     workspace_installs.extend(order_refused);
+    // The baseline is not a test, so no test carries its marks; the run says what the shared start relied on (the
+    // apps under test's install code included).
+    for a in al_builtins::assumptions::take_hits() {
+        notes.push(format!(
+            "{ASSUMPTION_NOTE}`{}` (--list-assumptions describes it)",
+            a.info().id
+        ));
+    }
     let restored = session.restored_changes();
     let trace = trace.then(|| crate::impact_trace::keys(&lowered.program, &session.take_impact_trace()));
     session.set_install_scope(false);
