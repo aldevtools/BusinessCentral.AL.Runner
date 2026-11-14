@@ -898,7 +898,6 @@
 73800 Invalid_Formula_Evaluate
 73800 WD_Numbers
 73800 Weeks
-73801 ClosingNormal
 73801 Date2DWY_Valid
 73802 Variant2Date_Time_Errors
 73803 RoundDateTime_Errors

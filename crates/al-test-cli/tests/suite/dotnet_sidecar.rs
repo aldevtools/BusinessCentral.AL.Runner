@@ -371,6 +371,36 @@ fn a_missing_type_or_member_is_a_refusal_not_an_exception() {
     sess.close();
 }
 
+// A property, an indexer or a field of an instance on a variable that holds no object (a static target here) is refused as
+// "the variable holds no object", as an instance method is; a name no member carries stays "not found on" (refusal text only).
+#[test]
+fn an_instance_property_or_indexer_on_a_variable_holding_no_object_says_so() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let why = refused(sess.get_property(st("System.Uri"), "AbsoluteUri"));
+    assert!(
+        why.contains("'System.Uri.AbsoluteUri' is an instance member and the variable holds no object"),
+        "{why}"
+    );
+    let why = refused(sess.set_property(st("System.UriBuilder"), "Query", DotNetValue::Str("a=b".into())));
+    assert!(
+        why.contains("'System.UriBuilder.Query' is an instance member and the variable holds no object"),
+        "{why}"
+    );
+    let why = refused(sess.invoke(
+        st("System.Collections.ArrayList"),
+        "Item",
+        vec![arg(DotNetValue::Int32(0))],
+    ));
+    assert!(
+        why.contains("'System.Collections.ArrayList.Item' is an instance member and the variable holds no object"),
+        "{why}"
+    );
+    let why = refused(sess.get_property(st("System.Uri"), "NoSuchProperty"));
+    assert!(why.contains("not found on 'System.Uri'"), "{why}");
+    sess.close();
+}
+
 // A method that is generic only, with its one type parameter as its return type (OpenXml's `T GetWorksheetByName<T>(string)`),
 // is refused by a plain call with a text that says so, and runs when the call names the type argument.
 #[test]
