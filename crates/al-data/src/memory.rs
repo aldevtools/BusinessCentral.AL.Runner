@@ -739,23 +739,50 @@ impl MemStore {
             .unwrap_or_default()
     }
 
-    /// The primary keys of the rows of table `t` whose field at position `pos` satisfies `holds`, without copying the rows.
-    pub fn keys_where(
+    /// Whether the row of table `t` under primary key `key` has a field at position `pos` that satisfies `holds`: one lookup,
+    /// no row copied. Counts no store operation (`bump`): the VM's check of who holds a temporary row's Blob buffer is no
+    /// record method of AL code, and the SQL counters (al-vm `sqlcount.rs`) must not see it.
+    pub fn row_field_holds(
         &self,
         cx: &AccessContext,
         t: &TableDef,
+        key: &[Value],
         pos: usize,
         holds: impl Fn(&Value) -> bool,
-    ) -> Vec<Vec<Value>> {
-        bump();
+    ) -> bool {
         self.table(cx, t)
-            .map(|tb| {
-                tb.values()
-                    .filter(|row| holds(&row[pos]))
-                    .map(|row| t.primary_key(row))
-                    .collect()
-            })
-            .unwrap_or_default()
+            .is_some_and(|tb| tb.get(&Key::of(t, key.to_vec())).is_some_and(|row| holds(&row[pos])))
+    }
+
+    /// How many rows of table `t` other than the one under primary key `skip` have a field at position `pos` that satisfies
+    /// `holds`, counted from the last row in primary key order back to the first and stopping at `enough`. Counts no store
+    /// operation, as [`MemStore::row_field_holds`].
+    pub fn count_field_holders_from_last(
+        &self,
+        cx: &AccessContext,
+        t: &TableDef,
+        skip: &[Value],
+        pos: usize,
+        enough: usize,
+        holds: impl Fn(&Value) -> bool,
+    ) -> usize {
+        if enough == 0 {
+            return 0;
+        }
+        let Some(tb) = self.table(cx, t) else {
+            return 0;
+        };
+        let skip = Key::of(t, skip.to_vec());
+        let mut n = 0;
+        for (k, row) in tb.iter().rev() {
+            if *k != skip && holds(&row[pos]) {
+                n += 1;
+                if n == enough {
+                    break;
+                }
+            }
+        }
+        n
     }
 
     /// The provider of table `t`, if its rows are computed.

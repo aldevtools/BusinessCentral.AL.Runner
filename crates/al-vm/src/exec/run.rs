@@ -979,7 +979,7 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
-        self.temp_blob_share_guard(site.id, site.receiver_arg.as_ref(), &site.args, &mut recv, &values, f)?;
+        let open = self.temp_blob_share_guard(site, nl, &mut recv, &values, f)?;
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
@@ -996,6 +996,9 @@ impl Session {
         }
         self.ret_used = site.ret_used;
         let result = native(self, recv.as_mut(), &mut values);
+        if let (Some(open), Ok(_)) = (open, &result) {
+            self.temp_blob_attach_open(open);
+        }
         // In the order `run_native` lets go of them: the receiver, then the operands.
         drop(recv);
         self.return_vec(values);
@@ -1129,7 +1132,7 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
-        self.temp_blob_share_guard(site.id, site.receiver_arg.as_ref(), &site.args, &mut recv, &values, f)?;
+        let open = self.temp_blob_share_guard(site, nl, &mut recv, &values, f)?;
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
@@ -1267,6 +1270,9 @@ impl Session {
             site.ret_used,
             f,
         );
+        if let (Some(open), Ok(_)) = (open, &result) {
+            self.temp_blob_attach_open(open);
+        }
         if let (Some(row), Some(ir::Arg::Ref(p)), Ok(_)) = (copy_array_row_back, site.args.first(), &result) {
             self.write(p, row, f)?;
         }

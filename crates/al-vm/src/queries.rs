@@ -449,7 +449,7 @@ impl Session {
             return unsupported(format!("{method} with {}", stream.describe()));
         };
         let blob = match &*h.borrow() {
-            al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+            al_builtins::value::LibraryValue::OutStream(blob, ..) => blob.clone(),
             _ => return unsupported(format!("{method} to something that is not an OutStream")),
         };
         let cols: Vec<usize> = (0..def.columns.len())
@@ -575,7 +575,7 @@ impl Session {
             return unsupported(format!("Query.SaveAsCsv with {}", args.first().describe()));
         };
         let blob = match &*h.borrow() {
-            al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+            al_builtins::value::LibraryValue::OutStream(blob, ..) => blob.clone(),
             _ => return unsupported("Query.SaveAsCsv to something that is not an OutStream"),
         };
         let cols: Vec<usize> = (0..def.columns.len())

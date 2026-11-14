@@ -342,6 +342,9 @@ pub struct TempId(Rc<TempToken>);
 struct TempToken {
     id: u64,
     release: Rc<RefCell<Vec<u64>>>,
+    /// The table was made for a record handed by value (al-vm `record_by_value`): its record's Blob fields may still share
+    /// their buffers with the record it was copied from and that record's rows.
+    by_value_copy: bool,
 }
 
 impl Drop for TempToken {
@@ -352,11 +355,34 @@ impl Drop for TempToken {
 
 impl TempId {
     pub fn new(id: u64, release: Rc<RefCell<Vec<u64>>>) -> TempId {
-        TempId(Rc::new(TempToken { id, release }))
+        TempId(Rc::new(TempToken {
+            id,
+            release,
+            by_value_copy: false,
+        }))
+    }
+
+    /// The table of a temporary record's copy handed by value.
+    pub fn new_by_value_copy(id: u64, release: Rc<RefCell<Vec<u64>>>) -> TempId {
+        TempId(Rc::new(TempToken {
+            id,
+            release,
+            by_value_copy: true,
+        }))
     }
 
     pub fn id(&self) -> u64 {
         self.0.id
+    }
+
+    /// How many record states share the table (`Copy(x, true)`, a record state clone), this one included.
+    pub fn sharers(&self) -> usize {
+        Rc::strong_count(&self.0)
+    }
+
+    /// Whether the table was made for a record handed by value ([`TempId::new_by_value_copy`]).
+    pub fn is_by_value_copy(&self) -> bool {
+        self.0.by_value_copy
     }
 }
 
@@ -637,6 +663,20 @@ impl DirtyBase {
 }
 
 impl RecordState {
+    /// How many of the record's own copies of its fields hold Blob buffer `b` at position `pos`: the fields and the snapshots
+    /// IsDirty, RecordRef.IsDirty and Modify compare with (`is_dirty_base`, `dirty_base`, `last_modify`).
+    pub fn blob_copies_of(&self, pos: usize, b: &crate::stream::BlobRef) -> usize {
+        let holds = |row: &[Value]| matches!(row.get(pos), Some(Value::Blob(o)) if std::sync::Arc::ptr_eq(o, b));
+        let mut rows: Vec<&[Value]> = vec![&self.fields];
+        rows.extend(self.dirty_base.as_deref());
+        rows.extend(self.last_modify.as_deref());
+        if let DirtyBase::Row { base, alt, .. } = &self.is_dirty_base {
+            rows.push(base);
+            rows.extend(alt.as_deref());
+        }
+        rows.into_iter().filter(|r| holds(r)).count()
+    }
+
     /// A copy of the record that is a variable of its own: a by-value parameter (also a temporary one). It reads the
     /// original's DECLARED value, not its current one, and `Clear` on it goes back to that value; the original keeps its
     /// current value (al-language/reports/runtime/ACAttributes.al:397, :411-414; al-language/reports/runtime/
@@ -1409,8 +1449,13 @@ pub enum LibraryValue {
     XmlNamespaces(crate::xml::NsScopes),
     /// An InStream: a snapshot being read.
     InStream(crate::stream::InState),
-    /// An OutStream: appends to a Blob buffer.
-    OutStream(crate::stream::BlobRef, crate::stream::Encoding),
+    /// An OutStream: appends to a Blob buffer. The last part is what the VM kept when the stream was opened on a Blob field of
+    /// a temporary record ([`crate::stream::OutOpen`]).
+    OutStream(
+        crate::stream::BlobRef,
+        crate::stream::Encoding,
+        Option<Rc<crate::stream::OutOpen>>,
+    ),
 }
 
 impl Value {

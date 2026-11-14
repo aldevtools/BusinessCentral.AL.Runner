@@ -378,7 +378,7 @@ impl Session {
             return Vec::new();
         };
         let fields: Vec<Value> = t.fields.iter().map(|f| self.initial_field(f)).collect();
-        let fresh = fields
+        let fresh: Rc<[usize]> = fields
             .iter()
             .enumerate()
             .filter(|(_, v)| {
@@ -405,13 +405,13 @@ impl Session {
             })
             .map(|(i, _)| i)
             .collect();
-        self.initial_cache.insert(
-            table,
-            InitialFields {
-                values: fields.clone(),
-                fresh,
-            },
-        );
+        // The cache keeps no shared object of this record: its slots are built fresh on every copy, and a Blob buffer the
+        // cache held would count as one more holder of this record's buffer (`temp_blob_share.rs`).
+        let mut values = fields.clone();
+        for &i in fresh.iter() {
+            values[i] = Value::Null;
+        }
+        self.initial_cache.insert(table, InitialFields { values, fresh });
         let mut fields = fields;
         self.clear_uninstalled_init_values(table, &mut fields);
         fields

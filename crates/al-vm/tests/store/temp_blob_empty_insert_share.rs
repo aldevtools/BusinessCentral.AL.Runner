@@ -21,6 +21,11 @@ table 50992 "Tbs Code Row"
     fields { field(1; Key1; Code[10]) { } field(2; Data; Blob) { } }
     keys { key(PK; Key1) { } }
 }
+table 50995 "Tbs Two Blobs"
+{
+    fields { field(1; Key1; Integer) { } field(2; Data; Blob) { } field(3; Other; Blob) { } }
+    keys { key(PK; Key1) { } }
+}
 codeunit 50993 Lib
 {
     procedure Write(var R: Record "Tbs Row" temporary; T: Text)
@@ -70,7 +75,7 @@ codeunit 50993 Lib
 }
 codeunit 50994 C
 {
-    var Lib: Codeunit Lib;
+    var Lib: Codeunit Lib; G: Record "Tbs Row" temporary;
 
     // TempBlobEmptyInsertShare.al:142
     procedure KeyChangeClearWriteInsert(): Text
@@ -327,6 +332,178 @@ codeunit 50994 C
         R.Key1 := 2; Clear(R.Data); R.Insert();
         exit(Lib.ReadGet(R, 1) + '|' + Lib.ReadGet(R, 2));
     end;
+    // Not measured: an OutStream created before the key change and written after it (main: row 1 read the write).
+    procedure StreamBeforeKeyChangeWriteInsert(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        R.Key1 := 2; O.WriteText('X'); R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: the same without the second Insert.
+    procedure StreamBeforeKeyChangeWriteNoInsert(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        R.Key1 := 2; O.WriteText('X');
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: the stream created before the first Insert, written after the key change.
+    procedure StreamBeforeInsertWriteAfterKeyChange(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R.Key1 := 1;
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        R.Insert();
+        R.Key1 := 2; O.WriteText('X'); R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: a by-value copy of the record writes under another key (main: the caller's row 1 read the write).
+    procedure ByValueCopyWrites(): Text
+    var R: Record "Tbs Row" temporary;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2; ByValue(R);
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    local procedure ByValue(R: Record "Tbs Row" temporary)
+    var O: OutStream;
+    begin
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        O.WriteText('X');
+        R.Insert();
+    end;
+
+    // Not measured and not told apart from :426 (the entry says so): a second variable takes the buffer with Copy(R, true)
+    // after the Insert, moves on and writes; it takes the assumed path.
+    procedure SecondVariableWrites(): Text
+    var R: Record "Tbs Row" temporary; R2: Record "Tbs Row" temporary;
+    begin
+        R.Key1 := 1; R.Insert();
+        R2.Copy(R, true);
+        R2.Key1 := 2; Lib.Write(R2, 'X'); R2.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: a Variant holds the record while it moves on and writes.
+    procedure VariantHolds(): Text
+    var R: Record "Tbs Row" temporary; V: Variant;
+    begin
+        R.Key1 := 1; R.Insert();
+        V := R;
+        R.Key1 := 2; Lib.Write(R, 'X'); R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: an element of a record array.
+    procedure ArrayElement(): Text
+    var R: array[2] of Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R[1].Key1 := 1; R[1].Insert();
+        R[1].Key1 := 2;
+        R[1].Data.CreateOutStream(O, TextEncoding::UTF8);
+        O.WriteText('X');
+        R[1].Insert();
+        exit(Lib.ReadGet(R[1], 1));
+    end;
+
+    // Not measured: a table with a second Blob field.
+    procedure SecondBlobField(): Text
+    var R: Record "Tbs Two Blobs" temporary; O: OutStream;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2;
+        R.Other.CreateOutStream(O, TextEncoding::UTF8);
+        O.WriteText('X');
+        R.Insert();
+        R.Get(1); R.CalcFields(Other);
+        exit(Format(R.Other.HasValue()));
+    end;
+
+    // Not measured: CopyStream into the stream instead of WriteText.
+    procedure CopyStreamInto(): Text
+    var R: Record "Tbs Row" temporary; Src: Record "Tbs Row" temporary; O: OutStream; I: InStream;
+    begin
+        Src.Key1 := 9; Lib.Write(Src, 'X');
+        Src.Data.CreateInStream(I, TextEncoding::UTF8);
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2;
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        CopyStream(O, I);
+        R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: the record that opened the stream is gone while a row it inserted and a variable sharing its table hold the
+    // buffer (main: row 1 read the write).
+    procedure StreamOutlivesRecord(): Text
+    var O: OutStream;
+    begin
+        OpenOn(O);
+        O.WriteText('X');
+        exit(Lib.ReadGet(G, 1));
+    end;
+
+    local procedure OpenOn(var O: OutStream)
+    var R: Record "Tbs Row" temporary;
+    begin
+        R.Key1 := 1; R.Insert();
+        G.Copy(R, true);
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+    end;
+
+    // Main's result kept: a stream on a record never inserted, written after a key change.
+    procedure StreamNoRowKeyChange(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R.Key1 := 1;
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        R.Key1 := 2; O.WriteText('X'); R.Insert();
+        exit(Lib.ReadGet(R, 2));
+    end;
+
+    // Main's result kept: a live InStream on the buffer, then a write, no row.
+    procedure InStreamThenWriteNoRow(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream; I: InStream; T: Text;
+    begin
+        Lib.Write(R, 'A');
+        R.Data.CreateInStream(I, TextEncoding::UTF8);
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        O.WriteText('B');
+        R.Data.CreateInStream(I, TextEncoding::UTF8);
+        I.ReadText(T);
+        exit(T);
+    end;
+
+    // Main's result kept: a stream written many times after an empty Insert, same key.
+    procedure SameKeyStreamWrittenTwice(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        O.WriteText('X'); O.WriteText('Y');
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: a by-value copy of a record no row holds writes its Blob (main: 'nohv').
+    procedure ByValueCopyNoRow(): Text
+    var R: Record "Tbs Row" temporary;
+    begin
+        R.Key1 := 1;
+        exit(ByValueWrite(R));
+    end;
+
+    local procedure ByValueWrite(R: Record "Tbs Row" temporary): Text
+    begin
+        Lib.Write(R, 'X');
+        exit(Lib.Content(R));
+    end;
 }
 "#;
 
@@ -358,7 +535,10 @@ fn measured_cells_keep_the_earlier_rows_empty() {
     ];
     let mut wrong = Vec::new();
     for (name, want) in cells {
-        let got = run(name);
+        let got = match al_testkit::run_in(SRC, "C", name) {
+            Ok(al_builtins::value::Value::Text(s)) => s.to_string(),
+            other => format!("{other:?}"),
+        };
         if got != *want {
             wrong.push(format!("{name}: got {got}, want {want}"));
         }
@@ -408,4 +588,49 @@ fn blob_import_under_another_key_refuses() {
 fn shapes_outside_the_cells_keep_mains_result() {
     assert_eq!(run("StoredKeyChangeWrite"), "No");
     assert_eq!(run("TwoEmptyRowsNoWrite"), "nohv|nohv");
+}
+
+#[test]
+fn a_stream_created_before_the_key_change_and_written_after_it_refuses() {
+    // Main read 'hv:X' in row 1 in all three.
+    assert!(refused("StreamBeforeKeyChangeWriteInsert").starts_with(REFUSED));
+    assert!(refused("StreamBeforeKeyChangeWriteNoInsert").starts_with(REFUSED));
+    assert!(refused("StreamBeforeInsertWriteAfterKeyChange").starts_with(REFUSED));
+}
+
+#[test]
+fn a_stream_that_outlives_its_record_refuses_while_a_row_holds_the_buffer() {
+    assert!(
+        refused("StreamOutlivesRecord")
+            .starts_with("a write through an OutStream on a Blob of a temporary record that is gone")
+    );
+}
+
+#[test]
+fn a_by_value_copy_that_writes_refuses() {
+    // Main read 'hv:X' in the caller's row 1.
+    assert!(refused("ByValueCopyWrites").starts_with(REFUSED));
+    // No row holds the buffer, but the caller's variable does, outside the copy's own table: refused too (main read 'nohv').
+    assert!(refused("ByValueCopyNoRow").starts_with(REFUSED));
+}
+
+#[test]
+fn unmeasured_holders_and_places_refuse() {
+    // Main read 'hv:X' (or Yes) in row 1 in each.
+    for p in ["VariantHolds", "ArrayElement", "CopyStreamInto"] {
+        assert!(refused(p).starts_with(REFUSED), "{p}");
+    }
+    assert!(refused("SecondBlobField").starts_with("a write into the Blob Other of a temporary record of"));
+}
+
+#[test]
+fn a_second_variable_sharing_the_table_is_not_told_apart() {
+    assert_eq!(run("SecondVariableWrites"), "nohv");
+}
+
+#[test]
+fn streams_without_a_row_under_another_key_keep_mains_result() {
+    assert_eq!(run("StreamNoRowKeyChange"), "hv:X");
+    assert_eq!(run("InStreamThenWriteNoRow"), "B");
+    assert_eq!(run("SameKeyStreamWrittenTwice"), "hv:XY");
 }
