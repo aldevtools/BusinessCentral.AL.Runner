@@ -265,10 +265,8 @@ pub struct Engine {
     /// `test_rows`. The reference side of the differential check; only time and memory depend on it.
     pub private_test_rows: bool,
     pub(crate) delete_subscribed: std::sync::OnceLock<std::collections::HashSet<String>>,
-    /// What a run of a routine can leave behind (`effects.rs`), per (object, routine, run on the object's own lasting instance
-    /// rather than a transient one).
-    pub(crate) lasting_effects:
-        std::sync::Mutex<std::collections::HashMap<(usize, usize, bool), Option<effects::Effect>>>,
+    /// What a run of a routine on a transient instance can leave behind (`effects.rs`), per (object, routine).
+    pub(crate) lasting_effects: std::sync::Mutex<std::collections::HashMap<(usize, usize), Option<effects::Effect>>>,
     /// Per object, per routine: what a call needs to know about the routine, found once (see [`RoutineFacts`]).
     facts: Arc<[std::sync::OnceLock<Box<[RoutineFacts]>>]>,
     /// The register bytecode of the routines, compiled on first call (`exec/`).

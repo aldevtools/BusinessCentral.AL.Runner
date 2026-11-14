@@ -2,7 +2,7 @@
 //! `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and a TestPage handler answers it (al-runner issue 6924, APPD). Measured by
 //! corpus PR 1392, pages/properties/DataCaptionExprWorksheet.al (its CI passed on all three BC majors the corpus runs); the cells
 //! run under the assumption `data-caption-run-at-open`. Such a Worksheet in another shape or run (`data_caption_open_neighbor`)
-//! refuses at the open when its expression can leave something behind, else at the first test read of what the run changes
+//! refuses at the open unless its expression is plain, else at the first test read of what the run changes
 //! (`refuse_unmeasured_caption_read`); every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
@@ -149,10 +149,9 @@ impl Session {
     /// The page `st` that AL code opened with `bind`'s handler bound (or that a Trap caught, `bind` empty) and the record
     /// `handed`: in a measured cell, the expression runs as the probe saw it before the handler, and only the handler's caption
     /// and control reads and the close follow (`OPENED_END`). A page of the cells' neighborhood (`data_caption_open_neighbor`) in
-    /// no cell keeps main's open when its expression leaves nothing behind (`Engine::own_instance_effect`): the run at the open
-    /// then changes only what the caption and the controls on page variables or expressions show, and the first test read of
-    /// those refuses (`refuse_unmeasured_caption_read`). With an expression that can leave something behind it refuses at the
-    /// open, naming the fact it misses. Every other page keeps main's path.
+    /// no cell keeps main's open when its expression is plain (`data_caption_plain.rs`): the run at the open then changes only what the
+    /// caption and the controls on page variables or expressions show, and the first test read of those refuses
+    /// (`refuse_unmeasured_caption_read`). With any other expression it refuses at the open, naming the fact it misses. Every other page keeps main's path.
     pub(super) fn data_caption_at_handled_open(
         &mut self,
         st: &St,
@@ -167,15 +166,14 @@ impl Session {
             Ok(runs) => runs,
             Err(_) if self.data_caption_read_pinned(st, bind) => return Ok(()),
             Err(miss) if self.data_caption_open_neighbor(st, bind) => {
-                return match self.data_caption_expression_effect(st) {
-                    None => {
-                        st.borrow_mut().data_caption_open_unmeasured = Some(miss);
-                        Ok(())
-                    }
-                    Some(effect) => Err(Signal::unsupported(format!(
-                        "{UNMEASURED_OPEN}: {miss}; the expression {effect}, so its runs at the open can be seen later \
-                         ({MEASURED_SHAPE})"
-                    ))),
+                return if self.data_caption_expression_plain(st) {
+                    st.borrow_mut().data_caption_open_unmeasured = Some(miss);
+                    Ok(())
+                } else {
+                    Err(Signal::unsupported(format!(
+                        "{UNMEASURED_OPEN}: {miss}; the expression is not a literal, a field of Rec or a concatenation or \
+                         Format of those, so BC can raise an error from it at the open ({MEASURED_SHAPE})"
+                    )))
                 };
             }
             Err(_) => return Ok(()),
@@ -197,21 +195,16 @@ impl Session {
         Ok(())
     }
 
-    /// What the page's DataCaptionExpression can leave behind when it runs on the page's own instance; `None` when nothing. An
-    /// expression the lowering did not compile counts as an effect.
-    fn data_caption_expression_effect(&self, st: &St) -> Option<String> {
-        let object = st.borrow().object as usize;
+    /// Whether the page's DataCaptionExpression is plain (`plain_caption_expression`): its property text, never the compiled
+    /// routine.
+    fn data_caption_expression_plain(&self, st: &St) -> bool {
         let engine = self.engine();
-        let Some(routine) = engine.program.objects[object]
-            .routines
+        let object = st.borrow().object as usize;
+        engine.program.objects[object]
+            .properties
             .iter()
-            .position(|r| r.name == ir::DATA_CAPTION_ROUTINE)
-        else {
-            return Some("was not compiled".to_string());
-        };
-        engine.own_instance_effect(object, routine).map(|e| match e {
-            crate::effects::Effect::Kept(what) | crate::effects::Effect::Refused(what) => what,
-        })
+            .find(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
+            .is_some_and(|(_, v)| super::data_caption_plain::plain_caption_expression(v))
     }
 
     /// The test reads, on page `st`, its caption (`control` empty) or the control at index `control`: on a Worksheet whose

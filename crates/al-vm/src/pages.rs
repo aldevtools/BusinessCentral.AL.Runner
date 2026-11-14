@@ -253,6 +253,7 @@ pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
 mod currpage_run_typed_key;
 mod data_caption_open;
+mod data_caption_plain;
 mod data_caption_run;
 mod delayed_blank_key_save;
 mod dev_endpoint;

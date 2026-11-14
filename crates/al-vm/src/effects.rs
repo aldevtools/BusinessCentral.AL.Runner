@@ -158,18 +158,12 @@ impl Engine {
     /// What a run of routine `routine` of object `object` on a transient instance (the empty record of a page open) can
     /// leave behind that AL code may read later; `None` when it leaves nothing. Worked out once per routine.
     pub(crate) fn lasting_effect(&self, object: usize, routine: usize) -> Option<Effect> {
-        self.effect_on(object, routine, Inst::Transient)
-    }
-
-    /// The same for a run on the object's own instance, which outlives the call (a page's DataCaptionExpression on the page):
-    /// a write to a variable of the object is an effect too.
-    pub(crate) fn own_instance_effect(&self, object: usize, routine: usize) -> Option<Effect> {
-        self.effect_on(object, routine, Inst::Lasting)
-    }
-
-    fn effect_on(&self, object: usize, routine: usize, inst: Inst) -> Option<Effect> {
-        let key = (object, routine, inst == Inst::Lasting);
-        if let Some(known) = self.lasting_effects.lock().expect("lasting effects lock").get(&key) {
+        if let Some(known) = self
+            .lasting_effects
+            .lock()
+            .expect("lasting effects lock")
+            .get(&(object, routine))
+        {
             return known.clone();
         }
         let mut w = Walk {
@@ -177,14 +171,14 @@ impl Engine {
             seen: HashSet::new(),
             kept: None,
         };
-        let found = match w.routine(object, routine, inst) {
+        let found = match w.routine(object, routine, Inst::Transient) {
             Err(why) => Some(Effect::Refused(why)),
             Ok(()) => w.kept.map(Effect::Kept),
         };
         self.lasting_effects
             .lock()
             .expect("lasting effects lock")
-            .insert(key, found.clone());
+            .insert((object, routine), found.clone());
         found
     }
 }

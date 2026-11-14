@@ -485,9 +485,9 @@ fn the_reported_list_keeps_main_outcome_and_a_row_refuses() {
 
 // A Worksheet with its own DataCaptionExpression outside the measured cells (review of al-runner PR 8023: every run kind, and a
 // handler that reads none of what the open changes). BC ran the expression at the open in the measured cells
-// (DataCaptionExprWorksheet.al:412, :439, :572, :586); main runs it at a caption read. An expression that leaves nothing behind
+// (DataCaptionExprWorksheet.al:412, :439, :572, :586); main runs it at a caption read. A plain expression (a literal, a field of Rec, a concatenation or Format of those)
 // changes only what the caption and the controls on page variables or expressions show: main's open is kept and the first such read
-// refuses. An expression that can leave something behind refuses at the open, for every run kind.
+// refuses. Any other expression, even a procedure that only reads (BC can raise an error from it at the open), refuses at the open, for every run kind.
 const LAZY: &str = r#"
 table 69970 "DL Row" { fields { field(1; "Item No."; Code[20]) { } field(2; "Vendor No."; Code[20]) { } } keys { key(PK; "Item No.", "Vendor No.") { } } }
 page 69971 "DL Ws Field"
@@ -498,9 +498,14 @@ page 69971 "DL Ws Field"
 }
 page 69972 "DL Ws Pure"
 {
-    PageType = Worksheet; SourceTable = "DL Row"; Caption = 'DL WSP'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    PageType = Worksheet; SourceTable = "DL Row"; Caption = 'DL WSP'; DataCaptionExpression = 'Cap ' + Rec."Item No."; UsageCategory = None;
     layout { area(Content) { group(F) { field(NoteCtl; Note) { } } repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
     var Note: Text[30];
+}
+page 69976 "DL Ws Proc"
+{
+    PageType = Worksheet; SourceTable = "DL Row"; Caption = 'DL WSQ'; DataCaptionExpression = GetCaption(); UsageCategory = None;
+    layout { area(Content) { repeater(L) { field(ItemNoCtl; Rec."Item No.") { } } } }
     local procedure GetCaption(): Text[250] begin exit('Cap ' + Rec."Item No."); end;
 }
 page 69973 "DL Ws Lit"
@@ -583,6 +588,16 @@ codeunit 69975 T
     [Test] [HandlerFunctions('PureCaptionModal')] procedure L17_VarModal_SetTableView_Caption()
     var Row: Record "DL Row"; Pg: Page "DL Ws Pure";
     begin Seed(2, Row); Pg.SetTableView(Row); Pg.RunModal(); end;
+    // A procedure without effects can still raise an error at the open on BC: refused at the open, whatever the handler reads. The
+    // page variable's RunModal() with no record keeps main's path (Y50ListCaptionExpr.al:376-386).
+    [Test] [HandlerFunctions('ProcClose')] procedure L18_Proc_Static_Close()
+    var Row: Record "DL Row";
+    begin Seed(2, Row); Page.Run(Page::"DL Ws Proc", Row); end;
+    [Test] [HandlerFunctions('ProcCaptionModal')] procedure L19_Proc_VarModal_NoRecord_Caption()
+    var Row: Record "DL Row"; Pg: Page "DL Ws Proc";
+    begin Seed(2, Row); Pg.RunModal(); if Seen <> 'DL WSQ - Cap I1' then Error('%1', Seen); end;
+    [PageHandler] procedure ProcClose(var P: TestPage "DL Ws Proc") begin P.Close(); end;
+    [ModalPageHandler] procedure ProcCaptionModal(var P: TestPage "DL Ws Proc") begin Seen := P.Caption(); end;
     [ModalPageHandler] procedure PureCaptionModal(var P: TestPage "DL Ws Pure") begin Seen := P.Caption(); end;
     [PageHandler] procedure FieldClose(var P: TestPage "DL Ws Field") begin Seen := 'closed'; P.Close(); end;
     [PageHandler] procedure FieldCaption(var P: TestPage "DL Ws Field") begin Seen := P.Caption(); end;
@@ -611,6 +626,7 @@ fn an_unmeasured_worksheet_open_refuses_at_the_read_it_changes() {
         "L10_FieldNo_Close",
         "L12_Trap_RecControl",
         "L16_VarModal_NoRecord_Caption",
+        "L19_Proc_VarModal_NoRecord_Caption",
     ] {
         assert_eq!(get(t), "Some(Pass)", "{t}");
     }
@@ -628,10 +644,17 @@ fn an_unmeasured_worksheet_open_refuses_at_the_read_it_changes() {
             "{t}: {o}"
         );
     }
-    for t in ["L13_Fx_Var_Close", "L14_Fx_Trap", "L15_Fx_Static_Close"] {
+    for t in [
+        "L13_Fx_Var_Close",
+        "L14_Fx_Trap",
+        "L15_Fx_Static_Close",
+        "L18_Proc_Static_Close",
+    ] {
         let o = get(t);
         assert!(
-            o.contains("NotRun") && o.contains("outside the measured cells") && o.contains("writes the variable Note"),
+            o.contains("NotRun")
+                && o.contains("outside the measured cells")
+                && o.contains("not a literal, a field of Rec"),
             "{t}: {o}"
         );
     }
