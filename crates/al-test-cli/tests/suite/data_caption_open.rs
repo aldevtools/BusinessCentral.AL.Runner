@@ -77,28 +77,21 @@ codeunit 50305 T
         Seed(1); Row.SetRange("Item No.", 'I1'); Page.Run(Page::"DO Ws", Row);
         Check('DC | H cap=DO WS - Cap I1 item=');
     end;
-    // Two rows: a cell of DataCaptionGetOpen.al (corpus PR 1401, :463 two rows, two runs, the global hidden), under its assumption.
+    // Two rows: no cell; main evaluates the expression at the caption read.
     [Test] [HandlerFunctions('WsHandler')]
     procedure Ws_TwoRows()
     var Row: Record "DO Row";
     begin
         Seed(2); Row.SetRange("Item No.", 'I1'); Page.Run(Page::"DO Ws", Row);
-        Check('DC | DC | H cap=DO WS - Cap I1 item=');
+        Check('DC | H cap=DO WS - Cap I1 item=I1');
     end;
-    // RunModal(Id, Rec) on one row: a cell of DataCaptionGetOpen.al (:608 one run, the global hidden), under its assumption.
+    // RunModal on one row: not measured; main's outcome.
     [Test] [HandlerFunctions('WsModalHandler')]
     procedure Ws_RunModal_OneRow()
     var Row: Record "DO Row";
     begin
         Seed(1); Row.SetRange("Item No.", 'I1'); Page.RunModal(Page::"DO Ws", Row);
-        Check('DC | H cap=DO WS - Cap I1 item=');
-    end;
-    // Four rows: no cell of either probe (at most three rows measured); refused.
-    [Test] [HandlerFunctions('WsHandler')]
-    procedure Ws_FourRows()
-    var Row: Record "DO Row";
-    begin
-        Seed(4); Row.SetRange("Item No.", 'I1'); Page.Run(Page::"DO Ws", Row);
+        Check('DC | H cap=DO WS - Cap I1 item=I1');
     end;
     // A Worksheet with OnAfterGetRecord: not measured; main's outcome.
     [Test] [HandlerFunctions('WsAgrHandler')]
@@ -152,12 +145,10 @@ fn the_data_caption_expression_at_a_handled_page_run() {
     };
     assert_eq!(get("Ws_OneRow"), "Some(Pass)");
     assert_eq!(get("Card_NoDelayedInsert_OneRow"), "Some(Pass)");
-    // Shapes outside DataCaptionExprWorksheet.al that DataCaptionGetOpen.al (corpus PR 1401) measured.
-    assert_eq!(get("Ws_TwoRows"), "Some(Pass)");
-    assert_eq!(get("Ws_RunModal_OneRow"), "Some(Pass)");
     // A Worksheet with rows in no measured cell refuses at the open, naming the fact it misses (issue 6924 review).
     for (t, miss) in [
-        ("Ws_FourRows", "no measured cell combines"),
+        ("Ws_TwoRows", "no measured cell combines"),
+        ("Ws_RunModal_OneRow", "other than Page.Run with a PageHandler"),
         ("WsAgr_OneRow", "a trigger other than OnInit"),
     ] {
         let o = get(t);

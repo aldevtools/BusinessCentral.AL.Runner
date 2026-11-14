@@ -124,6 +124,9 @@ refusal on a shape main ran is a regression, often in Base App code that partner
 - Work moved to the open (a resolve, a fill) carries every refusal of the function it calls to tests that never read the
   value. Before the move, require in the gate every fact that function refuses on, and return to main's path when one fails
   (al-runner PR 8052).
+- A new measured open that sets a `PinnedEnd` on a page main ran without one: every test call beyond the pinned end now
+  refuses. Before a page moves from main's path (or from a "skip" entry) to a measured path, run a handler that moves, writes
+  and invokes on it with the main binary; keep main's path where main answered (al-runner PR 8108).
 
 ## 3. Text that does not match the code or CI (comments 13, pull request body or ADR 9)
 

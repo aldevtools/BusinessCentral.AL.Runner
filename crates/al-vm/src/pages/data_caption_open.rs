@@ -1,10 +1,11 @@
 //! When the DataCaptionExpression of a Worksheet, or of a Card with DelayedInsert, runs as AL code opens the page with
-//! `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and a TestPage handler answers it (al-runner issue 6924, APPD). Measured by
-//! corpus PR 1392, pages/properties/DataCaptionExprWorksheet.al (its CI passed on all three BC majors the corpus runs); the cells
-//! run under the assumption `data-caption-run-at-open`. Such a Worksheet in another shape or run (`data_caption_open_neighbor`)
-//! (and in no cell of corpus PR 1401, `data_caption_get_open.rs`) refuses at the open when its expression can raise an error or leave something behind (`Engine::caption_open_risk`), else at
-//! the first test read of the caption (`refuse_unmeasured_caption_read`); every other page keeps main's path
-//! (`data_caption_run.rs`, `caption_expr_list.rs`).
+//! `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and a TestPage handler answers it (al-runner issue 6924). Measured by corpus
+//! PR 1392, pages/properties/DataCaptionExprWorksheet.al (its CI passed on all three BC majors the corpus runs); the cells run
+//! under the assumption `data-caption-run-at-open`. A page in no cell here may be in a cell of corpus PR 1401
+//! (`data_caption_get_open.rs`). Such a Worksheet in another shape or run (`data_caption_open_neighbor`) refuses at the open when
+//! its expression can raise an error or leave something behind (`Engine::caption_open_risk`), else at the first test read of the
+//! caption (`refuse_unmeasured_caption_read`); every other page keeps main's path (`data_caption_run.rs`,
+//! `caption_expr_list.rs`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
 use super::*;
@@ -15,7 +16,7 @@ use al_builtins::page_op::PageMethod;
 
 /// What the handler may do after the measured open: read the caption and the controls (DataCaptionExprWorksheet.al:627, :633,
 /// :639, :645), and the page closes.
-pub(super) const OPENED_END: PinnedEnd = PinnedEnd {
+const OPENED_END: PinnedEnd = PinnedEnd {
     reason: "a call of the test on a page whose DataCaptionExpression ran at the open as DataCaptionExprWorksheet.al measured, \
              other than Caption, a control's value read or Close (not pinned)",
     reads: true,
@@ -29,6 +30,7 @@ pub(super) const OPENED_END: PinnedEnd = PinnedEnd {
     next: NextEnd::Refused,
     close: true,
     ok: false,
+    walk: false,
 };
 
 /// The page of a measured cell (`DataCaptionExprWorksheet.al`).
@@ -97,7 +99,7 @@ type Miss = &'static str;
 pub(super) struct HandedRecord {
     pub(super) filters: Vec<FieldFilter>,
     /// The store's change counter before OnInit.
-    pub(super) writes: u64,
+    writes: u64,
     /// The filters are one SetRange of group 0 to one Code value that is not empty (DataCaptionExprWorksheet.al:349, :357-359).
     one_code_value: bool,
 }
@@ -203,19 +205,24 @@ impl Session {
         Ok(())
     }
 
-    /// What the page's compiled DataCaptionExpression can do at the open (`Engine::caption_open_risk`); `None`: it can neither
-    /// raise an error nor leave anything behind.
-    fn data_caption_expression_risk(&self, st: &St) -> Option<String> {
+    /// The routine of the page object of `st` that holds its compiled DataCaptionExpression.
+    pub(super) fn data_caption_routine(&self, st: &St) -> Option<usize> {
         let engine = self.engine();
         let object = st.borrow().object as usize;
-        let Some(routine) = engine.program.objects[object]
+        engine.program.objects[object]
             .routines
             .iter()
             .position(|r| r.name == ir::DATA_CAPTION_ROUTINE)
-        else {
+    }
+
+    /// What the page's compiled DataCaptionExpression can do at the open (`Engine::caption_open_risk`); `None`: it can neither
+    /// raise an error nor leave anything behind.
+    pub(super) fn data_caption_expression_risk(&self, st: &St) -> Option<String> {
+        let Some(routine) = self.data_caption_routine(st) else {
             return Some("the expression was not compiled".into());
         };
-        engine.caption_open_risk(object, routine)
+        let object = st.borrow().object as usize;
+        self.engine().caption_open_risk(object, routine)
     }
 
     /// The test reads, on page `st`, its caption (`control` empty) or the control at index `control`: on a Worksheet whose
