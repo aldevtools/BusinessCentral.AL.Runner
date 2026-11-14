@@ -240,6 +240,8 @@ impl Expanded {
 pub(crate) struct PageMod {
     pub(crate) control: usize,
     pub(crate) ext: usize,
+    /// The control's name as the block writes it.
+    pub(crate) name: String,
     pub(crate) props: Vec<(String, ir::PropVal)>,
     pub(crate) triggers: Vec<(String, usize)>,
 }

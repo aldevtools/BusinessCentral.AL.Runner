@@ -560,12 +560,18 @@ impl Session {
         // A list shows no Refresh hint (testpage/PnC07TestPage.al:GetValidationError_AfterFailedValidation, ValueAssign_Number_FromText_And_Decimal);
         // a card does (testpage/TestPageErrTeardown_Tests.al, TestPageBooleanSpelling_Tests.al:210).
         let suffix = self.validation_suffix(st, idx, rec_bound);
-        let language = al_builtins::format::FormatCtx::language(self);
-        let draft_key = self.draft_integer_key(st, idx);
+        let frame = self.validation_frame(st, idx, &caption);
         let refuse_code = |msg: String, code: &str| -> Signal {
-            super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, (language, draft_key))
+            super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, frame)
         };
-        let refuse = |_: &mut Session, msg: String| -> Signal { refuse_code(msg, "") };
+        let refuse_entry_parse =
+            |msg: String, code: &str| -> Signal {
+                let mut entry_frame = frame;
+                entry_frame.error_kind = super::validation_text::ValidationErrorKind::Entry(
+                    self.entry_validation_facts(st, idx, &ty, rec_bound, allowed.is_some()),
+                );
+                super::validation_text::validation_signal(&engine, st, idx, msg, suffix, code, entry_frame)
+            };
         // The bounds and the length of a Text variable raise a TestValidation error
         // (errors/TestPageVariableMinMaxContracts.al:15-16, :119).
         let refuse_bound = |msg: String| -> Signal { refuse_code(msg, "TestValidation") };
@@ -769,22 +775,16 @@ impl Session {
                 }
                 // A control bound to a variable raises TestValidation (pages/controls/W2ValueControls.al:Date_IsoSpellings,
                 // Enum_VariableControl_*); one bound to a table field keeps the empty code.
-                return Err(
-                    // An Enum control raises TestValidation on a card with a row too (pages/controls/
-                    // PageEnumControlCaptionless.al:P161_EnumControl_SetValueSpellings_Captionless `spaceOrdinal`).
-                    // A refused text on an Option control is a TestValidation error on a card with a row: the empty text (testpage/
-                    // TestPageAssertEqualsOption.al:SetValue_BlankOption_AsEmptyText) and `Nope`, `5`, `2`, `Tw` (testpage/N582TestPageEdges.al:156-186).
-                    if rec_bound
-                        && !no_row
-                        && !matches!(ty, RtType::DateTime | RtType::Enum(_))
-                        && !matches!(ty, RtType::Option(_))
-                        && !self.is_list(st)
-                    {
-                        refuse(self, msg)
-                    } else {
-                        refuse_bound(msg)
-                    },
-                );
+                // An Enum control raises TestValidation on a card with a row too (pages/controls/
+                // PageEnumControlCaptionless.al:P161_EnumControl_SetValueSpellings_Captionless `spaceOrdinal`).
+                // A refused text on an Option control is a TestValidation error on a card with a row: the empty text (testpage/
+                // TestPageAssertEqualsOption.al:SetValue_BlankOption_AsEmptyText) and `Nope`, `5`, `2`, `Tw` (testpage/N582TestPageEdges.al:156-186).
+                let empty_code = rec_bound
+                    && !no_row
+                    && !matches!(ty, RtType::DateTime | RtType::Enum(_))
+                    && !matches!(ty, RtType::Option(_))
+                    && !self.is_list(st);
+                return Err(refuse_entry_parse(msg, if empty_code { "" } else { "TestValidation" }));
             }
             Err(al_builtins::pagefmt::ParseError::Unsupported) => {
                 return unsupported(format!(
@@ -1160,6 +1160,32 @@ impl Session {
                 Err(refusal)
             }
             Err(other) => Err(other),
+        }
+    }
+
+    fn entry_validation_facts(
+        &self,
+        st: &St,
+        idx: usize,
+        ty: &RtType,
+        rec_bound: bool,
+        values_allowed: bool,
+    ) -> super::validation_text::EntryFacts {
+        let kind = match ty {
+            RtType::Boolean => super::validation_text::EntryKind::Boolean,
+            RtType::Enum(_) => super::validation_text::EntryKind::Enum,
+            _ => super::validation_text::EntryKind::Other,
+        };
+        super::validation_text::EntryFacts {
+            parse_failure: true,
+            kind,
+            table_field: rec_bound && self.control_field(st, idx).is_some(),
+            list: self.is_list_page(st),
+            values_allowed: if values_allowed {
+                super::validation_text::ValuesAllowedFact::Present
+            } else {
+                super::validation_text::ValuesAllowedFact::Absent
+            },
         }
     }
 

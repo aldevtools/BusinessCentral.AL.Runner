@@ -361,16 +361,19 @@ impl Session {
         })
     }
 
-    /// Whether object `object` (a table or enum of an app that does not translate into the language in force, such as Base
-    /// Application) is extended by apps that do translate into it, and none of those extensions can change what a caption
-    /// read of it gives: BC then leaves the object's captions alone, `modify`d ones included. Pinned for the table Item and
-    /// the enum Sales Document Type, extended by an app with an nl-NL file under 1043: fields the extension does not touch,
-    /// fields it modifies with a `Caption` (with a unit of the extension's own id, of the original table's id, or of the
-    /// wrong kind in the file, all ignored), and enum values (localization/app-xliff/lt-r7144-ext-caption/
-    /// R7184BaseAppCaption.al:91-122, :145-165 and Sales Line in R7187PageCaption.al, al-runner issue 7184). Not decided
-    /// here (stays refused): an extension app whose files are not read (a package, a file that could not be read) or are
-    /// of the same language for another culture.
-    fn only_foreign_translating_extensions(&self, object: usize) -> bool {
+    /// Whether object `object` (a table, enum or page of an app that does not translate into the language in force, such as
+    /// Base Application) is extended by apps that do translate into it, and none of those extensions can change what a
+    /// caption read of it gives: BC then leaves the object's captions alone, `modify`d ones included. Pinned for the table
+    /// Item and the enum Sales Document Type, extended by an app with an nl-NL file under 1043: fields the extension does not
+    /// touch, fields it modifies with a `Caption` (with a unit of the extension's own id, of the original table's id, or of
+    /// the wrong kind in the file, all ignored), and enum values (localization/app-xliff/lt-r7144-ext-caption/
+    /// R7184BaseAppCaption.al:91-122, :145-165 and Sales Line in R7187PageCaption.al, al-runner issue 7184). For a page it
+    /// decides the controls the extensions leave alone (`control_caption_translation`, which reads the extensions' own units
+    /// for the captions they set): Base Application's Payment Methods and Territories, extended by an app with an nl-NL file
+    /// under 1043 (localization/app-xliff/BaseAppPageExtCaption.al:205-219, :240-251, al-runner issue 7327). Not decided here
+    /// (stays refused): an extension app whose files are not read (a package, a file that could not be read) or are of the
+    /// same language for another culture.
+    pub(crate) fn only_foreign_translating_extensions(&self, object: usize) -> bool {
         let p = &self.engine.program;
         let language = al_builtins::format::FormatCtx::language(self);
         let Some(base) = p.objects.get(object) else {

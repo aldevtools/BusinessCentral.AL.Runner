@@ -1987,6 +1987,7 @@ fn split_pages(staged: &mut StagedList, provided: &(dyn Fn(usize) -> bool + Sync
         }
         for c in &mut page.controls {
             c.ext_triggers.clear();
+            c.caption_modifies.clear();
             c.ext_replaced.clear();
         }
         let area_of = |i: usize| {
@@ -2058,6 +2059,7 @@ fn split_pages(staged: &mut StagedList, provided: &(dyn Fn(usize) -> bool + Sync
                 .mods
                 .push(ControlMod {
                     target: id_of(m.control),
+                    name: m.name,
                     props: m.props,
                     triggers: m.triggers,
                 });
