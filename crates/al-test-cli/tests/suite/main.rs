@@ -44,6 +44,7 @@ mod data_caption_open;
 mod data_driven_tests;
 mod data_fixes;
 mod deferred_insert_at_test_end;
+mod delayed_new_row_blank_key_leave;
 mod dependency_positions;
 mod document_handler_error_shape;
 mod dotnet_diff;
