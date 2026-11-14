@@ -1,6 +1,6 @@
 //! The table code corpus PR 1398 (tests/al-language/record/filters/SqlDateFloor1753.al) ran around a write of a value the SQL
-//! column cannot hold, and whose run the probe cannot see: the error rolls back what it wrote, so the probe does not show
-//! whether, or in what order, it ran. `records/sql_range.rs` takes a table with code only when that code has the measured
+//! column cannot hold, and whose run the probe did not measure: the error rolls back what it wrote to the database, while the
+//! record variable keeps what the trigger set (not measured). `records/sql_range.rs` takes a table with code only when that code has the measured
 //! body, statement for statement; every other body keeps the table out of the measured cells.
 //!
 //! - The table's own trigger (`LT SD Floor Trig`, SqlDateFloor1753.al:49-57): `Hits += 1` and `Hits += 10`, an Integer field

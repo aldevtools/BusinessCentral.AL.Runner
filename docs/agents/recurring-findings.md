@@ -50,7 +50,7 @@ finds the next neighbor shape. Write the gate in allowlist form:
     entry point must call it.
   - a trigger or subscriber whose effect the probe can only see in the database: an error rolls it back, so the probe
     does not show that it ran. Whether it ran before the error is measured only with a log that survives the rollback
-    (a SingleInstance codeunit). Without that, require a body whose run cannot be observed (al-runner PR 8058).
+    (a SingleInstance codeunit). Without that, require the measured body, and note that the record variable still shows what the trigger set after the error (al-runner PR 8058).
   - a fact kept as session state about a path (how a file was written, whether it is open): list every call that can
     set it and every call that can clear it. The fact must be set only by the measured call and counted for every
     handle, not only for handles that met the shape when they opened.
