@@ -1,0 +1,11 @@
+TestpageFilterEqTextDroppedOpenEdit => {
+    id: "testpage-filter-eq-text-dropped-open-edit",
+    assumed: "TestPage.Filter.SetFilter with the text '=0' or '=1' on a Boolean field, field with or without a control, of a top-level Worksheet over a temporary table that the test opened with its own OpenEdit, with no earlier filter of filter group 0 on the field, sets no filter: GetFilter stays empty and every row shows, as under OpenView. Measured on four Worksheets over the temporary table WEQ Row: not editable with a Fill action, editable with a Fill action (with and without a control for the field), editable filled in OnOpenPage; the filter set after the rows were filled and before, followed by a walk with First and Next or by GoToKey. Every other text that starts with '=' on a page the test opened with OpenEdit refuses: another Boolean word (needs probe: '=Yes', '=true'), an Enum or Option member, a database Worksheet, a List, an earlier filter on the field.",
+    tests: "No Microsoft test: al-runner issue 6924 (an outside reporter's search Worksheet over a temporary table, opened with OpenEdit, filtered with '=0' and '=1').",
+    probe: "Corpus PR 1401 (merged, not yet in the pinned corpus), testpage/filters/WorksheetOpenEditTemp.al codeunit 78903 WOE Tests: AfterFill_Eq_OpenEdit, BeforeFill_Eq_OpenEdit, GoToKey_Eq_OpenEdit, AfterFill_Act_OpenEdit, BeforeFill_Act_OpenEdit, GoToKey_Act_OpenEdit, AfterFill_Shown_OpenEdit, BeforeFill_Shown_OpenEdit, GoToKey_Shown_OpenEdit, AfterFill_Open_OpenEdit, GoToKey_Open_OpenEdit; its CI passed on BC 27.5, 28.5 and 29.0, identical to the OpenView cells.",
+    awaiting: Awaiting {
+        issues: &[6924],
+        files: &["tests/al-language/testpage/filters/WorksheetOpenEditTemp.al"],
+        since: "2026-11-14",
+    },
+}

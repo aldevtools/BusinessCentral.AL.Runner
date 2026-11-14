@@ -67,6 +67,9 @@ enum EqCell {
     Pinned,
     /// Measured by WorksheetEnumEqFilter.al (corpus PR 1392): the text sets no filter, under the assumption.
     Assumed,
+    /// Measured by WorksheetOpenEditTemp.al (corpus PR 1401) on a page the test opened with OpenEdit: the text sets no filter,
+    /// under its own assumption.
+    AssumedOpenEdit,
     /// Not measured, for this reason: refused.
     Unmeasured(&'static str),
 }
@@ -111,6 +114,10 @@ impl Session {
                 assume(Assumption::TestpageFilterEqTextDropped);
                 Ok(true)
             }
+            EqCell::AssumedOpenEdit => {
+                assume(Assumption::TestpageFilterEqTextDroppedOpenEdit);
+                Ok(true)
+            }
             EqCell::Unmeasured(why) => Err(Signal::unsupported(format!(
                 "TestPage.Filter.SetFilter: the text '{text}' on a {} page over a {} table {why} (Business Central sets no \
                  filter for a text that starts with '=' on every shape the corpus measured; this shape is not measured; \
@@ -128,15 +135,22 @@ impl Session {
     /// The cell of the text after the `=` (`rest`) on a List (`list`) or Worksheet `st`. Every fact is required as the corpus
     /// measured it:
     /// - the page opened by the test's own `OpenView` (TempListOffPageBooleanFilter.al:273, :293, :435, :461;
-    ///   WorksheetEnumEqFilter.al:260, :319, :378), at the top level (not a part, not a page AL code ran);
+    ///   WorksheetEnumEqFilter.al:260, :319, :378), at the top level (not a part, not a page AL code ran); or by its own
+    ///   `OpenEdit` in the one cell `eq_text_open_edit_cell` covers;
     /// - the text after the `=`, exactly as written (`eq_text_kind`), and the page and source table it was measured on
     ///   (`eq_text_cell`);
     /// - no filter of group 0 on the field yet; or, on the temporary Worksheet with an Enum member's name, the test's own filter
     ///   typed as a member's name (WorksheetEnumEqFilter.al:554-560: `Order`, then `=Quote` and `=Invoice` keep `Order`), which
     ///   stays.
     fn eq_text_measured(&self, st: &St, rec: &Rec, table: &TableDef, pos: usize, rest: &str, list: bool) -> EqCell {
-        if !st.borrow().test_open_view() {
-            return EqCell::Unmeasured("that the test did not open with its own OpenView (only OpenView is measured)");
+        let (open_view, open_edit) = {
+            let s = st.borrow();
+            (s.test_open_view(), s.test_open_edit())
+        };
+        if !open_view && !open_edit {
+            return EqCell::Unmeasured(
+                "that the test did not open with its own OpenView or OpenEdit (only those are measured)",
+            );
         }
         let Some(kind) = self.eq_text_kind(table, pos, rest) else {
             return EqCell::Unmeasured(
@@ -145,6 +159,9 @@ impl Session {
         };
         let temporary = rec.borrow().temporary;
         let unfiltered = rec.borrow().filters.iter().all(|f| !(f.field == pos && f.group == 0));
+        if open_edit {
+            return Self::eq_text_open_edit_cell(list, temporary, unfiltered, kind);
+        }
         if unfiltered {
             return Self::eq_text_cell(list, temporary, kind);
         }
@@ -161,6 +178,21 @@ impl Session {
             "after a filter on the field (only the test's own Enum member name, then an Enum member name, on a temporary \
              Worksheet is measured)",
         )
+    }
+
+    /// The one cell WorksheetOpenEditTemp.al (corpus PR 1401) measured on a page the test opened with its own `OpenEdit`: a
+    /// Worksheet (:22, :63, :92; WEQ Temp Worksheet of WorksheetEnumEqFilter.al) over a temporary table (:24, :65, :94), the
+    /// Boolean field IsHist with or without a control (:106; :35-37), no earlier filter on the field, and the text `=0` or `=1`
+    /// (:499-504, :516-519, :529-536 and the same steps at :593, :606, :619, :687, :700, :713, :781, :794): the text sets no filter
+    /// and every row shows, as under OpenView. Every other text, page or source opened with OpenEdit is not measured.
+    fn eq_text_open_edit_cell(list: bool, temporary: bool, unfiltered: bool, kind: EqText) -> EqCell {
+        match (list, temporary, unfiltered, kind) {
+            (false, true, true, EqText::Boolean(w)) if TEMP_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::AssumedOpenEdit,
+            _ => EqCell::Unmeasured(
+                "that the test opened with OpenEdit (only the Boolean words 0 and 1 on a temporary Worksheet, with no earlier \
+                 filter on the field, are measured there)",
+            ),
+        }
     }
 
     /// The measured cells of a text `kind` on a List (`list`) or Worksheet over a temporary or database table, with no earlier
