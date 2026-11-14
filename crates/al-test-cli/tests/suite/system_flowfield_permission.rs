@@ -387,6 +387,19 @@ codeunit 50602 T
     end;
 
     [Test]
+    procedure DirectMarkedOnly()
+    var
+        PA: Record "Published Application";
+    begin
+        Direct(PA, 'PA READ');
+        PA.SetRange("Tenant Visible", true);
+        PA.FindFirst();
+        PA.Mark(true);
+        PA.MarkedOnly(true);
+        PA.FindFirst();
+    end;
+
+    [Test]
     procedure DirectCurrentGroup()
     var
         PA: Record "Published Application";
@@ -605,6 +618,7 @@ fn tenant_visible_lookup_reads_nav_app_extra_unchecked_neighbors_keep_main() {
         "DirectSecurityFiltering",
         "DirectReadIsolation",
         "DirectCurrentGroup",
+        "DirectMarkedOnly",
         "DirectRecordRef",
         "FoundNameFlowFilterId",
         "FoundNameFlowFilterNone",

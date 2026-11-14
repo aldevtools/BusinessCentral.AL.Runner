@@ -67,7 +67,7 @@ impl Session {
 
     /// Shape 1 starts: the AL call `Record.FindFirst` on a Record variable `rec` that is not temporary and holds the state of
     /// Guided Experience's fresh variable (`GetExtensionLogo`): default key, ascending, no SetLoadFields, no
-    /// SetAutoCalcFields, default SecurityFiltering and ReadIsolation (the first option of each), filter group 0 current.
+    /// SetAutoCalcFields, default SecurityFiltering and ReadIsolation (the first option of each), filter group 0 current, MarkedOnly off.
     fn is_al_find_first_of_fresh_record(&self, rec: &Rec) -> bool {
         let r = rec.borrow();
         self.is_al_record_call(RecordOp::FindFirst, rec)
@@ -81,6 +81,7 @@ impl Session {
             && r.security_filtering == 0
             && r.read_isolation == 0
             && r.filter_group == 0
+            && !r.marked_only
     }
 
     /// Whether the read of source table `table` (object index) for the FlowField on top of `stack`, of record `rec`, is a
