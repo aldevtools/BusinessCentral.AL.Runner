@@ -1,6 +1,6 @@
 //! The DataCaptionExpression of a Worksheet or a Card with DelayedInsert that AL code runs with `Page.Run(Id, Rec)` and a
 //! PageHandler answers (`data_caption_open.rs`, corpus PR 1392 pages/properties/DataCaptionExprWorksheet.al). These tests hold a
-//! measured cell, the shapes next to the cells to main's outcome or, for a Worksheet on an empty view, to a refusal, and the
+//! measured cell, the shapes next to the cells to main's outcome or, for a Worksheet, to a refusal, and the
 //! refusals of the new path.
 
 use al_testkit::outcomes_in;
@@ -144,13 +144,18 @@ fn the_data_caption_expression_at_a_handled_page_run() {
         format!("{o:?}")
     };
     assert_eq!(get("Ws_OneRow"), "Some(Pass)");
-    for t in [
-        "Ws_TwoRows",
-        "Ws_RunModal_OneRow",
-        "WsAgr_OneRow",
-        "Card_NoDelayedInsert_OneRow",
+    assert_eq!(get("Card_NoDelayedInsert_OneRow"), "Some(Pass)");
+    // A Worksheet with rows in no measured cell refuses at the open, naming the fact it misses (issue 6924 review).
+    for (t, miss) in [
+        ("Ws_TwoRows", "no measured cell combines"),
+        ("Ws_RunModal_OneRow", "other than Page.Run with a PageHandler"),
+        ("WsAgr_OneRow", "a trigger other than OnInit"),
     ] {
-        assert_eq!(get(t), "Some(Pass)", "{t}");
+        let o = get(t);
+        assert!(
+            o.contains("NotRun") && o.contains("outside the measured cells") && o.contains(miss),
+            "{t}: {o}"
+        );
     }
     let next = get("Ws_OneRow_NextRefused");
     assert!(next.contains("NotRun") && next.contains("ran at the open"), "{next}");
@@ -306,16 +311,7 @@ fn neighbors_of_the_measured_open_keep_main_outcome_or_refuse() {
         let o = outcomes.iter().find(|(n, _)| n == name).map(|(_, o)| o);
         format!("{o:?}")
     };
-    for t in [
-        "D00_OneRow",
-        "D01_Empty",
-        "D02_EmptyEditableOff",
-        "D11_OpenSetRange",
-        "D12_OpenInsert",
-        "D15_OpenSwap",
-        "D22_OpenGlobal",
-        "D26_HandedAfterGetOneRow",
-    ] {
+    for t in ["D00_OneRow", "D01_Empty", "D02_EmptyEditableOff"] {
         assert_eq!(get(t), "Some(Pass)", "{t}");
     }
     // A field argument is outside the neighborhood: main's refusal at the caption read.
@@ -324,9 +320,14 @@ fn neighbors_of_the_measured_open_keep_main_outcome_or_refuse() {
         field_arg.contains("NotRun") && field_arg.contains("on a new row"),
         "{field_arg}"
     );
-    // The others are Worksheets AL code ran with a record on an empty view (main refused them at the caption read): they refuse
-    // at the open and name the fact they miss.
+    // The others are Worksheets AL code ran with a record, in no measured cell: they refuse at the open and name the fact they
+    // miss.
     for (t, miss) in [
+        ("D11_OpenSetRange", "changed Rec's filters"),
+        ("D12_OpenInsert", "wrote to the database"),
+        ("D15_OpenSwap", "changed Rec's filters"),
+        ("D22_OpenGlobal", "not an empty Text or Code"),
+        ("D26_HandedAfterGetOneRow", "fields hold values"),
         ("D05_RangeFilter", "not one SetRange to one Code value"),
         ("D06_Descending", "on another key or order"),
         ("D16_OpenOffOn", "more than once"),
@@ -340,7 +341,7 @@ fn neighbors_of_the_measured_open_keep_main_outcome_or_refuse() {
     ] {
         let o = get(t);
         assert!(
-            o.contains("NotRun") && o.contains("on an empty view") && o.contains(miss),
+            o.contains("NotRun") && o.contains("outside the measured cells") && o.contains(miss),
             "{t}: {o}"
         );
     }
@@ -467,15 +468,20 @@ fn the_reported_worksheet_on_an_empty_view_refuses() {
     );
 }
 
-// A view with a row, and a List page, keep main's path (the expression is not run before the handler's control reads).
+// A List page keeps main's path; a Worksheet with a row in no cell refuses too.
 #[test]
-fn the_reported_shapes_outside_the_neighborhood_keep_main_outcome() {
+fn the_reported_list_keeps_main_outcome_and_a_row_refuses() {
     let outcomes = outcomes_in(REPORTED, "T");
     let get = |name: &str| {
         let o = outcomes.iter().find(|(n, _)| n == name).map(|(_, o)| o);
         format!("{o:?}")
     };
-    for t in ["R3_ControlTriggers_OneRow", "R4_List_Empty"] {
-        assert_eq!(get(t), "Some(Pass)", "{t}");
-    }
+    assert_eq!(get("R4_List_Empty"), "Some(Pass)");
+    let one_row = get("R3_ControlTriggers_OneRow");
+    assert!(
+        one_row.contains("NotRun")
+            && one_row.contains("outside the measured cells")
+            && one_row.contains("a control has a trigger"),
+        "{one_row}"
+    );
 }

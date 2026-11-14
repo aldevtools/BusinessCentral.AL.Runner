@@ -1,7 +1,7 @@
 //! When the DataCaptionExpression of a Worksheet, or of a Card with DelayedInsert, runs as AL code opens the page with
 //! `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and a TestPage handler answers it (al-runner issue 6924, APPD). Measured by
 //! corpus PR 1392, pages/properties/DataCaptionExprWorksheet.al (its CI passed on all three BC majors the corpus runs); the cells
-//! run under the assumption `data-caption-run-at-open`. Such a Worksheet in another shape refuses when its view is empty
+//! run under the assumption `data-caption-run-at-open`. Such a Worksheet in another shape refuses
 //! (`data_caption_open_neighbor`); every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd};
@@ -152,10 +152,10 @@ impl Session {
         };
         let runs = match cell {
             Ok(runs) => runs,
-            Err(miss) if self.data_caption_open_neighbor(st, bind)? => {
+            Err(miss) if self.data_caption_open_neighbor(st, bind) => {
                 return Err(Signal::unsupported(format!(
-                    "a Worksheet with DataCaptionExpression that AL code ran with a record and a handler answered, on an empty \
-                     view: {miss} (the expression runs at the open only in the shape DataCaptionExprWorksheet.al of corpus PR \
+                    "a Worksheet with DataCaptionExpression that AL code ran with a record and a handler answered, outside \
+                     the measured cells: {miss} (the expression runs at the open only in the shape DataCaptionExprWorksheet.al of corpus PR \
                      1392 measured; al-runner issue 6924)"
                 )));
             }
@@ -261,10 +261,11 @@ impl Session {
 
     /// Whether page `st` is in the neighborhood of the measured cells where main's path is not an answer: a Worksheet (the
     /// measured page type, DataCaptionExprWorksheet.al:81, :177) with a DataCaptionExpression of its own, that AL code ran with
-    /// `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and no field number while `bind`'s handler is bound, at the top level, and
-    /// whose view is empty after OnOpenPage. There BC ran the expression twice before the handler in every measured cell with
-    /// the page editable (:412, :426, :503, :515, :541, :559, :572), and main's path runs it only at a caption read.
-    fn data_caption_open_neighbor(&mut self, st: &St, bind: Option<UiKind>) -> Result<bool, Signal> {
+    /// `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and no field number while `bind`'s handler is bound, at the top level, with
+    /// any number of rows. BC ran the expression twice before the handler on an empty view and once on one row (:412, :439,
+    /// :572, :586), while main's path runs it only at a caption read, so main's controls can differ from BC's (the cells' value
+    /// reads: :627, :633); no row count is measured outside the cells, so they all refuse.
+    fn data_caption_open_neighbor(&self, st: &St, bind: Option<UiKind>) -> bool {
         let run = {
             let s = st.borrow();
             matches!(bind, Some(UiKind::Page | UiKind::ModalPage))
@@ -281,12 +282,7 @@ impl Session {
                     .iter()
                     .any(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
         };
-        if !(run && worksheet && self.has_source(st)) {
-            return Ok(false);
-        }
-        let rec = self.page_rec(st);
-        let filters = rec.borrow().filters.clone();
-        Ok(self.stored_rows_passing(&rec, filters)? == 0)
+        run && worksheet && self.has_source(st)
     }
 
     /// Whether the page is editable after OnOpenPage, when OnInit and OnOpenPage left what the probe's left: Rec with the handed
