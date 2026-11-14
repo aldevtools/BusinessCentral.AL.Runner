@@ -353,12 +353,17 @@ impl Session {
             let engine = self.engine();
             let object = st.borrow().object as usize;
             engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet)
-                && engine.program.objects[object]
-                    .properties
-                    .iter()
-                    .any(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
-        };
+        } && self.has_own_data_caption_expression(st);
         run && worksheet && self.has_source(st)
+    }
+
+    /// The page declares a DataCaptionExpression of its own (the one test of this property; an extension's is not counted).
+    pub(super) fn has_own_data_caption_expression(&self, st: &St) -> bool {
+        let engine = self.engine();
+        engine.program.objects[st.borrow().object as usize]
+            .properties
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
     }
 
     /// Whether the open of page `st` is the one pages/properties/Y50ListCaptionExpr.al pins main's caption for: a page
