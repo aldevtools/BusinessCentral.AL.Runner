@@ -1965,14 +1965,15 @@ impl Session {
     /// the call starts, gets the value through `Modify(RunTrigger)`; the buffer is left alone
     /// (corpus record/TestRecordModify.al:87-170, TestTriggerContracts.al:123-146).
     fn modify_all(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
+        let of_al = self.take_write_of_al(crate::state::WriteOfAl::ModifyAll);
         let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll);
-        let r = self.modify_all_noted(rec, t, args);
+        let r = self.modify_all_noted(rec, t, args, of_al);
         self.note_bulk_end(at);
         r
     }
 
     /// `modify_all` inside its notes for the stale-buffer rule.
-    fn modify_all_noted(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
+    fn modify_all_noted(&mut self, rec: &Rec, t: &TableDef, args: &[Value], of_al: bool) -> Result<Value, Signal> {
         let pos = arg_pos(args, 0)?;
         if t.fields[pos].id == 2_000_000_000 {
             // Wording after the pinned fragment: record/TestRecordSystemId.al:230-262, docs/probes-needed.md.
@@ -2032,8 +2033,10 @@ impl Session {
             && !declared("onbeforemodifyevent")
             && !declared("onaftermodifyevent")
             && !self.global_enabled(t, crate::globaltriggers::GlobalOp::Modify)?;
+        self.modify_all_sql_range(rec, t, pos, &value, (of_al, bulk, rows.is_empty()))?;
         let outer = std::mem::replace(&mut self.bulk_modify, bulk);
-        let r = self.modify_all_rows(rec, rows, pos, &value, run_trigger, shared);
+        let row_of_al = of_al && run_trigger;
+        let r = self.modify_all_rows(rec, rows, pos, &value, (run_trigger, row_of_al), shared);
         self.bulk_modify = outer;
         r
     }
@@ -2044,7 +2047,7 @@ impl Session {
         rows: Vec<Vec<Value>>,
         pos: usize,
         value: &Value,
-        run_trigger: bool,
+        (run_trigger, row_of_al): (bool, bool),
         shared: al_builtins::value::TableGlobals,
     ) -> Result<Value, Signal> {
         for mut row in rows {
@@ -2071,7 +2074,13 @@ impl Session {
                 }
             };
             let copy = Rc::new(RefCell::new(copy));
-            self.record_op(RecordOp::Modify, &copy, &mut [Value::Boolean(run_trigger)])?;
+            // ModifyAll(.., true) of AL code on a Record variable modifies each row as its own Modify (`records/sql_range.rs`).
+            if row_of_al {
+                self.tx.write_of_al = Some(crate::state::WriteOfAl::ModifyAllRow);
+            }
+            let r = self.record_op(RecordOp::Modify, &copy, &mut [Value::Boolean(run_trigger)]);
+            self.tx.write_of_al = None;
+            r?;
         }
         Ok(Value::Null)
     }
