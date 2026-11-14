@@ -8,6 +8,7 @@
 
 use crate::Session;
 use crate::blob_transfer::{BlobMove, Holder};
+use crate::permission_bulk_no_match::RecordCaller;
 use al_builtins::catalog::Catalog;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FilterExpr;
@@ -741,9 +742,7 @@ impl Session {
         let request = rec.borrow_mut().load.request.take();
         // RecordRef.Get(RecordId) of an existing row is a denied read like Record.Get (AEDependencyTableReads.al
         // `Customer_recref_get_recordid`).
-        if self.permission_checks() {
-            self.permission_from_al = true;
-        }
+        self.recordref_permission_call();
         let got = self.record_op(RecordOp::Get, rec, &mut a);
         rec.borrow_mut().load.request = request;
         got
@@ -1134,7 +1133,7 @@ impl Session {
             "GetBySystemId" => {
                 // The same read as Record.GetBySystemId (AEDependencyTableReads.al `Customer_getbysystemid_*`).
                 if self.permission_checks() {
-                    self.permission_gate_record(RecordOp::GetBySystemId, &rec, args, true)?;
+                    self.permission_gate_record(RecordOp::GetBySystemId, &rec, args, RecordCaller::RecordRef)?;
                 }
                 self.get_by_system_id(&rec, &t, args)
             }
@@ -1170,9 +1169,7 @@ impl Session {
             "IsEmpty" | "Count" | "Init" | "Insert" | "Modify" | "Delete" | "DeleteAll" | "Find" | "FindFirst"
             | "FindLast" | "FindSet" | "Next" | "Reset" | "Rename" => {
                 // ADR-062: a RecordRef write is checked like a record write (Y19PermWrites.al Y19_P6_RecordRef).
-                if self.permission_checks() {
-                    self.permission_from_al = true;
-                }
+                self.recordref_permission_call();
                 // A RecordRef.Insert of AL code is queued as a Record's (`insert_buffer.rs`).
                 self.recordref_record_op(method, &rec, args)
             }

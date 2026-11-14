@@ -315,6 +315,11 @@ pub trait TranslationSource: Send + Sync {
     fn files(&self) -> &[TranslationFile];
     /// File `index` of [`Self::files`] with its units; `error` set when it could not be read.
     fn file(&self, index: usize) -> &TranslationFile;
+    /// What the files hold, for a source whose content no other key holds (an app folder: the compile cache keys a folder
+    /// by its AL files only). `None`: the key of what the source was read from already holds it (a package).
+    fn identity(&self) -> Option<[u8; 32]> {
+        None
+    }
 }
 
 /// A [`TranslationSource`] as an app carries it: never serialized, never compared.

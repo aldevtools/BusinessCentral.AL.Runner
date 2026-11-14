@@ -1680,6 +1680,13 @@ const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
     },
 ];
 
+/// Whether a ModifyAll whose filter matches no row runs without a permission error in the reporter's shape of al-runner
+/// issue 8068 on `bc_major` (assumption `bulk-write-no-match-in-delete-trigger`): the reporter ran the repro on BC 28.5
+/// only. Other majors are not measured.
+pub fn bulk_write_no_match_in_delete_trigger_reported(bc_major: u16) -> bool {
+    bc_major == 28
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
