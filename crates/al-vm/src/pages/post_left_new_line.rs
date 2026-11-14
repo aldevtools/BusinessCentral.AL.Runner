@@ -90,6 +90,7 @@ impl Session {
             next: NextEnd::Refused,
             close: true,
             ok: false,
+            walk: false,
         });
         Ok(true)
     }
