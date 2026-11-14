@@ -3860,24 +3860,6 @@ impl Session {
     /// as their captions, a Duration as words, a Guid without braces, and a Decimal in full with a
     /// `decimalformatter` attribute from `DecimalPlaces` of the column, else of the field. Every other
     /// type is refused. A column that asks for its caption adds to the Labels block.
-    /// The `decimalformatter` of a Decimal column: from `DecimalPlaces` of the column, else of the field (`dataset::decimal_formatter`).
-    /// Without either it is `#,##0.00` on every version (reports/runtime/YReportPropsTests.al:40, 1234567.891;
-    /// reports/W3ReportObjectIdPreviewLanguage.al:448). BC follows General Ledger Setup "Amount Decimal Places" as the
-    /// session first read it; the corpus tests read it at the default 2:2 after SelectLatestVersion (corpus bump 28: the
-    /// earlier BC 28 `#,##0.00###` was a value left by an earlier test).
-    fn decimal_column_formatter(
-        &self,
-        t: &Option<Arc<al_data::TableDef>>,
-        c: &ir::ReportColumn,
-    ) -> Result<String, Signal> {
-        let from_field = match (t, c.field, c.places_table.zip(c.places_field)) {
-            (Some(t), Some(pos), _) => self.field_property(t, pos, "DecimalPlaces"),
-            (_, None, Some(at)) => crate::column_formatter::field_places(&self.engine.program, at),
-            _ => None,
-        };
-        crate::column_formatter::of_column(c, from_field.as_deref())
-    }
-
     fn dataset_column(
         &mut self,
         c: &ir::ReportColumn,

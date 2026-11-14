@@ -702,6 +702,15 @@ impl Session {
         }
     }
 
+    /// Whether an instance of codeunit `object` is bound right now.
+    pub(crate) fn is_bound_object(&self, object: usize) -> bool {
+        self.events
+            .bindings
+            .iter()
+            .filter_map(|b| b.instance.upgrade())
+            .any(|i| i.borrow().object as usize == object)
+    }
+
     /// Live bound instances of codeunit `object`, oldest binding first.
     pub(crate) fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);

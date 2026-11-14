@@ -13,6 +13,7 @@ mod rendered_text_file_round_trip;
 mod rendered_text_leaks;
 mod report_bare_run;
 mod report_calcfields;
+mod report_column_auto_format;
 mod report_column_source_error;
 mod report_custom_layout;
 mod report_decimal_columns;

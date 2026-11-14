@@ -55,8 +55,10 @@ pub struct Registry {
     /// no code for (`Program::uncompiled_subscribers`, and subscribers whose publisher cannot be
     /// told apart from another object of the same name). Raising such an event is refused.
     pub missing: HashMap<(usize, String), Vec<Missing>>,
-    /// (lower-case platform codeunit, lower-case event) -> subscribers of platform events the runtime does not raise:
-    /// `UI Helper Triggers`. Where BC raises such an event, the runtime refuses (`Registry::unraised_subscriber`).
+    /// (lower-case codeunit, lower-case event) -> subscribers of events the runtime does not raise: every event of `UI Helper
+    /// Triggers`, of `Reporting Triggers` and Base Application's `ReportManagement`, and OnResolveAutoFormat and
+    /// OnAfterResolveAutoFormat of `Auto Format`. Where BC raises such an event, the runtime refuses
+    /// (`Registry::unraised_subscriber`, `auto_format_writer`).
     pub unraised: HashMap<(String, String), Vec<Unraised>>,
     /// Subscribers (object, routine, lower-case event) to `OnInstallAppPerCompany` and `OnInstallAppPerDatabase` of the
     /// platform codeunit `Extension Triggers` (2000000010), in program order. BC raises them when the subscriber's own app
@@ -84,6 +86,38 @@ pub struct Unraised {
     /// or routine holds a variable of (the corpus fixtures log there, events/platform-triggers/PeVFixtures.al:133,
     /// events/platform-triggers/P114GlobalTriggerEvents.al:31).
     pub witnesses: Vec<usize>,
+    /// The subscriber routine, in `object`.
+    pub routine: usize,
+    /// The subscriber codeunit declares `EventSubscriberInstance = Manual`: it would receive the event only while bound.
+    pub manual: bool,
+}
+
+impl Unraised {
+    /// The entry for subscriber `r` of codeunit `oi`.
+    fn of(heads: &[ir::ObjectHead], oi: usize, o: &ir::ObjectHead, r: &ir::EventRoutine) -> Unraised {
+        Unraised {
+            object: oi,
+            subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+            witnesses: witnesses(heads, oi, r),
+            routine: r.routine as usize,
+            manual: is_manual(o),
+        }
+    }
+
+    /// Whether test codeunit `test` (object `test_index`) can see that this subscriber ran: it is the subscriber's codeunit or
+    /// holds a variable of one of its witnesses. Outside a test run (a unit test of the runtime) every subscriber counts.
+    pub fn seen_by(&self, test: Option<&ir::Object>, test_index: Option<usize>) -> bool {
+        match (test, test_index) {
+            (Some(t), Some(ti)) => {
+                self.witnesses.contains(&ti)
+                    || t.globals
+                        .iter()
+                        .chain(t.routines.iter().flat_map(|r| r.locals.iter()))
+                        .any(|s| matches!(s.ty, al_builtins::value::RtType::Codeunit(c) if self.witnesses.contains(&(c as usize))))
+            }
+            _ => true,
+        }
+    }
 }
 
 /// A subscriber that is declared and not compiled.
@@ -128,7 +162,6 @@ impl Registry {
         target: &str,
         event: &str,
     ) {
-        let witnesses = witnesses(heads, oi, r);
         if event == "captionclasstranslate" {
             self.subscribers
                 .entry((UI_HELPER_TRIGGERS, event.to_string()))
@@ -143,11 +176,7 @@ impl Registry {
         self.unraised
             .entry((target.to_ascii_lowercase(), event.to_string()))
             .or_default()
-            .push(Unraised {
-                object: oi,
-                subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                witnesses,
-            });
+            .push(Unraised::of(heads, oi, o, r));
     }
 }
 
@@ -397,11 +426,18 @@ impl Registry {
                                 reg.unraised
                                     .entry((target.to_ascii_lowercase(), event.clone()))
                                     .or_default()
-                                    .push(Unraised {
-                                        object: oi,
-                                        subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                                        witnesses: witnesses(heads, oi, r),
-                                    });
+                                    .push(Unraised::of(heads, oi, o, r));
+                            }
+                            // The events of the System Application's "Auto Format" codeunit that its AutoFormatTranslate subscriber
+                            // raises: listed too, the runtime raises neither (`auto_format_writer`).
+                            if kind == ObjKind::Codeunit
+                                && (target.eq_ignore_ascii_case("Auto Format") || target == "45")
+                                && (event == "onresolveautoformat" || event == "onafterresolveautoformat")
+                            {
+                                reg.unraised
+                                    .entry(("auto format".to_string(), event.clone()))
+                                    .or_default()
+                                    .push(Unraised::of(heads, oi, o, r));
                             }
                             // The layout selection events go to Base Application's ReportManagement only (ADR-040 amendment
                             // 2026-11-12, A7; `report_save::fact_selection`).
@@ -552,26 +588,13 @@ impl Registry {
         test_index: Option<usize>,
         but: Option<usize>,
     ) -> Option<(&str, &str)> {
-        let sees = |u: &Unraised| {
-            match (test, test_index) {
-            (Some(t), Some(ti)) => {
-                u.witnesses.contains(&ti)
-                    || t.globals
-                        .iter()
-                        .chain(t.routines.iter().flat_map(|r| r.locals.iter()))
-                        .any(|s| matches!(s.ty, al_builtins::value::RtType::Codeunit(c) if u.witnesses.contains(&(c as usize))))
-            }
-            // Outside a test run (a unit test of the runtime) every subscriber counts.
-            _ => true,
-        }
-        };
         let mut found: Vec<(&str, &str)> = self
             .unraised
             .iter()
             .filter(|((p, e), _)| p == publisher && event.is_none_or(|want| e == want))
             .flat_map(|((_, e), subs)| {
                 subs.iter()
-                    .filter(|u| Some(u.object) != but && sees(u))
+                    .filter(|u| Some(u.object) != but && u.seen_by(test, test_index))
                     .map(move |u| (e.as_str(), u.subscriber.as_str()))
             })
             .collect();

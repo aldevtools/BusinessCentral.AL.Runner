@@ -169,6 +169,7 @@ fn every_registered_id_is_in_the_catalog() {
         "Record.ValidateVariant#1",
         "System.FormatDecimalField#1",
         "System.FormatAutoFormatField#1",
+        "System.AutoFormatWriterGuard#1",
         "System.FormatOptionColumn#1",
         "System.ClearWithEventsTimer#1",
         "System.OptionCaptionML#1",

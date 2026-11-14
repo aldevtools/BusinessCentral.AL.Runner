@@ -204,6 +204,7 @@ type Handler = (usize, usize, Rc<RefCell<al_builtins::value::Instance>>);
 
 mod action_enabled_row;
 mod areas;
+mod auto_format_writer_cell;
 mod background;
 mod end_move_no_read;
 mod flowfield_hidden;

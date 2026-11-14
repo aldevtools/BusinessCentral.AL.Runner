@@ -197,3 +197,27 @@ codeunit 69466 C
     refused(al_testkit::run_in(src, "C", "WithLiteral"), "7");
     refused(al_testkit::run_in(src, "C", "Subst"), "50733");
 }
+
+/// A type is modelled only by its exact text: `01` is no pinned type and is refused on a page and in code (review of al-runner PR
+/// 8015: it counted as type 1 and then fell to the default places).
+#[test]
+fn a_type_written_with_a_leading_zero_is_refused() {
+    refused(al_testkit::run_in(&page("", "AutoFormatType = 01;"), "C", "Run"), "01");
+    let src = r#"
+table 69467 "AfU Lead Row"
+{
+    fields { field(1; Id; Integer) { } field(2; Lead; Decimal) { AutoFormatType = 01; } }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+codeunit 69468 C
+{
+    procedure Plain(): Text
+    var R: Record "AfU Lead Row";
+    begin
+        R.Lead := 3456.67843;
+        exit(Format(R.Lead));
+    end;
+}
+"#;
+    refused(al_testkit::run_in(src, "C", "Plain"), "01");
+}

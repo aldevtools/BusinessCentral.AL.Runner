@@ -8,6 +8,7 @@ mod action_moved_rec_beyond_window;
 mod after_get_record_event;
 mod assistedit_refresh;
 mod auto_format_type_unknown;
+mod auto_format_writer;
 mod bare_page_method;
 mod base_access;
 mod bg_task_child_session;

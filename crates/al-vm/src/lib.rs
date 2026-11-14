@@ -54,6 +54,7 @@ pub use profile::{
 };
 pub use state_stamp::StateStamp;
 pub use test_runner_host::TestCodeunitHost;
+mod auto_format_writer;
 mod callstack;
 mod caught_errors;
 mod clear_all_page_ext;

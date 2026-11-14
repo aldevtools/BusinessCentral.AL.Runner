@@ -557,6 +557,40 @@ impl Lowerer<'_> {
         }
     }
 
+    /// `lowered` (the `Format` of the Decimal table field `arg`, or its StrSubstNo, Message or Error substitution) behind the check
+    /// that no subscriber could write the AutoFormat result (al-vm `auto_format_writer`), for a field of AutoFormatType 1, 2, 4, 5, 10
+    /// or 11 (`pagefmt::resolved_auto_format_type`): the check runs first, the Format only after it. Any other argument as it is.
+    pub(crate) fn auto_format_writer_guard(&mut self, arg: &SyntaxNode, lowered: ir::Expr) -> Result<ir::Expr, String> {
+        let Some(Res::Field { table, id: field }) = self.res(arg).cloned() else {
+            return Ok(lowered);
+        };
+        let Some(f) = self.members[table].fields.iter().find(|f| f.id == field) else {
+            return Ok(lowered);
+        };
+        let kind = f
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("AutoFormatType"))
+            .map(|(_, v)| v.trim().to_string())
+            .filter(|k| al_builtins::pagefmt::resolved_auto_format_type(k));
+        let (Ty::Decimal, Some(kind)) = (&f.ty, kind) else {
+            return Ok(lowered);
+        };
+        let guard = ir::Expr::Builtin {
+            id: super::call::builtin_id("System.AutoFormatWriterGuard#1")?,
+            receiver: None,
+            args: vec![ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(
+                kind.parse().expect("a resolved type is a number"),
+            )))],
+            ret_used: true,
+        };
+        Ok(ir::Expr::Ternary(
+            Box::new(guard),
+            Box::new(lowered),
+            Box::new(ir::Expr::Const(ir::Const::Text(String::new()))),
+        ))
+    }
+
     /// The places `min:max` a Decimal table field declares for `Format`: its `DecimalPlaces`, else the precision of its
     /// `AutoFormatExpression` (type 10), else the 2:2 of a blank-expression amount (type 1) or 2:5 of a unit amount (type 2)
     /// (pages/run-modal/P113AutoFormat.al:P113_AF_TableFieldFormatIsPlain, pages/properties/

@@ -22,6 +22,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("System.FormatDecimalField#1", format_decimal_field),
     ("System.FormatAutoFormatField#1", format_auto_format_field),
+    ("System.AutoFormatWriterGuard#1", auto_format_writer_guard),
     ("System.FormatOptionColumn#1", format_option_column),
     ("System.OptionCaptionML#1", option_caption_ml),
     ("System.Evaluate#1", crate::evaluate::evaluate),
