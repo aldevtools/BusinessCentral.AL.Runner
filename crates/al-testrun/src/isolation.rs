@@ -128,9 +128,9 @@ impl Checkpoint {
     /// the number sequences go back too. Measured for a new key's `IsolatedStorage.Set` and a new sequence's
     /// `NumberSequence.Insert` (corpus PR 735, tests/al-language-isolation-probe/src/IsolProbeAfterRollback.Codeunit.al
     /// S7-S9 fail under runner 61300), while AutoIncrement counters and row versions are not reset (S5, S6 pass: the
-    /// store's counters are not part of the snapshot). `None`: neither changed; `Some(false)`: the test changed a key or a sequence that was there
-    /// before it, which the probe does not measure.
-    pub fn restore_for_runner(&self, session: &mut Session) -> Option<bool> {
+    /// store's counters are not part of the snapshot). `None`: neither changed; otherwise the keys and sequences that
+    /// were there before the test and changed, which the probe does not measure.
+    pub fn restore_for_runner(&self, session: &mut Session) -> Option<al_vm::Unkept> {
         self.restore(session);
         session.restore_storage_checkpoint(&self.1)
     }
@@ -139,8 +139,12 @@ impl Checkpoint {
 /// What the end of a test puts back besides its transaction, by the runner's TestIsolation. Under Function the
 /// checkpoint (with the isolated storage and the number sequences for a runner codeunit, `runner_function`). Under
 /// Codeunit (`sequences`, taken after OnRun) a failed test takes back every NumberSequence.Insert since the codeunit's
-/// tests began ([`Session::drop_sequences_inserted_since`]). `Some(reason)`: what the later tests of the codeunit start
-/// from is not measured, and they are not run.
+/// tests began ([`Session::drop_sequences_inserted_since`]).
+///
+/// A key or a sequence whose state after that rollback is not measured (it was there before and the test changed it) is
+/// handed to the session: a later test of the codeunit that calls IsolatedStorage or NumberSequence on it is refused at
+/// that call, and every other later test runs (al-runner issue 8002). The run ends these refusals when the codeunit's
+/// tests end ([`Session::clear_unmeasured`]).
 pub fn after_test(
     session: &mut Session,
     checkpoint: Option<&Checkpoint>,
@@ -148,30 +152,46 @@ pub fn after_test(
     sequences: Option<&al_vm::SequenceStart>,
     failed: bool,
     routine: &str,
-) -> Option<String> {
+) {
     if let Some(cp) = checkpoint {
         if !runner_function {
             cp.restore(session);
-            return None;
+            return;
         }
         // A new key's IsolatedStorage.Set and a new NumberSequence.Insert are rolled back
         // (IsolProbeAfterRollback.Codeunit.al S1-S9 under runner 61300).
-        return (cp.restore_for_runner(session) == Some(false)).then(|| {
+        let Some(unkept) = cp.restore_for_runner(session) else {
+            return;
+        };
+        let why = |what: &str, name: &str, only: &str| {
             format!(
-                "an earlier test of this codeunit, {routine}, changed an isolated storage key or a number sequence \
-                 that existed before it: what the rollback of TestIsolation = Function leaves of it is not \
-                 measured (only a new key's IsolatedStorage.Set and a new NumberSequence.Insert are)"
+                "an earlier test of this codeunit, {routine}, changed {what} '{name}' that existed before it: what the \
+                 rollback of TestIsolation = Function leaves of it is not measured (only a new {only} is)"
             )
-        });
+        };
+        for slot in &unkept.isolated {
+            session.refuse_unmeasured_key(slot, why("isolated storage key", &slot.1, "key's IsolatedStorage.Set"));
+        }
+        for key in &unkept.sequences {
+            session.refuse_unmeasured_sequence(key, why("number sequence", &key.1, "NumberSequence.Insert"));
+        }
+        return;
     }
-    let start = sequences.filter(|_| failed)?;
-    (session.drop_sequences_inserted_since(start) == Some(false)).then(|| {
-        format!(
-            "a test of this codeunit, {routine}, failed after a number sequence that existed when the codeunit's tests \
-             began was restarted, deleted or changed: what the rollback of the failed test leaves of it under \
-             TestIsolation = Codeunit is not measured (only a new NumberSequence.Insert is)"
-        )
-    })
+    let Some(start) = sequences.filter(|_| failed) else {
+        return;
+    };
+    if session.drop_sequences_inserted_since(start) != Some(false) {
+        return;
+    }
+    for key in session.unkept_sequences_since(start) {
+        let why = format!(
+            "a test of this codeunit, {routine}, failed after number sequence '{}', which existed when the codeunit's \
+             tests began, was restarted, deleted or changed: what the rollback of the failed test leaves of it under \
+             TestIsolation = Codeunit is not measured (only a new NumberSequence.Insert is)",
+            key.1
+        );
+        session.refuse_unmeasured_sequence(&key, why);
+    }
 }
 
 #[cfg(test)]

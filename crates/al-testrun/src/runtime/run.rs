@@ -599,9 +599,9 @@ fn run_codeunit_inner(
         let mut reach_index: Option<Arc<ReachIndex>> = None;
         let flags = settled_flags(lowered, object);
         let mut panicked = false;
-        // Why the tests after one are not run: under a runner's TestIsolation = Function, that test changed an isolated
-        // storage key or a number sequence that was there before it, and what the rollback leaves of it is not measured.
-        let mut unmeasured_restore: Option<String> = None;
+        // The refusals of the keys and sequences an earlier codeunit's tests changed (isolation::after_test) end here: this
+        // codeunit runs on what the earlier one left, as main ran it; whether BC leaves the same is not measured.
+        session.clear_unmeasured();
         // `--skip-after-timeout` (al-runner issue 7517): the test the time limit stopped; the tests after it are not run.
         let mut stopped_at_limit: Option<String> = None;
         let mut queue = data_driven::queue(lowered, object, &tests, &data_driven);
@@ -675,8 +675,6 @@ fn run_codeunit_inner(
             let mut skipped = false;
             let outcome = if let Some(o) = decided {
                 o
-            } else if let Some(why) = &unmeasured_restore {
-                Outcome::NotRun(why.clone())
             } else if let Some(n) = &stopped_at_limit {
                 Outcome::NotRun(format!(
                     "an earlier test of this codeunit ({n}) was stopped at the time limit, and --skip-after-timeout does not run the rest of the codeunit"
@@ -991,6 +989,9 @@ fn run_codeunit_inner(
                 al_builtins::assumptions::take_hits();
                 continue;
             }
+            // The test failed, taken before the checks below report a failure as not trusted or not run: its transaction was
+            // rolled back either way, and the end of the test puts back what that rollback covers (isolation::after_test).
+            let failed = matches!(outcome, Outcome::Fail(_));
             // A test that did not run to its end (refused before it started, refused while it ran, failed) left the state the
             // tests of the codeunit share other than BC did: the database (under TestIsolation = Codeunit), the globals of the
             // codeunit and of the codeunits it holds, single-instance codeunits, and session state such as the `Random`
@@ -1162,16 +1163,14 @@ fn run_codeunit_inner(
                     },
                 );
             }
-            if let Some(why) = crate::isolation::after_test(
+            crate::isolation::after_test(
                 session,
                 checkpoint.as_ref(),
                 runner_function,
                 sequences_at_start.as_ref(),
-                matches!(outcome, Outcome::Fail(_)),
+                failed,
                 &routine.name,
-            ) {
-                unmeasured_restore.get_or_insert(why);
-            }
+            );
             if let (Outcome::Fail(_), Some(e)) = (&outcome, &failure) {
                 if !e.call_stack.is_empty() {
                     stacks.push((name.clone(), e.call_stack.clone()));
@@ -1249,6 +1248,7 @@ fn run_codeunit_inner(
         if panicked {
             not_run_after_panic(obj, &mut queue, &mut out);
         }
+        session.clear_unmeasured();
         ends.set(ends_of(&unfinished, panicked));
         th.end_codeunit(session, lowered, &mut out);
         Ok(out)
