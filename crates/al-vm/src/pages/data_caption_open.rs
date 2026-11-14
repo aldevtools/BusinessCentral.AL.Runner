@@ -1,14 +1,16 @@
 //! When the DataCaptionExpression of a Worksheet, or of a Card with DelayedInsert, runs as AL code opens the page with
 //! `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and a TestPage handler answers it (al-runner issue 6924, APPD). Measured by
 //! corpus PR 1392, pages/properties/DataCaptionExprWorksheet.al (its CI passed on all three BC majors the corpus runs); the cells
-//! run under the assumption `data-caption-run-at-open`. Every other page keeps main's path (`data_caption_run.rs`,
-//! `caption_expr_list.rs`).
+//! run under the assumption `data-caption-run-at-open`. Such a Worksheet in another shape or run (`data_caption_open_neighbor`)
+//! refuses at the open unless its expression is plain, else at the first test read of what the run changes
+//! (`refuse_unmeasured_caption_read`); every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
 
-use super::pinned_shape::{NextEnd, PinnedEnd};
+use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
 use super::*;
 use crate::ui::UiKind;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
+use al_builtins::page_op::PageMethod;
 
 /// What the handler may do after the measured open: read the caption and the controls (DataCaptionExprWorksheet.al:627, :633,
 /// :639, :645), and the page closes.
@@ -77,6 +79,17 @@ const CELLS: [(Shape, bool, i32, bool, Runs); 10] = [
     (Shape::CardDelayedInsert, false, 1, true, Runs::CardOnce),
 ];
 
+/// The start of a refusal of a page of the cells' neighborhood in no cell (`data_caption_open_neighbor`).
+const UNMEASURED_OPEN: &str =
+    "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the measured cells";
+
+/// The end of that refusal: what the corpus measured.
+const MEASURED_SHAPE: &str = "the expression runs at the open only in the shape DataCaptionExprWorksheet.al of corpus PR \
+                              1392 measured; al-runner issue 6924";
+
+/// Why a page is not in a measured cell: the fact of the cell it misses.
+type Miss = &'static str;
+
 /// The record AL code handed to `Page.Run`, as it was before the page opened, in the measured shape (`Session::data_caption_handed`).
 pub(super) struct HandedRecord {
     filters: Vec<FieldFilter>,
@@ -96,10 +109,12 @@ impl Session {
         st: &St,
         record: Option<&Rec>,
         bind: Option<UiKind>,
-    ) -> Option<HandedRecord> {
-        let r = record?.borrow();
+    ) -> Result<HandedRecord, Miss> {
+        let Some(r) = record.map(|r| r.borrow()) else {
+            return Err("AL code handed no record");
+        };
         if bind.is_none() || !st.borrow().static_run_record_only || self.pages.test_open {
-            return None;
+            return Err("the page is not one AL code ran with Page.Run(Id, Rec) while no TestPage opened");
         }
         let one_code_value = match r.filters.as_slice() {
             [f] => {
@@ -108,36 +123,60 @@ impl Session {
             }
             _ => false,
         };
-        let measured = one_code_value
-            && !r.temporary
+        if !one_code_value {
+            return Err("the handed record's filters are not one SetRange to one Code value that is not empty");
+        }
+        let measured = !r.temporary
             && r.marks.is_empty()
             && !r.marked_only
             && r.key == 0
             && r.adhoc.is_none()
             && r.ascending
             && r.field_descending == 0
-            && r.filter_group == 0
-            && Self::same_values(&r.fields, &self.initial_fields(r.table as usize));
-        measured.then(|| HandedRecord {
+            && r.filter_group == 0;
+        if !measured {
+            return Err("the handed record is temporary, marked, on another key or order, or in another filter group");
+        }
+        if !Self::same_values(&r.fields, &self.initial_fields(r.table as usize)) {
+            return Err("the handed record's fields hold values (the probe handed a fresh record)");
+        }
+        Ok(HandedRecord {
             filters: r.filters.clone(),
             writes: self.store.change_counter(),
         })
     }
 
-    /// The page `st` that AL code opened with `bind`'s handler bound and the record `handed`: in a measured cell, the expression
-    /// runs as the probe saw it before the handler, and only the handler's caption and control reads and the close follow
-    /// (`OPENED_END`).
+    /// The page `st` that AL code opened with `bind`'s handler bound (or that a Trap caught, `bind` empty) and the record
+    /// `handed`: in a measured cell, the expression runs as the probe saw it before the handler, and only the handler's caption
+    /// and control reads and the close follow (`OPENED_END`). A page of the cells' neighborhood (`data_caption_open_neighbor`) in
+    /// no cell keeps main's open when its expression is plain (`data_caption_plain.rs`): the run at the open then changes only what the
+    /// caption and the controls on page variables or expressions show, and the first test read of those refuses
+    /// (`refuse_unmeasured_caption_read`). With any other expression it refuses at the open, naming the fact it misses. Every other page keeps main's path.
     pub(super) fn data_caption_at_handled_open(
         &mut self,
         st: &St,
         bind: Option<UiKind>,
-        handed: Option<HandedRecord>,
+        handed: Result<HandedRecord, Miss>,
     ) -> Result<(), Signal> {
-        let Some(handed) = handed else {
-            return Ok(());
+        let cell = match handed {
+            Ok(handed) => self.data_caption_open_cell(st, bind, &handed)?,
+            Err(miss) => Err(miss),
         };
-        let Some(runs) = self.data_caption_open_cell(st, bind, &handed)? else {
-            return Ok(());
+        let runs = match cell {
+            Ok(runs) => runs,
+            Err(_) if self.data_caption_read_pinned(st, bind) => return Ok(()),
+            Err(miss) if self.data_caption_open_neighbor(st, bind) => {
+                return if self.data_caption_expression_plain(st) {
+                    st.borrow_mut().data_caption_open_unmeasured = Some(miss);
+                    Ok(())
+                } else {
+                    Err(Signal::unsupported(format!(
+                        "{UNMEASURED_OPEN}: {miss}; the expression is not a literal, a field of Rec or a concatenation or \
+                         Format of those, so BC can raise an error from it at the open ({MEASURED_SHAPE})"
+                    )))
+                };
+            }
+            Err(_) => return Ok(()),
         };
         assume(Assumption::DataCaptionRunAtOpen);
         match runs {
@@ -154,6 +193,64 @@ impl Session {
         s.data_caption_at_open = runs != Runs::CardOnce;
         s.pinned_end = Some(OPENED_END);
         Ok(())
+    }
+
+    /// Whether the page's DataCaptionExpression is plain (`plain_caption_expression`): its property text, never the compiled
+    /// routine.
+    fn data_caption_expression_plain(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        engine.program.objects[object]
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
+            .is_some_and(|(_, v)| super::data_caption_plain::plain_caption_expression(v))
+    }
+
+    /// The test reads, on page `st`, its caption (`control` empty) or the control at index `control`: on a Worksheet whose
+    /// expression may have run at the open outside the measured cells (`data_caption_open_unmeasured`), a read of the caption or
+    /// of a control bound to a page variable or an expression refuses; main's path answers the reads of Rec's controls, the
+    /// actions and the close.
+    pub(super) fn refuse_unmeasured_caption_read(
+        &self,
+        st: &St,
+        call: Option<TestCall>,
+        control: Option<usize>,
+    ) -> Result<(), Signal> {
+        let Some(miss) = st.borrow().data_caption_open_unmeasured else {
+            return Ok(());
+        };
+        let read = match (call, control) {
+            (Some(TestCall::Page(PageMethod::Caption)), None) => "the caption",
+            (Some(TestCall::Read), Some(i)) => self.data_caption_open_bound_read(st, i),
+            (Some(TestCall::Other(m)), Some(i)) if m == PageMethod::AssertEquals || Self::field_read(m) => {
+                self.data_caption_open_bound_read(st, i)
+            }
+            _ => return Ok(()),
+        };
+        if read.is_empty() {
+            return Ok(());
+        }
+        unsupported(format!(
+            "{UNMEASURED_OPEN}: {miss}; the test read {read}, which can differ where the expression ran at the open \
+             ({MEASURED_SHAPE})"
+        ))
+    }
+
+    /// "a control on a page variable or an expression" when the control at index `i` of page `st` is bound to one; else empty.
+    fn data_caption_open_bound_read(&self, st: &St, i: usize) -> &'static str {
+        let engine = self.engine();
+        let bound = page_of(&engine, st).controls.get(i).is_some_and(|c| {
+            matches!(
+                c.binding,
+                ir::Binding::Var(_) | ir::Binding::BaseVar(_) | ir::Binding::Expr(_)
+            )
+        });
+        if bound {
+            "a control on a page variable or an expression"
+        } else {
+            ""
+        }
     }
 
     /// The caption of a Worksheet whose expression ran at the open (`data_caption_at_open`): the page caption, ` - ` and the
@@ -188,7 +285,7 @@ impl Session {
         st: &St,
         bind: Option<UiKind>,
         handed: &HandedRecord,
-    ) -> Result<Option<Runs>, Signal> {
+    ) -> Result<Result<Runs, Miss>, Signal> {
         let run_modal = {
             let s = st.borrow();
             let run = match (bind, s.modal) {
@@ -199,15 +296,22 @@ impl Session {
                 _ => None,
             };
             if s.opened_by_test || s.host.is_some() || !s.open {
-                return Ok(None);
+                return Ok(Err("the page is not open at the top level"));
             }
             run
         };
-        let (Some(run_modal), Some(shape)) = (run_modal, self.data_caption_open_shape(st)) else {
-            return Ok(None);
+        let Some(run_modal) = run_modal else {
+            return Ok(Err(
+                "a run other than Page.Run with a PageHandler or Page.RunModal(0, Rec) as a statement with a ModalPageHandler",
+            ));
         };
-        let Some(editable) = self.data_caption_open_left(st, handed) else {
-            return Ok(None);
+        let shape = match self.data_caption_open_shape(st) {
+            Ok(shape) => shape,
+            Err(miss) => return Ok(Err(miss)),
+        };
+        let editable = match self.data_caption_open_left(st, handed) {
+            Ok(editable) => editable,
+            Err(miss) => return Ok(Err(miss)),
         };
         let rec = self.page_rec(st);
         let rows = self.stored_rows_passing(&rec, handed.filters.clone())?;
@@ -219,19 +323,59 @@ impl Session {
             }
         };
         if !main_state {
-            return Ok(None);
+            return Ok(Err(
+                "the expression ran before the handler in another way than the probe's page",
+            ));
         }
         Ok(CELLS
             .iter()
             .find(|c| c.0 == shape && c.1 == run_modal && c.2 == rows && c.3 == editable)
-            .map(|c| c.4))
+            .map(|c| c.4)
+            .ok_or("a page type, run, row count and Editable that no measured cell combines"))
+    }
+
+    /// Whether page `st` is in the neighborhood of the measured cells where main's path is not an answer: a Worksheet (the
+    /// measured page type, DataCaptionExprWorksheet.al:81, :177) with a DataCaptionExpression of its own and a source table, at
+    /// the top level, that AL code opened while `bind`'s handler is bound or that a Trap caught (every run: static or through a
+    /// page variable, with or without a record or a field number, Run or RunModal; and an action's RunObject), with any number of
+    /// rows. BC ran the expression twice before the handler on an empty view and once on one row (:412, :439, :572, :586), while
+    /// main's path runs it only at a caption read, so what the caption and the controls show can differ from BC's (the cells'
+    /// reads: :627, :633); no other run or row count is measured.
+    fn data_caption_open_neighbor(&self, st: &St, bind: Option<UiKind>) -> bool {
+        let run = {
+            let s = st.borrow();
+            let opened = match bind {
+                Some(kind) => matches!(kind, UiKind::Page | UiKind::ModalPage),
+                None => s.caught_by_trap,
+            };
+            opened && s.open && s.host.is_none()
+        };
+        let worksheet = {
+            let engine = self.engine();
+            let object = st.borrow().object as usize;
+            engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet)
+                && engine.program.objects[object]
+                    .properties
+                    .iter()
+                    .any(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
+        };
+        run && worksheet && self.has_source(st)
+    }
+
+    /// Whether the open of page `st` is the one pages/properties/Y50ListCaptionExpr.al pins main's caption for: a page
+    /// variable's `RunModal()` with no other call of AL code on the page (no SetRecord, no SetTableView: :381-382 calls only a
+    /// procedure of the page first) and a ModalPageHandler (:458-465), where the caption is the expression evaluated at each
+    /// read (:383-385). Main's path answers it.
+    fn data_caption_read_pinned(&self, st: &St, bind: Option<UiKind>) -> bool {
+        let s = st.borrow();
+        bind == Some(UiKind::ModalPage) && s.code_calls.as_slice() == [PageMethod::RunModal]
     }
 
     /// Whether the page is editable after OnOpenPage, when OnInit and OnOpenPage left what the probe's left: Rec with the handed
     /// record's filters, key and order, filter group 0 active; no write to the store; the page variables the controls show still
     /// empty (:369 `OnOpenPage(item=)`); `CurrPage.Editable` assigned once in OnOpenPage (`'true'` :412, `'false'` :452) or not at
-    /// all (:503), and no Editable set on the page before it ran. `None` otherwise.
-    fn data_caption_open_left(&self, st: &St, handed: &HandedRecord) -> Option<bool> {
+    /// all (:503), and no Editable set on the page before it ran. Otherwise the fact it misses.
+    fn data_caption_open_left(&self, st: &St, handed: &HandedRecord) -> Result<bool, Miss> {
         let rec = self.page_rec(st);
         let kept = {
             let r = rec.borrow();
@@ -244,11 +388,16 @@ impl Session {
                 && r.marks.is_empty()
                 && !r.marked_only
         };
-        if !kept || self.store.change_counter() != handed.writes {
-            return None;
+        if !kept {
+            return Err("OnInit or OnOpenPage changed Rec's filters, key, order, filter group or marks");
+        }
+        if self.store.change_counter() != handed.writes {
+            return Err("the page's open wrote to the database");
         }
         let s = st.borrow();
-        let inst = s.instance.as_ref()?.borrow();
+        let Some(inst) = s.instance.as_ref().map(|i| i.borrow()) else {
+            return Err("the page has no instance");
+        };
         let engine = self.engine();
         let empty_vars = page_of(&engine, st).controls.iter().all(|c| match c.binding {
             ir::Binding::Var(slot) => {
@@ -256,18 +405,21 @@ impl Session {
             }
             _ => true,
         });
-        if !empty_vars || s.editable_preset.is_some() {
-            return None;
+        if !empty_vars {
+            return Err("a control shows a page variable that is not an empty Text or Code after OnOpenPage");
+        }
+        if s.editable_preset.is_some() {
+            return Err("Editable was set on the page variable before the run");
         }
         match s.open_editable {
-            OpenEditable::Unset => Some(true),
-            OpenEditable::InOpenPage(on) => Some(on),
-            OpenEditable::Other => None,
+            OpenEditable::Unset => Ok(true),
+            OpenEditable::InOpenPage(on) => Ok(on),
+            OpenEditable::Other => Err("CurrPage.Editable was assigned in OnInit or more than once"),
         }
     }
 
-    /// The page's `Shape`, when its code and properties are those of the probe's pages.
-    fn data_caption_open_shape(&self, st: &St) -> Option<Shape> {
+    /// The page's `Shape`, when its code and properties are those of the probe's pages; otherwise the fact it misses.
+    fn data_caption_open_shape(&self, st: &St) -> Result<Shape, Miss> {
         if !self.has_source(st)
             || !self.page_declares_within(
                 st,
@@ -275,7 +427,11 @@ impl Session {
                 &["datacaptionexpression", "delayedinsert"],
             )
         {
-            return None;
+            return Err(
+                "the page has a trigger other than OnInit, OnOpenPage and OnQueryClosePage, a property other than the \
+                        plain ones, DataCaptionExpression and DelayedInsert, an extension, a subscriber, or a control property \
+                        that is not a literal",
+            );
         }
         let engine = self.engine();
         let object = st.borrow().object as usize;
@@ -287,14 +443,15 @@ impl Session {
                 .map(|(_, v)| v.trim().to_ascii_lowercase())
         };
         // The expression calls a procedure of the page with no argument (:111 `DataCaptionExpression = GetCaption();`).
-        let expression = prop("datacaptionexpression")?;
-        let procedure = expression.strip_suffix("()")?;
+        const EXPRESSION: Miss = "the DataCaptionExpression is not a call of a procedure of the page without arguments";
+        let expression = prop("datacaptionexpression").ok_or(EXPRESSION)?;
+        let procedure = expression.strip_suffix("()").ok_or(EXPRESSION)?;
         if !engine.program.objects[object]
             .routines
             .iter()
             .any(|r| r.name.eq_ignore_ascii_case(procedure))
         {
-            return None;
+            return Err(EXPRESSION);
         }
         let controls = page_of(&engine, st).controls.iter().all(|c| {
             c.triggers.is_empty()
@@ -305,7 +462,9 @@ impl Session {
                 }
         });
         if !controls {
-            return None;
+            return Err(
+                "a control has a trigger (OnValidate, OnLookup, ...) or is not a field of Rec or a page variable",
+            );
         }
         let delayed = prop("delayedinsert");
         match (
@@ -313,10 +472,10 @@ impl Session {
             delayed.as_deref(),
             self.is_list(st),
         ) {
-            (Some(al_ir::PageType::Worksheet), Some("true"), true) => Some(Shape::WorksheetDelayedInsert),
-            (Some(al_ir::PageType::Worksheet), None, true) => Some(Shape::Worksheet),
-            (Some(al_ir::PageType::Card), Some("true"), false) => Some(Shape::CardDelayedInsert),
-            _ => None,
+            (Some(al_ir::PageType::Worksheet), Some("true"), true) => Ok(Shape::WorksheetDelayedInsert),
+            (Some(al_ir::PageType::Worksheet), None, true) => Ok(Shape::Worksheet),
+            (Some(al_ir::PageType::Card), Some("true"), false) => Ok(Shape::CardDelayedInsert),
+            _ => Err("a page type and DelayedInsert value no measured cell has"),
         }
     }
 }

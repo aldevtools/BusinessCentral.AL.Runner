@@ -702,6 +702,25 @@ pub struct Entry {
     pub resources: std::collections::BTreeMap<String, String>,
 }
 
+impl Entry {
+    /// The entry's resource texts, in each app under test that has a resource of that name (the request checked that
+    /// one has): (app index in `apps`, the files of that app the entry replaces, with the entry's text). Only those:
+    /// the app's other files are read from the program, which every entry shares (al-runner issue 8026).
+    fn resources_in(&self, apps: &[&[(String, Vec<u8>)]]) -> Vec<(usize, al_testrun::runtime::ResourceFiles)> {
+        apps.iter()
+            .enumerate()
+            .map(|(app, files)| {
+                let replaced: al_testrun::runtime::ResourceFiles = files
+                    .iter()
+                    .filter_map(|(n, _)| Some((n.clone(), self.resources.get(n)?.as_bytes().to_vec())))
+                    .collect();
+                (app, replaced)
+            })
+            .filter(|(_, replaced)| !replaced.is_empty())
+            .collect()
+    }
+}
+
 /// The result of a run for a caller that is not the console.
 pub struct Report {
     /// The `--output-json` document.
@@ -1678,27 +1697,12 @@ fn test_inner(
                     .collect();
                 let single_method = picked.len() == 1 && sel.active() && !a.execute;
                 let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
-                // The entry's resource texts, in each app under test that has a resource of that name (the request
-                // checked that one has).
-                let resources: Vec<(usize, al_testrun::runtime::ResourceFiles)> = inputs
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, i)| i.manifest.resources.iter().any(|(n, _)| e.resources.contains_key(n)))
-                    .map(|(app, i)| {
-                        let r = i
-                            .manifest
-                            .resources
-                            .iter()
-                            .map(|(n, c)| {
-                                (
-                                    n.clone(),
-                                    e.resources.get(n).map_or_else(|| c.clone(), |t| t.as_bytes().to_vec()),
-                                )
-                            })
-                            .collect();
-                        (app, r)
-                    })
-                    .collect();
+                let resources = e.resources_in(
+                    &inputs
+                        .iter()
+                        .map(|i| i.manifest.resources.as_slice())
+                        .collect::<Vec<_>>(),
+                );
                 let pick = sel.clone();
                 let forward = w.on_test.clone();
                 let (paths, cwd, next_loop) = (paths.clone(), cwd.clone(), next_loop.clone());
@@ -2735,5 +2739,42 @@ mod selection_tests {
         assert!(s.picks(50650, "PassesToo") && s.picks(1, "Other"));
         let s = sel(&[], &["Codeunit50650.Passes", "Codeunit1.Other"]);
         assert!(s.picks(50650, "Passes") && s.picks(1, "Other") && !s.picks(50650, "PassesToo"));
+    }
+}
+
+#[cfg(test)]
+mod entry_resource_tests {
+    use super::*;
+
+    /// Al-runner issue 8026: an entry that replaces one small resource holds that text, not a copy of the app's other
+    /// resource files, so a request's memory does not grow with the size of files no entry replaces.
+    #[test]
+    fn an_entry_holds_only_the_resource_texts_it_replaces() {
+        let filler = vec![7u8; 1 << 20];
+        let app: Vec<(String, Vec<u8>)> = vec![("filler.bin".into(), filler), ("switch.txt".into(), b"NONE".to_vec())];
+        let other: Vec<(String, Vec<u8>)> = vec![("other.txt".into(), b"O".to_vec())];
+        let held: usize = (0..64)
+            .map(|k| {
+                let e = Entry {
+                    resources: [("switch.txt".to_string(), format!("M{k:05}"))].into(),
+                    ..Entry::default()
+                };
+                let r = e.resources_in(&[&app, &other]);
+                assert_eq!(r.len(), 1, "only the app that has the resource");
+                assert_eq!(r[0].0, 0);
+                let names: Vec<&str> = r[0].1.iter().map(|(n, _)| n.as_str()).collect();
+                assert_eq!(
+                    names,
+                    ["switch.txt"],
+                    "the files the entry does not replace stay the app's"
+                );
+                assert_eq!(r[0].1[0].1, format!("M{k:05}").into_bytes());
+                r.iter()
+                    .flat_map(|(_, f)| f.iter())
+                    .map(|(_, c)| c.len())
+                    .sum::<usize>()
+            })
+            .sum();
+        assert_eq!(held, 64 * 6);
     }
 }

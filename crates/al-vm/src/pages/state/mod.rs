@@ -339,6 +339,10 @@ pub struct PageState {
     /// The DataCaptionExpression of this page ran at the open as `data_caption_open.rs` measured: a TestPage's Caption() shows
     /// what that run left (`data_caption_value`) and does not evaluate the expression again. Cleared at the next open.
     pub data_caption_at_open: bool,
+    /// The DataCaptionExpression of this Worksheet may have run at the open, which no measured cell covers: main's open is kept
+    /// and a test read of what that run changes refuses, naming the fact the page misses (`data_caption_open.rs`). Cleared at
+    /// the next open.
+    pub data_caption_open_unmeasured: Option<&'static str>,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
     /// (`lookup_start.rs`).
     pub lookup_held_row: bool,
@@ -1025,6 +1029,7 @@ impl PageState {
         self.typed_key_dropped = false;
         self.pinned_end = None;
         self.data_caption_at_open = false;
+        self.data_caption_open_unmeasured = None;
         self.test_filters = Vec::new();
         self.open_editable = OpenEditable::Unset;
         self.provider_no_row_landed = false;
