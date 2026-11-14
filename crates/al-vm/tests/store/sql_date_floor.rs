@@ -1,5 +1,5 @@
 //! A Date or DateTime in the year 1753 written to a database table (assumption `sql-date-first-year`, al-runner issue 8006,
-//! corpus PR 1398 SqlDateFloor1753.al measured on Business Central 27.5, 28.5 and 29.0). The pinned Insert cells stay clean (record/filters/P130DateFilters.al:255-293).
+//! corpus PR 1398 SqlDateFloor1753.al measured on the majors 27, 28 and 29). The pinned Insert cells stay clean (record/filters/P130DateFilters.al:255-293).
 
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;

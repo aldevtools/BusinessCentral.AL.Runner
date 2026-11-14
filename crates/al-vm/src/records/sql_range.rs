@@ -1,8 +1,8 @@
 //! The writes of a value the SQL column of a database table cannot hold (`sqltime::bad_field`): which statement raises the
 //! platform's error, and when. The cells of Insert, Modify, ModifyAll and Rename that corpus PR 1398
-//! (tests/al-language/record/filters/SqlDateFloor1753.al, Business Central 27.5, 28.5 and 29.0) measured run through the
-//! assumption `sql-date-first-year` until that probe is pinned; every other write of such a value is refused. The Insert of
-//! the values record/filters/P130DateFilters.al:255-293 pins stays a clean pass.
+//! (tests/al-language/record/filters/SqlDateFloor1753.al, the corpus CI legs of the majors 27, 28 and 29) measured run
+//! through the assumption `sql-date-first-year` until that probe is pinned; every other write of such a value is refused.
+//! The Insert of the values record/filters/P130DateFilters.al:255-293 pins stays a clean pass.
 
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{Signal, unsupported};
