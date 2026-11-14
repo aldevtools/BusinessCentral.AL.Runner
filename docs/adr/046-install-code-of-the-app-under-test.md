@@ -1100,6 +1100,11 @@ this refused, while they pass on real BC:
    3! = 6 orders, the orders a dependency path rules out left out). Pairwise comparison would miss an effect that needs
    three apps in a certain order, so all orders are tried. With more than three apps it does not try them: the group
    installs once more with the order not known, as before, and the baseline note says why.
+   **Changed (2026-11-14, al-runner issue 8056, pending the owner's review):** up to four apps (at most 4! = 24 orders).
+   Measured on an invented group of four partner apps (two install routines that insert 5,000 rows each, two
+   subscribers): the install baseline took 3.1-3.5 s with 24 orders against 1.3-1.6 s for three of the apps with 6
+   orders and 0.7-0.8 s without an interaction; peak memory 525 MB against 477 MB (each order's capture is kept until
+   the comparison). The cost is once per baseline, which the compile cache keeps on disk. Five or more apps still refuse.
 4. **Cost.** The shared install baseline is still built once per run. Install code runs again only for a group with
    partner apps whose install code met another partner app's code: the group's install code then runs once plus once per
    order (2 orders for a pair: three runs of the partner group's install code, Microsoft's apps not again). A run without

@@ -17,8 +17,9 @@ use al_sema::lower::Lowered;
 use al_vm::Session;
 use std::collections::BTreeSet;
 
-/// The most partner apps whose every order the runner tries (3! = 6 orders). Beyond it, it refuses as before.
-pub(crate) const MAX_INTERACTING: usize = 3;
+/// The most partner apps whose every order the runner tries (4! = 24 orders; al-runner issue 8056). Beyond it, it refuses as
+/// before.
+pub(crate) const MAX_INTERACTING: usize = 4;
 
 /// The start of the baseline note that says which partner apps were installed in several orders (`--timings`).
 pub const INSTALL_ORDERS_NOTE: &str = "install order: ";
