@@ -133,6 +133,8 @@ struct Walk<'a> {
     /// The walk of [`Engine::caption_open_risk`]: what can raise an error counts too, and only locals may be written
     /// (`open_risk.rs`). False for [`Engine::lasting_effect`], whose walk it leaves as it is.
     strict: bool,
+    /// The routines on the current call path, kept by the strict walk only (a call back into one of them is a recursion).
+    path: Vec<(usize, usize)>,
 }
 
 /// The instance code runs on, for what its writes to the instance's variables do.
@@ -176,6 +178,7 @@ impl Engine {
             seen: HashSet::new(),
             kept: None,
             strict: false,
+            path: Vec::new(),
         };
         let found = match w.routine(object, routine, Inst::Transient) {
             Err(why) => Some(Effect::Refused(why)),
@@ -205,6 +208,16 @@ impl Walk<'_> {
     }
 
     fn routine(&mut self, object: usize, routine: usize, inst: Inst) -> Found {
+        if !self.strict {
+            return self.enter(object, routine, inst);
+        }
+        self.strict_enter((object, routine))?;
+        let found = self.enter(object, routine, inst);
+        self.path.pop();
+        found
+    }
+
+    fn enter(&mut self, object: usize, routine: usize, inst: Inst) -> Found {
         if !self.seen.insert((object, routine, inst)) {
             return Ok(());
         }
@@ -221,9 +234,6 @@ impl Walk<'_> {
             ));
         };
         let at = (object, routine);
-        if self.strict {
-            self.strict_routine(at)?;
-        }
         self.stmts(r.body.stmts(), at, inst)?;
         // An event publisher also runs its subscribers, each on its own instance: the session's one instance of a
         // SingleInstance codeunit, the bound one of a manual subscriber, else a fresh one.

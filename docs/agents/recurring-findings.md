@@ -83,6 +83,11 @@ finds the next neighbor shape. Write the gate in allowlist form:
     raises the pinned error from the value, before it checks the key, also raises it for comments, wrapped flow
     collections and other valid input. Check every fact of the pinned line (key, value, position) before the error
     (al-runner PR 8017).
+  - a "cannot raise" list of builtins or operators checked by name only: the argument count, the argument values
+    (a format text, a Where text, a lock flag), the operand types (Integer and Date addition overflows) and the
+    properties of the field named (a CaptionClass runs AL code in FieldCaption) decide whether the call raises or runs
+    code. Require each by equality, and run every listed name directly with a bad argument before hand-back
+    (al-runner PR 8035).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

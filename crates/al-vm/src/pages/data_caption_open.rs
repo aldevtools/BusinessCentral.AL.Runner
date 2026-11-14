@@ -170,6 +170,8 @@ impl Session {
             Err(miss) if self.data_caption_open_neighbor(st, bind) => {
                 return match self.data_caption_expression_risk(st) {
                     None => {
+                        // Skipping the run at the open is not measured (no probe yet): flagged.
+                        assume(Assumption::DataCaptionPureExpressionOpenSkipped);
                         st.borrow_mut().data_caption_open_unmeasured = Some(miss);
                         Ok(())
                     }
