@@ -278,18 +278,18 @@ fn ws0(proc: &str) -> String {
     al_testkit::text(al_testkit::run_in(WS_SRC, "C", proc))
 }
 
-// WorksheetEnumEqFilter.al (corpus PR 1392): a text that starts with `=` sets no filter on the database Worksheet for an Enum
-// member's name (:626-630), an Option member's name after the first (:631) and the Boolean's `=1` (:632), and on the temporary List
-// for an Enum name (:575-596).
+// WorksheetEnumEqFilter.al (corpus PR 1392): a text that starts with `=` sets no filter on the database Worksheet for the Enum
+// members Quote and Order (:634-635, :638), the Option member Order (:639) and the Boolean's `=1` (:640), and on the temporary List
+// for an Enum name (:587-592).
 #[test]
 fn an_eq_text_on_a_viewed_worksheet_or_list_sets_no_filter() {
-    for t in ["=Quote", "=Order", "=Invoice"] {
+    for t in ["=Quote", "=Order"] {
         assert_eq!(ws("WsEnum", t), "[]1,2,3,4,", "{t}");
+    }
+    for t in ["=Quote", "=Order", "=Invoice"] {
         assert_eq!(ws("TempListEnum", t), "[]1,2,3,4,", "{t}");
     }
-    for t in ["=Order", "=Invoice"] {
-        assert_eq!(ws("WsOption", t), "[]1,2,3,4,", "{t}");
-    }
+    assert_eq!(ws("WsOption", "=Order"), "[]1,2,3,4,");
     assert_eq!(ws("WsBoolean", "=1"), "[]1,2,3,4,");
 }
 
@@ -309,6 +309,14 @@ fn unmeasured_database_shapes_refuse() {
         );
     }
     assert!(refused("WsOption", "=1").contains("Worksheet page over a database table"));
+    // The third member (`Invoice`, position 2) was measured on the temporary pages only (:412-419, :453-458), not on the database
+    // Worksheet (:620-642). Main filtered on it (review of al-runner PR 8009, round 2: G01, G02).
+    for proc in ["WsEnum", "WsOption"] {
+        assert!(
+            refused(proc, "=Invoice").contains("Worksheet page over a database table"),
+            "{proc}"
+        );
+    }
     for t in ["=Quote", "=Order"] {
         assert!(
             refused("ListEnum", t).contains("List page over a database table"),
@@ -493,4 +501,63 @@ fn unmeasured_database_worksheet_texts_refuse() {
             "{field} {text}"
         );
     }
+}
+
+const GAP_SRC: &str = r#"
+enum 69990 "EQG Gap" { Extensible = false; value(10; Alpha) { } value(20; Beta) { } value(30; Gamma) { } }
+table 69991 "EQG Row"
+{
+    fields { field(1; Id; Integer) { } field(2; G; Enum "EQG Gap") { } }
+    keys { key(PK; Id) { } }
+}
+page 69992 "EQG Worksheet"
+{
+    PageType = Worksheet; SourceTable = "EQG Row"; ApplicationArea = All; UsageCategory = None; Editable = false;
+    layout { area(Content) { repeater(Rows) { field(Id; Rec.Id) { } field(G; Rec.G) { } } } }
+}
+page 69993 "EQG Temp Worksheet"
+{
+    PageType = Worksheet; SourceTable = "EQG Row"; SourceTableTemporary = true; ApplicationArea = All; UsageCategory = None; Editable = false;
+    layout { area(Content) { repeater(Rows) { field(Id; Rec.Id) { } field(G; Rec.G) { } } } }
+    actions { area(Processing) { action(Fill) { trigger OnAction() begin Rec.Init(); Rec.Id := 1; Rec.G := Rec.G::Alpha; Rec.Insert(); Rec.Id := 2; Rec.G := Rec.G::Beta; Rec.Insert(); Rec.Id := 3; Rec.G := Rec.G::Gamma; Rec.Insert(); if Rec.FindFirst() then; CurrPage.Update(false); end; } } }
+}
+codeunit 69994 C
+{
+    procedure Ws(FilterText: Text): Text
+    var Row: Record "EQG Row"; P: TestPage "EQG Worksheet"; Ids: Text; I: Integer;
+    begin
+        Row.DeleteAll();
+        for I := 1 to 3 do begin Row.Init(); Row.Id := I; Row.G := "EQG Gap".FromInteger(I * 10); Row.Insert(); end;
+        P.OpenView(); P.Filter.SetFilter(G, FilterText);
+        if P.First() then repeat Ids += P.Id.Value() + ','; until not P.Next();
+        exit('[' + P.Filter.GetFilter(G) + ']' + Ids);
+    end;
+    procedure TempWs(FilterText: Text): Text
+    var P: TestPage "EQG Temp Worksheet"; Ids: Text;
+    begin
+        P.OpenView(); P.Fill.Invoke(); P.Filter.SetFilter(G, FilterText);
+        if P.First() then repeat Ids += P.Id.Value() + ','; until not P.Next();
+        exit('[' + P.Filter.GetFilter(G) + ']' + Ids);
+    end;
+}
+"#;
+
+fn gap(proc: &str, arg: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    let arg = al_builtins::value::Value::Text(arg.to_string().into());
+    al_testkit::run_with(GAP_SRC, "C", proc, vec![arg]).map(|(v, _)| v)
+}
+
+// WorksheetEnumEqFilter.al's enum has the ordinals 0, 1, 2 at the positions 0, 1, 2 (:25-32), and BC shows an Enum filter by its
+// ordinal (:534, :640). An enum whose ordinals are not its positions was not measured (review of al-runner PR 8009, round 2: G03,
+// G04): on the database Worksheet the text refuses, on the temporary Worksheet it keeps main's filter.
+#[test]
+fn an_enum_whose_ordinals_are_not_its_positions_is_not_a_measured_cell() {
+    for t in ["=Alpha", "=Beta"] {
+        assert!(
+            refusal(gap("Ws", t)).contains("Worksheet page over a database table"),
+            "{t}"
+        );
+    }
+    assert_eq!(al_testkit::text(gap("TempWs", "=Alpha")), "[Alpha]1,");
+    assert_eq!(al_testkit::text(gap("TempWs", "=Beta")), "[Beta]2,");
 }

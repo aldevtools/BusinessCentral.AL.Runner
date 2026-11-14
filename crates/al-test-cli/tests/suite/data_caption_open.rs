@@ -233,6 +233,20 @@ codeunit 69963 "DX Run"
         Seed(0, ''); Row.SetFilter("Item No.", 'I5..I9'); Page.Run(Page::"DX Ws", Row);
         exit(Log.Joined());
     end;
+    // The handed record holds field values (review of al-runner PR 8009, round 2: N20, D01, D04): the probe's record is a fresh
+    // variable (DataCaptionExprWorksheet.al:341-359).
+    procedure Handed(Rows: Integer; How: Text; Item: Code[20]): Text
+    var Row: Record "DX Row";
+    begin
+        Seed(Rows, '');
+        case How of
+            'get': Row.Get('I1', 'V1');
+            'vendor': Row."Vendor No." := 'V7';
+            'item': Row."Item No." := 'I5';
+        end;
+        Row.SetRange("Item No.", Item); Page.Run(Page::"DX Ws", Row);
+        exit(Log.Joined());
+    end;
     procedure Descending(): Text
     var Row: Record "DX Row";
     begin
@@ -259,6 +273,8 @@ codeunit 69966 T
     [Test] [HandlerFunctions('H')] procedure D12_OpenInsert() begin Expect(R.Plain(0, 'insert', 'I9'), 'DC | H cap=DX WS - Cap I9/ item=I9 vend='); end;
     [Test] [HandlerFunctions('H')] procedure D15_OpenSwap() begin Expect(R.Plain(1, 'swap', 'I9'), 'DC | H cap=DX WS - Cap /V1 item= vend=V1'); end;
     [Test] [HandlerFunctions('H')] procedure D22_OpenGlobal() begin Expect(R.Plain(1, 'global', 'I1'), 'DC | H cap=DX WS - Cap I1/ item=I1 vend='); end;
+    // The handed record after a Get on the one-row view: main's outcome (the expression runs at the caption read).
+    [Test] [HandlerFunctions('H')] procedure D26_HandedAfterGetOneRow() begin Expect(R.Handed(1, 'get', 'I1'), 'DC | H cap=DX WS - Cap I1/ item=I1 vend='); end;
     // Main's refusal: a field argument, a range, descending order, Editable false then true, FilterGroup(2) left active, Editable
     // := false in OnInit, the rows deleted.
     [Test] [HandlerFunctions('H')] procedure D04_FieldArg() begin R.FieldArg(); end;
@@ -268,6 +284,10 @@ codeunit 69966 T
     [Test] [HandlerFunctions('H')] procedure D17_OpenFilterGroup() begin R.Plain(0, 'fg', 'I9'); end;
     [Test] [HandlerFunctions('H')] procedure D18_InitOff() begin R.Plain(0, 'initoff', 'I9'); end;
     [Test] [HandlerFunctions('H')] procedure D21_OpenDelete() begin R.Plain(1, 'delete', 'I1'); end;
+    // The handed record after a Get, or with a field assigned, on the empty view: main's refusal.
+    [Test] [HandlerFunctions('H')] procedure D23_HandedAfterGet() begin R.Handed(1, 'get', 'I9'); end;
+    [Test] [HandlerFunctions('H')] procedure D24_HandedVendorSet() begin R.Handed(0, 'vendor', 'I9'); end;
+    [Test] [HandlerFunctions('H')] procedure D25_HandedItemSet() begin R.Handed(0, 'item', 'I9'); end;
     // A DataCaptionExpression that is a field of Rec (measured: a procedure of the page, :111).
     [Test] [HandlerFunctions('HF')] procedure D13_FieldExpr()
     var Row: Record "DX Row";
@@ -293,6 +313,7 @@ fn neighbors_of_the_measured_open_keep_main_outcome() {
         "D12_OpenInsert",
         "D15_OpenSwap",
         "D22_OpenGlobal",
+        "D26_HandedAfterGetOneRow",
     ] {
         assert_eq!(get(t), "Some(Pass)", "{t}");
     }
@@ -304,6 +325,9 @@ fn neighbors_of_the_measured_open_keep_main_outcome() {
         "D17_OpenFilterGroup",
         "D18_InitOff",
         "D21_OpenDelete",
+        "D23_HandedAfterGet",
+        "D24_HandedVendorSet",
+        "D25_HandedItemSet",
         "D13_FieldExpr",
     ] {
         let o = get(t);

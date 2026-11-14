@@ -88,9 +88,11 @@ impl Session {
     /// The record `record` that AL code hands to page `st` with `bind`'s handler bound, when it is the probe's: AL code's static
     /// run with a record and no field number (DataCaptionExprWorksheet.al:362-368), the test did not open the page; a stored
     /// record with no marks, the primary key in ascending order, filter group 0 active and one filter of group 0, a SetRange to
-    /// one Code value that is not empty (:349, :357-359; `Item No.: I9`, `Vendor No.: V9`, `I1`).
+    /// one Code value that is not empty (:349, :357-359; `Item No.: I9`, `Vendor No.: V9`, `I1`); every field holding the value a
+    /// fresh record variable of the table holds (the probe hands a fresh variable after Reset, :341-359, and its expression reads
+    /// Rec's fields, :146).
     pub(super) fn data_caption_handed(
-        &self,
+        &mut self,
         st: &St,
         record: Option<&Rec>,
         bind: Option<UiKind>,
@@ -114,7 +116,8 @@ impl Session {
             && r.adhoc.is_none()
             && r.ascending
             && r.field_descending == 0
-            && r.filter_group == 0;
+            && r.filter_group == 0
+            && Self::same_values(&r.fields, &self.initial_fields(r.table as usize));
         measured.then(|| HandedRecord {
             filters: r.filters.clone(),
             writes: self.store.change_counter(),

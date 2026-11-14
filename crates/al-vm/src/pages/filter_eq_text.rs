@@ -19,6 +19,12 @@ const TEMP_WORKSHEET_BOOLEAN_WORDS: [&str; 2] = ["1", "0"];
 /// The Boolean word WorksheetEnumEqFilter.al measured on the database Worksheet (:640).
 const DATABASE_WORKSHEET_BOOLEAN_WORDS: [&str; 1] = ["1"];
 
+/// The positions of the Enum members WorksheetEnumEqFilter.al measured on the database Worksheet: Quote and Order (:634-635, :638).
+const DATABASE_WORKSHEET_ENUM_POSITIONS: [usize; 2] = [0, 1];
+
+/// The position of the Option member WorksheetEnumEqFilter.al measured on the database Worksheet: Order (:639).
+const DATABASE_WORKSHEET_OPTION_POSITION: usize = 1;
+
 /// The ordinals after the `=` WorksheetEnumEqFilter.al measured on an Enum, on the temporary Worksheet only (:418-419).
 const ENUM_ORDINALS: [&str; 2] = ["0", "1"];
 
@@ -29,7 +35,8 @@ const OPTION_ORDINALS: [&str; 1] = ["1"];
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EqText<'a> {
     Boolean(&'a str),
-    EnumName,
+    /// The name of the Enum member at this position.
+    EnumName(usize),
     EnumOrdinal,
     /// The name of the Option member at this index.
     OptionName(usize),
@@ -39,6 +46,9 @@ enum EqText<'a> {
     OtherName {
         option_first: bool,
     },
+    /// A member's name or an ordinal of `ENUM_ORDINALS` of an Enum whose ordinals are not its positions (0, 1, 2, ...); the
+    /// corpus enum has them equal (WorksheetEnumEqFilter.al:25-32).
+    UnmeasuredEnum,
 }
 
 /// What a shape of the rule does on its page (`Session::eq_text_cell`).
@@ -96,9 +106,9 @@ impl Session {
                 let s = st.borrow();
                 let r = rec.borrow();
                 s.test_typed_filter(&r, pos)
-                    .is_some_and(|t| self.eq_text_kind(table, pos, t) == Some(EqText::EnumName))
+                    .is_some_and(|t| matches!(self.eq_text_kind(table, pos, t), Some(EqText::EnumName(_))))
             };
-            let kept = worksheet && temporary && kind == EqText::EnumName && earlier_name;
+            let kept = worksheet && temporary && matches!(kind, EqText::EnumName(_)) && earlier_name;
             if kept {
                 assume(Assumption::TestpageFilterEqTextDropped);
             }
@@ -122,7 +132,8 @@ impl Session {
                 if list {
                     "a Boolean word"
                 } else {
-                    "an Enum member's name, an Option member's name after the first, or the Boolean word 1"
+                    "the Enum members at the positions 0 and 1 (ordinals equal to positions), the Option member at position 1, or the \
+                     Boolean word 1"
                 },
             ))),
         }
@@ -139,17 +150,19 @@ impl Session {
             // Main drops the first member of an Option on a List whatever its captions or its form; neither is measured.
             (true, true, EqText::OtherName { option_first: true }) => EqCell::RefusedCaptions,
             // WorksheetEnumEqFilter.al:587-592 (Enum names), :609-610 (Option names), :612 (`=1`).
-            (true, true, EqText::EnumName | EqText::OptionName(_) | EqText::OptionOrdinal) => EqCell::Assumed,
+            (true, true, EqText::EnumName(_) | EqText::OptionName(_) | EqText::OptionOrdinal) => EqCell::Assumed,
             (true, false, _) => EqCell::Refused,
             // WorksheetEnumEqFilter.al:412-419 (Enum), :434-435 (Enum without a control), :453-458 (Option), :472-473 (Boolean).
             (false, true, EqText::Boolean(w)) if TEMP_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::Assumed,
-            (false, true, EqText::EnumName | EqText::EnumOrdinal | EqText::OptionName(_) | EqText::OptionOrdinal) => {
-                EqCell::Assumed
-            }
-            // WorksheetEnumEqFilter.al:634-635, :638 (Enum names), :639 (`=Order`, the Option's second member), :640 (`=1`).
+            (
+                false,
+                true,
+                EqText::EnumName(_) | EqText::EnumOrdinal | EqText::OptionName(_) | EqText::OptionOrdinal,
+            ) => EqCell::Assumed,
+            // WorksheetEnumEqFilter.al:634-635, :638 (Enum `=Quote`, `=Order`), :639 (Option `=Order`), :640 (`=1`).
             (false, false, EqText::Boolean(w)) if DATABASE_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::Assumed,
-            (false, false, EqText::EnumName) => EqCell::Assumed,
-            (false, false, EqText::OptionName(i)) if i >= 1 => EqCell::Assumed,
+            (false, false, EqText::EnumName(i)) if DATABASE_WORKSHEET_ENUM_POSITIONS.contains(&i) => EqCell::Assumed,
+            (false, false, EqText::OptionName(i)) if i == DATABASE_WORKSHEET_OPTION_POSITION => EqCell::Assumed,
             (false, _, EqText::OtherName { .. }) => EqCell::Main,
             (false, false, _) => EqCell::Refused,
             _ => EqCell::Main,
@@ -160,7 +173,7 @@ impl Session {
     /// a member of an Enum or Option that shows its names (no Caption, CaptionML, OptionCaption or OptionCaptionML; the corpus
     /// enum and option have none: WorksheetEnumEqFilter.al:25-46, TempListOffPageBooleanFilter.al:35), written as one word of
     /// letters and digits (Quote, Order, Invoice); or an ordinal of `ENUM_ORDINALS` or `OPTION_ORDINALS`. Another member's name
-    /// is `OtherName`.
+    /// is `OtherName`; a name or ordinal of an Enum whose ordinals are not its positions is `UnmeasuredEnum`.
     fn eq_text_kind<'a>(&self, table: &TableDef, pos: usize, rest: &'a str) -> Option<EqText<'a>> {
         let one_word = !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric());
         match &table.fields[pos].ty {
@@ -179,17 +192,26 @@ impl Session {
             RtType::Enum(id) => {
                 let object = &self.engine.program.objects[*id as usize];
                 let names_shown = object.enum_captions.is_empty() && object.enum_captions_ml.is_empty();
-                if object.enum_values.iter().any(|(_, n)| n.as_str() == rest) {
-                    Some(if one_word && names_shown {
-                        EqText::EnumName
-                    } else {
-                        EqText::OtherName { option_first: false }
+                let positional = object
+                    .enum_values
+                    .iter()
+                    .enumerate()
+                    .all(|(i, (o, _))| usize::try_from(*o) == Ok(i));
+                if let Some(i) = object.enum_values.iter().position(|(_, n)| n.as_str() == rest) {
+                    Some(match (one_word && names_shown, positional) {
+                        (true, true) => EqText::EnumName(i),
+                        (true, false) => EqText::UnmeasuredEnum,
+                        (false, _) => EqText::OtherName { option_first: false },
                     })
                 } else if !names_shown {
                     None
                 } else {
                     (ENUM_ORDINALS.contains(&rest) && object.enum_values.iter().any(|(o, _)| o.to_string() == rest))
-                        .then_some(EqText::EnumOrdinal)
+                        .then_some(if positional {
+                            EqText::EnumOrdinal
+                        } else {
+                            EqText::UnmeasuredEnum
+                        })
                 }
             }
             _ => None,

@@ -34,6 +34,12 @@ finds the next neighbor shape. Write the gate in allowlist form:
     was read).
   - "the test's filter" read from "filter group 0": page code (OnOpenPage, the record handed to Page.Run) writes group 0
     too. Keep which fields the test filtered, with the typed text, on the page state and require that (al-runner PR 8009).
+  - the record handed to Page.Run checked by its filters and key only: its field values are state the page's code reads
+    too. A probe that hands a fresh variable measured blank fields: require them, or measure a record after Get or with
+    a field assigned (al-runner PR 8009).
+  - an Enum fact read from the probe's enum, whose ordinals equal its positions (0, 1, 2): BC shows an Enum filter by
+    ordinal. Require ordinals equal to positions and the measured positions, or measure an enum with gaps (al-runner
+    PR 8009).
   - a stored origin or state compared with a value built from that same state (`o == f(o)`): the copied
     fields are never checked. Compare with the session's current value (commit count, transaction).
   - an error fact checked by code and kind only: `Error('')` and an error after a skipped save pass too. Require the
