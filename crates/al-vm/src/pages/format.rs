@@ -1106,9 +1106,9 @@ impl Session {
                     .map(|(_, v)| unquote(v))
             })
         };
-        // The source field's CaptionClass beats its Caption (pages/extensions/TableExtCaptionClass.al:69) and is
-        // resolved when the caption is read, not when the page opens (record/table-properties/XTablePropsTests.al:483-487).
-        // Whether a Caption on the control beats it is not pinned.
+        // The source field's CaptionClass beats its Caption (pages/extensions/TableExtCaptionClass.al:69). A literal one the open
+        // resolved is read from the session's translations (`literal_caption_open.rs`); on other pages it is resolved at the first
+        // read. Whether a Caption on the control beats it is not pinned.
         if let Some(why) = field.as_ref().and_then(|f| f.caption_class_refusal.clone()) {
             return unsupported(why);
         }
@@ -1142,6 +1142,9 @@ impl Session {
                 );
             }
             if raises_resolve(&c) {
+                if let Some(caption) = self.literal_field_caption_after_open(st, &c) {
+                    return caption;
+                }
                 return self.read_literal_field_caption(st, idx, c);
             }
             return self.caption_class_text(st, &c);

@@ -94,7 +94,7 @@ impl Session {
 
     /// Runs `f` with `dialogs` in force for the dialogs and errors the CaptionClass runs inside it raise
     /// (`Session::dispatch_ui_returning`, `Ctx::error_text_raise`).
-    fn with_caption_dialogs<T>(
+    pub(super) fn with_caption_dialogs<T>(
         &mut self,
         dialogs: CaptionDialogs,
         f: impl FnOnce(&mut Self) -> Result<T, Signal>,
@@ -338,7 +338,7 @@ impl Session {
                     continue;
                 };
                 let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
-                let caption = self.control_expression_caption(&t.fields[*pos].name, &class)?;
+                let caption = self.control_expression_caption(st, &t.fields[*pos].name, &class)?;
                 let mut s = st.borrow_mut();
                 s.field_captions.retain(|(i, _)| *i != idx);
                 s.field_captions.push((idx, caption));
