@@ -145,6 +145,16 @@ codeunit 50974 "DC Tests"
         exit(Cols(Tmp));
     end;
 
+    procedure Sum(): Text
+    var
+        Tmp: Record "DC Row" temporary;
+        OutS: OutStream;
+    begin
+        Tmp.B.CreateOutStream(OutS);
+        Report.SaveAs(Report::"DC Sum", '', ReportFormat::Xml, OutS);
+        exit(Cols(Tmp));
+    end;
+
     procedure Kept(): Text
     var
         Tmp: Record "DC Row" temporary;
@@ -154,6 +164,30 @@ codeunit 50974 "DC Tests"
         Report.SaveAs(Report::"DC Kept", '', ReportFormat::Xml, OutS);
         exit(Cols(Tmp));
     end;
+}
+
+report 50976 "DC Sum"
+{
+    UsageCategory = None;
+    dataset
+    {
+        dataitem(Tmp; "DC Row")
+        {
+            UseTemporary = true;
+            column(SumOfHalves; Half + Half) { }
+            trigger OnAfterGetRecord()
+            begin
+                Half := 0.50;
+            end;
+        }
+    }
+    trigger OnPreReport()
+    begin
+        Tmp.Id := 1;
+        Tmp.Insert();
+    end;
+    var
+        Half: Decimal;
 }
 
 report 50975 "DC Kept"
@@ -280,4 +314,15 @@ fn a_variable_writes_the_zeros_it_holds_except_zero_one_and_minus_one() {
     ] {
         assert_eq!(value(&lines, name), want, "{name}: {lines}");
     }
+}
+
+/// An expression column holding one with zeros (`Half + Half`, Half 0.50) writes `1`: measured by corpus pull request 1377
+/// (`SumWholeExpr`), not pinned yet, so the run is flagged (maintainer's review of al-runner PR 7969).
+#[test]
+fn an_expression_holding_one_with_zeros_writes_1_flagged() {
+    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+    clear_hits();
+    let lines = text(al_testkit::run_in(FIXTURE, "DC Tests", "Sum"));
+    assert_eq!(value(&lines, "SumOfHalves"), "1", "{lines}");
+    assert!(take_hits().contains(&Assumption::DatasetDecimalKeepsItsZeros));
 }

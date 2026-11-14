@@ -107,11 +107,11 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 /// `Round(2.5, 0.01)` is `2.50`, `Round(3, 0.25)` is `3.00`, `Round(2, 0.01)` is `2.00`, `Round(1.200001, 0.00001)` is
 /// `1.20000`, `Round(1.4, 0.50)` is `1.50`. Measured on BC 27.5, 28.5 and 29.0 by corpus pull requests 1380
 /// (reports/dataset/DatasetDecimalRoundScale.al, open) and 1377 (reports/dataset/DatasetDecimalRoundScaleSources.al) and by al-runner
-/// issue 7958, and not pinned yet (assumption `round-keeps-the-precision-decimals`). Only the zeros a Decimal shows are marked,
-/// as `decimal_scale.rs` decides (one shows none: `Round(1, 0.00001)` is `1` in the dataset,
-/// reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450).
+/// issue 7958, and not pinned yet (assumption `round-keeps-the-precision-decimals`). Every trailing zero the result holds is
+/// marked, those of zero, one and minus one too: the dataset shows none of them (`decimal_scale.rs`), but a calculation and a
+/// JSON value see them (`Round(1, 0.01) * 2.50` is `2.5000`).
 fn round_scale(r: Decimal) -> Decimal {
-    if crate::decimal_scale::shows_zeros(r) {
+    if r.scale() > r.normalize().scale() {
         crate::assumptions::assume(crate::assumptions::Assumption::RoundKeepsThePrecisionDecimals);
     }
     r
@@ -322,11 +322,12 @@ mod tests {
             let _ = call("System.Round#1", vec![d(n), d(p)]);
             take_hits().contains(&Assumption::RoundKeepsThePrecisionDecimals)
         };
-        // Pinned: a result that needs every digit; one, whose zeros the dataset never shows
-        // (reports/dataset/DatasetDecimalPlacesValueOrigins.al:425-450).
+        // Pinned: a result that needs every digit.
         assert!(!marked("1.234567", "0.00001"));
-        assert!(!marked("1", "0.00001"));
-        assert!(!marked("0.001", "0.01"));
+        // Every trailing zero the result holds is marked, also for zero, one and minus one: a calculation or a JSON value sees
+        // them (Round(1, 0.01) * 2.50 is 2.5000; maintainer's review of al-runner PR 7969).
+        assert!(marked("1", "0.00001"));
+        assert!(marked("-1", "0.01"));
         // Zeros of the precision kept, measured by corpus pull requests 1380 and 1377, not pinned yet.
         assert!(marked("2.5", "0.01"));
         assert!(marked("2.50", "0.01"));

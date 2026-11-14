@@ -8,12 +8,14 @@ use al_builtins::decimal_scale;
 use al_ir::{ReportColumn, SourceSyntax};
 use rust_decimal::Decimal;
 
-/// The dataset text of Decimal `d` in column `c`: what `decimal_scale::shown` gives. Zero written without its zeros, and the
-/// zeros of a variable or a field named as the source, are measured, not pinned.
+/// The dataset text of Decimal `d` in column `c`: what `decimal_scale::shown` gives. Measured, not pinned: zero written without
+/// its zeros, one and minus one without theirs from an expression (`Half + Half` is `1`; pinned only for a name or two names,
+/// reports/dataset/DatasetDecimalPlacesValueOrigins.al:364, :397), and the zeros of a variable or a field named as the source.
 pub(crate) fn text(c: &ReportColumn, d: Decimal) -> String {
     let shown = decimal_scale::shown(d);
     let named = matches!(c.source_syntax, SourceSyntax::Name | SourceSyntax::Member);
-    if (d.is_zero() && shown.scale() != d.scale()) || (named && decimal_scale::shows_zeros(d)) {
+    let trimmed = shown.scale() != d.scale();
+    if (trimmed && (d.is_zero() || !named)) || (named && decimal_scale::shows_zeros(d)) {
         assume(Assumption::DatasetDecimalKeepsItsZeros);
     }
     shown.to_string()

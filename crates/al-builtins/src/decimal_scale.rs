@@ -1,6 +1,6 @@
 //! The decimals a Decimal shows where its scale is seen, the report XML dataset (al-vm `decimal_column.rs`). The one owner of
-//! that rule: the dataset writes what [`shown`] gives, and `Round` (`mathfns.rs`) marks its assumption only for the zeros
-//! [`shown`] keeps (al-runner issues 7440 and 7958).
+//! that rule: the dataset writes what [`shown`] gives (al-runner issues 7440 and 7958). The value keeps its zeros; `Round`
+//! (`mathfns.rs`) marks every zero it keeps, since a calculation or a JSON value sees those of one too.
 //!
 //! A Decimal shows the decimals it holds, zeros included, except zero, one and minus one, which show none. Pinned for one and
 //! minus one in every column source shape (reports/dataset/DatasetDecimalPlacesValueOrigins.al:241-247, :364, :397, :425-570)
