@@ -51,6 +51,11 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     if let Value::PlaceholderSize(_) = &v {
         return crate::placeholder_output::size_convert(v, t);
     }
+    if let Value::TextConst(_) = &v
+        && !matches!(t, T::Variant)
+    {
+        return convert(crate::conv::text_const_as_text(v), t);
+    }
     // A counter value stays tainted in a Variant and in a number slot, with the slot's type (`sqlcount`, SqlCounters.al
     // P6924_Counters_StoredInInteger_NotNegative, P6924_Counters_StoredInDecimal_NotNegativeAndWhole); any other type would
     // show its number.

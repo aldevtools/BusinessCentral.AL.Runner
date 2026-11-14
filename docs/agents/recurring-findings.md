@@ -77,6 +77,10 @@ refusal on a shape main ran is a regression, often in Base App code that partner
 - Add Rust tests that out-of-scope shapes keep main's outcome. Compare with a main binary.
 - Keep a refusal only as wide as its reason. Check its order: look the fact up first, refuse only when it
   matters.
+- A value kind that a new lowering path now builds (a TextConst in a Variant where main built a Text) reaches every
+  reader of the old kind. Run the new value through the conversions and argument readers main used for the old kind
+  (record field, Text[n], Code[n], list, filter, FieldRef, Evaluate, StrSubstNo) and compare with a main binary. A reader
+  that now refuses mid-run is a regression (al-runner PR 8003).
 
 ## 3. Text that does not match the code or CI (comments 13, pull request body or ADR 9)
 

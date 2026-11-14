@@ -123,6 +123,7 @@ impl Session {
                 .and_then(|b| b.upgrade())
                 .unwrap_or_else(|| running.clone())
         };
+        self.refuse_method_after_kept_quit(id, &receiver)?;
         match id {
             // `IsReadOnly()` of the running report is No, in a procedure of a variable never run and in OnPreReport
             // (Y36BareReportMember.al:191-247 `readonly=No/No`, a processing-only report). A report variable is not pinned.
@@ -1004,6 +1005,7 @@ impl Session {
 
     /// First use of an instance: its globals are made and, for a report, `OnInitReport` runs once.
     pub(crate) fn first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
+        self.refuse_after_kept_quit(inst)?;
         // A report variable a `Run` just reset starts again with its next call of anything but `Run`: `OnInitReport`
         // runs again, so a procedure called after a Run sees what OnInitReport set (corpus
         // pages/triggers/P84ReportSender.al:Triggers_Run_SenderInEachTrigger: `GetMarker()` after `Run()` is
@@ -1043,10 +1045,7 @@ impl Session {
         let object = inst.borrow().object as usize;
         let engine = self.engine.clone();
         let o = &engine.program.objects[object];
-        if o.report.is_none() {
-            return Ok(());
-        }
-        let Some(page) = o.page.as_ref() else {
+        let Some(page) = o.page.as_ref().filter(|_| o.report.is_some()) else {
             return Ok(());
         };
         if page.ext_triggers.iter().any(|(n, _, _)| n == "oninit") {

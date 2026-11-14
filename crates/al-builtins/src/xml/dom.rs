@@ -9,6 +9,12 @@ pub(super) const XML_URI: &str = "http://www.w3.org/XML/1998/namespace";
 pub struct XmlCell {
     pub data: XData,
     pub parent: Option<Weak<RefCell<LibraryValue>>>,
+    /// Set the first time the node gets a parent and never cleared: a node taken off its parent is not a new one
+    /// (`never_attached`).
+    pub had_parent: bool,
+    /// An attribute that `XmlElement.SetAttribute(Name, NamespaceUri, Value)` made (`attrs::set_attribute_ns`); a copy does not
+    /// keep it.
+    pub set_with_namespace: bool,
 }
 
 #[derive(Debug)]
@@ -142,7 +148,12 @@ pub(super) fn recv_write_to(r: Option<&mut Value>) -> Result<Handle, Signal> {
 }
 
 pub(super) fn new_node(data: XData) -> Handle {
-    let h = Rc::new(RefCell::new(LibraryValue::Xml(XmlCell { data, parent: None })));
+    let h = Rc::new(RefCell::new(LibraryValue::Xml(XmlCell {
+        data,
+        parent: None,
+        had_parent: false,
+        set_with_namespace: false,
+    })));
     adopt_children(&h);
     h
 }
@@ -171,6 +182,8 @@ pub(super) fn node_of(v: &Value) -> Result<Handle, Signal> {
                             children: Vec::new(),
                         },
                         parent: None,
+                        had_parent: false,
+                        set_with_namespace: false,
                     });
                     Ok(h.clone())
                 } else {
@@ -216,6 +229,24 @@ pub(super) fn parent_dropped(h: &Handle) -> bool {
 pub(super) fn set_parent(child: &Handle, parent: Option<&Handle>) {
     if let LibraryValue::Xml(c) = &mut *child.borrow_mut() {
         c.parent = parent.map(Rc::downgrade);
+        c.had_parent |= parent.is_some();
+    }
+}
+
+/// Whether `h` is an attribute without a prefix and without a namespace.
+pub(super) fn attribute_without_namespace(h: &Handle) -> bool {
+    with(
+        h,
+        |d| matches!(d, XData::Attribute { prefix, ns, .. } if prefix.is_empty() && ns.is_empty()),
+    )
+}
+
+/// Whether `h` was made by a Create (or a copy) and never had a parent: neither attached now nor taken off one, nor left by a
+/// parent no variable references any more.
+pub(super) fn never_attached(h: &Handle) -> bool {
+    match &*h.borrow() {
+        LibraryValue::Xml(c) => c.parent.is_none() && !c.had_parent,
+        _ => false,
     }
 }
 

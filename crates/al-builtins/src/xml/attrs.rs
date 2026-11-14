@@ -183,7 +183,7 @@ pub(super) fn attrs_set_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Valu
         let mut owner_value = tagged("XmlElement", owner);
         return set_attribute(c, Some(&mut owner_value), &mut plain);
     }
-    add_namespaced_attribute(owner, a)
+    add_namespaced_attribute(owner, a, false)
 }
 
 /// `Set(Name, '', Value)` and `SetAttribute(Name, '', Value)` are the two-argument forms: the attribute has no namespace and
@@ -212,7 +212,7 @@ pub(super) fn set_attribute_ns(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [
         let mut owner_value = tagged("XmlElement", owner);
         return set_attribute(c, Some(&mut owner_value), &mut plain);
     }
-    add_namespaced_attribute(owner, a)
+    add_namespaced_attribute(owner, a, true)
 }
 
 /// `RemoveAll()` of the collection takes every attribute off its element and leaves the children
@@ -224,7 +224,8 @@ pub(super) fn attrs_remove_all(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [
     Ok(Value::Null)
 }
 
-pub(super) fn add_namespaced_attribute(owner: Handle, a: &mut [Value]) -> NResult {
+/// `by_set_attribute`: called for `XmlElement.SetAttribute`, whose attribute keeps that origin (`set_by_set_attribute`).
+pub(super) fn add_namespaced_attribute(owner: Handle, a: &mut [Value], by_set_attribute: bool) -> NResult {
     let (name, ns, value) = (arg_text(a, 0)?, arg_text(a, 1)?, arg_text(a, 2)?);
     check_name(&name)?;
     if ns.is_empty() {
@@ -263,6 +264,9 @@ pub(super) fn add_namespaced_attribute(owner: Handle, a: &mut [Value]) -> NResul
         ns,
         value,
     });
+    if let LibraryValue::Xml(cell) = &mut *attr.borrow_mut() {
+        cell.set_with_namespace = by_set_attribute;
+    }
     insert(&owner, None, vec![attr])?;
     Ok(Value::Null)
 }
@@ -288,15 +292,12 @@ pub(super) fn attrs_get_index(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
 pub(super) fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let owner = owner_of(r)?;
     let name = arg_text(a, 0)?;
+    // An attribute SetAttribute made with a namespace is not found by its plain name (`set_by_set_attribute`).
     let found = attrs_of(&owner).into_iter().find(|x| {
         with(
             x,
-            // An attribute set with a namespace and no prefix is not found by its plain name (`set_unprefixed_in_namespace`).
-            |d| {
-                matches!(d, XData::Attribute { prefix, local, .. } if qname(prefix, local) == name)
-                    && !set_unprefixed_in_namespace(d)
-            },
-        )
+            |d| matches!(d, XData::Attribute { prefix, local, .. } if qname(prefix, local) == name),
+        ) && !set_by_set_attribute(x)
     });
     match found {
         Some(at) => {
@@ -317,20 +318,26 @@ pub(super) fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     }
 }
 
-/// Whether `owner` has an attribute [`set_unprefixed_in_namespace`] whose local name is `name`.
+/// Whether `owner` has an attribute [`set_by_set_attribute`] whose local name is `name`.
 fn namespaced_local(owner: &Handle, name: &str) -> bool {
-    attrs_of(owner).iter().any(|x| {
-        with(x, |d| {
-            set_unprefixed_in_namespace(d) && matches!(d, XData::Attribute { local, .. } if local == name)
-        })
-    })
+    attrs_of(owner)
+        .iter()
+        .any(|x| set_by_set_attribute(x) && with(x, |d| matches!(d, XData::Attribute { local, .. } if local == name)))
 }
 
-/// An attribute without a prefix in a namespace other than the xmlns one: `SetAttribute(Name, Namespace, Value)` makes it, and
-/// Get by its plain name does not find it (xml/XmlAttributes.al:216 with :230 SetGet_Attribute_Namespace `get_no_ns`: No). A
-/// default namespace declaration `xmlns` has no prefix either and is found (:493 Attribute_Xmlns_Handling `get_xmlns`: Yes).
-fn set_unprefixed_in_namespace(d: &XData) -> bool {
-    matches!(d, XData::Attribute { prefix, ns, .. } if prefix.is_empty() && !ns.is_empty() && ns != XMLNS_URI)
+/// An attribute that `XmlElement.SetAttribute(Name, NamespaceUri, Value)` made with a namespace and that still has no prefix:
+/// Get by its plain name does not find it (xml/XmlAttributes.al:216 with :230 SetGet_Attribute_Namespace `get_no_ns`: No). The
+/// gate is that origin, kept on the attribute's cell: an attribute made by `XmlAttribute.Create(Name, NamespaceUri, Value)` and
+/// added, set through `XmlAttributeCollection.Set` with a namespace, or set in the xmlns namespace, is not measured and keeps
+/// main's answer (found; a default declaration `xmlns` read from text is found, :493 Attribute_Xmlns_Handling `get_xmlns`).
+fn set_by_set_attribute(h: &Handle) -> bool {
+    match &*h.borrow() {
+        LibraryValue::Xml(c) => {
+            c.set_with_namespace
+                && matches!(&c.data, XData::Attribute { prefix, ns, .. } if prefix.is_empty() && !ns.is_empty() && ns != XMLNS_URI)
+        }
+        _ => false,
+    }
 }
 
 /// `The XML node with the name '<name>' could not be found.` (XmlNodeNotFound): `<name>` is the name for the two-argument

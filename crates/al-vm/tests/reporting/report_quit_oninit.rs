@@ -303,6 +303,33 @@ fn shapes_outside_the_probe_keep_mains_refusal() {
     }
 }
 
+/// The probe's objects with a procedure `SetX` on the report, and two more forms: UseRequestPage(false), then the procedure
+/// (18) or `Language` (19), then Run. The probe has nothing between UseRequestPage(false) and Run (:265, :305, :355).
+fn with_use_between_kept_quit_and_run() -> String {
+    SRC.replace(
+        "    var\n        Log: Codeunit \"LT RqI Log\";\n        OptionValue",
+        "    procedure SetX(X: Text)\n    begin\n        Log.Add('SetX');\n    end;\n\n    var\n        Log: Codeunit \"LT RqI Log\";\n        OptionValue",
+    )
+    .replace(
+        "            13:\n",
+        "            18:\n                begin\n                    Rep.UseRequestPage(false);\n                    Rep.SetX('a');\n                    Rep.Run();\n                end;\n            19:\n                begin\n                    Rep.UseRequestPage(false);\n                    Rep.Language(1031);\n                    Rep.Run();\n                end;\n            13:\n",
+    )
+}
+
+#[test]
+fn any_use_between_the_kept_quit_and_the_run_is_refused() {
+    let src = with_use_between_kept_quit_and_run();
+    assert!(src.contains("Rep.SetX('a')") && src.contains("procedure SetX"));
+    let mut b = al_testkit::Built::from_source(&src);
+    for mode in [18, 19] {
+        let r = form(&mut b, mode);
+        assert!(
+            r.contains("Unsupported") && r.contains("after CurrReport.Quit in OnInitReport of UseRequestPage(false)"),
+            "mode {mode}: {r}"
+        );
+    }
+}
+
 #[test]
 fn clear_drops_the_kept_quit_and_the_next_run_is_a_first_run() {
     // Clear gives the variable a new instance (as for Execute, reports/request-page/ExecuteParamsTwiceAndViews.al:146-183),

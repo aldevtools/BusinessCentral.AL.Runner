@@ -138,15 +138,21 @@ fn as_condition(v: Value) -> Result<Value, Signal> {
     }
 }
 
+/// A TextConst taken out of a Variant is a Text (types/Y81LabelVariant.al, codeunits 94256 to 94258). Only a Variant holds a
+/// TextConst, so every conversion into another type and every text argument reader takes it here (`ops::convert`,
+/// `native::text_of`); any other value is handed back as it is.
+pub fn text_const_as_text(v: Value) -> Value {
+    match v {
+        Value::TextConst(s) => Value::Text(s),
+        other => other,
+    }
+}
+
 /// The value `v` a Variant holds, readied for a slot of the kind of `t`: what `ops::convert` refuses and the matrix pins for
 /// a Variant is converted here (`variant_convert`) or raises its error (`variant_error`); anything else is handed back for the
 /// conversion that follows.
 pub fn variant_into(v: Value, t: &RtType) -> Result<Value, Signal> {
-    // A TextConst taken out of a Variant is a Text (types/Y81LabelVariant.al, codeunits 94256 to 94258).
-    let v = match v {
-        Value::TextConst(s) => Value::Text(s),
-        other => other,
-    };
+    let v = text_const_as_text(v);
     // A RecordId, Record or RecordRef into a Code, Text, Integer or Guid (`variant_records`).
     if let Some(r) = super::variant_records::record_into_scalar(&v, t) {
         return r;

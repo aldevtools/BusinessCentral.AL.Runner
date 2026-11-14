@@ -33,10 +33,10 @@ pub(super) fn replace_attribute(c: &mut dyn Ctx, h: &Handle, args: &[Value]) -> 
 /// - the statement form (every pin);
 /// - `h` is an attribute of an element without a namespace, and every attribute of that element, `h` included, has no
 ///   prefix and no namespace (`<e a="1" b="2"/>` read, :413; `r` built with `p`, `x`, `q`, P97AttrEdit.al:26-33);
-/// - one or two arguments, each a typed `XmlAttribute` without a parent, prefix or namespace, whose name no attribute of
-///   the element and no other argument has (`c`; `ta`, `tb`; `y`). The pins make each one with `XmlAttribute.Create`
-///   (:463; P97AttrEdit.al:189, :198; P97AttrMisc.al:210); an attribute removed from an element has the same state here
-///   and passes too, unmeasured.
+/// - one or two arguments, each a typed `XmlAttribute` that `XmlAttribute.Create` made and that never had a parent
+///   (`never_attached`), without a prefix or namespace, whose name no attribute of the element and no other argument has
+///   (`c`; `ta`, `tb`; `y`: :463; P97AttrEdit.al:189, :198; P97AttrMisc.al:210). An attribute taken off an element is not
+///   measured and keeps main's refusal.
 fn measured_replace(c: &mut dyn Ctx, h: &Handle, args: &[Value]) -> Option<(Handle, usize)> {
     if c.ret_used() || kind(h) != "XmlAttribute" || !matches!(args.len(), 1 | 2) {
         return None;
@@ -47,7 +47,7 @@ fn measured_replace(c: &mut dyn Ctx, h: &Handle, args: &[Value]) -> Option<(Hand
         |d| matches!(d, XData::Element { prefix, ns, .. } if prefix.is_empty() && ns.is_empty()),
     );
     let attrs = attrs_of(&p);
-    if !element_plain || !attrs.iter().all(plain_attribute) {
+    if !element_plain || !attrs.iter().all(attribute_without_namespace) {
         return None;
     }
     let i = attrs.iter().position(|a| Rc::ptr_eq(a, h))?;
@@ -57,9 +57,8 @@ fn measured_replace(c: &mut dyn Ctx, h: &Handle, args: &[Value]) -> Option<(Hand
         let fresh = tag == "XmlAttribute"
             && is_xml(n)
             && kind(n) == "XmlAttribute"
-            && parent_of(n).is_none()
-            && !parent_dropped(n)
-            && plain_attribute(n);
+            && never_attached(n)
+            && attribute_without_namespace(n);
         if !fresh {
             return None;
         }
@@ -70,13 +69,6 @@ fn measured_replace(c: &mut dyn Ctx, h: &Handle, args: &[Value]) -> Option<(Hand
         names.push(name);
     }
     Some((p, i))
-}
-
-fn plain_attribute(h: &Handle) -> bool {
-    with(
-        h,
-        |d| matches!(d, XData::Attribute { prefix, ns, .. } if prefix.is_empty() && ns.is_empty()),
-    )
 }
 
 fn local_name(h: &Handle) -> String {

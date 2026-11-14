@@ -72,15 +72,14 @@ impl Lowerer<'_> {
                 Source::GlobalLabel => Some(Some(Assumption::LabelGlobalIntoVariant)),
             },
             // types/variant/VaTTextConst.al:282 with :288 (`VariantArg(Simple)`: a global TextConst handed to the by-value
-            // Variant parameter of a local procedure of the same codeunit without attributes, and handed back as its result).
+            // Variant parameter of a local procedure of the same codeunit without attributes, and handed back as its result);
+            // the procedure has that one parameter (:124).
             Site::Arg { object, routine }
                 if source == Source::GlobalTextConst
                     && *object == self.oi
-                    && self
-                        .routine_nodes
-                        .get(*object)
-                        .get(*routine)
-                        .is_some_and(|r| r.is_local() && r.attributes().next().is_none()) =>
+                    && self.routine_nodes.get(*object).get(*routine).is_some_and(|r| {
+                        r.is_local() && r.attributes().next().is_none() && r.params().count() == 1
+                    }) =>
             {
                 Some(None)
             }

@@ -39,6 +39,16 @@ codeunit 69975 C
     begin
     end;
 
+    local procedure TwoParams(I: Integer; V: Variant): Text
+    begin
+        exit(Kinds(V));
+    end;
+
+    procedure TextConstTwoParamArg(): Text
+    begin
+        exit(TwoParams(1, GTc));
+    end;
+
     procedure PublicPass(V: Variant): Text
     begin
         exit(Kinds(V));
@@ -218,6 +228,8 @@ fn other_textconst_shapes_stay_refused() {
         "TextConstLocalArg",
         "TextConstTryArg",
         "TextConstPublicArg",
+        // The pinned procedure has one parameter (types/variant/VaTTextConst.al:124).
+        "TextConstTwoParamArg",
     ] {
         let (r, _) = run(routine);
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{routine}: {r:?}");

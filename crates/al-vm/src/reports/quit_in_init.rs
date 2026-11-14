@@ -32,14 +32,10 @@ impl Session {
     pub(super) fn report_instance(&mut self, receiver: Option<Value>, how: InitQuit) -> Result<(Inst, bool), Signal> {
         match receiver {
             Some(Value::Codeunit(rc)) => {
-                if self.quit_deferred_on(&rc) {
-                    if how == InitQuit::StopsTakingDeferred {
-                        return Ok((rc.clone(), self.take_deferred_quit(&rc)));
-                    }
-                    return unsupported(
-                        "a Report method after CurrReport.Quit in OnInitReport of UseRequestPage(false) (not pinned)",
-                    );
+                if how == InitQuit::StopsTakingDeferred && self.quit_deferred_on(&rc) {
+                    return Ok((rc.clone(), self.take_deferred_quit(&rc)));
                 }
+                self.refuse_after_kept_quit(&rc)?;
                 // Used again after a Run, it is a new instance: OnInitReport runs.
                 // A second Run on one variable runs OnInitReport again (reports/request-page/RptTriggerOrder.al:353
                 // VariableRun_Twice_InitReportEachTime; reports/PnH5aExt.al:396).
@@ -67,6 +63,33 @@ impl Session {
             && r.use_request_page.is_none()
             && r.extensions.is_empty()
             && page.is_some_and(|p| p.ext_triggers.is_empty() && p.triggers.iter().all(|(n, _)| n != "oninit"))
+    }
+
+    /// Refuses every use of `inst` while it holds the quit `UseRequestPage(false)` kept: the probe runs the variable's Run or
+    /// RunModal right after it (:265, :305, :355), and only those take the quit ([`InitQuit::StopsTakingDeferred`]). Called
+    /// for every Report method on a variable (`report_builtin`, `report_instance`) and every call of one of its procedures
+    /// (`first_use`).
+    pub(crate) fn refuse_after_kept_quit(&self, inst: &Inst) -> Result<(), Signal> {
+        if self.quit_deferred_on(inst) {
+            return unsupported(
+                "a use of a report variable after CurrReport.Quit in OnInitReport of UseRequestPage(false) (not pinned)",
+            );
+        }
+        Ok(())
+    }
+
+    /// [`Self::refuse_after_kept_quit`] for Report method `id` on a variable, other than the Run and RunModal that take the quit.
+    pub(super) fn refuse_method_after_kept_quit(
+        &self,
+        id: al_ir::BuiltinId,
+        receiver: &Option<Value>,
+    ) -> Result<(), Signal> {
+        match receiver {
+            Some(Value::Codeunit(rc)) if !matches!(id, ids::REPORT_RUN_1 | ids::REPORT_RUNMODAL_1) => {
+                self.refuse_after_kept_quit(rc)
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Whether `inst` holds a quit that `UseRequestPage(false)` deferred.
