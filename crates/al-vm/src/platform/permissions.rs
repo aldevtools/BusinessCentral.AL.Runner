@@ -765,8 +765,9 @@ pub(super) fn key_filters(t: &TableDef, which: GrantTable, pk: &[Value]) -> Vec<
 
 /// One permission set object of the program as the composition of a session's sets reads it.
 pub(crate) struct RawSet {
-    /// The Role ID: the upper-case object name cut to 20 characters (the `Permission Set` table's key, which
-    /// `Permissions Mock.Assign` passes on).
+    /// The Role ID: the whole upper-case object name, which may have up to 30 characters when the set is not assignable
+    /// (permissions/permission-sets/Y12PermSetNames.al:45, `LT Y12 PS NOT ASSIGNABLE 30 CH`). `Permissions Mock.Assign`
+    /// passes a Code[20] (`Session::assign_permission_set`), so a longer Role ID is never assigned by it.
     pub role: String,
     /// The grants the set declares itself, wildcards included, with the grants of the permission set extensions of the
     /// program merged in (Y19PermComposition.al:100-105, :124-125, P10); an error for a grant the reader does not take.
@@ -842,7 +843,7 @@ pub(crate) fn raw_sets(engine: &crate::Engine) -> (Vec<RawSet>, HashMap<String, 
         }
         by_name.entry(o.name.to_lowercase()).or_default().push(sets.len());
         sets.push(RawSet {
-            role: upper_trunc(&o.name, 20),
+            role: upper_trunc(&o.name, 30),
             declared,
             includes,
             excludes: name_list(o, "ExcludedPermissionSets"),
