@@ -16,6 +16,16 @@ fn codeunit_without_subtype(obj: &ast::Object) -> bool {
     obj.properties().all(|p| !p.name().eq_ignore_ascii_case("Subtype"))
 }
 
+/// A global procedure written as `procedure Name(..)`: no attribute and nothing before the keyword (no access modifier).
+/// The kind TableNoBareSystemFunction.al:459-482 reads a global `Rec` in (SetGlobalRec, ProcRead of codeunit 83004).
+fn plain_global_procedure(r: &ast::Routine) -> bool {
+    r.syntax().kind() == SyntaxKind::Procedure
+        && r.attributes().next().is_none()
+        && al_syntax::ast::significant_green_tokens(r.syntax())
+            .next()
+            .is_some_and(|t| t.text.eq_ignore_ascii_case("procedure"))
+}
+
 fn in_procedure(node: &SyntaxNode) -> bool {
     node.ancestors()
         .find_map(ast::Routine::cast)
@@ -57,20 +67,31 @@ pub(super) fn declared_rec_refusal(
 }
 
 impl Lowerer<'_> {
-    /// `Rec` in a codeunit without Subtype that declares main's global `Rec` (`declared_rec_refusal`). In a procedure it is
-    /// the declared variable, under `TableNoCodeunitGlobalRecOwnVariable`; in OnRun it is the record given to Codeunit.Run
-    /// (the implicit slot, main's result). TableNoBareSystemFunction.al:459-482: `Proc.RecUserId` = the global,
-    /// `OnRun.RecUserId` = the run record.
+    /// `Rec` in a codeunit without Subtype that declares main's global `Rec` (`declared_rec_refusal`). In a plain global
+    /// procedure it is the declared variable, under `TableNoCodeunitGlobalRecOwnVariable`; in OnRun it is the record given
+    /// to Codeunit.Run (the implicit slot, main's result). TableNoBareSystemFunction.al:459-482: `Proc.RecUserId` = the
+    /// global, `OnRun.RecUserId` = the run record. Every other routine refuses: main's one slot reads the run record there
+    /// after Codeunit.Run, and BC's value is not measured. A codeunit with a Subtype records no declared slot and keeps
+    /// main's one slot.
     pub(super) fn declared_rec_place(&mut self, n: &SyntaxNode) -> L<ir::Place> {
-        if let Some(slot) = self.declared_rec_slot.filter(|_| in_procedure(n)) {
-            self.assume(Assumption::TableNoCodeunitGlobalRecOwnVariable);
-            return Ok(ir::Place::Global(slot));
-        }
-        let implicit = self
+        let implicit = *self
             .globals
             .get("rec")
             .ok_or("implicit variable `rec` is not lowered yet")?;
-        Ok(ir::Place::Global(*implicit))
+        let Some(slot) = self.declared_rec_slot else {
+            return Ok(ir::Place::Global(implicit));
+        };
+        let routine = n.ancestors().find_map(ast::Routine::cast);
+        if routine.as_ref().is_some_and(plain_global_procedure) {
+            self.assume(Assumption::TableNoCodeunitGlobalRecOwnVariable);
+            return Ok(ir::Place::Global(slot));
+        }
+        if routine.is_some_and(|r| r.is_trigger() && r.name().eq_ignore_ascii_case("OnRun")) {
+            return Ok(ir::Place::Global(implicit));
+        }
+        Err("`Rec` names the global `Rec` of a codeunit with TableNo outside OnRun and a global procedure without attribute \
+             or access modifier: BC's value there is not measured"
+            .into())
     }
 
     /// A call of a system function (`UserId`, `Today`, with or without parentheses, quoted or not) with no receiver,

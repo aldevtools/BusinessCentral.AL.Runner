@@ -534,3 +534,36 @@ fn a_declared_global_rec_is_its_own_variable_in_a_procedure_of_a_codeunit_withou
     assert!(proc_ir.contains(&format!("Global({implicit})")), "{proc_ir}");
     assert!(!proc_ir.contains("TableNoCodeunitGlobalRecOwnVariable"), "{proc_ir}");
 }
+
+#[test]
+fn a_declared_global_rec_outside_a_plain_global_procedure_refuses() {
+    // TableNoBareSystemFunction.al:459-482 measured `Rec` only in global procedures written without an attribute or an
+    // access modifier (SetGlobalRec, ProcRead). Main's one slot would read the run record after Codeunit.Run in the other
+    // procedure kinds; what BC reads there is not measured, so they refuse.
+    for body in [
+        "local procedure P() begin Rec.\"Entry No.\" := 2; end;",
+        "internal procedure P() begin Rec.\"Entry No.\" := 2; end;",
+        "[EventSubscriber(ObjectType::Codeunit, Codeunit::\"Probe Handler\", 'OnProbe', '', false, false)]\n    local procedure P() begin Rec.\"Entry No.\" := 2; end;\n    [IntegrationEvent(false, false)]\n    procedure OnProbe() begin end;",
+        "[EventSubscriber(ObjectType::Codeunit, Codeunit::\"Probe Handler\", 'OnProbe', '', false, false)]\n    procedure P() begin Rec.\"Entry No.\" := 2; end;\n    [IntegrationEvent(false, false)]\n    procedure OnProbe() begin end;",
+    ] {
+        let src = format!(
+            "codeunit 50111 \"Probe Handler\"\n{{\n    TableNo = \"Probe Context\";\n    var\n        Rec: Record \"Probe Context\";\n    trigger OnRun() begin end;\n    {body}\n}}"
+        );
+        let (ws, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", &src)], false);
+        assert!(ws.diagnostics.is_empty(), "{body}: {:?}", ws.diagnostics);
+        let r = refusals(&l);
+        assert!(
+            r.iter()
+                .any(|r| r.contains("the global `Rec` of a codeunit with TableNo")),
+            "{body}: {r:?}"
+        );
+    }
+    // Out of scope, main's result kept: a local procedure of a codeunit with a Subtype runs the one slot, unrefused.
+    let test_cu = "codeunit 50111 \"Probe Handler\"\n{\n    Subtype = Test;\n    TableNo = \"Probe Context\";\n    var\n        Rec: Record \"Probe Context\";\n    trigger OnRun() begin end;\n    local procedure P() begin Rec.\"Entry No.\" := 2; end;\n}";
+    let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", test_cu)], false);
+    assert!(refusals(&l).is_empty(), "{:?}", refusals(&l));
+    // A local procedure that does not name `Rec` is not refused.
+    let untouched = "codeunit 50111 \"Probe Handler\"\n{\n    TableNo = \"Probe Context\";\n    var\n        Rec: Record \"Probe Context\";\n    trigger OnRun() begin end;\n    local procedure P(): Integer begin exit(1); end;\n}";
+    let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", untouched)], false);
+    assert!(refusals(&l).is_empty(), "{:?}", refusals(&l));
+}
