@@ -11,7 +11,7 @@ use crate::sqltime::{BadValue, Evidence};
 
 impl Session {
     /// A Modify of a row with a value its SQL column cannot hold. Assumed (`sql-date-first-year`, al-runner issue 8006, the
-    /// reporter's measurement on BC 28.4): for a date in 1753 the Modify itself raises the platform's error and writes
+    /// reporter's measurement on Business Central 28.4): for a date in 1753 the Modify itself raises the platform's error and writes
     /// nothing, in the measured shape only: the result not used, a table without a Blob field that is not a CRM table and
     /// runs no table code (`has_write_hooks`), outside ModifyAll. Every other Modify of such a value is refused (the corpus
     /// pins only the Insert: record/filters/P130DateFilters.al:234-275).
