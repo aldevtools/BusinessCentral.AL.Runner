@@ -2011,6 +2011,7 @@ impl Lowerer<'_> {
                     .ok_or_else(|| format!("local `{name}`")),
                 // An extension variable named like a base variable is its own (corpus
                 // pages/extensions/TestPageExtensionBaseAccessContracts.al:20, Shadow).
+                Some(Res::Global(name)) if name == "rec" && self.declared_rec_slot.is_some() => self.declared_rec_place(n),
                 Some(Res::Global(name)) => self
                     .in_request_page
                     .then(|| self.request_page_globals.get(name))
