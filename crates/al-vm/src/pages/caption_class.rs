@@ -217,6 +217,18 @@ impl Session {
         }
     }
 
+    /// Whether `caption_class_translate` of `text`, a text `format::raises_resolve` holds for, would refuse before it raises an
+    /// event: a subscriber of UI Helper Triggers' CaptionClassTranslate (`refuse_caption_class_translate`), or a translation of
+    /// `text` the session made under another language (`caption_class_translate_unrefused`). Its other refusal is for a numeric
+    /// area (`setup_caption_refusal`).
+    pub(super) fn caption_class_translate_refuses_now(&self, text: &str) -> bool {
+        self.refuse_caption_class_translate().is_err()
+            || self
+                .caption_translations
+                .iter()
+                .any(|(t, language, _)| t == text && *language != self.global_language)
+    }
+
     /// `caption_class_translate` with the refusal of `setup_caption_refusal` returned beside the caption.
     pub(crate) fn caption_class_translate_deferring(&mut self, text: &str) -> Result<(String, Option<String>), Signal> {
         self.refuse_caption_class_translate()?;
@@ -397,16 +409,24 @@ impl Session {
 
     /// The caption a page control over field `field` shows for the text `class` its CaptionClass expression gave: an empty
     /// text and `3,` read as the empty text (QdCaptionClassAreas.al Page_ControlCaptions `exprEmpty`, `expr3`), the rest as on a
-    /// table read (`recmeta::ExprCaption`).
-    pub(super) fn control_expression_caption(&mut self, st: &St, field: &str, class: &str) -> Result<String, Signal> {
+    /// table read (`recmeta::ExprCaption`). The flag: the caption is a subscriber's for an own area, shown only on the pages
+    /// `own_area_control_caption_pinned` names, and `Caption()` reads it only while that still holds.
+    pub(super) fn control_expression_caption(
+        &mut self,
+        st: &St,
+        field: &str,
+        class: &str,
+    ) -> Result<(String, bool), Signal> {
         use crate::recmeta::ExprCaption;
         match crate::recmeta::expression_class(class) {
-            ExprCaption::FieldCaption => Ok(String::new()),
-            ExprCaption::Text(c) => self.expression_text_caption(class, c),
-            ExprCaption::Translate => self.caption_class_translate(class),
+            ExprCaption::FieldCaption => Ok((String::new(), false)),
+            ExprCaption::Text(c) => Ok((self.expression_text_caption(class, c)?, false)),
+            ExprCaption::Translate => Ok((self.caption_class_translate(class)?, false)),
             ExprCaption::Plain => {
-                let pinned = self.own_area_control_caption_pinned(st);
-                self.expression_plain_caption(field, class, pinned)
+                let caption =
+                    self.expression_plain_caption(field, class, |this| this.own_area_control_caption_pinned(st))?;
+                let own_area = caption != class;
+                Ok((caption, own_area))
             }
         }
     }
@@ -430,42 +450,15 @@ impl Session {
         &mut self,
         field: &str,
         class: &str,
-        pinned_reader: bool,
+        pinned_reader: impl FnOnce(&mut Self) -> Result<bool, Signal>,
     ) -> Result<String, Signal> {
         let caption = self.caption_class_translate(class)?;
-        if caption != class && !(pinned_reader && class.contains(',')) {
+        if caption != class && !(class.contains(',') && pinned_reader(self)?) {
             return unsupported(format!(
                 "the caption of field {field} whose CaptionClass expression gives `{class}`, a text with no comma or with an area that is not a number, which a subscriber resolves (not pinned for an expression on this page, al-runner issue 7431)"
             ));
         }
         Ok(caption)
-    }
-
-    /// Whether a control of page `st` shows the caption a subscriber gave its field's own-area CaptionClass expression: a
-    /// top-level Card the test opened with OpenEdit (record/captions/CaptionClassOwnArea.al:315-336, :543-583) or a top-level
-    /// List the test opened with OpenView (:338-357), on a row (:274-281, :550-552); the page declares no trigger, no property
-    /// but the plain ones, no page extension and no subscriber, and its controls are fields of Rec without a trigger, in groups
-    /// or a repeater (:157-200).
-    pub(super) fn own_area_control_caption_pinned(&self, st: &St) -> bool {
-        use al_ir::PageType;
-        let (edit, view, on_row, object) = {
-            let s = st.borrow();
-            (
-                s.test_open_edit(),
-                s.test_open_view(),
-                s.cursor == Cursor::Row,
-                s.object as usize,
-            )
-        };
-        let page_type = self.engine.object_facts[object].page_type.as_ref();
-        on_row
-            && self.page_declares_within(st, &[], &[])
-            && self.controls_are_rec_fields(st, false)
-            && match page_type {
-                Some(PageType::Card) => edit,
-                Some(PageType::List) => view,
-                _ => false,
-            }
     }
 
     /// A text other than the one the control resolved before, at a fill other than the one after SetValue

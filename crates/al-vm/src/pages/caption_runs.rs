@@ -264,7 +264,13 @@ impl Session {
         if let Some(why) = self.caption_class_lasting_effect(t, exprs) {
             return unsupported(why);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount);
+        // The count has a reader only through what an expression leaves behind: a write it keeps (`effects::Effect::Kept`).
+        // Expressions that leave nothing run without the mark (a dialog or an Error with a text refuses below).
+        if self.caption_class_keeps_effect(t, exprs) {
+            al_builtins::assumptions::assume(
+                al_builtins::assumptions::Assumption::PageOpenCaptionClassEmptyRecordCount,
+            );
+        }
         st.borrow_mut().caption_dialogs_refused = true;
         self.with_caption_dialogs(CaptionDialogs::Refused, |this| {
             for _ in 0..20 {
@@ -273,6 +279,25 @@ impl Session {
                 }
             }
             Ok(())
+        })
+    }
+
+    /// Whether the CaptionClass expression of a field of `t` in `exprs` can leave a kept write behind (`effects::Effect::Kept`).
+    fn caption_class_keeps_effect(&self, t: &al_data::TableDef, exprs: &[(usize, String)]) -> bool {
+        let Some(table) = self.engine.program.objects[t.object as usize].table.as_ref() else {
+            return true;
+        };
+        exprs.iter().any(|(pos, _)| {
+            table
+                .fields
+                .get(*pos)
+                .and_then(|f| f.caption_class)
+                .is_none_or(|(object, routine)| {
+                    matches!(
+                        self.engine.lasting_effect(object, routine),
+                        Some(crate::effects::Effect::Kept(_))
+                    )
+                })
         })
     }
 
@@ -338,10 +363,10 @@ impl Session {
                     continue;
                 };
                 let class = self.field_caption_class_value(t, *pos, Some(&rec), expr)?;
-                let caption = self.control_expression_caption(st, &t.fields[*pos].name, &class)?;
+                let (caption, own_area) = self.control_expression_caption(st, &t.fields[*pos].name, &class)?;
                 let mut s = st.borrow_mut();
-                s.field_captions.retain(|(i, _)| *i != idx);
-                s.field_captions.push((idx, caption));
+                s.field_captions.retain(|(i, ..)| *i != idx);
+                s.field_captions.push((idx, caption, own_area));
             }
         }
         st.borrow_mut().field_captions_row = Some(rec.borrow().fields.clone());

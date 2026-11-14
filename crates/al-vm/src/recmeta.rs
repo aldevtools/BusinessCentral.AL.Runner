@@ -248,10 +248,12 @@ impl Session {
                     // A subscriber that resolves the text to the empty caption leaves the field's Caption on a table read
                     // (record/captions/CaptionClassOwnArea.al:375 FieldCaption, :416 FieldRef.Caption, :477 `fc` after the Card;
                     // a control shows the empty text, :477 `cap1`).
-                    ExprCaption::Plain => match self.expression_plain_caption(&t.fields[pos].name, &class, true)? {
-                        caption if caption.is_empty() && class.contains(',') => Ok(self.field_caption(t, pos)),
-                        caption => Ok(caption),
-                    },
+                    ExprCaption::Plain => {
+                        match self.expression_plain_caption(&t.fields[pos].name, &class, |_| Ok(true))? {
+                            caption if caption.is_empty() && class.contains(',') => Ok(self.field_caption(t, pos)),
+                            caption => Ok(caption),
+                        }
+                    }
                 }
             }
         }

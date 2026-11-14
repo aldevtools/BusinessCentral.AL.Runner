@@ -99,6 +99,24 @@ page 50414 "Own Area Expr Card"
     }
 }
 
+page 50416 "Own Area Expr List"
+{
+    PageType = List;
+    SourceTable = "Own Area Expr Row";
+    UsageCategory = None;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Rows)
+            {
+                field(Id; Rec.Id) { ApplicationArea = All; }
+                field(Dyn; Rec.Dyn) { ApplicationArea = All; }
+            }
+        }
+    }
+}
+
 codeunit 50415 T
 {
     Subtype = Test;
@@ -136,5 +154,24 @@ codeunit 50415 T
         Log.SetExpr('TSTX,2,1');
         Card.OpenEdit();
         Error('open=%1 cap=[%2]', Log.Take(), Card.Dyn.Caption());
+    end;
+
+    [Test]
+    procedure ListExpressionRead()
+    var
+        Row: Record "Own Area Expr Row";
+        List: TestPage "Own Area Expr List";
+        Got: Text;
+    begin
+        Row.Id := 1;
+        Row.Insert();
+        Log.SetExpr('TSTY,2,1');
+        Log.Take();
+        List.OpenView();
+        Got := 'open=' + Log.Take();
+        Got += ' r1=[' + List.Dyn.Caption() + '] ev=' + Log.Take();
+        Got += ' r2=[' + List.Dyn.Caption() + '] ev=' + Log.Take();
+        List.Close();
+        Error(Got);
     end;
 }
