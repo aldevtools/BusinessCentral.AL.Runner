@@ -48,8 +48,9 @@ impl Session {
     /// - `Blob.CreateOutStream`, `Blob.Import` or `Clear` on a Blob field of a temporary record. A buffer that stored rows share
     ///   under another key than the variable's: `CreateOutStream` on it in the measured shape ([`measured_detach`]) gives the
     ///   variable a buffer of its own first, so the write does not reach those rows (assumption
-    ///   `temp-blob-empty-insert-key-change`); every other write into it refuses. A record handed by value whose buffer a holder
-    ///   outside its own table shares refuses too: the write would reach the caller's rows, which BC was not measured on.
+    ///   `temp-blob-empty-insert-key-change`); every other write into it refuses. A record handed by value whose buffer a row of the
+    ///   caller's table, or a holder found nowhere, shares refuses too ([`Session::by_value_holders_found`]): the write would
+    ///   reach the caller's rows, which BC was not measured on.
     ///
     /// A `Clear` of an empty buffer changes nothing those rows show, and keeps main's path. `Ok(Some)`: the open of a stream
     /// on a temporary record's Blob field, for [`Session::temp_blob_attach_open`] once the builtin has run.
@@ -85,6 +86,16 @@ impl Session {
             return Ok(None);
         }
         let b = b.clone();
+        // A buffer an Insert stored while it held content is copied before a write and replaced by Clear
+        // (`BlobBuf::temp_inserted`); a Clear that gives a new buffer leaves the rows alone, and a Clear of an empty one changes
+        // nothing they show.
+        if !opens
+            && (b.borrow().temp_inserted
+                || (id == ids::SYSTEM_CLEAR_1
+                    && (!al_builtins::native::blob_clears_in_place(&*self, &b) || b.borrow().bytes.is_empty())))
+        {
+            return Ok(None);
+        }
         let ir::Place::Field(base, pos) = place else {
             return Ok(None);
         };
@@ -107,13 +118,8 @@ impl Session {
             }),
             _ => None,
         };
-        let clears_in_place = id == ids::SYSTEM_CLEAR_1 && al_builtins::native::blob_clears_in_place(&*self, &b);
-        // A buffer an Insert stored while it held content is copied by CreateOutStream and replaced by Clear
-        // (`BlobBuf::temp_inserted`); a Clear that gives a new buffer leaves the rows alone.
-        if b.borrow().temp_inserted || (id == ids::SYSTEM_CLEAR_1 && !clears_in_place) {
-            return Ok(pending);
-        }
-        if clears_in_place && b.borrow().bytes.is_empty() {
+        // CreateOutStream copies a buffer an Insert stored while it held content; the stream keeps what it saw at the open.
+        if b.borrow().temp_inserted {
             return Ok(pending);
         }
         // The record's own copies, the operand and `b`.
@@ -235,13 +241,23 @@ impl Session {
         let total = Arc::strong_count(b);
         let is_b = |v: &Value| matches!(v, Value::Blob(o) if Arc::ptr_eq(o, b));
         let store = self.store_for(rc);
-        let at_key = store.row_field_holds(&cx, t, &key, pos, is_b);
-        let found = counted + usize::from(at_key);
-        let enough = total
-            .saturating_sub(found + sharers - 1)
-            .max(usize::from(total > found));
-        let elsewhere = store.count_field_holders_from_last(&cx, t, &key, pos, enough, is_b);
-        let found = found + elsewhere + sharers - 1;
+        let (at_key, elsewhere) = if sharers == 1 {
+            // Every other holder is a row: one walk that stops once they are all found tells the row under the key from
+            // the others (an unvisited row under the key cannot hold the buffer then).
+            store.field_holders_from_last(&cx, t, &key, pos, total.saturating_sub(counted), is_b)
+        } else {
+            // A sharer may or may not hold the buffer, so the count does not prove an unvisited row under the key empty.
+            let at_key = store.row_field_holds(&cx, t, &key, pos, is_b);
+            let found = counted + usize::from(at_key);
+            let enough = total
+                .saturating_sub(found + sharers - 1)
+                .max(usize::from(total > found));
+            (
+                at_key,
+                store.count_field_holders_from_last(&cx, t, &key, pos, enough, is_b),
+            )
+        };
+        let found = counted + usize::from(at_key) + elsewhere + sharers - 1;
         Ok(Holders {
             at_key,
             elsewhere,
@@ -252,8 +268,10 @@ impl Session {
 
     /// For a record handed by value (`TempId::is_by_value_copy`) whose own table left holders `h` of buffer `b` unaccounted
     /// for: whether the record it was copied from accounts for the rest (its fields and their snapshots, and the rows and other
-    /// variables of its table) with no row of that table holding the buffer. Then no row any write reaches holds the buffer,
-    /// and main's path runs. A source that is gone, or a holder still unaccounted for, answers false. Any other record: true.
+    /// variables of its table), and, while holders stay unaccounted for and that record was handed by value too, the record
+    /// it was copied from in turn (an event argument handed on to a subscriber), with no row of those tables holding the
+    /// buffer. Then no row any write reaches holds the buffer, and main's path runs. A source that is gone, or a holder still
+    /// unaccounted for, answers false. Any other record: true.
     fn by_value_holders_found(
         &mut self,
         rc: &Rc<RefCell<RecordState>>,
@@ -261,26 +279,33 @@ impl Session {
         b: &BlobRef,
         h: &Holders,
     ) -> Result<bool, Signal> {
-        let source = match rc.borrow().temp_id.as_ref() {
-            Some(id) if id.is_by_value_copy() => id.by_value_source(),
-            _ => return Ok(true),
-        };
-        if h.all_found {
+        if h.all_found || !rc.borrow().temp_id.as_ref().is_some_and(TempId::is_by_value_copy) {
             return Ok(true);
         }
-        let Some(src) = source else {
-            return Ok(false);
-        };
-        let counted = h.found + src.borrow().blob_copies_of(pos, b);
-        if Arc::strong_count(b) <= counted {
-            return Ok(true);
+        let mut found = h.found;
+        let mut copy = rc.clone();
+        loop {
+            let Some(src) = copy.borrow().temp_id.as_ref().and_then(TempId::by_value_source) else {
+                return Ok(false);
+            };
+            found += src.borrow().blob_copies_of(pos, b);
+            if Arc::strong_count(b) <= found {
+                return Ok(true);
+            }
+            if !src.borrow().temporary || src.borrow().temp_id.is_none() {
+                return Ok(false);
+            }
+            let t = self.table(&src)?;
+            let hs = self.blob_holders(&src, &t, pos, b, found)?;
+            if hs.at_key || hs.elsewhere > 0 {
+                return Ok(false);
+            }
+            if hs.all_found {
+                return Ok(true);
+            }
+            found = hs.found;
+            copy = src;
         }
-        if !src.borrow().temporary || src.borrow().temp_id.is_none() {
-            return Ok(false);
-        }
-        let t = self.table(&src)?;
-        let hs = self.blob_holders(&src, &t, pos, b, counted)?;
-        Ok(!hs.at_key && hs.elsewhere == 0 && hs.all_found)
     }
 }
 

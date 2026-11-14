@@ -363,11 +363,7 @@ impl TempId {
     }
 
     /// The table of a temporary record's copy handed by value; `source` is the record it was copied from.
-    pub fn new_by_value_copy(
-        id: u64,
-        release: Rc<RefCell<Vec<u64>>>,
-        source: &Rc<RefCell<RecordState>>,
-    ) -> TempId {
+    pub fn new_by_value_copy(id: u64, release: Rc<RefCell<Vec<u64>>>, source: &Rc<RefCell<RecordState>>) -> TempId {
         TempId(Rc::new(TempToken {
             id,
             release,

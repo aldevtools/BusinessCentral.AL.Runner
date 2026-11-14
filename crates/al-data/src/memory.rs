@@ -754,6 +754,41 @@ impl MemStore {
             .is_some_and(|tb| tb.get(&Key::of(t, key.to_vec())).is_some_and(|row| holds(&row[pos])))
     }
 
+    /// The rows of table `t` that have a field at position `pos` that satisfies `holds`, counted from the last row in primary
+    /// key order back to the first and stopping at `enough` of them: whether the row under primary key `key` is one, and how
+    /// many others are. One walk, no lookup. Counts no store operation, as [`MemStore::row_field_holds`].
+    pub fn field_holders_from_last(
+        &self,
+        cx: &AccessContext,
+        t: &TableDef,
+        key: &[Value],
+        pos: usize,
+        enough: usize,
+        holds: impl Fn(&Value) -> bool,
+    ) -> (bool, usize) {
+        let (mut at_key, mut others) = (false, 0);
+        if enough == 0 {
+            return (at_key, others);
+        }
+        let Some(tb) = self.table(cx, t) else {
+            return (at_key, others);
+        };
+        let key = Key::of(t, key.to_vec());
+        for (k, row) in tb.iter().rev() {
+            if holds(&row[pos]) {
+                if *k == key {
+                    at_key = true;
+                } else {
+                    others += 1;
+                }
+                if usize::from(at_key) + others == enough {
+                    break;
+                }
+            }
+        }
+        (at_key, others)
+    }
+
     /// How many rows of table `t` other than the one under primary key `skip` have a field at position `pos` that satisfies
     /// `holds`, counted from the last row in primary key order back to the first and stopping at `enough`. Counts no store
     /// operation, as [`MemStore::row_field_holds`].

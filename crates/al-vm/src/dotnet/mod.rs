@@ -458,14 +458,9 @@ impl Session {
         {
             let blob = al_builtins::stream::new_blob();
             save_to = Some((p.to_string(), blob.clone()));
-            values[0] = Value::Library(
-                al_builtins::library_kind::LibraryKind::OutStream,
-                std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::OutStream(
-                    blob,
-                    al_builtins::stream::Encoding::default(),
-                    None,
-                ))),
-            );
+            let out = LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None);
+            let out = std::rc::Rc::new(std::cell::RefCell::new(out));
+            values[0] = Value::Library(al_builtins::library_kind::LibraryKind::OutStream, out);
         }
 
         // ADR-056: outside the company build, .NET reads and writes files only in the session's in-memory file system.

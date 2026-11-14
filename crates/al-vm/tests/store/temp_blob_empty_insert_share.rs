@@ -9,6 +9,16 @@ table 50990 "Tbs Row"
 {
     fields { field(1; Key1; Integer) { } field(2; Data; Blob) { } }
     keys { key(PK; Key1) { } }
+
+    // A temporary record handed by value to a table procedure keeps sharing its Blob buffer (al-vm `blob_transfer`,
+    // `by_value_measured`).
+    procedure WriteByValue(R: Record "Tbs Row" temporary)
+    var O: OutStream;
+    begin
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        O.WriteText('X');
+        R.Insert();
+    end;
 }
 table 50991 "Tbs Temp Row"
 {
@@ -363,7 +373,8 @@ codeunit 50994 C
         exit(Lib.ReadGet(R, 1));
     end;
 
-    // Not measured: a by-value copy of the record writes under another key (main: the caller's row 1 read the write).
+    // Main's result kept: a by-value copy of the record writes under another key. The copy takes its own Blob buffer
+    // (assumption `blob-transfer-copies`), so no row of the caller holds it (main: 'nohv').
     procedure ByValueCopyWrites(): Text
     var R: Record "Tbs Row" temporary;
     begin
@@ -391,7 +402,8 @@ codeunit 50994 C
         exit(Lib.ReadGet(R, 1));
     end;
 
-    // Not measured: a Variant holds the record while it moves on and writes.
+    // Not told apart (the entry says so): a Variant holds a copy of the record whose Blob buffer is its own (assumption
+    // `blob-transfer-copies`) while the record moves on and writes; it takes the assumed path (main: 'hv:X').
     procedure VariantHolds(): Text
     var R: Record "Tbs Row" temporary; V: Variant;
     begin
@@ -505,6 +517,35 @@ codeunit 50994 C
         exit(Lib.Content(R));
     end;
 
+    // Not measured: a by-value copy that shares its buffer with the caller's row under another key writes (main: the caller's
+    // row 1 read the write).
+    procedure ByValueSharedSourceRowElsewhere(): Text
+    var R: Record "Tbs Row" temporary; X: Record "Tbs Row";
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2;
+        X.WriteByValue(R);
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: the same under the caller's own key (main: the caller's row 1 read the write).
+    procedure ByValueSharedSourceRowSameKey(): Text
+    var R: Record "Tbs Row" temporary; X: Record "Tbs Row";
+    begin
+        R.Key1 := 1; R.Insert();
+        X.WriteByValue(R);
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Main's result kept: a by-value copy that shares its buffer with the caller's variable only, no row (main: Yes).
+    procedure ByValueSharedNoRow(): Text
+    var R: Record "Tbs Row" temporary; X: Record "Tbs Row";
+    begin
+        R.Key1 := 1;
+        X.WriteByValue(R);
+        exit(Format(R.Data.HasValue()));
+    end;
+
     // TempBlobEmptyInsertShare.al:527 (Excel Buffer's ParseCellValue): the detached stream written with Write of one Text.
     procedure KeyChangeWriteOfText(): Text
     var R: Record "Tbs Row" temporary; O: OutStream; T: Text;
@@ -530,15 +571,6 @@ codeunit 50994 C
         exit(Lib.ReadGet(R, 1));
     end;
 
-    // Not measured: a by-value copy of a record whose own row holds the buffer under the same key writes (main: the caller's row
-    // read the write).
-    procedure ByValueCopySourceRowSameKey(): Text
-    var R: Record "Tbs Row" temporary;
-    begin
-        R.Key1 := 1; R.Insert();
-        ByValueWrite(R);
-        exit(Lib.ReadGet(R, 1));
-    end;
 }
 "#;
 
@@ -645,14 +677,16 @@ fn a_stream_that_outlives_its_record_refuses_while_a_row_holds_the_buffer() {
 #[test]
 fn a_by_value_copy_that_writes_refuses() {
     // Main read 'hv:X' in the caller's row 1.
-    assert!(refused("ByValueCopyWrites").starts_with(REFUSED));
-    assert!(refused("ByValueCopySourceRowSameKey").starts_with(REFUSED));
+    assert!(refused("ByValueSharedSourceRowElsewhere").starts_with(REFUSED));
+    assert!(refused("ByValueSharedSourceRowSameKey").starts_with(REFUSED));
 }
 
 #[test]
 fn a_by_value_copy_whose_holders_the_caller_accounts_for_keeps_mains_result() {
     // No row holds the buffer; the caller's variable does, and the copy's source accounts for it.
     assert_eq!(run("ByValueCopyNoRow"), "nohv");
+    assert_eq!(run("ByValueCopyWrites"), "nohv");
+    assert_eq!(run("ByValueSharedNoRow"), "Yes");
 }
 
 #[test]
@@ -663,7 +697,7 @@ fn a_detached_stream_takes_only_the_measured_writes() {
 #[test]
 fn unmeasured_holders_and_places_refuse() {
     // Main read 'hv:X' (or Yes) in row 1 in each.
-    for p in ["VariantHolds", "ArrayElement", "CopyStreamInto"] {
+    for p in ["ArrayElement", "CopyStreamInto"] {
         assert!(refused(p).starts_with(REFUSED), "{p}");
     }
     assert!(refused("SecondBlobField").starts_with("a write into the Blob Other of a temporary record of"));
@@ -672,6 +706,7 @@ fn unmeasured_holders_and_places_refuse() {
 #[test]
 fn a_second_variable_sharing_the_table_is_not_told_apart() {
     assert_eq!(run("SecondVariableWrites"), "nohv");
+    assert_eq!(run("VariantHolds"), "nohv");
 }
 
 #[test]
