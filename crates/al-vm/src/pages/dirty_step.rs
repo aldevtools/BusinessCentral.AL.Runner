@@ -277,6 +277,7 @@ impl Session {
         Self::end_deferred_host_reread(st, call, method.method());
         Self::refuse_after_pinned_end(st, call)?;
         self.refuse_unmeasured_caption_read(st, call, None)?;
+        Self::refuse_ws_trigger_order_step(st, call)?;
         if call.is_none() {
             // Page code calls a method of the page (`CurrPage.Update`): no List-host cell does (`empty_part_rec`).
             self.end_empty_list_landing(st);
@@ -370,6 +371,7 @@ impl Session {
             _ => None,
         };
         self.refuse_unmeasured_caption_read(st, call, control)?;
+        Self::refuse_ws_trigger_order_step(st, call)?;
         // An Invoke of an action of a part that shows no row may be a read of its Rec a List-host cell measured.
         self.reading_empty_list_rec(st, call, |s| s.test_control_op_noted(method, c, args))
     }

@@ -36,6 +36,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
     differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it
     was read).
+  - an Insert cell checked without "no row has the key": the probe inserted a new key. An Insert of a stored key has a
+    second error (the duplicate) and its order against the measured error is not measured. Require that no row has the
+    key in every Insert cell of a deferred or raised error, through one helper (al-runner PRs 8058 and 8111).
   - "the test's filter" read from "filter group 0": page code (OnOpenPage, the record handed to Page.Run) writes group 0
     too. Keep which fields the test filtered, with the typed text, on the page state and require that (al-runner PR 8009).
   - the record handed to Page.Run checked by its filters and key only: its field values are state the page's code reads
@@ -110,6 +113,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a gate that checks the extension's side of a page and not the base's: the base request page (properties, triggers, the
     number and place of its fields) and the call that opened and closed the page are pinned facts too. Require the base
     object's shape, and name the measured open and close calls (al-runner PR 8053).
+  - the rows of a pinned table checked by key only: the other field values are what the page's code reads (a caption
+    expression, a trigger). Require every field of every measured row by equality (al-runner PR 8113; the same miss for a
+    handed record in PR 8009).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

@@ -918,10 +918,7 @@ impl Session {
                 }
                 let mut stored = Self::to_store(rec, view);
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
-                    let shape = ModifyShape {
-                        caller,
-                        row_exists: stored_row.is_some(),
-                    };
+                    let shape = (caller, stored_row.is_some(), run);
                     return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
                 Self::mark_blobs_inserted(rec, &stored, false);
