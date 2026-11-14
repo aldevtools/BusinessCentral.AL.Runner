@@ -142,7 +142,8 @@ fn shapes_outside_the_cell_keep_the_filter() {
 #[test]
 fn unmeasured_shapes_on_a_list_refuse() {
     for (proc, why) in [
-        ("EditBoolean", "did not open with its own OpenView"),
+        // OpenEdit is measured on a temporary Worksheet only (WorksheetOpenEditTemp.al, corpus PR 1401).
+        ("EditBoolean", "opened with OpenEdit"),
         ("ViewBooleanOtherWord", "not a measured Boolean word"),
         ("ViewBooleanAfterOwnFilter", "after a filter on the field"),
     ] {
@@ -356,7 +357,8 @@ fn unmeasured_worksheet_shapes_refuse() {
         let arg = al_builtins::value::Value::Text(arg.to_string().into());
         refusal(al_testkit::run_with(WS_SRC, "C", proc, vec![arg]).map(|(v, _)| v))
     };
-    assert!(refused("WsEditEnum", "=Order").contains("did not open with its own OpenView"));
+    // OpenEdit is measured with the Boolean words only (WorksheetOpenEditTemp.al, corpus PR 1401).
+    assert!(refused("WsEditEnum", "=Order").contains("opened with OpenEdit"));
     for t in ["=2", "=order"] {
         assert!(
             refused("WsEnum", t).contains("not a measured Boolean word, member name or ordinal"),
@@ -665,10 +667,10 @@ fn an_enum_or_option_of_another_size_is_not_a_measured_cell() {
     }
 }
 
-/// The search Worksheet of al-runner issue 6924 (HIS), as the reporter described it: a temporary source that an action refills
+/// The search Worksheet of al-runner issue 6924, as the reporter described it: a temporary source that an action refills
 /// (Reset, a table procedure, CurrPage.Update(false)), header controls on page variables that the test fills, a Boolean without a
 /// control and an Enum of six members.
-const HIS_SRC: &str = r#"
+const SEARCH_SRC: &str = r#"
 enum 69940 "HS Type" { Extensible = true; value(0; Quote) { } value(1; "Order") { } value(2; Invoice) { } value(3; "Credit Memo") { } value(4; "Blanket Order") { } value(5; "Return Order") { } }
 table 69941 "HS Line"
 {
@@ -738,24 +740,22 @@ codeunit 69944 C
 }
 "#;
 
-fn his(proc: &str, args: &[&str]) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+fn reporter_search(proc: &str, args: &[&str]) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
     let args = args
         .iter()
         .map(|a| al_builtins::value::Value::Text(a.to_string().into()))
         .collect();
-    al_testkit::run_with(HIS_SRC, "C", proc, args).map(|(v, _)| v)
+    al_testkit::run_with(SEARCH_SRC, "C", proc, args).map(|(v, _)| v)
 }
 
-// al-runner issue 6924 (HIS): the test fills header controls, so it opened the page with OpenEdit; WorksheetEnumEqFilter.al opened
-// every page with OpenView (:260, :319, :378). Main applied the `'=1'` filter there and the row was gone, a wrong result. Not
-// measured: it refuses before the first `=` text takes effect.
+// al-runner issue 6924, the reporter's search page: the test fills header controls, so it opened the page with OpenEdit, then
+// invokes an action and calls First before the `'=1'`. WorksheetOpenEditTemp.al (corpus PR 1401) measured OpenEdit with no test
+// call or one action Invoke before the filter, on pages without header controls: not measured, it refuses before the first `=`
+// text takes effect.
 #[test]
 fn an_eq_text_on_a_page_the_test_opened_for_edit_refuses() {
-    let why = refusal(his("EditSearch", &[]));
-    assert!(
-        why.contains("'=1'") && why.contains("did not open with its own OpenView"),
-        "{why}"
-    );
+    let why = refusal(reporter_search("EditSearch", &[]));
+    assert!(why.contains("'=1'") && why.contains("opened with OpenEdit"), "{why}");
 }
 
 // A blank before the `=` (review of al-runner PR 8023): WorksheetEnumEqFilter.al wrote every text with the `=` first (:412-419,
@@ -777,7 +777,7 @@ fn an_eq_text_with_a_blank_before_the_eq_refuses() {
 #[test]
 fn an_eq_text_on_an_enum_of_six_members_refuses() {
     for t in ["=Quote", "=Order"] {
-        let why = refusal(his("ViewSixMembers", &[t]));
+        let why = refusal(reporter_search("ViewSixMembers", &[t]));
         assert!(why.contains("the measured 3 members"), "{t}: {why}");
     }
 }
@@ -785,5 +785,8 @@ fn an_eq_text_on_an_enum_of_six_members_refuses() {
 // A text without the `=` on the same Enum keeps filter.rs's parsing, as on main.
 #[test]
 fn a_bare_member_on_an_enum_of_six_members_keeps_the_filter() {
-    assert_eq!(al_testkit::text(his("ViewSixMembersBare", &["Quote"])), "[Quote]Q1,");
+    assert_eq!(
+        al_testkit::text(reporter_search("ViewSixMembersBare", &["Quote"])),
+        "[Quote]Q1,"
+    );
 }

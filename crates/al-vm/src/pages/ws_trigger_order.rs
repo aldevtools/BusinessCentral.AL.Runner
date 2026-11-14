@@ -239,15 +239,6 @@ impl Session {
             && self.tree_indentation(st).is_none()
     }
 
-    /// The page declares a DataCaptionExpression of its own.
-    fn has_own_data_caption_expression(&self, st: &St) -> bool {
-        let engine = self.engine();
-        engine.program.objects[st.borrow().object as usize]
-            .properties
-            .iter()
-            .any(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
-    }
-
     /// The rows of the table of `rec` are the probe's, each by both fields: A/RowA, B/RowB, C/RowC (`Seed`, :208-214).
     fn probe_rows_are_three(&mut self, rec: &Rec) -> Result<bool, Signal> {
         let all = Rc::new(RefCell::new(rec.borrow().clone()));

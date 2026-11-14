@@ -198,7 +198,7 @@ impl Session {
         record: Option<Rec>,
         bind: Option<UiKind>,
     ) -> Result<Option<Handler>, Signal> {
-        let handed = self.data_caption_handed(st, record.as_ref(), bind);
+        let handed = self.data_caption_handed(st, record.as_ref());
         let handler = self.open_page_as(st, mode, record, bind, false)?;
         let trapped = bind.is_none() && st.borrow().caught_by_trap;
         if handler.is_some() || trapped {
