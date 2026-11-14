@@ -4,6 +4,7 @@
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
+use al_builtins::assumptions::Assumption;
 use al_deps::package::read_package;
 use al_test_cli::report::Outcome;
 use al_test_cli::runtime::run_codeunit;
@@ -21,6 +22,53 @@ pub(crate) fn outcomes(main: &str) -> Vec<(String, Outcome)> {
 
 /// [`outcomes`] with the id of the app under test chosen (a platform table lists apps by Guid).
 fn outcomes_app(app_id: &str, main: &str) -> Vec<(String, Outcome)> {
+    let (engine, l) = compile_on_system(app_id, main);
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "T")
+        .expect("test codeunit T");
+    run_codeunit(&engine, &l, oi)
+}
+
+/// The outcome of each test of the codeunit named `codeunit` in `main` (compiled as [`outcomes`] does), with the assumptions
+/// each test went through.
+pub(crate) fn outcomes_with_hits(main: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
+    let (engine, l) = compile_on_system("main", main);
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == codeunit)
+        .unwrap_or_else(|| panic!("test codeunit {codeunit}"));
+    let mut hits = Vec::new();
+    let o = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Codeunit,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    o.into_iter()
+        .map(|(name, outcome)| {
+            let h = hits
+                .iter()
+                .filter(|(n, _)| *n == name)
+                .flat_map(|(_, h)| h.iter().copied())
+                .collect();
+            (name, outcome, h)
+        })
+        .collect()
+}
+
+/// `main` as the app `app_id` on the System app, compiled, and an engine for it that runs as BC 27.5.
+fn compile_on_system(app_id: &str, main: &str) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, files: Vec<(String, String)>| AppSource {
         id: id.into(),
@@ -56,13 +104,7 @@ fn outcomes_app(app_id: &str, main: &str) -> Vec<(String, Outcome)> {
             al_version::BcVersion::parse("27.5.0.0").unwrap(),
         )),
     );
-    let oi = l
-        .program
-        .objects
-        .iter()
-        .position(|o| o.name == "T")
-        .expect("test codeunit T");
-    run_codeunit(&engine, &l, oi)
+    (engine, l)
 }
 
 fn passes(src: &str) {
