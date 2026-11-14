@@ -1017,6 +1017,7 @@ fn walk_query<V: RefVisitor>(q: &mut Query, v: &mut V) {
             reverse_sign: _,
             ty,
             static_filter,
+            flow_below_join: _,
         } = c;
         field_opt(v, field, TableOf::object(tables.get(*item).copied().flatten()));
         walk_rt(ty, v);

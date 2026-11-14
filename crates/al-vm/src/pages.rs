@@ -246,6 +246,7 @@ mod caption_class;
 mod caption_expr_list;
 mod caption_relation;
 mod caption_runs;
+pub(crate) use caption_runs::CaptionDialogs;
 mod caption_translation;
 mod clear_test_page;
 mod close_save_failed;

@@ -250,6 +250,8 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
+    pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
     /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
     /// written its by-reference task id back (see `Session::bg_enqueue`).
     pub(crate) bg_drain_after_call: Option<Rc<RefCell<crate::pages::PageState>>>,

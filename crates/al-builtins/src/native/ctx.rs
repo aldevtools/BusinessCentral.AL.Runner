@@ -101,6 +101,12 @@ pub trait Ctx: FormatCtx {
         Ok(None)
     }
 
+    /// `Error` with a text is about to raise: a context may refuse it where the error is not measured (al-vm, a CaptionClass
+    /// run of a page). A context without pages lets it raise.
+    fn error_text_raise(&self) -> Result<(), Signal> {
+        Ok(())
+    }
+
     fn last_error(&self) -> AlError;
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.
