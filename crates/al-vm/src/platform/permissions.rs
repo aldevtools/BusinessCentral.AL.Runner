@@ -484,7 +484,12 @@ impl Grants {
                             includes,
                             excluded: prop(o, "ExcludedPermissionSets").is_some(),
                             declared: parse_grants(o, &ids),
-                            metadata_wildcard: metadata_wildcard_row(o),
+                            metadata_wildcard: metadata_wildcard_row(
+                                o,
+                                c.objects
+                                    .iter()
+                                    .any(|e| e.kind == al_ir::ObjKind::PermissionSetExtension && e.extends_id == o.id),
+                            ),
                         });
                     }
                     Built { sets, by_name }
@@ -537,11 +542,20 @@ impl Grants {
     }
 }
 
-/// The one Metadata Permission row of a set whose `Permissions` is exactly `page * = X`: Object Type Page, Object ID 0,
-/// Execute Yes and no other right (events/CoPermissionLeads.al:104-107, :461-478: `row count` 1, `Page 0 R=  I=  M=  D=
-/// X=Yes;`). A wildcard of another object type or mask, or beside other entries, is not measured: `None`, and the read keeps
-/// the refusal of `parse_grants`.
-fn metadata_wildcard_row<O: al_ir::ObjectInfo + ?Sized>(o: &O) -> Option<Grant> {
+/// The one Metadata Permission row of a set that is exactly the pinned one (events/CoPermissionLeads.al:104-107, :461-478):
+/// `Assignable = true`, no `IncludedPermissionSets`, no `ExcludedPermissionSets`, no permission set extension (`extended`), and
+/// `Permissions` exactly `page * = X`. BC lists Object Type Page, Object ID 0, Execute Yes and no other right (`row count` 1,
+/// `Page 0 R=  I=  M=  D=  X=Yes;`). Any other set or wildcard is not measured: `None`, and the read keeps the refusal of
+/// `parse_grants`. A Caption on the set and an upper-case `PAGE` run the same way (the Role Name is the existing rule; AL is
+/// case-insensitive).
+fn metadata_wildcard_row<O: al_ir::ObjectInfo + ?Sized>(o: &O, extended: bool) -> Option<Grant> {
+    if extended
+        || !prop(o, "Assignable").is_some_and(truthy)
+        || prop(o, "IncludedPermissionSets").is_some()
+        || prop(o, "ExcludedPermissionSets").is_some()
+    {
+        return None;
+    }
     let entries = split_entries(prop(o, "Permissions")?);
     let [entry] = entries.as_slice() else { return None };
     let (head, mask) = entry.rsplit_once('=')?;

@@ -56,6 +56,8 @@ const KEPT: &str = r#"
   [Test] procedure OtherAppPermOnly() var S: Record "Tenant Permission Set"; P: Record "Tenant Permission"; begin
     AddSet('X'); P."App ID" := '{7A1C0E55-3B2D-4E6F-8A90-1B2C3D4E5F60}'; P."Role ID" := 'X'; P."Object ID" := 18; P.Insert();
     S.Get(S."App ID", 'X'); S.Delete(); Error(Left()); end;
+  [Test] procedure TruncateNoRows() var S: Record "Tenant Permission Set"; begin
+    AddSet('EMPTY'); S.Truncate(); Error(Left()); end;
   [Test] procedure RenamedInBuffer() var S: Record "Tenant Permission Set"; begin
     Setup(); S.Get(S."App ID", 'KEPT'); S."Role ID" := 'NOSET'; AddPerm('NOSET', 18); if S.Delete() then; Error(Left()); end;
 "#;
@@ -83,7 +85,7 @@ permissionset 50100 "TSD WRITE" { Assignable = true;
 
 /// Shapes the probe does not measure, each alone: a refusal ends the rest of its codeunit. Objects besides the test codeunit
 /// go first.
-const REFUSED: [(&str, &str, &str); 12] = [
+const REFUSED: [(&str, &str, &str); 13] = [
     (
         "PermDatabaseTrigger",
         r#"codeunit 50001 GtSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
@@ -145,6 +147,12 @@ const REFUSED: [(&str, &str, &str); 12] = [
           Setup(); S.DeleteAll(); end;"#,
     ),
     (
+        "TruncateSets",
+        "",
+        r#"[Test] procedure TruncateSets() var S: Record "Tenant Permission Set"; begin
+          Setup(); S.Truncate(); end;"#,
+    ),
+    (
         "PermSubscriber",
         r#"codeunit 50001 PermSub { [EventSubscriber(ObjectType::Table, Database::"Tenant Permission", 'OnAfterDeleteEvent', '', false, false)]
           local procedure OnAfterDelete(var Rec: Record "Tenant Permission"; RunTrigger: Boolean) begin end; }"#,
@@ -190,6 +198,7 @@ fn other_tenant_permission_set_deletes_keep_mains_result() {
     assert_eq!(failed_with(&o, "TemporarySet"), "2 3 2");
     assert_eq!(failed_with(&o, "MissingSet"), "No 0 1 0");
     assert_eq!(failed_with(&o, "RenamedInBuffer"), "2 4 2");
+    assert_eq!(failed_with(&o, "TruncateNoRows"), "0 0 0");
     assert_eq!(failed_with(&o, "OtherAppPermOnly"), "0 1 0");
 }
 
@@ -264,6 +273,7 @@ fn reason(name: &str) -> &'static str {
         "RelToSystemScope" => "not an Include relation between tenant sets",
         "RelToNoSet" | "RelToItself" => "the set itself or no stored set",
         "TwoSetsInOneDeleteAll" => "more than one such set",
+        "TruncateSets" => "by a Truncate",
         "PermSubscriber" | "PermDatabaseTrigger" => "Tenant Permission row raises events",
         "SetSubscriber" => "Tenant Permission Set row raises events",
         "RelSubscriber" => "Tenant Permission Set Rel. row raises events",

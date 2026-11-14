@@ -301,4 +301,19 @@ impl Session {
         }
         Ok(found)
     }
+
+    /// For a Truncate of `rec`: refuses when a stored set row it removes has rows naming it. Truncate is not in the probe, so
+    /// the rows it would leave behind are not known to stay (BC deletes them with the set for Delete and DeleteAll). A Truncate
+    /// where no row names a set keeps its result. Truncate ignores filters: every stored row is a selected set.
+    pub(crate) fn tenant_set_truncate(&mut self, cx: &AccessContext, t: &TableDef, rec: &Rec) -> Result<(), Signal> {
+        if !self.is_stored_tenant_set(t, rec.borrow().temporary) {
+            return Ok(());
+        }
+        for row in self.all_rows(cx, t)? {
+            if self.tenant_set_cascade(cx, t, &row)?.is_some() {
+                return refused("by a Truncate");
+            }
+        }
+        Ok(())
+    }
 }

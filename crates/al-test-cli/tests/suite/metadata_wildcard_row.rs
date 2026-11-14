@@ -11,6 +11,13 @@ permissionset 50101 "W Table X" { Assignable = true; Permissions = table * = X; 
 permissionset 50102 "W Page RX" { Assignable = true; Permissions = page * = RX; }
 permissionset 50103 "W Page Mixed" { Assignable = true; Permissions = page * = X, codeunit T = X; }
 permissionset 50104 "W Codeunit X" { Assignable = true; Permissions = codeunit * = X; }
+permissionset 50105 "W Not Assignable" { Assignable = false; Permissions = page * = X; }
+permissionset 50106 "W No Assignable" { Permissions = page * = X; }
+permissionset 50107 "W Includes" { Assignable = true; IncludedPermissionSets = "W Page X"; Permissions = page * = X; }
+permissionset 50108 "W Excludes" { Assignable = true; ExcludedPermissionSets = "W Page X"; Permissions = page * = X; }
+permissionset 50109 "W Extended" { Assignable = true; Permissions = page * = X; }
+permissionsetextension 50110 "W Ext" extends "W Extended" { Permissions = codeunit T = X; }
+permissionset 50111 "W Caption Upper" { Assignable = true; Caption = 'Wild caption'; Permissions = PAGE * = X; }
 "#;
 
 fn src() -> String {
@@ -24,12 +31,18 @@ fn src() -> String {
         )
     };
     format!(
-        "{SETS}\ncodeunit 50000 T {{ Subtype = Test;\n{}{}{}{}{}}}\n",
+        "{SETS}\ncodeunit 50000 T {{ Subtype = Test;\n{}{}{}{}{}{}{}{}{}{}{}}}\n",
         test("PageX", "W PAGE X"),
         test("TableX", "W TABLE X"),
         test("PageRX", "W PAGE RX"),
         test("PageMixed", "W PAGE MIXED"),
         test("CodeunitX", "W CODEUNIT X"),
+        test("NotAssignable", "W NOT ASSIGNABLE"),
+        test("NoAssignable", "W NO ASSIGNABLE"),
+        test("Includes", "W INCLUDES"),
+        test("Excludes", "W EXCLUDES"),
+        test("Extended", "W EXTENDED"),
+        test("CaptionUpper", "W CAPTION UPPER"),
     )
 }
 
@@ -43,7 +56,19 @@ fn only_the_measured_page_wildcard_gives_a_row() {
             .1
     };
     assert_eq!(*get("PageX"), Outcome::Fail("Page 0 X=Yes;".into()));
-    for name in ["TableX", "PageRX", "PageMixed", "CodeunitX"] {
+    // A Caption on the set and an upper-case `PAGE` change nothing: the Role Name is the existing rule, AL is case-insensitive.
+    assert_eq!(*get("CaptionUpper"), Outcome::Fail("Page 0 X=Yes;".into()));
+    for name in [
+        "TableX",
+        "PageRX",
+        "PageMixed",
+        "CodeunitX",
+        "NotAssignable",
+        "NoAssignable",
+        "Includes",
+        "Excludes",
+        "Extended",
+    ] {
         match get(name) {
             Outcome::NotRun(why) => assert!(why.contains("grants a whole object type"), "{name}: {why}"),
             other => panic!("{name}: {other:?}"),

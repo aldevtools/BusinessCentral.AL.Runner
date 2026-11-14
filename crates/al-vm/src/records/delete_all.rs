@@ -42,6 +42,20 @@ impl Session {
         Ok(deleted)
     }
 
+    /// `Truncate(reset)` of `rec` on `t`: refused when it would leave rows that name a stored tenant set it removes
+    /// (tenant_set_delete.rs), else noted as a bulk write and run.
+    pub(super) fn truncate_all(
+        &mut self,
+        cx: &al_data::AccessContext,
+        t: &TableDef,
+        rec: &Rec,
+        reset: bool,
+    ) -> Result<Value, Signal> {
+        self.tenant_set_truncate(cx, t, rec)?;
+        self.note_bulk_write(rec, t, crate::state::TxWriteKind::Truncate);
+        self.truncate(t, rec, reset)
+    }
+
     /// The rows `delete_all` deletes, after its refusals.
     fn delete_all_selected(
         &mut self,

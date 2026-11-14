@@ -2225,10 +2225,7 @@ impl Session {
                     }
                 }
             }
-            RecordOp::Truncate => {
-                self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Truncate);
-                self.truncate(&t, rec, arg_bool(args, 0)?)
-            }
+            RecordOp::Truncate => self.truncate_all(&cx, &t, rec, arg_bool(args, 0)?),
             RecordOp::CalcFields | RecordOp::CalcSums | RecordOp::SetAutoCalcFields => self.flow_op(method, rec, args),
             RecordOp::LoadFields => self.load_fields_row(rec, &t, args),
             RecordOp::SetLoadFields
