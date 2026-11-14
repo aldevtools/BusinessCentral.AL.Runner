@@ -1,6 +1,6 @@
 //! `New()` on a ListPart of a host the test opened with OpenView. BC denies it: "New method failed because Insert is not
 //! allowed. Page = <part>, Id = <id>.", code DB:ClientInsertDenied, and no trigger runs (open corpus PR 1399, pages/parts/
-//! PartSplitKeyInsertTiming.al:1353 Doc_OpenView_New `view|text`, `log` `[]`; :1385 Card_OpenView_New; BC 27.5, 28.5 and 29.0
+//! PartSplitKeyInsertTiming.al:1353 Doc_OpenView_New `view|text`, `log` `[]`; :1385 Card_OpenView_New; all three majors
 //! alike). The measured shape raises that error under the assumption `part-new-on-view-host-denied`; every other part on such
 //! a host refuses the `New()`.
 
