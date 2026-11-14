@@ -173,7 +173,9 @@ pub use ui::{UiHandler, UiKind};
 
 static NEXT_ENGINE_UID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-/// Program app index -> the resource files a run gives that app in place of the program's (`Engine::resource_overrides`).
+/// Program app index -> the resource files a run replaces in that app (`Engine::resource_overrides`): name, the content
+/// read in place of the program's. Only the replaced files: the app's other files are read from the program, which
+/// every entry shares (al-runner issue 8026).
 pub type ResourceOverrides = std::collections::HashMap<usize, Arc<Vec<(String, Vec<u8>)>>>;
 
 pub struct Engine {
@@ -205,8 +207,8 @@ pub struct Engine {
     /// (`` `Name` by Publisher ``). With one, a lookup by id of an object no loaded app declares may land in a skipped
     /// app, where BC finds it: it is refused instead of raising the missing-object error (al-runner issue 5749).
     pub skipped_apps: Vec<String>,
-    /// The resource files a run gives some apps in place of those of the program (an entry of a `serve` request, issue
-    /// 5635): program app index -> resources. Set between the passes of a run, while no session runs.
+    /// The resource files a run replaces in some apps (an entry of a `serve` request, issue 5635): program app index ->
+    /// the replaced files only ([`ResourceOverrides`]). Set between the passes of a run, while no session runs.
     pub resource_overrides: std::sync::RwLock<ResourceOverrides>,
     /// A session read the resource files of an app (`NavApp.GetResourceAsText` and the like).
     pub resources_read: std::sync::atomic::AtomicBool,

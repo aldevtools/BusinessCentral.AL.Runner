@@ -8,7 +8,7 @@
 "crates/al-builtins/src/ops.rs::arith_general" = 294
 "crates/al-deps/src/artifact.rs::load_with_artifacts" = 432
 "crates/alrunner-cli/src/args.rs::parse" = 469
-"crates/alrunner-cli/src/run.rs::test_inner" = 1553
+"crates/alrunner-cli/src/run.rs::test_inner" = 1540
 "crates/al-sema/src/check/infer.rs::infer" = 473
 "crates/al-sema/src/check/mod.rs::check_inner" = 258
 "crates/al-sema/src/check/object.rs::object_ctx" = 271
