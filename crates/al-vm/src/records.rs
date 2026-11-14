@@ -472,43 +472,40 @@ impl Session {
     }
 
     /// The store that holds the rows of `rec`'s table. Refused for a temporary table whose rows the corpus does not measure
-    /// (`TableUnmeasured::Rows`, set in `variant_copy.rs`): every read of its rows and every write comes here.
-    pub(crate) fn store_for(&mut self, rec: &Rec) -> Result<&mut MemStore, Signal> {
-        if rec
-            .borrow()
-            .temp_id
-            .as_ref()
-            .is_some_and(|t| t.unmeasured() == al_builtins::value::TableUnmeasured::Rows)
-        {
-            return Err(crate::variant_copy::rows_refusal());
+    /// (`TempId::rows_unmeasured`, set in `variant_copy.rs`): every read of its rows and every write comes here.
+    pub(crate) fn store_for(&mut self, rec: &Rec) -> Result<&mut MemStore, crate::variant_copy::RowsUnmeasured> {
+        match self.store_of(rec) {
+            (_, true) => Err(crate::variant_copy::RowsUnmeasured),
+            (store, false) => Ok(store),
         }
-        Ok(self.store_of(rec))
     }
 
     /// The change counter of `rec`'s store: it reads no row, so it is not refused where [`Self::store_for`] is.
     pub(crate) fn store_changes(&mut self, rec: &Rec) -> u64 {
-        self.store_of(rec).change_counter()
+        self.store_of(rec).0.change_counter()
     }
 
-    fn store_of(&mut self, rec: &Rec) -> &mut MemStore {
+    /// The store of `rec`'s table, and whether that table's rows are marked not measured (read with the table's id, so a
+    /// record of no temporary table pays nothing for the mark).
+    fn store_of(&mut self, rec: &Rec) -> (&mut MemStore, bool) {
         // A CRM table's rows are its default table connection's (crm.rs).
         if let Some(name) = self.crm_connection_of(rec)
             && let Some(s) = self.crm_stores.get_mut(&name)
         {
-            return &mut s.store;
+            return (&mut s.store, false);
         }
-        let id = rec.borrow().temp_id.as_ref().map(|t| t.id());
+        let id = rec.borrow().temp_id.as_ref().map(|t| (t.id(), t.rows_unmeasured()));
         match id {
-            Some(id) => {
+            Some((id, unmeasured)) => {
                 // Tables whose last record variable is gone are freed first.
                 if !self.temp_release.borrow().is_empty() {
                     for dead in self.temp_release.borrow_mut().drain(..) {
                         self.temps.remove(&dead);
                     }
                 }
-                self.temps.entry(id).or_default()
+                (self.temps.entry(id).or_default(), unmeasured)
             }
-            None => &mut self.store,
+            None => (&mut self.store, false),
         }
     }
 

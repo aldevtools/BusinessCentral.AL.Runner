@@ -55,7 +55,6 @@ fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
         debug,
         params: r.params,
         by_var: &r.by_var,
-        body: &r.body,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -94,8 +93,6 @@ struct Compiler<'a> {
     params: usize,
     /// Which parameters are `var`.
     by_var: &'a [bool],
-    /// The routine's statements.
-    body: &'a [ir::Stmt],
 }
 
 type R<T> = Result<T, ()>;
@@ -1388,14 +1385,16 @@ impl<'a> Compiler<'a> {
             self.expr_any(e)?
         };
         let place = self.rplace(p)?;
-        let target_written_once = crate::variant_copy::local_written_once(p, self.body);
-        self.chunk.variant_copies.push(crate::variant_copy::VariantCopySite {
-            place,
-            source,
-            target_written_once,
-        });
+        // A local's register goes in the instruction: a value that is no record is stored there as `Op::StoreLocal` stores it.
+        let local = match place {
+            ir::Place::Local(i) => u16::try_from(i).map_err(|_| ())?,
+            _ => NOT_LOCAL,
+        };
+        self.chunk
+            .variant_copies
+            .push(crate::variant_copy::VariantCopySite { place, source });
         let s = u32::try_from(self.chunk.variant_copies.len() - 1).map_err(|_| ())?;
-        self.emit(Op::StoreVariantCopy { s, a });
+        self.emit(Op::StoreVariantCopy { s, a, local });
         Ok(true)
     }
 

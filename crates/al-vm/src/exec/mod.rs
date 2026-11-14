@@ -14,6 +14,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(crate) use compile::compile;
 
+/// `Op::StoreVariantCopy` into a place that is no local.
+pub(crate) const NOT_LOCAL: u16 = u16::MAX;
+
 /// An instruction. Registers are `u16`, side-table indexes `u32`. `NONE` marks "no target".
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Op {
@@ -57,10 +60,12 @@ pub(crate) enum Op {
         p: u32,
         a: u16,
     },
-    /// `place := a` where `a` may be a Variant: site `s` of `variant_copies` (`variant_copy.rs`).
+    /// `place := a` where `a` may be a Variant: site `s` of `variant_copies` (`variant_copy.rs`); `local`: the place's register
+    /// when it is a local, else [`NOT_LOCAL`].
     StoreVariantCopy {
         s: u32,
         a: u16,
+        local: u16,
     },
     Bin {
         op: ir::BinOp,

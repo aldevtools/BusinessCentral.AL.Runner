@@ -6,11 +6,16 @@ use crate::state::WriteOfAl;
 impl Session {
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
-        crate::variant_copy::refuse_marked_write(method, rec)?;
         if rec.borrow().unpinned_buffer.is_some() {
             return self.unpinned_buffer_op(method, rec, args);
         }
-        refuse_xp_marked_source(method, args)?;
+        // Copy, CopyFilters, TransferFields and the like from a table element record after an export under SourceTableView
+        // would carry its unpinned view or buffer over.
+        if let Some(Value::Record(src)) = args.first() {
+            if let Some(why) = xp_export_marked(src) {
+                return unsupported(format!("Record.{}() from a record: {why}", method.name()));
+            }
+        }
         let t = self.table(rec)?;
         Self::refuse_filter_in_unpinned_group(method, rec)?;
         if !rec.borrow().temporary {
@@ -2287,15 +2292,4 @@ impl Session {
         }
         Ok(())
     }
-}
-
-/// Copy, CopyFilters, TransferFields and the like from a table element record after an export under SourceTableView would
-/// carry its unpinned view or buffer over.
-fn refuse_xp_marked_source(method: RecordOp, args: &[Value]) -> Result<(), Signal> {
-    if let Some(Value::Record(src)) = args.first()
-        && let Some(why) = xp_export_marked(src)
-    {
-        return unsupported(format!("Record.{}() from a record: {why}", method.name()));
-    }
-    Ok(())
 }

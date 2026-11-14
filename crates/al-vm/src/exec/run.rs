@@ -69,21 +69,20 @@ fn release(f: &mut Frame, r: u16, nl: u16) {
 }
 
 impl Session {
-    /// `Op::StoreVariantCopy`: a value `Op::StoreLocal` stores straight into its register is no record, and goes there as main
-    /// stores it; every other value goes to `Session::store_variant_copy`.
-    #[inline]
-    fn variant_copy_op(
-        &mut self,
-        site: &crate::variant_copy::VariantCopySite,
-        v: Value,
-        f: &mut Frame,
-    ) -> Result<(), Signal> {
-        match site.place {
-            al_ir::Place::Local(i) if !matches!(v, Value::Record(_) | Value::Library(..) | Value::Blob(_)) => {
-                set(&mut f.locals[i], v);
+    /// `Op::StoreVariantCopy`, out of the instruction loop (inlined, it made every other instruction of the loop slower): only a
+    /// record needs `Session::store_variant_copy`; every other value is stored as `Op::StoreLocal` and `Op::StorePlace`
+    /// store it.
+    #[inline(never)]
+    fn variant_copy_op(&mut self, chunk: &Chunk, s: u32, a: u16, local: u16, f: &mut Frame) -> Result<(), Signal> {
+        let site = &chunk.variant_copies[s as usize];
+        match take(f, a, chunk.nlocals) {
+            v @ Value::Record(_) => self.store_variant_copy(site, v, f),
+            v @ (Value::Library(..) | Value::Blob(_)) => self.write(&site.place, v, f),
+            v if local != NOT_LOCAL => {
+                set(&mut f.locals[local as usize], v);
                 Ok(())
             }
-            _ => self.store_variant_copy(site, v, f),
+            v => self.write(&site.place, v, f),
         }
     }
 
@@ -192,9 +191,7 @@ impl Session {
                     }
                 }
                 Op::StorePlace { p, a } => self.write(&chunk.places[p as usize], take(f, a, nl), f)?,
-                Op::StoreVariantCopy { s, a } => {
-                    self.variant_copy_op(&chunk.variant_copies[s as usize], take(f, a, nl), f)?
-                }
+                Op::StoreVariantCopy { s, a, local } => self.variant_copy_op(chunk, s, a, local, f)?,
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;
                     release(f, a, nl);
