@@ -6,7 +6,7 @@
 const SRC: &str = r#"
 table 69990 "EQ Row"
 {
-    fields { field(1; Id; Integer) { } field(2; Flag; Boolean) { } field(3; Name; Code[10]) { } field(4; Kind; Option) { OptionMembers = Quote,"Order"; } }
+    fields { field(1; Id; Integer) { } field(2; Flag; Boolean) { } field(3; Name; Code[10]) { } field(4; Kind; Option) { OptionMembers = Quote,"Order",Invoice; } }
     keys { key(PK; Id) { } }
 }
 page 69991 "EQ List"
@@ -560,4 +560,79 @@ fn an_enum_whose_ordinals_are_not_its_positions_is_not_a_measured_cell() {
     }
     assert_eq!(al_testkit::text(gap("TempWs", "=Alpha")), "[Alpha]1,");
     assert_eq!(al_testkit::text(gap("TempWs", "=Beta")), "[Beta]2,");
+}
+
+const SIZE_SRC: &str = r#"
+enum 69980 "EQS Four" { Extensible = false; value(0; First) { } value(1; Second) { } value(2; Third) { } value(3; Fourth) { } }
+enum 69981 "EQS Ext" { Extensible = true; value(0; One) { } value(1; Two) { } }
+enumextension 69982 "EQS Ext X" extends "EQS Ext" { value(2; Three) { } }
+table 69983 "EQS Row"
+{
+    fields { field(1; Id; Integer) { } field(2; F; Enum "EQS Four") { } field(3; X; Enum "EQS Ext") { } field(4; O; Option) { OptionMembers = A,B,C,D; } }
+    keys { key(PK; Id) { } }
+}
+page 69984 "EQS Worksheet"
+{
+    PageType = Worksheet; SourceTable = "EQS Row"; ApplicationArea = All; UsageCategory = None; Editable = false;
+    layout { area(Content) { repeater(Rows) { field(Id; Rec.Id) { } field(F; Rec.F) { } field(X; Rec.X) { } field(O; Rec.O) { } } } }
+}
+page 69985 "EQS Temp Worksheet"
+{
+    PageType = Worksheet; SourceTable = "EQS Row"; SourceTableTemporary = true; ApplicationArea = All; UsageCategory = None; Editable = false;
+    layout { area(Content) { repeater(Rows) { field(Id; Rec.Id) { } field(F; Rec.F) { } field(X; Rec.X) { } field(O; Rec.O) { } } } }
+    actions { area(Processing) { action(Fill) { trigger OnAction() begin Rec.Init(); Rec.Id := 1; Rec.Insert(); Rec.Id := 2; Rec.F := Rec.F::Fourth; Rec.X := Rec.X::Three; Rec.O := Rec.O::D; Rec.Insert(); if Rec.FindFirst() then; CurrPage.Update(false); end; } } }
+}
+codeunit 69986 C
+{
+    procedure Ws(Field: Integer; FilterText: Text): Text
+    var Row: Record "EQS Row"; P: TestPage "EQS Worksheet"; Ids: Text;
+    begin
+        Row.DeleteAll();
+        Row.Init(); Row.Id := 1; Row.Insert();
+        Row.Id := 2; Row.F := Row.F::Fourth; Row.X := Row.X::Three; Row.O := Row.O::D; Row.Insert();
+        P.OpenView();
+        case Field of 2: P.Filter.SetFilter(F, FilterText); 3: P.Filter.SetFilter(X, FilterText); 4: P.Filter.SetFilter(O, FilterText); end;
+        if P.First() then repeat Ids += P.Id.Value() + ','; until not P.Next();
+        exit(Ids);
+    end;
+    procedure TempWs(Field: Integer; FilterText: Text): Text
+    var P: TestPage "EQS Temp Worksheet"; Ids: Text;
+    begin
+        P.OpenView(); P.Fill.Invoke();
+        case Field of 2: P.Filter.SetFilter(F, FilterText); 3: P.Filter.SetFilter(X, FilterText); 4: P.Filter.SetFilter(O, FilterText); end;
+        if P.First() then repeat Ids += P.Id.Value() + ','; until not P.Next();
+        exit(Ids);
+    end;
+}
+"#;
+
+fn size(proc: &str, field: i32, arg: &str) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    let args = vec![
+        al_builtins::value::Value::Integer(field),
+        al_builtins::value::Value::Text(arg.to_string().into()),
+    ];
+    al_testkit::run_with(SIZE_SRC, "C", proc, args).map(|(v, _)| v)
+}
+
+// WorksheetEnumEqFilter.al's enum and option have exactly three members at the positions 0-2, the enum with no enumextension member
+// (:25-46). An enum or option of another size, or an enum with a member from an enumextension, was not measured: on the database
+// Worksheet the text refuses, on the temporary Worksheet it keeps main's filter.
+#[test]
+fn an_enum_or_option_of_another_size_is_not_a_measured_cell() {
+    for (field, t) in [
+        (2, "=Fourth"),
+        (2, "=First"),
+        (3, "=Three"),
+        (3, "=One"),
+        (4, "=D"),
+        (4, "=B"),
+    ] {
+        assert!(
+            refusal(size("Ws", field, t)).contains("Worksheet page over a database table"),
+            "{field} {t}"
+        );
+    }
+    assert_eq!(al_testkit::text(size("TempWs", 2, "=Fourth")), "2,");
+    assert_eq!(al_testkit::text(size("TempWs", 3, "=Three")), "2,");
+    assert_eq!(al_testkit::text(size("TempWs", 4, "=D")), "2,");
 }

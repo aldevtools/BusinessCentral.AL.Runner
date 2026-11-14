@@ -25,6 +25,10 @@ const DATABASE_WORKSHEET_ENUM_POSITIONS: [usize; 2] = [0, 1];
 /// The position of the Option member WorksheetEnumEqFilter.al measured on the database Worksheet: Order (:639).
 const DATABASE_WORKSHEET_OPTION_POSITION: usize = 1;
 
+/// The member count of the Enum and the Option WorksheetEnumEqFilter.al measured (:25-46: Quote, Order, Invoice); the Enum has no
+/// enumextension member. An Enum or Option of another size is not measured.
+const PROBE_MEMBER_COUNT: usize = 3;
+
 /// The ordinals after the `=` WorksheetEnumEqFilter.al measured on an Enum, on the temporary Worksheet only (:418-419).
 const ENUM_ORDINALS: [&str; 2] = ["0", "1"];
 
@@ -46,9 +50,14 @@ enum EqText<'a> {
     OtherName {
         option_first: bool,
     },
-    /// A member's name or an ordinal of `ENUM_ORDINALS` of an Enum whose ordinals are not its positions (0, 1, 2, ...); the
-    /// corpus enum has them equal (WorksheetEnumEqFilter.al:25-32).
+    /// A member's name or an ordinal of `ENUM_ORDINALS` of an Enum whose ordinals are not its positions (0, 1, 2, ...), or that
+    /// does not have `PROBE_MEMBER_COUNT` members, or has an enumextension member; or a member's name or the ordinal 1 of an
+    /// Option that does not have `PROBE_MEMBER_COUNT` members. The corpus enum and option are as the probe wrote them
+    /// (WorksheetEnumEqFilter.al:25-46).
     UnmeasuredEnum,
+    /// The first member's name of an Option that does not have `PROBE_MEMBER_COUNT` members: only the pinned cell of the
+    /// temporary List (TempListOffPageBooleanFilter.al:440) covers it.
+    UnmeasuredOptionFirst,
 }
 
 /// What a shape of the rule does on its page (`Session::eq_text_cell`).
@@ -146,7 +155,7 @@ impl Session {
             // TempListOffPageBooleanFilter.al:335-373 (temporary), :508-547 (database).
             (true, _, EqText::Boolean(w)) if LIST_BOOLEAN_WORDS.contains(&w) => EqCell::Pinned,
             // TempListOffPageBooleanFilter.al:440 `'=Quote'`, the first of `Quote,"Order"` (:35).
-            (true, true, EqText::OptionName(0)) => EqCell::Pinned,
+            (true, true, EqText::OptionName(0) | EqText::UnmeasuredOptionFirst) => EqCell::Pinned,
             // Main drops the first member of an Option on a List whatever its captions or its form; neither is measured.
             (true, true, EqText::OtherName { option_first: true }) => EqCell::RefusedCaptions,
             // WorksheetEnumEqFilter.al:587-592 (Enum names), :609-610 (Option names), :612 (`=1`).
@@ -179,10 +188,17 @@ impl Session {
         match &table.fields[pos].ty {
             RtType::Boolean => LIST_BOOLEAN_WORDS.contains(&rest).then_some(EqText::Boolean(rest)),
             RtType::Option(members) if self.option_without_captions(table, pos) => {
+                let sized = members.len() == PROBE_MEMBER_COUNT;
                 match members.iter().position(|m| m.as_str() == rest) {
-                    Some(i) if one_word => Some(EqText::OptionName(i)),
+                    Some(i) if one_word && sized => Some(EqText::OptionName(i)),
+                    Some(0) if one_word => Some(EqText::UnmeasuredOptionFirst),
+                    Some(_) if one_word => Some(EqText::UnmeasuredEnum),
                     Some(i) => Some(EqText::OtherName { option_first: i == 0 }),
-                    None => OPTION_ORDINALS.contains(&rest).then_some(EqText::OptionOrdinal),
+                    None => OPTION_ORDINALS.contains(&rest).then_some(if sized {
+                        EqText::OptionOrdinal
+                    } else {
+                        EqText::UnmeasuredEnum
+                    }),
                 }
             }
             RtType::Option(members) => members
@@ -192,11 +208,19 @@ impl Session {
             RtType::Enum(id) => {
                 let object = &self.engine.program.objects[*id as usize];
                 let names_shown = object.enum_captions.is_empty() && object.enum_captions_ml.is_empty();
-                let positional = object
-                    .enum_values
+                let extended = self
+                    .engine
+                    .program
+                    .objects
                     .iter()
-                    .enumerate()
-                    .all(|(i, (o, _))| usize::try_from(*o) == Ok(i));
+                    .any(|o| o.kind == al_ir::ObjKind::EnumExtension && o.extends_id == object.id);
+                let positional = !extended
+                    && object.enum_values.len() == PROBE_MEMBER_COUNT
+                    && object
+                        .enum_values
+                        .iter()
+                        .enumerate()
+                        .all(|(i, (o, _))| usize::try_from(*o) == Ok(i));
                 if let Some(i) = object.enum_values.iter().position(|(_, n)| n.as_str() == rest) {
                     Some(match (one_word && names_shown, positional) {
                         (true, true) => EqText::EnumName(i),
