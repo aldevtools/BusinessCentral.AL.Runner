@@ -224,9 +224,7 @@ public sealed class Server
                     if (noFit != null) throw noFit;
                 }
                 if (cands.Length == 0)
-                    throw new Refusal(target == null && type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Any(m => m.Name == name)
-                        ? $"'{type.FullName}.{name}' is an instance member and the variable holds no object"
-                        : $"member '{name}' not found on '{type.FullName}'");
+                    throw new Refusal(NoObjectOrMissing(target, type, name, $"member '{name}' not found on '{type.FullName}'"));
                 var (best, coerced, _) = Pick(cands, args, $"{type.FullName}.{name}", textAsGuidFallback: true);
                 bound = PlainParameters(best) ? "method" : null;
                 object? result = ((MethodInfo)best).Invoke(((MethodInfo)best).IsStatic ? null : target, coerced);
@@ -253,7 +251,7 @@ public sealed class Server
                 var m = type.GetMethods(flags).Where(x => x.Name == name && x.GetParameters().Length == 0 && !x.IsGenericMethodDefinition).FirstOrDefault();
                 if (m != null)
                     return Done(m.Invoke(m.IsStatic ? null : target, Array.Empty<object>()), null, null, null, m.ReturnType);
-                throw new Refusal($"property, field or method '{name}' not found on '{type.FullName}'");
+                throw new Refusal(NoObjectOrMissing(target, type, name, $"property, field or method '{name}' not found on '{type.FullName}'"));
             }
             case "set":
             {
@@ -275,7 +273,7 @@ public sealed class Server
                     field.SetValue(field.IsStatic ? null : target, v.Value);
                     return Done(null, null, null, null);
                 }
-                throw new Refusal($"settable property or field '{name}' not found on '{type.FullName}'");
+                throw new Refusal(NoObjectOrMissing(target, type, name, $"settable property or field '{name}' not found on '{type.FullName}'"));
             }
             default:
                 throw new Refusal("unknown op " + req["op"]);
@@ -299,6 +297,18 @@ public sealed class Server
 
     // Every parameter of the bound member is passed by value. A member with a ref or out parameter gets no "bound": what it
     // wrote before it threw does not reach the host, so the host keeps it refused.
+    // A public instance method, property (an indexer is the property "Item") or field of this name: the call named a member
+    // that exists on a constructed object. With no object (target null) the refusal says the variable holds no object.
+    static bool HasPublicInstanceMember(Type type, string name) =>
+        type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Any(m => m.Name == name)
+        || type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Any(p => p.Name == name)
+        || type.GetFields(BindingFlags.Public | BindingFlags.Instance).Any(f => f.Name == name);
+
+    static string NoObjectOrMissing(object? target, Type type, string name, string missing) =>
+        target == null && HasPublicInstanceMember(type, name)
+            ? $"'{type.FullName}.{name}' is an instance member and the variable holds no object"
+            : missing;
+
     static bool PlainParameters(MethodBase m) => m.GetParameters().All(p => p.ParameterType.IsByRef == false);
 
     /// The reply for an exception the request raised: [Failure], with the binding that threw and whether the member name

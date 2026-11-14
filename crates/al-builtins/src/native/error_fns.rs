@@ -219,6 +219,7 @@ pub(super) fn field_error_computed(
 }
 
 pub(super) fn error_text_with(ctx: &mut dyn Ctx, args: &mut [Value], form: ErrorTextForm) -> Result<Value, Signal> {
+    ctx.error_text_raise()?;
     let template = text_arg(args, 0)?;
     let values = super::messages::composite_args(ctx, &args[1..])?;
     let mut message = substitute(&template, &values, ctx)?;

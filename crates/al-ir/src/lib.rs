@@ -1142,6 +1142,11 @@ pub struct QueryColumn {
     pub ty: RtType,
     /// `ColumnFilter`: a `const` or `filter` condition on this column.
     pub static_filter: Option<CalcValue>,
+    /// A column or filter() element over a FlowField of an outer-joined dataitem below the top dataitem's child, in the shape
+    /// the compile pinned (al-sema `outer_flow_below_join_pinned`): a filter on it filters the joined rows by the value
+    /// calculated per row.
+    #[serde(default)]
+    pub flow_below_join: bool,
 }
 
 /// A page object as the test client sees it (ADR-012). The AL code of a page

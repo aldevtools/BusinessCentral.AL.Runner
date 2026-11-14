@@ -160,6 +160,11 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 A flag set for the pinned shape must be cleared on every move, close, host change and exit. A value tied to
 one run or session must use that run's or session's id, not a shared slot or a per-session counter.
 
+A run-time guard that replaces a static refusal: list every later path that runs the same code (moves, refills, parts), and
+check that the flag the guard reads is set somewhere (`grep -rn` the field: a flag with a reader and no writer guards nothing).
+The guard covers every kind the static refusal covered (a dialog guard that lets Error through runs what main refused)
+(al-runner PR 8034).
+
 ## 7a. A value stamped at a measured landing outlives the landing (al-runner PRs 7929 and 7932)
 
 A value put on a record at a measured landing is read after steps the landing does not include. Tie the value to its landing:

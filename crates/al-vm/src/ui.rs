@@ -306,6 +306,11 @@ impl Session {
         shown: &str,
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
+        // A dialog of a CaptionClass run is measured only where `CaptionDialogs` lets it run (record/captions/
+        // CaptionClassStateFreeCalls.al:891-914, al-runner issue 7391).
+        if let Some(why) = self.caption_dialog_refusal(kind.label(), kind == UiKind::Message) {
+            return Err(Signal::unsupported(why));
+        }
         let Some(scope) = self.ui_state.scope.as_mut() else {
             return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",

@@ -138,7 +138,7 @@ pub fn layout(ws: &Workspace, members: &MemberTable<'_>, oi: usize) -> QueryLayo
         Some(t) => b.order_by(&t),
         None => Vec::new(),
     };
-    b.validate();
+    b.validate(&order_by, top);
     QueryLayout {
         query: ir::Query {
             items: b.items,
@@ -539,6 +539,7 @@ impl Builder<'_> {
             reverse_sign,
             ty: rt,
             static_filter,
+            flow_below_join: false,
         });
         self.tys.push(ty);
     }
@@ -616,8 +617,75 @@ impl Builder<'_> {
         out
     }
 
+    /// A filter() element or a plain column over a Lookup, Count or Exist FlowField of a left-outer-joined dataitem one level
+    /// below the top dataitem's child: it is calculated per joined row, and a row without a match of the dataitem meets a filter
+    /// with the field's default (queries/flowfields-filters/QueryOuterFlowBelowJoin.al:695-812, al-runner issue 7401). Pinned
+    /// facts (QueryOuterFlowBelowJoin.al:99-281), each required:
+    /// - three dataitems in one chain, top > child > grandchild, each linked to the one above by one field; the child joined with
+    ///   InnerJoin or LeftOuterJoin, the grandchild with LeftOuterJoin, each written or by default (SqlJoinType is LeftOuterJoin
+    ///   when left out, and the default chain at :203 is measured); no DataItemTableFilter, no right or full outer join;
+    /// - no Method column, no ColumnFilter, no ReverseSign in the query; TopNumberOfRows not set (`top`);
+    /// - OrderBy ascending on a column of the top dataitem, then ascending on a column of the child (:102, :128);
+    /// - the columns of the top dataitem and the child are plain columns over normal fields (:108, :115);
+    /// - the field is a Lookup FlowField of type Text, a Count of type Integer or an Exist of type Boolean, whose CalcFormula is
+    ///   not negated and links by `field(..)` conditions only (table 75089 at :52-75);
+    /// - filter() elements with InnerJoin, LeftOuterJoin and default joins (:99, :151, :203), plain columns with InnerJoin and
+    ///   LeftOuterJoin on the child (:125, :177).
+    fn outer_flow_below_join_pinned(
+        &self,
+        c: &ir::QueryColumn,
+        calc_formula: Option<&str>,
+        order_by: &[(usize, bool)],
+        top: i32,
+    ) -> bool {
+        let [top_item, child, grand] = self.items.as_slice() else {
+            return false;
+        };
+        let chain = top_item.parent.is_none()
+            && child.parent == Some(0)
+            && grand.parent == Some(1)
+            && !top_item.left_outer
+            && grand.left_outer
+            && self.items.iter().all(|i| {
+                !i.right_outer && i.table_filter.is_empty() && i.link_items.is_empty() && i.table != usize::MAX
+            })
+            && child.link.len() == 1
+            && grand.link.len() == 1;
+        let order = matches!(order_by, [(a, true), (b, true)]
+            if self.columns[*a].item == 0 && self.columns[*b].item == 1);
+        let upper_plain = self.columns.iter().filter(|o| o.item < 2).all(|o| {
+            !o.filter_element
+                && o.field
+                    .is_some_and(|pos| self.members[self.items[o.item].table].fields[pos].class == FieldClass::Normal)
+        });
+        let formula = calc_formula.and_then(|cf| crate::calcformula::parse(cf).ok());
+        let kind = formula.as_ref().is_some_and(|f| {
+            !f.negate
+                && !f.conds.is_empty()
+                && f.conds.iter().all(|k| matches!(k.value, CondValue::Field(_)))
+                && match f.method {
+                    ir::CalcMethod::Lookup => matches!(c.ty, RtType::Text(_)),
+                    ir::CalcMethod::Count => c.ty == RtType::Integer,
+                    ir::CalcMethod::Exist => c.ty == RtType::Boolean,
+                    _ => false,
+                }
+        });
+        chain
+            && order
+            && top == 0
+            && upper_plain
+            && c.item == 2
+            && c.method.is_none()
+            && !c.reverse_sign
+            && kind
+            && self
+                .columns
+                .iter()
+                .all(|o| o.method.is_none() && o.static_filter.is_none() && !o.reverse_sign)
+    }
+
     /// Combinations whose result the corpus does not pin.
-    fn validate(&mut self) {
+    fn validate(&mut self, order_by: &[(usize, bool)], top: i32) {
         // Aggregates over a left outer join skip the missing side: sum 0 and count 0 for a parent
         // without children (queries/TestQueryOuterJoinDescendingSaveAsContracts.al).
         // Groups without an OrderBy (queries/TestQueryAggregation.al always orders its groups) have no
@@ -630,7 +698,8 @@ impl Builder<'_> {
         // ColumnFilter, a deeper dataitem or a right or full outer join in the query are not pinned.
         let any_right = self.items.iter().any(|i| i.right_outer);
         let grouped = self.columns.iter().any(|c| c.method.is_some());
-        for c in &self.columns {
+        let mut below_join = Vec::new();
+        for (ci, c) in self.columns.iter().enumerate() {
             let item = &self.items[c.item];
             let Some(field) = c.field else { continue };
             if item.left_outer && item.parent.is_some() && item.table != usize::MAX {
@@ -671,6 +740,12 @@ impl Builder<'_> {
                 // row; a parent without a child meets it with the field's default (QueryOuterFlowFilters.al
                 // OuterFilterElem_Count_Rows, OuterFilterElem_LookupExist_Rows; issue 6990). Other kinds are not pinned.
                 let filter_pinned = c.method.is_none() && matches!(kind, Some("count" | "lookup" | "exist"));
+                if f.class == FieldClass::FlowField
+                    && self.outer_flow_below_join_pinned(c, f.calc_formula.as_deref(), order_by, top)
+                {
+                    below_join.push(ci);
+                    continue;
+                }
                 let pinned = f.class == FieldClass::FlowField
                     && kind_pinned
                     && top_child
@@ -687,6 +762,9 @@ impl Builder<'_> {
                     self.reasons.push(r);
                 }
             }
+        }
+        for ci in below_join {
+            self.columns[ci].flow_below_join = true;
         }
         // A static filter or table filter on the optional side of an outer join acts after the join: a parent row
         // whose joined row is missing or fails the filter is gone, so the join is an inner join in effect
