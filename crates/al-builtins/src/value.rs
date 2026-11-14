@@ -345,6 +345,10 @@ struct TempToken {
     /// The table was made for a record handed by value (al-vm `record_by_value`): the record it was copied from. The copy's Blob
     /// fields may still share their buffers with that record and its rows.
     by_value_of: Option<std::rc::Weak<RefCell<RecordState>>>,
+    /// The primary key of the row the table's last Insert stored while a Blob of the record was empty: a row that may share a
+    /// record's Blob buffer once the record moves on (al-vm `temp_blob_share.rs`). Where to look first, never more: the row is
+    /// looked up, and the other rows are still searched while holders stay unaccounted for.
+    empty_blob_insert_key: RefCell<Option<Vec<Value>>>,
 }
 
 impl Drop for TempToken {
@@ -359,6 +363,7 @@ impl TempId {
             id,
             release,
             by_value_of: None,
+            empty_blob_insert_key: RefCell::new(None),
         }))
     }
 
@@ -368,6 +373,7 @@ impl TempId {
             id,
             release,
             by_value_of: Some(Rc::downgrade(source)),
+            empty_blob_insert_key: RefCell::new(None),
         }))
     }
 
@@ -388,6 +394,19 @@ impl TempId {
     /// The record a by-value copy was made from, while it lives ([`TempId::new_by_value_copy`]).
     pub fn by_value_source(&self) -> Option<Rc<RefCell<RecordState>>> {
         self.0.by_value_of.as_ref().and_then(std::rc::Weak::upgrade)
+    }
+
+    /// An Insert into the table stored a row while a Blob of the record was empty, under the primary key `key` yields.
+    pub fn note_empty_blob_insert<'a>(&self, key: impl Iterator<Item = &'a Value>) {
+        let mut slot = self.0.empty_blob_insert_key.borrow_mut();
+        let kept = slot.get_or_insert_with(Vec::new);
+        kept.clear();
+        kept.extend(key.cloned());
+    }
+
+    /// `f` of the key [`TempId::note_empty_blob_insert`] last noted.
+    pub fn with_empty_blob_insert_key<R>(&self, f: impl FnOnce(Option<&[Value]>) -> R) -> R {
+        f(self.0.empty_blob_insert_key.borrow().as_deref())
     }
 }
 

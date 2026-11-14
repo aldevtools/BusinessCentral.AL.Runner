@@ -165,6 +165,10 @@ it on only while the measured read runs and its landing facts still hold, and ta
 
 Never raise a cap, budget or allowance. Measure best of 3 and state the noise. An allowance only goes down.
 A perf cost on a hot path (a check on every write) is measured before and after.
+- A new guard in the builtin dispatch (`run_plain_builtin`, `run_builtin`) runs on every call. Gate it with a cheap flag or a
+  bit on the call site, as `sqlcount`, `placeholder_output` and `rendered_text` do, and run `perf_vm` on main and on the
+  branch before hand-back (al-runner PR 8005).
+- A "walk from the newest row" shortcut assumes keys rise. Measure with keys that fall too (al-runner PR 8005).
 
 ## 10. Checks run on one major only, or on an old binary (4 of 34)
 

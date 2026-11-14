@@ -754,14 +754,17 @@ impl MemStore {
             .is_some_and(|tb| tb.get(&Key::of(t, key.to_vec())).is_some_and(|row| holds(&row[pos])))
     }
 
-    /// The rows of table `t` that have a field at position `pos` that satisfies `holds`, counted from the last row in primary
-    /// key order back to the first and stopping at `enough` of them: whether the row under primary key `key` is one, and how
-    /// many others are. One walk, no lookup. Counts no store operation, as [`MemStore::row_field_holds`].
+    /// The rows of table `t` that have a field at position `pos` that satisfies `holds`, stopping at `enough` of them: whether
+    /// the row under primary key `key` is one, and how many others are. The row under `first` is looked up first, unless it is
+    /// the last row; the others are counted from the last row in primary key order back to the first. Counts no store operation, as
+    /// [`MemStore::row_field_holds`].
+    #[allow(clippy::too_many_arguments)]
     pub fn field_holders_from_last(
         &self,
         cx: &AccessContext,
         t: &TableDef,
         key: &[Value],
+        first: Option<&[Value]>,
         pos: usize,
         enough: usize,
         holds: impl Fn(&Value) -> bool,
@@ -774,7 +777,23 @@ impl MemStore {
             return (at_key, others);
         };
         let key = Key::of(t, key.to_vec());
+        // The last row is the walk's first: no lookup for it.
+        let last = tb.iter().next_back().map(|(k, _)| k);
+        let first = first
+            .map(|f| Key::of(t, f.to_vec()))
+            .filter(|f| *f != key && Some(f) != last);
+        if let Some(f) = &first
+            && tb.get(f).is_some_and(|row| holds(&row[pos]))
+        {
+            others = 1;
+            if others == enough {
+                return (at_key, others);
+            }
+        }
         for (k, row) in tb.iter().rev() {
+            if first.as_ref() == Some(k) {
+                continue;
+            }
             if holds(&row[pos]) {
                 if *k == key {
                     at_key = true;
@@ -790,13 +809,15 @@ impl MemStore {
     }
 
     /// How many rows of table `t` other than the one under primary key `skip` have a field at position `pos` that satisfies
-    /// `holds`, counted from the last row in primary key order back to the first and stopping at `enough`. Counts no store
-    /// operation, as [`MemStore::row_field_holds`].
+    /// `holds`, stopping at `enough`. The row under `first` is looked up first, unless it is the last row; the others are
+    /// counted from the last row in primary key order back to the first. Counts no store operation, as [`MemStore::row_field_holds`].
+    #[allow(clippy::too_many_arguments)]
     pub fn count_field_holders_from_last(
         &self,
         cx: &AccessContext,
         t: &TableDef,
         skip: &[Value],
+        first: Option<&[Value]>,
         pos: usize,
         enough: usize,
         holds: impl Fn(&Value) -> bool,
@@ -808,9 +829,21 @@ impl MemStore {
             return 0;
         };
         let skip = Key::of(t, skip.to_vec());
+        let last = tb.iter().next_back().map(|(k, _)| k);
+        let first = first
+            .map(|f| Key::of(t, f.to_vec()))
+            .filter(|f| *f != skip && Some(f) != last);
         let mut n = 0;
+        if let Some(f) = &first
+            && tb.get(f).is_some_and(|row| holds(&row[pos]))
+        {
+            n = 1;
+            if n == enough {
+                return n;
+            }
+        }
         for (k, row) in tb.iter().rev() {
-            if *k != skip && holds(&row[pos]) {
+            if *k != skip && first.as_ref() != Some(k) && holds(&row[pos]) {
                 n += 1;
                 if n == enough {
                     break;

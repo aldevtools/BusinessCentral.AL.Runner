@@ -571,6 +571,64 @@ codeunit 50994 C
         exit(Lib.ReadGet(R, 1));
     end;
 
+    // Not measured: three empty rows hold the buffer (the probe measured one row, and two in :283) (main: rows 1-3 read the
+    // write).
+    procedure ThreeEmptyRowsWrite(): Text
+    var R: Record "Tbs Row" temporary;
+    begin
+        R.DeleteAll();
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2; R.Insert();
+        R.Key1 := 3; R.Insert();
+        R.Key1 := 4; Lib.Write(R, 'X'); R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: the same while a second variable shares the table.
+    procedure ThreeEmptyRowsSharedWrite(): Text
+    var R: Record "Tbs Row" temporary; R2: Record "Tbs Row" temporary;
+    begin
+        R.DeleteAll(); R2.Copy(R, true);
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2; R.Insert();
+        R.Key1 := 3; R.Insert();
+        R.Key1 := 4; Lib.Write(R, 'X'); R.Insert();
+        exit(Lib.ReadGet(R2, 1));
+    end;
+
+    // Not measured: two other variables share the table (the probe measured at most one, :426, :527).
+    procedure TwoSharersWrite(): Text
+    var R: Record "Tbs Row" temporary; R2: Record "Tbs Row" temporary; R3: Record "Tbs Row" temporary;
+    begin
+        R.DeleteAll(); R2.Copy(R, true); R3.Copy(R, true);
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2; Lib.Write(R, 'X'); R.Insert();
+        exit(Lib.ReadGet(R2, 1));
+    end;
+
+    // Not measured: the key moves again between the detached open and the write (main: row 1 read the write).
+    procedure KeyMovesAgainAfterDetachedOpen(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2;
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        R.Key1 := 3;
+        O.WriteText('X');
+        R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // The cell of :142 with a falling key: the row the empty Insert stored is under a higher key than the write.
+    procedure FallingKeyClearWriteInsert(): Text
+    var R: Record "Tbs Row" temporary;
+    begin
+        R.DeleteAll();
+        R.Key1 := 5; R.Insert();
+        R.Key1 := 4; Clear(R.Data); Lib.Write(R, 'X'); R.Insert();
+        exit(Lib.ReadGet(R, 5) + '|' + Lib.ReadGet(R, 4));
+    end;
+
 }
 "#;
 
@@ -600,6 +658,7 @@ fn measured_cells_keep_the_earlier_rows_empty() {
         ("TempTableNoClear", "nohv|hv:X"),
         ("TempTableSameKey", "hv:X"),
         ("KeyChangeWriteOfText", "nohv"),
+        ("FallingKeyClearWriteInsert", "nohv|hv:X"),
     ];
     let mut wrong = Vec::new();
     for (name, want) in cells {
@@ -714,4 +773,17 @@ fn streams_without_a_row_under_another_key_keep_mains_result() {
     assert_eq!(run("StreamNoRowKeyChange"), "hv:X");
     assert_eq!(run("InStreamThenWriteNoRow"), "B");
     assert_eq!(run("SameKeyStreamWrittenTwice"), "hv:XY");
+}
+
+#[test]
+fn more_rows_than_the_probe_measured_refuse() {
+    // Main read 'hv:X' in row 1 in each.
+    for p in ["ThreeEmptyRowsWrite", "ThreeEmptyRowsSharedWrite", "TwoSharersWrite"] {
+        assert!(refused(p).starts_with(REFUSED), "{p}");
+    }
+}
+
+#[test]
+fn a_key_change_between_the_detached_open_and_the_write_refuses() {
+    assert!(refused("KeyMovesAgainAfterDetachedOpen").starts_with(REFUSED));
 }
