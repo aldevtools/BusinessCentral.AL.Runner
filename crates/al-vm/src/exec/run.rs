@@ -979,6 +979,7 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
+        self.temp_blob_share_guard(site.id, site.receiver_arg.as_ref(), &site.args, &mut recv, &values, f)?;
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }
@@ -1118,7 +1119,7 @@ impl Session {
     }
 
     fn run_builtin(&mut self, site: &BuiltinSite, f: &mut Frame, nl: u16) -> Result<Value, Signal> {
-        let recv = site.receiver.map(|r| take(f, r, nl));
+        let mut recv = site.receiver.map(|r| take(f, r, nl));
         let mut values = if site.arg_regs.is_empty() {
             Vec::new()
         } else {
@@ -1128,6 +1129,7 @@ impl Session {
             values.push(take(f, r, nl));
         }
         crate::assigned_audit::own_read_end_for_operands(site.id, &values);
+        self.temp_blob_share_guard(site.id, site.receiver_arg.as_ref(), &site.args, &mut recv, &values, f)?;
         if self.sql.active {
             crate::sqlcount::guard(site.id, recv.as_ref(), &values)?;
         }

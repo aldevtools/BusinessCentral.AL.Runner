@@ -739,6 +739,25 @@ impl MemStore {
             .unwrap_or_default()
     }
 
+    /// The primary keys of the rows of table `t` whose field at position `pos` satisfies `holds`, without copying the rows.
+    pub fn keys_where(
+        &self,
+        cx: &AccessContext,
+        t: &TableDef,
+        pos: usize,
+        holds: impl Fn(&Value) -> bool,
+    ) -> Vec<Vec<Value>> {
+        bump();
+        self.table(cx, t)
+            .map(|tb| {
+                tb.values()
+                    .filter(|row| holds(&row[pos]))
+                    .map(|row| t.primary_key(row))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// The provider of table `t`, if its rows are computed.
     fn virtual_of(&self, t: &TableDef) -> Option<&dyn VirtualTables> {
         self.virtuals.as_deref().filter(|v| v.serves(t))

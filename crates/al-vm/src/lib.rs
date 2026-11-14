@@ -145,6 +145,7 @@ mod stale_rename;
 mod state_stamp;
 mod table_facts;
 mod tasks;
+mod temp_blob_share;
 mod tenant_layout_cfg;
 mod tenant_layouts;
 mod tenant_set_delete;
