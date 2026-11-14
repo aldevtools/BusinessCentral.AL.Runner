@@ -42,4 +42,5 @@ pub use registry::*;
 use session_fns::*;
 pub use strings::*;
 pub use unpinned::*;
+pub use values::blob_clears_in_place;
 pub(crate) use values::*;

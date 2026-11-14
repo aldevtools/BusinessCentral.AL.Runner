@@ -217,6 +217,11 @@ pub trait DotNetSession {
     fn stream_read(&mut self, _handle: DotNetHandle, _max: Option<usize>) -> Result<Vec<u8>, DotNetFailure> {
         Err(DotNetFailure::Refused("this host cannot copy a stream".into()))
     }
+    /// Whether `handle` is a `TimeZoneInfo` this session made in process for the id `UTC` and still holds (ADR-038
+    /// amendment 2026-10-27): its `GetUtcOffset(DateTime)` is 0 at any instant, from no host data. The default: no.
+    fn is_in_process_utc_zone(&self, _handle: DotNetHandle) -> bool {
+        false
+    }
     /// Drops host objects. Called before the next call and when the session closes.
     fn release(&mut self, handles: &[DotNetHandle]);
     /// Ends the host side for this session (the sidecar process).
