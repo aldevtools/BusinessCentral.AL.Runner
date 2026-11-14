@@ -591,6 +591,16 @@ impl Session {
             && !engine.events.any_subscriber_of(table)
     }
 
+    /// Whether table object `table` runs code only when code calls it: no table or field trigger, no table extension and no
+    /// subscriber to an event of the table. Its procedures may exist.
+    pub(super) fn table_runs_no_trigger(&self, table: usize) -> bool {
+        let engine = self.engine();
+        let t = &engine.program.objects[table];
+        t.routines.iter().all(|r| !r.is_trigger)
+            && t.table.as_ref().is_some_and(|x| x.extensions.is_empty())
+            && !engine.events.any_subscriber_of(table)
+    }
+
     /// The stored rows of the table of `rec` that pass `filters` alone (none of `rec`'s own filters or marks): a fact the
     /// entry predicates compare with the rows their pin stored.
     pub(super) fn stored_rows_passing(

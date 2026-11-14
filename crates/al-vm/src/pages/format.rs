@@ -1106,9 +1106,9 @@ impl Session {
                     .map(|(_, v)| unquote(v))
             })
         };
-        // The source field's CaptionClass beats its Caption (pages/extensions/TableExtCaptionClass.al:69) and is
-        // resolved when the caption is read, not when the page opens (record/table-properties/XTablePropsTests.al:483-487).
-        // Whether a Caption on the control beats it is not pinned.
+        // The source field's CaptionClass beats its Caption (pages/extensions/TableExtCaptionClass.al:69). A literal one the open
+        // resolved is read from the session's translations (`own_area_caption.rs`); on other pages it is resolved at the first
+        // read. Whether a Caption on the control beats it is not pinned.
         if let Some(why) = field.as_ref().and_then(|f| f.caption_class_refusal.clone()) {
             return unsupported(why);
         }
@@ -1127,8 +1127,15 @@ impl Session {
                         "a control Caption over its source field's CaptionClass (which one BC shows is not pinned)",
                     );
                 }
-                return match st.borrow().field_captions.iter().find(|(i, _)| *i == idx) {
-                    Some((_, caption)) => Ok(caption.clone()),
+                let filled = st.borrow().field_captions.iter().find(|(i, ..)| *i == idx).cloned();
+                return match filled {
+                    Some((_, caption, own_area)) => {
+                        if own_area {
+                            let name = field.as_ref().map_or(ctl.name.as_str(), |f| f.name.as_str());
+                            self.refuse_own_area_expression_read(st, name)?;
+                        }
+                        Ok(caption)
+                    }
                     None => unsupported(
                         "Caption() of a control over a field whose CaptionClass is an expression, before the page filled a row",
                     ),
@@ -1142,6 +1149,9 @@ impl Session {
                 );
             }
             if raises_resolve(&c) {
+                if let Some(caption) = self.literal_field_caption_after_open(st, &c) {
+                    return caption;
+                }
                 return self.read_literal_field_caption(st, idx, c);
             }
             return self.caption_class_text(st, &c);

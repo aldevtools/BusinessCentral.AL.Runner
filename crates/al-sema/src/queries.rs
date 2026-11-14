@@ -65,6 +65,11 @@ const HARMLESS_QUERY_PROPERTIES: &[&str] = &[
     "abouttext",
 ];
 
+/// The names of the properties a dataitem or column sets, lower case.
+fn property_names(sec: &ast::Section) -> Vec<String> {
+    sec.properties().map(|p| p.name().to_ascii_lowercase()).collect()
+}
+
 /// The text inside `raw` when `raw` is exactly one single-quoted AL string.
 pub(crate) fn whole_literal(raw: &str) -> Option<String> {
     let t = raw.trim();
@@ -218,6 +223,7 @@ impl Builder<'_> {
             link: Vec::new(),
             link_items: Vec::new(),
             table_filter: Vec::new(),
+            properties: property_names(sec),
         });
         let mut cross = false;
         for p in sec.properties() {
@@ -540,6 +546,7 @@ impl Builder<'_> {
             ty: rt,
             static_filter,
             flow_below_join: false,
+            properties: property_names(sec),
         });
         self.tys.push(ty);
     }
