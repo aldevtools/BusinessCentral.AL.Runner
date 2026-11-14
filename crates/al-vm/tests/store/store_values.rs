@@ -681,12 +681,11 @@ fn dates_out_of_the_sql_range_fail_at_the_next_access() {
     );
 }
 
-// Not pinned: other dates before 1753-01-02, an Insert into a table with a Blob field, a Modify before 1753 or of a closing
+// Not pinned: other dates before 1753-01-02, a Modify before 1753 or of a closing
 // date (the Modify of a 1753 date: tests/store/sql_date_floor.rs).
 #[test]
 fn unpinned_sql_range_cases_are_refused() {
     for (routine, d) in [
-        ("StoreBlobTable", date(1753, 1, 1, false)),
         ("ModifyTo", date(1600, 6, 1, false)),
         ("ModifyTo", date(1753, 1, 1, true)),
     ] {
@@ -698,6 +697,13 @@ fn unpinned_sql_range_cases_are_refused() {
         vec![date(1600, 6, 1, false), al_builtins::value::Value::DateTime(0)],
     );
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    // An Insert of a 1753 Date into a table with a Blob field raises at the Insert since corpus PR 1398 measured it
+    // (SqlDateFloor1753.al Blob_Date_1, assumption `sql-date-first-year`); main refused it.
+    let r = dates("StoreBlobTable", vec![date(1753, 1, 1, false)]);
+    assert!(
+        matches!(&r, Err(Signal::Error(e)) if e.code == "NDBCS:BadCSideData"),
+        "{r:?}"
+    );
 }
 
 // streams/P132ReportTimeMs.al:190, :197: a Time that rounds to midnight reads 00:00:00.

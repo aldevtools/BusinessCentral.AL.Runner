@@ -995,8 +995,6 @@ impl Session {
             .map_err(|e| restore(rec, e, snapshot))
     }
 
-    /// `Record.Delete(run)` of the row `rec` holds: Before event, OnDelete, the
-    /// delete, After event.
     /// A Modify or Delete let go of media `id` that field `pos` of table `t` held: the media leaves Tenant Media unless another
     /// row of the same field still holds it (streams/media/TestMediaPngImport.al:297-334: kept while the other row holds it, removed with
     /// the Delete of that row; streams/ArRecordProbes.al:141-143: removed when no row holds it). A media another
@@ -1127,6 +1125,7 @@ impl Session {
         Ok(())
     }
 
+    /// `Record.Delete(run)` of the row `rec` holds: Before event, OnDelete, the delete, After event.
     fn delete_row(&mut self, t: &TableDef, rec: &Rec, run: bool) -> Result<Value, Signal> {
         let cx = self.cx_for(rec, t)?;
         // A Delete through a stale buffer follows the rule of a Modify (record/TestRecordStaleBufferWrite.al:662, :676); with
