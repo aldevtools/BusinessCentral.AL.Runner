@@ -58,6 +58,11 @@ finds the next neighbor shape. Write the gate in allowlist form:
     the page pass too. Require the kind of callee and the kind of condition the pin has.
   - a body with branches (`case`, `if`) checked by its form only: the pin measured one branch. Require the branch that
     ran (a run-time fact), and the exact branches.
+  - a static check over the lowered body (writes, reads, effects): lowering removes exactly the statements it could not
+    read. Count a routine that `Engine.blocked` names, or a body with a statement lowered to `Refused`, `Fail`, `TddStub`
+    or `FitOrRefuse`, as doing anything (al-runner PR 8015).
+  - "Microsoft's app" read from the publisher string alone: the app under test can name "Microsoft" too. Require a
+    dependency app as well (al-runner PR 8015).
   - a pinned call checked by its name only: the pin also has its outcome (a `Next` that moved, a `GoToKey` that found its
     row, a `SetValue` that did not raise). Read the calls from the log that keeps outcomes (`tree_calls`, through
     `test_calls_all_succeeded`), not from the names (`test_calls`).

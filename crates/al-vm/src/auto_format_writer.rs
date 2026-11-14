@@ -1,8 +1,9 @@
 //! A subscriber that can change how BC shows a value of a pinned AutoFormatType (al-runner issue 8011). BC resolves an AutoFormat
 //! through the AutoFormatTranslate event of `UI Helper Triggers`; the System Application's subscriber raises OnResolveAutoFormat and
 //! OnAfterResolveAutoFormat of `Auto Format` from there. The runtime raises none of them and formats the pinned types natively. A
-//! subscriber outside Microsoft's apps that writes the event's result could change the text, so where one is active the format is
-//! refused, by what the test can see (`Unraised::seen_by`):
+//! subscriber outside Microsoft's apps (Microsoft's app: a dependency app whose publisher is "Microsoft"; the app under test never
+//! is one) that writes the event's result could change the text, so where one is active the format is refused, by what the test
+//! can see (`Unraised::seen_by`):
 //!
 //! 1. no writer: the format runs (the corpus subscribers events/platform-triggers/P114GlobalTriggerEvents.al:104-109 and
 //!    P118SysEvents.al:163-168 log and never write Translation);
@@ -20,24 +21,24 @@ use crate::events::Unraised;
 use al_ir::{Arg, Expr, Place, Stmt};
 
 /// The events whose result decides the format: the (lower-case codeunit, lower-case event) key of `Registry::unraised`, and the
-/// event's name for the refusal text.
-const EVENTS: [(&str, &str, &str); 3] = [
-    (
-        "ui helper triggers",
-        "autoformattranslate",
-        "AutoFormatTranslate of UI Helper Triggers",
-    ),
-    (
-        "auto format",
-        "onresolveautoformat",
-        "OnResolveAutoFormat of Auto Format",
-    ),
-    (
-        "auto format",
-        "onafterresolveautoformat",
-        "OnAfterResolveAutoFormat of Auto Format",
-    ),
-];
+/// event's name for the refusal text. Built once, so a check makes no key.
+static EVENTS: std::sync::LazyLock<[((String, String), &str); 3]> = std::sync::LazyLock::new(|| {
+    let key = |c: &str, e: &str| (c.to_string(), e.to_string());
+    [
+        (
+            key("ui helper triggers", "autoformattranslate"),
+            "AutoFormatTranslate of UI Helper Triggers",
+        ),
+        (
+            key("auto format", "onresolveautoformat"),
+            "OnResolveAutoFormat of Auto Format",
+        ),
+        (
+            key("auto format", "onafterresolveautoformat"),
+            "OnAfterResolveAutoFormat of Auto Format",
+        ),
+    ]
+});
 
 impl Session {
     /// Why a format of AutoFormatType `kind` is refused for a subscriber that can write its result, or `None` (see the module).
@@ -48,13 +49,8 @@ impl Session {
         }
         let program = &self.engine.program;
         let test = self.test_object.and_then(|t| program.objects.get(t));
-        for (codeunit, event, name) in EVENTS {
-            let Some(subs) = self
-                .engine
-                .events
-                .unraised
-                .get(&(codeunit.to_string(), event.to_string()))
-            else {
+        for (key, name) in EVENTS.iter() {
+            let Some(subs) = self.engine.events.unraised.get(key) else {
                 continue;
             };
             for u in subs.iter().filter(|u| self.active_foreign_writer(u)) {
@@ -75,8 +71,13 @@ impl Session {
         None
     }
 
-    /// Subscriber `u` is in an app whose publisher is not Microsoft, is static or bound now, and its routine writes a `var`
-    /// parameter (every `var` parameter of the three events is a result: Translation, Result, Resolved).
+    /// Subscriber `u` is outside Microsoft's apps, is static or bound now, and may write a `var` parameter (every `var` parameter
+    /// of the three events is a result: Translation, Result, Resolved).
+    ///
+    /// Microsoft's apps: a dependency app whose publisher is "Microsoft". The app under test is never one, whatever publisher it
+    /// names (review of PR 8015: a test app published as "Microsoft" runs its subscriber in BC). A known hole: a partner
+    /// dependency package that names "Microsoft" as its publisher counts as Microsoft's (docs/probes-needed.md, "AutoFormatType
+    /// of a decimal control").
     fn active_foreign_writer(&self, u: &Unraised) -> bool {
         let program = &self.engine.program;
         // The head only: a subscriber of Microsoft's apps is not made to be read (ADR-054).
@@ -85,16 +86,46 @@ impl Session {
             .heads()
             .get(u.object)
             .and_then(|h| program.apps.get(h.app as usize))
-            .is_some_and(|a| a.publisher == "Microsoft");
+            .is_some_and(|a| a.dependency && a.publisher == "Microsoft");
         if microsoft || (u.manual && !self.is_bound_object(u.object)) {
             return false;
         }
-        program
-            .objects
-            .get(u.object)
-            .and_then(|o| o.routines.get(u.routine))
-            .is_none_or(writes_var_parameter)
+        !self.reads_only(u.object, u.routine)
     }
+
+    /// Whether routine `routine` of `object` is known to write no `var` parameter: it can run (lowering blocked nothing in it),
+    /// no statement of it was lowered to a refusal, a failure or a stub (the statement lowering could not read may be the
+    /// write), and it neither assigns a `var` parameter nor hands one on by `var`.
+    fn reads_only(&self, object: usize, routine: usize) -> bool {
+        let blocked = self
+            .engine
+            .blocked
+            .get(object)
+            .and_then(|o| o.get(routine))
+            .is_some_and(|b| b.is_some());
+        let Some(r) = self
+            .engine
+            .program
+            .objects
+            .get(object)
+            .and_then(|o| o.routines.get(routine))
+        else {
+            return false;
+        };
+        !blocked && !lowered_away(r.body.stmts()) && !writes_var_parameter(r)
+    }
+}
+
+/// Whether `body` holds an expression lowering put where it could not lower the source: a refusal, a failure, a `--tdd` stub.
+fn lowered_away(body: &[Stmt]) -> bool {
+    let mut found = false;
+    al_ir::types::for_each_expr_post(body, &mut |e| {
+        found |= matches!(
+            e,
+            Expr::Refused(_) | Expr::Fail { .. } | Expr::TddStub { .. } | Expr::FitOrRefuse { .. }
+        );
+    });
+    found
 }
 
 /// Whether routine `r` assigns a `var` parameter (also an element of it, or as a loop variable) or hands it on by `var`.

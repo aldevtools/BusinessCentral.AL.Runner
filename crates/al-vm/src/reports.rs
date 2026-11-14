@@ -3125,17 +3125,13 @@ impl Session {
             .iter()
             .map(|n| n.to_string())
             .collect();
+        let source = LibraryValue::InStream(InState::live(document, Encoding::Utf8));
+        let target = LibraryValue::OutStream(output.clone(), Encoding::Utf8, None);
         let mut args = vec![
             Value::Integer(self.object_id_of(schema.object as u32) as i32),
             al_builtins::json::unpinned_object("the ObjectPayload of OnDocumentReady is not pinned"),
-            stream(
-                "InStream",
-                LibraryValue::InStream(InState::live(document, Encoding::Utf8)),
-            ),
-            stream(
-                "OutStream",
-                LibraryValue::OutStream(output.clone(), Encoding::Utf8, None),
-            ),
+            stream("InStream", source),
+            stream("OutStream", target),
             Value::Boolean(false),
         ];
         let call = crate::dispatch::EventCall {

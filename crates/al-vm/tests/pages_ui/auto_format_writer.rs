@@ -244,3 +244,80 @@ codeunit 69483 "AfW Sub"
         );
     }
 }
+
+/// The writer compiled with every app's publisher set to `publisher` and every app marked a dependency or not.
+fn page_t1_with_publisher(
+    publisher: &str,
+    dependency: bool,
+) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    let mut l = al_testkit::compile(&src(WRITER));
+    for app in &mut std::sync::Arc::make_mut(&mut l.program).apps {
+        app.publisher = publisher.to_string();
+        app.dependency = dependency;
+    }
+    al_testkit::Built::new(l).run_in("C", "PageT1")
+}
+
+/// Only a dependency app published by Microsoft is exempt: the app under test can set its publisher to "Microsoft" too (review
+/// of PR 8015, the reviewer's afprobe7), and BC runs its subscriber.
+#[test]
+fn a_writer_in_the_app_under_test_with_publisher_microsoft_refuses() {
+    refused(page_t1_with_publisher("Microsoft", false));
+    assert_eq!(al_testkit::text(page_t1_with_publisher("Microsoft", true)), "3,456.68");
+    refused(page_t1_with_publisher("Partner", true));
+}
+
+/// A subscriber whose writing statement lowering turned into a refusal still writes in BC (the reviewer's afprobe10: the write
+/// uses a RunOnClient variable, so its `Assign` is gone from the lowered body).
+#[test]
+fn a_writer_whose_write_was_lowered_to_a_refusal_refuses() {
+    let sub = r#"
+dotnet { assembly("mscorlib") { type("System.Text.StringBuilder"; B) { } } }
+codeunit 69483 "AfW Sub"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"UI Helper Triggers", AutoFormatTranslate, '', false, false)]
+    local procedure RunOnClientWrite(AutoFormatType: Integer; AutoFormatExpr: Text[80]; var Translation: Text[80])
+    var
+        [RunOnClient] S: DotNet B;
+    begin
+        if AutoFormatType = 1 then
+            Translation := Format(S);
+    end;
+}
+"#;
+    refused(al_testkit::run_in(&src(sub), "C", "PageT1"));
+}
+
+/// A subscriber routine that cannot run (lowering dropped a statement and blocked the routine) counts as a writer: the dropped
+/// statement may be the write.
+#[test]
+fn a_blocked_subscriber_routine_counts_as_a_writer() {
+    let reader = r#"
+codeunit 69483 "AfW Sub"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"UI Helper Triggers", AutoFormatTranslate, '', false, false)]
+    local procedure Log(AutoFormatType: Integer; AutoFormatExpr: Text[80]; var Translation: Text[80])
+    begin
+    end;
+}
+"#;
+    let l = al_testkit::compile(&src(reader));
+    let mut blocked = al_testkit::blocked(&l);
+    let oi = l.program.objects.iter().position(|o| o.name == "AfW Sub").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == "Log")
+        .unwrap();
+    blocked[oi][ri] = Some("a statement lowering could not read".into());
+    let engine = al_vm::Engine::new(l.program.clone(), blocked);
+    let mut s = al_vm::Session::new(engine);
+    let ci = l.program.objects.iter().position(|o| o.name == "C").unwrap();
+    let ri = l.program.objects[ci]
+        .routines
+        .iter()
+        .position(|r| r.name == "PageT1")
+        .unwrap();
+    let inst = s.instance(ci);
+    refused(s.call(ci, ri, inst, vec![]).map(|(v, _)| v));
+}
