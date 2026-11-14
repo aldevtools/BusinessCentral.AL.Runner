@@ -291,12 +291,10 @@ pub(super) fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     let found = attrs_of(&owner).into_iter().find(|x| {
         with(
             x,
-            // An attribute set with a namespace and no prefix is not found by its plain name (xml/XmlAttributes.al:220 with :230
-            // SetGet_Attribute_Namespace `get_no_ns`: No).
-            |d| match d {
-                XData::Attribute { prefix, local, ns, .. } if prefix.is_empty() => ns.is_empty() && *local == name,
-                XData::Attribute { prefix, local, .. } => qname(prefix, local) == name,
-                _ => false,
+            // An attribute set with a namespace and no prefix is not found by its plain name (`set_unprefixed_in_namespace`).
+            |d| {
+                matches!(d, XData::Attribute { prefix, local, .. } if qname(prefix, local) == name)
+                    && !set_unprefixed_in_namespace(d)
             },
         )
     });
@@ -319,11 +317,20 @@ pub(super) fn attrs_get_name(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     }
 }
 
-/// Whether `owner` has an attribute without a prefix in a namespace whose local name is `name`.
+/// Whether `owner` has an attribute [`set_unprefixed_in_namespace`] whose local name is `name`.
 fn namespaced_local(owner: &Handle, name: &str) -> bool {
     attrs_of(owner).iter().any(|x| {
-        with(x, |d| matches!(d, XData::Attribute { prefix, local, ns, .. } if prefix.is_empty() && !ns.is_empty() && local == name))
+        with(x, |d| {
+            set_unprefixed_in_namespace(d) && matches!(d, XData::Attribute { local, .. } if local == name)
+        })
     })
+}
+
+/// An attribute without a prefix in a namespace other than the xmlns one: `SetAttribute(Name, Namespace, Value)` makes it, and
+/// Get by its plain name does not find it (xml/XmlAttributes.al:216 with :230 SetGet_Attribute_Namespace `get_no_ns`: No). A
+/// default namespace declaration `xmlns` has no prefix either and is found (:493 Attribute_Xmlns_Handling `get_xmlns`: Yes).
+fn set_unprefixed_in_namespace(d: &XData) -> bool {
+    matches!(d, XData::Attribute { prefix, ns, .. } if prefix.is_empty() && !ns.is_empty() && ns != XMLNS_URI)
 }
 
 /// `The XML node with the name '<name>' could not be found.` (XmlNodeNotFound): `<name>` is the name for the two-argument

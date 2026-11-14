@@ -66,14 +66,26 @@ pub(super) fn reject_attributes(nodes: &[Handle]) -> Result<(), Signal> {
     Ok(())
 }
 
-pub(super) fn add_first(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+pub(super) fn add_first(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv(r)?;
     reject_unassigned_element_content(&h, a, "AddFirst")?;
     let nodes = content_nodes(a)?;
     reject_declaration_in_document(&h, &nodes)?;
-    // AddFirst of one attribute to an element raises an Argument error and leaves the element as it was
-    // (xml/XmlElement.al:384-386 Add_Basic `af296`, `addfirstattr`).
-    if kind(&h) == "XmlElement" && matches!(nodes.as_slice(), [n] if kind(n) == "XmlAttribute") {
+    // AddFirst, as a statement, of one new attribute without a prefix or namespace to an element without a parent raises an
+    // Argument error and leaves the element as it was (xml/XmlElement.al:384-386 Add_Basic `af296`, `addfirstattr`).
+    let free = |n: &Handle| parent_of(n).is_none() && !parent_dropped(n);
+    let plain_new_attribute = |n: &Handle| {
+        free(n)
+            && with(
+                n,
+                |d| matches!(d, XData::Attribute { prefix, ns, .. } if prefix.is_empty() && ns.is_empty()),
+            )
+    };
+    if !c.ret_used()
+        && kind(&h) == "XmlElement"
+        && free(&h)
+        && matches!(nodes.as_slice(), [n] if plain_new_attribute(n))
+    {
         return Err(nav_argument());
     }
     insert(&h, Some(0), nodes)?;
@@ -221,7 +233,11 @@ pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) ->
     }
     if parent_of(&h).is_none() {
         // A node of these kinds without a parent (DocTypeNode.al:Remove_DetachedDocType, P90*Edit.al:Remove_Detached_Twice).
-        if detached_is_invalid(&h) && !c.ret_used() {
+        // An attribute created alone or already removed from its element, statement form (xml/xml/P97AttrMisc.al:125
+        // Remove_Detached `remove`, :98 Remove_Attached `remove_twice`; xml/XmlAttributes.al:422 Attribute_Parent_Remove
+        // `lone_remove`). An attribute whose element is no longer referenced is not one of them (`parent_dropped`).
+        let lone_attribute = kind(&h) == "XmlAttribute" && !parent_dropped(&h);
+        if (detached_is_invalid(&h) || lone_attribute) && !c.ret_used() {
             return Err(error(
                 "The requested operation cannot be performed in this context.",
                 "InvalidOperation",
@@ -237,8 +253,11 @@ pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) ->
     Ok(Value::Boolean(true))
 }
 
-pub(super) fn replace_with(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+pub(super) fn replace_with(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv_text_kind_or_uninit(r)?;
+    if let Some(v) = attr_replace::replace_attribute(c, &h, a) {
+        return Ok(v);
+    }
     reject_unassigned_sibling_arg(&h, a)?;
     if parent_of(&h).is_none() && with(&h, |d| matches!(d, XData::DocType { .. })) {
         // DocTypeNode.al:ReplaceWith_DetachedDocType.
@@ -398,14 +417,6 @@ pub(super) fn get_document_type(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 pub(super) fn get_document(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = recv_or_uninit(r, "XmlNode")?;
     let root = root_of(&h);
-    // A node whose document was held only by a variable that went out of scope still has that document on BC
-    // (xml/XmlElement.al:349 Navigation_Parent_Document `c_doc`: Yes, after the helper Load's local XmlDocument is gone); the
-    // runtime holds parents weakly and cannot answer for it.
-    if parent_dropped(&root) {
-        return unsupported(
-            "GetDocument of a node whose document is no longer referenced (the runtime does not keep it)",
-        );
-    }
     // A declaration belongs to no document as far as GetDocument goes (xml/xml/P104TreeBDecl.al:
     // P104_Remove_InDoc `document1`).
     if with(&h, |d| !matches!(d, XData::Declaration { .. })) && with(&root, |d| matches!(d, XData::Document { .. })) {

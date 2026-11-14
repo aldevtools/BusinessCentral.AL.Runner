@@ -17,6 +17,7 @@ use crate::value::{LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
+mod attr_replace;
 mod attrs;
 mod create_names;
 mod dom;
