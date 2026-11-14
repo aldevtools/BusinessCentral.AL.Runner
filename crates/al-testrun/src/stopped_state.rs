@@ -6,6 +6,11 @@
 //! (:926) run under the language from before it on real BC. A refused test is restored as on main. Install code is restored
 //! only in that shape; install code that changed the state in any other shape leaves a state the runner does not know, and
 //! the caller refuses the later code of that install session.
+//!
+//! WorkDate takes the same rule: the restore follows from control flow (BC runs on past the refused statement to the last
+//! set-back), and `V := WorkDate()` / `WorkDate(V)` are pinned in that save, set and set-back shape by
+//! session-system/TestSessionFunctions.al:56-65. A WorkDate never set before the routine stays unset here, where BC sets it
+//! to today; both read as today, and only `--no-client` tells them apart (it flags such a later read).
 
 use al_builtins::builtin_id::ids;
 use al_ir::{Arg, Expr, Place, Stmt};
@@ -74,10 +79,11 @@ pub(crate) fn roll_back_stopped_install(
 
 /// Whether routine `root`, stopped in the statement at position `pos`, would have set `part` back to the value it had when
 /// the routine started: the shape of BdRegionTests.al:1327-1339. Each of these is required:
-/// - the statements before the stopped one start with `V := GlobalLanguage();` (or `WorkDate()`), only such saves before
-///   it, so `V` holds the value at the routine's start;
-/// - the statements after the stopped one end with `GlobalLanguage(V);` (or `WorkDate(V)`), only such set-backs after it,
-///   with no `exit` from the stopped statement on, so the set-back runs and nothing after it changes `part` again;
+/// - the routine starts with saves (`V := GlobalLanguage();` / `V := WorkDate();`) and nothing else before any other
+///   statement, so `V` holds the value at the routine's start; the stopped statement comes after them (other statements
+///   may sit between, as the pin's `TryGlobalLanguage(1040)` does);
+/// - from the stopped statement on there is no `exit`, and the routine ends with set-backs (`GlobalLanguage(V);` /
+///   `WorkDate(V);`) and nothing else after them, all after the stopped statement, so the last set-back decides `part`;
 /// - `V` is a local that is not a parameter and is named nowhere else in the routine.
 fn sets_back(lowered: &Lowered, root: (usize, usize), pos: u32, part: CarriedPart) -> bool {
     let (oi, ri) = root;
