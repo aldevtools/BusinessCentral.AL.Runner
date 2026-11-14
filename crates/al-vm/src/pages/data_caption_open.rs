@@ -1,12 +1,14 @@
 //! When the DataCaptionExpression of a Worksheet, or of a Card with DelayedInsert, runs as AL code opens the page with
 //! `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` and a TestPage handler answers it (al-runner issue 6924, APPD). Measured by
-//! corpus PR 1392, pages/properties/DataCaptionExprWorksheet.al (BC 28.5 and 29.0); the cells run under the assumption
-//! `data-caption-run-at-open`. Every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
+//! corpus PR 1392, pages/properties/DataCaptionExprWorksheet.al (its CI passed on all three BC majors the corpus runs); the cells
+//! run under the assumption `data-caption-run-at-open`. Every other page keeps main's path (`data_caption_run.rs`,
+//! `caption_expr_list.rs`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd};
 use super::*;
 use crate::ui::UiKind;
 use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::filter::{FieldFilter, FilterExpr};
 
 /// What the handler may do after the measured open: read the caption and the controls (DataCaptionExprWorksheet.al:627, :633,
 /// :639, :645), and the page closes.
@@ -75,11 +77,63 @@ const CELLS: [(Shape, bool, i32, bool, Runs); 10] = [
     (Shape::CardDelayedInsert, false, 1, true, Runs::CardOnce),
 ];
 
+/// The record AL code handed to `Page.Run`, as it was before the page opened, in the measured shape (`Session::data_caption_handed`).
+pub(super) struct HandedRecord {
+    filters: Vec<FieldFilter>,
+    /// The store's change counter before OnInit.
+    writes: u64,
+}
+
 impl Session {
-    /// The page `st` that AL code opened with `bind`'s handler bound: in a measured cell, the expression runs as the probe saw
-    /// it before the handler, and only the handler's caption and control reads and the close follow (`OPENED_END`).
-    pub(super) fn data_caption_at_handled_open(&mut self, st: &St, bind: Option<UiKind>) -> Result<(), Signal> {
-        let Some(runs) = self.data_caption_open_cell(st, bind)? else {
+    /// The record `record` that AL code hands to page `st` with `bind`'s handler bound, when it is the probe's: AL code's static
+    /// run with a record and no field number (DataCaptionExprWorksheet.al:362-368), the test did not open the page; a stored
+    /// record with no marks, the primary key in ascending order, filter group 0 active and one filter of group 0, a SetRange to
+    /// one Code value that is not empty (:349, :357-359; `Item No.: I9`, `Vendor No.: V9`, `I1`).
+    pub(super) fn data_caption_handed(
+        &self,
+        st: &St,
+        record: Option<&Rec>,
+        bind: Option<UiKind>,
+    ) -> Option<HandedRecord> {
+        let r = record?.borrow();
+        if bind.is_none() || !st.borrow().static_run_record_only || self.pages.test_open {
+            return None;
+        }
+        let one_code_value = match r.filters.as_slice() {
+            [f] => {
+                f.group == 0
+                    && matches!(&f.expr, FilterExpr::Range(Some(Value::Code(a)), Some(Value::Code(b))) if a == b && !a.is_empty())
+            }
+            _ => false,
+        };
+        let measured = one_code_value
+            && !r.temporary
+            && r.marks.is_empty()
+            && !r.marked_only
+            && r.key == 0
+            && r.adhoc.is_none()
+            && r.ascending
+            && r.field_descending == 0
+            && r.filter_group == 0;
+        measured.then(|| HandedRecord {
+            filters: r.filters.clone(),
+            writes: self.store.change_counter(),
+        })
+    }
+
+    /// The page `st` that AL code opened with `bind`'s handler bound and the record `handed`: in a measured cell, the expression
+    /// runs as the probe saw it before the handler, and only the handler's caption and control reads and the close follow
+    /// (`OPENED_END`).
+    pub(super) fn data_caption_at_handled_open(
+        &mut self,
+        st: &St,
+        bind: Option<UiKind>,
+        handed: Option<HandedRecord>,
+    ) -> Result<(), Signal> {
+        let Some(handed) = handed else {
+            return Ok(());
+        };
+        let Some(runs) = self.data_caption_open_cell(st, bind, &handed)? else {
             return Ok(());
         };
         assume(Assumption::DataCaptionRunAtOpen);
@@ -117,15 +171,21 @@ impl Session {
     }
 
     /// The measured cell `st` is in, every fact required as DataCaptionExprWorksheet.al has it:
-    /// - the run: AL code's static `Page.Run(Id, Rec)` (:362, :364, :366, :550; page 0 and the page's id alike, both
-    ///   measured: :412 and :439 with 0, :515 and :528 with the page's id) with a PageHandler bound, or `Page.RunModal(0, Rec)` as a statement
-    ///   (:368) with a ModalPageHandler; the test did not open the page; a top-level page;
+    /// - the run: a PageHandler bound to AL code's static `Page.Run(Id, Rec)` (:362, :364, :366, :550; page 0 and the page's id
+    ///   alike, both measured: :412 and :439 with 0, :515 and :528 with the page's id), or a ModalPageHandler to `Page.RunModal(0,
+    ///   Rec)` as a statement (:368); a top-level page; the record as `data_caption_handed` requires;
     /// - the page: a `Shape`, its own DataCaptionExpression, no property but the plain ones, DataCaptionExpression and
     ///   DelayedInsert; triggers OnInit, OnOpenPage and OnQueryClosePage only (:154-174); no extension, no subscriber; controls
     ///   bound to fields of Rec or to page variables, no control trigger (:120-130);
-    /// - the record: a stored table, no marks, one filter of filter group 0 (:349, :357-359, :549); 0 or 1 rows in the view;
-    /// - main's own state: on the Card the expression ran once and is due again; on the Worksheet it has not run.
-    fn data_caption_open_cell(&mut self, st: &St, bind: Option<UiKind>) -> Result<Option<Runs>, Signal> {
+    /// - what OnInit and OnOpenPage did (`data_caption_open_left`);
+    /// - 0 or 1 rows in the view; main's own state: on the Card the expression ran once and is due again; on the Worksheet it has
+    ///   not run.
+    fn data_caption_open_cell(
+        &mut self,
+        st: &St,
+        bind: Option<UiKind>,
+        handed: &HandedRecord,
+    ) -> Result<Option<Runs>, Signal> {
         let run_modal = {
             let s = st.borrow();
             let run = match (bind, s.modal) {
@@ -135,7 +195,7 @@ impl Session {
                 }
                 _ => None,
             };
-            if !(s.static_run_with_record && !s.opened_by_test && s.host.is_none() && s.open) {
+            if s.opened_by_test || s.host.is_some() || !s.open {
                 return Ok(None);
             }
             run
@@ -143,23 +203,11 @@ impl Session {
         let (Some(run_modal), Some(shape)) = (run_modal, self.data_caption_open_shape(st)) else {
             return Ok(None);
         };
+        let Some(editable) = self.data_caption_open_left(st, handed) else {
+            return Ok(None);
+        };
         let rec = self.page_rec(st);
-        let filters = {
-            let r = rec.borrow();
-            if r.temporary || !r.marks.is_empty() || r.marked_only || r.filters.len() != 1 || r.filters[0].group != 0 {
-                return Ok(None);
-            }
-            r.filters.clone()
-        };
-        let rows = self.stored_rows_passing(&rec, filters)?;
-        let editable = {
-            let s = st.borrow();
-            match (s.editable_off, s.editable_off_in_open) {
-                (false, _) => true,
-                (true, true) => false,
-                (true, false) => return Ok(None),
-            }
-        };
+        let rows = self.stored_rows_passing(&rec, handed.filters.clone())?;
         let main_state = {
             let s = st.borrow();
             match shape {
@@ -174,6 +222,45 @@ impl Session {
             .iter()
             .find(|c| c.0 == shape && c.1 == run_modal && c.2 == rows && c.3 == editable)
             .map(|c| c.4))
+    }
+
+    /// Whether the page is editable after OnOpenPage, when OnInit and OnOpenPage left what the probe's left: Rec with the handed
+    /// record's filters, key and order, filter group 0 active; no write to the store; the page variables the controls show still
+    /// empty (:369 `OnOpenPage(item=)`); `CurrPage.Editable` assigned once in OnOpenPage (`'true'` :412, `'false'` :452) or not at
+    /// all (:503), and no Editable set on the page before it ran. `None` otherwise.
+    fn data_caption_open_left(&self, st: &St, handed: &HandedRecord) -> Option<bool> {
+        let rec = self.page_rec(st);
+        let kept = {
+            let r = rec.borrow();
+            crate::records::same_filters(&r.filters, &handed.filters)
+                && r.key == 0
+                && r.adhoc.is_none()
+                && r.ascending
+                && r.field_descending == 0
+                && r.filter_group == 0
+                && r.marks.is_empty()
+                && !r.marked_only
+        };
+        if !kept || self.store.change_counter() != handed.writes {
+            return None;
+        }
+        let s = st.borrow();
+        let inst = s.instance.as_ref()?.borrow();
+        let engine = self.engine();
+        let empty_vars = page_of(&engine, st).controls.iter().all(|c| match c.binding {
+            ir::Binding::Var(slot) => {
+                matches!(inst.globals.get(slot), Some(Value::Text(t) | Value::Code(t)) if t.is_empty())
+            }
+            _ => true,
+        });
+        if !empty_vars || s.editable_preset.is_some() {
+            return None;
+        }
+        match s.open_editable {
+            OpenEditable::Unset => Some(true),
+            OpenEditable::InOpenPage(on) => Some(on),
+            OpenEditable::Other => None,
+        }
     }
 
     /// The page's `Shape`, when its code and properties are those of the probe's pages.
@@ -196,7 +283,16 @@ impl Session {
                 .find(|(k, _)| k.eq_ignore_ascii_case(name))
                 .map(|(_, v)| v.trim().to_ascii_lowercase())
         };
-        prop("datacaptionexpression")?;
+        // The expression calls a procedure of the page with no argument (:111 `DataCaptionExpression = GetCaption();`).
+        let expression = prop("datacaptionexpression")?;
+        let procedure = expression.strip_suffix("()")?;
+        if !engine.program.objects[object]
+            .routines
+            .iter()
+            .any(|r| r.name.eq_ignore_ascii_case(procedure))
+        {
+            return None;
+        }
         let controls = page_of(&engine, st).controls.iter().all(|c| {
             c.triggers.is_empty()
                 && match c.kind {

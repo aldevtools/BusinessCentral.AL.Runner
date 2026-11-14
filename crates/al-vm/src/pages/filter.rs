@@ -110,7 +110,7 @@ impl Session {
                     }
                     // `<>` and the first member of an Option, typed by the test, reads as `<>0` (`filter_option_ne.rs`).
                     (RtType::Option(_), Some(FilterExpr::Ne(_)))
-                        if self.option_ne_reads_number(st, &rec, first.as_ref()) =>
+                        if self.option_ne_reads_number(st, &rec, &table, first.as_ref()) =>
                     {
                         return Ok(Value::Text("<>0".to_string().into()));
                     }
@@ -163,6 +163,7 @@ impl Session {
                 // SF_TestFilter_SetFilterTwoSpaces).
                 if text.trim().is_empty() {
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
+                    st.borrow_mut().note_test_filter(pos, None);
                     self.filter_changed(st, true)?;
                     return Ok(Value::Null);
                 }
@@ -170,7 +171,7 @@ impl Session {
                 // filter on the field as it was (testpage/filters/TempListOffPageBooleanFilter.al:343-348, :447; corpus PR 1392
                 // WorksheetEnumEqFilter.al:565). Where the page stands right after it is not measured (each measured case moves with
                 // First() next); the page reads its view again, as after the empty text.
-                if self.eq_text_sets_no_filter(st, &rec, pos, &ty, &text)? {
+                if self.eq_text_sets_no_filter(st, &rec, &table, pos, &text)? {
                     self.filter_changed(st, true)?;
                     return Ok(Value::Null);
                 }
@@ -183,6 +184,8 @@ impl Session {
                     // In place when there is one: group 0 keeps its place ahead of the groups the
                     // page wrote after it (corpus testpage/filters/TestTestFilterFilterGroups.al:4).
                     let mut r = rec.borrow_mut();
+                    st.borrow_mut()
+                        .note_test_filter(pos, Some((text.to_string(), expr.clone())));
                     match r.filters.iter().position(|f| f.field == pos && f.group == 0) {
                         Some(i) => r.filters[i].expr = expr,
                         None => r.filters.push(FieldFilter {

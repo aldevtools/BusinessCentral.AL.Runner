@@ -175,7 +175,8 @@ pub(crate) fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
         })
 }
 
-fn same_expr(a: &FilterExpr, b: &FilterExpr) -> bool {
+/// Whether two filter expressions are the same filter.
+pub(crate) fn same_expr(a: &FilterExpr, b: &FilterExpr) -> bool {
     let v = |x: &Value, y: &Value| ops::compare(x, y).is_ok_and(|o| o.is_eq());
     let ov = |x: &Option<Value>, y: &Option<Value>| match (x, y) {
         (None, None) => true,

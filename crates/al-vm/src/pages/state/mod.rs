@@ -325,8 +325,14 @@ pub struct PageState {
     /// A row trigger ran since the DataCaptionExpression last did: it runs before the next trigger other than OnAfterGetRecord
     /// and before the test code touches the page.
     pub data_caption_due: bool,
-    /// The static `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` of AL code runs this page with a record (`PageState::static_run`).
-    pub static_run_with_record: bool,
+    /// The static `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` of AL code runs this page with a record and no field number
+    /// (`PageState::static_run`).
+    pub static_run_record_only: bool,
+    /// What page code assigned to `CurrPage.Editable` while this page opened (`OpenEditable`). Set again at each open.
+    pub open_editable: OpenEditable,
+    /// The filters the test's `TestFilter.SetFilter` put on fields of Rec, with the text it typed (`filter.rs`). Read through
+    /// `PageState::test_typed_filter`, which checks that the filter is still on the field. Cleared at the open and the close.
+    pub test_filters: Vec<TestTypedFilter>,
     /// The DataCaptionExpression of this page ran at the open as `data_caption_open.rs` measured: a TestPage's Caption() shows
     /// what that run left (`data_caption_value`) and does not evaluate the expression again. Cleared at the next open.
     pub data_caption_at_open: bool,
@@ -939,9 +945,37 @@ impl PageState {
     /// A static `Page.Run` (`modal` false) or `Page.RunModal` of AL code runs the page; `record`: it got a record. A RunModal
     /// takes `static_run_modal` with the other arguments.
     pub(crate) fn static_run(&mut self, modal: bool, used: bool, record: bool, field: bool, from_table: bool) {
-        self.static_run_with_record = record;
+        self.static_run_record_only = record && !field;
         if modal {
             self.static_run_modal(used, record, field, from_table);
+        }
+    }
+
+    /// OnInit has run: the Editable set on the page variable before it ran applies now, and what OnInit assigned to
+    /// `CurrPage.Editable` is forgotten (`open_editable` keeps that it happened).
+    pub(crate) fn editable_after_init(&mut self) {
+        self.editable_off = self.editable_preset == Some(false);
+        self.editable_off_in_open = false;
+        self.editable_set_later = None;
+        self.open_editable = self.open_editable.after_init();
+    }
+
+    /// The text the test typed for the filter on field `field` of `rec`, while that filter is the test's: the one group 0 filter
+    /// on the field is still the one the test's `TestFilter.SetFilter` set (page code did not replace or remove it).
+    pub(crate) fn test_typed_filter(&self, rec: &RecordState, field: usize) -> Option<&str> {
+        let typed = self.test_filters.iter().find(|t| t.field == field)?;
+        let mut on = rec.filters.iter().filter(|f| f.field == field && f.group == 0);
+        match (on.next(), on.next()) {
+            (Some(f), None) if crate::records::same_expr(&f.expr, &typed.expr) => Some(&typed.text),
+            _ => None,
+        }
+    }
+
+    /// The test's `TestFilter.SetFilter` set `expr` on field `field` with `text` (`None`: it took the field's filter off).
+    pub(crate) fn note_test_filter(&mut self, field: usize, typed: Option<(String, al_builtins::filter::FilterExpr)>) {
+        self.test_filters.retain(|t| t.field != field);
+        if let Some((text, expr)) = typed {
+            self.test_filters.push(TestTypedFilter { field, text, expr });
         }
     }
 
@@ -988,6 +1022,8 @@ impl PageState {
         self.typed_key_dropped = false;
         self.pinned_end = None;
         self.data_caption_at_open = false;
+        self.test_filters = Vec::new();
+        self.open_editable = OpenEditable::Unset;
         self.provider_no_row_landed = false;
         self.empty_selection_given = false;
         self.temp_ws_edit = None;
@@ -1016,6 +1052,46 @@ impl PageState {
 }
 
 /// What a `TestControl` stands for.
+/// What page code assigned to `CurrPage.Editable` while the page opened (`PageState::open_editable`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OpenEditable {
+    /// No assignment.
+    #[default]
+    Unset,
+    /// One assignment, in OnOpenPage, of this value.
+    InOpenPage(bool),
+    /// An assignment in OnInit, or more than one.
+    Other,
+}
+
+impl OpenEditable {
+    /// Page code assigns `on` while the page opens.
+    pub(crate) fn assigned(self, on: bool) -> Self {
+        match self {
+            OpenEditable::Unset => OpenEditable::InOpenPage(on),
+            _ => OpenEditable::Other,
+        }
+    }
+
+    /// OnInit has run: an assignment made in it is `Other`.
+    pub(crate) fn after_init(self) -> Self {
+        match self {
+            OpenEditable::Unset => OpenEditable::Unset,
+            _ => OpenEditable::Other,
+        }
+    }
+}
+
+/// A filter the test's `TestFilter.SetFilter` put on a field (`PageState::test_filters`).
+#[derive(Debug, Clone)]
+pub struct TestTypedFilter {
+    pub field: usize,
+    /// The text the test typed.
+    pub text: String,
+    /// The filter that text set (filter group 0).
+    pub expr: al_builtins::filter::FilterExpr,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlTarget {
     /// A control of the page by index into its control list.

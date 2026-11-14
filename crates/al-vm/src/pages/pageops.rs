@@ -948,6 +948,8 @@ impl Session {
                     Some(v) => {
                         let on = ops::truthy(v)?;
                         if st.borrow().opening {
+                            let open_editable = st.borrow().open_editable.assigned(on);
+                            st.borrow_mut().open_editable = open_editable;
                             if !on {
                                 let mut s = st.borrow_mut();
                                 if !s.editable_off {

@@ -32,6 +32,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - "the test assigned X" read from "the buffer differs from the stored row": a copied or stale buffer also
     differs. Require first that the buffer is the stored row's own image (SystemRowVersion, SystemId, how it
     was read).
+  - "the test's filter" read from "filter group 0": page code (OnOpenPage, the record handed to Page.Run) writes group 0
+    too. Keep which fields the test filtered, with the typed text, on the page state and require that (al-runner PR 8009).
   - a stored origin or state compared with a value built from that same state (`o == f(o)`): the copied
     fields are never checked. Compare with the session's current value (commit count, transaction).
   - an error fact checked by code and kind only: `Error('')` and an error after a skipped save pass too. Require the
