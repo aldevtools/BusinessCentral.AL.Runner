@@ -112,9 +112,27 @@ pub(crate) struct BadValue {
     /// The field's position in the table.
     pub(crate) field: usize,
     pub(crate) kind: BadKind,
-    /// The corpus pins the Insert of this value (P130DateFilters.al:255-293, :306-318); every other value's cells are assumed
-    /// (`sql-date-first-year`).
-    pub(crate) insert_pinned: bool,
+    /// What measured the Insert of this value.
+    pub(crate) insert: InsertEvidence,
+}
+
+/// What measured the Insert of a value the column cannot hold (`records/sql_range.rs`, `insert_sql_range`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum InsertEvidence {
+    /// The corpus pins it: 1753-01-01, 1752-12-31 (also as a closing date), 1753-01-01 00:00, 1752-12-31 12:00 and a DateTime
+    /// that rounds past 9999-12-31 (P130DateFilters.al:255-293, :306-318).
+    Pinned,
+    /// The reporter of al-runner issue 8006 measured it (assumption `sql-date-first-year`, statement not reported): another
+    /// Date in 1753 that is not a closing date, a DateTime in 1753 whose 12-hour clock hour has two digits and that stays in
+    /// its minute.
+    Reporter,
+    /// Only corpus PR 1398 measured it: a DateTime in 1753 whose 12-hour clock hour has one digit and that stays in its
+    /// minute, by the Insert statement into `LT SD Floor Row`, `Trig` with Insert(true), `Sub` and `Blob`
+    /// (SqlDateFloor1753.al Insert_DateTime_MorningHours_1, Trigger_DateTime_1, Subscriber_DateTime_1, Blob_DateTime_1).
+    ProbeHour,
+    /// Only corpus PR 1398 measured it, by the Insert statement into a table without insert code (`LT SD Floor Row`:
+    /// Insert_Date_1753_1, Insert_DateTime_RoundingEdge_1): a closing date in 1753, 1753-12-31 23:59:59.999.
+    ProbePlain,
 }
 
 /// The kinds of value the column cannot hold that a write gate names.
@@ -140,7 +158,7 @@ pub(crate) enum BadKind {
 struct Shown {
     value: String,
     kind: BadKind,
-    insert_pinned: bool,
+    insert: InsertEvidence,
 }
 
 /// The days of 1752-12-31, 1753-01-01 and 1754-01-01.
@@ -164,17 +182,17 @@ fn bad_date(d: i32, closing: bool) -> Result<Option<Shown>, Signal> {
         return Ok(None);
     }
     let (y, m, dd) = al_builtins::format::civil_from_day(d);
-    let shown = |kind, insert_pinned| Shown {
+    let shown = |kind, insert| Shown {
         value: format!("{}{m:02}/{dd:02}/{y:04}", if closing { "C" } else { "" }),
         kind,
-        insert_pinned,
+        insert,
     };
     Ok(Some(match (day, closing) {
-        (d, false) if d == d1753 => shown(BadKind::Date1753, true),
-        (d, false) if d == d1752 => shown(BadKind::Date1752, true),
-        (d, true) if d == d1752 => shown(BadKind::ClosingDate1752, true),
-        (d, false) if d > d1753 && d < d1754 => shown(BadKind::Date1753, false),
-        (d, true) if d >= d1753 && d < d1754 => shown(BadKind::ClosingDate1753, false),
+        (d, false) if d == d1753 => shown(BadKind::Date1753, InsertEvidence::Pinned),
+        (d, false) if d == d1752 => shown(BadKind::Date1752, InsertEvidence::Pinned),
+        (d, true) if d == d1752 => shown(BadKind::ClosingDate1752, InsertEvidence::Pinned),
+        (d, false) if d > d1753 && d < d1754 => shown(BadKind::Date1753, InsertEvidence::Reporter),
+        (d, true) if d >= d1753 && d < d1754 => shown(BadKind::ClosingDate1753, InsertEvidence::ProbePlain),
         _ => {
             return Err(Signal::unsupported(
                 "a Date before 1754-01-01 in a database table, other than the measured ones (not pinned)",
@@ -199,7 +217,7 @@ fn bad_datetime(v: i64) -> Result<Option<Shown>, Signal> {
         return Ok(Some(Shown {
             value: "12/31/9999 11:59 PM".into(),
             kind: BadKind::PastMax,
-            insert_pinned: true,
+            insert: InsertEvidence::Pinned,
         }));
     }
     if day >= d1754 {
@@ -215,7 +233,7 @@ fn bad_datetime(v: i64) -> Result<Option<Shown>, Signal> {
             return Ok(Some(Shown {
                 value: "12/31/1752 12:00 PM".into(),
                 kind: BadKind::DateTime1752,
-                insert_pinned: true,
+                insert: InsertEvidence::Pinned,
             }));
         }
         (d, _) if d < d1753 => return Err(refuse()),
@@ -230,10 +248,16 @@ fn bad_datetime(v: i64) -> Result<Option<Shown>, Signal> {
     let hour12 = if hour % 12 == 0 { 12 } else { hour % 12 };
     let (y, m, dd) = al_builtins::format::civil_from_day(day as i32);
     let half = if hour < 12 { "AM" } else { "PM" };
+    let insert = match (day == d1753 && in_day == 0, same_minute, matches!(hour12, 10..=12)) {
+        (true, _, _) => InsertEvidence::Pinned,
+        (false, true, true) => InsertEvidence::Reporter,
+        (false, true, false) => InsertEvidence::ProbeHour,
+        (false, false, _) => InsertEvidence::ProbePlain,
+    };
     Ok(Some(Shown {
         value: format!("{m:02}/{dd:02}/{y:04} {hour12:02}:{minute:02} {half}"),
         kind: BadKind::DateTime1753,
-        insert_pinned: day == d1753 && in_day == 0,
+        insert,
     }))
 }
 
@@ -256,12 +280,7 @@ pub(crate) fn bad_field(
         (RtType::DateTime, Value::DateTime(v)) if *v != 0 => bad_datetime(*v)?,
         _ => None,
     };
-    let Some(Shown {
-        value,
-        kind,
-        insert_pinned,
-    }) = shown
-    else {
+    let Some(Shown { value, kind, insert }) = shown else {
         return Ok(None);
     };
     // The text names the field and the table; whether by name or caption is not pinned (the corpus tables have neither).
@@ -284,7 +303,7 @@ pub(crate) fn bad_field(
         error,
         field: i,
         kind,
-        insert_pinned,
+        insert,
     }))
 }
 

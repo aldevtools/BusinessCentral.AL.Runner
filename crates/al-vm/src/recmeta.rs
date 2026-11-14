@@ -2033,7 +2033,7 @@ impl Session {
             && !declared("onbeforemodifyevent")
             && !declared("onaftermodifyevent")
             && !self.global_enabled(t, crate::globaltriggers::GlobalOp::Modify)?;
-        self.modify_all_sql_range(rec, t, pos, &value, (of_al, bulk))?;
+        self.modify_all_sql_range(rec, t, pos, &value, (of_al, bulk, rows.is_empty()))?;
         let outer = std::mem::replace(&mut self.bulk_modify, bulk);
         let row_of_al = of_al && run_trigger;
         let r = self.modify_all_rows(rec, rows, pos, &value, (run_trigger, row_of_al), shared);

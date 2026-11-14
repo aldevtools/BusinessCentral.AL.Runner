@@ -6,13 +6,13 @@
 
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{Signal, unsupported};
-use al_builtins::value::Value;
-use al_data::TableDef;
+use al_builtins::value::{RtType, Value};
+use al_data::{Store, TableDef};
 
 use super::Rec;
 use crate::Session;
 use crate::globaltriggers::GlobalOp;
-use crate::sqltime::{BadKind, BadValue};
+use crate::sqltime::{BadKind, BadValue, InsertEvidence};
 use crate::state::WriteOfAl;
 
 /// What a failed Insert and a failed Modify put back on the buffer: its row version and the stamped fields.
@@ -52,10 +52,11 @@ enum TableCode {
     /// No trigger, table extension trigger, event subscriber or database trigger for the write, and no Blob field
     /// (`LT SD Floor Row`, the key tables).
     Plain,
-    /// The table's own trigger of the write (OnInsert, OnModify) and nothing else, no Blob field (`LT SD Floor Trig`).
+    /// The table's own trigger of the write (OnInsert, OnModify) with the measured body (`own_trigger_measured`) and nothing
+    /// else, no Blob field (`LT SD Floor Trig`).
     OwnTrigger,
-    /// A subscriber of the write's Before event and one of its After event and nothing else, no Blob field
-    /// (`LT SD Floor Sub`).
+    /// One static subscriber of the write's Before event and one of its After event, each with the measured log body
+    /// (`one_log_subscriber`), and nothing else, no Blob field (`LT SD Floor Sub`).
     Subscribers,
     /// No code for the write, and a Blob field (`LT SD Floor Blob`).
     PlainWithBlob,
@@ -110,21 +111,27 @@ impl Session {
 
     /// The code a write of `rec` into `t` runs, as one of the measured tables (`TableCode`).
     fn table_code(&mut self, rec: &Rec, t: &TableDef, write: Write) -> Result<TableCode, Signal> {
-        let (own, ext, [before, after], global) = write.names();
-        let own = self.table_trigger(t, own).is_some();
+        let (own, ext, [before_event, after_event], global) = write.names();
+        let own = self.table_trigger(t, own);
+        let own_measured = own.is_some_and(|r| self.own_trigger_measured(t, r));
+        let own = own.is_some();
         let ext = ext.iter().any(|n| !self.ext_triggers(t, n).is_empty());
-        let before = self.listened(t, before, None)?;
-        let after = self.listened(t, after, None)?;
+        let before = self.listened(t, before_event, None)?;
+        let after = self.listened(t, after_event, None)?;
+        let subs_measured =
+            before && after && self.one_log_subscriber(t, before_event)? && self.one_log_subscriber(t, after_event)?;
         let global = self.global_enabled(t, global)?;
         let user = self.is_user_row(t, rec.borrow().temporary);
         let blob = self.has_blob_field(t);
-        Ok(match (own, ext, before, after, global, user, blob) {
-            (false, false, false, false, false, false, false) => TableCode::Plain,
-            (true, false, false, false, false, false, false) => TableCode::OwnTrigger,
-            (false, false, true, true, false, false, false) => TableCode::Subscribers,
-            (false, false, false, false, false, false, true) => TableCode::PlainWithBlob,
-            _ => TableCode::Other,
-        })
+        Ok(
+            match (own, own_measured, ext, before, after, subs_measured, global, user, blob) {
+                (false, false, false, false, false, false, false, false, false) => TableCode::Plain,
+                (true, true, false, false, false, false, false, false, false) => TableCode::OwnTrigger,
+                (false, false, false, true, true, true, false, false, false) => TableCode::Subscribers,
+                (false, false, false, false, false, false, false, false, true) => TableCode::PlainWithBlob,
+                _ => TableCode::Other,
+            },
+        )
     }
 
     /// The facts every measured write shares: a database record that is not a CRM table's, outside the page client.
@@ -137,11 +144,13 @@ impl Session {
     ///
     /// The Insert does not fail, the next access of the table does (record/filters/P130DateFilters.al:255-275, stage `get`),
     /// as for a duplicate key: main's shape, without a Blob or AutoIncrement field, the result not used, no after-insert
-    /// table extension trigger or subscriber. Assumed (`sql-date-first-year`, corpus PR 1398 SqlDateFloor1753.al
-    /// Subscriber_Date_1, Subscriber_DateTime_1): with a Before and an After insert subscriber and Insert(true), the After
-    /// event still fires, then the next access fails. Assumed (Blob_Date_1, Blob_DateTime_1, Blob_DateTime_2): into a table
-    /// with a Blob field and no insert code, the Insert statement itself raises the error. A CRM table has no SQL column: what
-    /// its table connection does with such a value is not pinned. Every other shape is refused.
+    /// table extension trigger or subscriber; a value only corpus PR 1398 measured (`InsertEvidence::ProbeHour`,
+    /// `ProbePlain`) only by the Insert statement into the tables it measured. Assumed (`sql-date-first-year`, corpus PR
+    /// 1398 SqlDateFloor1753.al Subscriber_Date_1, Subscriber_DateTime_1): with the measured Before and After insert
+    /// subscribers and Insert(true), the After event still fires, then the next access fails. Assumed (Blob_Date_1, Blob_DateTime_1, Blob_DateTime_2): Insert()
+    /// of a new key with an empty Blob into a table with a Blob field and no insert code raises the error at the Insert. A
+    /// CRM table has no SQL column: what its table connection does with such a value is not pinned. Every other shape is
+    /// refused.
     pub(super) fn insert_sql_range(
         &mut self,
         rec: &Rec,
@@ -152,21 +161,28 @@ impl Session {
     ) -> Result<Value, Signal> {
         let code = self.table_code(rec, t, Write::Insert)?;
         let base = self.sql_range_write_measured(rec) && !self.ret_used && !shape.auto;
-        let value_1753 = matches!(bad.kind, BadKind::Date1753 | BadKind::DateTime1753);
-        // Blob_Date_1, Blob_DateTime_1: Insert() of a Date and a DateTime in 1753 raises at the Insert.
-        if base && shape.of_al && code == TableCode::PlainWithBlob && value_1753 {
+        // The Blob and subscriber cells measured a Date in 1753 (1753-06-15) and a DateTime in 1753 that stays in its minute
+        // (1753-06-15 03:00): not a closing date, not 23:59:59.999.
+        let cell_value = matches!(bad.insert, InsertEvidence::Reporter | InsertEvidence::ProbeHour);
+        // Blob_Date_1, Blob_DateTime_1: Insert() of a new key with an empty Blob, a Date and a DateTime in 1753, raises at
+        // the Insert.
+        let blob_cell = base && shape.of_al && !shape.run && code == TableCode::PlainWithBlob && cell_value;
+        if blob_cell && Self::blobs_empty(rec) && !self.key_stored(rec, t)? {
             assume(Assumption::SqlDateFirstYear);
             Self::restore_row_version(rec, old_version);
             Self::unstamp(rec, stamped);
             return Err(Signal::Error(Box::new(bad.error)));
         }
         // Subscriber_Date_1, Subscriber_DateTime_1: Insert(true), log `beforeInsert;afterInsert;`, the error at the next access.
-        let after_event = base && shape.of_al && shape.run && code == TableCode::Subscribers && value_1753;
-        // Main's shape. A closing date in 1753 is measured only by the Insert statement into a table without insert code
-        // (Insert_Date_1753_1, _2).
-        let value_measured = match bad.kind {
-            BadKind::ClosingDate1753 => shape.of_al && code == TableCode::Plain,
-            _ => true,
+        let after_event = base && shape.of_al && shape.run && code == TableCode::Subscribers && cell_value;
+        // Main's shape. A value only corpus PR 1398 measured runs only by the Insert statement into the tables it measured
+        // (`InsertEvidence`).
+        let value_measured = match bad.insert {
+            InsertEvidence::Pinned | InsertEvidence::Reporter => true,
+            InsertEvidence::ProbeHour => {
+                shape.of_al && (code == TableCode::Plain || (code == TableCode::OwnTrigger && shape.run))
+            }
+            InsertEvidence::ProbePlain => shape.of_al && code == TableCode::Plain,
         };
         let main_shape = base
             && value_measured
@@ -179,7 +195,12 @@ impl Session {
                 t.name
             ));
         }
-        if after_event || !bad.insert_pinned {
+        if after_event
+            || matches!(
+                bad.insert,
+                InsertEvidence::Reporter | InsertEvidence::ProbeHour | InsertEvidence::ProbePlain
+            )
+        {
             assume(Assumption::SqlDateFirstYear);
         }
         Self::restore_row_version(rec, old_version);
@@ -221,36 +242,52 @@ impl Session {
 
     /// ModifyAll(field, value) of AL code on a Record variable that does not run the triggers, of a table whose modify events no
     /// subscriber declares (`bulk`, one statement for every row): a value the column cannot hold raises the platform's error
-    /// at the ModifyAll, also when no row is in the filter. Assumed (`sql-date-first-year`, corpus PR 1398 SqlDateFloor1753.al
-    /// ModifyAll_Forms_1, ModifyAll_Forms_2, Trigger_ModifyAll_1 `trig modifyall`; RowAfterError_2: the rows keep their
-    /// values) in the cells of `modify_all_cell_measured`. Any other ModifyAll keeps main's path: row by row through Modify.
+    /// at the ModifyAll. Assumed (`sql-date-first-year`, corpus PR 1398 SqlDateFloor1753.al ModifyAll_Forms_1,
+    /// ModifyAll_Forms_2, Trigger_ModifyAll_1 `trig modifyall`; RowAfterError_2: the rows keep their values) in the cells of
+    /// `modify_all_cell_measured`, for a field the table declares itself. Any other ModifyAll of AL code of such a value over
+    /// no row is refused: main raised nothing there, and the measured ModifyAll(.., false) over no row raises
+    /// (ModifyAll_Forms_2), so whether the other forms raise is not known. With rows it keeps main's path: row by row
+    /// through Modify.
     pub(crate) fn modify_all_sql_range(
         &mut self,
         rec: &Rec,
         t: &TableDef,
         pos: usize,
         value: &Value,
-        (of_al, bulk): (bool, bool),
+        (of_al, bulk, no_row): (bool, bool, bool),
     ) -> Result<(), Signal> {
-        if !(of_al && bulk && self.sql_range_write_measured(rec)) {
+        let date_field = matches!(t.fields[pos].ty, RtType::Date | RtType::DateTime);
+        if !(of_al && date_field && self.sql_range_write_measured(rec)) {
             return Ok(());
         }
         let caption = self.caption(t);
-        let Ok(Some(bad)) = crate::sqltime::bad_field(t, pos, value, &|i| self.field_caption(t, i), &caption) else {
+        let Some(bad) = crate::sqltime::bad_field(t, pos, value, &|i| self.field_caption(t, i), &caption)? else {
             return Ok(());
         };
-        if !modify_all_cell_measured(self.table_code(rec, t, Write::Modify)?, bad.kind) {
-            return Ok(());
+        let own_field = self.engine.program.objects[t.object as usize]
+            .table
+            .as_ref()
+            .and_then(|s| s.fields.get(pos))
+            .is_some_and(|f| f.declared_in == Some(t.object));
+        let code = self.table_code(rec, t, Write::Modify)?;
+        if bulk && own_field && modify_all_cell_measured(code, bad.kind, no_row) {
+            assume(Assumption::SqlDateFirstYear);
+            return Err(Signal::Error(Box::new(bad.error)));
         }
-        assume(Assumption::SqlDateFirstYear);
-        Err(Signal::Error(Box::new(bad.error)))
+        if no_row {
+            return unsupported(
+                "ModifyAll over no row of a value its SQL column cannot hold, in a form not measured (not pinned)",
+            );
+        }
+        Ok(())
     }
 
     /// A Rename to a key value its SQL column cannot hold. Assumed (`sql-date-first-year`, corpus PR 1398 SqlDateFloor1753.al
     /// Rename_DateKey_1, Rename_DateKey_2, Rename_DateKey_NextAccess_1, Rename_DateTimeKey_1): the Rename raises the platform's
     /// error and the row keeps its key, for a Date in 1753, the Date 1752-12-31 and a DateTime in 1753, in a table whose
     /// primary key is that one field and that has no rename code, Blob field or related field, by the Rename statement of
-    /// AL code on a Record variable, its result not used. The record takes back its values from before the Rename, as for a
+    /// AL code on a Record variable, its result not used, of a stored row whose fields outside the key the record holds as
+    /// stored (the cells read the row with Get, then Rename). The record takes back its values from before the Rename, as for a
     /// unique key the Rename breaks (what it holds is not measured). Every other Rename of such a value is refused.
     pub(super) fn fail_rename_sql_range(
         &mut self,
@@ -269,13 +306,54 @@ impl Session {
             && !self.ret_used
             && t.keys[0] == [bad.field]
             && self.table_code(rec, t, Write::Rename)? == TableCode::Plain
-            && matches!(bad.kind, BadKind::Date1753 | BadKind::Date1752 | BadKind::DateTime1753);
+            && matches!(bad.kind, BadKind::Date1753 | BadKind::Date1752 | BadKind::DateTime1753)
+            && self.holds_stored_row(rec, t, old)?;
         if !measured {
             return unsupported("a Rename with a value its SQL column cannot hold (not pinned)");
         }
         assume(Assumption::SqlDateFirstYear);
         rec.borrow_mut().fields = old.to_vec();
         Err(Signal::Error(Box::new(bad.error)))
+    }
+
+    /// Every Blob field of `rec` is empty.
+    fn blobs_empty(rec: &Rec) -> bool {
+        rec.borrow().fields.iter().all(|v| match v {
+            Value::Blob(b) => b.borrow().bytes.is_empty(),
+            _ => true,
+        })
+    }
+
+    /// A row of `t` has the primary key `rec` holds.
+    fn key_stored(&mut self, rec: &Rec, t: &TableDef) -> Result<bool, Signal> {
+        let cx = self.cx_for(rec, t)?;
+        let key = Self::sql_key(rec, t, &rec.borrow().fields);
+        let row = self
+            .store_for(rec)
+            .get(&cx, t, &key)
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
+        Ok(row.is_some())
+    }
+
+    /// A row of `t` is stored under the primary key of `fields` and each of its stored fields outside the key equals the one
+    /// in `fields`.
+    fn holds_stored_row(&mut self, rec: &Rec, t: &TableDef, fields: &[Value]) -> Result<bool, Signal> {
+        let cx = self.cx_for(rec, t)?;
+        let key = Self::sql_key(rec, t, fields);
+        let Some(row) = self
+            .store_for(rec)
+            .get(&cx, t, &key)
+            .map_err(|e| Signal::unsupported(format!("{e}")))?
+        else {
+            return Ok(false);
+        };
+        let compared = |i: &usize| t.fields[*i].stored && !t.keys[0].contains(i);
+        Ok((0..t.fields.len()).filter(compared).all(|i| {
+            matches!(
+                (fields.get(i), row.get(i)),
+                (Some(a), Some(b)) if al_builtins::ops::compare(a, b).is_ok_and(|o| o.is_eq())
+            )
+        }))
     }
 }
 
@@ -300,12 +378,14 @@ fn modify_cell_measured(caller: ModifyCaller, code: TableCode, kind: BadKind) ->
     )
 }
 
-/// The ModifyAll(.., false) cells SqlDateFloor1753.al measured: `LT SD Floor Row` with a Date and a DateTime in 1753, with and
-/// without rows in the filter (ModifyAll_Forms_1, ModifyAll_Forms_2), `LT SD Floor Trig` with a Date in 1753
-/// (Trigger_ModifyAll_1).
-fn modify_all_cell_measured(code: TableCode, kind: BadKind) -> bool {
+/// The ModifyAll(.., false) cells SqlDateFloor1753.al measured, by table, value and whether no row is in the filter:
+/// `LT SD Floor Row` with a Date in 1753 with and without rows (ModifyAll_Forms_1, ModifyAll_Forms_2) and with a DateTime in
+/// 1753 with rows (ModifyAll_Forms_1), `LT SD Floor Trig` with a Date in 1753 with rows (Trigger_ModifyAll_1).
+fn modify_all_cell_measured(code: TableCode, kind: BadKind, no_row: bool) -> bool {
     matches!(
-        (code, kind),
-        (TableCode::Plain, BadKind::Date1753 | BadKind::DateTime1753) | (TableCode::OwnTrigger, BadKind::Date1753)
+        (code, kind, no_row),
+        (TableCode::Plain, BadKind::Date1753, _)
+            | (TableCode::Plain, BadKind::DateTime1753, false)
+            | (TableCode::OwnTrigger, BadKind::Date1753, false)
     )
 }

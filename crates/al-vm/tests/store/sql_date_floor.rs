@@ -50,6 +50,50 @@ table 69997 "SDF After Only"
     fields { field(1; Id; Integer) { } field(2; Dt; Date) { } }
     keys { key(PK; Id) { } }
 }
+table 69980 "SDF Trig Log"
+{
+    fields { field(1; Id; Integer) { } field(2; Dt; Date) { } }
+    keys { key(PK; Id) { } }
+    trigger OnModify() var L: Codeunit "SDF Log"; begin L.Add('trigger'); end;
+}
+table 69981 "SDF Trig Date"
+{
+    fields { field(1; Id; Integer) { } field(2; Dt; Date) { } field(3; Other; Date) { } }
+    keys { key(PK; Id) { } }
+    trigger OnModify() begin Other := 20240101D; end;
+}
+table 69982 "SDF Two Before"
+{
+    fields { field(1; Id; Integer) { } field(2; Dt; Date) { } }
+    keys { key(PK; Id) { } }
+}
+table 69983 "SDF Sub Reads"
+{
+    fields { field(1; Id; Integer) { } field(2; Dt; Date) { } }
+    keys { key(PK; Id) { } }
+}
+table 69984 "SDF Date Key Amt"
+{
+    fields { field(1; Dk; Date) { } field(2; Amount; Integer) { } }
+    keys { key(PK; Dk) { } }
+}
+tableextension 69985 "SDF Row Ext" extends "SDF Row"
+{
+    fields { field(50; XDt; Date) { } }
+}
+codeunit 69979 "SDF Subs 2"
+{
+    [EventSubscriber(ObjectType::Table, Database::"SDF Two Before", 'OnBeforeModifyEvent', '', false, false)]
+    local procedure B1(var Rec: Record "SDF Two Before"; var xRec: Record "SDF Two Before"; RunTrigger: Boolean) var L: Codeunit "SDF Log"; begin L.Add('before1'); end;
+    [EventSubscriber(ObjectType::Table, Database::"SDF Two Before", 'OnBeforeModifyEvent', '', false, false)]
+    local procedure B2(var Rec: Record "SDF Two Before"; var xRec: Record "SDF Two Before"; RunTrigger: Boolean) var L: Codeunit "SDF Log"; begin L.Add('before2'); end;
+    [EventSubscriber(ObjectType::Table, Database::"SDF Two Before", 'OnAfterModifyEvent', '', false, false)]
+    local procedure A1(var Rec: Record "SDF Two Before"; var xRec: Record "SDF Two Before"; RunTrigger: Boolean) var L: Codeunit "SDF Log"; begin L.Add('after'); end;
+    [EventSubscriber(ObjectType::Table, Database::"SDF Sub Reads", 'OnBeforeInsertEvent', '', false, false)]
+    local procedure RBI(var Rec: Record "SDF Sub Reads"; RunTrigger: Boolean) var L: Codeunit "SDF Log"; begin L.Add('beforeInsert'); end;
+    [EventSubscriber(ObjectType::Table, Database::"SDF Sub Reads", 'OnAfterInsertEvent', '', false, false)]
+    local procedure RAI(var Rec: Record "SDF Sub Reads"; RunTrigger: Boolean) var L: Codeunit "SDF Log"; begin L.Add(Format(Rec.Dt, 0, 9)); end;
+}
 codeunit 69998 "SDF Log"
 {
     SingleInstance = true;
@@ -75,6 +119,130 @@ codeunit 69999 "SDF Subs"
 }
 codeunit 69992 C
 {
+    procedure ModifyTrigLog(Dt: Date)
+    var R: Record "SDF Trig Log";
+    begin
+        R.Id := 1; R.Insert();
+        R.Dt := Dt; R.Modify(true);
+    end;
+
+    procedure ModifyTrigDate(Dt: Date)
+    var R: Record "SDF Trig Date";
+    begin
+        R.Id := 1; R.Insert();
+        R.Dt := Dt; R.Modify(true);
+    end;
+
+    procedure TrigModifyAllEmpty(Dt: Date)
+    var R: Record "SDF Trig Row";
+    begin
+        R.SetRange(Id, 99);
+        R.ModifyAll(Dt, Dt);
+    end;
+
+    procedure ModifyAllDtmEmpty(Dtm: DateTime)
+    var R: Record "SDF Row";
+    begin
+        R.SetRange(Id, 99);
+        R.ModifyAll(Dtm, Dtm);
+    end;
+
+    procedure TempModifyAllEmpty(Dt: Date)
+    var R: Record "SDF Row" temporary;
+    begin
+        R.SetRange(Id, 99);
+        R.ModifyAll(Dt, Dt);
+    end;
+
+    procedure ExtModifyAll(Dt: Date)
+    var R: Record "SDF Row";
+    begin
+        R.Id := 1; R.Insert();
+        R.ModifyAll(XDt, Dt);
+    end;
+
+    procedure RenameMissing(Dt: Date)
+    var R: Record "SDF Date Key";
+    begin
+        R.Dk := 20240102D;
+        R.Rename(Dt);
+    end;
+
+    procedure RenameChanged(Dt: Date)
+    var R: Record "SDF Date Key Amt";
+    begin
+        R.Dk := 20240102D; R.Insert();
+        R.Get(20240102D);
+        R.Amount := 5;
+        R.Rename(Dt);
+    end;
+
+    procedure RenameNotRead(Dt: Date)
+    var R: Record "SDF Date Key Amt"; Other: Record "SDF Date Key Amt";
+    begin
+        Other.Dk := 20240102D; Other.Amount := 3; Other.Insert();
+        R.Dk := 20240102D;
+        R.Rename(Dt);
+    end;
+
+    procedure RenameAfterGet(Dt: Date)
+    var R: Record "SDF Date Key Amt";
+    begin
+        R.Dk := 20240102D; R.Amount := 3; R.Insert();
+        Clear(R);
+        R.Get(20240102D);
+        R.Rename(Dt);
+    end;
+
+    procedure BlobInsertTrue(Dt: Date)
+    var R: Record "SDF Blob Row";
+    begin
+        R.Id := 1; R.Dt := Dt; R.Insert(true);
+    end;
+
+    procedure BlobInsertDuplicate(Dt: Date)
+    var R: Record "SDF Blob Row";
+    begin
+        R.Id := 1; R.Insert();
+        R.Dt := Dt; R.Insert();
+    end;
+
+    procedure BlobInsertContent(Dt: Date)
+    var R: Record "SDF Blob Row"; OS: OutStream;
+    begin
+        R.Id := 1; R.Dt := Dt;
+        R.B.CreateOutStream(OS); OS.WriteText('x');
+        R.Insert();
+    end;
+
+    procedure TwoBeforeModify(Dt: Date)
+    var R: Record "SDF Two Before";
+    begin
+        R.Id := 1; R.Insert();
+        R.Dt := Dt; R.Modify(true);
+    end;
+
+    procedure SubReadsInsert(Dt: Date)
+    var R: Record "SDF Sub Reads";
+    begin
+        R.Id := 1; R.Dt := Dt; R.Insert(true);
+    end;
+
+    procedure RecRefInsertDtm(Dtm: DateTime): Text
+    var RR: RecordRef; Back: Record "SDF Row"; Stage: Text;
+    begin
+        asserterror begin
+            Stage := 'insert';
+            RR.Open(Database::"SDF Row");
+            RR.Field(1).Value := 900; RR.Field(4).Value := Dtm; RR.Insert();
+            Stage := 'get';
+            Back.Get(900);
+            Stage := 'stored';
+            Error('stored');
+        end;
+        exit(Stage + '|' + GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+
     procedure ModifyAllEmpty(Dt: Date)
     var R: Record "SDF Row";
     begin
@@ -594,20 +762,90 @@ fn a_rename_to_a_1753_key_raises() {
     refused("RenameKeyTrig", vec![date(1753, 6, 15, false)]);
 }
 
-// Shapes outside the measured cells keep main's outcome: a ModifyAll(.., true) and a ModifyAll of a Blob table over no row
-// write nothing and raise nothing; a ModifyAll(.., false) row by row (an After subscriber declared)
+// Shapes outside the measured cells keep main's outcome: a ModifyAll(.., false) row by row (an After subscriber declared)
 // refuses as before; a table with only After subscribers refuses its Insert and Modify as before; a closing date into a
-// table with insert subscribers refuses as before.
+// table with insert subscribers refuses as before. ModifyAll over no row of a value the column holds, and of a temporary
+// record, raises nothing.
 #[test]
 fn the_neighbors_keep_main() {
-    let (r, hit) = run("ModifyAllTrueEmpty", vec![date(1753, 6, 15, false)]);
-    assert!(!hit && r.is_ok(), "{r:?}");
-    let (r, hit) = run("BlobModifyAllEmpty", vec![date(1753, 6, 15, false)]);
-    assert!(!hit && r.is_ok(), "{r:?}");
     refused("AfterOnlyModifyAll", vec![date(1753, 6, 15, false)]);
     refused("AfterOnlyModify", vec![date(1753, 6, 15, false)]);
     refused("AfterOnlyInsert", vec![date(1753, 6, 15, false)]);
     refused("SubInsert", vec![date(1753, 6, 15, true), Value::Boolean(true)]);
+    let (r, hit) = run("ModifyAllTrueEmpty", vec![date(1754, 1, 1, false)]);
+    assert!(!hit && r.is_ok(), "{r:?}");
+    let (r, hit) = run("TempModifyAllEmpty", vec![date(1753, 6, 15, false)]);
+    assert!(!hit && r.is_ok(), "{r:?}");
+}
+
+// A ModifyAll of AL code over no row, of a value the column cannot hold, that no measured cell takes: main raised nothing; the
+// measured cell next to it (ModifyAll_Forms_2: ModifyAll(.., false) over no row raises) makes that doubtful, so it refuses:
+// ModifyAll(.., true), a Blob table, a closing date, the trigger table (measured with rows only: Trigger_ModifyAll_1), a
+// DateTime (measured with rows only: ModifyAll_Forms_1).
+#[test]
+fn a_modify_all_over_no_row_outside_the_cells_refuses() {
+    refused("ModifyAllTrueEmpty", vec![date(1753, 6, 15, false)]);
+    refused("BlobModifyAllEmpty", vec![date(1753, 6, 15, false)]);
+    refused("ModifyAllEmpty", vec![date(1753, 6, 15, true)]);
+    refused("TrigModifyAllEmpty", vec![date(1753, 6, 15, false)]);
+    refused("ModifyAllDtmEmpty", vec![datetime(1753, 6, 15, 3 * 3_600_000)]);
+}
+
+// A field a table extension adds is not measured: its ModifyAll goes row by row as on main and refuses.
+#[test]
+fn a_modify_all_of_a_table_extension_field_refuses() {
+    refused("ExtModifyAll", vec![date(1753, 6, 15, false)]);
+}
+
+// Only the measured OnModify body (`Hits += 10`) is taken: a trigger that calls code or writes a Date field refuses.
+#[test]
+fn an_unmeasured_trigger_body_refuses() {
+    refused("ModifyTrigLog", vec![date(1753, 6, 15, false)]);
+    refused("ModifyTrigDate", vec![date(1753, 6, 15, false)]);
+}
+
+// Subscribers: exactly one Before and one After subscriber that only log (the measured bodies). Two Before subscribers, and an
+// After insert subscriber that reads Rec, refuse.
+#[test]
+fn unmeasured_subscribers_refuse() {
+    refused("TwoBeforeModify", vec![date(1753, 6, 15, false)]);
+    refused("SubReadsInsert", vec![date(1753, 6, 15, false)]);
+}
+
+// Rename: the measured cell is a Get then the Rename. A key not stored, a buffer changed after the Get and a buffer not read
+// refuse; a buffer read by Get raises.
+#[test]
+fn a_rename_needs_the_row_read() {
+    refused("RenameMissing", vec![date(1753, 6, 15, false)]);
+    refused("RenameChanged", vec![date(1753, 6, 15, false)]);
+    refused("RenameNotRead", vec![date(1753, 6, 15, false)]);
+    raised(
+        "RenameAfterGet",
+        vec![date(1753, 6, 15, false)],
+        "06/15/1753",
+        "Dk",
+        "SDF Date Key Amt",
+    );
+}
+
+// Blob table: the measured cell is Insert() of a new key with an empty Blob. Insert(true), a key that is stored and a Blob with
+// content refuse.
+#[test]
+fn a_blob_insert_outside_the_cell_refuses() {
+    refused("BlobInsertTrue", vec![date(1753, 6, 15, false)]);
+    refused("BlobInsertDuplicate", vec![date(1753, 6, 15, false)]);
+    refused("BlobInsertContent", vec![date(1753, 6, 15, false)]);
+}
+
+// The values corpus PR 1398 measured and the reporter did not (a one-digit hour) are taken only by the Insert statement;
+// RecordRef.Insert refuses them, and keeps main's result for a value main took (a two-digit hour).
+#[test]
+fn a_recordref_insert_takes_only_main_values() {
+    refused("RecRefInsertDtm", vec![datetime(1753, 6, 15, 3 * 3_600_000)]);
+    assert_eq!(
+        flagged("RecRefInsertDtm", vec![datetime(1753, 6, 15, 11 * 3_600_000)]),
+        bad("get", "06/15/1753 11:00 AM", "Dtm")
+    );
 }
 
 // A missing row keeps main's RecordNotFound for a value the column holds.

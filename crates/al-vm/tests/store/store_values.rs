@@ -697,13 +697,16 @@ fn unpinned_sql_range_cases_are_refused() {
         vec![date(1600, 6, 1, false), al_builtins::value::Value::DateTime(0)],
     );
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
-    // An Insert of a 1753 Date into a table with a Blob field raises at the Insert since corpus PR 1398 measured it
-    // (SqlDateFloor1753.al Blob_Date_1, assumption `sql-date-first-year`); main refused it.
-    let r = dates("StoreBlobTable", vec![date(1753, 1, 1, false)]);
+    // An Insert of 1753-06-15 into a table with a Blob field raises at the Insert since corpus PR 1398 measured it
+    // (SqlDateFloor1753.al Blob_Date_1, assumption `sql-date-first-year`); main refused it. 1753-01-01 is pinned only into a
+    // table without a Blob field (P130DateFilters.al:255-293): into this table it stays refused, as on main.
+    let r = dates("StoreBlobTable", vec![date(1753, 6, 15, false)]);
     assert!(
         matches!(&r, Err(Signal::Error(e)) if e.code == "NDBCS:BadCSideData"),
         "{r:?}"
     );
+    let r = dates("StoreBlobTable", vec![date(1753, 1, 1, false)]);
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 
 // streams/P132ReportTimeMs.al:190, :197: a Time that rounds to midnight reads 00:00:00.
