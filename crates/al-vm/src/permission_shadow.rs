@@ -96,8 +96,13 @@ impl Session {
         self.shadow_unit("record", r)
     }
 
-    pub(crate) fn permission_gate_flowfield(&mut self, rec: &crate::records::Rec, table: usize) -> Result<(), Signal> {
-        let r = self.permission_gate_flowfield_decided(rec, table);
+    pub(crate) fn permission_gate_flowfield(
+        &mut self,
+        rec: &crate::records::Rec,
+        table: usize,
+        stack: &[crate::flowfields::CalcFrame],
+    ) -> Result<(), Signal> {
+        let r = self.permission_gate_flowfield_decided(rec, table, stack);
         self.shadow_unit("flowfield", r)
     }
 
