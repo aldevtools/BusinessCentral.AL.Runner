@@ -79,6 +79,10 @@ finds the next neighbor shape. Write the gate in allowlist form:
     and routine kind alc measured, by equality (al-runner PR 7980).
   - an events exception list copied from a sibling row: the exception is true only where the caller raises the event
     (`format_unsupported_by_layout`). Check who raises each excepted event for the new row's shape (al-runner PR 7979).
+  - an error raised for a line before the line is known to be the pinned kind: a parser that reads line by line and
+    raises the pinned error from the value, before it checks the key, also raises it for comments, wrapped flow
+    collections and other valid input. Check every fact of the pinned line (key, value, position) before the error
+    (al-runner PR 8017).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
@@ -212,3 +216,9 @@ lines and one-statement assignments of an answer value (`Success := true;`) may 
 A checker change that lets a new shape compile: follow the name into lowering. Two declarations the checker tells apart
 may share one slot there (a declared global `Rec` and the implicit Rec of a codeunit with TableNo). Run the shape and
 read a value that tells them apart.
+
+## 15. A comment says "X members are pinned" while the gate takes the whole type (al-runner PR 8017)
+
+A doc comment or area-table row says "X members are pinned" while the gate takes the whole type (any text, any
+Integer). The pins measured a few values. Name the measured values in the comment and gate on them (rounds 1 and 2:
+`yaml_text`, `array_item`, `inner_value`).

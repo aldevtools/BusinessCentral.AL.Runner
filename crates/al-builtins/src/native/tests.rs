@@ -36,7 +36,7 @@ pub(crate) struct TestCtx {
     err: AlError,
     install: bool,
     in_test: bool,
-    result_ignored: bool,
+    pub(crate) result_ignored: bool,
 }
 impl FormatCtx for TestCtx {
     fn enum_name(&self, _id: u32, o: i32) -> String {

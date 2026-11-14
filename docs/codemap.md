@@ -93,6 +93,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `http/mod.rs` (464): HttpClient, HttpRequestMessage, HttpResponseMessage, HttpHeaders, HttpContent, Cookie. Submodules: `content`, `cookies`, `dates`, `headers`, `header_rules`, `messages`, `secret_read` (which `ReadAs(SecretText)` call sequences have evidence), `send`, `uri`. Entry: `native_for` (mod.rs).
 - `iso.rs` (121): ISO 8601 text to AL date/time values (JSON strings, XML-format Evaluate). Entry: `days_in_month` 11, `parse_date` 21, `parse_time` 36, `parse_datetime` 56.
 - `json.rs` (1415): JsonObject, JsonArray, JsonToken and JsonValue. Entry: `Handle` 17, `JsonCell` 21, `JsonNode` 27, `Scalar` 34.
+- `json/yaml.rs` (~190): `JsonObject.WriteToYaml` and `ReadFromYaml`; `json/yaml/read.rs` owns which YAML shapes are read (the pinned ones; every other shape refuses). Entry: `read_from_yaml`, `write_to_yaml`, `read::document`.
 - `lib.rs` (39): Crate root of the AL standard library: values, builtins, catalog.
 - `decimal_scale.rs` (55): The decimals a Decimal shows where its scale is seen (zero, one and minus one none); the report dataset writes it and Round marks by it. Entry: `shown`, `shows_zeros`.
 - `mathfns.rs` (245): Round and Power. Entry: `round` 31.
