@@ -162,21 +162,24 @@ fn added_by_extension(p: &Providers, t: &TableDef, r: &al_data::Row) -> bool {
     };
     let engine = p.engine();
     let c = Catalog::new(&engine);
-    let Some(field) = c
-        .table_by_id(*tid as u32)
-        .and_then(|o| o.table.as_ref())
+    let Some(table) = c.table_by_id(*tid as u32) else {
+        return false;
+    };
+    let Some(field) = table
+        .table
+        .as_ref()
         .and_then(|s| s.fields.iter().find(|f| f.id == *no as u32))
     else {
         return false;
     };
-    declaring_extension(&c, field).is_some()
+    declaring_extension(&c, table, field).is_some()
 }
 
 /// The table extension that declares field `f`, when one does (`al_ir::Field::declared_in`).
-fn declaring_extension<'a>(c: &Catalog<'a>, f: &Field) -> Option<&'a Object> {
+fn declaring_extension<'a>(c: &Catalog<'a>, table: &Object, f: &Field) -> Option<&'a Object> {
     c.objects
         .get(f.declared_in? as usize)
-        .filter(|o| o.kind == al_ir::ObjKind::TableExtension)
+        .filter(|o| o.kind == al_ir::ObjKind::TableExtension && o.app != table.app)
 }
 
 pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
@@ -349,9 +352,10 @@ fn package_columns(c: &Catalog, table: &Object, t: &TableDef) -> Vec<(usize, Val
 /// when the shape is the measured
 /// one: an extension of an app under test on a table of an app under test or of Base Application. Any other extension (of a
 /// dependency app, on another dependency app's table or on a platform table) leaves both columns unknown, with `false`. `None`
-/// for a field the table declares itself, and for a system field.
+/// for a field the table declares itself, and for a system field. An extension in the table's own app keeps the table's ids
+/// (not measured by corpus PR 1402).
 fn extension_packages(c: &Catalog, table: &Object, f: &Field, t: &TableDef) -> Option<(Vec<(usize, Value)>, bool)> {
-    let ext = declaring_extension(c, f)?;
+    let ext = declaring_extension(c, table, f)?;
 
     let from_package = |o: &Object| c.apps.get(o.app as usize).is_some_and(|a| a.dependency);
     let base_application = c

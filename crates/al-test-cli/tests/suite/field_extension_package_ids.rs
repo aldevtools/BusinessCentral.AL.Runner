@@ -375,3 +375,48 @@ codeunit 50120 T
         o[0].1
     );
 }
+
+/// A table extension in the table's own app is not the measured shape (corpus PR 1402 measures extensions of another app):
+/// it keeps main's result. The field's row gets no extension ids, so a Get gives the null ids of the table's own fields
+/// (PlatformMetadataColumnValues.al:287-311), a `<>` filter on the table's id finds no row (main's result, as the null id is not a column value), and no assumption is flagged.
+#[test]
+fn issue_8051_extension_in_the_tables_own_app_keeps_main() {
+    let src = r#"
+table 50100 "Same Line"
+{
+    fields { field(1; "No."; Code[20]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+tableextension 50110 "Same Line Ext" extends "Same Line"
+{
+    fields { field(50110; "Ext Station"; Text[20]) { } }
+}
+
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure SameApp()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.Get(50100, 50110);
+        if not IsNullGuid(F."App Package ID") then
+            Error('get %1', F."App Package ID");
+        F.Reset();
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 50110);
+        F.SetFilter("App Package ID", '<>%1', Tbl."App Package ID");
+        if F.Count() <> 0 then
+            Error('filter %1', F.Count());
+    end;
+}"#;
+    let o = run(&[(OWNER_ID, AppKind::Workspace, src)]);
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
+    assert!(!o[0].2.contains(&Assumption::FieldRowExtensionPackageIds));
+}
