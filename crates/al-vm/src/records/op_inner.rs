@@ -594,7 +594,7 @@ impl Session {
                 }
                 let mut stored = Self::to_store(rec, view);
                 self.webhook_application_id(&t, rec, &mut stored)?;
-                if let Some(e) = self.sql_columns(rec, &t, &mut stored)? {
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
                     // A value the SQL column cannot hold: the Insert does not fail, the next access of the table does
                     // (record/filters/P130DateFilters.al:255-275, stage `get`), as for a duplicate key. With a Blob
                     // field, an AutoIncrement field, the result used, an after-insert trigger or event, or a page write it is
@@ -617,9 +617,12 @@ impl Session {
                             t.name
                         ));
                     }
+                    if bad.evidence == crate::sqltime::Evidence::Reporter1753 {
+                        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SqlDateFirstYear);
+                    }
                     Self::restore_row_version(rec, old_version);
                     Self::unstamp(rec, stamped);
-                    self.defer_insert(rec, t.object, e);
+                    self.defer_insert(rec, t.object, bad.error);
                     return Ok(Value::Boolean(true));
                 }
                 let empty_blob = Self::temp_insert_blobs(rec, &stored);
@@ -934,9 +937,8 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, view);
-                // Only the Insert of a value the SQL column cannot hold is pinned (record/filters/P130DateFilters.al:234-275).
-                if self.sql_columns(rec, &t, &mut stored)?.is_some() {
-                    return unsupported("a Modify of a value its SQL column cannot hold (not pinned)");
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                    return self.fail_modify_sql_range(rec, &t, bad);
                 }
                 Self::mark_blobs_inserted(rec, &stored, false);
                 let before = self.store.change_counter();

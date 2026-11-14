@@ -27,6 +27,7 @@ mod flowfield_key;
 mod insert_buffer;
 mod setfilter_empty_or_side;
 mod setrange_filter;
+mod sql_range;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 mod nested_validate;
 pub(crate) use nested_validate::ValidateSite;
@@ -1439,9 +1440,7 @@ impl Session {
     }
 
     /// Whether an insert or modify of `t` would run table code (a trigger, an extension trigger
-    /// or an event subscriber). XmlPort import refuses such tables: whether it runs them is not
-    /// pinned (docs/probes-needed.md).
-    #[allow(dead_code)] // the XmlPort import ran no hooks before; it runs them now
+    /// or an event subscriber).
     pub(crate) fn has_write_hooks(&mut self, t: &TableDef) -> Result<bool, Signal> {
         let mut any = ["OnInsert", "OnModify"]
             .iter()
@@ -1931,14 +1930,19 @@ impl Session {
 
     /// The Date, Time and DateTime values of a database table's row as its SQL columns hold them (`sqltime`): `Some` error
     /// for a value the column cannot hold. A temporary table keeps the values as they are.
-    fn sql_columns(&self, rec: &Rec, t: &TableDef, row: &mut [Value]) -> Result<Option<AlError>, Signal> {
+    fn sql_columns(
+        &self,
+        rec: &Rec,
+        t: &TableDef,
+        row: &mut [Value],
+    ) -> Result<Option<crate::sqltime::BadValue>, Signal> {
         if rec.borrow().temporary {
             return Ok(None);
         }
         let caption = self.caption(t);
         match crate::sqltime::store(t, &|i| self.field_caption(t, i), &caption, row)? {
             crate::sqltime::Stored::Fits => Ok(None),
-            crate::sqltime::Stored::Bad(e) => Ok(Some(e)),
+            crate::sqltime::Stored::Bad(bad) => Ok(Some(bad)),
         }
     }
 
