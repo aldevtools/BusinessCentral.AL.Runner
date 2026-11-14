@@ -681,17 +681,19 @@ fn dates_out_of_the_sql_range_fail_at_the_next_access() {
     );
 }
 
-// Not pinned: other dates before 1753-01-02, a Modify before 1753 or of a closing
-// date (the Modify of a 1753 date: tests/store/sql_date_floor.rs).
+// Not pinned: dates before 1700-01-01 (dates from 1700 and the Modify of a closing date in 1753, which corpus PR 1398
+// measured: tests/store/sql_date_floor.rs).
 #[test]
 fn unpinned_sql_range_cases_are_refused() {
-    for (routine, d) in [
-        ("ModifyTo", date(1600, 6, 1, false)),
-        ("ModifyTo", date(1753, 1, 1, true)),
-    ] {
-        let r = dates(routine, vec![d.clone()]);
-        assert!(matches!(r, Err(Signal::Unsupported(_))), "{routine} {d:?}: {r:?}");
-    }
+    let r = dates("ModifyTo", vec![date(1600, 6, 1, false)]);
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    // Modify_Date_ClosingAndOutside_1 and _2 (SqlDateFloor1753.al, assumption `sql-date-first-year`): the Modify() of a closing
+    // date in 1753 raises; it was refused here before corpus PR 1398 measured it.
+    let r = dates("ModifyTo", vec![date(1753, 1, 1, true)]);
+    assert!(
+        matches!(&r, Err(Signal::Error(e)) if e.code == "NDBCS:BadCSideData"),
+        "{r:?}"
+    );
     let r = dates(
         "Store",
         vec![date(1600, 6, 1, false), al_builtins::value::Value::DateTime(0)],
