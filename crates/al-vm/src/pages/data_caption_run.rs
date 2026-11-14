@@ -61,6 +61,12 @@ impl Session {
         if st.borrow().mode == PageMode::New {
             return Ok(());
         }
+        self.run_data_caption_held_back(st)
+    }
+
+    /// Runs the page's DataCaptionExpression, keeps what it returned and holds back the plain globals it assigned until the
+    /// next row arrives (`apply_data_caption_globals`).
+    pub(super) fn run_data_caption_held_back(&mut self, st: &St) -> Result<(), Signal> {
         let inst = st.borrow().instance.clone().expect("open page");
         let before = inst.borrow().globals.clone();
         let value = self.data_caption_expression_value(st);

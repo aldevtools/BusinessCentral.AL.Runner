@@ -214,6 +214,7 @@ mod filter;
 mod filter_enum;
 mod filter_eq_text;
 mod filter_link_numbers;
+mod filter_option_ne;
 mod modal_handler_error;
 mod page_run_close;
 pub(crate) use page_run_close::PageRunCall;
@@ -250,6 +251,7 @@ mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
 mod currpage_run_typed_key;
+mod data_caption_open;
 mod data_caption_run;
 mod dev_endpoint;
 mod dirty_step;
@@ -339,8 +341,8 @@ mod typed_handler_temp;
 mod walk_parts;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, PageMode, PageState, ReadBackwards, WindowRow, control_of,
-    into_st, page_value, st_of, test_control,
+    ClosedBy, ControlRef, ControlTarget, Cursor, LookupKind, OpenEditable, PageMode, PageState, ReadBackwards,
+    WindowRow, control_of, into_st, page_value, st_of, test_control,
 };
 
 impl Session {

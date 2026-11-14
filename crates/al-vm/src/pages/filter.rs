@@ -108,6 +108,12 @@ impl Session {
                     (RtType::Enum(_), Some(FilterExpr::Ne(Value::Enum(_, x)))) => {
                         return Ok(Value::Text(format!("<>{x}").into()));
                     }
+                    // `<>` and the first member of an Option, typed by the test, reads as `<>0` (`filter_option_ne.rs`).
+                    (RtType::Option(_), Some(FilterExpr::Ne(_)))
+                        if self.option_ne_reads_number(st, &rec, &table, first.as_ref()) =>
+                    {
+                        return Ok(Value::Text("<>0".to_string().into()));
+                    }
                     // A Boolean that a SourceTableView (group 2) or an action's RunPageView (group 3) filters with `const(true)`
                     // reads `1` (testpage/RzRunPageLinkView.al:62 RZ_Link_WhereView_I1, :112
                     // RZ_LinkAndRunPageViewWhere_DescendingView_I1). `const(false)` there is not pinned.
@@ -154,12 +160,18 @@ impl Session {
                 }
                 // An empty text or one of spaces takes the user's filter off the field: GetFilter reads empty and every row shows
                 // (testpage/AoTests.al:673-695 TestFilter_SetFilterSpace, _SetFilterEmpty, :930-940
-                // SF_TestFilter_SetFilterTwoSpaces). A text that starts with `=` sets no filter in the cell `eq_text_sets_no_filter` measured
-                // (testpage/filters/TempListOffPageBooleanFilter.al:343-348, :447): the field has no test filter there, so this takes nothing
-                // off. Where the page stands right after it is not measured (each pinned case moves with First() next); it takes the
-                // empty text's path.
-                if text.trim().is_empty() || self.eq_text_sets_no_filter(st, &rec, pos, &ty, &text) {
+                // SF_TestFilter_SetFilterTwoSpaces).
+                if text.trim().is_empty() {
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
+                    st.borrow_mut().note_test_filter(pos, None);
+                    self.filter_changed(st, true)?;
+                    return Ok(Value::Null);
+                }
+                // A text that starts with `=` sets no filter in the cells `eq_text_sets_no_filter` measured and leaves an earlier
+                // filter on the field as it was (testpage/filters/TempListOffPageBooleanFilter.al:343-348, :447; corpus PR 1392
+                // WorksheetEnumEqFilter.al:565). Where the page stands right after it is not measured (each measured case moves with
+                // First() next); the page reads its view again, as after the empty text.
+                if self.eq_text_sets_no_filter(st, &rec, &table, pos, &text)? {
                     self.filter_changed(st, true)?;
                     return Ok(Value::Null);
                 }
@@ -172,6 +184,8 @@ impl Session {
                     // In place when there is one: group 0 keeps its place ahead of the groups the
                     // page wrote after it (corpus testpage/filters/TestTestFilterFilterGroups.al:4).
                     let mut r = rec.borrow_mut();
+                    st.borrow_mut()
+                        .note_test_filter(pos, Some((text.to_string(), expr.clone())));
                     match r.filters.iter().position(|f| f.field == pos && f.group == 0) {
                         Some(i) => r.filters[i].expr = expr,
                         None => r.filters.push(FieldFilter {

@@ -67,6 +67,7 @@ impl Session {
             reason: "a call of the test after the header of an OpenNew Document was stored before its variable control \
                      validated, other than Close (not pinned)",
             reads: false,
+            caption: false,
             part_reads: false,
             one_action: false,
             first_ends: false,

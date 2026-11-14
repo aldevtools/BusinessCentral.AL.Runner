@@ -47,6 +47,7 @@ impl Session {
         st.borrow_mut().open = false;
         st.borrow_mut().closed_by = Some(ClosedBy::Other);
         st.borrow_mut().page_run = None;
+        st.borrow_mut().test_filters = Vec::new();
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
         let hidden = st.borrow().hidden_parts.clone();
