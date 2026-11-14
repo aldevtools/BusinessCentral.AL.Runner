@@ -117,8 +117,8 @@ impl Session {
     }
 
     /// The measured cell `st` is in, every fact required as DataCaptionExprWorksheet.al has it:
-    /// - the run: AL code's static `Page.Run(Id, Rec)` (:362, :364, :366, :550; page 0 and the page's id alike, as
-    ///   DataCaptionExprOrder.al's header pins for its Card) with a PageHandler bound, or `Page.RunModal(0, Rec)` as a statement
+    /// - the run: AL code's static `Page.Run(Id, Rec)` (:362, :364, :366, :550; page 0 and the page's id alike, both
+    ///   measured: :412 and :439 with 0, :515 and :528 with the page's id) with a PageHandler bound, or `Page.RunModal(0, Rec)` as a statement
     ///   (:368) with a ModalPageHandler; the test did not open the page; a top-level page;
     /// - the page: a `Shape`, its own DataCaptionExpression, no property but the plain ones, DataCaptionExpression and
     ///   DelayedInsert; triggers OnInit, OnOpenPage and OnQueryClosePage only (:154-174); no extension, no subscriber; controls
