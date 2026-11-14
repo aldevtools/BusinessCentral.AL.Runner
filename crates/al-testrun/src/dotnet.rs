@@ -170,7 +170,8 @@ pub const STANDBY_SIDECARS: usize = 2;
 /// started, not in the core (ADR-006). On Windows .NET has GDI+, so every System.Drawing type and member goes to
 /// .NET (ADR-027 row 14, amended by the owner 2026-10-29): the policy lifts its `deny-type-off-windows` rules and the
 /// registry claims no System.Drawing type. Elsewhere the ADR-044 registry serves its members and the policy refuses
-/// the rest with the reason in `policy.txt`.
+/// the rest with the reason in `policy.txt`. The same flag lifts the `deny-member-off-windows` rules: on Windows .NET
+/// reads the Windows time zone data BC reads (issue 8012).
 pub fn sidecar_config(host: std::sync::Arc<dyn DotNetHost>) -> al_vm::dotnet::DotNetConfig {
     let windows = cfg!(windows);
     al_vm::dotnet::DotNetConfig {

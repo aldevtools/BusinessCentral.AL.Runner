@@ -147,6 +147,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Xml.XmlDocument\"; \"XmlDocument\") { }
     type(\"Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper\"; \"NavTenantSettingsHelper\") { }
     type(\"System.Base64FormattingOptions\"; \"Base64FormattingOptions\") { }
+    type(\"System.TimeZoneInfo\"; \"TimeZoneInfo\") { }
     type(\"Microsoft.Dynamics.Nav.Types.Base64UrlHelper\"; \"Base64UrlHelper\") { }
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookWriter\"; \"WorkbookWriter\") { }
     type(\"Microsoft.Dynamics.Nav.OpenXml.Spreadsheet.WorkbookReader\"; \"WorkbookReader\") { }
@@ -752,6 +753,88 @@ fn a_key_vault_provider_variable_never_constructed_is_not_instantiated() {
         ": Text",
     );
     assert_eq!(text(r), "DotNetVariableNotCreated");
+}
+
+/// A `TimeZoneInfo` host as .NET on Linux answers for `Hawaiian Standard Time` (al-runner issue 8012): the IANA data
+/// of Pacific/Honolulu has DST in 1933-1947, so `SupportsDaylightSavingTime` is true, where BC on Windows reads the
+/// Windows zone data. Every other member answers a fixed value, so a test sees whether the call reached the host.
+fn linux_zone_host() -> Fake {
+    Fake::new(|r| match r {
+        Req::Invoke(DotNetTarget::Static(t), m, _)
+            if t.name == "System.TimeZoneInfo" && m == "FindSystemTimeZoneById" =>
+        {
+            reply(handle(7, "System.TimeZoneInfo"))
+        }
+        Req::Get(DotNetTarget::Instance(7), m) | Req::Invoke(DotNetTarget::Instance(7), m, _)
+            if m == "SupportsDaylightSavingTime" =>
+        {
+            reply(DotNetValue::Bool(true))
+        }
+        Req::Get(DotNetTarget::Instance(7), m) | Req::Invoke(DotNetTarget::Instance(7), m, _)
+            if m == "BaseUtcOffset" =>
+        {
+            reply(DotNetValue::TimeSpan(-36_000 * 10_000_000))
+        }
+        other => panic!("unexpected {other:?}"),
+    })
+}
+
+fn zone_cfg(host: &Fake, windows: bool) -> DotNetConfig {
+    DotNetConfig {
+        policy: Arc::new(Policy::builtin_for(windows)),
+        ..cfg(host)
+    }
+}
+
+const ZONE_DST: &str = "Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time'); exit(Z.SupportsDaylightSavingTime);";
+
+/// Issue 8012: off Windows the sidecar answers from IANA zone data, so `SupportsDaylightSavingTime` is refused before it
+/// reaches the host. No corpus test pins the member (needs a Windows BC probe).
+#[test]
+fn supports_daylight_saving_time_is_refused_off_windows() {
+    let host = linux_zone_host();
+    let r = run_with(zone_cfg(&host, false), "Z: DotNet TimeZoneInfo;", ZONE_DST, ": Boolean");
+    let why = unsupported(&r);
+    assert!(
+        why.contains("System.TimeZoneInfo.SupportsDaylightSavingTime") && why.contains("Windows zone data"),
+        "{why}"
+    );
+    assert!(
+        !host
+            .calls()
+            .iter()
+            .any(|c| matches!(c, Req::Get(_, m) | Req::Invoke(_, m, _) if m == "SupportsDaylightSavingTime")),
+        "{:?}",
+        host.calls()
+    );
+}
+
+/// On a Windows .NET host the sidecar reads the Windows zone data, as BC does: the member keeps reaching .NET.
+#[test]
+fn supports_daylight_saving_time_reaches_dotnet_on_windows() {
+    let host = linux_zone_host();
+    let r = run_with(zone_cfg(&host, true), "Z: DotNet TimeZoneInfo;", ZONE_DST, ": Boolean");
+    assert!(matches!(r.result, Ok(Value::Boolean(true))), "{:?}", r.result);
+}
+
+/// A neighbor the refusal does not cover keeps main's result: `BaseUtcOffset` still reaches the host off Windows.
+#[test]
+fn base_utc_offset_still_reaches_dotnet_off_windows() {
+    let host = linux_zone_host();
+    let r = run_with(
+        zone_cfg(&host, false),
+        "Z: DotNet TimeZoneInfo; D: Duration;",
+        "Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time'); D := Z.BaseUtcOffset; exit(Format(D));",
+        ": Text",
+    );
+    assert!(r.result.is_ok(), "{:?}", r.result);
+    assert!(
+        host.calls()
+            .iter()
+            .any(|c| matches!(c, Req::Get(_, m) | Req::Invoke(_, m, _) if m == "BaseUtcOffset")),
+        "{:?}",
+        host.calls()
+    );
 }
 
 // ---- lifetime ----------------------------------------------------------------------------
