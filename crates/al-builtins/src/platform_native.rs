@@ -357,7 +357,7 @@ fn from_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bo
         // Held cells (Base64LineBreaks.al header, :19-22): BC 28 and 29 fail the test itself with an exception that
         // asserterror and TryFunction do not catch.
         ("windows" | "msdos", 99999 | 70000) => unsupported(format!(
-            "FromBase64 with code page {cp} and TextEncoding::{name}: BC 28 and 29 raise an unexpected CLR exception no AL code catches"
+            "FromBase64 with code page {cp} and TextEncoding::{name}: real BC raises an unexpected CLR exception no AL code catches"
         )),
         _ => encoding(encoding_arg, codepage, windows_text),
     }
