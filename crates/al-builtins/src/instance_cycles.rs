@@ -162,6 +162,49 @@ pub fn collect() {
     });
 }
 
+/// Held by a thread while the AL code of one run may use the instances the thread makes. When it drops, the run's
+/// sessions on this thread have ended and an `Rc` never leaves its thread, so no AL code can reach an instance this
+/// thread made that is still alive: their globals are cleared, which ends every reference cycle among them, also those
+/// [`collect`] cannot see (a reference through a query, a shared record or another value it does not look into). A
+/// worker thread holds one for its whole life; the thread a run starts on holds one for the run, so the next run on it
+/// (the next variant of a stability run, al-runner issue 6924) starts with none of them. Not `Send`: it drops on the
+/// thread that made it.
+pub struct RunEnd(std::marker::PhantomData<Rc<()>>);
+
+impl RunEnd {
+    /// Call before the thread makes the first instance of the run.
+    pub fn new() -> RunEnd {
+        RunEnd(std::marker::PhantomData)
+    }
+}
+
+impl Default for RunEnd {
+    fn default() -> RunEnd {
+        RunEnd::new()
+    }
+}
+
+impl Drop for RunEnd {
+    fn drop(&mut self) {
+        let alive: Vec<Shared> = MADE
+            .with(|m| std::mem::take(&mut *m.borrow_mut()))
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect();
+        let mut freed = Vec::new();
+        for r in &alive {
+            // An instance still borrowed is one a frame of this thread uses: the run has not ended for it.
+            if let Ok(mut inst) = r.try_borrow_mut() {
+                freed.push((std::mem::take(&mut inst.globals), std::mem::take(&mut inst.exts)));
+            }
+        }
+        // The cleared values drop here, after every borrow above has ended.
+        drop(freed);
+        drop(alive);
+        set_prune_at(0);
+    }
+}
+
 /// Calls `f` for every instance reference `inst` holds through values only it owns.
 fn owned_instances(inst: &Instance, f: &mut dyn FnMut(&Shared)) {
     for (_, e) in &inst.exts {
