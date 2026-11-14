@@ -53,7 +53,7 @@ pub enum PartStep {
     Sibling,
 }
 
-/// What a page lets through after a rule pinned for one scenario ran (`PageState::pinned_end`): Close of the page, with
+/// What a page lets through after a rule pinned for one scenario ran (`PageState::pinned_end`): with `close` Close of the page, with
 /// `reads` a read of a control's value or an `AssertEquals`, with `part_reads` a value read of a part's control, with
 /// `one_action` one action's Invoke, with `first_ends` a `First`, which ends the limit, with `part_visible` the `Visible` of a
 /// part, with `part_moves` the moves of a part and with `next` one `Next`, as the scenario makes them. With `no_writes` every
@@ -78,6 +78,30 @@ pub struct PinnedEnd {
     pub part_moves: bool,
     pub no_writes: bool,
     pub next: NextEnd,
+    /// `Close` of the page is let through.
+    pub close: bool,
+    /// `OK()` of the page is let through; then only one `Invoke` (of that action) is.
+    pub ok: bool,
+}
+
+impl PinnedEnd {
+    /// What a page lets through after its `OK()`: one `Invoke`, the OK action's; any other call is refused with `reason`.
+    pub const fn after_ok(reason: &'static str) -> Self {
+        PinnedEnd {
+            reason,
+            reads: false,
+            caption: false,
+            part_reads: false,
+            one_action: true,
+            first_ends: false,
+            part_visible: false,
+            part_moves: false,
+            no_writes: false,
+            next: NextEnd::Refused,
+            close: false,
+            ok: false,
+        }
+    }
 }
 
 /// Whether a [`PinnedEnd`] lets a `Next` of the page through.
@@ -158,7 +182,11 @@ impl Session {
         let let_through = match call {
             // Not a call of the test client (`note_test_call`).
             None => true,
-            Some(TestCall::Page(PageMethod::Close)) => part.is_none(),
+            Some(TestCall::Page(PageMethod::Close)) => end.close && part.is_none(),
+            Some(TestCall::Page(PageMethod::OK)) if end.ok && part.is_none() => {
+                root.borrow_mut().pinned_end = Some(PinnedEnd::after_ok(end.reason));
+                true
+            }
             Some(TestCall::Page(PageMethod::First)) if end.first_ends && part.is_none() => {
                 root.borrow_mut().pinned_end = None;
                 true
@@ -509,14 +537,58 @@ impl Session {
             return Ok(false);
         }
         let table = self.table(&self.page_rec(st))?.object as usize;
+        drop(engine);
+        Ok(self.table_code_is(table, pin.table_triggers))
+    }
+
+    /// Whether page `st` declares property `name` once, as `true`.
+    pub(super) fn page_property_true(&self, st: &St, name: &str) -> bool {
+        let engine = self.engine();
+        let props = &engine.program.objects[st.borrow().object as usize].properties;
+        let mut found = props.iter().filter(|(k, _)| k.eq_ignore_ascii_case(name));
+        matches!((found.next(), found.next()), (Some((_, v)), None) if v.trim().eq_ignore_ascii_case("true"))
+    }
+
+    /// Whether a write to field `field` of table object `table` and the insert or modify of its row run no code: the table has
+    /// no table trigger, the field no trigger, no table extension extends the table, and nothing subscribes to its events. The
+    /// table's procedures and its other fields' triggers run only when code calls them.
+    pub(super) fn table_runs_no_code_for(&self, table: usize, field: usize) -> bool {
+        let engine = self.engine();
         let t = &engine.program.objects[table];
-        let table_code = t.routines.iter().all(|r| r.is_trigger && r.field.is_none()) && {
-            let names: Vec<String> = t.routines.iter().map(|r| r.name.to_ascii_lowercase()).collect();
-            same_names(names.iter().map(String::as_str).collect(), pin.table_triggers)
-        };
-        Ok(table_code
+        t.routines
+            .iter()
+            .all(|r| !r.is_trigger || r.field.is_some_and(|f| f != field))
             && t.table.as_ref().is_some_and(|x| x.extensions.is_empty())
-            && !engine.events.any_subscriber_of(table))
+            && !engine.events.any_subscriber_of(table)
+    }
+
+    /// Whether every control of page `st` is a repeater or a group, a field over Rec without a trigger, or (with `actions`) an
+    /// action whose only trigger is OnAction.
+    pub(super) fn controls_are_rec_fields(&self, st: &St, actions: bool) -> bool {
+        let engine = self.engine();
+        page_of(&engine, st).controls.iter().all(|c| match c.kind {
+            ir::ControlKind::Repeater | ir::ControlKind::Group => {
+                c.binding == ir::Binding::None && c.triggers.is_empty()
+            }
+            ir::ControlKind::Field => matches!(c.binding, ir::Binding::Field(_)) && c.triggers.is_empty(),
+            ir::ControlKind::Action => actions && matches!(c.triggers.as_slice(), [(n, _)] if n == "onaction"),
+            _ => false,
+        })
+    }
+
+    /// Whether the only code table object `table` can run is its own triggers `triggers` (lower case, exactly these): no
+    /// procedure, no field trigger, no table extension and no subscriber to an event of the table.
+    pub(super) fn table_code_is(&self, table: usize, triggers: &[&str]) -> bool {
+        let engine = self.engine();
+        let t = &engine.program.objects[table];
+        let mut names: Vec<String> = t.routines.iter().map(|r| r.name.to_ascii_lowercase()).collect();
+        let mut want: Vec<String> = triggers.iter().map(|n| n.to_string()).collect();
+        names.sort_unstable();
+        want.sort_unstable();
+        t.routines.iter().all(|r| r.is_trigger && r.field.is_none())
+            && names == want
+            && t.table.as_ref().is_some_and(|x| x.extensions.is_empty())
+            && !engine.events.any_subscriber_of(table)
     }
 
     /// The stored rows of the table of `rec` that pass `filters` alone (none of `rec`'s own filters or marks): a fact the
