@@ -30,6 +30,8 @@ pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
 pub use sequence_start::SequenceStart;
+mod storage_checkpoint;
+pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;
 mod ctx;
 mod debug;
@@ -752,14 +754,6 @@ pub struct CarriedState {
     work_date: Option<i32>,
 }
 
-/// The isolated storage and the number sequences of a session at a test runner's checkpoint
-/// ([`Session::storage_checkpoint`]).
-#[derive(Debug, Clone, Default)]
-pub struct StorageCheckpoint {
-    isolated: std::collections::HashMap<(String, String), (String, bool, bool)>,
-    sequences: std::collections::HashMap<(String, String), sessionops::Sequence>,
-}
-
 pub struct Session {
     pub engine: Arc<Engine>,
     pub last_error: AlError,
@@ -804,6 +798,8 @@ pub struct Session {
     pub(crate) isolated_set_in_test: std::collections::HashSet<(String, String)>,
     /// The isolated storage keys this test codeunit set, in this test or an earlier one (isolated_storage_reads.rs).
     pub(crate) isolated_written_in_codeunit: std::collections::HashSet<(String, String)>,
+    /// What a later test of the running codeunit may not reach (`storage_checkpoint.rs`).
+    unmeasured: storage_checkpoint::Unmeasured,
     /// The TaskScheduler tasks this session created (`tasks.rs`).
     pub(crate) tasks: tasks::Tasks,
     /// An install codeunit is running.
@@ -1346,6 +1342,7 @@ impl Session {
             isolated_committed: Default::default(),
             isolated_set_in_test: Default::default(),
             isolated_written_in_codeunit: Default::default(),
+            unmeasured: Default::default(),
             tasks: Default::default(),
             install_scope: false,
             company_build: false,
@@ -1535,31 +1532,6 @@ impl Session {
     pub fn restore_media_checkpoint(&mut self) {
         let removed = std::mem::take(&mut self.media_removed.1);
         self.restore_media(removed);
-    }
-
-    /// The isolated storage and the number sequences now, for [`Session::restore_storage_checkpoint`] (a test runner's
-    /// TestIsolation = Function, al-testrun `isolation::Checkpoint`).
-    pub fn storage_checkpoint(&self) -> StorageCheckpoint {
-        StorageCheckpoint {
-            isolated: self.isolated_storage.clone(),
-            sequences: self.sequences.clone(),
-        }
-    }
-
-    /// Puts the isolated storage and the number sequences back as they were at `cp`. A key or a sequence that `cp`
-    /// already held and that changed or went away since is put back too, but the answer is `false`: only a new key's
-    /// `IsolatedStorage.Set` and a new sequence's `NumberSequence.Insert` are measured to be rolled back. `None`: nothing
-    /// changed since `cp`.
-    pub fn restore_storage_checkpoint(&mut self, cp: &StorageCheckpoint) -> Option<bool> {
-        if self.isolated_storage == cp.isolated && self.sequences == cp.sequences {
-            return None;
-        }
-        let kept_storage = cp.isolated.iter().all(|(k, v)| self.isolated_storage.get(k) == Some(v));
-        let kept_sequences = cp.sequences.iter().all(|(k, v)| self.sequences.get(k) == Some(v));
-        self.isolated_storage = cp.isolated.clone();
-        self.isolated_committed = cp.isolated.clone();
-        self.sequences = cp.sequences.clone();
-        Some(kept_storage && kept_sequences)
     }
 
     /// The transaction a write call started has ended (record/TestProbeRecordRefContracts.al:WriteTransaction_State starts

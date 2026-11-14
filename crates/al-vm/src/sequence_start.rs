@@ -45,22 +45,36 @@ impl Session {
         let before = self.sequences.len();
         self.sequences.retain(|k, _| start.sequences.contains_key(k));
         let dropped = self.sequences.len() != before;
-        let flags = self.change_flags();
-        let kept = start.sequences.iter().all(|(k, then)| {
-            let untouched = flags.get(k) == start.changed.get(k);
-            untouched
-                && self.sequences.get(k).is_some_and(|now| {
-                    now == then
-                        || (now.seed == then.seed
-                            && now.increment == then.increment
-                            && now.last.is_some()
-                            && now.last != then.last)
-                })
-        });
+        let kept = self.unkept_sequences_since(start).is_empty();
         match (dropped, kept) {
             (_, false) => Some(false),
             (true, true) => Some(true),
             (false, true) => None,
         }
+    }
+
+    /// The sequences of `start` that were restarted, deleted or otherwise changed since, sorted: what a failed test's
+    /// rollback leaves of them under TestIsolation = Codeunit is not measured. Numbers taken by `Next` count as kept
+    /// (SeqCarry.al:26-27).
+    pub fn unkept_sequences_since(&self, start: &SequenceStart) -> Vec<Key> {
+        let flags = self.change_flags();
+        let mut unkept: Vec<Key> = start
+            .sequences
+            .iter()
+            .filter(|&(k, then)| {
+                let untouched = flags.get(k) == start.changed.get(k);
+                !(untouched
+                    && self.sequences.get(k).is_some_and(|now| {
+                        now == then
+                            || (now.seed == then.seed
+                                && now.increment == then.increment
+                                && now.last.is_some()
+                                && now.last != then.last)
+                    }))
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        unkept.sort();
+        unkept
     }
 }

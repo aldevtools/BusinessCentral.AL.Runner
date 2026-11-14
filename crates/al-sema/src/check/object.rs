@@ -1029,7 +1029,7 @@ fn request_page_source_table(obj: &ast::Object) -> Option<String> {
 /// 1386: global, local and internal procedures, event subscribers and test procedures, also next to a parameter named
 /// `Rec`; in the triggers of an Install and a TestRunner codeunit alc 18.0.39.10160 and 17.0.34.45391 give the same, review
 /// of PR 7980, no corpus case yet). A global `Rec` or `xRec` the codeunit declares is that variable to the checker there
-/// (3141, 3142); lowering runs a global `Rec` only as main did (`lower::shared::declared_rec_refusal`). Only the OnRun
+/// (3141, 3142); lowering runs a global `Rec` as `lower::table_no_rec::declared_rec_refusal` says. Only the OnRun
 /// trigger has the implicit Rec, and no implicit `xRec` (AL0161, 3153, `al_unresolved_name`).
 fn implicit_rec_globals(
     kind: ObjKind,
