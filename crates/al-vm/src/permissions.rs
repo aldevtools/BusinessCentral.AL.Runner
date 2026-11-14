@@ -1209,13 +1209,14 @@ impl Session {
     /// The gate for the calculation of a FlowField of `rec` over table `table` (object index): an indirect read the session
     /// level allows runs (pin 6). A denial with rows in the source table is `IndirectRead` (Y24PermReads.al
     /// Y24_P15_FlowFieldsNothingOnSource: CalcFields of Lookup, Exist, Sum and Count). On an empty source table the shape is
-    /// not pinned, so it refuses.
+    /// not pinned, so it refuses. `stack` holds the FlowFields being calculated, this one on top.
     #[cold]
     #[inline(never)]
     pub(crate) fn permission_gate_flowfield_decided(
         &mut self,
         rec: &crate::records::Rec,
         table: usize,
+        stack: &[crate::flowfields::CalcFrame],
     ) -> Result<(), Signal> {
         if self.permission_autocalc {
             return Ok(());
@@ -1235,6 +1236,12 @@ impl Session {
             ))),
             Verdict::Deny { by, .. } => {
                 if id >= 2_000_000_000 {
+                    // "Published Application"."Tenant Visible" reads "NAV App Extra" in the measured shapes
+                    // (permission_system_flowfield.rs).
+                    if self.system_flowfield_reads_unchecked(rec, table, stack) {
+                        assume(Assumption::SystemFlowfieldReadsInternalTable);
+                        return Ok(());
+                    }
                     return Err(Signal::unsupported(unpinned_denial(
                         access,
                         "a FlowField over a system table",
