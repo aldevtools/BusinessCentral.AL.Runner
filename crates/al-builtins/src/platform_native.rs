@@ -20,7 +20,8 @@
 //! System.app has `Base64Convert` only from BC 28; System Application 27 converts in AL through DotNet, so these
 //! natives run on BC 28 and later. Corpus PR 1394 (tests/al-language/streams/Base64LineBreaks.al, not pinned yet: assumption
 //! `base-encode-stream-line-breaks-code-pages`) measured on 28.5 and 29.0 the InStream forms with `InsertLineBreaks` (CR LF
-//! after each 76 characters; the whole stream, which does not move) and more `FromBase64` code pages (`from_base64_encoding`).
+//! after each 76 characters; the whole stream, a second call gives the same text; where the stream stands after the call is
+//! not measured and the stream refuses other uses until ResetPosition or `Position :=`) and more `FromBase64` code pages (`from_base64_encoding`).
 //!
 //! A code page or a character the pins do not cover (for `ToBase64` a code page other than 0, 1252, 28591 and
 //! 65001; a character that Windows-1252 and Latin-1 encode differently) is refused.
@@ -322,7 +323,7 @@ fn encoding(encoding: &Value, codepage: &Value, windows_text: bool) -> Result<En
 /// The encoding of `FromBase64(Text, TextEncoding, Integer)`. The cells listed here are measured; every other pair keeps
 /// [`encoding`]'s answer (the `ToBase64` cells, which also answer UTF8 with 0 or 65001, Windows and MSDos with 0, 1252,
 /// 28591 or 65001, and UTF16 with 0), and its refusal of every other code page.
-fn from_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<Enc, Signal> {
+fn from_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<(Enc, bool), Signal> {
     use crate::assumptions::{Assumption::BaseEncodeStreamLineBreaksCodePages as A, assume};
     let Value::Integer(cp) = codepage else {
         return unsupported("a code page that is not an Integer");
@@ -330,36 +331,36 @@ fn from_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bo
     let name = member_name(encoding_arg)?;
     match (name.to_ascii_lowercase().as_str(), *cp) {
         // The overload without a code page passes 1252: UTF8 decodes UTF-8 (types/PVBase64.al:137,139) and UTF16 UTF-16 (:141).
-        ("utf8", 1252) => Ok(Enc::Utf8),
-        ("utf16", 1252) => Ok(Enc::Utf16),
+        ("utf8", 1252) => Ok((Enc::Utf8, false)),
+        ("utf16", 1252) => Ok((Enc::Utf16, false)),
         // UTF16 and UTF8 ignore the code page (Base64LineBreaks.al:456-471, :483-491).
         ("utf16", 65001 | 1200 | 1201 | 28591 | 99999) => {
             assume(A);
-            Ok(Enc::Utf16)
+            Ok((Enc::Utf16, true))
         }
         ("utf8", 28591 | 1200 | 99999) => {
             assume(A);
-            Ok(Enc::Utf8)
+            Ok((Enc::Utf8, true))
         }
         // Windows and MSDos decode as the code page says (Base64LineBreaks.al:504-505,515-516; :528-529,539-540).
         ("windows", 1200) => {
             assume(A);
-            Ok(Enc::Utf16)
+            Ok((Enc::Utf16, true))
         }
         ("windows" | "msdos", 850) => {
             assume(A);
-            Ok(Enc::Ibm850)
+            Ok((Enc::Ibm850, true))
         }
         ("msdos", 437) => {
             assume(A);
-            Ok(Enc::Ibm437)
+            Ok((Enc::Ibm437, true))
         }
         // Held cells (Base64LineBreaks.al header, :19-22): BC 28 and 29 fail the test itself with an exception that
         // asserterror and TryFunction do not catch.
         ("windows" | "msdos", 99999 | 70000) => unsupported(format!(
             "FromBase64 with code page {cp} and TextEncoding::{name}: real BC raises an unexpected CLR exception no AL code catches"
         )),
-        _ => encoding(encoding_arg, codepage, windows_text),
+        _ => encoding(encoding_arg, codepage, windows_text).map(|e| (e, false)),
     }
 }
 
@@ -405,14 +406,20 @@ fn decode_bytes(b: &[u8], enc: Enc) -> Result<String, Signal> {
             }
             Ok(b.iter().map(|&x| char::from(x)).collect())
         }
-        Enc::Ibm850 => Ok(oem_decode(b, &CP850_HIGH)),
-        Enc::Ibm437 => Ok(oem_decode(b, &crate::stream::CP437_HIGH)),
+        Enc::Ibm850 => oem_decode(b, &CP850_HIGH),
+        Enc::Ibm437 => oem_decode(b, &crate::stream::CP437_HIGH),
     }
 }
 
 /// Bytes of an OEM code page: below 0x80 ASCII, from 0x80 the code page's table.
-fn oem_decode(b: &[u8], high: &[char; 128]) -> String {
-    b.iter()
+fn oem_decode(b: &[u8], high: &[char; 128]) -> Result<String, Signal> {
+    // Only the bytes E4 F6 FC are measured (Base64LineBreaks.al:515-516, :528-529, :539-540).
+    if let Some(x) = b.iter().find(|x| !matches!(x, 0xE4 | 0xF6 | 0xFC)) {
+        return unsupported(format!(
+            "FromBase64 with code page 850 or 437: byte {x:02X}; only E4, F6, FC are measured"
+        ));
+    }
+    Ok(b.iter()
         .map(|&x| {
             if x < 0x80 {
                 char::from(x)
@@ -420,7 +427,7 @@ fn oem_decode(b: &[u8], high: &[char; 128]) -> String {
                 high[usize::from(x - 0x80)]
             }
         })
-        .collect()
+        .collect())
 }
 
 // ---------------------------------------------------------------- base 64
@@ -533,19 +540,16 @@ fn to_base64_text_out(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: 
 
 /// The bytes `ToBase64(InStream, true[, OutStream])` converts, in the shapes corpus PR 1394 measured on BC 28.5 and 29.0
 /// (assumption `base-encode-stream-line-breaks-code-pages`): a stream on a Blob buffer that is not a file (Temp Blob,
-/// Base64LineBreaks.al:53-61), every byte of it, and the stream does not move (10 bytes read before: the whole stream,
-/// :186-193; a second call gives the same text, :195-198). `from_start_only`: the OutStream form, measured only on a stream
-/// nothing was read from (:284-286, :364-367). Every other stream is refused.
-fn line_broken_source(stream: &mut Value, from_start_only: bool) -> Result<Vec<u8>, Signal> {
-    match (crate::stream::blob_bytes_unmoved(stream)?, from_start_only) {
-        (Some((bytes, _)), false) | (Some((bytes, 0)), true) => {
+/// Base64LineBreaks.al:53-61), every byte of it (10 bytes read before: the whole stream, :186-193; a second InStream-form call
+/// gives the same text, :195-198). The OutStream form is measured only at position 0 (:284-286, :364-367). Where the stream
+/// stands after the call is not measured: `stream::line_break_source` marks it. Every other stream is refused.
+fn line_broken_source(stream: &mut Value, out_form: bool) -> Result<Vec<u8>, Signal> {
+    match crate::stream::line_break_source(stream, out_form)? {
+        Some(bytes) => {
             crate::assumptions::assume(crate::assumptions::Assumption::BaseEncodeStreamLineBreaksCodePages);
             Ok(bytes)
         }
-        (Some(_), true) => {
-            unsupported("Base64Convert.ToBase64(InStream, true, OutStream) on a stream read part way (not measured)")
-        }
-        (None, _) => unsupported(
+        None => unsupported(
             "Base64Convert.ToBase64 with line breaks of a stream that is not on a Blob buffer, or is on a file (not measured)",
         ),
     }
@@ -580,8 +584,17 @@ fn to_base64_stream_out(_: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a
 }
 
 fn from_base64_text(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
-    let enc = from_base64_encoding(&a[1], &a[2], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?;
-    Ok(Value::Text(decode_bytes(&b64_decode(&text_arg(&a[0])?)?, enc)?.into()))
+    let (enc, new_cell) = from_base64_encoding(&a[1], &a[2], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?;
+    let bytes = b64_decode(&text_arg(&a[0])?)?;
+    // Base64LineBreaks.al decodes `E4 F6 FC` and ASCII only; what real BC does with a byte order mark there is not measured.
+    if new_cell
+        && (bytes.starts_with(&[0xFF, 0xFE])
+            || bytes.starts_with(&[0xFE, 0xFF])
+            || bytes.starts_with(&[0xEF, 0xBB, 0xBF]))
+    {
+        return unsupported("FromBase64 of bytes that start with a byte order mark in a code page cell (not measured)");
+    }
+    Ok(Value::Text(decode_bytes(&bytes, enc)?.into()))
 }
 
 fn from_base64_text_enc_out(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
@@ -819,9 +832,9 @@ mod tests {
     }
 
     // Base64LineBreaks.al:186-216 (BC28PLUS): 10 bytes read before the call, the whole stream is converted; a second call
-    // on the same stream gives the same text.
+    // on the same stream gives the same text. Where the stream stands after the call is not measured.
     #[test]
-    fn instream_with_line_breaks_converts_the_whole_stream_and_does_not_move() {
+    fn instream_with_line_breaks_converts_the_whole_stream_and_a_second_call_gives_the_same_text() {
         let s = in_stream(&digits(100));
         set_pos(&s, 10);
         let r = stream_text(s.clone(), true);
@@ -829,8 +842,68 @@ mod tests {
         assert_eq!(&r[..8], "MDEyMzQ1");
         let s = in_stream(&digits(100));
         let first = stream_text(s.clone(), true);
-        assert_eq!(pos_of(&s), 0);
         assert_eq!(stream_text(s, true), first);
+    }
+
+    fn refused(r: Out) -> bool {
+        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("not measured"))
+    }
+
+    // MED-1: after ToBase64(InStream, true) where the stream stands is not measured: EOS, Position, ReadText, Read, the false
+    // form and the OutStream form on that stream are refused; ResetPosition and Position := n let it be used again.
+    #[test]
+    fn stream_after_a_line_break_call_refuses_every_other_use() {
+        let call = |s: &Value| stream_text(s.clone(), true);
+        let s = in_stream(&digits(100));
+        call(&s);
+        let plain = |s: &Value| run("Base64Convert.ToBase64#stream", &mut [s.clone(), Value::Boolean(false)]);
+        assert!(refused(plain(&s)));
+        let target = new_blob();
+        let out = |s: &Value| {
+            run(
+                "Base64Convert.ToBase64#stream-out",
+                &mut [s.clone(), Value::Boolean(true), out_stream_on(&target)],
+            )
+        };
+        assert!(refused(out(&s)));
+        assert!(refused(crate::stream::drain_in(&mut s.clone()).map(|_| Value::Null)));
+        // Same InStream form again: allowed.
+        call(&s);
+        // Reset or Position := lifts it.
+        let mut s2 = s.clone();
+        assert!(matches!(
+            crate::stream::refuse_pending_in(&mut s2),
+            Err(Signal::Unsupported(_))
+        ));
+        if let Value::Library(_, h) = &s {
+            if let LibraryValue::InStream(st) = &mut *h.borrow_mut() {
+                st.after_line_break_call = crate::stream::AfterLineBreakCall::No;
+            }
+        }
+        assert!(crate::stream::refuse_pending_in(&mut s2).is_ok());
+    }
+
+    // MED-1: the OutStream form, called twice on one stream (the second time the position is unknown), is refused.
+    #[test]
+    fn outstream_form_twice_on_one_stream_is_refused() {
+        let s = in_stream(&digits(100));
+        let target = new_blob();
+        run(
+            "Base64Convert.ToBase64#stream-out",
+            &mut [s.clone(), Value::Boolean(true), out_stream_on(&target)],
+        )
+        .ok()
+        .unwrap();
+        let r = run(
+            "Base64Convert.ToBase64#stream-out",
+            &mut [s.clone(), Value::Boolean(true), out_stream_on(&target)],
+        );
+        assert!(refused(r));
+        // The InStream form after the OutStream form is refused too.
+        assert!(refused(run(
+            "Base64Convert.ToBase64#stream",
+            &mut [s, Value::Boolean(true)]
+        )));
     }
 
     // Without line breaks main's result stays: the bytes from the read position on, and the stream moves to its end
@@ -967,6 +1040,34 @@ mod tests {
             cps(&from_cp("w6TDtsO8", "Windows", 0).ok().unwrap()),
             [195, 164, 195, 182, 195, 188]
         );
+    }
+
+    // MED-2: 850 and 437 decode only the bytes the probe measured (E4 F6 FC); any other byte is refused.
+    #[test]
+    fn from_base64_oem_pages_refuse_unmeasured_bytes() {
+        // 'Hello' (ASCII), 80 9F A0 FF, 01 1A 7F
+        for text in ["SGVsbG8=", "gJ+g/w==", "ARp/"] {
+            for (name, cp) in [("Windows", 850), ("MSDos", 850), ("MSDos", 437)] {
+                let r = from_cp(text, name, cp);
+                assert!(
+                    matches!(&r, Err(Signal::Unsupported(w)) if w.contains("only E4, F6, FC")),
+                    "{text} {name} {cp} {r:?}"
+                );
+            }
+        }
+    }
+
+    // LOW-3: a byte order mark in the input of a cell the probe did not measure with one is refused; PVBase64.al's cells keep it.
+    #[test]
+    fn from_base64_byte_order_mark_in_a_new_cell_is_refused() {
+        // FF FE 41 00, EF BB BF 41
+        assert!(refused(
+            from_cp("//5BAA==", "UTF16", 1200).map(|t| Value::Text(t.into()))
+        ));
+        assert!(refused(
+            from_cp("77u/QQ==", "UTF8", 28591).map(|t| Value::Text(t.into()))
+        ));
+        assert!(from_cp("//5BAA==", "UTF16", 1252).is_ok());
     }
 
     // Code pages above 65535 with Windows or MSDos: BC 28 and 29 fail the test with an exception no AL code catches (held cells

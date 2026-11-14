@@ -813,6 +813,17 @@ pub struct InState {
     /// A ReadText returned the mark of untracked call stack frames: where the stream stands now is not known
     /// (`stream_call_stack::position_unknown`). Moving the position clears it.
     pub past_call_stack_mark: bool,
+    /// `Base64Convert.ToBase64(InStream, true[, OutStream])` ran on the stream: where it stands now is not measured, so every
+    /// use but the same InStream form again, `ResetPosition` and `Position := n` is refused (see [`line_break_source`]).
+    pub after_line_break_call: AfterLineBreakCall,
+}
+
+/// Which `ToBase64(InStream, true ...)` form last ran on a stream (see [`InState::after_line_break_call`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AfterLineBreakCall {
+    No,
+    InStreamForm,
+    OutStreamForm,
 }
 
 impl InState {
@@ -827,6 +838,7 @@ impl InState {
             not_initialized: false,
             len0_over_mark: false,
             past_call_stack_mark: false,
+            after_line_break_call: AfterLineBreakCall::No,
         }
     }
 
@@ -841,6 +853,7 @@ impl InState {
             not_initialized: false,
             len0_over_mark: false,
             past_call_stack_mark: false,
+            after_line_break_call: AfterLineBreakCall::No,
         }
     }
 
@@ -1311,14 +1324,37 @@ pub fn hand_to_content(v: &mut Value) -> Result<Vec<u8>, Signal> {
     })
 }
 
-/// Every byte of the Blob buffer an InStream reads, whatever its read position, with that position; the stream does not
-/// move. `None` when the stream does not read a Blob buffer, or reads a file's. Its one caller cites what it pins.
-pub fn blob_bytes_unmoved(v: &mut Value) -> Result<Option<(Vec<u8>, usize)>, Signal> {
-    with_in(Some(v), |s| match &s.source {
-        Source::Live(b) if matches!(&*b.borrow(), BlobBuf { file: false, .. }) => {
-            Ok(Some((s.with_data(<[u8]>::to_vec), s.pos)))
+/// The bytes `ToBase64(InStream, true[, OutStream])` converts: every byte of the Blob buffer the stream reads, whatever its
+/// read position (`out_form` false: the InStream form, true: the OutStream form, which is measured only at position 0). The
+/// stream is then marked: where it stands is not measured, and only the same InStream form may run on it again. `Ok(None)`
+/// when the stream does not read a Blob buffer, or reads a file's; `Err` for a use of the stream the pin does not cover.
+/// Its one caller cites what it pins.
+pub fn line_break_source(v: &mut Value, out_form: bool) -> Result<Option<Vec<u8>>, Signal> {
+    with_in_unknown_ok(Some(v), |s| {
+        let reads_blob = matches!(&s.source, Source::Live(b) if matches!(&*b.borrow(), BlobBuf { file: false, .. }));
+        if !reads_blob {
+            return Ok(None);
         }
-        _ => Ok(None),
+        match (s.after_line_break_call, out_form) {
+            (AfterLineBreakCall::No, false) | (AfterLineBreakCall::InStreamForm, false) => {}
+            (AfterLineBreakCall::No, true) if s.pos == 0 => {}
+            (AfterLineBreakCall::No, true) => {
+                return unsupported(
+                    "Base64Convert.ToBase64(InStream, true, OutStream) on a stream not at position 0 (not measured)",
+                );
+            }
+            _ => {
+                return unsupported(
+                    "Base64Convert.ToBase64(InStream, true ...) on a stream a ToBase64(InStream, true ...) call ran on, other than the InStream form again (not measured)",
+                );
+            }
+        }
+        s.after_line_break_call = if out_form {
+            AfterLineBreakCall::OutStreamForm
+        } else {
+            AfterLineBreakCall::InStreamForm
+        };
+        Ok(Some(s.with_data(<[u8]>::to_vec)))
     })
 }
 
@@ -1429,6 +1465,24 @@ fn with_in_of<T>(
     handed_ok: bool,
     f: impl FnOnce(&mut InState) -> Result<T, Signal>,
 ) -> Result<T, Signal> {
+    with_in_core(r, handed_ok, false, f)
+}
+
+/// A use that may run on a stream whose position a `ToBase64(InStream, true ...)` call left unknown: the call itself,
+/// `ResetPosition` and `Position := n`.
+fn with_in_unknown_ok<T>(
+    r: Option<&mut Value>,
+    f: impl FnOnce(&mut InState) -> Result<T, Signal>,
+) -> Result<T, Signal> {
+    with_in_core(r, false, true, f)
+}
+
+fn with_in_core<T>(
+    r: Option<&mut Value>,
+    handed_ok: bool,
+    unknown_ok: bool,
+    f: impl FnOnce(&mut InState) -> Result<T, Signal>,
+) -> Result<T, Signal> {
     let mut g = in_state(r)?;
     match &mut *g {
         LibraryValue::InStream(s) => {
@@ -1440,6 +1494,11 @@ fn with_in_of<T>(
             }
             if s.not_initialized {
                 return unsupported("use of an InStream a Report layout call left uncreated (only EOS is pinned)");
+            }
+            if !unknown_ok && s.after_line_break_call != AfterLineBreakCall::No {
+                return unsupported(
+                    "use of an InStream after Base64Convert.ToBase64(InStream, true ...) (where it stands is not measured; ResetPosition or Position := first)",
+                );
             }
             f(s)
         }
@@ -1521,9 +1580,10 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
 }
 
 fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
-    with_in(r, |s| {
+    with_in_unknown_ok(r, |s| {
         s.pos = 0;
         s.past_call_stack_mark = false;
+        s.after_line_break_call = AfterLineBreakCall::No;
         Ok(Value::Boolean(true))
     })
 }
@@ -1568,7 +1628,7 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             Value::BigInteger(n) => *n,
             other => return unsupported(format!("InStream.Position := {}", other.describe())),
         };
-        return with_in(r, |s| {
+        return with_in_unknown_ok(r, |s| {
             let len = s.len() as i64;
             if p < 1 || p > len {
                 return crate::native::raise(
@@ -1581,6 +1641,7 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             }
             s.pos = (p - 1) as usize;
             s.past_call_stack_mark = false;
+            s.after_line_break_call = AfterLineBreakCall::No;
             Ok(Value::Null)
         });
     }
