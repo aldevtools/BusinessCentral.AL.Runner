@@ -868,7 +868,7 @@ impl Session {
         // (corpus queries/TestQueryReadAfterWrite.al:102-179).
         let now = self.query_stamps(def);
         if qs.borrow().run.as_ref().expect("open").stamps != now {
-            if def.columns.iter().any(|c| c.method.is_some()) {
+            if def.columns.iter().any(|c| c.method.is_some()) && !self.aggregated_reread_pinned(def, qs) {
                 return unsupported("a write to a table an open aggregated query reads (the re-read is not pinned)");
             }
             let filters = qs.borrow().filters.clone();
@@ -904,6 +904,60 @@ impl Session {
         run.current = Some(row.columns);
         run.last_key = Some(row.key);
         Ok(Value::Boolean(true))
+    }
+
+    /// The aggregated queries whose Read after a write is pinned: Read reads the groups again with the table as it is now and
+    /// goes on after the last group it returned, in the query's order, as a plain query does. Pinned shapes:
+    /// - one dataitem with no DataItemTableFilter (queries/read-lifecycle/QueryAggregatedWriteInLoop.al:43-84,
+    ///   queries/read-lifecycle/QueryLiveWrite.al:22-36);
+    /// - every column a column of a normal field of type Code or Integer, or a Count column, or a Sum over a normal Integer or
+    ///   Decimal field; no filter element, ColumnFilter or ReverseSign (QueryAggregatedWriteInLoop.al:43-84,
+    ///   QueryLiveWrite.al:29-33);
+    /// - no OrderBy, or OrderBy on one grouping column, ascending or descending (QueryAggregatedWriteInLoop.al:43, :62, :76,
+    ///   QueryLiveWrite.al:25);
+    /// - run-time filters only on grouping columns (QueryAggregatedWriteInLoop.al:136-142 SetRange on three of them), no
+    ///   TopNumberOfRows and no SecurityFiltering call;
+    /// The re-read reads the table as it is, so the kind of write is not a fact of the gate; the probes wrote with Insert, Modify,
+    /// Delete, ModifyAll and DeleteAll (QueryAggregatedWriteInLoop.al:166-236 and :373-416, QueryLiveWrite.al:90-163). Expected
+    /// rows: QueryAggregatedWriteInLoop.al:254-433, QueryLiveWrite.al:108-159.
+    fn aggregated_reread_pinned(&self, def: &ir::Query, qs: &Qs) -> bool {
+        use ir::QueryMethod as M;
+        let [item] = def.items.as_slice() else {
+            return false;
+        };
+        let Some(table) = self.engine.tables[item.table].as_ref() else {
+            return false;
+        };
+        let normal = |pos: usize| table.fields.get(pos).is_some_and(|f| f.stored);
+        let group = |c: &ir::QueryColumn| {
+            c.method.is_none()
+                && c.field.is_some_and(normal)
+                && matches!(c.ty, RtType::Code(_) | RtType::Integer)
+        };
+        let column = |c: &ir::QueryColumn| {
+            !c.filter_element
+                && !c.reverse_sign
+                && c.static_filter.is_none()
+                && (group(c)
+                    || (c.method == Some(M::Count) && c.field.is_none())
+                    || (c.method == Some(M::Sum)
+                        && c.field.is_some_and(normal)
+                        && matches!(c.ty, RtType::Integer | RtType::Decimal)))
+        };
+        let order = match def.order_by.as_slice() {
+            [] => true,
+            [(c, _)] => def.columns.get(*c).is_some_and(group),
+            _ => false,
+        };
+        let s = qs.borrow();
+        item.parent.is_none()
+            && item.table_filter.is_empty()
+            && def.columns.iter().all(column)
+            && order
+            && def.top == 0
+            && s.top.is_none()
+            && s.security_filtering.is_none()
+            && s.filters.iter().all(|(c, _)| def.columns.get(*c).is_some_and(group))
     }
 
     /// The version of every table the query reads.
