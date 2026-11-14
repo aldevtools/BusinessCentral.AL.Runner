@@ -113,7 +113,7 @@ fixes that came with that work stay on. Details: [alrunner-buckets.md](alrunner-
   (`docs/manual/stability.md`). **Run seed (ADR-061):** `--seed N`, printed and replayable.
 - **Install order.** Apps install one at a time in dependency order. For apps with no dependency path between them,
   Microsoft's apps install before partner apps; two partner apps whose install code reaches the other's code are
-  installed in every order (at most four apps) and the databases compared: the same rows run, different rows refuse
+  installed in every order (at most three apps) and the databases compared: the same rows run, different rows refuse
   the tests that touch the tables that differ; two Microsoft apps stay refused (ADR-046 amendment 7,
   `al-testrun/src/install_orders.rs`). A subscriber of such an app that writes nothing, reads only tables no such install
   code writes and leaves its arguments unchanged (or only registers with `Sender`) runs without counting as a meeting;

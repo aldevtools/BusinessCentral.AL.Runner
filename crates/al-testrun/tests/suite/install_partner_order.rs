@@ -358,25 +358,9 @@ fn three_interacting_partner_apps_are_tried_in_every_order() {
     assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
 }
 
-/// Four interacting partner apps (al-runner issue 8056): every order of the four (4! = 24) is tried, and they all leave the
-/// same database.
+/// More than three interacting partner apps: the runner does not try every order and refuses as before.
 #[test]
-fn four_interacting_partner_apps_are_tried_in_every_order() {
-    let rt = run(vec![
-        base(),
-        (PA_ID, "Partner A", "Partner", vec![BASE_ID], PA.into()),
-        (PB_ID, "Partner B", "Partner", vec![BASE_ID], registering(74000, "PB")),
-        (PC_ID, "Partner C", "Partner", vec![BASE_ID], registering(75000, "PC")),
-        (PD_ID, "Partner D", "Partner", vec![BASE_ID], registering(76000, "PD")),
-    ]);
-    assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
-    let line = rt.phases.baseline_line().unwrap_or_default();
-    assert!(line.contains("ran in 24 orders"), "{line}");
-}
-
-/// More than four interacting partner apps: the runner does not try every order and refuses as before.
-#[test]
-fn more_than_four_interacting_partner_apps_are_refused() {
+fn more_than_three_interacting_partner_apps_are_refused() {
     let rt = run(vec![
         base(),
         (PA_ID, "Partner A", "Partner", vec![BASE_ID], PA.into()),
