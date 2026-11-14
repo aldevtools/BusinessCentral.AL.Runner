@@ -96,6 +96,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
     properties of the field named (a CaptionClass runs AL code in FieldCaption) decide whether the call raises or runs
     code. Require each by equality, and run every listed name directly with a bad argument before hand-back
     (al-runner PR 8035).
+  - a gate on Modify that excludes ModifyAll by the bulk flag: ModifyAll with RunTrigger = true, RecordRef.Modify and a page
+    save reach the same arm. Require the Modify statement of AL code on a Record variable, and that the row exists
+    (al-runner PR 8045).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 

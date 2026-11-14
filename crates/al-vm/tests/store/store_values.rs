@@ -681,13 +681,12 @@ fn dates_out_of_the_sql_range_fail_at_the_next_access() {
     );
 }
 
-// Not pinned: other dates before 1753-01-02, an Insert into a table with a Blob field, a Modify, a Time that rounds past
-// midnight.
+// Not pinned: other dates before 1753-01-02, an Insert into a table with a Blob field, a Modify before 1753 or of a closing
+// date (the Modify of a 1753 date: tests/store/sql_date_floor.rs).
 #[test]
 fn unpinned_sql_range_cases_are_refused() {
     for (routine, d) in [
         ("StoreBlobTable", date(1753, 1, 1, false)),
-        ("ModifyTo", date(1753, 1, 1, false)),
         ("ModifyTo", date(1600, 6, 1, false)),
         ("ModifyTo", date(1753, 1, 1, true)),
     ] {
