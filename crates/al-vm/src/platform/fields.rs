@@ -207,6 +207,21 @@ pub(super) fn key_scan(t: &TableDef, filters: &[al_builtins::filter::FieldFilter
     Some((one(1)?, one(2)?))
 }
 
+/// Whether `scan` is the key scan the probe measured (metadata/platform-tables/PlatformMetadataColumnValues.al:545-554, corpus PR
+/// 1407): a FindFirst or FindSet (forward, from the start, in primary key order) whose only filters are one on TableNo and one on
+/// No., each of one value, in filter group 0. A FindLast, a Next from a position, another key, a filter on a third column and a
+/// filter in another group are not measured and keep the scan's ids.
+pub(super) fn measured_key_scan(t: &TableDef, scan: &al_data::Scan) -> bool {
+    let one = |id: u32| {
+        scan.filters
+            .iter()
+            .filter(|f| f.field == pos(t, id) && f.group == 0 && super::mat::single_value_of(&f.expr).is_some())
+            .count()
+            == 1
+    };
+    scan.key == 0 && scan.ascending && scan.after.is_none() && scan.filters.len() == 2 && one(1) && one(2)
+}
+
 /// Whether the filters read App Package ID or App Runtime Package ID.
 pub(super) fn filters_package(t: &TableDef, filters: &[al_builtins::filter::FieldFilter]) -> bool {
     filters.iter().any(|f| {

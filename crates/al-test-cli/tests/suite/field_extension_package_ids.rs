@@ -573,3 +573,43 @@ codeunit 50120 T
     );
     assert_eq!(by("Count"), Outcome::Pass);
 }
+
+/// Only the measured key scan (a FindFirst or FindSet, key 0, ascending, exactly the TableNo and No. filters of one value each
+/// in group 0; PlatformMetadataColumnValues.al:569-605, corpus PR 1407) gets the key lookup rule. A FindLast and a third
+/// filter keep the table's ids (main's result) and mark nothing.
+#[test]
+fn issue_8051_key_scan_outside_the_measured_shape_keeps_the_tables_ids() {
+    let test = r#"
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Unmeasured()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 2);
+        F.FindLast();
+        if F."App Package ID" <> Tbl."App Package ID" then
+            Error('findlast');
+        Clear(F);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 2);
+        F.SetFilter(FieldName, '<>%1', 'Nothing');
+        F.FindFirst();
+        if F."App Package ID" <> Tbl."App Package ID" then
+            Error('third filter');
+    end;
+}"#;
+    let o = run(&[
+        (OWNER_ID, AppKind::Dependency, PLAIN_TABLE),
+        (TEST_ID, AppKind::Workspace, test),
+    ]);
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
+    assert!(!o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+}

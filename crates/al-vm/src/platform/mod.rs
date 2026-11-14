@@ -727,7 +727,12 @@ impl Providers {
                 "Field: a FindFirst or FindSet that sets TableNo and No. to one value each and filters on App Package ID or App Runtime Package ID is not measured (docs/probes-needed.md, field-key-lookup-package-ids)".into(),
             ));
         }
-        Ok(listed.next(t, scan)?.map(|row| fields::key_lookup(self, t, row, true)))
+        let row = listed.next(t, scan)?;
+        Ok(if fields::measured_key_scan(t, scan) {
+            row.map(|row| fields::key_lookup(self, t, row, true))
+        } else {
+            row
+        })
     }
 
     /// The rows of the table of `kind`, worked out from the program and the host, with the
