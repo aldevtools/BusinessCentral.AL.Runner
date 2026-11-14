@@ -41,6 +41,8 @@ struct Shape {
     test: Option<&'static str>,
     /// The request page handler's body (default: OK).
     handler: Option<&'static str>,
+    /// Another procedure of the test codeunit (default: none).
+    helper: &'static str,
 }
 
 const LOGGED: &str = "trigger OnOpenPage() begin Log.Add('{tag}:rp open'); end; trigger OnClosePage() begin Log.Add('{tag}:rp close'); end;";
@@ -119,6 +121,7 @@ const PINNED_TEST: &str = r#"
 fn test(s: Shape) -> String {
     let body = s.test.unwrap_or(PINNED_TEST);
     let handler = s.handler.unwrap_or("RP.OK().Invoke();");
+    let helper = s.helper;
     format!(
         r#"
 codeunit 63190 T
@@ -134,6 +137,7 @@ codeunit 63190 T
     begin
         {handler}
     end;
+    {helper}
 }}"#
     )
 }
@@ -356,6 +360,35 @@ const CALL_REFUSAL: &str = "pinned only: Report.RunRequestPage(id) closed by OK"
 #[test]
 fn a_call_close_or_error_other_than_the_pinned_one_refuses() {
     let shapes = [
+        (
+            "the handler logs before OK",
+            Shape {
+                handler: Some("Log.Add('h'); RP.OK().Invoke();"),
+                ..Default::default()
+            },
+        ),
+        (
+            "the handler catches an error before OK",
+            Shape {
+                handler: Some("asserterror Error('x'); RP.OK().Invoke();"),
+                ..Default::default()
+            },
+        ),
+        (
+            "the handler commits before OK",
+            Shape {
+                handler: Some("Commit(); RP.OK().Invoke();"),
+                ..Default::default()
+            },
+        ),
+        (
+            "the handler calls OK through a helper procedure",
+            Shape {
+                handler: Some("DoOk(RP);"),
+                helper: "procedure DoOk(var RP: TestRequestPage \"XR Report\") begin RP.OK().Invoke(); end;",
+                ..Default::default()
+            },
+        ),
         (
             "the handler cancels",
             Shape {

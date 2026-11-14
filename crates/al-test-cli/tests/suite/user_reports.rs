@@ -3432,3 +3432,13 @@ fn issue_7885_var_variant_and_source_side_keep_main_result() {
         );
     }
 }
+
+/// Issue 7410: the reporter's pattern (fixtures/outside-fb/Issue7410.al), two Caption() reads in a row of a field whose
+/// CaptionClass an OnResolveCaptionClass subscriber resolves, after OpenEdit on an empty table.
+#[test]
+fn issue_7410_second_caption_read_of_a_resolved_field() {
+    all_pass(repro_outcomes(
+        include_str!("../fixtures/outside-fb/Issue7410.al"),
+        "My Caption Tests",
+    ));
+}

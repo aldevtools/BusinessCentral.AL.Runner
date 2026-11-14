@@ -736,10 +736,7 @@ impl<'a> Compiler<'a> {
                 let a = self.expr_any(base)?;
                 self.aux(AuxSite::FieldOf { pos: *pos }, d, a);
             }
-            E::QueryColumn { query, column } => {
-                let a = self.expr_any(query)?;
-                self.aux(AuxSite::QueryColumn { column: *column }, d, a);
-            }
+            E::QueryColumn { query, column } => self.query_column(query, *column, d)?,
             E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => {
                 let a = self.expr_any(inner)?;
                 self.aux(
@@ -833,6 +830,17 @@ impl<'a> Compiler<'a> {
                 ir::Place::Index(Box::new(base), regs)
             }
         })
+    }
+
+    /// A query column read; the site keeps the global slot when the query is a global variable (`query_reopen`).
+    fn query_column(&mut self, query: &'a ir::Expr, column: usize, d: u16) -> R<()> {
+        let a = self.expr_any(query)?;
+        let global = match query {
+            ir::Expr::Load(ir::Place::Global(g)) => Some(*g),
+            _ => None,
+        };
+        self.aux(AuxSite::QueryColumn { column, global }, d, a);
+        Ok(())
     }
 
     fn arg_regs(&mut self, args: &'a [ir::Arg]) -> R<(Vec<u16>, Vec<ir::Arg>)> {

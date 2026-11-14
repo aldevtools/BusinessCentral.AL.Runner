@@ -301,6 +301,26 @@ pub struct QueryState {
     /// `Close` ran since the last `Open`: a filter element read then is not pinned (only before `Open` is,
     /// assumption query-filter-element-read-without-row).
     pub closed: bool,
+    /// Where the variable stands in the pinned sequence of a second `Open` while rows are left (`al-vm` `query_reopen`).
+    pub reopen: crate::query_reopen_step::ReopenStep,
+}
+
+impl QueryState {
+    /// A new or cleared query variable of query object `object`: no filters, no row cap, not open.
+    pub fn new(object: u32) -> QueryState {
+        QueryState {
+            object,
+            filters: Vec::new(),
+            filter_replaced: false,
+            top: None,
+            security_filtering: None,
+            run: None,
+            instance: None,
+            in_before_open: false,
+            closed: false,
+            reopen: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -322,6 +342,22 @@ pub struct QueryRun {
     pub returned: usize,
     /// Version of each table the query reads (table object, stamp) when `rows` were read.
     pub stamps: Vec<(u32, u64)>,
+}
+
+impl QueryRun {
+    /// What `Open` leaves: opened, not run yet.
+    pub fn opened() -> QueryRun {
+        QueryRun {
+            started: false,
+            filters_changed: false,
+            rows: Vec::new(),
+            next: 0,
+            current: None,
+            last_key: None,
+            returned: 0,
+            stamps: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1623,17 +1659,7 @@ impl Value {
             // An unassigned interface holds nothing.
             RtType::Interface(_) => Value::Null,
             RtType::TestPage(id) | RtType::Page(id) => Value::TestPage(PageHandle::closed(*id)),
-            RtType::Query(id) => Value::Query(Rc::new(RefCell::new(QueryState {
-                object: *id,
-                filters: Vec::new(),
-                filter_replaced: false,
-                top: None,
-                security_filtering: None,
-                run: None,
-                instance: None,
-                in_before_open: false,
-                closed: false,
-            }))),
+            RtType::Query(id) => Value::Query(Rc::new(RefCell::new(QueryState::new(*id)))),
             // Records need the table's field types: the VM builds them.
             RtType::Record(..) => Value::Null,
             RtType::Library(crate::library_kind::LibraryKind::Blob) => Value::Blob(crate::stream::new_blob()),

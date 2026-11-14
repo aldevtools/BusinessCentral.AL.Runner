@@ -1,14 +1,17 @@
 //! The request page that al-sema `lower/ext_request_page.rs` admits with triggers on the request pages of two run-changing
 //! reportextensions of independent apps (`ir::Report::request_page_ok_only`). The corpus measured that page for one call
 //! only: the static `Report.RunRequestPage(id)` with no parameters and no SubstituteReport subscriber, whose
-//! `[RequestPageHandler]` calls `OK().Invoke()` and nothing else, on a report no event subscriber listens to
+//! `[RequestPageHandler]` has the one statement `<its page>.OK().Invoke()` (checked on the handler's body before the handler runs),
+//! on a report no event subscriber listens to
 //! (reports/extensions/IndependentAppsReportExtensions.al:73-81 `ObserveRequestPage`, :103-111, :133-141, handlers :143-153).
 //! Every other call that opens the page, every other handler step, every other close and every error raised while the page
 //! is open is refused here, each at its own step.
 
 use super::request::RequestClosed;
 use super::*;
+use al_builtins::builtin_id::BuiltinId;
 use al_builtins::page_op::PageOp;
+use al_ir::{Arg, Expr, Place, Stmt};
 
 /// What every refusal of this module ends with.
 const PINNED: &str = "pinned only: Report.RunRequestPage(id) closed by OK";
@@ -65,6 +68,36 @@ impl Session {
             Err(Signal::Error(_)) => self.refuse_ok_only(object, "an error raised while the page is open"),
             Err(other) => Err(other),
         }
+    }
+
+    /// The handler `hroutine` of object `hobject` that page `object` is handed to: its body is the one statement
+    /// `<its TestRequestPage parameter>.OK().Invoke()` of the pin (IndependentAppsReportExtensions.al:143-153), no other
+    /// code and no helper procedure.
+    pub(super) fn request_ok_only_handler(&self, object: usize, hobject: usize, hroutine: usize) -> Result<(), Signal> {
+        if !self.request_ok_only(object) {
+            return Ok(());
+        }
+        let routine = &self.engine.program.objects[hobject].routines[hroutine];
+        let ids = (
+            BuiltinId::of("TestAction.Invoke#1"),
+            BuiltinId::of("TestRequestPage.OK#1"),
+        );
+        let (Some(invoke), Some(ok)) = ids else {
+            return self.refuse_ok_only(object, "a handler whose OK call is not known");
+        };
+        let measured = matches!(
+            routine.body.stmts().iter().filter(|s| !matches!(s, Stmt::Pos(_))).collect::<Vec<_>>()[..],
+            [Stmt::Expr(Expr::Builtin { id, receiver: Some(recv), args, .. })]
+                if *id == invoke && args.is_empty() && matches!(
+                    &**recv,
+                    Arg::Value(Expr::Builtin { id: ok_id, receiver: Some(page), args: ok_args, .. })
+                        if *ok_id == ok && ok_args.is_empty() && matches!(&**page, Arg::Ref(Place::Local(0)))
+                )
+        );
+        if measured && routine.params == 1 {
+            return Ok(());
+        }
+        self.refuse_ok_only(object, "a handler other than `<its page>.OK().Invoke()`")
     }
 
     /// A step of the test client on page `st` (`method`, on control `target` when the receiver is a control): on the marked

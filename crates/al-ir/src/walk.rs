@@ -991,6 +991,7 @@ fn walk_query<V: RefVisitor>(q: &mut Query, v: &mut V) {
             link,
             link_items,
             table_filter,
+            properties: _,
         } = i;
         let own = TableOf::object(Some(*table));
         for (k, (mine, theirs)) in link.iter_mut().enumerate() {
@@ -1018,6 +1019,7 @@ fn walk_query<V: RefVisitor>(q: &mut Query, v: &mut V) {
             ty,
             static_filter,
             flow_below_join: _,
+            properties: _,
         } = c;
         field_opt(v, field, TableOf::object(tables.get(*item).copied().flatten()));
         walk_rt(ty, v);
