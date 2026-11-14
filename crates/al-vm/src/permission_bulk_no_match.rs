@@ -51,6 +51,14 @@ struct Target {
 }
 
 impl Session {
+    /// A RecordRef's record method of AL code runs `record_op` next: the gate checks it as a RecordRef's call.
+    pub(crate) fn recordref_permission_call(&mut self) {
+        if self.permission_checks() {
+            self.permission_from_al = true;
+            self.permission_from_recordref = true;
+        }
+    }
+
     /// The verdict for a denied `method` (ModifyAll or DeleteAll) on `rec` whose filters match no row while the table holds
     /// `rows` rows. `by` is the object whose code makes the access; `indirect` whether its Permissions property grants it.
     #[allow(clippy::too_many_arguments)]
