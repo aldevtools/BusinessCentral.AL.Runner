@@ -1020,7 +1020,7 @@ impl Session {
         }
         let (s, holder) = {
             let src = src.borrow();
-            (src.clone(), crate::blob_transfer::Holder::of(&src))
+            (src.clone(), self.holder(&src))
         };
         // Copy takes the fields, filters and key but does not move the target to the source's company
         // (record/TestChangeCompanyFiltersCopyDeleteContracts.al:117-121).
@@ -1037,11 +1037,13 @@ impl Session {
         // The row version the buffer got comes over with the fields, and where it came from (record/crud/
         // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
         (d.fields, d.row_origin) = (s.fields, s.row_origin);
-        // The Blobs move as `BlobMove::record_copy` says.
-        if let Some(how) = BlobMove::record_copy(s.temporary, d.temporary) {
-            let table = d.table as usize;
-            self.move_blobs(table, &mut d.fields, None, how, holder)?;
-        }
+        // The Blobs move as `BlobMove::RecordCopy` says.
+        let table = d.table as usize;
+        let how = BlobMove::RecordCopy {
+            source_temporary: s.temporary,
+            target_temporary: d.temporary,
+        };
+        self.move_blobs(table, &mut d.fields, None, how, holder)?;
         d.filters = s.filters;
         d.filter_group = s.filter_group;
         d.key = s.key;
@@ -1473,7 +1475,7 @@ impl Session {
         }
         let (src_table, src_fields, holder) = {
             let s = src.borrow();
-            (s.table as usize, s.fields.clone(), crate::blob_transfer::Holder::of(&s))
+            (s.table as usize, s.fields.clone(), self.holder(&s))
         };
         let from = self.engine.tables[src_table]
             .clone()
@@ -1634,7 +1636,11 @@ impl Session {
             // A Blob moves as `blob_transfer::moved` says.
             if let Value::Blob(_) = &src_fields[sp] {
                 let cur = rec.borrow().fields[dp].clone();
-                let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(args));
+                let how = BlobMove::TransferFields(crate::blob_transfer::TransferCall::of(
+                    args,
+                    src.borrow().temporary,
+                    rec.borrow().temporary,
+                ));
                 let kind = || {
                     self.blob_field_kind(src_table, sp)
                         .with(self.blob_field_kind(t.object as usize, dp))
@@ -2049,7 +2055,7 @@ impl Session {
                     failed_insert: None,
                     row_origin: None,
                     own_read: Default::default(),
-                    own_variable: Default::default(),
+                    probed_source: Default::default(),
                     globals: shared.share(),
                     // The scanned row is whole: a partial load of the variable is not the copy's (al-runner issue 6654).
                     load: Default::default(),

@@ -31,5 +31,6 @@
     <Compile Include="Dispatch.cs" />
     <Compile Include="Resolver.cs" />
     <Compile Include="Reuse.cs" />
+    <Compile Include="Render.cs" />
   </ItemGroup>
 </Project>
