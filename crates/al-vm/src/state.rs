@@ -235,6 +235,8 @@ pub(crate) struct UiState {
 /// What the TestPage client keeps between calls.
 #[derive(Default)]
 pub(crate) struct PageClients {
+    /// What the action running now did (`pages/action_tally.rs`); armed only around an action of an empty List on its new-row line.
+    pub(crate) action_tally: Option<crate::pages::action_tally::ActionTally>,
     /// The TestPage variables whose `Trap()` waits for the next plain `Page.Run` of their page (ADR-012). Several wait at
     /// once, one per page: a test traps the preview page and, inside it, the entries page its action opens.
     /// The variable-bound control values each SaveValues page stored when it closed: (owner, global slot, value), the owner

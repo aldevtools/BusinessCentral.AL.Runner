@@ -94,6 +94,8 @@ impl Session {
                 part_moves: false,
                 no_writes: false,
                 next: NextEnd::Refused,
+                close: true,
+                ok: false,
             });
         }
         let r = self.sync_part(host, c, st);

@@ -2395,6 +2395,9 @@ impl Session {
         } else {
             self.record_op_unprofiled(method, rec, args)
         };
+        if let Some(tally) = self.pages.action_tally.as_mut() {
+            tally.note_record_op(method, rec.borrow().table as usize, args.is_empty());
+        }
         self.own_read_after(method, rec, inserted, matches!(r, Ok(Value::Boolean(true))));
         r
     }

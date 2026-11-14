@@ -370,25 +370,16 @@ impl Session {
         // On a list, a table-field control over an Enum field with NotBlank (not the control's) takes a Text of spaces and the
         // Integer 0 for its blank-captioned value " " as a card does, and shows ' ' (BeEnumSetValueBlank.al:4021
         // QZ_NotBlankEnum_SetValueBlank_List, `notblank after space`, `notblank after ordinal 0`). Without NotBlank it is not pinned.
-        let pinned_list_not_blank = rec_bound
-            && self.has_source(st)
-            && self.is_list(st)
-            && st.borrow().host.is_none()
-            && !self.shows_no_row(st, idx)
-            && !matches!(
-                page_of(&engine, st).controls[idx].prop("notblank"),
-                Some(ir::PropVal::Lit(v)) if v.trim().eq_ignore_ascii_case("true")
-            )
-            && self.control_field(st, idx).is_some_and(|f| {
-                f.properties
-                    .iter()
-                    .any(|(k, v)| k.eq_ignore_ascii_case("NotBlank") && v.trim().eq_ignore_ascii_case("true"))
-            });
+        let pinned_list_not_blank = self.list_not_blank_control(st, idx, rec_bound);
         if let RtType::Enum(id) = &ty
             && let Some(why) = self.enum_ml_unpinned(*id, None, "SetValue and ValidateValue of an enum control")
         {
             return unsupported(why);
         }
+        // The rows of a list whose enum's first member has the caption ' ' (`blank_enum_rows.rs`, al-runner issue 7380).
+        let blank_list_rows = matches!(ty, RtType::Enum(id)
+            if rec_bound && self.blank_enum_list_rows_pinned(st, idx, id, &arg, from_variant)?);
+        let pinned_list_not_blank = pinned_list_not_blank || blank_list_rows;
         let mut blank_enum = None;
         if let (RtType::Enum(id), Value::Text(t) | Value::Code(t)) = (&ty, &arg) {
             if !t.is_empty() && t.chars().all(|c| c == ' ') {
@@ -429,7 +420,7 @@ impl Session {
                 let shown = self.control_text(st, idx, &arg)?;
                 // A request page's Enum variable takes it too and shows ' ' (Y37ValuesAllowedSetValue.al:247-248, :276).
                 if !shown.is_empty() && shown.trim().is_empty() {
-                    if !pinned_card && !(self.is_request_page(st) && !rec_bound) {
+                    if !pinned_card && !blank_list_rows && !(self.is_request_page(st) && !rec_bound) {
                         return unsupported(
                             "SetValue of a blank-captioned Enum value on a control of a list or of a page without a row (not pinned)",
                         );
@@ -689,6 +680,9 @@ impl Session {
                     )));
                 }
             }
+        }
+        if self.blank_enum_new_line_unchanged(st, blank_list_rows, blank_enum.as_ref(), &current) {
+            return Ok(Value::Null);
         }
         let parsed = match blank_enum {
             Some(v) => Ok(v),
@@ -1164,6 +1158,23 @@ impl Session {
     }
 
     // ---- controls -----------------------------------------------------------------------
+
+    /// A table-field control on a list (no host) with a row, over a field with NotBlank and without NotBlank on the control
+    /// (`control_set_value_now`, `pinned_list_not_blank`).
+    fn list_not_blank_control(&self, st: &St, idx: usize, rec_bound: bool) -> bool {
+        rec_bound
+            && self.has_source(st)
+            && self.is_list(st)
+            && st.borrow().host.is_none()
+            && !self.shows_no_row(st, idx)
+            && !matches!(
+                page_of(&self.engine(), st).controls[idx].prop("notblank"),
+                Some(ir::PropVal::Lit(v)) if v.trim().eq_ignore_ascii_case("true")
+            )
+            && self
+                .control_field(st, idx)
+                .is_some_and(|f| super::blank_enum_rows::field_not_blank(&f))
+    }
 
     /// Whether control `idx` is bound to an expression that is no place (no routine writes it), on a Card without a source table
     /// that is no request page, and declares no Editable: the shape QZ_NoSourceTable_SetValue_OnExpressionControls pins

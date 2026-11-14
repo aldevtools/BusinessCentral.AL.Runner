@@ -88,6 +88,8 @@ impl Session {
             part_moves: false,
             no_writes: false,
             next: NextEnd::Refused,
+            close: true,
+            ok: false,
         });
         Ok(true)
     }

@@ -277,6 +277,9 @@ impl Session {
     /// the `AutoRollback` refusal (record/TestTransactionModelAutoRollback.al:Test07); the
     /// `AutoRollback` refusal outranks `[CommitBehavior(Error)]` (:Test08).
     pub(crate) fn commit_builtin(&mut self) -> Result<(), Signal> {
+        if let Some(tally) = self.pages.action_tally.as_mut() {
+            tally.note_commit();
+        }
         self.bg_refuse_transaction_call("Commit")?;
         if self.tx.commit_behavior == CommitBehavior::Ignore {
             return Ok(());
@@ -681,6 +684,9 @@ impl Session {
         args: &[Value],
         guarded: bool,
     ) -> Result<Value, Signal> {
+        if let Some(tally) = self.pages.action_tally.as_mut() {
+            tally.note_codeunit_run();
+        }
         // Only the guarded form is pinned inside a page background worker
         // (testpage/TestPageBgTaskTx_Tests.al:RunPageBackgroundTask_WorkerIsOutsideCallersWriteTransaction).
         if !guarded {
