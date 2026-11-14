@@ -9,7 +9,7 @@
 //!
 //! Not pinned yet: the probe is merged in the corpus (corpus PR 1406, tests/al-language/types/variant/
 //! VariantFromVariantTempRecord.al, codeunit 96471 "LT VFV Tests"), not in the pinned corpus. Its cells C1-C7 and C9 (the
-//! same on BC 27.5, 28.5 and 29.0) run under the assumption `variant-from-variant-temp-record-keeps-rows`
+//! same on every BC major of its CI) run under the assumption `variant-from-variant-temp-record-keeps-rows`
 //! ([`Session::measured`]): the new Variant holds a record over the same temporary table, one table for both holders. Every
 //! other temporary record moved that way gets main's store, a by-value copy over an empty table of its own, and that table
 //! is marked (`TempId::mark_rows_unmeasured`): its field values read as on main, every read of its rows and every write
@@ -129,7 +129,7 @@ enum Filters {
 }
 
 /// Whether a move of these facts is a cell of the probe (corpus PR 1406, VariantFromVariantTempRecord.al, codeunit 96471,
-/// the same on BC 27.5, 28.5 and 29.0). Every cell keeps the rows and the temporary state, and the copy holds the same
+/// the same on every BC major of its CI). Every cell keeps the rows and the temporary state, and the copy holds the same
 /// table as its source.
 fn is_cell(cell: (Source, Target, Held, Filters)) -> bool {
     use self::{Filters as F, Held as H, Source as S, Target as T};
