@@ -1,3 +1,4 @@
+use super::auto_format_writer_cell::ControlRead;
 use super::*;
 
 impl Session {
@@ -164,6 +165,16 @@ impl Session {
 
     /// How a control spells its value: the control's own properties, then the source field's.
     pub(super) fn control_format(&mut self, st: &St, idx: usize) -> Result<ControlFormat, Signal> {
+        self.control_format_for(st, idx, ControlRead::Other)
+    }
+
+    /// [`Session::control_format`] for the read `read`.
+    pub(super) fn control_format_for(
+        &mut self,
+        st: &St,
+        idx: usize,
+        read: ControlRead,
+    ) -> Result<ControlFormat, Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
         let ctl = &page.controls[idx];
@@ -245,6 +256,14 @@ impl Session {
             Some(ir::PropVal::Lit(v)) => Some(v.clone()),
             _ => None,
         };
+        // The control's AutoFormatType, else its field's: a type the runtime does not model, or one a subscriber could resolve, is
+        // refused before any expression runs.
+        if let Some(kind) = lit("autoformattype").or_else(|| from_format_field("autoformattype")) {
+            if let Some(why) = pagefmt::unmodelled_auto_format_type(&kind) {
+                return unsupported(why);
+            }
+            self.refuse_auto_format_writer_on_control(st, idx, &kind, read)?;
+        }
         // A table field's AutoFormatExpression that is an expression, read through a control that names no expression of its
         // own: a field of the row is evaluated with the control's row (format-evaluate/QiTableFieldAutoFormat.al;
         // control expressions: format-evaluate/autoformat/PWAutoFormatTypes.al:19-22, AutoFormatCard.Page.al:53; literal field expressions:
@@ -764,6 +783,17 @@ impl Session {
     }
 
     pub(super) fn control_text(&mut self, st: &St, idx: usize, v: &Value) -> Result<String, Signal> {
+        self.control_text_for(st, idx, v, ControlRead::Other)
+    }
+
+    /// [`Session::control_text`] for the read `read`.
+    pub(super) fn control_text_for(
+        &mut self,
+        st: &St,
+        idx: usize,
+        v: &Value,
+        read: ControlRead,
+    ) -> Result<String, Signal> {
         // Rendered content is shown only to `TestField.Value()` (`rendered_field_value`): every other reader of a control's
         // text compares, parses or prints it.
         if let Some(refusal) = Self::rendered_field_refusal(v) {
@@ -807,7 +837,7 @@ impl Session {
                 return Ok(String::new());
             }
         }
-        let f = self.control_format(st, idx)?;
+        let f = self.control_format_for(st, idx, read)?;
         let engine = self.engine();
         let caption = move |id: u32, ordinal: i32| {
             let o = &engine.program.objects[id as usize];

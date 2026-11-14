@@ -186,6 +186,9 @@ impl al_builtins::native::Ctx for Session {
     fn auto_format_field_places(&mut self, record: &Value, field_no: usize) -> Result<String, Signal> {
         self.auto_format_field_places_of(record, field_no)
     }
+    fn auto_format_writer_refusal(&self, kind: &str) -> Option<String> {
+        Session::auto_format_writer_refusal(self, kind, false)
+    }
     fn last_error(&self) -> AlError {
         self.last_error.clone()
     }

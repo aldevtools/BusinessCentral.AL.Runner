@@ -205,6 +205,20 @@ pub(super) fn format_field_string(
 /// `Format(Rec.Field[, Length, FormatNumber])` of a Decimal table field whose AutoFormatExpression is an expression: the
 /// places come from the field's AutoFormat evaluated on the record (`Ctx::auto_format_field_places`), then as
 /// `format_decimal_field`. Arguments: the value, length, format number, the record, the field's number.
+/// The check lowering puts before `Format` in code of a Decimal field of AutoFormatType 1, 2, 4, 5, 10 or 11 (its one argument): true,
+/// or refused while a subscriber could write the AutoFormat result (`Ctx::auto_format_writer_refusal`).
+pub(super) fn auto_format_writer_guard(
+    ctx: &mut dyn Ctx,
+    _r: Option<&mut Value>,
+    args: &mut [Value],
+) -> Result<Value, Signal> {
+    let kind = int_arg(args, 0).unwrap_or(0).to_string();
+    match ctx.auto_format_writer_refusal(&kind) {
+        Some(why) => Err(Signal::unsupported(why)),
+        None => Ok(Value::Boolean(true)),
+    }
+}
+
 pub(super) fn format_auto_format_field(
     ctx: &mut dyn Ctx,
     r: Option<&mut Value>,
