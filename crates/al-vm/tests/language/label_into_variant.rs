@@ -39,6 +39,11 @@ codeunit 69975 C
     begin
     end;
 
+    procedure PublicPass(V: Variant): Text
+    begin
+        exit(Kinds(V));
+    end;
+
     local procedure IntoParam(var V: Variant)
     begin
         V := GLbl;
@@ -148,6 +153,11 @@ codeunit 69975 C
         exit(Pass(Tc));
     end;
 
+    procedure TextConstPublicArg(): Text
+    begin
+        exit(PublicPass(GTc));
+    end;
+
     procedure TextConstTryArg(): Boolean
     begin
         exit(TryPass(GTc));
@@ -203,7 +213,12 @@ fn other_label_shapes_keep_the_text_conversion() {
 
 #[test]
 fn other_textconst_shapes_stay_refused() {
-    for routine in ["TextConstGlobalTarget", "TextConstLocalArg", "TextConstTryArg"] {
+    for routine in [
+        "TextConstGlobalTarget",
+        "TextConstLocalArg",
+        "TextConstTryArg",
+        "TextConstPublicArg",
+    ] {
         let (r, _) = run(routine);
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{routine}: {r:?}");
     }

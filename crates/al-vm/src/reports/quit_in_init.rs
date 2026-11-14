@@ -21,7 +21,42 @@ pub(super) enum InitQuit {
     Defers,
 }
 
+/// A quit in OnInitReport before a method that cannot stop the report, or of a report the probe did not measure.
+const QUIT_BEFORE_NON_RUN: &str =
+    "CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)";
+
 impl Session {
+    /// The report instance behind a receiver, initialised: the first use of a report variable
+    /// runs `OnInitReport` (reports/TestReportOnInitReportTiming.al:50-60).
+    /// Returns whether that trigger quit the report; `how` says what a quit does ([`InitQuit`]).
+    pub(super) fn report_instance(&mut self, receiver: Option<Value>, how: InitQuit) -> Result<(Inst, bool), Signal> {
+        match receiver {
+            Some(Value::Codeunit(rc)) => {
+                if self.quit_deferred_on(&rc) {
+                    if how == InitQuit::StopsTakingDeferred {
+                        return Ok((rc.clone(), self.take_deferred_quit(&rc)));
+                    }
+                    return unsupported(
+                        "a Report method after CurrReport.Quit in OnInitReport of UseRequestPage(false) (not pinned)",
+                    );
+                }
+                // Used again after a Run, it is a new instance: OnInitReport runs.
+                // A second Run on one variable runs OnInitReport again (reports/request-page/RptTriggerOrder.al:353
+                // VariableRun_Twice_InitReportEachTime; reports/PnH5aExt.al:396).
+                if std::mem::take(&mut rc.borrow_mut().rerun) {
+                    rc.borrow_mut().initialized = false;
+                }
+                let quit = !rc.borrow().initialized && self.report_init(&rc)?;
+                match how {
+                    InitQuit::Defers if quit => self.defer_quit(&rc).map(|()| (rc, false)),
+                    InitQuit::Refuses if quit => unsupported(QUIT_BEFORE_NON_RUN),
+                    _ => Ok((rc, quit)),
+                }
+            }
+            other => unsupported(format!("a Report method on {}", other.describe())),
+        }
+    }
+
     /// The report the probe measured (ReportQuitInOnInit.al:35-102): ProcessingOnly (:37), a request page (:57-80) without
     /// an OnInit trigger, no UseRequestPage property, no report extension.
     pub(super) fn quit_in_init_measured(&self, schema: &Schema) -> bool {
@@ -47,9 +82,7 @@ impl Session {
     pub(super) fn defer_quit(&mut self, inst: &Inst) -> Result<(), Signal> {
         let schema = self.report_schema(inst)?;
         if !self.quit_in_init_measured(&schema) {
-            return unsupported(
-                "CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)",
-            );
+            return unsupported(QUIT_BEFORE_NON_RUN);
         }
         assume(Assumption::ReportQuitInOninitRequestPage);
         self.report.report_quit_deferred.retain(|w| w.strong_count() > 0);

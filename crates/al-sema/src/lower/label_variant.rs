@@ -19,7 +19,8 @@ enum Source {
 pub(super) enum Site<'n> {
     /// `Target := Name` (a plain assignment).
     Assign(&'n SyntaxNode),
-    /// A by-value Variant parameter of `routine` of object `object`, called bare (no receiver, no `with`).
+    /// A by-value Variant parameter of `routine` of object `object`, called bare (no receiver, no `with`); the cell requires a
+    /// local procedure of the object being lowered, without attributes.
     Arg { object: usize, routine: usize },
 }
 
@@ -79,7 +80,7 @@ impl Lowerer<'_> {
                         .routine_nodes
                         .get(*object)
                         .get(*routine)
-                        .is_some_and(|r| r.attributes().next().is_none()) =>
+                        .is_some_and(|r| r.is_local() && r.attributes().next().is_none()) =>
             {
                 Some(None)
             }
@@ -103,6 +104,15 @@ impl Lowerer<'_> {
             args: vec![ir::Arg::Value(text)],
             ret_used: true,
         }))
+    }
+
+    /// The right side of the plain assignment `n` (children `kids`) lowered as a TextConstant when it is one of the cells of
+    /// [`text_constant_cell`](Self::text_constant_cell); `None` for a compound assignment and every other shape.
+    pub(super) fn assigned_text_constant(&mut self, n: &SyntaxNode, kids: &[SyntaxNode]) -> L<Option<ir::Expr>> {
+        if is_compound_assign(n) {
+            return Ok(None);
+        }
+        self.text_constant_into_variant(&kids[1], Site::Assign(&kids[0]))
     }
 
     /// A variable declared `TextConst` going into a Variant outside the cells of

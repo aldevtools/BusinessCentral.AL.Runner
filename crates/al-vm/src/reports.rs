@@ -804,39 +804,6 @@ impl Session {
             })
     }
 
-    /// The report instance behind a receiver, initialised: the first use of a report variable
-    /// runs `OnInitReport` (reports/TestReportOnInitReportTiming.al:50-60).
-    /// Returns whether that trigger quit the report; `how` says what a quit does (`quit_in_init::InitQuit`).
-    fn report_instance(&mut self, receiver: Option<Value>, how: InitQuit) -> Result<(Inst, bool), Signal> {
-        match receiver {
-            Some(Value::Codeunit(rc)) => {
-                if self.quit_deferred_on(&rc) {
-                    if how == InitQuit::StopsTakingDeferred {
-                        return Ok((rc.clone(), self.take_deferred_quit(&rc)));
-                    }
-                    return unsupported(
-                        "a Report method after CurrReport.Quit in OnInitReport of UseRequestPage(false) (not pinned)",
-                    );
-                }
-                // Used again after a Run, it is a new instance: OnInitReport runs.
-                // A second Run on one variable runs OnInitReport again (reports/request-page/RptTriggerOrder.al:353
-                // VariableRun_Twice_InitReportEachTime; reports/PnH5aExt.al:396).
-                if std::mem::take(&mut rc.borrow_mut().rerun) {
-                    rc.borrow_mut().initialized = false;
-                }
-                let quit = !rc.borrow().initialized && self.report_init(&rc)?;
-                match how {
-                    InitQuit::Defers if quit => self.defer_quit(&rc).map(|()| (rc, false)),
-                    InitQuit::Refuses if quit => unsupported(
-                        "CurrReport.Quit in OnInitReport before a method that does not run the report (not pinned)",
-                    ),
-                    _ => Ok((rc, quit)),
-                }
-            }
-            other => unsupported(format!("a Report method on {}", other.describe())),
-        }
-    }
-
     /// The report object of a report variable for a method that reads the report's metadata. Whether the call runs
     /// OnInitReport is not pinned: a report (or an extension of it) that declares one is refused.
     fn report_variable_object(&self, receiver: &Option<Value>, what: &str) -> Result<usize, Signal> {

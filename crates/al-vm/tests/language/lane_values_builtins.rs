@@ -574,7 +574,7 @@ fn a_textconst_going_into_a_variant_is_refused_outside_the_pinned_cells() {
     // formats as its text in all three.
     let src = |decl: &str, body: &str| {
         format!(
-            "codeunit 50200 C {{ var Simple: {decl}; procedure Take(V: Variant): Text begin exit(Format(V)); end; \
+            "codeunit 50200 C {{ var Simple: {decl}; local procedure Take(V: Variant): Text begin exit(Format(V)); end; \
              procedure Give(): Variant begin exit(Simple); end; \
              procedure F(): Text var V: Variant; begin {body} end; }}"
         )
