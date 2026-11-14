@@ -108,6 +108,12 @@ impl Session {
                     (RtType::Enum(_), Some(FilterExpr::Ne(Value::Enum(_, x)))) => {
                         return Ok(Value::Text(format!("<>{x}").into()));
                     }
+                    // `<>` and the first member of an Option, typed by the test, reads as `<>0` (`filter_option_ne.rs`).
+                    (RtType::Option(_), Some(FilterExpr::Ne(_)))
+                        if self.option_ne_reads_number(st, &rec, first.as_ref()) =>
+                    {
+                        return Ok(Value::Text("<>0".to_string().into()));
+                    }
                     // A Boolean that a SourceTableView (group 2) or an action's RunPageView (group 3) filters with `const(true)`
                     // reads `1` (testpage/RzRunPageLinkView.al:62 RZ_Link_WhereView_I1, :112
                     // RZ_LinkAndRunPageViewWhere_DescendingView_I1). `const(false)` there is not pinned.

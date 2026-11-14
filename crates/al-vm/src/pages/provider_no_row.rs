@@ -20,6 +20,7 @@ const LANDED_END: PinnedEnd = PinnedEnd {
     reason: "a call of the test on a Card whose Provider part shows no row, after the test wrote to the store, or other than a \
              value read of a part's control, First, Last or Next of a part, or Close (not pinned)",
     reads: false,
+    caption: false,
     part_reads: true,
     one_action: false,
     first_ends: false,

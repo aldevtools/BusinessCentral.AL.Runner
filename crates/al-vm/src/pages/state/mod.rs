@@ -325,6 +325,11 @@ pub struct PageState {
     /// A row trigger ran since the DataCaptionExpression last did: it runs before the next trigger other than OnAfterGetRecord
     /// and before the test code touches the page.
     pub data_caption_due: bool,
+    /// The static `Page.Run(Id, Rec)` or `Page.RunModal(Id, Rec)` of AL code runs this page with a record (`PageState::static_run`).
+    pub static_run_with_record: bool,
+    /// The DataCaptionExpression of this page ran at the open as `data_caption_open.rs` measured: a TestPage's Caption() shows
+    /// what that run left (`data_caption_value`) and does not evaluate the expression again. Cleared at the next open.
+    pub data_caption_at_open: bool,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
     /// (`lookup_start.rs`).
     pub lookup_held_row: bool,
@@ -931,6 +936,15 @@ impl PageState {
         self.opened_by_test && self.mode == PageMode::View && !self.modal && self.host.is_none()
     }
 
+    /// A static `Page.Run` (`modal` false) or `Page.RunModal` of AL code runs the page; `record`: it got a record. A RunModal
+    /// takes `static_run_modal` with the other arguments.
+    pub(crate) fn static_run(&mut self, modal: bool, used: bool, record: bool, field: bool, from_table: bool) {
+        self.static_run_with_record = record;
+        if modal {
+            self.static_run_modal(used, record, field, from_table);
+        }
+    }
+
     /// A static `Page.RunModal(Id [, Rec [, Field]])` runs the page: `used` says its return value is used, `record` that it
     /// got a record, `field` a field number, `from_table` that the id was 0 (the table's lookup page). Used, the page opens
     /// as a lookup (pages/triggers/BeRunModalOnLookup.al:916 Shape_ReturnNotUsed_WalkOnly, :949 Shape_ReturnInIf_WalkOnly).
@@ -973,6 +987,7 @@ impl PageState {
         self.empty_list_landing = None;
         self.typed_key_dropped = false;
         self.pinned_end = None;
+        self.data_caption_at_open = false;
         self.provider_no_row_landed = false;
         self.empty_selection_given = false;
         self.temp_ws_edit = None;

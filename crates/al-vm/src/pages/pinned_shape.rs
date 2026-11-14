@@ -64,6 +64,8 @@ pub struct PinnedEnd {
     /// The refusal of any other call.
     pub reason: &'static str,
     pub reads: bool,
+    /// `P.Caption()` of the page is let through.
+    pub caption: bool,
     /// `P.Part.Control.Value()` is let through.
     pub part_reads: bool,
     /// One `Invoke` of an action is let through; a second one is refused.
@@ -168,6 +170,7 @@ impl Session {
                 });
                 true
             }
+            Some(TestCall::Page(PageMethod::Caption)) => end.caption && part.is_none(),
             Some(TestCall::Page(PageMethod::Visible)) => end.part_visible && part.is_some(),
             Some(TestCall::Page(PageMethod::First | PageMethod::Last | PageMethod::Next)) if end.part_moves => {
                 part.is_some()

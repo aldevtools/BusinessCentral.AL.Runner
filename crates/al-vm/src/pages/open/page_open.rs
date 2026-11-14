@@ -198,7 +198,11 @@ impl Session {
         record: Option<Rec>,
         bind: Option<UiKind>,
     ) -> Result<Option<Handler>, Signal> {
-        self.open_page_as(st, mode, record, bind, false)
+        let handler = self.open_page_as(st, mode, record, bind, false)?;
+        if handler.is_some() {
+            self.data_caption_at_handled_open(st, bind)?;
+        }
+        Ok(handler)
     }
 
     /// `page_instance`, for the open of a page in a session whose permissions a test lowered (ADR-062 stage 3): a page opened without
