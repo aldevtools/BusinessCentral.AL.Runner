@@ -444,6 +444,8 @@ fn dwy2date(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 fn normal_date(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match &a[0] {
         Value::Date(n, _) if *n > 0 => Ok(Value::Date(*n, false)),
+        // types/date-time/DateFuncs.al:34 and :60-61 (`NormalDate(0D)`, error af34), as ClosingDate(0D) (:30-33).
+        Value::Date(0, _) => raise("The date is not valid.".to_string(), "DateInvalid"),
         other => unsupported(format!("NormalDate of {}", other.describe())),
     }
 }
