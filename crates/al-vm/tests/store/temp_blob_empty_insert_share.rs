@@ -504,6 +504,41 @@ codeunit 50994 C
         Lib.Write(R, 'X');
         exit(Lib.Content(R));
     end;
+
+    // TempBlobEmptyInsertShare.al:527 (Excel Buffer's ParseCellValue): the detached stream written with Write of one Text.
+    procedure KeyChangeWriteOfText(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream; T: Text;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2;
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        T := 'X';
+        O.Write(T);
+        R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: the detached stream written with Write of an Integer (main: row 1 read the write).
+    procedure KeyChangeWriteOfInteger(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2;
+        R.Data.CreateOutStream(O, TextEncoding::UTF8);
+        O.Write(5);
+        R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured: a by-value copy of a record whose own row holds the buffer under the same key writes (main: the caller's row
+    // read the write).
+    procedure ByValueCopySourceRowSameKey(): Text
+    var R: Record "Tbs Row" temporary;
+    begin
+        R.Key1 := 1; R.Insert();
+        ByValueWrite(R);
+        exit(Lib.ReadGet(R, 1));
+    end;
 }
 "#;
 
@@ -532,6 +567,7 @@ fn measured_cells_keep_the_earlier_rows_empty() {
         ("TempTableClear", "nohv|hv:X"),
         ("TempTableNoClear", "nohv|hv:X"),
         ("TempTableSameKey", "hv:X"),
+        ("KeyChangeWriteOfText", "nohv"),
     ];
     let mut wrong = Vec::new();
     for (name, want) in cells {
@@ -610,8 +646,18 @@ fn a_stream_that_outlives_its_record_refuses_while_a_row_holds_the_buffer() {
 fn a_by_value_copy_that_writes_refuses() {
     // Main read 'hv:X' in the caller's row 1.
     assert!(refused("ByValueCopyWrites").starts_with(REFUSED));
-    // No row holds the buffer, but the caller's variable does, outside the copy's own table: refused too (main read 'nohv').
-    assert!(refused("ByValueCopyNoRow").starts_with(REFUSED));
+    assert!(refused("ByValueCopySourceRowSameKey").starts_with(REFUSED));
+}
+
+#[test]
+fn a_by_value_copy_whose_holders_the_caller_accounts_for_keeps_mains_result() {
+    // No row holds the buffer; the caller's variable does, and the copy's source accounts for it.
+    assert_eq!(run("ByValueCopyNoRow"), "nohv");
+}
+
+#[test]
+fn a_detached_stream_takes_only_the_measured_writes() {
+    assert!(refused("KeyChangeWriteOfInteger").starts_with(REFUSED));
 }
 
 #[test]

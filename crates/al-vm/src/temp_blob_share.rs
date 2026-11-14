@@ -38,6 +38,8 @@ struct Holders {
     /// Every holder is accounted for: the values the caller counted, the rows of the record's own table and one for each other
     /// record variable that shares the table. A holder outside them (a by-value copy, a Variant, a stream) leaves it false.
     all_found: bool,
+    /// How many holders those are.
+    found: usize,
 }
 
 impl Session {
@@ -121,7 +123,7 @@ impl Session {
         }
         let h = self.blob_holders(&rc, &t, *pos, &b, counted)?;
         if h.elsewhere == 0 {
-            if by_value_copy(&rc.borrow()) && !h.all_found {
+            if !self.by_value_holders_found(&rc, *pos, &b, &h)? {
                 return Err(refusal(&t, *pos));
             }
             return Ok(pending);
@@ -156,7 +158,8 @@ impl Session {
         ) {
             return Ok(());
         }
-        for v in recv.into_iter().chain(values) {
+        let measured_write = measured_detached_write(id, values);
+        for (i, v) in recv.into_iter().chain(values).enumerate() {
             let Value::Library(LibraryKind::OutStream, h) = v else {
                 continue;
             };
@@ -164,7 +167,7 @@ impl Session {
                 LibraryValue::OutStream(b, _, Some(open)) => (b.clone(), open.clone()),
                 _ => continue,
             };
-            self.check_temp_out_stream(id, &b, &open)?;
+            self.check_temp_out_stream(measured_write && recv.is_some() && i == 0, &b, &open)?;
         }
         Ok(())
     }
@@ -172,10 +175,10 @@ impl Session {
     /// A call that takes an OutStream opened on Blob field `open.field` of a temporary record, writing to buffer `b`. Main's
     /// path runs while no value other than the record's field and the stream holds the buffer, or while the record is still on
     /// the key it had at the open and no row under another key holds the buffer (the pinned same-key write,
-    /// streams/TestBlobUncommittedWriteIsolation.al:171). A stream the assumed detach opened writes with `WriteText` only (the
-    /// writes of TempBlobEmptyInsertShare.al, corpus PR 1391). Everything else refuses: the record moved to another key, or a
-    /// row under another key holds the buffer, since the open.
-    fn check_temp_out_stream(&mut self, id: BuiltinId, b: &BlobRef, open: &OutOpen) -> Result<(), Signal> {
+    /// streams/TestBlobUncommittedWriteIsolation.al:171). A stream the assumed detach opened takes only the measured writes, on
+    /// it as the receiver (`measured_write`, [`measured_detached_write`]). Everything else refuses: the record moved to another
+    /// key, or a row under another key holds the buffer, since the open.
+    fn check_temp_out_stream(&mut self, measured_write: bool, b: &BlobRef, open: &OutOpen) -> Result<(), Signal> {
         let Some(rc) = open.record.upgrade() else {
             // `b` and the stream.
             if Arc::strong_count(b) <= 2 {
@@ -185,11 +188,11 @@ impl Session {
                 "a write through an OutStream on a Blob of a temporary record that is gone while a row or another value still holds the buffer, in a form the corpus does not pin",
             ));
         };
+        if open.detached && measured_write {
+            return Ok(());
+        }
         let t = self.table(&rc)?;
         if open.detached {
-            if id == ids::OUTSTREAM_WRITETEXT_1 {
-                return Ok(());
-            }
             return Err(refusal(&t, open.field));
         }
         // `b`, the stream and the field.
@@ -208,7 +211,7 @@ impl Session {
                     .all(|(i, (a, k))| t.cmp_key_field(t.keys[0][i], a, k).is_eq())
         };
         let rows = h.at_key || h.elsewhere > 0;
-        if (!rows || (same_key && h.elsewhere == 0)) && !(by_value_copy(&rc.borrow()) && !h.all_found) {
+        if (!rows || (same_key && h.elsewhere == 0)) && self.by_value_holders_found(&rc, open.field, b, &h)? {
             return Ok(());
         }
         Err(refusal(&t, open.field))
@@ -238,18 +241,55 @@ impl Session {
             .saturating_sub(found + sharers - 1)
             .max(usize::from(total > found));
         let elsewhere = store.count_field_holders_from_last(&cx, t, &key, pos, enough, is_b);
+        let found = found + elsewhere + sharers - 1;
         Ok(Holders {
             at_key,
             elsewhere,
-            all_found: found + elsewhere + sharers - 1 >= total,
+            all_found: found >= total,
+            found,
         })
+    }
+
+    /// For a record handed by value (`TempId::is_by_value_copy`) whose own table left holders `h` of buffer `b` unaccounted
+    /// for: whether the record it was copied from accounts for the rest (its fields and their snapshots, and the rows and other
+    /// variables of its table) with no row of that table holding the buffer. Then no row any write reaches holds the buffer,
+    /// and main's path runs. A source that is gone, or a holder still unaccounted for, answers false. Any other record: true.
+    fn by_value_holders_found(
+        &mut self,
+        rc: &Rc<RefCell<RecordState>>,
+        pos: usize,
+        b: &BlobRef,
+        h: &Holders,
+    ) -> Result<bool, Signal> {
+        let source = match rc.borrow().temp_id.as_ref() {
+            Some(id) if id.is_by_value_copy() => id.by_value_source(),
+            _ => return Ok(true),
+        };
+        if h.all_found {
+            return Ok(true);
+        }
+        let Some(src) = source else {
+            return Ok(false);
+        };
+        let counted = h.found + src.borrow().blob_copies_of(pos, b);
+        if Arc::strong_count(b) <= counted {
+            return Ok(true);
+        }
+        if !src.borrow().temporary || src.borrow().temp_id.is_none() {
+            return Ok(false);
+        }
+        let t = self.table(&src)?;
+        let hs = self.blob_holders(&src, &t, pos, b, counted)?;
+        Ok(!hs.at_key && hs.elsewhere == 0 && hs.all_found)
     }
 }
 
-/// Whether the record's table was made for a record handed by value (al-vm `record_by_value`): its Blob buffers may be
-/// shared with the caller's record and the caller's rows.
-fn by_value_copy(st: &RecordState) -> bool {
-    st.temp_id.as_ref().is_some_and(TempId::is_by_value_copy)
+/// The writes the cells of corpus PR 1391 make through a stream the assumed detach opened (TempBlobEmptyInsertShare.al,
+/// assumption `temp-blob-empty-insert-key-change`): `WriteText` (`Lib.Write`, :66-72), and `Write` of one Text argument
+/// (Excel Buffer's ParseCellValue, the cell at :527). A Text variable resolves to the first overload (`Value: Any`), so the
+/// argument's value says it is a Text; a text literal or Label arrives as the same value and is not told apart.
+fn measured_detached_write(id: BuiltinId, values: &[Value]) -> bool {
+    id == ids::OUTSTREAM_WRITETEXT_1 || (id == ids::OUTSTREAM_WRITE_1 && matches!(values, [Value::Text(_)]))
 }
 
 fn refusal(t: &TableDef, pos: usize) -> Signal {

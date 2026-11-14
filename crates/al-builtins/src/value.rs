@@ -342,9 +342,9 @@ pub struct TempId(Rc<TempToken>);
 struct TempToken {
     id: u64,
     release: Rc<RefCell<Vec<u64>>>,
-    /// The table was made for a record handed by value (al-vm `record_by_value`): its record's Blob fields may still share
-    /// their buffers with the record it was copied from and that record's rows.
-    by_value_copy: bool,
+    /// The table was made for a record handed by value (al-vm `record_by_value`): the record it was copied from. The copy's Blob
+    /// fields may still share their buffers with that record and its rows.
+    by_value_of: Option<std::rc::Weak<RefCell<RecordState>>>,
 }
 
 impl Drop for TempToken {
@@ -358,16 +358,20 @@ impl TempId {
         TempId(Rc::new(TempToken {
             id,
             release,
-            by_value_copy: false,
+            by_value_of: None,
         }))
     }
 
-    /// The table of a temporary record's copy handed by value.
-    pub fn new_by_value_copy(id: u64, release: Rc<RefCell<Vec<u64>>>) -> TempId {
+    /// The table of a temporary record's copy handed by value; `source` is the record it was copied from.
+    pub fn new_by_value_copy(
+        id: u64,
+        release: Rc<RefCell<Vec<u64>>>,
+        source: &Rc<RefCell<RecordState>>,
+    ) -> TempId {
         TempId(Rc::new(TempToken {
             id,
             release,
-            by_value_copy: true,
+            by_value_of: Some(Rc::downgrade(source)),
         }))
     }
 
@@ -382,7 +386,12 @@ impl TempId {
 
     /// Whether the table was made for a record handed by value ([`TempId::new_by_value_copy`]).
     pub fn is_by_value_copy(&self) -> bool {
-        self.0.by_value_copy
+        self.0.by_value_of.is_some()
+    }
+
+    /// The record a by-value copy was made from, while it lives ([`TempId::new_by_value_copy`]).
+    pub fn by_value_source(&self) -> Option<Rc<RefCell<RecordState>>> {
+        self.0.by_value_of.as_ref().and_then(std::rc::Weak::upgrade)
     }
 }
 
