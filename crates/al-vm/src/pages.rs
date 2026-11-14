@@ -225,6 +225,7 @@ mod empty_list_one_row;
 mod param_read;
 mod part_tree_typed;
 mod part_unsettled;
+mod part_view_host_new;
 mod parts;
 mod qualified_name;
 mod read_backwards;

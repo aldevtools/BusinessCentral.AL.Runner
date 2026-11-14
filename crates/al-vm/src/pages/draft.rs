@@ -77,21 +77,9 @@ impl Session {
             });
         }
         if insert_denied {
-            // The text names the page and its id, the code is DB:ClientInsertDenied (corpus
-            // pages/extensions/ZPageExtProps.al:ZInsertAllowed_1, _4).
-            let o = &engine.program.objects[object];
-            let id = if self.is_request_page(st) { Some(0) } else { o.id };
-            let Some(id) = id else {
-                return unsupported("New() on a page without an id denied by InsertAllowed (the text is not pinned)");
-            };
-            return Err(error_code(
-                format!(
-                    "New method failed because Insert is not allowed. Page = {}, Id = {id}.",
-                    o.name
-                ),
-                "DB:ClientInsertDenied",
-            ));
+            return Err(self.new_denied_error(st)?);
         }
+        self.part_new_on_view_host(st)?;
         let (left, origin) = self.traced(st, |s| s.leave_row(st, PageMethod::New));
         if let (Err(Signal::Error(_)), Some("onmodifyrecord")) = (&left, origin.as_deref()) {
             return unsupported("an error in OnModifyRecord on New() (only Next() is pinned)");
@@ -112,6 +100,24 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// The error of a `New()` the page denies: the text names the page and its id, the code is DB:ClientInsertDenied (corpus
+    /// pages/extensions/ZPageExtProps.al:ZInsertAllowed_1, _4).
+    pub(super) fn new_denied_error(&self, st: &St) -> Result<Signal, Signal> {
+        let engine = self.engine();
+        let o = &engine.program.objects[st.borrow().object as usize];
+        let id = if self.is_request_page(st) { Some(0) } else { o.id };
+        let Some(id) = id else {
+            return unsupported("New() on a page without an id denied by InsertAllowed (the text is not pinned)");
+        };
+        Ok(error_code(
+            format!(
+                "New method failed because Insert is not allowed. Page = {}, Id = {id}.",
+                o.name
+            ),
+            "DB:ClientInsertDenied",
+        ))
     }
 
     /// The error of `TestPage.OpenNew` on an API page: `Sorry, the current permissions prevented the action. (Page <id> <name>

@@ -39,16 +39,6 @@ page 69985 "XS Card SeqDesc"
     PageType = Card; SourceTable = "XS Head"; ApplicationArea = All; UsageCategory = None;
     layout { area(Content) { field(Code; Rec.Code) { } part(Lines; "XS Lines") { SubPageLink = "Head Code" = field(Code); SubPageView = sorting("Head Code", "Seq No.") order(descending); } } }
 }
-page 69987 "XS Card PK"
-{
-    PageType = Card; SourceTable = "XS Head"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { field(Code; Rec.Code) { } part(Lines; "XS Lines") { SubPageLink = "Head Code" = field(Code); } } }
-}
-page 69988 "XS Doc PK"
-{
-    PageType = Document; SourceTable = "XS Head"; ApplicationArea = All; UsageCategory = None;
-    layout { area(Content) { field(Code; Rec.Code) { } part(Lines; "XS Lines") { SubPageLink = "Head Code" = field(Code); } } }
-}
 codeunit 69986 C
 {
     Subtype = Test;

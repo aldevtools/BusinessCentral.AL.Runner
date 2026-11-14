@@ -157,6 +157,7 @@ mod part_after_self_close;
 mod part_array_element_control;
 mod part_filter_find_shape;
 mod part_unsettled_reread;
+mod part_view_host_new;
 mod part_visible_rec_field;
 mod parts_pinned_exact;
 mod perm_compose;
