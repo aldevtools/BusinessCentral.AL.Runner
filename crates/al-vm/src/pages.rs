@@ -236,6 +236,7 @@ mod text_control_value;
 use text_control_value::TextConv;
 pub(crate) mod request;
 mod request_expr_params;
+mod request_ok_only;
 pub(crate) mod request_options;
 pub(crate) use request::{ParamsCall, RequestClosed};
 mod access_by_permission;
@@ -358,6 +359,7 @@ impl Session {
         match page {
             Value::TestPage(p) => {
                 let p = into_st(p);
+                self.request_ok_only_control(&p)?;
                 // A part control reads as the page it shows (a `TestPart`).
                 let is_part = {
                     let engine = self.engine();

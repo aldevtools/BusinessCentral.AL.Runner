@@ -1186,6 +1186,7 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         assumes: _,
         request_flag_slot: _,
         request_rec_routines: _,
+        request_page_ok_only: _,
         output: _,
         unsupported: _,
         caption: _,
