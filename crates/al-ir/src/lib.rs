@@ -602,6 +602,11 @@ pub struct Report {
     /// reports/request-page/YRequestPageTests.al:551; through a procedure it is not pinned).
     #[serde(default)]
     pub request_rec_routines: Vec<usize>,
+    /// The request page is the one al-sema `lower/ext_request_page.rs` admits with triggers on the request pages of two
+    /// run-changing reportextensions of independent apps: the VM runs it only for the measured call and close and refuses
+    /// everything else on it (al-vm `pages/request_ok_only.rs`).
+    #[serde(default)]
+    pub request_page_ok_only: bool,
     /// Why running the report would render output (it is not `ProcessingOnly`, or it declares a
     /// layout): the runtime renders nothing, so a run that gets that far is refused. Its request
     /// page still opens first.
@@ -1314,6 +1319,11 @@ pub struct Control {
     /// routine), in the order the extensions apply.
     #[serde(default)]
     pub ext_triggers: Vec<(String, usize, usize)>,
+    /// The `modify` blocks of page extensions that set the control's `Caption` or `CaptionML`: (extension object, the
+    /// control's name as the block writes it), in the order the extensions apply. Their translation units name the
+    /// extension and that name (`PageExtension <ext> - Change <name> - Property Caption`).
+    #[serde(default)]
+    pub caption_modifies: Vec<(usize, String)>,
     /// The properties (lower-case names) a `modify` block of a page extension set over a value the control had already, from
     /// its own declaration or an earlier extension ([`apply_modify_prop`]).
     #[serde(default)]
@@ -1465,6 +1475,10 @@ impl LinkEntry {
 impl Control {
     pub fn prop(&self, name: &str) -> Option<&PropVal> {
         self.props.iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    }
+    /// Whether the properties a `modify` block sets give a control a caption (`caption_modifies`).
+    pub fn sets_caption(props: &[(String, PropVal)]) -> bool {
+        props.iter().any(|(n, _)| n == "caption" || n == "captionml")
     }
     pub fn trigger(&self, name: &str) -> Option<usize> {
         self.triggers.iter().find(|(n, _)| n == name).map(|(_, r)| *r)

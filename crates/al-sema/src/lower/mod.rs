@@ -113,7 +113,11 @@ pub struct ObjectHash {
 /// calls: a test page drives every routine of its page, the page's extensions and its parts.
 #[derive(Clone)]
 pub(crate) struct DrivenCtx {
+    /// Per page, and per report for its request page: the extensions in the order they apply.
     page_extensions: HashMap<usize, Vec<usize>>,
+    /// Per report whose request page `ext_request_page` admits with triggers on its extensions' request pages: the order it
+    /// gave, which the linked page keeps (`join_order`). Every other page: `ext_order::page_extension_key`.
+    request_page_order: HashMap<usize, Vec<usize>>,
     page_parts: Vec<Vec<usize>>,
     page_runs: Vec<Vec<usize>>,
     /// Per object: an xmlport or report, whose triggers Import, Export and Run call.
@@ -617,6 +621,7 @@ mod dotnet;
 mod dotnet_arg;
 mod expr;
 mod ext_order;
+mod ext_request_page;
 mod extend;
 
 #[cfg(test)]

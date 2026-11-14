@@ -728,6 +728,9 @@ pub struct PageState {
     /// The row a new line was started below (`New()` on a stored row of a list): after the new row
     /// is saved, `Next()` goes to the row below that one, as the client's own row order has it.
     pub after_new: Option<Vec<Value>>,
+    /// The store's write mark (`Session::write_mark`) when `New()` had started its line (OnNewRecord ran): a later write to the
+    /// store before the line is inserted moves it (`split_part_second_control_xrec.rs`). Cleared with `after_new`.
+    pub new_line_writes: Option<(i64, u64)>,
     /// The client call that runs now (or the last one) saved the current row through `CurrPage.Update(true)` in page code;
     /// cleared at the start of every client call on the page except `New()` (al-vm pages/pageops.rs).
     pub saved_by_update: bool,
@@ -964,6 +967,12 @@ impl PageState {
     /// The same for the test's own `TestPage.OpenView`: the entry condition of a rule whose pins all open with OpenView.
     pub(crate) fn test_open_view(&self) -> bool {
         self.opened_by_test && self.mode == PageMode::View && !self.modal && self.host.is_none()
+    }
+
+    /// The cursor leaves the line `New()` started: `after_new` is taken and `new_line_writes` cleared with it.
+    pub(crate) fn take_after_new(&mut self) -> Option<Vec<Value>> {
+        self.new_line_writes = None;
+        self.after_new.take()
     }
 
     /// A static `Page.Run` (`modal` false) or `Page.RunModal` of AL code runs the page; `record`: it got a record. A RunModal
