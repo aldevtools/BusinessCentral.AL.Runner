@@ -114,6 +114,7 @@ mod platform;
 mod profile;
 mod queries;
 mod query_date_filter;
+mod query_reopen;
 mod query_save_as;
 mod raise_to;
 mod rdlc_fields;
@@ -1023,6 +1024,8 @@ pub struct Session {
     pub(crate) permission_run_object: Option<usize>,
     /// The query whose method runs (the object index), for the read check of `query_rows`.
     pub(crate) query_object: usize,
+    /// The global variable (object index of the routine, slot) a query method is called on, from `run_native` to `query_op`.
+    pub(crate) query_receiver: Option<(usize, usize)>,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -1400,6 +1403,7 @@ impl Session {
             permission_caller: None,
             permission_run_object: None,
             query_object: 0,
+            query_receiver: None,
             permissions: None,
             test_object: None,
             http_policy: None,

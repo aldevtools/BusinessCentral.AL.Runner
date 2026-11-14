@@ -167,6 +167,7 @@ mod provider_factbox_edit;
 mod provider_no_row_7392;
 mod query_close_error_last_error;
 mod query_outer_flow;
+mod query_reopen_rows_left;
 mod quoted_ident;
 mod r1b_page_moves;
 mod readable_messages;

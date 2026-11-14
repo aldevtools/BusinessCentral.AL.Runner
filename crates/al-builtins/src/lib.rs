@@ -73,6 +73,7 @@ pub mod pinned_columns;
 pub mod placeholder_output;
 pub mod platform;
 pub mod platform_native;
+pub mod query_reopen_step;
 pub mod querybuiltins;
 pub mod record_into_recordref;
 pub mod record_op;
