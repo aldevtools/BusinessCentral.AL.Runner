@@ -245,6 +245,13 @@ impl Session {
             Some(ir::PropVal::Lit(v)) => Some(v.clone()),
             _ => None,
         };
+        // The control's AutoFormatType, else its field's: a type the runtime does not model is refused before any expression runs.
+        if let Some(why) = lit("autoformattype")
+            .or_else(|| from_format_field("autoformattype"))
+            .and_then(|k| pagefmt::unmodelled_auto_format_type(&k))
+        {
+            return unsupported(why);
+        }
         // A table field's AutoFormatExpression that is an expression, read through a control that names no expression of its
         // own: a field of the row is evaluated with the control's row (format-evaluate/QiTableFieldAutoFormat.al;
         // control expressions: format-evaluate/autoformat/PWAutoFormatTypes.al:19-22, AutoFormatCard.Page.al:53; literal field expressions:

@@ -511,8 +511,9 @@ impl Lowerer<'_> {
             })
     }
 
-    /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: the field declares
-    /// `DecimalPlaces` and an AutoFormat beside it. Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
+    /// Why `Format`, StrSubstNo, Message or Error of the Decimal table field `arg` is not pinned: its AutoFormatType is not
+    /// modelled (`pagefmt::unmodelled_auto_format_type`), or the field declares `DecimalPlaces` and an AutoFormat beside it.
+    /// Only `DecimalPlaces` with `AutoFormatType = 1` and a blank
     /// `AutoFormatExpression` is pinned (the AutoFormat wins: text/text-methods/RwDecimalFieldPlaces.al:83
     /// `Dp33Amt1` gives `70.00`). `AutoFormatType = 0` is the default and keeps the places.
     pub(crate) fn decimal_field_format_unpinned(&mut self, arg: &SyntaxNode) -> Option<String> {
@@ -529,6 +530,10 @@ impl Lowerer<'_> {
                 .find(|(k, _)| k.eq_ignore_ascii_case(n))
                 .map(|(_, v)| v.trim().to_string())
         };
+        // An AutoFormatType the runtime does not model, with or without DecimalPlaces or an expression beside it.
+        if let Some(why) = prop("AutoFormatType").and_then(|k| al_builtins::pagefmt::unmodelled_auto_format_type(&k)) {
+            return Some(format!("Format of Decimal field {}: {why}", f.name));
+        }
         prop("DecimalPlaces")?;
         let (aft, expr) = (prop("AutoFormatType"), prop("AutoFormatExpression"));
         match (aft.as_deref(), expr.as_deref()) {

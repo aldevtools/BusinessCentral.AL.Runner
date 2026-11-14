@@ -16,12 +16,18 @@ use crate::dataset;
 /// Every other combination (DecimalPlaces beside AutoFormatType, a currency expression, other types) keeps the rule from before
 /// Y67: the AutoFormat properties are taken to leave the formatter of DecimalPlaces (docs/probes-needed.md, "Report", the
 /// `decimalformatter` row; the Base Application states AutoFormatType with a currency expression on most decimal columns).
+/// A type the runtime does not model at all (`pagefmt::unmodelled_auto_format_type`) is refused.
 pub(crate) fn column_formatter(
     places: Option<&str>,
     auto_type: Option<&str>,
     auto_expr: Option<&str>,
     field_places: Option<&str>,
 ) -> Result<String, Signal> {
+    if let Some(why) = auto_type.and_then(al_builtins::pagefmt::unmodelled_auto_format_type) {
+        return Err(Signal::unsupported(format!(
+            "the decimalformatter of a report column with {why}"
+        )));
+    }
     if places.is_none() {
         let expr = auto_expr.map(unquote).unwrap_or_default();
         match (auto_type.map(str::trim), expr.trim()) {
@@ -103,5 +109,14 @@ mod tests {
         assert_eq!(f(Some("2 : 4"), Some("2"), None), "#,##0.00##");
         assert_eq!(f(None, Some("1"), Some("'GBP'")), "#,##0.00");
         assert_eq!(f(None, Some("10"), Some("'x'")), "#,##0.00");
+    }
+
+    /// A column whose AutoFormatType the runtime does not model is refused (al-runner issue 8011), DecimalPlaces beside it or not.
+    #[test]
+    fn an_unmodelled_type_is_refused() {
+        for p in [None, Some("2 : 4")] {
+            let e = format!("{:?}", column_formatter(p, Some("50733"), None, None));
+            assert!(e.contains("Unsupported") && e.contains("AutoFormatType 50733"), "{e}");
+        }
     }
 }
