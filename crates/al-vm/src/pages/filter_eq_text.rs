@@ -38,7 +38,8 @@ impl Session {
         let Some(rest) = text.strip_prefix('=') else {
             return false;
         };
-        let worksheet = self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
+        let worksheet =
+            self.engine.object_facts[st.borrow().object as usize].page_type == Some(al_ir::PageType::Worksheet);
         if !(st.borrow().test_open_view() && (self.is_list_page(st) || worksheet)) {
             return false;
         }
