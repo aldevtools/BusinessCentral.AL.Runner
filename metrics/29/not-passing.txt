@@ -566,7 +566,6 @@
 70057 BigInteger_Overflow
 70060 Boolean_FromNumber
 70078 ObjectMissingKeyAndKinds
-70079 ReadFromYaml_Shapes
 70079 WriteToYaml_QuotingNeeds
 70079 WriteToYaml_Shapes
 70090 Write_Types_A
@@ -1039,7 +1038,6 @@
 74334 UN_DateTimeFilter_MoreHourForms_3
 74406 IndexOf_ByValueType
 74406 IndexOf_ContainersAndDuplicates
-74409 ReadFromYaml_Shapes
 74409 WriteToYaml_Nested
 74409 WriteToYaml_Null
 74409 WriteToYaml_Scalars
@@ -1555,7 +1553,6 @@
 85723 Y47_ArrayFilter_Neighbours
 85723 Y47_ArrayFilter_ReporterShapes
 85723 Y47_SelectTokens_ArrayFilter
-85780 Item50_YamlRoundTrip_NestedList
 85841 Item63_MediaAfterChangeCompany
 85841 Item64_OutStreamWriteInStream
 85905 Get_WithoutBoolean_EmptyList
