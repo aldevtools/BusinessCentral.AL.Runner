@@ -639,8 +639,17 @@ impl Session {
     /// PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86).
     pub(crate) fn is_unseeded(&self, t: &TableDef) -> bool {
         let o = t.object as usize;
-        self.engine.unseeded.contains(&o)
+        self.engine.unseeded.contains_key(&o)
             || (!self.install_scope && self.engine.platform_unseeded.contains(&o) && !self.store.emptied(&self.cx, t))
+    }
+
+    /// The end of the refusal of a read of an unseeded table: the install root that should have written its rows and why
+    /// it stopped (al-runner issue 8104). Empty for a platform table, whose rows no root writes.
+    pub(crate) fn unseeded_cause(&self, t: &TableDef) -> String {
+        match self.engine.unseeded.get(&(t.object as usize)) {
+            Some(cause) => format!(", because {cause}"),
+            None => String::new(),
+        }
     }
 
     /// Why the rows install code left in table `object` are not known (ADR-046: `InstallFacts::unknown`). Install code
@@ -750,8 +759,9 @@ impl Session {
         }
         if !temporary && self.is_unseeded(t) {
             return unsupported(format!(
-                "{what} on {}: BC holds rows here that an install trigger or Company-Initialize creates, and the install baseline could not create them (ADR-013 decision 5)",
-                t.name
+                "{what} on {}: BC holds rows here that an install trigger or Company-Initialize creates, and the install baseline could not create them (ADR-013 decision 5){}",
+                t.name,
+                self.unseeded_cause(t)
             ));
         }
         Ok(())
@@ -771,8 +781,9 @@ impl Session {
         }
         if !exists && self.is_unseeded(t) {
             return unsupported(format!(
-                "{} row not found: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5)",
-                t.name
+                "{} row not found: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5){}",
+                t.name,
+                self.unseeded_cause(t)
             ));
         }
         if self.ret_used {

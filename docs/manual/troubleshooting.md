@@ -87,7 +87,7 @@ ran at once, and how many threads stopped for memory.
 ## The run exits with 8
 
 Some tests reach `DotNet` code that needs the .NET 8 helper, and it could not be
-used. Install the .NET 8 SDK (the runtime alone is not enough to build the helper),
+used. Install the .NET SDK 8 or newer (the runtime alone is not enough to build the helper),
 and for BC 29 also the .NET 10 runtime (the helper runs on it), or accept the result with `--allow-not-run`. See [What works](what-works.md#dotnet).
 
 ## "A required dependency is missing" or "no AL source"

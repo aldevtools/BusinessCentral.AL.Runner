@@ -115,7 +115,7 @@ impl Session {
             }
             if r.company.is_some()
                 && self.companies.iter().any(|c| c == company)
-                && !self.engine.unseeded.contains(&(t.object as usize))
+                && !self.engine.unseeded.contains_key(&(t.object as usize))
             {
                 return Ok(AccessContext {
                     company: company.into(),
@@ -134,7 +134,7 @@ impl Session {
         let full_copy = self.full_copies.contains(company.as_str());
         if t.per_company
             && !r.temporary
-            && (self.engine.unseeded.contains(&(t.object as usize))
+            && (self.engine.unseeded.contains_key(&(t.object as usize))
                 || ((self.baseline_rows.contains(&t.object) || self.backs_rows(t.object))
                     && !full_copy
                     && !self.starts_empty_in_made(company, t)))
