@@ -28,9 +28,7 @@ fn two_refused_request_page_handlers_of_two_reports_give_the_first_handlers_own_
             [RequestPageHandler] procedure CrHandler(var P: TestRequestPage \"Cr\") begin P.OK().Invoke(); end; }}"
     );
     let o = outcomes(&src);
-    let Outcome::NotRun(why) = &o[0].1 else {
-        panic!("{o:?}")
-    };
+    let Outcome::NotRun(why) = &o[0].1 else { panic!("{o:?}") };
     assert!(why.starts_with("handler InvHandler: "), "{why}");
     assert!(why.contains("TestRequestPage \"Inv\""), "{why}");
     assert!(!why.contains("which one BC would bind"), "{why}");
@@ -62,7 +60,10 @@ fn two_request_page_handlers_of_one_report_keep_the_binding_refusal_unless_the_p
     assert!(reason("Plain").contains("H1 and H2 are both RequestPage handlers; which one BC would bind is not pinned"));
     assert!(reason("Messages").contains("M1 and M2 are both Message handlers; which one BC would bind is not pinned"));
     let refused = reason("Refused");
-    assert!(refused.starts_with("handler R1: ") && refused.contains("TestRequestPage \"Inv\""), "{refused}");
+    assert!(
+        refused.starts_with("handler R1: ") && refused.contains("TestRequestPage \"Inv\""),
+        "{refused}"
+    );
 }
 
 #[test]

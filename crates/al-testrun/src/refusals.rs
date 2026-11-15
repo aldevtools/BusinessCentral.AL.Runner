@@ -165,12 +165,7 @@ fn fold_numbers(s: &str) -> String {
         }
         let in_word = (i > 0 && word(chars[i - 1])) || (j < chars.len() && word(chars[j]));
         let adr = out.ends_with("ADR-")
-            || adr_end.is_some_and(|e| {
-                matches!(
-                    out[e..].trim_start_matches(','),
-                    " decision " | " amendment "
-                )
-            });
+            || adr_end.is_some_and(|e| matches!(out[e..].trim_start_matches(','), " decision " | " amendment "));
         if in_word || adr {
             out.extend(&chars[i..j]);
         } else {

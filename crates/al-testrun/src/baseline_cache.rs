@@ -370,9 +370,12 @@ mod tests {
         let mut session = al_vm::Session::new(engine);
         BaselineRun {
             baseline: session.capture_baseline(),
-            unseeded: [(7u32, "A.OnRun stopped: x".to_string()), (9, "B.OnRun was not run: y".into())]
-                .into_iter()
-                .collect(),
+            unseeded: [
+                (7u32, "A.OnRun stopped: x".to_string()),
+                (9, "B.OnRun was not run: y".into()),
+            ]
+            .into_iter()
+            .collect(),
             filled: 3,
             notes: vec!["Company-Initialize.OnRun did not run to its end: why".into()],
             ran: 17,

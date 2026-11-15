@@ -26,9 +26,11 @@ fn an_object_literal_that_names_no_loaded_object_says_so() {
         let src = format!("codeunit 50100 C {{ procedure P(): Integer begin exit({literal}); end; }}");
         let r = reasons(&src);
         assert!(
-            r.iter().any(|r| r.contains(&format!("`{literal}` names no {kind} of the loaded apps"))
-                && r.contains("--country")
-                && !r.contains("not lowered yet")),
+            r.iter().any(
+                |r| r.contains(&format!("`{literal}` names no {kind} of the loaded apps"))
+                    && r.contains("--country")
+                    && !r.contains("not lowered yet")
+            ),
             "{literal}: {r:?}"
         );
     }
@@ -36,6 +38,8 @@ fn an_object_literal_that_names_no_loaded_object_says_so() {
 
 #[test]
 fn an_object_literal_of_a_loaded_object_is_lowered() {
-    let r = reasons("table 50101 K { fields { field(1; A; Integer) { } } } codeunit 50100 C { procedure P(): Integer begin exit(Database::K); end; }");
+    let r = reasons(
+        "table 50101 K { fields { field(1; A; Integer) { } } } codeunit 50100 C { procedure P(): Integer begin exit(Database::K); end; }",
+    );
     assert!(r.is_empty(), "{r:?}");
 }

@@ -412,20 +412,30 @@ fn an_instance_overload_on_a_variable_holding_no_object_says_so_when_no_static_o
     let regex = || ty("System.Text.RegularExpressions.Regex");
     let why = refused(sess.invoke(DotNetTarget::Static(regex()), "IsMatch", vec![s("a")]));
     assert!(
-        why.contains("'System.Text.RegularExpressions.Regex.IsMatch' is an instance member and the variable holds no object"),
+        why.contains(
+            "'System.Text.RegularExpressions.Regex.IsMatch' is an instance member and the variable holds no object"
+        ),
         "{why}"
     );
     let why = refused(sess.invoke(DotNetTarget::Static(regex()), "Replace", vec![s("a"), s("b")]));
     assert!(
-        why.contains("'System.Text.RegularExpressions.Regex.Replace' is an instance member and the variable holds no object"),
+        why.contains(
+            "'System.Text.RegularExpressions.Regex.Replace' is an instance member and the variable holds no object"
+        ),
         "{why}"
     );
-    let r = sess.invoke(DotNetTarget::Static(regex()), "IsMatch", vec![s("aa"), s("a+")]).unwrap();
+    let r = sess
+        .invoke(DotNetTarget::Static(regex()), "IsMatch", vec![s("aa"), s("a+")])
+        .unwrap();
     assert!(matches!(r.value, DotNetValue::Bool(true)), "{r:?}");
     let rx = handle_of(&sess.construct(&regex(), vec![s("a+")]).unwrap());
-    let r = sess.invoke(DotNetTarget::Instance(rx), "IsMatch", vec![s("a")]).unwrap();
+    let r = sess
+        .invoke(DotNetTarget::Instance(rx), "IsMatch", vec![s("a")])
+        .unwrap();
     assert!(matches!(r.value, DotNetValue::Bool(true)), "{r:?}");
-    let r = sess.invoke(DotNetTarget::Instance(rx), "Replace", vec![s("xaay"), s("b")]).unwrap();
+    let r = sess
+        .invoke(DotNetTarget::Instance(rx), "Replace", vec![s("xaay"), s("b")])
+        .unwrap();
     assert_eq!(text_of(&r), "xby");
     // A name no instance member carries keeps the overload refusal.
     let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![]));

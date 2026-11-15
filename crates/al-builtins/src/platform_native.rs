@@ -325,8 +325,12 @@ fn encoding(encoding: &Value, codepage: &Value, windows_text: bool) -> Result<En
 /// :76-78); System Application's `ToBase64(Text, TextEncoding)` passes 0, so only a direct call reaches it (al-runner issue
 /// 8069).
 fn to_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<Enc, Signal> {
-    if let (Value::Integer(cp @ (1252 | 28591)), true) = (codepage, member_name(encoding_arg)?.eq_ignore_ascii_case("utf8")) {
-        return unsupported(format!("ToBase64 with code page {cp} and TextEncoding::UTF8 (not pinned)"));
+    if let (Value::Integer(cp @ (1252 | 28591)), true) =
+        (codepage, member_name(encoding_arg)?.eq_ignore_ascii_case("utf8"))
+    {
+        return unsupported(format!(
+            "ToBase64 with code page {cp} and TextEncoding::UTF8 (not pinned)"
+        ));
     }
     encoding(encoding_arg, codepage, windows_text)
 }

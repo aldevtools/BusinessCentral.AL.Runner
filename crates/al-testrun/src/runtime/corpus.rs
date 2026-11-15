@@ -1213,9 +1213,9 @@ impl CorpusRuntime {
         // seed. The baseline itself ran before it knew; with several test threads, which each run
         // the baseline again (its data is not for sharing between threads), the engine that ran it
         // stays as it was and the tests get another.
-        let unseeded: std::collections::HashMap<usize, std::sync::Arc<str>> = baseline_run
+        let unseeded = baseline_run
             .as_ref()
-            .map(|b| b.unseeded.iter().map(|(&t, cause)| (t as usize, cause.as_str().into())).collect())
+            .map(crate::baseline::BaselineRun::engine_unseeded)
             .unwrap_or_default();
         workers = memory.after_baseline(); // The fixed part is loaded (`memory.rs`).
         let baseline_engine = (workers > 1 && baseline_run.is_some()).then(|| engine.clone());

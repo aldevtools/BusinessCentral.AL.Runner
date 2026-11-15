@@ -485,6 +485,16 @@ pub fn run_traced_halting(
     })
 }
 
+impl BaselineRun {
+    /// [`BaselineRun::unseeded`] as the engine keeps it (`al_vm::Engine::unseeded`).
+    pub fn engine_unseeded(&self) -> std::collections::HashMap<usize, Arc<str>> {
+        self.unseeded
+            .iter()
+            .map(|(&t, cause)| (t as usize, cause.as_str().into()))
+            .collect()
+    }
+}
+
 /// The tables that code reachable from `routine` of `object` writes rows to: a record variable's
 /// `Insert`, `Modify`, `Rename`, `ModifyAll` or `Validate`-free equivalents, found in the lowered
 /// bodies of everything it calls (not of event subscribers). Temporary

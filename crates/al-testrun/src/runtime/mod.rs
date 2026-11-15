@@ -1160,6 +1160,8 @@ mod compile_halt;
 mod compiled;
 mod corpus;
 mod data_driven;
+#[cfg(test)]
+mod diagnostics_tests;
 mod discovery;
 #[cfg(test)]
 mod group1_sessions_tests;
@@ -1197,8 +1199,6 @@ mod test_handlers;
 mod test_marks;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod diagnostics_tests;
 mod threads;
 pub(crate) mod written;
 
