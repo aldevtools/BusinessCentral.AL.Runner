@@ -3,7 +3,8 @@
 //! pages/properties/DataCaptionExprWorksheet.al (the cells below cite its lines). A page in no cell here may be in a cell of
 //! DataCaptionGetOpen.al (`data_caption_get_open.rs`). Such a Worksheet in another shape or run (`data_caption_open_neighbor`)
 //! refuses at the open: BC runs its expression there and main does not, and no corpus test measures that shape (the reads of
-//! DataCaptionExprPureOpen.al refuse with it). Every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
+//! DataCaptionExprPureOpen.al refuse with it), except the two opens of Microsoft's pages `data_caption_kept_open.rs` keeps under
+//! an assumption. Every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd};
 use super::*;
@@ -112,10 +113,11 @@ impl Session {
         let Some(r) = record.map(|r| r.borrow()) else {
             return Err("AL code handed no record");
         };
-        // A Trap caught the run: `trapped_static_run` is the static `Page.Run(Page::X, Rec)` (DataCaptionGetOpen.al:373-374).
+        // A Trap caught the run: `trapped_run` is the static `Page.Run(Page::X, Rec)` (DataCaptionGetOpen.al:373-374).
         let static_run = {
             let s = st.borrow();
-            s.static_run_record_only || (s.caught_by_trap && s.trapped_static_run)
+            s.static_run_record_only
+                || (s.caught_by_trap && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord))
         };
         if !static_run || self.pages.test_open {
             return Err("the page is not one AL code ran with Page.Run(Id, Rec) while no TestPage opened");
@@ -167,6 +169,7 @@ impl Session {
             Ok(runs) => runs,
             Err(_) if self.data_caption_read_pinned(st, bind) => return Ok(()),
             Err(_) if self.data_caption_get_open(st, bind, handed.as_ref().ok())? => return Ok(()),
+            Err(_) if self.data_caption_open_kept(st, bind) => return Ok(()),
             Err(miss) if self.data_caption_open_neighbor(st, bind) => {
                 let does = self.data_caption_expression_risk(st).map_or_else(String::new, |risk| {
                     format!("; the expression can raise an error or leave something behind ({risk})")
