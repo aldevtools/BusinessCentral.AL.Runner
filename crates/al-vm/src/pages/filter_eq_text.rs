@@ -6,7 +6,6 @@
 
 use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
 use al_builtins::value::RtType;
 use al_data::TableDef;
@@ -36,7 +35,7 @@ const OPEN_EDIT_END: PinnedEnd = PinnedEnd {
 /// (Hidden, no control), :360-365 and :368-373 (Shown, a control), :508-513 and :516-521 (database list), :534-539 and :542-547.
 const LIST_BOOLEAN_WORDS: [&str; 6] = ["1", "0", "Yes", "No", "true", "false"];
 
-/// The Boolean words WorksheetEnumEqFilter.al (corpus PR 1392) measured on the temporary Worksheet (:472-473).
+/// The Boolean words WorksheetEnumEqFilter.al measured on the temporary Worksheet (:472-473).
 const TEMP_WORKSHEET_BOOLEAN_WORDS: [&str; 2] = ["1", "0"];
 
 /// The Boolean word WorksheetEnumEqFilter.al measured on the database Worksheet (:640).
@@ -86,13 +85,11 @@ enum EqText<'a> {
 /// What a shape of the rule does on its page (`Session::eq_text_cell`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EqCell {
-    /// Measured by TempListOffPageBooleanFilter.al: the text sets no filter, clean.
+    /// Measured: the text sets no filter. TempListOffPageBooleanFilter.al; tests/al-language/testpage/filters/
+    /// WorksheetEnumEqFilter.al:398, :425, :442, :463, :480, :513, :545, :575, :598, :620; on a page the test opened with
+    /// OpenEdit, tests/al-language/testpage/filters/WorksheetOpenEditTemp.al:494, :511, :524, :588, :605, :618, :682, :699,
+    /// :712, :776, :793.
     Pinned,
-    /// Measured by WorksheetEnumEqFilter.al (corpus PR 1392): the text sets no filter, under the assumption.
-    Assumed,
-    /// Measured by WorksheetOpenEditTemp.al (corpus PR 1401) on a page the test opened with OpenEdit: the text sets no filter,
-    /// under its own assumption.
-    AssumedOpenEdit,
     /// Not measured, for this reason: refused.
     Unmeasured(&'static str),
 }
@@ -133,14 +130,6 @@ impl Session {
         };
         match cell {
             EqCell::Pinned => Ok(true),
-            EqCell::Assumed => {
-                assume(Assumption::TestpageFilterEqTextDropped);
-                Ok(true)
-            }
-            EqCell::AssumedOpenEdit => {
-                assume(Assumption::TestpageFilterEqTextDroppedOpenEdit);
-                Ok(true)
-            }
             EqCell::Unmeasured(why) => Err(Signal::unsupported(format!(
                 "TestPage.Filter.SetFilter: the text '{text}' on a {} page over a {} table {why} (Business Central sets no \
                  filter for a text that starts with '=' on every shape the corpus measured; this shape is not measured; \
@@ -195,7 +184,7 @@ impl Session {
                 .is_some_and(|t| matches!(self.eq_text_kind(table, pos, t), Some(EqText::EnumName(_))))
         };
         if !list && temporary && matches!(kind, EqText::EnumName(_)) && earlier_name {
-            return EqCell::Assumed;
+            return EqCell::Pinned;
         }
         EqCell::Unmeasured(
             "after a filter on the field (only the test's own Enum member name, then an Enum member name, on a temporary \
@@ -203,7 +192,7 @@ impl Session {
         )
     }
 
-    /// The one cell WorksheetOpenEditTemp.al (corpus PR 1401) measured on a page the test opened with its own `OpenEdit`, every
+    /// The one cell WorksheetOpenEditTemp.al measured on a page the test opened with its own `OpenEdit`, every
     /// fact required as the probe has it:
     /// - a Worksheet (:22, :63, :92; WEQ Temp Worksheet of WorksheetEnumEqFilter.al) over a temporary table (:24, :65, :94), the
     ///   Boolean field IsHist with or without a control (:106; :35-37), no earlier filter on the field, and the text `=0` or `=1`
@@ -244,7 +233,7 @@ impl Session {
             one_action: action && !action_before,
             ..OPEN_EDIT_END
         });
-        EqCell::AssumedOpenEdit
+        EqCell::Pinned
     }
 
     /// Whether page `st` with Rec `rec` is a page of WorksheetOpenEditTemp.al, and `Some(true)` when it has the Fill action:
@@ -326,23 +315,23 @@ impl Session {
             // TempListOffPageBooleanFilter.al:440 `'=Quote'`, the first of `Quote,"Order"` (:35).
             (true, true, EqText::OptionName(0) | EqText::UnmeasuredOptionFirst) => EqCell::Pinned,
             // WorksheetEnumEqFilter.al:587-592 (Enum names), :609-610 (Option names), :612 (`=1`).
-            (true, true, EqText::EnumName(_) | EqText::OptionName(_) | EqText::OptionOrdinal) => EqCell::Assumed,
+            (true, true, EqText::EnumName(_) | EqText::OptionName(_) | EqText::OptionOrdinal) => EqCell::Pinned,
             (true, true, EqText::EnumOrdinal) => {
                 EqCell::Unmeasured("with an Enum ordinal (measured on the Worksheet only)")
             }
             (true, false, _) => EqCell::Unmeasured(DATABASE_LIST),
             // WorksheetEnumEqFilter.al:412-419 (Enum), :434-435 (Enum without a control), :453-458 (Option), :472-473 (Boolean).
-            (false, true, EqText::Boolean(w)) if TEMP_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::Assumed,
+            (false, true, EqText::Boolean(w)) if TEMP_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::Pinned,
             (
                 false,
                 true,
                 EqText::EnumName(_) | EqText::EnumOrdinal | EqText::OptionName(_) | EqText::OptionOrdinal,
-            ) => EqCell::Assumed,
+            ) => EqCell::Pinned,
             (_, true, EqText::Boolean(_)) => EqCell::Unmeasured("with a Boolean word not measured on this page"),
             // WorksheetEnumEqFilter.al:634-635, :638 (Enum `=Quote`, `=Order`), :639 (Option `=Order`), :640 (`=1`).
-            (false, false, EqText::Boolean(w)) if DATABASE_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::Assumed,
-            (false, false, EqText::EnumName(i)) if DATABASE_WORKSHEET_ENUM_POSITIONS.contains(&i) => EqCell::Assumed,
-            (false, false, EqText::OptionName(i)) if i == DATABASE_WORKSHEET_OPTION_POSITION => EqCell::Assumed,
+            (false, false, EqText::Boolean(w)) if DATABASE_WORKSHEET_BOOLEAN_WORDS.contains(&w) => EqCell::Pinned,
+            (false, false, EqText::EnumName(i)) if DATABASE_WORKSHEET_ENUM_POSITIONS.contains(&i) => EqCell::Pinned,
+            (false, false, EqText::OptionName(i)) if i == DATABASE_WORKSHEET_OPTION_POSITION => EqCell::Pinned,
             (_, _, EqText::OtherName { .. }) => EqCell::Unmeasured(CAPTIONS),
             (_, true, EqText::UnmeasuredEnum | EqText::UnmeasuredOptionFirst) => EqCell::Unmeasured(SIZE),
             (false, false, _) => EqCell::Unmeasured(DATABASE_WORKSHEET),

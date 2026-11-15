@@ -1,9 +1,9 @@
 //! SetFilter with an empty side of `|` on a Text, Code or Integer field raises Filter:CSide with the filter as written; an empty
-//! substituted value is a valid term (corpus PR 1382, record/filters/SetFilterEmptyTerm.al:123-222, flagged through
-//! `setfilter-empty-or-side`; record/crud/RcAFilters.al:376, :378, :648 pin `|10`, `10|` and `||`). Neighbors keep main's
+//! substituted value is a valid term (tests/al-language/record/filters/SetFilterEmptyTerm.al:123-222;
+//! record/crud/RcAFilters.al:376, :378, :648 pin `|10`, `10|` and `||`). Neighbors keep main's
 //! outcome: `&` sides, shapes with more terms, a blank, an empty substituted value next to a `|` and other field types.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
@@ -151,12 +151,13 @@ fn err(filter: &str, field: &str, side: &str) -> String {
     )
 }
 
+/// Whether the call marked any assumption.
 fn flagged() -> bool {
-    take_hits().contains(&Assumption::SetfilterEmptyOrSide)
+    !take_hits().is_empty()
 }
 
 #[test]
-fn an_empty_side_written_in_the_filter_raises_the_filter_error_flagged() {
+fn an_empty_side_written_in_the_filter_raises_the_filter_error_unflagged() {
     for (which, filter, field, side) in [
         (1, "%1|", "Name", "right"),
         (2, "|%1", "Name", "left"),
@@ -172,7 +173,7 @@ fn an_empty_side_written_in_the_filter_raises_the_filter_error_flagged() {
         (16, "1||2", "Num", "right"),
     ] {
         assert_eq!(text(which), err(filter, field, side), "case {which}");
-        assert!(flagged(), "case {which} must mark its assumption");
+        assert!(!flagged(), "case {which} is pinned");
     }
 }
 

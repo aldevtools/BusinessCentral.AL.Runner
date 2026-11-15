@@ -1,5 +1,5 @@
 //! The xRec OnInsertRecord of an AutoSplitKey ListPart sees when SetValue on a second control inserts a new line (al-vm
-//! `pages/split_part_second_control_xrec.rs`, assumption `part-split-key-second-control-xrec`, open corpus PR 1399): the
+//! `pages/split_part_second_control_xrec.rs`, pages/parts/PartSplitKeyInsertTiming.al): the
 //! measured shapes get the row the line was started below; every neighbor shape keeps main's outcome, the blank xRec.
 
 use al_testrun::Outcome;

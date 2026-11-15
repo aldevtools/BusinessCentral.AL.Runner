@@ -107,7 +107,7 @@ impl Session {
             Err(Signal::Error(e)) if guarded => {
                 self.rollback_transaction();
                 self.error_finals = None;
-                self.last_error = *e;
+                self.hold_error(*e)?;
                 Ok(Value::Boolean(false))
             }
             Err(other) => Err(other),

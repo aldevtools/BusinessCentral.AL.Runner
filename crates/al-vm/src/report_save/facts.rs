@@ -52,7 +52,7 @@ pub(crate) enum Decl {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Declares {
     /// Exactly a `WordLayout` and an `RDLCLayout` property, no `ExcelLayout` property and no rendering section
-    /// (reports/html-email-body/RxdDeclFixtures.al, report 80040, corpus pull request 1381).
+    /// (reports/html-email-body/RxdDeclFixtures.al:31, report 80040).
     WordAndRdlcProperties,
     Other,
 }

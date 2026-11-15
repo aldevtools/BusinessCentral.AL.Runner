@@ -409,10 +409,9 @@ fn routine_ir(l: &Lowered, object: &str, name: &str) -> String {
 }
 
 #[test]
-fn a_field_named_like_a_system_function_read_bare_in_a_procedure_runs_under_the_assumption() {
-    // In a procedure of a codeunit (no Subtype) with TableNo the bare or quoted name is the system function. Not pinned
-    // yet: it runs under the assumption `tableno-procedure-bare-system-function` (corpus PR 1393,
-    // codeunits/TableNoBareSystemFunction.al:337-417, :435-456) and binds the builtin, not the field.
+fn a_field_named_like_a_system_function_read_bare_in_a_procedure_calls_the_system_function() {
+    // In a procedure of a codeunit (no Subtype) with TableNo the bare or quoted name is the system function
+    // (codeunits/TableNoBareSystemFunction.al:337-417, :435-456): it binds the builtin, not the field, with no assumption.
     for (body, builtin) in [
         ("procedure P(): Text begin exit(\"UserId\"); end;", "UserId"),
         ("procedure P(): Date begin exit(\"Today\"); end;", "Today"),
@@ -441,10 +440,7 @@ fn a_field_named_like_a_system_function_read_bare_in_a_procedure_runs_under_the_
         assert!(al_messages(&l).is_empty(), "{body}: {:?}", al_messages(&l));
         assert!(refusals(&l).is_empty(), "{body}: {:?}", refusals(&l));
         let ir = routine_ir(&l, "Probe Handler", "P");
-        assert!(
-            ir.contains("Assume(TableNoProcedureBareSystemFunction)"),
-            "{body}: {ir}"
-        );
+        assert!(!ir.contains("Assume("), "{body}: {ir}");
         assert!(
             ir.contains(&format!(".{builtin}#")),
             "{body}: binds the builtin {builtin}: {ir}"
@@ -455,9 +451,9 @@ fn a_field_named_like_a_system_function_read_bare_in_a_procedure_runs_under_the_
     let src = codeunit("var\n        T: Text;\n    begin\n        T := UserId;\n    end;", "");
     let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", &src)], false);
     assert!(refusals(&l).is_empty(), "{:?}", refusals(&l));
-    assert!(!routine_ir(&l, "Probe Handler", "OnRun").contains("TableNoProcedureBareSystemFunction"));
+    assert!(!routine_ir(&l, "Probe Handler", "OnRun").contains("Assume("));
     // A codeunit that also declares a global `Rec` (TableNoBareSystemFunction.al:459-482): the bare and quoted names in a
-    // procedure run under the assumption too.
+    // procedure call the system function too.
     for body in [
         "procedure P(): Text begin exit(UserId); end;",
         "procedure P(): Text begin exit(\"UserId\"); end;",
@@ -468,16 +464,13 @@ fn a_field_named_like_a_system_function_read_bare_in_a_procedure_runs_under_the_
         let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", &src)], false);
         assert!(refusals(&l).is_empty(), "{body}: {:?}", refusals(&l));
         let ir = routine_ir(&l, "Probe Handler", "P");
-        assert!(
-            ir.contains("Assume(TableNoProcedureBareSystemFunction)"),
-            "{body}: {ir}"
-        );
+        assert!(!ir.contains("Assume("), "{body}: {ir}");
         assert!(ir.contains(".UserId#"), "{body}: {ir}");
     }
 }
 
 #[test]
-fn a_bare_system_function_named_like_a_field_outside_the_assumed_shapes_keeps_main_refusal() {
+fn a_bare_system_function_named_like_a_field_outside_the_measured_shapes_keeps_main_refusal() {
     // Not measured (TableNoBareSystemFunction.al:20-23 compiles them but does not run them): a trigger other than OnRun
     // (Install, TestRunner) and every routine of a codeunit with a Subtype (a test procedure of a test codeunit, a
     // procedure of an Install codeunit). Main's refusal stays.
@@ -494,13 +487,12 @@ fn a_bare_system_function_named_like_a_field_outside_the_assumed_shapes_keeps_ma
     let plain = "codeunit 50111 \"Probe Handler\"\n{\n    procedure P(): Text begin exit(UserId); end;\n}";
     let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", plain)], false);
     assert!(refusals(&l).is_empty(), "{:?}", refusals(&l));
-    assert!(!routine_ir(&l, "Probe Handler", "P").contains("TableNoProcedureBareSystemFunction"));
+    assert!(!routine_ir(&l, "Probe Handler", "P").contains("Assume("));
 }
 
 #[test]
 fn a_declared_global_rec_is_its_own_variable_in_a_procedure_of_a_codeunit_without_subtype() {
-    // TableNoBareSystemFunction.al:459-482 (corpus PR 1393, not pinned): a procedure reads the declared `Rec`, OnRun the
-    // record given to Codeunit.Run. The procedure runs under `tableno-codeunit-global-rec-own-variable`.
+    // TableNoBareSystemFunction.al:459-482: a procedure reads the declared `Rec`, OnRun the record given to Codeunit.Run.
     let src = "codeunit 50111 \"Probe Handler\"\n{\n    TableNo = \"Probe Context\";\n    trigger OnRun() begin Rec.\"Entry No.\" := 1; end;\n    var\n        Rec: Record \"Probe Context\";\n    procedure P() begin Rec.\"Entry No.\" := 2; end;\n}";
     let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", src)], false);
     assert!(refusals(&l).is_empty(), "{:?}", refusals(&l));
@@ -513,13 +505,10 @@ fn a_declared_global_rec_is_its_own_variable_in_a_procedure_of_a_codeunit_withou
     let implicit = o.rec_slot.expect("Rec slot");
     let proc_ir = routine_ir(&l, "Probe Handler", "P");
     let run_ir = routine_ir(&l, "Probe Handler", "OnRun");
-    assert!(
-        proc_ir.contains("Assume(TableNoCodeunitGlobalRecOwnVariable)"),
-        "{proc_ir}"
-    );
+    assert!(!proc_ir.contains("Assume("), "{proc_ir}");
     assert!(!proc_ir.contains(&format!("Global({implicit})")), "{proc_ir}");
     assert!(run_ir.contains(&format!("Global({implicit})")), "{run_ir}");
-    assert!(!run_ir.contains("TableNoCodeunitGlobalRecOwnVariable"), "{run_ir}");
+    assert!(!run_ir.contains("Assume("), "{run_ir}");
     // A codeunit with a Subtype keeps main's one slot, unmarked.
     let test_cu = src.replace("TableNo =", "Subtype = Test;\n    TableNo =");
     let (_, l) = lower_files(&[("t.al", SYSTEM_NAMES_TABLE), ("c.al", &test_cu)], false);
@@ -532,7 +521,7 @@ fn a_declared_global_rec_is_its_own_variable_in_a_procedure_of_a_codeunit_withou
     let implicit = o.rec_slot.expect("Rec slot");
     let proc_ir = routine_ir(&l, "Probe Handler", "P");
     assert!(proc_ir.contains(&format!("Global({implicit})")), "{proc_ir}");
-    assert!(!proc_ir.contains("TableNoCodeunitGlobalRecOwnVariable"), "{proc_ir}");
+    assert!(!proc_ir.contains("Assume("), "{proc_ir}");
 }
 
 #[test]

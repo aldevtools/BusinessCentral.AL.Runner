@@ -7,7 +7,6 @@
 //! - every later call that takes an OutStream opened on such a field, against what the stream kept from its open
 //!   ([`al_builtins::stream::OutOpen`]).
 
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::{BuiltinId, ids};
 use al_builtins::library_kind::LibraryKind;
 use al_builtins::native::Signal;
@@ -126,8 +125,8 @@ impl Session {
     /// - a call that takes an OutStream opened on a Blob field of a temporary record ([`Session::check_temp_out_stream`]);
     /// - `Blob.CreateOutStream`, `Blob.Import` or `Clear` on a Blob field of a temporary record. A buffer that stored rows share
     ///   under another key than the variable's: `CreateOutStream` on it in the measured shape ([`measured_detach`]) gives the
-    ///   variable a buffer of its own first, so the write does not reach those rows (assumption
-    ///   `temp-blob-empty-insert-key-change`); every other write into it refuses. A record handed by value whose buffer a row of the
+    ///   variable a buffer of its own first, so the write does not reach those rows (streams/TempBlobEmptyInsertShare.al);
+    ///   every other write into it refuses. A record handed by value whose buffer a row of the
     ///   caller's table, or a holder found nowhere, shares refuses too ([`Session::by_value_holders_found`]): the write would
     ///   reach the caller's rows, which BC was not measured on.
     ///
@@ -216,9 +215,8 @@ impl Session {
         }
         if let Some(p) = pending
             .as_mut()
-            .filter(|_| !h.at_key && measured_detach(&b, &t, *pos, base, &h, self.xrec_holds_blob(&b)))
+            .filter(|_| !h.at_key && measured_detach(&b, &t, *pos, base, &h, self.xrec_holds_blob(&b), &rc))
         {
-            assume(Assumption::TempBlobEmptyInsertKeyChange);
             let mut copy = b.borrow().clone();
             copy.inserted = false;
             *recv = Some(Value::Blob(Arc::new(BlobCell::new(copy))));
@@ -248,9 +246,9 @@ impl Session {
     /// After the Insert of [`Session::temp_insert_blobs`] stored the row: the table keeps the row's key while a Blob it stores
     /// is empty (`empty`), where [`Session::blob_holders`] looks first.
     pub(crate) fn note_empty_blob_insert(rec: &Rc<RefCell<RecordState>>, t: &TableDef, empty: bool) {
-        let rec = rec.borrow();
-        if empty && let Some(id) = &rec.temp_id {
-            id.note_empty_blob_insert(t.keys[0].iter().map(|&i| &rec.fields[i]));
+        let state = rec.borrow();
+        if empty && let Some(id) = &state.temp_id {
+            id.note_empty_blob_insert(rec, t.keys[0].iter().map(|&i| &state.fields[i]));
         }
     }
 
@@ -295,7 +293,7 @@ impl Session {
     /// A call that takes an OutStream opened on Blob field `open.field` of a temporary record, writing to buffer `b`. Main's
     /// path runs while no value other than the record's field and the stream holds the buffer, or while the record is still on
     /// the key it had at the open and no row under another key holds the buffer (the pinned same-key write,
-    /// streams/TestBlobUncommittedWriteIsolation.al:171). A stream the assumed detach opened takes only the measured writes, on
+    /// streams/TestBlobUncommittedWriteIsolation.al:171). A stream the measured detach opened takes only the measured writes, on
     /// it as the receiver (`measured_write`, [`measured_detached_write`]), while the record is on the key it had at the open.
     /// Everything else refuses: the record moved to another key, or a row under another key holds the buffer, since the open.
     fn check_temp_out_stream(&mut self, measured_write: bool, b: &BlobRef, open: &OutOpen) -> Result<(), Signal> {
@@ -426,13 +424,14 @@ impl Session {
     }
 }
 
-/// The writes the cells of corpus PR 1391 make through a stream the assumed detach opened (TempBlobEmptyInsertShare.al,
-/// assumption `temp-blob-empty-insert-key-change`): `WriteText` (`Lib.Write`, :66-72), and `Write` of one Text argument
-/// (Excel Buffer's ParseCellValue, the cell at :527). A Text variable resolves to the first overload (`Value: Any`), so the
-/// argument's value says it is a Text; a text literal or Label arrives as the same value and is not told apart, nor is
-/// `WriteText` with a length from one without.
+/// The writes the cells of streams/TempBlobEmptyInsertShare.al make through a stream the measured detach opened: `WriteText`
+/// of one Text without a length (`Lib.Write`, :66-72), and `Write` of one Text argument (Excel Buffer's ParseCellValue, the
+/// cell at :527), each of a text that is not empty ('X', 'Y', a long cell text). A Text variable resolves to the first
+/// overload of `Write` (`Value: Any`), so the argument's value says it is a Text; a text literal or Label arrives as the same
+/// value and is not told apart.
 fn measured_detached_write(id: BuiltinId, values: &[Value]) -> bool {
-    id == ids::OUTSTREAM_WRITETEXT_1 || (id == ids::OUTSTREAM_WRITE_1 && matches!(values, [Value::Text(_)]))
+    let one_text = matches!(values, [Value::Text(t)] if !t.audited_str().is_empty());
+    one_text && (id == ids::OUTSTREAM_WRITETEXT_1 || id == ids::OUTSTREAM_WRITE_1)
 }
 
 fn refusal(t: &TableDef, pos: usize) -> Signal {
@@ -442,8 +441,7 @@ fn refusal(t: &TableDef, pos: usize) -> Signal {
     ))
 }
 
-/// The facts of the cells of corpus PR 1391 (tests/al-language/streams/TempBlobEmptyInsertShare.al, assumption
-/// `temp-blob-empty-insert-key-change`), each required by equality:
+/// The facts of the cells of tests/al-language/streams/TempBlobEmptyInsertShare.al, each required by equality:
 /// - the buffer is empty: every cell writes after an empty Insert, with Clear (:142, :167, :206, :283, :366, :426, :447, :465)
 ///   or without (:188, :226, :484), and nothing was written into it since;
 /// - every holder of the buffer is the variable, the operand, rows of the variable's own table under other keys or another
@@ -454,10 +452,27 @@ fn refusal(t: &TableDef, pos: usize) -> Signal {
 ///   own procedures for :527);
 /// - the table has one Blob field, the one written (tables 75230 and 75231; Excel Buffer in :527);
 /// - the primary key is made of Integer fields (tables 75230 and 75231; Excel Buffer's Row No. and Column No. in :527);
-/// - no live xRec holds the buffer (`xrec`).
-fn measured_detach(b: &BlobRef, t: &TableDef, pos: usize, base: &ir::Place, h: &Holders, xrec: bool) -> bool {
+/// - no live xRec holds the buffer (`xrec`);
+/// - the record writing is the one whose Insert stored the empty row, and no `RecordRef.SetTable` wrote into a record of the
+///   table since: every cell writes through the variable that inserted, after its key moved by := or Validate (:142-:484;
+///   Excel Buffer's `Rec` in :527).
+fn measured_detach(
+    b: &BlobRef,
+    t: &TableDef,
+    pos: usize,
+    base: &ir::Place,
+    h: &Holders,
+    xrec: bool,
+    rc: &Rc<RefCell<RecordState>>,
+) -> bool {
     let is_blob = |ty: &RtType| matches!(ty, RtType::Library(LibraryKind::Blob));
-    b.borrow().bytes.is_empty()
+    let inserter = rc
+        .borrow()
+        .temp_id
+        .as_ref()
+        .is_some_and(|id| id.empty_blob_inserted_by(rc));
+    inserter
+        && b.borrow().bytes.is_empty()
         && h.all_found
         && matches!((h.elsewhere, h.sharers), (1 | 2, 1 | 2))
         && matches!(base, ir::Place::Local(_) | ir::Place::Global(_))

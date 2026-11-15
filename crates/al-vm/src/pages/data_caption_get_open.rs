@@ -1,14 +1,13 @@
 //! The DataCaptionExpression of a Worksheet that AL code opened with `Page.Run(Id, Rec)` and a PageHandler, `Page.RunModal(Id,
 //! Rec)` as a statement and a ModalPageHandler, or `Page.Run(Id, Rec)` after a TestPage Trap, over a view of up to three stored
-//! rows (al-runner issue 6924). Measured by corpus PR 1401, pages/properties/DataCaptionGetOpen.al (merged, not yet in the pinned
-//! corpus); the cells run under the assumption `data-caption-get-open`. The cells of DataCaptionExprWorksheet.al
-//! (`data_caption_open.rs`) are tried first; a page in neither family keeps the refusal or main's path there.
+//! rows (al-runner issue 6924). Measured by pages/properties/DataCaptionGetOpen.al (the cells below cite its lines). The cells of
+//! DataCaptionExprWorksheet.al (`data_caption_open.rs`) are tried first; a page in neither family keeps the refusal or main's
+//! path there.
 
 use super::data_caption_open::{HandedRecord, Shape};
 use super::pinned_shape::{NextEnd, PinnedEnd};
 use super::*;
 use crate::ui::UiKind;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::record_op::RecordOp;
 
@@ -18,8 +17,8 @@ const MOST_ROWS: usize = 3;
 /// What the handler or the Trap may do after the open: read the caption and the controls, and close (DataCaptionGetOpen.al:1192-1193
 /// in the handler, :376-378 after the Trap).
 const GET_OPENED_END: PinnedEnd = PinnedEnd {
-    reason: "a call of the test on a page whose DataCaptionExpression ran at the open as DataCaptionGetOpen.al of corpus PR 1401 \
-             measured, other than Caption, a control's value read or Close (not pinned)",
+    reason: "a call of the test on a page whose DataCaptionExpression ran at the open as DataCaptionGetOpen.al measured, other \
+             than Caption, a control's value read or Close (not pinned)",
     reads: true,
     caption: true,
     part_reads: false,
@@ -36,7 +35,7 @@ const GET_OPENED_END: PinnedEnd = PinnedEnd {
 
 /// The start of a refusal of a page in this family's cells whose expression did what no cell measured.
 const UNMEASURED_RUN: &str = "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, in the shape \
-                              DataCaptionGetOpen.al of corpus PR 1401 measured";
+                              DataCaptionGetOpen.al measured";
 
 /// A SetRange to one Code value: `Some(true)` when the value is not empty.
 fn code_value(f: &FieldFilter) -> Option<bool> {
@@ -99,7 +98,6 @@ impl Session {
         let Some(rows) = self.data_caption_get_rows(st, bind, handed)? else {
             return Ok(false);
         };
-        assume(Assumption::DataCaptionGetOpen);
         let ran = self.data_caption_get_runs(st, &rows);
         if let Err(Signal::Error(_)) = ran {
             return unsupported(format!(

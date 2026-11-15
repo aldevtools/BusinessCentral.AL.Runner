@@ -385,6 +385,9 @@ struct TempToken {
     /// record's Blob buffer once the record moves on (al-vm `temp_blob_share.rs`). Where to look first, never more: the row is
     /// looked up, and the other rows are still searched while holders stay unaccounted for.
     empty_blob_insert_key: RefCell<Option<Vec<Value>>>,
+    /// The record state whose Insert noted [`TempToken::empty_blob_insert_key`]; dropped when `RecordRef.SetTable` writes into a
+    /// record of the table (al-vm `temp_blob_share.rs`, `measured_detach`).
+    empty_blob_inserter: RefCell<Option<std::rc::Weak<RefCell<RecordState>>>>,
     /// The table is a Variant's by-value copy whose rows the corpus does not measure (al-vm `variant_copy.rs`, al-runner issue
     /// 8070): every read of its rows and every write refuses (al-vm `Session::store_for`). Set once, never cleared: it ends with
     /// the table.
@@ -404,6 +407,7 @@ impl TempId {
             release,
             by_value_of: None,
             empty_blob_insert_key: RefCell::new(None),
+            empty_blob_inserter: RefCell::new(None),
             rows_unmeasured: Default::default(),
         }))
     }
@@ -415,6 +419,7 @@ impl TempId {
             release,
             by_value_of: Some(Rc::downgrade(source)),
             empty_blob_insert_key: RefCell::new(None),
+            empty_blob_inserter: RefCell::new(None),
             rows_unmeasured: Default::default(),
         }))
     }
@@ -448,12 +453,32 @@ impl TempId {
         self.0.by_value_of.as_ref().and_then(std::rc::Weak::upgrade)
     }
 
-    /// An Insert into the table stored a row while a Blob of the record was empty, under the primary key `key` yields.
-    pub fn note_empty_blob_insert<'a>(&self, key: impl Iterator<Item = &'a Value>) {
+    /// The Insert of `inserter` into the table stored a row while a Blob of the record was empty, under the primary key `key`
+    /// yields.
+    pub fn note_empty_blob_insert<'a>(
+        &self,
+        inserter: &Rc<RefCell<RecordState>>,
+        key: impl Iterator<Item = &'a Value>,
+    ) {
+        *self.0.empty_blob_inserter.borrow_mut() = Some(Rc::downgrade(inserter));
         let mut slot = self.0.empty_blob_insert_key.borrow_mut();
         let kept = slot.get_or_insert_with(Vec::new);
         kept.clear();
         kept.extend(key.cloned());
+    }
+
+    /// Whether `rec` is the record state whose Insert [`TempId::note_empty_blob_insert`] last noted.
+    pub fn empty_blob_inserted_by(&self, rec: &Rc<RefCell<RecordState>>) -> bool {
+        let inserter = self.0.empty_blob_inserter.borrow();
+        inserter
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
+            .is_some_and(|r| Rc::ptr_eq(&r, rec))
+    }
+
+    /// `RecordRef.SetTable` wrote into a record of the table: no record state counts as the inserter any more.
+    pub fn forget_empty_blob_inserter(&self) {
+        *self.0.empty_blob_inserter.borrow_mut() = None;
     }
 
     /// `f` of the key [`TempId::note_empty_blob_insert`] last noted.

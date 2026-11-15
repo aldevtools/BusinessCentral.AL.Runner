@@ -69,10 +69,17 @@ fn release(f: &mut Frame, r: u16, nl: u16) {
 }
 
 impl Session {
+    /// `Op::StorePlace`: `v` written to place `p`.
+    fn store_place(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        mark_assigned_stream(&v);
+        self.write(&chunk.places[p as usize], v, f)
+    }
+
     /// The record, RecordRef or Blob `Op::StoreLocal` stores into local place `p`: a record goes to
     /// `Session::store_variant_copy` when the assignment is a `variant_copy.rs` site, every value else to `write`.
     #[inline(never)]
     fn store_local_held(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        mark_assigned_stream(&v);
         match chunk.variant_copies.iter().find(|site| site.at == p) {
             Some(site) if matches!(v, Value::Record(_)) => self.store_variant_copy(site, v, f),
             _ => self.write(&chunk.places[p as usize], v, f),
@@ -194,7 +201,7 @@ impl Session {
                         set(&mut f.locals[i as usize], v);
                     }
                 }
-                Op::StorePlace { p, a } => self.write(&chunk.places[p as usize], take(f, a, nl), f)?,
+                Op::StorePlace { p, a } => self.store_place(chunk, p, take(f, a, nl), f)?,
                 Op::StoreVariantCopy { s, a } => self.variant_copy_op(chunk, s, a, f)?,
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;
@@ -462,7 +469,7 @@ impl Session {
             Err(Signal::Error(mut e)) => {
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.catch_error(*e);
+                self.catch_error(*e)?;
                 set(&mut f.locals[d as usize], Value::Boolean(false));
                 Ok(stop + 1)
             }
@@ -489,7 +496,7 @@ impl Session {
                 // The statements the error left open are closed.
                 self.cap_stmt_truncate(open);
                 self.add_top_frame(&mut e);
-                self.catch_error(*e);
+                self.catch_error(*e)?;
                 // Temporaries of the body that the error left behind hold nothing alive.
                 for r in from.max(nl) as usize..f.locals.len() {
                     f.locals[r] = Value::Null;
@@ -1174,6 +1181,7 @@ impl Session {
     fn single_write_op(&mut self, i: usize, kind: SingleWriteKind, f: &Frame) {
         match kind {
             SingleWriteKind::Replace => self.single_replaced(&f.instance, i),
+            SingleWriteKind::Reset => self.single_reset(&f.instance, i),
             SingleWriteKind::ModifyTemp => self.single_wrote_temp(&f.instance, i),
             SingleWriteKind::Modify => self.single_wrote(&f.instance, i),
         }
@@ -1341,6 +1349,9 @@ impl Session {
         if let (Some(open), Ok(_)) = (open, &result) {
             self.temp_blob_attach_open(*open);
         }
+        if result.is_ok() {
+            self.note_temp_blob_impl_field(site.id, site.receiver_arg.as_ref(), f);
+        }
         if let (Some(row), Some(ir::Arg::Ref(p)), Ok(_)) = (copy_array_row_back, site.args.first(), &result) {
             self.write(p, row, f)?;
         }
@@ -1352,5 +1363,16 @@ impl Session {
         }
         // Name the builtin whose argument was not the text it takes.
         result.map_err(|e| Self::name_builtin_refusal(site, e))
+    }
+}
+
+/// `:=` (`Op::StoreLocal`, `Op::StorePlace`) of an InStream shares the stream with the target; the stream keeps that a
+/// variable assignment shared it (`al_builtins::stream_line_breaks`).
+#[inline]
+fn mark_assigned_stream(v: &Value) {
+    if let Value::Library(al_builtins::library_kind::LibraryKind::InStream, h) = v
+        && let al_builtins::value::LibraryValue::InStream(s) = &mut *h.borrow_mut()
+    {
+        s.shared_by_assign = true;
     }
 }

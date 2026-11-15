@@ -695,13 +695,18 @@ selects only the tests both match)
                          Page.RunModal and a static Report.Run or RunModal whose request page
                          would open raise the CallbackNotAllowed error. Business Central is
                          measured only for that worker, so a test that passes through one of
-                         these is a flagged pass, `no-client-session`. So is a test that opens a
-                         TestPage, and a read of the WorkDate that Base Application's login code
-                         would have set (it does not run without a client). A call that is not
-                         measured there is not run, with the reason: CurrentClientType, a page
-                         run with a record or of a page with triggers, a report run on a
-                         variable or with a RequestPageHandler, Xmlport.Run with its request
-                         page, Report.RunRequestPage, file download.
+                         these is a flagged pass, `no-client-session`. So is a read of the
+                         WorkDate that Base Application's login code would have set (it does not
+                         run without a client). A TestPage open (OpenView, OpenEdit, OpenNew,
+                         Trap) and a test that binds a page or request page handler taking a
+                         TestPage or TestRequestPage are not run: Business Central fails a
+                         TestPage open in a web-service session, with an error that is not
+                         measured. Every other call on a TestPage or its fields, actions,
+                         parts and filters is not run either: no TestPage can be open there. A
+                         call that is not measured there is not run, with the reason:
+                         CurrentClientType, a page run with a record or of a page with triggers,
+                         a report run on a variable or with a RequestPageHandler, Xmlport.Run
+                         with its request page, Report.RunRequestPage, file download.
                          In `serve`: the runTests field `noClient`.
     --dependencies-published-global
                          Show Published As of NAV App Installed App as Global, not Dev, for a

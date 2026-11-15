@@ -1,13 +1,12 @@
 //! "Published Application"."Tenant Visible" looks up "NAV App Extra" (2000000157). Under a set that grants read on Published
 //! Application and nothing on NAV App Extra, that read is not checked against the session's sets in two shapes: a Lookup
 //! FlowField of an app table filtered on "Tenant Visible" = const(true) calculated by CalcFields, and FindFirst of Published
-//! Application filtered on ID and "Tenant Visible" = true (al-runner issue 8038, assumption
-//! `system-flowfield-reads-internal-table`). Every neighbor shape keeps main's outcome.
+//! Application filtered on ID and "Tenant Visible" = true (al-runner issue 8038, permissions/SysFlowFieldPerm.al and
+//! SysFlowFieldPermFilter.al). Every neighbor shape keeps main's outcome.
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
 use super::y48_platform_probes::outcomes_with_hits_app;
-use al_builtins::assumptions::Assumption;
 use al_test_cli::report::Outcome;
 
 const APP_ID: &str = "8c5e3a1f-2b47-4d9e-a6c0-3f1e9d7b2a58";
@@ -55,13 +54,29 @@ page 50600 "Repro Card"
     SourceTable = "Repro Item";
     layout { area(Content) { field("Extension Name"; Rec."Extension Name") { } } }
 }
+page 50601 "Repro Trig"
+{
+    PageType = Card;
+    SourceTable = "Repro Item";
+    layout { area(Content) { field("Code"; Rec."Code") { } } }
+    trigger OnOpenPage()
+    var
+        I: Record "Repro Item";
+        Me: ModuleInfo;
+    begin
+        NavApp.GetCurrentModuleInfo(Me);
+        I."Code" := 'C';
+        I."Extension ID" := Me.Id;
+        I.CalcFields("Extension Name");
+    end;
+}
 query 50600 "Repro Q"
 {
     elements { dataitem(Item; "Repro Item") { column(Code; "Code") { } column(Name; "Extension Name") { } } }
 }
-permissionset 50601 "PA READ" { Assignable = true; Permissions = tabledata "Repro Item" = RIMD, tabledata "Published Application" = R, codeunit T = X, codeunit Hlp = X, codeunit TX = X, codeunit TF = X, codeunit TP = X, codeunit TQ = X, xmlport "Repro Export" = X, page "Repro Card" = X, query "Repro Q" = X; }
-permissionset 50602 "NO PA" { Assignable = true; Permissions = tabledata "Repro Item" = RIMD, codeunit T = X, codeunit Hlp = X, codeunit TX = X, codeunit TF = X, codeunit TP = X, codeunit TQ = X, xmlport "Repro Export" = X, page "Repro Card" = X, query "Repro Q" = X; }
-permissionset 50603 "PA IND" { Assignable = true; Permissions = tabledata "Repro Item" = RIMD, tabledata "Published Application" = r, codeunit T = X, codeunit Hlp = X, codeunit TX = X, codeunit TF = X, codeunit TP = X, codeunit TQ = X, xmlport "Repro Export" = X, page "Repro Card" = X, query "Repro Q" = X; }
+permissionset 50601 "PA READ" { Assignable = true; Permissions = tabledata "Repro Item" = RIMD, tabledata "Published Application" = R, codeunit T = X, codeunit Hlp = X, codeunit TX = X, codeunit TF = X, codeunit TP = X, codeunit TQ = X, xmlport "Repro Export" = X, page "Repro Card" = X, page "Repro Trig" = X, query "Repro Q" = X; }
+permissionset 50602 "NO PA" { Assignable = true; Permissions = tabledata "Repro Item" = RIMD, codeunit T = X, codeunit Hlp = X, codeunit TX = X, codeunit TF = X, codeunit TP = X, codeunit TQ = X, xmlport "Repro Export" = X, page "Repro Card" = X, page "Repro Trig" = X, query "Repro Q" = X; }
+permissionset 50603 "PA IND" { Assignable = true; Permissions = tabledata "Repro Item" = RIMD, tabledata "Published Application" = r, codeunit T = X, codeunit Hlp = X, codeunit TX = X, codeunit TF = X, codeunit TP = X, codeunit TQ = X, xmlport "Repro Export" = X, page "Repro Card" = X, page "Repro Trig" = X, query "Repro Q" = X; }
 codeunit 50610 Hlp
 {
     procedure Item(var Item: Record "Repro Item"; Found: Boolean; Role: Code[20])
@@ -108,6 +123,26 @@ codeunit 50602 T
         I.CalcFields("Extension Name");
         if I."Extension Name" <> 'main' then
             Error('name %1', I."Extension Name");
+    end;
+
+    [Test]
+    procedure FoundTwoFields()
+    var
+        I: Record "Repro Item";
+    begin
+        Item(I, true, 'PA READ');
+        I.CalcFields("Extension Name", "Extension Publisher");
+    end;
+
+    [Test]
+    procedure FoundNamePageTrigger()
+    var
+        I: Record "Repro Item";
+        P: TestPage "Repro Trig";
+    begin
+        Item(I, true, 'PA READ');
+        P.OpenView();
+        P.Close();
     end;
 
     [Test]
@@ -574,9 +609,8 @@ fn tenant_visible_lookup_reads_nav_app_extra_unchecked_neighbors_keep_main() {
             .find(|(n, _, _)| n == name)
             .unwrap_or_else(|| panic!("{name} in {o:?}"))
     };
-    let flag = Assumption::SystemFlowfieldReadsInternalTable;
     // The reporter's shapes, Guided Experience's (Lookup of Name and of Publisher through CalcFields; FindFirst of
-    // Published Application filtered on ID and "Tenant Visible") and the probe's Exist and Count: pass, flagged.
+    // Published Application filtered on ID and "Tenant Visible") and the probe's Exist and Count: pass, no flag.
     for name in [
         "FoundName",
         "FoundPublisher",
@@ -586,19 +620,22 @@ fn tenant_visible_lookup_reads_nav_app_extra_unchecked_neighbors_keep_main() {
     ] {
         let (_, outcome, hits) = get(name);
         assert_eq!(*outcome, Outcome::Pass, "{name}");
-        assert!(hits.contains(&flag), "{name}: {hits:?}");
+        assert!(hits.is_empty(), "{name}: {hits:?}");
     }
     // Main passes these: no row reaches the condition FlowField, or no condition on it. No flag.
     for name in ["NotFoundName", "FoundNameAny"] {
         let (_, outcome, hits) = get(name);
         assert_eq!(*outcome, Outcome::Pass, "{name}");
-        assert!(!hits.contains(&flag), "{name}: {hits:?}");
+        assert!(hits.is_empty(), "{name}: {hits:?}");
     }
     // Neighbors the evidence does not measure keep main's refusal on NAV App Extra: another constant,
     // the other FlowField over NAV App Extra, another key condition, a filter on the FlowField, an indirect grant on
     // Published Application, and CalcFields of "Tenant Visible" itself; for the direct read: FindSet, IsEmpty, another
-    // filter, no ID filter, the constant false, another filter group.
+    // filter, no ID filter, the constant false, another filter group. CalcFields of two FlowFields and CalcFields in a page
+    // trigger are not measured (SysFlowFieldPerm.al calcs one field from codeunit code): refused.
     for name in [
+        "FoundTwoFields",
+        "FoundNamePageTrigger",
         "DirectFindSet",
         "DirectIsEmpty",
         "DirectExtraFilter",
@@ -635,13 +672,13 @@ fn tenant_visible_lookup_reads_nav_app_extra_unchecked_neighbors_keep_main() {
     for name in ["FoundNamePageControl", "FoundNameQuery"] {
         let (_, outcome, hits) = get(name);
         assert_ne!(*outcome, Outcome::Pass, "{name}");
-        assert!(!hits.contains(&flag), "{name}: {hits:?}");
+        assert!(hits.is_empty(), "{name}: {hits:?}");
     }
     // Without a grant on Published Application, or with an indirect one, the read of Published Application is still
     // checked: main's outcome, never the new path.
     for name in ["FoundNameNoPA", "DirectIndirect"] {
         let (_, outcome, hits) = get(name);
         assert_ne!(*outcome, Outcome::Pass, "{name}");
-        assert!(!hits.contains(&flag), "{name}: {hits:?}");
+        assert!(hits.is_empty(), "{name}: {hits:?}");
     }
 }

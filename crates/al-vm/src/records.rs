@@ -532,7 +532,7 @@ impl Session {
     }
 
     /// The table's caption as its source declares it: a tableextension's Caption over its own, its Caption, or its name.
-    fn source_caption(&self, t: &TableDef) -> String {
+    pub(crate) fn source_caption(&self, t: &TableDef) -> String {
         let o = &self.engine.program.objects[t.object as usize];
         if let Some((_, v)) = o.properties.iter().find(|(k, _)| k == al_ir::EXT_CAPTION_OVER_OWN) {
             return v.trim().trim_matches('\'').to_string();
@@ -551,8 +551,8 @@ impl Session {
         self.caption(t)
     }
 
-    /// The caption a read of it gives (TableCaption, RecordRef.Caption, Format of a RecordId): refused where a
-    /// tableextension sets it over another caption (`al_ir::CAPTION_REFUSED`).
+    /// The caption a read of it gives (TableCaption, RecordRef.Caption; `Format(RecordId, 0, 1)` reads
+    /// `Self::record_id_caption`): refused where a tableextension sets it over another caption (`al_ir::CAPTION_REFUSED`).
     pub(crate) fn caption_checked(&self, t: &TableDef) -> Result<String, Signal> {
         let Some(why) = self.caption_refused(t.object as usize) else {
             return Ok(self.caption(t));
@@ -662,13 +662,11 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`, al-vm
-    /// `group1_sessions.rs`), outside install code.
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
     pub(crate) fn install_assumed(&self, object: u32) {
         if self.install_scope {
             return;
         }
-        self.group1_flagged_touch(object);
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };
@@ -2076,11 +2074,10 @@ impl Session {
                     _ => false,
                 };
             // An assigned Blob that nothing saved or wrote since is kept, as an unsaved stream write is, when the stored row's
-            // Blob is empty (assumption `blob-assign-counts-as-write`: al-runner issue 7961, the reporter's repro on real BC).
+            // Blob is empty (al-runner issue 7961; tests/al-language/streams/BlobAssignThenCalcFields.al:244-256 (Assign_Ins_FromTmpIns)).
             let stored_empty =
                 matches!(stored.as_ref().map(|row| &row[pos]), Some(Value::Blob(src)) if src.borrow().bytes.is_empty());
             if keeps_content && stored_empty && buf.borrow().assigned_unsaved {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobAssignCountsAsWrite);
                 continue;
             }
             if stale {
@@ -2106,6 +2103,7 @@ impl Session {
             let mut b = buf.borrow_mut();
             b.inserted = inserted;
             b.bytes = bytes;
+            b.content_edits = b.content_edits.wrapping_add(1);
             b.written = false;
             b.written_base = None;
             b.assigned_unsaved = false;
@@ -2793,7 +2791,7 @@ impl Session {
     }
 
     /// The filters of `rec` in filter group 1, as text to compare.
-    pub(crate) fn group1_signature(rec: &Rec) -> String {
+    fn group1_signature(rec: &Rec) -> String {
         let r = rec.borrow();
         let mut v: Vec<String> = r
             .filters
@@ -2838,7 +2836,6 @@ impl Session {
     /// Page.Run(Page, Rec)); refused otherwise.
     pub(crate) fn global_group_check(&self, rec: &Rec, table: u32, what: &str) -> Result<(), Signal> {
         let Some(global) = self.global_group1.signature(table) else {
-            self.group1_ended_check(rec, table, what);
             return Ok(());
         };
         if what == "FilterGroup" {

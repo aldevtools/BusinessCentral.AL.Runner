@@ -52,6 +52,18 @@ fn read_files(a: &al_ir::AppInfo) -> impl Iterator<Item = &al_ir::TranslationFil
     (0..a.translation_heads().len()).map(|i| a.translation_file(i))
 }
 
+/// A table whose caption the language gate refuses, in a shape `Format` of its RecordId was measured for
+/// (`Session::record_id_caption_shape`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RecordIdCaptionShape {
+    /// A table in a namespace whose own app ships no translation file of the language in force; an app that ships one extends
+    /// it (Item and Sales Invoice Header in R7184BaseAppCaption.al).
+    ExtendedByTranslatingApp,
+    /// A table outside any namespace whose own app ships a translation file of the language in force, and no extension
+    /// extends it (LT TA Item).
+    OwnAppTranslates,
+}
+
 impl Session {
     /// Why a read of a translatable text of object `object` (a table, field, enum value, page or control caption, an
     /// OptionCaption) is refused: the language in force is not 1033 and the object's app, or the app of an extension of
@@ -75,20 +87,19 @@ impl Session {
         hit.then(|| refusal(&what(), language))
     }
 
-    /// Whether `Format(RecordId, 0, 9)` of the table with object index `object` runs although [`Self::translated_read_refusal`]
-    /// refuses the table's caption. Format 9 names the table and never shows its caption (al-runner issue 8123). Assumed
-    /// (`recordid-format-nine-extended-table`) only in the shape measured: a table in a namespace that declares its own `Caption`
-    /// and no `CaptionML`, of which no table extension declares a Caption or CaptionML, whose own app ships no translation file
-    /// of the language in force, and which an app that ships one extends. Any other refused caption keeps format 9 refused.
-    /// Measured by corpus PR 1413 (merged, not pinned), localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al:235-256
-    /// (Item and Sales Invoice Header under 1043, without and with a cross-app unit for the table caption).
-    pub(crate) fn record_id_name_assumed(&self, object: usize) -> bool {
+    /// The measured shape of the table with object index `object` whose caption [`Self::translated_read_refusal`] refuses, for
+    /// `Format` of a RecordId; `None` for any other table. Both shapes are a table that declares its own `Caption` and no
+    /// `CaptionML`, of which no table extension declares a Caption or CaptionML, measured by corpus PR 1413 (merged, not pinned)
+    /// under 1043 in localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al: the extended tables there are in a
+    /// namespace (Item, Sales Invoice Header), the corpus app's own table is not (LT TA Item).
+    fn record_id_caption_shape(&self, object: usize) -> Option<RecordIdCaptionShape> {
         let p = &self.engine.program;
-        let Some(o) = p.objects.get(object) else {
-            return false;
-        };
-        let language = al_builtins::format::FormatCtx::language(self);
+        let o = p.objects.get(object)?;
         let declares = |k: &str| o.properties.iter().any(|(p, _)| p.eq_ignore_ascii_case(k));
+        let flagged = o
+            .properties
+            .iter()
+            .any(|(k, _)| k == al_ir::CAPTION_REFUSED || k == al_ir::EXT_CAPTION_OVER_OWN);
         // Lowering merges a table extension's Caption into the table's own list, so the Caption must not come from one.
         // Extension objects keep their own properties.
         let extension_captions = o.id.is_some()
@@ -99,18 +110,64 @@ impl Session {
                         .iter()
                         .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML"))
             });
-        let measured = o.kind == al_ir::ObjKind::Table
-            && o.namespace.is_some()
-            && declares("Caption")
-            && !extension_captions
-            && !declares("CaptionML")
-            && !o
-                .properties
-                .iter()
-                .any(|(k, _)| k == al_ir::CAPTION_REFUSED || k == al_ir::EXT_CAPTION_OVER_OWN)
-            && !p.apps.get(o.app as usize).is_some_and(|a| translates_into(a, language))
-            && self.translated_read_refusal(object, String::new).is_some();
-        measured && al_builtins::assumptions::hit(al_builtins::assumptions::Assumption::RecordIdFormatNineExtendedTable)
+        if o.kind != al_ir::ObjKind::Table
+            || !declares("Caption")
+            || declares("CaptionML")
+            || flagged
+            || extension_captions
+            || self.translated_read_refusal(object, String::new).is_none()
+        {
+            return None;
+        }
+        let language = al_builtins::format::FormatCtx::language(self);
+        if !p.apps.get(o.app as usize).is_some_and(|a| translates_into(a, language)) {
+            // The gate refuses only because an app that ships a file of the language extends the table.
+            return o
+                .namespace
+                .is_some()
+                .then_some(RecordIdCaptionShape::ExtendedByTranslatingApp);
+        }
+        (o.namespace.is_none() && !self.extended(object)).then_some(RecordIdCaptionShape::OwnAppTranslates)
+    }
+
+    /// Whether `Format(RecordId, 0, 9)` of the table with object index `object` runs although [`Self::translated_read_refusal`]
+    /// refuses the table's caption. Format 9 names the table and never shows its caption (al-runner issue 8123). Assumed
+    /// (`recordid-format-nine-extended-table`) only for [`RecordIdCaptionShape::ExtendedByTranslatingApp`]; any other refused
+    /// caption keeps format 9 refused (R7184BaseAppCaption.al:235-256, Item and Sales Invoice Header, without and with a cross-app
+    /// unit for the table caption).
+    pub(crate) fn record_id_name_assumed(&self, object: usize) -> bool {
+        self.record_id_caption_shape(object) == Some(RecordIdCaptionShape::ExtendedByTranslatingApp)
+            && al_builtins::assumptions::hit(al_builtins::assumptions::Assumption::RecordIdFormatNineExtendedTable)
+    }
+
+    /// The caption `Format(RecordId, 0, 1)` names table `t` by: the caption as its source declares it, which no translation
+    /// file changes (`TableCaption` reads the unit, `Self::caption_checked`). `None` where the format is refused. Where the
+    /// language gate refuses the caption, assumed (`recordid-format-one-source-caption`) in the two measured shapes
+    /// ([`Self::record_id_caption_shape`]): corpus PR 1413 (al-runner issue 8135), R7184BaseAppCaption.al:305-336 R8123_RecordIdFormat1_Dutch_SourceCaptions,
+    /// `LT TA Item: R8123` for the corpus app's own table whose unit gives `TableCaption` `LT TA Artikel`, and `Item: R8123` and
+    /// `Sales Invoice Header: R8123` for the tables it extends. Any other refused caption, and an own table whose file could not be
+    /// read for the language, keeps format 1 refused.
+    pub(crate) fn record_id_caption(&self, t: &al_data::TableDef) -> Option<String> {
+        let object = t.object as usize;
+        let Some(why) = self.caption_refused(object) else {
+            return Some(self.caption(t));
+        };
+        let assumed =
+            || al_builtins::assumptions::hit(al_builtins::assumptions::Assumption::RecordIdFormatOneSourceCaption);
+        match (
+            self.table_caption_translation(object, why),
+            self.record_id_caption_shape(object),
+        ) {
+            // No unit for the caption: the source caption, as `TableCaption` gives it.
+            (Ok(None), _) => Some(self.source_caption(t)),
+            (Ok(Some(_)), Some(RecordIdCaptionShape::OwnAppTranslates))
+            | (Err(_), Some(RecordIdCaptionShape::ExtendedByTranslatingApp))
+                if assumed() =>
+            {
+                Some(self.source_caption(t))
+            }
+            _ => None,
+        }
     }
 
     /// The refusal of a read of the caption of field `pos` of table `t` that declares a `Caption` or `CaptionML`.
