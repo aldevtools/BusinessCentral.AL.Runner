@@ -694,8 +694,9 @@ selects only the tests both match)
                          processing-only report with one empty data item and an empty request
                          page, and nothing else, skips the request page, so a bound
                          RequestPageHandler ends in `not executed`. On 27 and 29 these are not
-                         run. They need a BC 28 target: `--bc-version 28`, or application 28
-                         in app.json; with no target they are not run. A test that passes through one of these is a flagged pass,
+                         run. They need version 28 as the target: `--bc-version 28`, or
+                         application 28 in app.json; with no target they are not run. A test
+                         that passes through one of these is a flagged pass,
                          `no-client-session`; so is a read of the WorkDate that Base
                          Application's login code would have set. Not run, as Business Central
                          fails them there with an error that is not measured: a TestPage open
