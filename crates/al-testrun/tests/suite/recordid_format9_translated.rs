@@ -36,6 +36,16 @@ tableextension 50832 "ALR Unit Ext" extends "ALR Unit"
 {
     fields { field(50832; Note; Text[50]) { Caption = 'Note'; } }
 }
+table 50834 "ALR Own Row"
+{
+    Caption = 'Own Row';
+    fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
+    keys { key(PK; "No.") { } }
+}
+tableextension 50835 "ALR Own Row Ext" extends "ALR Own Row"
+{
+    fields { field(50835; Note; Text[50]) { Caption = 'Note'; } }
+}
 "#;
 
 const TESTS: &str = r#"
@@ -73,6 +83,16 @@ codeunit 50833 "ALR RecordId Format Tests"
         Danish := Format(R.RecordId(), 0, 9);
         GlobalLanguage(1033);
         Error('%1', Danish);
+    end;
+
+    [Test]
+    procedure Format9OfAnOwnTableOfTheTranslatingAppUnderDanish()
+    var
+        R: Record "ALR Own Row";
+    begin
+        R."No." := 'O1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 9));
     end;
 
     [Test]
@@ -189,6 +209,18 @@ fn format_1_of_the_extended_table_stays_refused() {
     let (_, outcome, _) = find(&got, "Format1OfTheExtendedTableUnderDanish");
     assert!(
         matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 1 where the table caption is not known")),
+        "{outcome:?}"
+    );
+}
+
+/// A captioned table of the translating app itself, which that app also extends: its own file could translate the caption,
+/// a shape no probe measured, so format 9 stays refused.
+#[test]
+fn format_9_of_an_own_table_of_the_translating_app_stays_refused() {
+    let got = run();
+    let (_, outcome, _) = find(&got, "Format9OfAnOwnTableOfTheTranslatingAppUnderDanish");
+    assert!(
+        matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 9 where the table caption is not known")),
         "{outcome:?}"
     );
 }
