@@ -1147,6 +1147,8 @@ impl<T: Send + 'static> Drop for Retiring<T> {
 mod al_runner;
 #[cfg(test)]
 mod al_runner_tests;
+#[cfg(test)]
+mod app_outcomes_tests;
 mod apply_manifests;
 mod baseline_key;
 mod blocked;
@@ -1164,6 +1166,8 @@ mod group1_sessions_tests;
 mod grow;
 mod handlers;
 mod install_snapshot;
+#[cfg(test)]
+mod install_unknown_tests;
 mod internals_grant;
 mod lane_starts;
 #[cfg(test)]

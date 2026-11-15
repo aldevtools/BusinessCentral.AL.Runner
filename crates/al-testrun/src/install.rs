@@ -679,28 +679,29 @@ fn install_app_under_test(
             } else {
                 Group1InstallShape::Off
             });
+            // The Company Triggers subscribers of the installed apps, for the refusals below (`company_open` runs them).
+            let open_subscribers = company_open_subscribers(lowered, &engine.events, |o| {
+                installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
+            });
             let open = if part == Part::Company {
-                company_open(lowered, session, with_dependencies)
+                company_open(lowered, session, skipped, with_dependencies)
             } else {
                 Ok(())
             };
             if session.end_group1_install_routine(open.is_ok()) {
                 // The Company Triggers relied on the group 1 assumption: what main refused for them is flagged.
-                for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
-                    installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
-                }) {
+                for &(so, sr) in &open_subscribers {
                     session.flag_group1_tables(touched(&engine, lowered, so, sr));
                 }
             }
             match open {
                 Err(stopped) => {
-                    unknown = stopped.roll_back(lowered, session);
+                    let refused: Vec<_> = open_subscribers.iter().chain(routines).copied().collect();
+                    unknown = stopped.roll_back(lowered, session, skipped, (&in_company, &company), &refused);
                     let why = stopped.why;
                     // What the subscribers wrote before the one that could not run is rolled back, and BC would have
                     // kept it: a test that touches what any of them can write is not run either.
-                    for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
-                        installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
-                    }) {
+                    for &(so, sr) in &open_subscribers {
                         refuse(
                             lowered,
                             session,
@@ -746,9 +747,12 @@ fn install_app_under_test(
                         if let Some(why) = &unknown {
                             let why = format!("install code {} was not run: {why}", label(lowered, oi, ri));
                             refuse(lowered, session, skipped, &in_company, &company, ((oi, ri), why));
-                        } else if let Err(stopped) = run_routine(lowered, session, oi, ri) {
+                        } else if let Err(stopped) = watching_skipped(lowered, session, skipped, &[(oi, ri)], |s| {
+                            run_routine(lowered, s, oi, ri)
+                        }) {
                             session.end_group1_install_routine(false);
-                            unknown = stopped.roll_back(lowered, session);
+                            unknown =
+                                stopped.roll_back(lowered, session, skipped, (&in_company, &company), &[(oi, ri)]);
                             refuse(
                                 lowered,
                                 session,
@@ -797,8 +801,6 @@ pub(crate) fn group1_trigger_shape(lowered: &Lowered, measured: bool, (oi, ri): 
     }
 }
 
-/// Whether the app of object `o` is installed when app `app` (an app under test) installs: a dependency app (the install
-/// baseline installs them first), an app under test before it in dependency order, or the app itself.
 /// Records that install routine `what.0` could not run in company `in_company` (`what.1` says why). In the session
 /// company, or in the per-database part, a test that touches a table the routine touches is not run. In another declared
 /// company (`--companies`, ADR-046 decision 6) the tables the routine would have written there are not known: a shared one
@@ -817,14 +819,45 @@ fn refuse(
     // A routine the compile for a selection left out: the run is redone on the full run's compile, whatever the tests
     // touch (al-runner issue 6924).
     crate::runtime::narrowing::note_install(&engine, &why);
-    if in_company.is_empty() || in_company == session_company {
-        skipped.push((touched(&engine, lowered, oi, ri), why));
-        return;
+    let at_home = in_session_company(in_company, session_company);
+    let tables = refused_tables(&engine, lowered, (oi, ri), at_home);
+    if at_home {
+        skipped.push((tables, why));
+    } else {
+        refuse_in_other_company(lowered, session, skipped, in_company, tables, why);
+    }
+}
+
+/// The tables [`refuse`] names for install code `(oi, ri)` from its static reach: in the session company or the
+/// per-database part (`at_home`) the tables it touches ([`touched`]), in another declared company the tables it and the
+/// subscribers it reaches write.
+fn refused_tables(engine: &Engine, lowered: &Lowered, (oi, ri): (usize, usize), at_home: bool) -> BTreeSet<u32> {
+    if at_home {
+        return touched(engine, lowered, oi, ri);
     }
     let mut written = crate::baseline::tables_written(lowered, oi, ri);
-    for (so, sr) in crate::runtime::subscribers_reached(&engine, lowered, oi, ri) {
+    for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
         written.extend(crate::baseline::tables_written(lowered, so, sr));
     }
+    written
+}
+
+/// Whether install code that runs in `in_company` runs in the session company or in the per-database part (`""`).
+fn in_session_company(in_company: &str, session_company: &str) -> bool {
+    in_company.is_empty() || in_company == session_company
+}
+
+/// Records that install code that ran in declared company `in_company`, not the session company, may have written the
+/// tables `written` there, which are then not known: a shared one everywhere (a test that touches it is not run), a
+/// per-company one only in that company, refused at run time (`Session::mark_company_unknown`).
+fn refuse_in_other_company(
+    lowered: &Lowered,
+    session: &mut Session,
+    skipped: &mut Vec<(BTreeSet<u32>, String)>,
+    in_company: &str,
+    mut written: BTreeSet<u32>,
+    why: String,
+) {
     written.retain(|&x| !crate::runtime::listed_from_objects(lowered, x));
     let heads = lowered.program.objects.heads();
     let (per, shared): (BTreeSet<u32>, BTreeSet<u32>) = written
@@ -839,6 +872,8 @@ fn refuse(
     }
 }
 
+/// Whether the app of object `o` is installed when app `app` (an app under test) installs: a dependency app (the install
+/// baseline installs them first), an app under test before it in dependency order, or the app itself.
 fn installed(lowered: &Lowered, o: usize, app: usize) -> bool {
     lowered.dependency[o] || lowered.program.objects[o].app as usize <= app
 }
@@ -1048,8 +1083,14 @@ fn company_open_subscribers(
 /// any app that cannot run here stops the app's per-company install routines, and what it and they touch is refused.
 ///
 /// `with_dependencies` false (a company other than the session company under `--companies`): the dependency apps' subscribers
-/// do not run there, since the dependency apps stay in the session company (ADR-046 decision 5, amendment 2).
-fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: bool) -> Result<(), Stopped> {
+/// do not run there, since the dependency apps stay in the session company (ADR-046 decision 5, amendment 2). They run with
+/// the tables of `skipped` watched ([`watching_skipped`]).
+fn company_open(
+    lowered: &Lowered,
+    session: &mut Session,
+    skipped: &[(BTreeSet<u32>, String)],
+    with_dependencies: bool,
+) -> Result<(), Stopped> {
     let engine = session.engine.clone();
     // What the session sees while the app installs (`InstallView::apply_ordered`, set by the caller).
     let unknown = session.apps_install_order_unknown().cloned().unwrap_or_default();
@@ -1069,7 +1110,9 @@ fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: boo
             ),
             root: (o, r),
             before: session.carried_state(),
+            mark: session.store_mut().change_counter(),
             by_runner: true,
+            leaves: None,
         });
     }
     let all = company_open_subscribers(lowered, &engine.events, |o| {
@@ -1077,7 +1120,10 @@ fn company_open(lowered: &Lowered, session: &mut Session, with_dependencies: boo
             && (with_dependencies || !lowered.dependency[o])
             && !unknown.contains(&objs[o].app)
     });
-    run_subscribers(lowered, session, &all)
+    if all.is_empty() {
+        return Ok(());
+    }
+    watching_skipped(lowered, session, skipped, &all, |s| run_subscribers(lowered, s, &all))
 }
 
 /// Runs `subs` in order; why the first that cannot run cannot.
@@ -1179,7 +1225,27 @@ impl CompanyOpenWrites {
 /// when the session raises the login; otherwise the apps under test's own login subscribers run among them, watched
 /// under RequiredTestIsolation = Disabled (`disabled`) and in a session without a client (`login.rs`, al-runner issues
 /// 7343, 7717).
+///
+/// All of it runs with the tables of `skipped` watched (`runtime::skipped_install_tables`): code that reads or writes the
+/// rows of install code that did not run to its end refuses the codeunit (review of al-runner PR 8119, probes n15, n16).
 pub(crate) fn test_session_company_open(
+    lowered: &Lowered,
+    session: &mut Session,
+    disabled: bool,
+    skipped: &[(BTreeSet<u32>, String)],
+) -> Result<CompanyOpenWrites, String> {
+    match crate::runtime::watching_skipped_installs(lowered, session, skipped, |s| {
+        open_test_session_company(lowered, s, disabled)
+    }) {
+        (Ok(_), Some(why)) => Err(format!(
+            "the code that runs when the test session opens the company (Company Triggers subscribers, the login) {why}"
+        )),
+        (opened, _) => opened,
+    }
+}
+
+/// [`test_session_company_open`] without the watch.
+fn open_test_session_company(
     lowered: &Lowered,
     session: &mut Session,
     disabled: bool,
@@ -1708,16 +1774,108 @@ struct Stopped {
     root: (usize, usize),
     /// The session language and WorkDate right before `root` ran.
     before: al_vm::CarriedState,
+    /// The store's change counter when the install code the roll back takes back started: the first of the roots
+    /// [`watching_skipped`] ran.
+    mark: u64,
     /// The runner refused it (not an AL error).
     by_runner: bool,
+    /// What it may have left outside the database, which rolling back its rows does not set back ([`watching_skipped`]).
+    leaves: Option<String>,
 }
 
 impl Stopped {
     /// Rolls back what it wrote and settles the session state (`stopped_state`); `Some(why)`: the state after it is
-    /// not known.
-    fn roll_back(&self, lowered: &Lowered, session: &mut Session) -> Option<String> {
-        crate::stopped_state::roll_back_stopped_install(lowered, session, self.root, self.before, self.by_runner)
+    /// not known (`leaves` too). `(in_company, session_company)`: where it ran, as for [`refuse`].
+    ///
+    /// The roll back takes the rows that code wrote since it started (`mark`), through any path, and on BC it ran to its
+    /// end and kept them: those tables join `skipped` too, besides the ones the callers' [`refuse`] names from the static
+    /// reach of the install code `refused`, which misses a table written through a RecordRef (review of al-runner PR
+    /// 8119, probes n19, n19b and n19c). A table [`refuse`] names keeps that refusal's reason, as on main.
+    fn roll_back(
+        &self,
+        lowered: &Lowered,
+        session: &mut Session,
+        skipped: &mut Vec<(BTreeSet<u32>, String)>,
+        (in_company, session_company): (&str, &str),
+        refused: &[(usize, usize)],
+    ) -> Option<String> {
+        let mut written = session.store_mut().tables_rolled_back_since(self.mark);
+        let engine = session.engine.clone();
+        let at_home = in_session_company(in_company, session_company);
+        for &code in refused {
+            for t in refused_tables(&engine, lowered, code, at_home) {
+                written.remove(&t);
+            }
+        }
+        let unknown =
+            crate::stopped_state::roll_back_stopped_install(lowered, session, self.root, self.before, self.by_runner)
+                .or_else(|| self.leaves.clone());
+        let why = format!(
+            "install code {} did not run to its end and what it wrote was rolled back: {}",
+            label(lowered, self.root.0, self.root.1),
+            self.why
+        );
+        if at_home {
+            written.retain(|&x| !crate::runtime::listed_from_objects(lowered, x));
+            if !written.is_empty() {
+                skipped.push((written, why));
+            }
+        } else {
+            refuse_in_other_company(lowered, session, skipped, in_company, written, why);
+        }
+        unknown
     }
+}
+
+/// Runs install code `run` (`roots`: the routines it runs, the first of them first) with the tables of `skipped` watched
+/// (`runtime::watching_skipped_installs`): the install code before it that could not run touches them, and on BC it ran
+/// to its end (scenario s15 of al-runner issue 8115: B counted 0 rows of A's rolled-back routine, BC 2). Install code that
+/// read or wrote one, through any path, did not run to its end either: it is rolled back and refused like a routine the
+/// runner stopped. No statement stopped it, so nothing of the session language and WorkDate is set back
+/// (`stopped_state`); and where its reach shows that it can leave something else outside the database (a SingleInstance
+/// codeunit's global, other session state), the rest of the app's install code in this install session is not run
+/// ([`leaves_outside_rows`]; review of al-runner PR 8119, probe n1b).
+fn watching_skipped(
+    lowered: &Lowered,
+    session: &mut Session,
+    skipped: &[(BTreeSet<u32>, String)],
+    roots: &[(usize, usize)],
+    run: impl FnOnce(&mut Session) -> Result<(), Stopped>,
+) -> Result<(), Stopped> {
+    let before = session.carried_state();
+    let mark = session.store_mut().change_counter();
+    match crate::runtime::watching_skipped_installs(lowered, session, skipped, run) {
+        (Ok(()), Some(why)) => Err(Stopped {
+            why,
+            root: roots[0],
+            before,
+            mark,
+            by_runner: false,
+            leaves: leaves_outside_rows(&session.engine.clone(), lowered, roots),
+        }),
+        // Every root it ran is rolled back, those before the one that stopped too.
+        (ran, _) => ran.map_err(|stopped| Stopped { mark, ..stopped }),
+    }
+}
+
+/// Why install code `roots`, rolled back after the watch hit, left something besides rows that the roll back does not set
+/// back: the reach of one of them is known and writes a global of a SingleInstance codeunit or the session state
+/// (`runtime::written::reach_facts`; probe n1b of the review of al-runner PR 8119). A global of another codeunit ends with
+/// its instance. A reach that is not known keeps main's result: only its rows are rolled back.
+fn leaves_outside_rows(engine: &Engine, lowered: &Lowered, roots: &[(usize, usize)]) -> Option<String> {
+    let index = engine.derived(|| crate::runtime::written::ReachIndex::new(&engine.events, lowered));
+    roots.iter().find_map(|&(o, r)| {
+        let facts = crate::runtime::written::reach_facts(&engine.events, lowered, &index, o, r);
+        let single_instance_global = facts.globals_written.iter().any(|&(g, _)| crate::login::single_instance(lowered, g));
+        let leaves = facts.unknown.is_none() && (single_instance_global || facts.state_writes != 0);
+        leaves.then(|| {
+            format!(
+                "install code {} read or wrote a table whose rows are not known and was rolled back, but it can change a \
+                 SingleInstance codeunit's global or the session state, which the roll back does not set back",
+                label(lowered, o, r)
+            )
+        })
+    })
 }
 
 /// Runs one install routine; why it did not run to its end, if it did not.
@@ -1735,11 +1893,14 @@ fn run_install_code(
     subscriber: bool,
 ) -> Result<bool, Stopped> {
     let before = session.carried_state();
+    let mark = session.store_mut().change_counter();
     let stopped = |why, by_runner| Stopped {
         why,
         root: (oi, ri),
         before,
+        mark,
         by_runner,
+        leaves: None,
     };
     if let Some(reason) = crate::runtime::blocked_reason(lowered, oi, ri) {
         return Err(stopped(reason, true));
@@ -1761,12 +1922,14 @@ fn run_install_code(
 
 /// The tables a routine that could not run touches, with those of the event subscribers it would have set off.
 fn touched(engine: &Engine, lowered: &Lowered, oi: usize, ri: usize) -> BTreeSet<u32> {
-    let mut t = crate::runtime::tables_touched(lowered, oi, ri);
+    // A record declared temporary adds no row to its table (`runtime::tables_touched_not_temporary`; review of al-runner
+    // PR 8119, probe n3_temp_only).
+    let mut t = crate::runtime::tables_touched_not_temporary(lowered, oi, ri);
     // The tables it writes include those of a `NavApp.LoadPackageData` with a constant table id, which names no record
     // variable (al-runner issue 7359: a test that reads the rows the refused load would have put there).
     t.extend(crate::baseline::tables_written_or_loaded(lowered, oi, ri));
     for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
-        t.extend(crate::runtime::tables_touched(lowered, so, sr));
+        t.extend(crate::runtime::tables_touched_not_temporary(lowered, so, sr));
     }
     // AllObj and AllObjWithCaption are listed from the compiled objects alone and cannot be written: nothing an install
     // routine does shows in them, so a test that reads them is not held back.
