@@ -50,6 +50,7 @@ mod report_save_decl_word_rdlc;
 mod report_save_html_record;
 mod report_saveas;
 mod report_saveas_events;
+mod report_saveas_failed_rename_held;
 mod report_saveas_language;
 mod report_self_members;
 mod report_show_print_status;

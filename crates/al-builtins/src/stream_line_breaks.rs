@@ -36,7 +36,8 @@ pub fn line_break_source(ctx: &dyn Ctx, v: &mut Value, out_form: bool) -> Result
 }
 
 /// The uses of the stream "Base64 Convert Impl." makes before it calls the native converter: `Length`, `EOS` and `Length`
-/// (System Application 28 and 29, Base64ConvertImpl.Codeunit.al:75-78), and the converter's own.
+/// (System Application 28 and 29, Base64ConvertImpl.Codeunit.al:75-78 for the Text form, :84-87 for the OutStream form),
+/// and the converter's own.
 const IMPL_USES: u32 = 4;
 
 /// The stream Base64LineBreaks.al measured (`FillStream`, :53-61): `Blob.CreateInStream` without an encoding, the one InStream

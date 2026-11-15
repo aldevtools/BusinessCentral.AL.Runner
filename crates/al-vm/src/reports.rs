@@ -2966,7 +2966,7 @@ impl Session {
                     // `asserterror Probe.SaveAs(..)` on a report with an RDLC layout).
                     (ir::ReportLayout::Rdlc, false) if !result_used => Err(Signal::Error(e)),
                     (ir::ReportLayout::Rdlc, false) => {
-                        self.last_error = *e;
+                        self.hold_error(*e)?;
                         Ok(Value::Boolean(false))
                     }
                     _ => unsupported(format!(
