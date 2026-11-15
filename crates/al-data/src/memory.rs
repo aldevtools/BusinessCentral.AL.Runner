@@ -889,6 +889,16 @@ impl MemStore {
         self.versions.get(&slot) != self.committed_versions.get(&slot)
     }
 
+    /// The table objects (in any company) that a write since the last commit changed and no rollback undid: the tables
+    /// whose rows a rollback now takes back.
+    pub fn tables_written_since_commit(&self) -> std::collections::BTreeSet<u32> {
+        self.versions
+            .iter()
+            .filter(|(slot, v)| self.committed_versions.get(slot) != Some(*v))
+            .map(|((_, object), _)| *object)
+            .collect()
+    }
+
     /// Whether any write since the last commit or rollback is pending.
     pub fn has_uncommitted(&self) -> bool {
         !(self.tables.ptr_eq(&self.committed) || (self.tables.is_empty() && self.committed.is_empty()))

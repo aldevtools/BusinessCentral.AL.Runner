@@ -302,3 +302,6 @@ assigned, the test codeunit's properties, the frames' attributes), not only one 
 Rows the runner does not know (the tables of a stopped or not-run routine): list every kind of code that can read them
 (later install code, tests, OnRun, the test session's Company Triggers and login subscribers), and what a refused reader
 leaves outside the database (SingleInstance globals, session state). Refuse each, in one owner.
+
+Code that is rolled back also takes the rows it wrote. Refuse the readers of every table it wrote at run time, not only
+the tables its record variables name (al-runner PR 8119, probe n19).

@@ -696,7 +696,7 @@ fn install_app_under_test(
             }
             match open {
                 Err(stopped) => {
-                    unknown = stopped.roll_back(lowered, session);
+                    unknown = stopped.roll_back(lowered, session, skipped, (&in_company, &company));
                     let why = stopped.why;
                     // What the subscribers wrote before the one that could not run is rolled back, and BC would have
                     // kept it: a test that touches what any of them can write is not run either.
@@ -750,7 +750,7 @@ fn install_app_under_test(
                             run_routine(lowered, s, oi, ri)
                         }) {
                             session.end_group1_install_routine(false);
-                            unknown = stopped.roll_back(lowered, session);
+                            unknown = stopped.roll_back(lowered, session, skipped, (&in_company, &company));
                             refuse(
                                 lowered,
                                 session,
@@ -799,8 +799,6 @@ pub(crate) fn group1_trigger_shape(lowered: &Lowered, measured: bool, (oi, ri): 
     }
 }
 
-/// Whether the app of object `o` is installed when app `app` (an app under test) installs: a dependency app (the install
-/// baseline installs them first), an app under test before it in dependency order, or the app itself.
 /// Records that install routine `what.0` could not run in company `in_company` (`what.1` says why). In the session
 /// company, or in the per-database part, a test that touches a table the routine touches is not run. In another declared
 /// company (`--companies`, ADR-046 decision 6) the tables the routine would have written there are not known: a shared one
@@ -827,6 +825,20 @@ fn refuse(
     for (so, sr) in crate::runtime::subscribers_reached(&engine, lowered, oi, ri) {
         written.extend(crate::baseline::tables_written(lowered, so, sr));
     }
+    refuse_in_other_company(lowered, session, skipped, in_company, written, why);
+}
+
+/// Records that install code that ran in declared company `in_company`, not the session company, may have written the
+/// tables `written` there, which are then not known: a shared one everywhere (a test that touches it is not run), a
+/// per-company one only in that company, refused at run time (`Session::mark_company_unknown`).
+fn refuse_in_other_company(
+    lowered: &Lowered,
+    session: &mut Session,
+    skipped: &mut Vec<(BTreeSet<u32>, String)>,
+    in_company: &str,
+    mut written: BTreeSet<u32>,
+    why: String,
+) {
     written.retain(|&x| !crate::runtime::listed_from_objects(lowered, x));
     let heads = lowered.program.objects.heads();
     let (per, shared): (BTreeSet<u32>, BTreeSet<u32>) = written
@@ -841,6 +853,8 @@ fn refuse(
     }
 }
 
+/// Whether the app of object `o` is installed when app `app` (an app under test) installs: a dependency app (the install
+/// baseline installs them first), an app under test before it in dependency order, or the app itself.
 fn installed(lowered: &Lowered, o: usize, app: usize) -> bool {
     lowered.dependency[o] || lowered.program.objects[o].app as usize <= app
 }
@@ -1748,10 +1762,37 @@ struct Stopped {
 
 impl Stopped {
     /// Rolls back what it wrote and settles the session state (`stopped_state`); `Some(why)`: the state after it is
-    /// not known (`leaves` too).
-    fn roll_back(&self, lowered: &Lowered, session: &mut Session) -> Option<String> {
-        crate::stopped_state::roll_back_stopped_install(lowered, session, self.root, self.before, self.by_runner)
-            .or_else(|| self.leaves.clone())
+    /// not known (`leaves` too). Install code `(in_company, session_company)` as for [`refuse`].
+    ///
+    /// The roll back takes the rows of every table written since the last commit, through any path, and on BC that code
+    /// ran to its end and kept them: those tables join `skipped` too, besides the ones the callers' [`refuse`] names from
+    /// the static reach, which misses a table written through a RecordRef (review of al-runner PR 8119, probes n19,
+    /// n19b and n19c).
+    fn roll_back(
+        &self,
+        lowered: &Lowered,
+        session: &mut Session,
+        skipped: &mut Vec<(BTreeSet<u32>, String)>,
+        (in_company, session_company): (&str, &str),
+    ) -> Option<String> {
+        let mut written = session.store_mut().tables_written_since_commit();
+        let unknown =
+            crate::stopped_state::roll_back_stopped_install(lowered, session, self.root, self.before, self.by_runner)
+                .or_else(|| self.leaves.clone());
+        let why = format!(
+            "install code {} did not run to its end and what it wrote was rolled back: {}",
+            label(lowered, self.root.0, self.root.1),
+            self.why
+        );
+        if in_company.is_empty() || in_company == session_company {
+            written.retain(|&x| !crate::runtime::listed_from_objects(lowered, x));
+            if !written.is_empty() {
+                skipped.push((written, why));
+            }
+        } else {
+            refuse_in_other_company(lowered, session, skipped, in_company, written, why);
+        }
+        unknown
     }
 }
 

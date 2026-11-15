@@ -758,7 +758,7 @@ fn when_another_apps_company_triggers_subscriber_cannot_run_the_per_company_inst
         "{o:?}"
     );
     assert!(
-        matches!(&o[1].1, Outcome::NotRun(r) if r.contains("Company Triggers")),
+        matches!(&o[1].1, Outcome::NotRun(r) if r.contains("DepOpenLater.Open") && r.contains("rolled back")),
         "{o:?}"
     );
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");

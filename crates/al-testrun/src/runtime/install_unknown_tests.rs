@@ -289,3 +289,82 @@ fn install_code_that_only_writes_a_stopped_table_is_not_run() {
     let o = run_ab(&app_a(STOPS), b);
     assert!(not_run(&o[0].1), "{o:?}");
 }
+
+/// App B of probes n19 and n19b: its install trigger runs `body` (variables `I: Record Item`, `R: RecordRef`, `Id`), which
+/// writes a `Mark` row only through the RecordRef; a test reads `Mark`, another touches no table.
+fn app_b_recref(body: &str) -> String {
+    format!(
+        "table 60964 Mark {{ fields {{ field(1; K; Code[10]) {{ }} field(2; Blocked; Boolean) {{ }} }} }}
+        codeunit 60961 InstB {{ Subtype = Install;
+            trigger OnInstallAppPerCompany() var I: Record Item; R: RecordRef; Id: Integer; N: Integer; T: Record Mark temporary;
+            begin {body} end; }}
+        codeunit 60962 T {{ Subtype = Test;
+            [Test] procedure MarkSaw() var M: Record Mark; begin if M.IsEmpty() then Error('no mark'); end;
+            [Test] procedure NoTable() begin end; }}"
+    )
+}
+
+// Probe n19: B reads A's stopped table and is rolled back, which takes the row it wrote into `Mark` through
+// `RecordRef.Open(Database::Mark)` with it. Its static reach does not name `Mark`, but the store saw the write: the test
+// that reads `Mark` is not run.
+#[test]
+fn a_table_rolled_back_code_wrote_through_a_recordref_is_not_read() {
+    let o = run_ab(
+        &app_a(STOPS),
+        &app_b_recref("N := I.Count(); R.Open(Database::Mark); R.Init(); if R.Insert() then;"),
+    );
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+}
+
+// Probe n19b: the same with a table id known only at run time.
+#[test]
+fn a_table_rolled_back_code_wrote_through_a_recordref_of_a_run_time_id_is_not_read() {
+    let o = run_ab(
+        &app_a(STOPS),
+        &app_b_recref("N := I.Count(); Id := Database::Mark; R.Open(Id); R.Init(); if R.Insert() then;"),
+    );
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+}
+
+// Probe n19c: B's own install routine writes `Mark` through a RecordRef and then stops (the runner refuses a statement): the
+// roll back takes the row, so the test that reads `Mark` is not run. Main lost the row too.
+#[test]
+fn a_table_a_stopped_routine_wrote_through_a_recordref_is_not_read() {
+    let o = run_ab(
+        &app_a(""),
+        &app_b_recref(
+            "R.Open(Database::Mark); R.Init(); if R.Insert() then; T.FilterGroup(1); T.SetRange(Blocked, true); T.FilterGroup(0);",
+        ),
+    );
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+}
+
+// The neighbor: B runs to its end (A ran to its end), and its RecordRef row is there (main's result).
+#[test]
+fn a_table_written_through_a_recordref_by_code_that_ran_is_read() {
+    let o = run_ab(
+        &app_a(""),
+        &app_b_recref("N := I.Count(); R.Open(Database::Mark); R.Init(); if R.Insert() then;"),
+    );
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+}
+
+// The Company Triggers path: B's subscriber in its install session (no GuiAllowed) reads A's stopped table and writes
+// `Mark` through a RecordRef. The roll back takes the row: the test that reads `Mark` is not run.
+#[test]
+fn a_table_a_rolled_back_company_triggers_subscriber_wrote_through_a_recordref_is_not_read() {
+    let b = app_b_recref("").replace(
+        "codeunit 60962 T {",
+        "codeunit 60966 Open {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
+            local procedure O() var I: Record Item; R: RecordRef;
+            begin if not GuiAllowed() then if I.Count() >= 0 then begin R.Open(Database::Mark); R.Init(); if R.Insert() then; end; end; }
+        codeunit 60962 T {",
+    );
+    let o = run_ab(&app_a(STOPS), &b);
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+}
