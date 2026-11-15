@@ -24,6 +24,21 @@ table 50831 "ALR Movement Line"
     fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
     keys { key(PK; "No.") { } }
 }
+table 50836 "ALR Captionless"
+{
+    fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
+    keys { key(PK; "No.") { } }
+}
+"#;
+
+/// An app without a translation file whose table is outside any namespace.
+const BARE: &str = r#"
+table 50838 "ALR Bare Row"
+{
+    Caption = 'Bare Row';
+    fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
+    keys { key(PK; "No.") { } }
+}
 "#;
 
 /// The app under test: it extends one of the two tables and ships a da-DK file with a unit for its own field only.
@@ -45,6 +60,15 @@ table 50834 "ALR Own Row"
 tableextension 50835 "ALR Own Row Ext" extends "ALR Own Row"
 {
     fields { field(50835; Note; Text[50]) { Caption = 'Note'; } }
+}
+tableextension 50837 "ALR Captionless Ext" extends "ALR Captionless"
+{
+    Caption = 'Captionless';
+    fields { field(50837; Note; Text[50]) { Caption = 'Note'; } }
+}
+tableextension 50839 "ALR Bare Row Ext" extends "ALR Bare Row"
+{
+    fields { field(50839; Note; Text[50]) { Caption = 'Note'; } }
 }
 "#;
 
@@ -91,6 +115,26 @@ codeunit 50833 "ALR RecordId Format Tests"
         R: Record "ALR Own Row";
     begin
         R."No." := 'O1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 9));
+    end;
+
+    [Test]
+    procedure Format9OfATableWhoseCaptionAnExtensionGivesUnderDanish()
+    var
+        R: Record "ALR Captionless";
+    begin
+        R."No." := 'C1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 9));
+    end;
+
+    [Test]
+    procedure Format9OfAnExtendedTableOutsideANamespaceUnderDanish()
+    var
+        R: Record "ALR Bare Row";
+    begin
+        R."No." := 'B1';
         GlobalLanguage(1030);
         Error('%1', Format(R.RecordId(), 0, 9));
     end;
@@ -149,12 +193,18 @@ fn danish() -> al_ir::TranslationFile {
 fn run() -> Vec<(String, Outcome, Vec<Assumption>)> {
     let rt = CorpusRuntime::try_run_suites_with(
         vec![
-            app("tests", &["ext", "base"], TESTS),
-            app("ext", &["base"], EXT),
+            app("tests", &["ext", "base", "bare"], TESTS),
+            app("ext", &["base", "bare"], EXT),
             app("base", &[], BASE),
+            app("bare", &[], BARE),
         ],
-        vec![al_sema::AppKind::Workspace; 3],
-        &[manifest(Vec::new()), manifest(vec![danish()]), manifest(Vec::new())],
+        vec![al_sema::AppKind::Workspace; 4],
+        &[
+            manifest(Vec::new()),
+            manifest(vec![danish()]),
+            manifest(Vec::new()),
+            manifest(Vec::new()),
+        ],
         &Default::default(),
         None,
         Default::default(),
@@ -219,6 +269,30 @@ fn format_1_of_the_extended_table_stays_refused() {
 fn format_9_of_an_own_table_of_the_translating_app_stays_refused() {
     let got = run();
     let (_, outcome, _) = find(&got, "Format9OfAnOwnTableOfTheTranslatingAppUnderDanish");
+    assert!(
+        matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 9 where the table caption is not known")),
+        "{outcome:?}"
+    );
+}
+
+/// A table that declares no Caption and gets one from a table extension (lowering merges it into the table's properties):
+/// the probe measured only tables with their own Caption, so format 9 stays refused.
+#[test]
+fn format_9_of_a_table_whose_caption_a_table_extension_gives_stays_refused() {
+    let got = run();
+    let (_, outcome, _) = find(&got, "Format9OfATableWhoseCaptionAnExtensionGivesUnderDanish");
+    assert!(
+        matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 9 where the table caption is not known")),
+        "{outcome:?}"
+    );
+}
+
+/// An extended table outside any namespace: both extended tables the probe measured are in a namespace, so format 9 stays
+/// refused.
+#[test]
+fn format_9_of_an_extended_table_outside_a_namespace_stays_refused() {
+    let got = run();
+    let (_, outcome, _) = find(&got, "Format9OfAnExtendedTableOutsideANamespaceUnderDanish");
     assert!(
         matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 9 where the table caption is not known")),
         "{outcome:?}"

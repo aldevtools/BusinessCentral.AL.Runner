@@ -77,11 +77,11 @@ impl Session {
 
     /// Whether `Format(RecordId, 0, 9)` of the table with object index `object` runs although [`Self::translated_read_refusal`]
     /// refuses the table's caption. Format 9 names the table and never shows its caption (al-runner issue 8123). Assumed
-    /// (`recordid-format-nine-extended-table`) only in the shape measured: a table that declares a `Caption`, no `CaptionML` and no
-    /// table extension's Caption over it, whose own app ships no translation file of the language in force, and which an app
-    /// that ships one extends. Any other refused caption keeps format 9 refused. Measured by open corpus PR 1413,
-    /// localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al:235-256 (Item and Sales Invoice Header under 1043,
-    /// without and with a cross-app unit for the table caption).
+    /// (`recordid-format-nine-extended-table`) only in the shape measured: a table in a namespace that declares its own `Caption`
+    /// and no `CaptionML`, of which no table extension declares a Caption or CaptionML, whose own app ships no translation file
+    /// of the language in force, and which an app that ships one extends. Any other refused caption keeps format 9 refused.
+    /// Measured by corpus PR 1413 (merged, not pinned), localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al:235-256
+    /// (Item and Sales Invoice Header under 1043, without and with a cross-app unit for the table caption).
     pub(crate) fn record_id_name_assumed(&self, object: usize) -> bool {
         let p = &self.engine.program;
         let Some(o) = p.objects.get(object) else {
@@ -89,8 +89,20 @@ impl Session {
         };
         let language = al_builtins::format::FormatCtx::language(self);
         let declares = |k: &str| o.properties.iter().any(|(p, _)| p.eq_ignore_ascii_case(k));
+        // Lowering merges a table extension's Caption into the table's own list, so the Caption must not come from one.
+        // Extension objects keep their own properties.
+        let extension_captions = o.id.is_some()
+            && p.objects.iter().any(|e| {
+                e.kind.extended() == Some(al_ir::ObjKind::Table)
+                    && e.extends_id == o.id
+                    && e.properties
+                        .iter()
+                        .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML"))
+            });
         let measured = o.kind == al_ir::ObjKind::Table
+            && o.namespace.is_some()
             && declares("Caption")
+            && !extension_captions
             && !declares("CaptionML")
             && !o
                 .properties
