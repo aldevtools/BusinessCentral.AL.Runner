@@ -9,12 +9,14 @@
 use crate::Session;
 use crate::blob_transfer::{BlobMove, Holder};
 use crate::permission_bulk_no_match::RecordCaller;
+use crate::unopened_refs::record_not_open;
 use al_builtins::catalog::Catalog;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FilterExpr;
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
+use al_builtins::recordref_closed::not_open;
 use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
 use al_data::{Store, TableDef};
 use std::cell::RefCell;
@@ -122,7 +124,7 @@ impl Session {
         let dst = match &*other.borrow() {
             LibraryValue::RecordRef(r) => r.clone(),
             // A RecordRef that is not open (:163-185 WC_SetTable_VariantHoldsClosedRecordRef): it stays not open.
-            LibraryValue::Empty => {
+            l if not_open(l) => {
                 return Err(crate::transactions::al_error_code(
                     "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavRecordRef to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle.",
                     "Conversion",
@@ -267,14 +269,7 @@ impl Session {
             "RecordId" if sig.name == "GetRecord" => {
                 let (table, key) = match &*lib.borrow() {
                     LibraryValue::RecordId { table, key, .. } => (*table, key.clone()),
-                    _ => {
-                        return Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                            message: "The record is not open.".into(),
-                            code: "RecordNotOpened".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
-                    }
+                    _ => return Err(record_not_open()),
                 };
                 let Value::Record(rec) = self.default_value(&RtType::Record(table, false)) else {
                     return unsupported("record buffer for RecordId.GetRecord");
@@ -441,8 +436,8 @@ impl Session {
             // The methods below raise "The record is not open." on a RecordRef never opened or closed
             // (recordref-fieldref/recordref/RfTOpen.al:Closed_Errors, lt-recordref-fieldref-members/P92Position.al:GetPosition_UnopenedAndNotFound,
             // P92Counts.al:CountApprox_Unopened, P92ReadIsolation.al:ReadIsolation_Unopened, P92Fields.al:FieldExist).
-            LibraryValue::Empty
-                if what.strip_prefix("RecordRef.").is_some_and(|m| {
+            l if not_open(l)
+                && what.strip_prefix("RecordRef.").is_some_and(|m| {
                     matches!(
                         m,
                         "Name"
@@ -481,12 +476,7 @@ impl Session {
                     )
                 }) =>
             {
-                Err(Signal::Error(Box::new(AlError {
-                    message: "The record is not open.".into(),
-                    code: "RecordNotOpened".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                })))
+                Err(record_not_open())
             }
             // BC's answer is not pinned by the corpus: the error text, and whether `Get(RecordId)` opens the
             // table of the RecordId (Base Application's Data Type Management does `if not Get(RecID) then
@@ -677,7 +667,7 @@ impl Session {
         };
         let current = match &*lib.borrow() {
             LibraryValue::RecordRef(r) => Some(r.clone()),
-            LibraryValue::Empty => None,
+            l if not_open(l) => None,
             _ => return Ok(None),
         };
         let Some((table, key)) = id else {
@@ -913,9 +903,10 @@ impl Session {
                     return Ok(v);
                 }
             }
-            // Close and Clear leave the ref unusable; closing an unopened ref is harmless.
+            // Close and Clear leave the ref unusable; closing an unopened ref is harmless. A closed ref is kept apart from one
+            // never opened (`unopened_refs.rs`).
             "Close" => {
-                *lib.borrow_mut() = LibraryValue::Empty;
+                *lib.borrow_mut() = LibraryValue::ClosedRecordRef;
                 return Ok(Value::Null);
             }
             // Doc (RecordRef.GetTable): the ref takes the record variable's table, buffer and
@@ -939,7 +930,7 @@ impl Session {
                     // leaves the target unopened (AsRecRefGetTable.al:110 FromNotOpen).
                     Some(Value::Library(name, other)) => match &*other.borrow() {
                         LibraryValue::RecordRef(r) => r.clone(),
-                        LibraryValue::Empty if name.eq_ignore_ascii_case("RecordRef") && from_variant => {
+                        l if not_open(l) && name.eq_ignore_ascii_case("RecordRef") && from_variant => {
                             return Err(Signal::Error(Box::new(AlError {
                                 message: "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavRecordRef to Microsoft.Dynamics.Nav.Runtime.INavRecordHandle.".into(),
                                 code: "Conversion".into(),
@@ -949,7 +940,12 @@ impl Session {
                         }
                         _ => return unsupported("RecordRef.GetTable of a RecordRef that is not open"),
                     },
-                    other => return unsupported(format!("RecordRef.GetTable of {}", other.describe())),
+                    other => {
+                        if from_variant && let Some(e) = self.get_table_variant_not_record(&lib.borrow(), other) {
+                            return Err(e);
+                        }
+                        return unsupported(format!("RecordRef.GetTable of {}", other.describe()));
+                    }
                 };
                 let mut copy = self.gettable_copy(&src, matches!(args.first(), Some(Value::Record(_))))?;
                 // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
@@ -974,14 +970,7 @@ impl Session {
             "Copy" => {
                 let dst = match &*lib.borrow() {
                     LibraryValue::RecordRef(r) => r.clone(),
-                    LibraryValue::Empty => {
-                        return Err(Signal::Error(Box::new(AlError {
-                            message: "The record is not open.".into(),
-                            code: "RecordNotOpened".into(),
-                            call_stack: String::new(),
-                            ..Default::default()
-                        })));
-                    }
+                    l if not_open(l) => return Err(record_not_open()),
                     _ => return unsupported("RecordRef.Copy on a RecordRef opened on a system table"),
                 };
                 let src = match args.first() {
@@ -1004,7 +993,7 @@ impl Session {
                 LibraryValue::SystemTable(n) => return Ok(Value::Integer(*n as i32)),
                 // A RecordRef never opened is table 0 (corpus branch al-runtime-rs-staging, ae3fe88,
                 // tests/al-language/types/PXEnumRecordRef.al:293-299).
-                LibraryValue::Empty => return Ok(Value::Integer(0)),
+                l if not_open(l) => return Ok(Value::Integer(0)),
                 _ => {}
             },
             // A RecordRef that is not open (never opened, closed, cleared) answers the system field numbers without an error
@@ -1012,7 +1001,7 @@ impl Session {
             m if let Some(n) = unopened_system_field_no(lib, m) => return Ok(Value::Integer(n)),
             // A RecordRef never opened answers false (PXEnumRecordRef.al:293-298); with the result
             // unused nothing pins what it raises.
-            "GetBySystemId" if matches!(&*lib.borrow(), LibraryValue::Empty) => {
+            "GetBySystemId" if not_open(&lib.borrow()) => {
                 return if self.ret_used {
                     Ok(Value::Boolean(false))
                 } else {
@@ -1026,7 +1015,7 @@ impl Session {
             // `if not RecRef.Get(RecID) then RecRef.Open(RecID.TableNo)` opens it (misc/lt-probes-needed-4 batch 4:
             // W4 RecRef Get Tests, Get_OnUnopenedRecordRef_ExistingRow and _MissingRow, GetOrOpen_Pattern_OfDataTypeManagement).
             // With the result unused the error of a missing row is not pinned (open_ref refuses).
-            "Get" if matches!(&*lib.borrow(), LibraryValue::Empty) && self.ret_used => {
+            "Get" if not_open(&lib.borrow()) && self.ret_used => {
                 let table_no = match args.first() {
                     Some(Value::Library(_, l)) => match &*l.borrow() {
                         LibraryValue::RecordId { table_no, .. } => *table_no,
@@ -1034,10 +1023,15 @@ impl Session {
                     },
                     _ => return Self::open_ref(lib, "RecordRef.Get").map(|_| Value::Null),
                 };
-                self.rr_open(lib, &[Value::Integer(table_no as i32)])?;
+                // A miss leaves the ref as it was: never opened or closed.
+                let before = std::mem::take(&mut *lib.borrow_mut());
+                if let Err(e) = self.rr_open(lib, &[Value::Integer(table_no as i32)]) {
+                    *lib.borrow_mut() = before;
+                    return Err(e);
+                }
                 let found = self.recordref_op("Get", lib, args);
                 if !matches!(found, Ok(Value::Boolean(true))) {
-                    *lib.borrow_mut() = LibraryValue::Empty;
+                    *lib.borrow_mut() = before;
                 }
                 return found;
             }
@@ -1045,7 +1039,7 @@ impl Session {
         }
         // Field/FieldExist by name on a RecordRef that is not open: only the number overloads are pinned (P92Fields.al).
         // SetTable(Rec, ShareTable) likewise: only SetTable(Rec) is pinned there (P92SetTable.al:84-101).
-        if matches!(&*lib.borrow(), LibraryValue::Empty)
+        if not_open(&lib.borrow())
             && (matches!(method, "Field" | "FieldExist")
                 && !matches!(args.first(), Some(Value::Integer(_) | Value::BigInteger(_)))
                 || method == "SetTable" && args.len() == 2)
@@ -1053,6 +1047,9 @@ impl Session {
             return unsupported(format!(
                 "RecordRef.{method} by this overload on a RecordRef that is not open (not pinned)"
             ));
+        }
+        if let Some(e) = self.recordref_not_open_measured(method, &lib.borrow(), args) {
+            return Err(e);
         }
         let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
         let t = self.table(&rec)?;
@@ -1454,7 +1451,12 @@ impl Session {
     fn keyref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
         let (rec, k) = match &*lib.borrow() {
             LibraryValue::KeyRef(r, k) => (r.clone(), *k),
-            _ => return unsupported(format!("KeyRef.{method} on a KeyRef that was never assigned")),
+            other => {
+                if let Some(e) = self.keyref_unassigned_measured(method, other, args) {
+                    return Err(e);
+                }
+                return unsupported(format!("KeyRef.{method} on a KeyRef that was never assigned"));
+            }
         };
         let t = self.table(&rec)?;
         match method {
@@ -2186,7 +2188,7 @@ fn own_unloaded_blobs(copy: &mut al_builtins::value::RecordState) {
 /// as when it is open (corpus master ac3499d6, recordref-fieldref/recordref/W4RecordRefGetUnopened.al:317, Y40_SystemAuditFieldNos_NotOpen;
 /// BC 27.5/28.5/29.0).
 fn unopened_system_field_no(lib: &Lib, method: &str) -> Option<i32> {
-    if !matches!(&*lib.borrow(), LibraryValue::Empty) {
+    if !not_open(&lib.borrow()) {
         return None;
     }
     match method {

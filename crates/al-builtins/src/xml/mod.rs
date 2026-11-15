@@ -31,6 +31,7 @@ mod read;
 mod read_tree;
 mod select;
 mod tree;
+mod unassigned_element;
 mod write;
 mod write_to;
 mod xpath;

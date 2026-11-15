@@ -309,7 +309,7 @@ pub(super) fn format_1(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Val
     let record_or_ref = match &args[0] {
         Value::Record(_) => Some(true),
         Value::Library(crate::library_kind::LibraryKind::RecordRef, l) => {
-            Some(!matches!(&*l.borrow(), crate::value::LibraryValue::Empty))
+            Some(!crate::recordref_closed::not_open(&l.borrow()))
         }
         _ => None,
     };

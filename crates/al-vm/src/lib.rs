@@ -162,6 +162,7 @@ mod testdata;
 mod transactions;
 mod translations;
 mod ui;
+mod unopened_refs;
 mod user_account_keys;
 mod user_email;
 mod user_password;
@@ -2194,7 +2195,7 @@ impl Session {
                 return al_builtins::ops::record_ref_into_record(&rec.borrow());
             }
             al_builtins::value::LibraryValue::RecordRef(rec) => rec.borrow().table,
-            al_builtins::value::LibraryValue::Empty => {
+            l if al_builtins::recordref_closed::not_open(l) => {
                 return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
             }
             _ => {

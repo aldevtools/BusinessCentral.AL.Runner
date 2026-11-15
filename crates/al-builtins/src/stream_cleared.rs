@@ -52,3 +52,41 @@ pub(crate) fn uncreated_result(used: bool, nav: &str, answer: Value) -> Result<V
         Err(crate::xml::uninitialized(nav))
     }
 }
+
+/// `InStream.ResetPosition()` as a statement on an InStream never created raises NotInitialized naming NavInStream (corpus PR
+/// 1408, merged and not yet pinned: tests/al-language/streams/instream-outstream/UhUntouchedStreams.al:44-48 `inreset`, test :88;
+/// assumption `stream-untouched-reset-copy-media`). Other forms and a cleared stream go on (and refuse there).
+pub(crate) fn reset_uncreated(r: Option<&Value>, used: bool) -> Result<(), Signal> {
+    if !used && never_created(r) {
+        crate::assumptions::assume(crate::assumptions::Assumption::StreamUntouchedResetCopyMedia);
+        return Err(crate::xml::uninitialized("InStream"));
+    }
+    Ok(())
+}
+
+/// `CopyStream(OutStream, InStream)` with both streams never created: as a statement it raises NotInitialized naming NavInStream,
+/// with the result used it answers false (corpus PR 1408, UhUntouchedStreams.al:51-56 `copy_stmt`, `copy_value`, tests :108,
+/// :118; assumption `stream-untouched-reset-copy-media`).
+pub(crate) fn copy_both_uncreated(used: bool) -> Result<Value, Signal> {
+    crate::assumptions::assume(crate::assumptions::Assumption::StreamUntouchedResetCopyMedia);
+    uncreated_result(used, "InStream", Value::Boolean(false))
+}
+
+/// `Media.ImportStream` and `MediaSet.ImportStream` with the result used, from an InStream never created into a field that holds
+/// no media, with the arguments the probe passed: `Some` with the empty Guid (corpus PR 1408, UhUntouchedStreams.al:58-72
+/// `media_import` (InS, 'icon'), `media_import2` (InS, 'icon', 'image/png'), `mediaset_import` (InS, 'icon'); tests :128, :138,
+/// :148; assumption `stream-untouched-reset-copy-media`). The field keeps what it held (no media); the probe did not read it
+/// afterwards. `set`: a MediaSet. `None` to go on.
+pub(crate) fn import_from_uncreated(used: bool, set: bool, field_blank: bool, a: &[Value]) -> Option<Value> {
+    let text = |v: &Value, t: &str| matches!(v, Value::Text(s) if s.as_str() == t);
+    let args_measured = match a {
+        [s, d] => never_created(Some(s)) && text(d, "icon"),
+        [s, d, m] if !set => never_created(Some(s)) && text(d, "icon") && text(m, "image/png"),
+        _ => false,
+    };
+    if !(used && field_blank && args_measured) {
+        return None;
+    }
+    crate::assumptions::assume(crate::assumptions::Assumption::StreamUntouchedResetCopyMedia);
+    Some(Value::Guid([0; 16]))
+}

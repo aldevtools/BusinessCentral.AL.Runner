@@ -7,6 +7,7 @@ mod date_formula_language;
 mod format_boolean;
 pub mod instance_cycles;
 pub mod library_kind;
+pub mod recordref_closed;
 pub mod signature;
 pub mod stream;
 mod stream_call_stack;

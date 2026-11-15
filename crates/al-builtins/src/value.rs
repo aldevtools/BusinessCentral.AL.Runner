@@ -1410,6 +1410,9 @@ pub enum LibraryValue {
     /// An InStream or OutStream after `Clear`: it holds no stream, as one never created, but the corpus measured fewer of its
     /// uses (streams/instream-outstream/Y62GoneInStream.al against StreamUncreatedUse.al; `stream_cleared`).
     ClearedStream,
+    /// A RecordRef after `Close`: not open, as one never opened (`Empty`), but the corpus measured fewer of its members
+    /// (al-vm `unopened_refs.rs`). `recordref_closed::not_open` tells both apart from an open one.
+    ClosedRecordRef,
     /// A `DataSourceContext` or `TestHandlerContext` the test framework handed to a callback (ADR-059). Its members are
     /// refused there (`testcontexts.rs`).
     HandedContext,
