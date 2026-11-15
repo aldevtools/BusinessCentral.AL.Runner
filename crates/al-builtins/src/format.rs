@@ -40,8 +40,9 @@ pub trait FormatCtx {
     fn region_unpinned(&self) -> Option<String> {
         None
     }
-    /// The caption and the namespace of the table with object index `table`, for the text of a RecordId; None where the
-    /// context does not know the program (a RecordId format that names them is then refused).
+    /// The caption and the namespace of the table with object index `table`, for the text of a RecordId: the caption as the
+    /// source declares it, which no translation file changes (`Format(RecordId, 0, 1)`). None where the context does not know
+    /// the program or the caption (a RecordId format that names them is then refused).
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         let _ = table;
         None

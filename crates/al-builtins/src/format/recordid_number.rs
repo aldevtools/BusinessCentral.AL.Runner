@@ -43,7 +43,8 @@ pub(super) fn bookmark_text(rid: &crate::value::LibraryValue, ctx: &dyn FormatCt
 }
 
 /// How `Format(RecordId, 0, standard)` names the table with object index `table` and name `name`. Format 1 names it by its
-/// caption (record/crud/RcBMeta.al:572, :578, also under GlobalLanguage 1031); format 9 of a table in a namespace names it
+/// caption (record/crud/RcBMeta.al:572, :578, also under GlobalLanguage 1031), untranslated where a translation file gives
+/// `TableCaption` another text (open corpus PR 1413, R7184BaseAppCaption.al:305-336); format 9 of a table in a namespace names it
 /// `[<namespace>.<name>]` (language/namespaces/P69NsConsumers.al:214, a name with spaces; :210 format 1 of the same table gives
 /// the plain name, which is its caption), a one-word name too, and a name with a dot is quoted inside the brackets (corpus
 /// branch al-runtime-rs-staging-r6985, language/namespaces/R7003RecordIdFormat9.al: Format9_NamespacedOwnTables,

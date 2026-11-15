@@ -39,7 +39,7 @@ impl al_builtins::format::FormatCtx for Session {
     }
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         let t = self.engine.tables.get(table as usize)?.clone()?;
-        let caption = self.caption_checked(&t).ok()?;
+        let caption = self.record_id_caption(&t)?;
         Some((caption, self.engine.program.objects[table as usize].namespace.clone()))
     }
     fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {

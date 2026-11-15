@@ -1,7 +1,14 @@
-//! al-runner issue 8123: `Format(RecordId, 0, 9)` names the table and never its caption, so the session language does not
-//! change it, also when an app with a translation file for that language extends the table. The runtime refused the format
-//! because it asked for the table's caption, which the ADR-053 gate refuses there. Until the corpus pins it, the format runs
-//! through the assumption `recordid-format-nine-extended-table`; format 1, which shows the caption, stays refused.
+//! `Format(RecordId, 0, 9)` and `Format(RecordId, 0, 1)` in a language other than 1033 when an app ships a translation file of
+//! that language.
+//!
+//! al-runner issue 8123: format 9 names the table and never its caption, so the session language does not change it, also
+//! when an app with a translation file for that language extends the table. Until the corpus pins it, the format runs
+//! through the assumption `recordid-format-nine-extended-table`.
+//!
+//! Format 1 names the table by its caption as the source declares it, never translated: the unit for the table's own
+//! caption gives `TableCaption` its text, not format 1, and an app that extends the table leaves format 1 as it is (open corpus
+//! PR 1413). Until the corpus pins it, format 1 runs in those two shapes through the assumption
+//! `recordid-format-one-source-caption`.
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
@@ -45,6 +52,12 @@ table 50834 "ALR Own Row"
 tableextension 50835 "ALR Own Row Ext" extends "ALR Own Row"
 {
     fields { field(50835; Note; Text[50]) { Caption = 'Note'; } }
+}
+table 50836 "ALR Own Gadget"
+{
+    Caption = 'Gadget';
+    fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
+    keys { key(PK; "No.") { } }
 }
 "#;
 
@@ -104,6 +117,35 @@ codeunit 50833 "ALR RecordId Format Tests"
         GlobalLanguage(1030);
         Error('%1', Format(R.RecordId(), 0, 1));
     end;
+
+    [Test]
+    procedure Format1OfAnOwnTableOfTheTranslatingAppUnderDanish()
+    var
+        R: Record "ALR Own Gadget";
+    begin
+        R."No." := 'G1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 1));
+    end;
+
+    [Test]
+    procedure TableCaptionOfAnOwnTableOfTheTranslatingAppUnderDanish()
+    var
+        R: Record "ALR Own Gadget";
+    begin
+        GlobalLanguage(1030);
+        Error('%1', R.TableCaption());
+    end;
+
+    [Test]
+    procedure Format1OfAnOwnTableTheTranslatingAppAlsoExtendsUnderDanish()
+    var
+        R: Record "ALR Own Row";
+    begin
+        R."No." := 'O1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 1));
+    end;
 }
 "#;
 
@@ -126,21 +168,27 @@ fn manifest(files: Vec<al_ir::TranslationFile>) -> Manifest {
     }
 }
 
-/// The extension app's da-DK file: one unit, for the field its table extension adds.
+/// The XLIFF id of the parts `(kind, name)`.
+fn unit_id(parts: &[(&str, &str)]) -> String {
+    parts
+        .iter()
+        .map(|(k, n)| al_ir::xliff_part(k, n))
+        .collect::<Vec<_>>()
+        .join(" - ")
+}
+
+/// The extension app's da-DK file: a unit for the field its table extension adds, and one for its own table's caption.
 fn danish() -> al_ir::TranslationFile {
-    let id = [
+    let note = unit_id(&[
         ("TableExtension", "ALR Unit Ext"),
         ("Field", "Note"),
         ("Property", "Caption"),
-    ]
-    .iter()
-    .map(|(k, n)| al_ir::xliff_part(k, n))
-    .collect::<Vec<_>>()
-    .join(" - ");
+    ]);
+    let gadget = unit_id(&[("Table", "ALR Own Gadget"), ("Property", "Caption")]);
     al_ir::TranslationFile {
         name: "Translations/Ext.da-DK.xlf".into(),
         target_language: "da-DK".into(),
-        units: vec![(id, "Bemærkning".to_string())],
+        units: vec![(note, "Bemærkning".to_string()), (gadget, "Dims".to_string())],
         error: None,
         states: Vec::new(),
     }
@@ -202,11 +250,39 @@ fn format_9_of_a_table_not_extended_stays_a_clean_run() {
     assert!(assumed.is_empty(), "{assumed:?}");
 }
 
-/// Format 1 shows the caption, which the gate still refuses for the extended table.
+/// Format 1 of a table an app with a translation file extends names it by its source caption, flagged.
 #[test]
-fn format_1_of_the_extended_table_stays_refused() {
+fn format_1_of_a_table_an_app_with_a_translation_file_extends_gives_the_source_caption_flagged() {
     let got = run();
-    let (_, outcome, _) = find(&got, "Format1OfTheExtendedTableUnderDanish");
+    let (_, outcome, assumed) = find(&got, "Format1OfTheExtendedTableUnderDanish");
+    assert!(matches!(outcome, Outcome::Fail(m) if m == "Unit: U1"), "{outcome:?}");
+    assert_eq!(ids(assumed), ["recordid-format-one-source-caption"]);
+}
+
+/// The repro of the format 1 issue: the translating app's own table, whose caption its file translates, is named by the
+/// source caption, flagged.
+#[test]
+fn format_1_of_an_own_table_whose_caption_the_file_translates_gives_the_source_caption_flagged() {
+    let got = run();
+    let (_, outcome, assumed) = find(&got, "Format1OfAnOwnTableOfTheTranslatingAppUnderDanish");
+    assert!(matches!(outcome, Outcome::Fail(m) if m == "Gadget: G1"), "{outcome:?}");
+    assert_eq!(ids(assumed), ["recordid-format-one-source-caption"]);
+}
+
+/// TableCaption of the same table still reads the unit of the file, and needs no assumption.
+#[test]
+fn table_caption_of_that_own_table_stays_translated_and_clean() {
+    let got = run();
+    let (_, outcome, assumed) = find(&got, "TableCaptionOfAnOwnTableOfTheTranslatingAppUnderDanish");
+    assert!(matches!(outcome, Outcome::Fail(m) if m == "Dims"), "{outcome:?}");
+    assert!(assumed.is_empty(), "{assumed:?}");
+}
+
+/// An own table of the translating app that the app also extends: a shape no probe measured, so format 1 stays refused.
+#[test]
+fn format_1_of_an_own_table_the_translating_app_also_extends_stays_refused() {
+    let got = run();
+    let (_, outcome, _) = find(&got, "Format1OfAnOwnTableTheTranslatingAppAlsoExtendsUnderDanish");
     assert!(
         matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 1 where the table caption is not known")),
         "{outcome:?}"
