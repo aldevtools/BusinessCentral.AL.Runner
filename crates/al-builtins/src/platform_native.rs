@@ -842,7 +842,7 @@ mod tests {
 
     // ---- ToBase64 of an InStream and FromBase64 code pages (corpus PR 1394, tests/al-language/streams/Base64LineBreaks.al)
 
-    use crate::assumptions::take_hits;
+    use crate::assumptions::{Assumption, take_hits};
     use crate::library_kind::LibraryKind;
     use crate::stream::{BlobRef, Encoding, InState, new_blob, write_bytes};
     use crate::value::LibraryValue;
