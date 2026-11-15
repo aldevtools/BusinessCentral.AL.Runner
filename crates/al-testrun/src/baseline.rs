@@ -486,10 +486,6 @@ pub fn run_traced_halting(
     })
 }
 
-/// The tables that code reachable from `routine` of `object` writes rows to: a record variable's
-/// `Insert`, `Modify`, `Rename`, `ModifyAll` or `Validate`-free equivalents, found in the lowered
-/// bodies of everything it calls (not of event subscribers). Temporary
-/// records are left out. Writes through a `RecordRef` have no static table and are not counted.
 /// The Base Application tables whose rows the corpus database's company holds and the runtime does not: Accounting Period
 /// (36 rows, 2025-01-01 to 2027-12-01) and Company Information (one row) (session-system/company/
 /// CompanyInformationValues.al:45 QG_CompanyInformation_CorpusRow `count` 1, :89 QG_AccountingPeriod_CorpusRows `count` 36).
@@ -545,6 +541,10 @@ struct RecRefWrites {
     writes: bool,
 }
 
+/// The tables that code reachable from `routine` of `object` writes rows to: a record variable's
+/// `Insert`, `Modify`, `Rename`, `ModifyAll` or `Validate`-free equivalents, found in the lowered
+/// bodies of everything it calls (not of event subscribers). Temporary
+/// records are left out. Writes through a `RecordRef` are counted only by [`tables_written_or_loaded`].
 pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
     tables_written_in(lowered, object, routine, false)
 }

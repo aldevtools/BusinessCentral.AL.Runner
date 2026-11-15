@@ -35,10 +35,12 @@
 //!     static reach binds a manual subscriber, reseeds `Random`, or writes a codeunit global the test codeunit reads.
 //!
 //! What is still not modelled, in one list:
-//! - What the dependency apps' login code adds around the app's subscribers (Microsoft's and any other dependency app's
-//!   subscribers to the events, the checklist setup) is there only on the Raise path. [`decide`] raises the login for a
-//!   test codeunit whose static reach can see the tables or the state the app's subscribers leave; another one that
-//!   reads what only the dependency apps' login code leaves runs without it.
+//! - What Microsoft's login code adds around the app's subscribers (Microsoft's subscribers to the events, the checklist
+//!   setup) is there only on the Raise path. [`decide`] raises the login for a test codeunit whose static reach can see
+//!   the tables or the state the app's subscribers leave; another one that reads what only Microsoft's login code leaves
+//!   runs without it. The partner dependency apps' `OnAfterLogin` subscribers also run off the Raise path, in a session
+//!   with a client and Codeunit isolation (`partner_login.rs`); their subscribers to the Guided Experience events, and
+//!   a partner subscriber the compile left out, do not.
 //! - Own: the subscribers leave alone what they leave inside the login. Registered as the assumption
 //!   `login-own-registration-reads-alone`, marked when a test touches a table they wrote.
 //! - Own: whether the checklist is set up is asked before the app's own Company Triggers subscribers run; one that marks
