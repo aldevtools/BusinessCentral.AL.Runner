@@ -8,8 +8,9 @@
 //! (BiTpHelper.al:56-63), and BC raises `Sorry, the current permissions prevented the action. (TableData <id> <name>
 //! Insert: <app>)` with code DB:ClientInsertDenied, for the codeunit property Restrictive, NonRestrictive or none, and for
 //! a method attribute Restrictive or NonRestrictive under codeunit Disabled (BiTpDefault.al:35-45, BiTpRestr.al:36-46,
-//! BiTpNonRestr.al:36-46, BiTpDisMRestr.al:38-48, BiTpDisMNonRestr.al:38-48; BC 27, 28 and 29). Every other access keeps
-//! main's answer.
+//! BiTpNonRestr.al:36-46, BiTpDisMRestr.al:38-48, BiTpDisMNonRestr.al:38-48; BC 27, 28 and 29), and, under codeunit
+//! Restrictive with no method attribute, also when the inserting procedure has the attribute `[InherentPermissions]` `'R'` or `'I'` with scope
+//! Entitlements (BiInherentPerms.al:202-213, :232-243). Every other access keeps main's answer.
 use crate::Session;
 use crate::permissions::{Access, Op, SetModel, Verdict};
 use al_builtins::native::Signal;
@@ -98,6 +99,7 @@ impl Session {
             || declares(table, "InherentPermissions")
             || declares(table, "InherentEntitlements")
             || !self.table_runs_no_trigger(table)
+            || !self.runner_sets_insert_attributes(test, by, &heads[table].name)
         {
             return Ok(None);
         }
@@ -110,5 +112,70 @@ impl Session {
             return Ok(None);
         }
         Ok(heads[table].id.map(|id| (table, id, by)))
+    }
+
+    /// The `[InherentPermissions]` attributes of the two frames in the measured cells: none on the test method; on the
+    /// inserting procedure none (BiTpHelper.al:56-63), or exactly one of the two whose denial is measured, `'R'`
+    /// (BiInherentPerms.al:64-72, :202-213) or `'I'` with scope Entitlements (:84-92, :232-243), both on the inserted table and
+    /// written as the corpus writes them. The attributes measured to allow the insert keep main's answer without this check.
+    fn runner_sets_insert_attributes(&self, test: usize, by: usize, table: &str) -> bool {
+        if self.call_stack.len() != 2 {
+            return false;
+        }
+        let inherent = |frame: usize| -> Vec<String> {
+            let routine = self.call_stack[frame].routine;
+            self.engine.program.objects[if frame == 0 { test } else { by }]
+                .routines
+                .get(routine)
+                .map(|r| {
+                    r.attributes
+                        .iter()
+                        .filter(|a| a.name.eq_ignore_ascii_case("InherentPermissions"))
+                        .map(|a| {
+                            a.text
+                                .chars()
+                                .filter(|c| !c.is_whitespace())
+                                .collect::<String>()
+                                .to_lowercase()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        if !inherent(0).is_empty() {
+            return false;
+        }
+        let on_table = format!(
+            "[inherentpermissions(permissionobjecttype::tabledata,database::\"{}\",",
+            table
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>()
+                .to_lowercase()
+        );
+        let measured = [
+            format!("{on_table}'r')]"),
+            format!("{on_table}'i',inherentpermissionsscope::entitlements)]"),
+        ];
+        // The attributes are measured under codeunit TestPermissions = Restrictive, with no method attribute (BiInherentPerms.al:165-168, :200-213).
+        let restrictive =
+            || {
+                let heads = self.engine.program.objects.heads();
+                heads[test].properties.iter().any(|(k, v)| {
+                    k.eq_ignore_ascii_case("TestPermissions") && v.trim().eq_ignore_ascii_case("Restrictive")
+                }) && self.engine.program.objects[test]
+                    .routines
+                    .get(self.call_stack[0].routine)
+                    .is_some_and(|r| {
+                        r.attributes
+                            .iter()
+                            .all(|a| !a.name.eq_ignore_ascii_case("TestPermissions"))
+                    })
+            };
+        match &inherent(1)[..] {
+            [] => true,
+            [one] => measured.contains(one) && restrictive(),
+            _ => false,
+        }
     }
 }

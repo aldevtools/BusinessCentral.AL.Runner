@@ -143,6 +143,24 @@ codeunit 50971 "RS Writer"
         Row.Insert();
     end;
 
+    [InherentPermissions(PermissionObjectType::TableData, Database::"RS Row", 'M')]
+    procedure InsertRowM(RowCode: Code[20])
+    var
+        Row: Record "RS Row";
+    begin
+        Row.Code := RowCode;
+        Row.Insert();
+    end;
+
+    [InherentPermissions(PermissionObjectType::TableData, Database::"RS Row", 'R')]
+    procedure InsertRowR(RowCode: Code[20])
+    var
+        Row: Record "RS Row";
+    begin
+        Row.Code := RowCode;
+        Row.Insert();
+    end;
+
     procedure InsertRowTrue(RowCode: Code[20])
     var
         Row: Record "RS Row";
@@ -165,20 +183,20 @@ codeunit 50972 "RS Default"
     end;
 
     [Test]
+    procedure InsertTrueThroughHelper()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRowTrue('C');
+    end;
+
+    [Test]
     procedure InsertInTheTestMethod()
     var
         Row: Record "RS Row";
     begin
         Row.Code := 'B';
         Row.Insert();
-    end;
-
-    [Test]
-    procedure InsertTrueThroughHelper()
-    var
-        Writer: Codeunit "RS Writer";
-    begin
-        Writer.InsertRowTrue('C');
     end;
 }
 
@@ -201,6 +219,46 @@ codeunit 50973 "RS Seeded"
         Writer: Codeunit "RS Writer";
     begin
         Writer.InsertRow('D');
+    end;
+}
+
+codeunit 50975 "RS Attribute M"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure InsertUnderAnUnmeasuredAttribute()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRowM('F');
+    end;
+}
+
+codeunit 50976 "RS Attribute On Test"
+{
+    Subtype = Test;
+
+    [Test]
+    [InherentPermissions(PermissionObjectType::TableData, Database::"RS Row", 'R')]
+    procedure InsertUnderAnAttributeOnTheTest()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRow('G');
+    end;
+}
+
+codeunit 50977 "RS Attribute R Default"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure InsertUnderAMeasuredAttributeWithoutRestrictive()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRowR('H');
     end;
 }
 
@@ -303,14 +361,18 @@ fn the_measured_insert_under_the_runners_sets_raises_the_denial() {
     );
 }
 
-/// Neighbors of the measured cell keep main's answer: the insert in the test method itself, `Insert(true)`, and a table
-/// that holds a row.
+/// Neighbors of the measured cell keep main's answer: the insert in the test method itself, `Insert(true)`, a table that
+/// holds a row, an `[InherentPermissions]` letter no probe measures on the inserting procedure, a measured letter under
+/// another TestPermissions value than the measured Restrictive, and an attribute on the test method.
 #[test]
 fn neighbors_of_the_measured_insert_keep_mains_answer() {
     let rt = run(BASE);
     main_pass(&rt, "InsertInTheTestMethod");
     main_pass(&rt, "InsertTrueThroughHelper");
     main_pass(&rt, "InsertIntoATableWithRows");
+    main_pass(&rt, "InsertUnderAnUnmeasuredAttribute");
+    main_pass(&rt, "InsertUnderAnAttributeOnTheTest");
+    main_pass(&rt, "InsertUnderAMeasuredAttributeWithoutRestrictive");
     let r = result(&rt, "InsertWithoutTheRunnersSets");
     assert_eq!(r.outcome, Outcome::Pass);
     assert!(r.assumptions.is_empty(), "{:?}", r.assumptions);
@@ -321,4 +383,17 @@ fn neighbors_of_the_measured_insert_keep_mains_answer() {
 fn another_list_of_runner_sets_keeps_mains_answer() {
     let rt = run(&BASE.replace("        PermissionsMock.Assign('LOCAL');\n", ""));
     main_pass(&rt, "InsertThroughHelper");
+}
+
+/// Without codeunit 130302 (Tests-TestLibraries not installed) the runner assigns no set, and the insert keeps main's
+/// answer: a clean pass.
+#[test]
+fn without_set_state_test_run_the_insert_keeps_mains_answer() {
+    let start = BASE
+        .find("// The calls of Library - Lower Permissions")
+        .expect("the codeunit");
+    let rt = run(&BASE[..start]);
+    let r = result(&rt, "InsertThroughHelper");
+    assert_eq!(r.outcome, Outcome::Pass);
+    assert!(r.assumptions.is_empty(), "{:?}", r.assumptions);
 }
