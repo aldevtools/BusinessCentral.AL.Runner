@@ -1360,7 +1360,7 @@ impl Session {
                 }
                 let src_t = self.engine.tables[table].clone().expect("table");
                 let cx = self.cx_for(rec, &src_t)?;
-                let rows = al_data::Store::count(&*self.store_for(rec), &cx, &src_t, &[])
+                let rows = al_data::Store::count(&*self.store_for(rec)?, &cx, &src_t, &[])
                     .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
                 if rows == 0 {
                     return Err(Signal::unsupported(unpinned_denial(
@@ -1612,7 +1612,7 @@ impl Session {
             R::ModifyAll | R::DeleteAll => {
                 let t = self.table(rec)?;
                 let cx = self.cx_for(rec, &t)?;
-                let rows = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
+                let rows = al_data::Store::count(&*self.store_for(rec)?, &cx, &t, &[])
                     .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
                 let triggers = match method {
                     R::ModifyAll => args.len() > 2 && matches!(args.last(), Some(Value::Boolean(true))),
@@ -1626,7 +1626,7 @@ impl Session {
                     };
                 }
                 let filters = rec.borrow().filters.clone();
-                let matching = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
+                let matching = al_data::Store::count(&*self.store_for(rec)?, &cx, &t, &filters)
                     .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
                 if matching == 0 && !self.bulk_no_match_denied(method, rec, args, access, indirect, by, caller, rows)? {
                     return refuse(
@@ -1719,7 +1719,7 @@ impl Session {
         }
         let t = self.table(rec)?;
         let cx = self.cx_for(rec, &t)?;
-        let total = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
+        let total = al_data::Store::count(&*self.store_for(rec)?, &cx, &t, &[])
             .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         Ok(total == 0)
     }
@@ -1739,7 +1739,7 @@ impl Session {
         let refuse = |why: &str| Err(Signal::unsupported(unpinned_denial(access, why)));
         let t = self.table(rec)?;
         let cx = self.cx_for(rec, &t)?;
-        let total = al_data::Store::count(&*self.store_for(rec), &cx, &t, &[])
+        let total = al_data::Store::count(&*self.store_for(rec)?, &cx, &t, &[])
             .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         if total == 0 {
             // Pinned for a table of the app under test (Y24PermReads.al Y24_P14_ReadShapesEmptyTable). A table of a dependency
@@ -1771,7 +1771,7 @@ impl Session {
                 return refuse("Get with a Time or DateTime key value the SQL column rounds");
             }
             let cx = self.cx_for(rec, &t)?;
-            let found = al_data::Store::get(&*self.store_for(rec), &cx, &t, &pk)
+            let found = al_data::Store::get(&*self.store_for(rec)?, &cx, &t, &pk)
                 .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             return if found.is_some() {
                 Err(self.read_denial(method, access, indirect, by))
@@ -1795,7 +1795,7 @@ impl Session {
                 group: 0,
             }];
             let cx = self.cx_for(rec, &t)?;
-            let found = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
+            let found = al_data::Store::count(&*self.store_for(rec)?, &cx, &t, &filters)
                 .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             return if found > 0 && *g != [0; 16] {
                 Err(self.denial_error(access, "Read", "Read", by))
@@ -1822,7 +1822,7 @@ impl Session {
         if !flow_field_filters.is_empty() || rec.borrow().marked_only {
             return refuse("a read with a FlowField filter or marked records only");
         }
-        let n = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
+        let n = al_data::Store::count(&*self.store_for(rec)?, &cx, &t, &filters)
             .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         if n == 0 {
             // FindFirst with a filter that matches no row is denied (AEDependencyTableReads.al `Customer_filter_no_match`); the
@@ -1904,7 +1904,7 @@ impl Session {
             let r = rec.borrow();
             t.keys[0].iter().map(|&i| r.fields[i].clone()).collect()
         };
-        let found = al_data::Store::get(&*self.store_for(rec), &cx, &t, &pk)
+        let found = al_data::Store::get(&*self.store_for(rec)?, &cx, &t, &pk)
             .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
         Ok(found.is_some())
     }

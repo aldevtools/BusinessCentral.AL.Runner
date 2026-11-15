@@ -267,7 +267,7 @@ impl Session {
         }
         let pk: Vec<Value> = t.keys[0].iter().map(|&f| rec.borrow().fields[f].clone()).collect();
         let stored = self
-            .store_for(rec)
+            .store_for(rec)?
             .get(cx, t, &pk)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
         match stored {
