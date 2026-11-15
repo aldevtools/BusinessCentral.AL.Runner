@@ -1468,6 +1468,9 @@ pub enum LibraryValue {
     /// An InStream or OutStream after `Clear`: it holds no stream, as one never created, but the corpus measured fewer of its
     /// uses (streams/instream-outstream/Y62GoneInStream.al against StreamUncreatedUse.al; `stream_cleared`).
     ClearedStream,
+    /// The XmlNode that `AsXmlNode` of an unassigned XmlElement returns (al-builtins `xml/unassigned_element.rs`): only
+    /// `WriteTo(Text)` is measured on it; every other use refuses.
+    XmlNodeOfUnassignedElement,
     /// A RecordRef after `Close`: not open, as one never opened (`Empty`), but the corpus measured fewer of its members
     /// (al-vm `unopened_refs.rs`). `recordref_closed::not_open` tells both apart from an open one.
     ClosedRecordRef,

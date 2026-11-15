@@ -176,6 +176,9 @@ pub(super) fn node_of(v: &Value) -> Result<Handle, Signal> {
                 } else {
                     unsupported(format!("use of an unassigned {name}"))
                 }
+            } else if matches!(&*h.borrow(), LibraryValue::XmlNodeOfUnassignedElement) {
+                // `unassigned_element.rs`: only WriteTo(Text) is measured on this node (corpus PR 1421 measures more).
+                unsupported("use of the XmlNode that AsXmlNode of an unassigned XmlElement returned (not measured)")
             } else {
                 unsupported(format!("{name} used as an XML node"))
             }
