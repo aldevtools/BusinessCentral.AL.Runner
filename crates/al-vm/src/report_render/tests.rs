@@ -304,10 +304,31 @@ fn header() -> LayoutFacts {
 }
 
 #[test]
-fn each_part_corpus_pull_request_1419_adds_is_measured_with_its_elements() {
-    for f in [styles(), theme(), numbering(), header()] {
+fn each_part_corpus_pull_request_1419_adds_but_numbering_is_measured_with_its_elements() {
+    for f in [styles(), theme(), header()] {
         assert!(content_is_measured(&f), "{f:?}");
     }
+}
+
+/// The converter pads a list label to the indent by the label's width in its font, measured with the fonts of the host
+/// (Numbering_BulletList_NoTabs, RxHtmlWidenTests.al:524, gives other bytes on a host without a Times New Roman metric
+/// font): a numbering part, and a paragraph that names a numbering, keep Part A.
+#[test]
+fn a_numbering_part_or_a_numbered_paragraph_keeps_part_a() {
+    assert!(!content_is_measured(&numbering()));
+    let mut numbered = styles();
+    numbered
+        .elements
+        .get_mut("word/document.xml")
+        .unwrap()
+        .extend(["w:numPr", "w:ilvl", "w:numId"].map(String::from));
+    assert!(!content_is_measured(&numbered));
+    let mut related = styles();
+    related.relationships.push(Relationship {
+        kind: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering".into(),
+        external: false,
+    });
+    assert!(!content_is_measured(&related));
 }
 
 #[test]
@@ -317,14 +338,10 @@ fn a_tab_a_footer_or_an_element_the_measured_part_does_not_have_keeps_part_a() {
         f
     };
     let neighbors = [
-        // Tabs: a label suffix, a tab stop of the level, a tab stop of a style, a tab character in the header.
-        part(numbering(), "word/numbering.xml", "w:suff"),
-        part(numbering(), "word/numbering.xml", "w:tabs"),
+        // Tabs: a tab stop of a style, a tab character in the header and in the document.
         part(styles(), "word/styles.xml", "w:tabs"),
         part(header(), "word/header1.xml", "w:tab"),
-        part(numbering(), "word/document.xml", "w:tab"),
-        // Run properties of the numbering label (its font gives the label's width).
-        part(numbering(), "word/numbering.xml", "w:rPr"),
+        part(styles(), "word/document.xml", "w:tab"),
         // A picture or a content control in the header; an element of another kind of theme content.
         part(header(), "word/header1.xml", "w:drawing"),
         part(header(), "word/header1.xml", "w:sdt"),
@@ -390,15 +407,11 @@ fn the_title_is_the_plain_caption_or_the_name() {
             caption: false
         })
     );
-    // The lowered property holds no attribute of the label: `Locked` and `Comment` do not change the text.
+    // CaptionML, an empty Caption, a Caption with a label attribute (no cell measured one), another property.
     for props in [
         "Caption = 'Rx Cap', Locked = true;",
         "Caption = 'Rx Cap', Comment = 'c';",
-    ] {
-        assert_eq!(title_of(props).map(|t| t.text), Some("Rx Cap".to_string()), "{props}");
-    }
-    // CaptionML, an empty Caption, another property.
-    for props in [
+        "Caption = 'Rx Cap', MaxLength = 10;",
         "CaptionML = ENU = 'Rx Cap';",
         "Caption = '';",
         "Caption = 'Rx Cap'; CaptionML = ENU = 'Rx Cap';",
@@ -409,7 +422,7 @@ fn the_title_is_the_plain_caption_or_the_name() {
 }
 
 #[test]
-fn a_field_column_is_measured_with_no_field_property_or_only_blank_zero_on_an_integer() {
+fn a_field_column_is_measured_only_over_a_field_that_states_no_property() {
     let l = al_testkit::compile(&report_src(""));
     let o = l.program.objects.iter().find(|o| o.name == "Z Rep").unwrap();
     let item = &o.report.as_ref().unwrap().items[0];
@@ -420,38 +433,13 @@ fn a_field_column_is_measured_with_no_field_property_or_only_blank_zero_on_an_in
         .map(|c| super::shape::column_kind(table, c, &[]))
         .collect();
     use ColumnKind::*;
-    // RowTxt, Qty, QtyField (BlankZero_IntegerZero, RxHtmlWidenTests.al:664); then BlankZero = false, a Caption, BlankZero
-    // with BlankNumbers, BlankZero on a Text field.
+    // RowTxt and Qty; then BlankZero = true (BlankZero_IntegerZero, RxHtmlWidenTests.al:664, binds another namespace than
+    // its report's, so its save keeps Part A), BlankZero = false, a Caption, BlankZero with BlankNumbers, BlankZero on a
+    // Text field.
     assert_eq!(
         kinds,
-        vec![
-            Some(TextField),
-            Some(IntegerField),
-            Some(BlankZeroIntegerField),
-            None,
-            None,
-            None,
-            None
-        ]
+        vec![Some(TextField), Some(IntegerField), None, None, None, None, None]
     );
-}
-
-#[test]
-fn the_blank_zero_dataset_is_measured_with_one_row_only() {
-    use ColumnKind::*;
-    let s = |rows| SaveShape {
-        columns: vec![IntegerField, TextField, BlankZeroIntegerField],
-        rows,
-    };
-    assert!(shape_is_measured(SHAPES, &s(1)));
-    assert!(!shape_is_measured(SHAPES, &s(2)));
-    // Two field columns without the property and a BlankZero one in place of the Integer one.
-    for columns in [
-        vec![IntegerField, IntegerField, TextField],
-        vec![TextField, BlankZeroIntegerField],
-    ] {
-        assert!(!shape_is_measured(SHAPES, &SaveShape { columns, rows: 1 }));
-    }
 }
 
 #[test]

@@ -19,9 +19,9 @@ use al_builtins::assumptions::{Assumption, assume};
 use al_host::render::{RenderNeed, WordMerge};
 
 /// The facts of the save itself, each by equality with every probe cell (RxHtmlHashTests.al:192, :218, :395, :433 and :471,
-/// RxHtmlWidenTests.al:394 to :664, through `HashCell`): its whole fact vector after the run is the cells' (`html_cell`, from `report_save`), its call is the
-/// cells' (`call::MEASURED_CALL`), it renders with the report's own default layout (`Renders::Default`), on a major of
-/// `shape::BUILDS`.
+/// RxHtmlWidenTests.al:394, :440, :482, :568 and :614, through `HashCell`): its whole fact vector after the run is the
+/// cells' (`html_cell`, from `report_save`), its call is the cells' (`call::MEASURED_CALL`), it renders with the report's
+/// own default layout (`Renders::Default`), on a major of `shape::BUILDS`.
 pub(crate) fn save_is_measured(html_cell: bool, call: SaveCall, renders: Renders, major: Option<u16>) -> bool {
     html_cell
         && call == call::MEASURED_CALL

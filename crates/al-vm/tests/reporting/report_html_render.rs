@@ -16,6 +16,8 @@ struct Recording {
     fail: Option<&'static str>,
     /// What `converter_version` answers.
     converter: Option<[u16; 4]>,
+    /// The title of each merge.
+    titles: Mutex<Vec<String>>,
 }
 
 impl Recording {
@@ -28,6 +30,7 @@ impl Recording {
             .into_bytes(),
             fail: None,
             converter: None,
+            titles: Mutex::new(Vec::new()),
         }
     }
 
@@ -47,7 +50,8 @@ impl ReportRenderer for Recording {
     fn availability(&self, _need: RenderNeed) -> Result<(), RenderUnavailable> {
         Ok(())
     }
-    fn merge_word(&self, _req: &WordMerge) -> Result<Vec<u8>, RenderFailure> {
+    fn merge_word(&self, req: &WordMerge) -> Result<Vec<u8>, RenderFailure> {
+        self.titles.lock().unwrap().push(req.title.clone());
         self.answer("merge", b"PK".to_vec())
     }
     fn word_to_pdf(&self, _docx: &[u8]) -> Result<Vec<u8>, RenderFailure> {
@@ -310,7 +314,7 @@ fn a_converter_version_no_cell_measured_on_the_major_keeps_the_opaque_value() {
 fn a_save_that_differs_in_one_fact_keeps_the_opaque_value_and_asks_no_renderer() {
     let caption = SRC.replace(
         "    UsageCategory = None;",
-        "    UsageCategory = None;\n    Caption = 'HR Caption';",
+        "    UsageCategory = None;\n    CaptionML = ENU = 'HR Caption';",
     );
     let cases: [(&str, u16, Vec<u8>, &str); 6] = [
         // A major no cell measured.
@@ -320,8 +324,8 @@ fn a_save_that_differs_in_one_fact_keeps_the_opaque_value_and_asks_no_renderer()
         // An element no measured layout has (a tab), and bytes that are no layout.
         ("a tab", 29, layout("<w:tab />"), "Two"),
         ("no zip", 29, b"PK-not-a-measured-layout".to_vec(), "Two"),
-        // A report caption: no measured report has one.
-        ("caption", 29, layout(""), "Two"),
+        // A report CaptionML: no measured report has one (a plain Caption is measured, see below).
+        ("caption ml", 29, layout(""), "Two"),
         // The column binding outside the row section.
         (
             "unbound section",
@@ -334,7 +338,7 @@ fn a_save_that_differs_in_one_fact_keeps_the_opaque_value_and_asks_no_renderer()
     ];
     for (what, major, bytes, routine) in cases {
         let r = Arc::new(Recording::writing(MEASURED));
-        let src = if what == "caption" { caption.as_str() } else { SRC };
+        let src = if what == "caption ml" { caption.as_str() } else { SRC };
         let got = run(src, major, bytes, &r, routine);
         assert!(
             got.starts_with("Yes|") && got.contains(RENDERED_TEXT_MARK),
@@ -345,6 +349,25 @@ fn a_save_that_differs_in_one_fact_keeps_the_opaque_value_and_asks_no_renderer()
             "{what}: {:?}",
             r.calls.lock().unwrap()
         );
+    }
+}
+
+/// A report `Caption` that is one text literal is the title BC hands the merger (corpus pull request 1419,
+/// Caption_RxCap_PlainBoundLayout, RxHtmlWidenTests.al:614); without one the title is the report name.
+#[test]
+fn a_plain_report_caption_renders_with_the_caption_as_the_title() {
+    let caption = SRC.replace(
+        "    UsageCategory = None;",
+        "    UsageCategory = None;\n    Caption = 'HR Caption';",
+    );
+    for (src, title) in [(caption.as_str(), "HR Caption"), (SRC, "HR Word")] {
+        let r = Arc::new(Recording::writing(MEASURED));
+        let got = run(src, 29, layout(""), &r, "Two");
+        assert!(
+            got.starts_with("Yes|<html>") && !got.contains(RENDERED_TEXT_MARK),
+            "{title}: {got:?}"
+        );
+        assert_eq!(*r.titles.lock().unwrap(), vec![title.to_string()]);
     }
 }
 
