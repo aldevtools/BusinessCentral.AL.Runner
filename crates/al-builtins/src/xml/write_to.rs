@@ -2,7 +2,8 @@
 
 use super::*;
 
-pub(super) fn write_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+pub(super) fn write_to_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    unassigned_element::write_to_text(&r, c.ret_used())?;
     // An unassigned XmlElement raises NotInitialized naming XmlNode (xml/XmlElement.al:826 Default_Element_Uninitialized `writeto`).
     if unassigned(&r, "XmlElement") {
         return Err(uninitialized("XmlNode"));

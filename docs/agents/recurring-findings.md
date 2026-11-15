@@ -147,6 +147,10 @@ refusal on a shape main ran is a regression, often in Base App code that partner
 - Work moved to the open (a resolve, a fill) carries every refusal of the function it calls to tests that never read the
   value. Before the move, require in the gate every fact that function refuses on, and return to main's path when one fails
   (al-runner PR 8052).
+- A refusal for a session mode kept as a flag in a shared provider or stats cell: a flag set once does not follow install code
+  or a page background task worker, so they lose their own pinned answer. Check the mode at the read through the one session
+  predicate (`Session::no_client_test_session`), or keep the copy in step from every writer of its inputs through one function
+  (al-runner PR 8163).
 - A new measured open that sets a `PinnedEnd` on a page main ran without one: every test call beyond the pinned end now
   refuses. Before a page moves from main's path (or from a "skip" entry) to a measured path, run a handler that moves, writes
   and invokes on it with the main binary; keep main's path where main answered (al-runner PR 8108).
