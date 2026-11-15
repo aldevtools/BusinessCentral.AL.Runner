@@ -134,6 +134,7 @@ fn handle(h: u64, ty: &str) -> DotNetValue {
 
 const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.Convert\"; \"Convert\") { }
+    type(\"System.Security.Cryptography.X509Certificates.X509Certificate2\"; \"X509Certificate2\") { }
     type(\"System.Uri\"; \"Uri\") { }
     type(\"System.Timers.Timer\"; \"Timer\") { }
     type(\"System.IO.Compression.ZipArchive\"; \"ZipArchive\") { }
@@ -3956,7 +3957,6 @@ fn hits() -> Vec<al_builtins::assumptions::Assumption> {
 // GetLastErrorObject is a NavNCLDotNetInvokeException over the .NET exception (DotNetExceptionOutcome.al:305-323).
 #[test]
 fn a_measured_dotnet_exception_is_an_al_error_with_the_measured_text_code_and_object() {
-    use al_builtins::assumptions::Assumption;
     let host = throwing("System.ArgumentNullException", URI_NULL, "method", false);
     hits();
     let r = run(
@@ -3974,7 +3974,7 @@ fn a_measured_dotnet_exception_is_an_al_error_with_the_measured_text_code_and_ob
          #Microsoft.Dynamics.Nav.Types.Exceptions.NavNCLDotNetInvokeException#Yes#System.ArgumentNullException\
          #Value cannot be null. (Parameter 'uri')"
     );
-    assert!(hits().contains(&Assumption::DotnetExceptionMeasuredText));
+    assert!(hits().is_empty(), "the measured calls run without an assumption");
 }
 
 // A static method, a property get and a constructor (DotNetExceptionOutcome.al:229-256): a constructor names the type only, and the
@@ -4032,12 +4032,11 @@ fn a_static_method_a_property_get_and_a_constructor_raise_the_measured_texts() {
     );
 }
 
-// An exception of a class whose text is not measured, but that an oracle case shows as an AL error (System.ArgumentException of a
-// constructor, Y58AzureKeyVault.al:317-325), is an error: asserterror catches it and the test goes on, but a read of its text, its
-// code or its object refuses (assumption dotnet-exception-other-class).
+// System.ArgumentException of the X509Certificate2 constructor is an AL error a TryFunction catches (System Application's
+// TryInitializeCertificate answers false, Y58AzureKeyVault.al:317-325); its text and code are not pinned, so a read of them, or of
+// its object, refuses. No assumption: the oracle case pins it.
 #[test]
-fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
-    use al_builtins::assumptions::Assumption;
+fn argument_exception_of_the_certificate_constructor_is_an_error_whose_text_is_refused() {
     let host = throwing(
         "System.ArgumentException",
         "The value is not valid.",
@@ -4047,12 +4046,12 @@ fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
     hits();
     let r = run(
         &host,
-        "B: DotNet StringBuilder;",
-        "asserterror B := B.StringBuilder(-1); exit('caught');",
+        "X: DotNet X509Certificate2;",
+        "asserterror X := X.X509Certificate2('cert-value'); exit('caught');",
         ": Text",
     );
     assert_eq!(text(r), "caught");
-    assert!(hits().contains(&Assumption::DotnetExceptionOtherClass));
+    assert!(hits().is_empty(), "the oracle case pins it");
     for read in [
         "GetLastErrorText()",
         "GetLastErrorCode()",
@@ -4060,42 +4059,79 @@ fn an_unmeasured_exception_class_is_an_error_whose_text_is_refused() {
     ] {
         let r = run(
             &host,
-            "B: DotNet StringBuilder;",
-            &format!("asserterror B := B.StringBuilder(-1); exit({read});"),
+            "X: DotNet X509Certificate2;",
+            &format!("asserterror X := X.X509Certificate2('cert-value'); exit({read});"),
             ": Text",
         );
         assert!(unsupported(&r).contains("not pinned"), "{read}: {}", unsupported(&r));
     }
     // A plain call ends the routine on the error, as on BC.
-    let r = run(&host, "B: DotNet StringBuilder;", "B := B.StringBuilder(-1);", "");
-    assert!(matches!(r.result, Err(Signal::Error(_))), "{:?}", r.result);
-    // The same class thrown by a method is not shown as an AL error by any case: main's refusal.
-    let host = throwing("System.ArgumentException", "bad", "method", false);
     let r = run(
         &host,
-        "C: DotNet Convert; N: Integer;",
-        "asserterror N := C.ToInt32('abc'); exit('caught');",
-        ": Text",
+        "X: DotNet X509Certificate2;",
+        "X := X.X509Certificate2('cert-value');",
+        "",
     );
-    assert!(
-        unsupported(&r).contains("raised the .NET exception"),
-        "{}",
-        unsupported(&r)
-    );
+    assert!(matches!(r.result, Err(Signal::Error(_))), "{:?}", r.result);
 }
 
-// A measured class with a member written in another letter case, an inner exception or a generic type: its text is not measured,
-// so it is an error whose text is refused.
+// Outside the measured calls nothing is shown as an AL error: ArgumentException of another constructor or of a method, a measured
+// class thrown by another member, by a measured member with another class, by a member written in another letter case, or with an
+// inner exception. Each keeps main's refusal.
 #[test]
-fn a_measured_class_outside_the_measured_spelling_has_an_unpinned_text() {
-    let host = throwing("System.FormatException", "bad", "method", true);
-    let r = run(
-        &host,
-        "C: DotNet Convert; N: Integer;",
-        "asserterror N := C.toint32('abc'); exit(GetLastErrorText());",
-        ": Text",
-    );
-    assert!(unsupported(&r).contains("not pinned"), "{}", unsupported(&r));
+fn a_dotnet_exception_outside_the_measured_calls_keeps_the_refusal() {
+    let cases: [(&str, &str, bool, &str); 6] = [
+        (
+            "System.ArgumentException",
+            "constructor",
+            false,
+            "asserterror B := B.StringBuilder(-1);",
+        ),
+        (
+            "System.ArgumentException",
+            "method",
+            false,
+            "asserterror N := C.ToInt32('abc');",
+        ),
+        (
+            "System.FormatException",
+            "method",
+            false,
+            "asserterror L := C.ToInt64('abc');",
+        ),
+        (
+            "System.FormatException",
+            "method",
+            false,
+            "U := U.Uri('a'); asserterror if U.IsBaseOf(Other) then;",
+        ),
+        (
+            "System.FormatException",
+            "method",
+            true,
+            "asserterror N := C.toint32('abc');",
+        ),
+        (
+            "System.ArgumentNullException",
+            "constructor",
+            false,
+            "asserterror B := B.StringBuilder(-1);",
+        ),
+    ];
+    for (class, bound, folded, body) in cases {
+        let host = throwing(class, "bad", bound, folded);
+        let r = run(
+            &host,
+            "C: DotNet Convert; N: Integer; L: BigInteger; U: DotNet Uri; Other: DotNet Uri; B: DotNet StringBuilder;",
+            &format!("{body} exit('caught');"),
+            ": Text",
+        );
+        assert!(
+            unsupported(&r).contains("raised the .NET exception"),
+            "{class} {body}: {}",
+            unsupported(&r)
+        );
+    }
     let host = Fake::new(|_| {
         Err(DotNetFailure::Exception(DotNetException {
             clr_type: "System.FormatException".into(),
@@ -4108,10 +4144,14 @@ fn a_measured_class_outside_the_measured_spelling_has_an_unpinned_text() {
     let r = run(
         &host,
         "C: DotNet Convert; N: Integer;",
-        "asserterror N := C.ToInt32('abc'); exit(GetLastErrorText());",
+        "asserterror N := C.ToInt32('abc'); exit('caught');",
         ": Text",
     );
-    assert!(unsupported(&r).contains("not pinned"), "{}", unsupported(&r));
+    assert!(
+        unsupported(&r).contains("raised the .NET exception"),
+        "{}",
+        unsupported(&r)
+    );
 }
 
 // Bindings the probe did not measure keep main's refusal: no binding named (an older sidecar, an indexer, a property reached
