@@ -6,7 +6,9 @@
 //! RunPageBackgroundTask_Dialogs_WithHandlers. In the worker the answers are pinned. That a web-service session answers as
 //! that worker does is the assumption `no-client-session`: under `--no-client` each answer marks it
 //! ([`Session::note_no_client_answer`]). A dialog or a call shape the probe does not cover is refused in both (hard rules 3
-//! and 4).
+//! and 4). A TestPage open is refused in the test session under `--no-client`: BC fails it there
+//! (`clientless_test_page_reason`); so is a test bound to a handler that takes a TestPage or TestRequestPage, which BC is not
+//! measured with (`clientless_test_page_handler_reason`).
 use crate::Session;
 use crate::reports::Schema;
 use crate::ui::UiKind;
@@ -61,6 +63,25 @@ impl Session {
         Signal::unsupported(format!(
             "{what} in a session without a client (--no-client): what BC does there is not pinned (probe wanted, docs/probes-needed.md `no-client-session`)"
         ))
+    }
+
+    /// Why `what`, a TestPage or TestRequestPage shape, does not run in the test session under `--no-client`. BC fails a
+    /// TestPage open in a web-service session (GuiAllowed false, ClientType ODataV4) with NotSupportedException at
+    /// NavSession.CreateNavTestService: al-runner issue 8028, the reporter's measurement on BC, outside the corpus. The
+    /// corpus does not measure that session, so the error is not copied and the open is refused (`clientless_page_guard`).
+    pub(crate) fn clientless_test_page_reason(what: &str) -> String {
+        format!(
+            "{what} in a session without a client (--no-client): BC fails it there (al-runner issue 8028), and its error is not measured"
+        )
+    }
+
+    /// Why a test that binds `handler`, a page handler that takes a TestPage or TestRequestPage, does not run under
+    /// `--no-client` (`ui_handler`): BC fails a TestPage open there (`clientless_test_page_reason`); whether and how it fails
+    /// with such a handler bound is not measured.
+    pub(crate) fn clientless_test_page_handler_reason(handler: &str) -> String {
+        format!(
+            "{handler}, which takes a TestPage or TestRequestPage, in a session without a client (--no-client): BC fails a TestPage open there (al-runner issue 8028), and what it does with this handler is not measured"
+        )
     }
 
     /// Whether the whole test session is a session without a client (`set_clientless_session`).
@@ -125,8 +146,9 @@ impl Session {
     /// and `Page.Run(Id)` raise CallbackNotAllowed (BjNoClientDialogs.al `03 Page.RunModal by id`, `13 Page.RunModal on a
     /// variable`, `04 Page.Run by id`). The other shapes are refused: `Run` on a variable, a call with a record, and a page
     /// with triggers, extensions or a Caption (whether its triggers run first and which name the text shows is not pinned).
-    /// A TestPage that opens goes on as in a session with a client: whether such a session can open one is not pinned, so
-    /// the open marks `no-client-session`.
+    /// A TestPage open (OpenView, OpenEdit, OpenNew, and Trap, which catches the next page that opens) is refused in the
+    /// test session (`clientless_test_page_reason`). In a page background task worker the open goes on as before: the
+    /// measurement is of a web-service session only.
     pub(crate) fn clientless_page_guard(
         &self,
         method: PageOp,
@@ -134,9 +156,15 @@ impl Session {
         args: &[Value],
     ) -> Result<(), Signal> {
         let (object, modal) = match (method, recv, args) {
-            (PageOp::TestPageOpenEdit | PageOp::TestPageOpenNew | PageOp::TestPageOpenView, ..) => {
-                self.note_no_client_answer();
-                return Ok(());
+            (
+                PageOp::TestPageOpenEdit | PageOp::TestPageOpenNew | PageOp::TestPageOpenView | PageOp::TestPageTrap,
+                ..,
+            ) => {
+                return match self.is_clientless_session() {
+                    true => Err(Signal::unsupported(Self::clientless_test_page_reason(method.name()))),
+                    // A page background task worker: as before this refusal.
+                    false => Ok(()),
+                };
             }
             (PageOp::PageRun, ..) => return Err(self.no_client_refusal("Page.Run on a Page variable")),
             (PageOp::PageRunModal, Some(Value::TestPage(st)), [])
