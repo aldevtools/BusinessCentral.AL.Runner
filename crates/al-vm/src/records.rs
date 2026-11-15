@@ -11,6 +11,7 @@ use al_builtins::filter::{FieldFilter, FilterExpr, key_cmp};
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
+use al_builtins::stream::AssignedWrite;
 use al_builtins::value::{Instance, RecordState, RtType, Value};
 use al_data::{InsertOutcome, RenameOutcome, Scan, Store, TableDef, WriteOutcome, memory::MemStore, position};
 use std::cell::RefCell;
@@ -2090,9 +2091,15 @@ impl Session {
             } else if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
                 // An assigned copy of an in-memory write in a record never inserted reads empty
                 // (streams/BlobCopyNeighbors.al:3102-3134, :3311-3316, `AssignedNeverInserted`).
-                let assigned_never_inserted = stored.is_none() && !rec.borrow().inserted && buf.borrow().assigned_write;
-                if !assigned_never_inserted {
-                    continue;
+                let never_inserted = stored.is_none() && !rec.borrow().inserted;
+                match buf.borrow().assigned_write {
+                    AssignedWrite::NeverInsertedEmpties if never_inserted => {}
+                    AssignedWrite::Unmeasured if never_inserted => {
+                        return unsupported(
+                            "CalcFields of a Blob assigned from an in-memory write, in a record never inserted, outside the measured shape (not pinned)",
+                        );
+                    }
+                    _ => continue,
                 }
             }
             // A row that is not stored (a copy of a record never inserted) leaves the Blob empty: the buffer
@@ -2112,7 +2119,7 @@ impl Session {
             b.written = false;
             b.written_base = None;
             b.assigned_unsaved = false;
-            b.assigned_write = false;
+            b.assigned_write = AssignedWrite::No;
             b.fetched = true;
             // ADR-040: the stored row carries the mark of an output that was never produced.
             b.render_pending = pending;
@@ -2130,7 +2137,7 @@ impl Session {
                 b.written = false;
                 b.written_base = None;
                 b.assigned_unsaved = false;
-                b.assigned_write = false;
+                b.assigned_write = AssignedWrite::No;
                 // A Blob the record read without CalcFields stays as stored by the save (record/load-fields/
                 // P81LoadFields.al:700-711) and stays unloaded: a later CalcFields fetches it (streams/TestBlob.al
                 // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), it does not keep the empty view the buffer shows.

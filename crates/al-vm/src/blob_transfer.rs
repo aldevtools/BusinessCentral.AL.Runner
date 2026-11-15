@@ -6,7 +6,7 @@ use crate::Session;
 use al_builtins::builtin_id::{BuiltinId, ids};
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
-use al_builtins::stream::{copy_blob_db_row_of, copy_for_assignment, new_blob};
+use al_builtins::stream::{AssignedWrite, copy_blob_db_row_of, copy_for_assignment, new_blob};
 use al_builtins::value::{LibraryValue, ProbedSource, RecordState, RtType, Value};
 use al_ir::{Attribute, Const};
 use std::cell::RefCell;
@@ -15,8 +15,8 @@ use std::rc::Rc;
 /// How a Blob reaches its target.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BlobMove {
-    /// `Target.Field := Source`.
-    Assign,
+    /// `Target.Field := Source`; `from_own_record`: `Source` is a Blob field of the target record itself.
+    Assign { from_own_record: bool },
     /// A builtin's write-back of its by-reference receiver or argument (`Session::write_native_back`: Clear, CreateOutStream).
     WriteBack,
     /// `FieldRef.Value := Source`.
@@ -671,8 +671,22 @@ impl FieldKind {
 /// streams/BlobCopyStates.al and streams/BlobCopyNeighbors.al, for the cells
 /// [`measured`] names. `holder` is the record the source Blob is a field of. `kind` says of which kind the fields are the Blob
 /// moves between; it is asked only for a Blob in such a cell or in one [`refused_before`] names. A Blob outside the measured
-/// cells is stored as it comes, as before, or refused where it was refused before.
+/// cells is stored as it comes, as before, or refused where it was refused before. What reaches the target keeps a pinned
+/// mark of an assigned copy only through the moves `unmeasured_after_move` names.
 pub(crate) fn moved(
+    cur: Option<&Value>,
+    v: Value,
+    how: BlobMove,
+    holder: Holder,
+    kind: impl FnOnce() -> FieldKind,
+) -> Result<Value, Signal> {
+    let out = moved_blob(cur, v, how, holder, kind)?;
+    unmeasured_after_move(how, &out);
+    Ok(out)
+}
+
+/// [`moved`] before the mark of an assigned copy is settled.
+fn moved_blob(
     cur: Option<&Value>,
     v: Value,
     how: BlobMove,
@@ -708,9 +722,11 @@ pub(crate) fn moved(
     };
     match how {
         BlobMove::WriteBack => return Ok(v),
-        BlobMove::Assign if s.row_copy && !s.loaded => return Ok(Value::Blob(new_blob())),
-        BlobMove::Assign if std::sync::Arc::strong_count(b) > 1 => return Ok(assigned_copy(cur, b, &s)),
-        BlobMove::Assign => return Ok(v),
+        BlobMove::Assign { .. } if s.row_copy && !s.loaded => return Ok(Value::Blob(new_blob())),
+        BlobMove::Assign { from_own_record } if std::sync::Arc::strong_count(b) > 1 => {
+            return Ok(assigned_copy(cur, b, &s, from_own_record));
+        }
+        BlobMove::Assign { .. } => return Ok(v),
         BlobMove::TransferFields(_) if !s.loaded && !s.written => return Ok(Value::Blob(new_blob())),
         _ => {}
     }
@@ -759,7 +775,7 @@ impl BlobMove {
             BlobMove::SetTable | BlobMove::SetTableShared => "RecordRef.SetTable",
             BlobMove::TransferFields(_) => "TransferFields",
             BlobMove::Variant | BlobMove::ReadIntoVariant { .. } => "an assignment to a Variant",
-            BlobMove::Assign => "an assignment",
+            BlobMove::Assign { .. } => "an assignment",
             BlobMove::WriteBack => "a write-back",
             BlobMove::RecordCopy { .. } => "Record.Copy",
             BlobMove::RecordByValue { .. } => "a record passed by value",
@@ -773,7 +789,7 @@ impl BlobMove {
 /// Insert stored while it held content, with no stream created on it and no unsaved write since (`temp_inserted`; in the
 /// repro a stream wrote the content), and the target is a loaded Blob without content and without an unsaved write.
 /// `Session::load_blobs` reads the mark. Every other copy is as before.
-fn assigned_copy(cur: Option<&Value>, b: &al_builtins::stream::BlobRef, s: &Source) -> Value {
+fn assigned_copy(cur: Option<&Value>, b: &al_builtins::stream::BlobRef, s: &Source, from_own_record: bool) -> Value {
     let copy = copy_for_assignment(b);
     let source_in_cell = matches!(
         (b.borrow().temp_inserted, s.loaded, s.content, s.written),
@@ -784,9 +800,79 @@ fn assigned_copy(cur: Option<&Value>, b: &al_builtins::stream::BlobRef, s: &Sour
     if source_in_cell && target_in_cell {
         copy.borrow_mut().assigned_unsaved = true;
     }
-    // Content a stream wrote in memory (streams/BlobCopyNeighbors.al:3110-3111, `W(Other, 'beta')` then the assignment).
-    copy.borrow_mut().assigned_write = matches!((s.in_memory, s.written, s.content), (true, true, true));
+    copy.borrow_mut().assigned_write = assigned_write(cur, b, s, from_own_record);
     Value::Blob(copy)
+}
+
+/// The `BlobBuf::assigned_write` of the copy `Target.Field := Source` stores (`assigned_copy`). The pinned shape
+/// (streams/BlobCopyNeighbors.al:3102-3111, `W(Other, 'beta')` then `Src.Data := Other.Data`): the source holds content a
+/// stream wrote in memory and is no assigned copy itself, it is a Blob of another record, and the target is the loaded, empty
+/// Blob of a record with no stream write and no earlier assignment to it. Content written in memory in any other shape is
+/// `Unmeasured`; a copy without such content is `Other`.
+fn assigned_write(
+    cur: Option<&Value>,
+    b: &al_builtins::stream::BlobRef,
+    s: &Source,
+    from_own_record: bool,
+) -> AssignedWrite {
+    if !matches!((s.in_memory, s.written, s.content), (true, true, true)) {
+        return AssignedWrite::Other;
+    }
+    let fresh_target = matches!(cur, Some(Value::Blob(c)) if {
+        let c = c.borrow();
+        matches!(
+            (c.loaded, c.bytes.is_empty(), c.written, c.assigned_write),
+            (true, true, false, AssignedWrite::No)
+        )
+    });
+    let plain_source = b.borrow().assigned_write == AssignedWrite::No;
+    if fresh_target && plain_source && !from_own_record {
+        AssignedWrite::NeverInsertedEmpties
+    } else {
+        AssignedWrite::Unmeasured
+    }
+}
+
+/// A move of a Blob that is not `Target.Field := Source`, `Record.Copy` or a record by value (the moves the pin measures:
+/// BlobCopyNeighbors.al:3102-3134) leaves no pinned mark of an assigned copy: `CalcFields` of the record never inserted then
+/// refuses (`AssignedWrite::Unmeasured`).
+fn unmeasured_after_move(how: BlobMove, v: &Value) {
+    match how {
+        BlobMove::Assign { .. }
+        | BlobMove::WriteBack
+        | BlobMove::RecordCopy { .. }
+        | BlobMove::RecordByValue { .. } => {}
+        BlobMove::FieldRefValue
+        | BlobMove::FieldRefValidate
+        | BlobMove::GetTable
+        | BlobMove::SetTable
+        | BlobMove::SetTableShared
+        | BlobMove::TransferFields(_)
+        | BlobMove::Variant
+        | BlobMove::ReadIntoVariant { .. } => unmeasured_mark(v),
+    }
+}
+
+/// A pinned mark of an assigned copy on the Blob `v` becomes `AssignedWrite::Unmeasured`.
+fn unmeasured_mark(v: &Value) {
+    if let Value::Blob(b) = v {
+        let mut b = b.borrow_mut();
+        if b.assigned_write == AssignedWrite::NeverInsertedEmpties {
+            b.assigned_write = AssignedWrite::Unmeasured;
+        }
+    }
+}
+
+/// `Insert`, `Modify`, `Delete` or `Rename` of `rec` starts: the pin calls none between the assignment and `CalcFields`
+/// (BlobCopyNeighbors.al:3102-3134), so a pinned mark of an assigned copy becomes `Unmeasured`. A save that succeeds clears it.
+pub(crate) fn record_write_starts(method: RecordOp, rec: &RecordState) {
+    if !matches!(
+        method,
+        RecordOp::Insert | RecordOp::Modify | RecordOp::Delete | RecordOp::Rename
+    ) {
+        return;
+    }
+    rec.fields.iter().for_each(unmeasured_mark);
 }
 
 /// What [`moved`] reads of the source buffer.

@@ -17,6 +17,7 @@ impl Session {
             }
         }
         let t = self.table(rec)?;
+        crate::blob_transfer::record_write_starts(method, &rec.borrow());
         Self::refuse_filter_in_unpinned_group(method, rec)?;
         if !rec.borrow().temporary {
             self.install_assumed(t.object);
