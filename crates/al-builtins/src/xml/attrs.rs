@@ -12,7 +12,8 @@ pub(super) fn name_table(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]
 
 // ----- attributes
 
-pub(super) fn set_attribute(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+pub(super) fn set_attribute(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    unassigned_element::check(&r, unassigned_element::Member::SetAttribute, a, c.ret_used())?;
     let h = recv(r)?;
     let (name, value) = (arg_text(a, 0)?, arg_text(a, 1)?);
     // `SetAttribute('xmlns:q', ..)` raises the XML name error at the colon and adds nothing
@@ -144,7 +145,8 @@ pub(super) fn remove_all_attributes(_: &mut dyn Ctx, r: Option<&mut Value>, _: &
     Ok(Value::Null)
 }
 
-pub(super) fn attributes(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+pub(super) fn attributes(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    unassigned_element::check(&r, unassigned_element::Member::Attributes, a, c.ret_used())?;
     let h = recv(r)?;
     Ok(Value::Library(
         "XmlAttributeCollection".into(),

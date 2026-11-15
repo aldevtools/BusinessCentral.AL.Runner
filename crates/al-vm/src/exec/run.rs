@@ -1096,6 +1096,42 @@ impl Session {
         Ok(())
     }
 
+    /// `Media.ImportStream` and `MediaSet.ImportStream` from an InStream never created, on a field of a record: hands the record that
+    /// holds the field to the owner of the measured cell (`al_builtins::stream_cleared::import_from_uncreated`). `None` to go on.
+    fn media_import_from_uncreated(
+        &mut self,
+        site: &BuiltinSite,
+        recv: Option<&Value>,
+        values: &[Value],
+        f: &mut Frame,
+    ) -> Result<Option<Value>, Signal> {
+        use al_builtins::builtin_id::ids;
+        let set = match site.id {
+            ids::MEDIA_IMPORTSTREAM_1 | ids::MEDIA_IMPORTSTREAM_2 => false,
+            ids::MEDIASET_IMPORTSTREAM_1 => true,
+            _ => return Ok(None),
+        };
+        let uncreated = matches!(values.first(), Some(Value::Library(_, h))
+            if matches!(&*h.borrow(), al_builtins::value::LibraryValue::Empty));
+        let Some(ir::Arg::Ref(ir::Place::Field(rec, _))) = &site.receiver_arg else {
+            return Ok(None);
+        };
+        if !uncreated {
+            return Ok(None);
+        }
+        let Value::Record(r) = self.read(rec, f)? else {
+            return Ok(None);
+        };
+        let blank = matches!(recv, Some(Value::Guid(g)) if *g == [0; 16]);
+        Ok(al_builtins::stream_cleared::import_from_uncreated(
+            site.ret_used,
+            set,
+            blank,
+            &mut r.borrow_mut(),
+            values,
+        ))
+    }
+
     /// A media imported into a field of a Media Resources row: BC keeps no Tenant Media row for it once the row is
     /// inserted (metadata/platform-tables/PtCloudTables.al:352 'tenant media' = 'no tenant media row'); before the
     /// Insert it is not pinned. So the runtime's Tenant Media row of that media is refused (`MediaStore::outside_tenant`).
@@ -1199,6 +1235,11 @@ impl Session {
             al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_1 | al_builtins::builtin_id::ids::MEDIA_IMPORTSTREAM_2
         ) {
             self.refuse_media_import_from_own_blob(site, &values, f)?;
+        }
+        if open.is_none()
+            && let Some(answer) = self.media_import_from_uncreated(site, recv.as_ref(), &values, f)?
+        {
+            return Ok(answer);
         }
         if site.id == al_builtins::builtin_id::ids::SYSTEM_CLEAR_1 {
             // `Clear` of a Variant empties it, whatever it holds (types/lt-variant/VaTIs*.al:Is_Empty_Variant `V := 5; Clear(V)`

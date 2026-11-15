@@ -5,7 +5,8 @@ use super::*;
 pub(super) fn as_token(tag: &'static str, r: Option<&mut Value>) -> NResult {
     Ok(tagged(tag, recv(r)?))
 }
-pub(super) fn as_xml_node(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+pub(super) fn as_xml_node(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    unassigned_element::check(&r, unassigned_element::Member::AsXmlNode, a, c.ret_used())?;
     // An unassigned document type or declaration converts to an unassigned node (DocTypeErrors.al:Uninitialised_SettersAndMethods).
     if let Some(Value::Library(name, h)) = r.as_deref() {
         if matches!(&*h.borrow(), LibraryValue::Empty) && matches!(name.as_str(), "XmlDocumentType" | "XmlDeclaration")
@@ -103,7 +104,8 @@ pub(super) fn has_elements(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Valu
     ))
 }
 
-pub(super) fn is_empty(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+pub(super) fn is_empty(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    unassigned_element::check(&r, unassigned_element::Member::IsEmpty, a, c.ret_used())?;
     Ok(Value::Boolean(children_of(&recv(r)?).is_empty()))
 }
 
@@ -117,7 +119,8 @@ pub(super) fn inner_text_fn(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Val
     Ok(Value::Text(s.into()))
 }
 
-pub(super) fn inner_xml(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+pub(super) fn inner_xml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    unassigned_element::check(&r, unassigned_element::Member::InnerXml, a, c.ret_used())?;
     let h = recv(r)?;
     Ok(Value::Text(serialize_inner(&h)?.into()))
 }
@@ -135,7 +138,8 @@ pub(super) fn child_elements(h: &Handle, name: Option<(&str, Option<&str>)>) -> 
         .collect()
 }
 
-pub(super) fn get_child_elements(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+pub(super) fn get_child_elements(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    unassigned_element::check(&r, unassigned_element::Member::GetChildElements, a, c.ret_used())?;
     let h = recv(r)?;
     Ok(match a.len() {
         0 => list_of(child_elements(&h, None)),
@@ -152,7 +156,8 @@ pub(super) fn get_child_elements(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut
     })
 }
 
-pub(super) fn get_child_nodes(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+pub(super) fn get_child_nodes(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    unassigned_element::check(&r, unassigned_element::Member::GetChildNodes, a, c.ret_used())?;
     Ok(list_of(children_of(&recv(r)?)))
 }
 

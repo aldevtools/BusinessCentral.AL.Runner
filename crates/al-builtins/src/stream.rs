@@ -1579,7 +1579,8 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     })
 }
 
-fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+fn in_reset(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    crate::stream_cleared::reset_uncreated(r.as_deref(), c.ret_used())?;
     with_in_unknown_ok(r, |s| {
         s.pos = 0;
         s.past_call_stack_mark = false;
@@ -2602,7 +2603,7 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
         crate::stream_cleared::never_created(Some(&a[0])),
         crate::stream_cleared::never_created(Some(&a[1])),
     ) {
-        (true, true) => return unsupported("CopyStream between two streams that were never created (not pinned)"),
+        (true, true) => return crate::stream_cleared::copy_both_uncreated(ctx.ret_used()),
         (true, false) => {
             return crate::stream_cleared::uncreated_result(ctx.ret_used(), "OutStream", Value::Boolean(false));
         }

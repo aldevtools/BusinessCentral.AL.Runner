@@ -80,12 +80,7 @@ fn record_arg(v: Option<&Value>) -> Result<Rec, Signal> {
         Some(Value::Library(_, l)) => match &*l.borrow() {
             LibraryValue::RecordRef(r) => Ok(r.clone()),
             // PGetUrl.al:P109_GetUrl_Overload3_ClosedRecordRef
-            _ => Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                message: "The record is not open.".into(),
-                code: "RecordNotOpened".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            }))),
+            _ => Err(crate::unopened_refs::record_not_open()),
         },
         other => unsupported(format!("GetUrl with record {}", other.describe())),
     }

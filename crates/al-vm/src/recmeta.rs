@@ -132,7 +132,11 @@ impl Session {
     /// pins it (docs/probes-needed.md).
     pub(crate) fn format_composite_value(&mut self, v: &Value) -> Option<Result<String, Signal>> {
         let (rec, only) = match v {
-            Value::Record(r) => (r.clone(), None),
+            // Format(Rec) reads every field of the buffer: refused on the marks a field read refuses.
+            Value::Record(r) => match crate::records::buffer_read_refused(r) {
+                Some(why) => return Some(Err(Signal::unsupported(format!("Format of a record: {why}")))),
+                None => (r.clone(), None),
+            },
             Value::Library(_, l) => match &*l.borrow() {
                 al_builtins::value::LibraryValue::RecordRef(r) => (r.clone(), None),
                 al_builtins::value::LibraryValue::FieldRef(r, p)

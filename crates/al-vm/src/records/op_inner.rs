@@ -9,10 +9,10 @@ impl Session {
         if rec.borrow().unpinned_buffer.is_some() {
             return self.unpinned_buffer_op(method, rec, args);
         }
-        // Copy, CopyFilters, TransferFields and the like from a table element record after an export under SourceTableView
-        // would carry its unpinned view or buffer over.
+        // Copy, CopyFilters, TransferFields and the like from a record `copy_refused_mark` names would carry its unpinned view
+        // or buffer over.
         if let Some(Value::Record(src)) = args.first() {
-            if let Some(why) = xp_export_marked(src) {
+            if let Some(why) = copy_refused_mark(src) {
                 return unsupported(format!("Record.{}() from a record: {why}", method.name()));
             }
         }

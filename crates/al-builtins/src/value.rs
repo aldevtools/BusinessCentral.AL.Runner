@@ -1418,6 +1418,23 @@ pub struct HandlerContext {
     pub skip: Option<String>,
 }
 
+/// How a RecordRef or a KeyRef came to hold nothing ([`LibraryValue::EmptiedRef`]): a probe measured some members in the first
+/// three states, none in the others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmptiedRef {
+    /// A RecordRef that was open, after `Clear`.
+    ClearedOpenRecordRef,
+    /// A RecordRef never opened, after an `Open(0)` that raised nothing.
+    ZeroOpenedRecordRef,
+    /// A KeyRef that held a key, after `Clear`.
+    ClearedAssignedKeyRef,
+    /// A RecordRef that holds nothing after another sequence: `Clear` of one that was not open, or an `Open` or a `Get` that left
+    /// one emptied (any state above) not open.
+    OtherRecordRef,
+    /// A KeyRef that held nothing, after `Clear`.
+    OtherKeyRef,
+}
+
 /// State behind a library-type handle; grows with the builtins that need it.
 #[derive(Debug, Default)]
 pub enum LibraryValue {
@@ -1426,6 +1443,12 @@ pub enum LibraryValue {
     /// An InStream or OutStream after `Clear`: it holds no stream, as one never created, but the corpus measured fewer of its
     /// uses (streams/instream-outstream/Y62GoneInStream.al against StreamUncreatedUse.al; `stream_cleared`).
     ClearedStream,
+    /// A RecordRef after `Close`: not open, as one never opened (`Empty`), but the corpus measured fewer of its members
+    /// (al-vm `unopened_refs.rs`). `recordref_closed::not_open` tells both apart from an open one.
+    ClosedRecordRef,
+    /// A RecordRef or a KeyRef that holds nothing after a call that emptied it: it answers as one never opened or never assigned,
+    /// except the members the corpus measured only on a new variable (`recordref_closed`, al-vm `unopened_refs.rs`).
+    EmptiedRef(EmptiedRef),
     /// A `DataSourceContext` or `TestHandlerContext` the test framework handed to a callback (ADR-059). Its members are
     /// refused there (`testcontexts.rs`).
     HandedContext,
