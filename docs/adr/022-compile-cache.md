@@ -1,6 +1,7 @@
 # ADR-022: Compile cache: one entry per dependency set (layers since 2026-10-15)
 
-- Status: Accepted (owner, 2026-10-14; the measurement below amended decisions 2 to 4 and the owner accepted the amendments)
+- Status: Accepted (owner, 2026-10-14; the measurement below amended decisions 2 to 4 and the owner accepted the amendments).
+  Amendment 2026-11-15 (cache the compiled workspace apps, changes decision 1): Proposed
 - Date: 2026-10-14
 - Amends: ADR-013 (decision 6: its "persistent cache only if the warm start needs it" becomes a design; its
   "lowered IR is not cached" is lifted for dependency apps), ADR-016 (the deferral of persistent dependency
@@ -1111,6 +1112,235 @@ warm run (all layers hit) does not change. Layer 1 (5.1 s) does not change; it i
   3.10 s; cache build median 11.97 s to 8.77 s; whole run 230.2 G to 160.8 G instructions (median). "System
   Application Test" 132685 (few dependencies): layers above the first 0.22 s to 0.16 s, 24.5 G to 22.6 G instructions.
   The saving is larger than the 2 s expected: trees parsed for one layer are kept for the next.
+
+## Amendment (Proposed, 2026-11-15): cache the compiled workspace apps (issue 8143)
+
+Status of this amendment: **Proposed** (2026-11-15). It needs the owner's acceptance before any code (CLAUDE.md rule 5).
+It changes decision 1 ("Only dependency apps are cached. The workspace apps compile on every run."). It does not change
+the dependency layers, their keys, their files or `al_cache::FORMAT`.
+
+### Context
+
+Outside issue 8143 (al-runner `3.0.0-alpha.14+edge.20261114`, Linux x64). A mutation-testing tool drives `al-runner serve`
+and restarts the daemon when it must close: after a refusal that leaves the daemon's state unknown, and after a timeout.
+Within one daemon every request after the first reuses the kept compile (ADR-028). A new daemon with the same
+`ALRUNNER_CACHE` and the same sources reads the dependency layers and the install baseline from disk, and compiles the
+app under test again. Measured by the reporter on an invented app of 2,000 procedures with 20,000 statements of the shape
+`if Sel.Active() = 'M<n>' then X := X - k else X := X + k;`, `serve --bc-version 28`:
+
+| Request | `cached` | compileMs | setupMs | Wall |
+|---|---|---:|---:|---:|
+| Daemon 1, first request | false | 1,290 | 18,543 | 19.9 s |
+| Daemon 1, eleven later requests of every shape | true | 0.5 | 10 to 16 | 0.02 to 0.7 s |
+| Daemon 2, same `ALRUNNER_CACHE`, same app, first request | false | **858** | 127 | 1.0 s |
+| Daemon 3, other `ALRUNNER_CACHE`, first request | false | 1,376 | 10,054 | 11.4 s |
+
+On daemon 2 the compile of the app under test is 858 ms of 1.0 s. On the reporter's real app (about 43,000 such
+statements, Base Application and five other dependency apps) it is about 29 s per daemon start. One run started 53 daemons
+in 3.5 hours and compiled the same unchanged sources 53 times. The same cost is paid by every `al-runner test` run whose
+workspace did not change (a CI rerun, a developer who reruns without an edit).
+
+The mutation tool switches mutants at run time (`Sel.Active()`), so its sources do not change between daemons. A cache
+keyed by the sources hits on every restart.
+
+How the time of a workspace compile splits between parse, check and lower is not measured on the reporter's shape. The
+implementation measures it first (Test plan, step 1).
+
+### Decision
+
+1. **The workspace apps are cached as one more layer: the workspace layer.** It sits on top of the dependency layers,
+   built by the same rule as an upper layer ("Owner decision 2026-10-15: layered entries", points 3 and 4): its own
+   objects take the positions after the layers below, and it holds a block for every lower object the workspace changes
+   (`provided::relower_set`, the objects a fresh compile lowers again because the workspace extends or implements them).
+   The workspace layer holds every app above the dependency layers: the workspace apps and the dependency apps that stand
+   on a workspace app (`dependency_apps_on_workspace`, al-runner issue 6044), which are compiled with the workspace today.
+   There is one workspace layer per run, never one per workspace app: a test app sees its implementation app's positions,
+   and the two change together.
+
+2. **The key.** One struct, `WorkspaceKey`, hashed with SHA-256 over named parts by a function that destructures it field
+   by field without `..` (decision 4, last paragraph). Fields:
+   1. the runtime build (`runtime_build`, the hash of the running executable) and the format integer of the workspace
+      layer;
+   2. the full key digest of the top dependency layer the compile stands on (all zeros when the run has no dependency
+      layer). This carries every dependency app, its version, its source hash, its own symbols and the runtime target;
+   3. per app of the workspace layer, in program order: id, name, publisher, version, `platform`, `application`, its
+      dependencies, its manifest as `run::warm_key` reads it today (include source, target, symbols, layout files,
+      package data and its files), and a hash of every source file (path as the app names it, and its full text). The
+      resource files are not in the key: they are run-time data, handed to the program by each request (issue 5635), as
+      the warm key already decides;
+   4. the full run `Target` (BC version and runtime): the workspace check and lowering read version gates;
+   5. the project's preprocessor symbols, sorted (they apply to the workspace apps only, "Owner decision 2026-10-15
+      (third)");
+   6. the compile options, taken from the one owner of that list: `RunInputs::compile_text` (`run_inputs.rs`: `execute`,
+      `tdd`, `affected`, `test_runner`, the company data options, and any compile option added there later);
+   7. the roots of the compile, `al_sema::check::Roots`, destructured without `..`: every field is hashed except
+      `workers` (thread count; the output must not depend on it, and the equality test below runs with two thread
+      counts). `only_tests` and `lean` put a lean selection in the key, so each lean selection is its own entry;
+   8. the environment switches the compile reads (`AL_NO_DEP_POSITIONS`, `AL_UNPINNED_BASE_ACCESS`, and any other the
+      compile reads), listed in one place beside the key with a test that greps the compile crates for `env::var` reads
+      and fails on one the list does not name.
+
+   A test lists the fields of `WorkspaceKey` and of `Roots` and fails when one has no miss test. `run::warm_key` (the key
+   of serve's kept compile) is then built from `WorkspaceKey` minus the file texts, so the in-memory key and the disk key
+   cannot drift apart. That removes its hand-written field list (one behavior, one place).
+
+3. **What the entry holds.** The format is an `al_cache` layer file (`build_layer` blocks: one zstd block per object, with
+   its checksum, compressed with the dictionary of the base layer; plain zstd when the run has no dependency layer),
+   plus one more section, `WorkspaceExtra`, encoded with postcard and checksummed. That section holds what a later step
+   reads of a compile and a dependency layer does not store:
+   - from `al_ir::Program`, for the workspace objects: their `positions` and the `sources` the positions refer to
+     (ADR-041 gives the dependency objects theirs already), `dotnet_types`, `uncompiled_subscribers`, `tdd_stubs`,
+     `assumes`;
+   - from `Lowered`, per workspace object: `unsupported` (refusal reasons), `refusal_at`, `calls`, `left_out`,
+     `pos_ranges`, `skipped`, `object_hashes` (ADR-050), and for the compile: `al_diagnostics`, `checker_diags`,
+     `tdd_sites`, `tdd_needs`;
+   - from the workspace: per file, what the parse found besides the tree (the parse problem, the synthetic ranges), which
+     `Workspace::drop_trees` keeps today;
+   - from `Compiled`: the fields the compile derives (`lean`, `baseline_wanted`, `uncovered`), not the fields the run's
+     inputs give (`order`, `suites`, `opts_only`, `incr`), which are built again from the inputs as today.
+
+   The list is closed by construction: the code that writes the entry destructures `Lowered` and `Program` without `..`,
+   and a field it does not store is named there with the reason (for example `timings`: a measurement, not an output).
+
+4. **What a hit returns.** A `Compiled` that is equal to the one a fresh compile of the same inputs gives, after that
+   compile's `drop_trees` (the state a run keeps today), except for the timing fields and the cache report. In detail:
+   - the dependency objects come from the dependency layers, as today;
+   - the workspace objects and the relowered lower objects come from the workspace layer. `Lowered::provided` keeps the
+     value a fresh compile gives (false for them): it means "taken from a dependency layer", and `calls_of` reads it;
+   - `Compiled::incr` is set, so serve's incremental compile (`update_files`) works on a hit as on a fresh compile;
+   - **no workspace file is parsed.** The workspace apps are loaded the way dependency apps are (`load_apps_lazy`: a scan
+     indexes the objects, a file is parsed the first time its tree is needed, `Workspace::green`). The stored parse
+     results take the place of what the parse at load found. A later incremental compile, `--tdd` stub files,
+     `--explain` or the install reach parse the files they need, as they do after `drop_trees` today. This covers the
+     parse question of the design sketch: the hit pays a scan and the read of the entry, not the parse. If the
+     implementation shows that a scan cannot give a workspace equal to the fresh one, it parses at load, says so in this
+     ADR, and the expected gain is reduced by the parse time measured in step 1;
+   - the cache report says `workspace: read` (or `built`, `off`). Serve's `cached` keeps its meaning ("this daemon's
+     kept compile served the request"); the timings of a request get a new field `workspaceCache` with the same three
+     values (additive protocol change, ADR-028).
+
+5. **Invalidation.** Only by the key: any change of any input in decision 2 is a new key, so a miss. No entry is ever
+   updated in place. A miss compiles fresh (today's path, unchanged) and writes a new entry.
+
+6. **When an entry is written.** After a complete compile of the workspace that finished: with compile errors too
+   (`al_diagnostics` are stored, the outcome is the same), not after a compile stopped by the memory limit
+   (`compile_halt.rs`), not for a compile grown by apps (ADR-063, the extra pass of the corpus), and not for the result of
+   serve's incremental compile (that path is not proven byte-equal to a fresh compile; a follow-up may add it with the
+   same equality test). The write is off the critical path: in `al-runner test` after the results are printed (where the
+   prune runs today), in serve after the response of the request is sent. A run that exits before the write finishes
+   leaves no file (temporary file, then rename, decision 5).
+
+7. **When the cache is not used.** `--no-compile-cache` and `ALRUNNER_NO_COMPILE_CACHE=1` (as for the dependency
+   layers); `ALRUNNER_NO_WORKSPACE_CACHE=1` turns off this layer only; `AL_EAGER_DEPENDENCIES`; a compile that keeps the
+   state for growing (ADR-063). `--rebuild-compile-cache` rebuilds it. `--require-compile-cache` does not require it: a
+   changed workspace is the normal case, so a workspace miss is never an error.
+
+8. **Where it lives.** `<cache dir>/compile/`, next to the layers, the source indexes and the baselines. File name
+   `<tag>-ws-<identity 16 hex>-<key 32 hex>.alcw`, where `tag` is the build tag (amendment 2026-10-17) and `identity` is
+   a hash of the dependency key digest and the ids of the workspace apps. The identity groups the entries of one project,
+   so the pruning below reads only the directory. Same write method (temporary file, rename), same touch on read. The
+   OS access stays in `compile_cache.rs` and `cache_gc.rs` (ADR-006); the format is core code over bytes in `al-cache`.
+
+9. **Size and pruning.** Every edit to a workspace makes a new key, so this layer makes many more files than the
+   dependency layers. Rules, in `cache_gc::prune` and at each write:
+   - at most 4 entries per identity: a write removes the oldest by modification time beyond 4 (a developer who switches
+     between a few branches still hits; a mutation run uses one entry);
+   - the existing rules apply too: another build's entry unused for 7 days goes, any entry unused for 30 days goes;
+   - `alrunner cache info`, `clear` and `prune` count and remove `.alcw` files like the others.
+   The size of an entry is not measured. From layer 1 (about 25 MB for 9,506 objects with positions, ADR-041) a
+   workspace object costs a few KB; the reporter's large app is expected well under 10 MB. Step 1 measures it.
+
+10. **A damaged or partial entry is a miss, never a wrong program.** The header, the index and `WorkspaceExtra` are
+    checked when the entry is opened, each block when it is read (decision 5). The stored key is compared field by field
+    with the run's key after the file name matched. The stored digest of the dependency layer must equal the one of the
+    layers the run actually opened. Any failed check, decode error, missing file or mismatch: the entry is ignored and
+    deleted, a named reason goes to stderr (`--verbose`), the run compiles fresh and writes a new entry. A failure never
+    fails the run and never changes an outcome. Decoding returns errors on bad bytes; it does not panic. A truncated file
+    fails its checksum.
+
+### Equality requirement
+
+A compile read from the workspace layer must be byte-equal to a fresh compile of the same inputs. "Byte-equal" means: a
+canonical dump of every compile output is identical. The dump extends `al-test-cli --example compile_dump` into a library
+function over `Compiled` that destructures `Compiled`, `Lowered` and `Program` without `..` (so a new field cannot be left
+out of the dump) and covers:
+
+- the whole `Program`: every object, routine and body (bodies decoded), `positions`, `sources`, `dotnet_types`,
+  `uncompiled_subscribers`, `tdd_stubs`, `assumes`, `apps`;
+- every field of `Lowered` except `timings`, `work` (a hit lowers nothing on purpose; the work ratchet does not read the
+  workspace cache) and `cached_objects` (a decoder handle; what it decodes is in the program);
+- the workspace after `drop_trees`: objects, files with their parse problems and synthetic ranges, every derived table
+  (names, ids, `ext_of`, `subscribers_of`, `implementers_of`, interface families, visibility);
+- the derived fields of `Compiled`.
+
+Tests:
+- **Corpus:** for each BC major, compile the corpus apps with the dependency layers fresh, write the workspace entry,
+  read it back in a new compile, compare the dumps. Twice: with one worker thread and with all.
+- **Serve suite:** the serve tests run their requests twice, on a fresh daemon and on a daemon that reads the entry,
+  and compare the dumps and the JSON answers (timings removed).
+- **Modes:** `--tdd`, `--affected` (object hashes), a lean selection, a workspace with compile errors, a workspace with a
+  dependency app that stands on it, a workspace that extends and implements dependency objects (relowered blocks).
+- **Incremental after a hit:** apply the same file edit through `update_files` after a hit and after a fresh compile;
+  the dumps must be equal.
+- **Outcomes:** `tools/cache_vs_uncached.sh` gains a leg, workspace layer read against fresh: 0 differences on BC 27, 28
+  and 29 and the OnPrem and isolation suites.
+
+Any field that differs is a key bug or a bug in what the entry stores. It is fixed there, never by leaving the field out
+of the dump. If a field differs because a fresh compile is itself not deterministic (two fresh compiles differ), that is
+fixed in the compile first; the build is already required to be deterministic (decision 5).
+
+### Consequences
+
+- **Disk:** up to 4 entries per project and build, each expected at a few MB; pruned with the existing rules.
+- **Two paths for the workspace:** read and fresh. The fresh path stays the reference and the fallback; the equality
+  tests above run in PR CI (the corpus job) so the two cannot drift apart.
+- **A miss costs a little more:** the encode and write of the entry, off the critical path (decision 6). Measured in
+  step 1; if it slows the next request of a serve daemon, it moves to a background thread.
+- **New tests and ratchets:** the key miss tests and the field-list test (decision 2), the environment-read list test,
+  the equality tests above, the corrupted and truncated entry tests (as in "Conformance"), the pruning test (a fifth
+  entry removes the oldest of its identity, not another project's). New code goes in new modules
+  (`al-testrun/src/workspace_cache.rs`, `al-cache` for the format), not in `runtime/corpus.rs` (2,540 lines) or another
+  file of `metrics/file-sizes.toml`. No cap and no OS access count is raised.
+- **Perf budgets:** no effect. The corpus perf runs do not read the compile cache, and the cold compile budget measures a
+  fresh compile. `metrics/<major>/work.json` does not change: the corpus run does not use the workspace layer.
+- **ADR-028:** one additive field in the serve timings (`workspaceCache`).
+- **`docs/codemap.md`:** the compile-cache flow gets the workspace layer step; `docs/architecture.md` names the new file
+  type.
+
+### Test plan (order of the implementation)
+
+1. Measure on the reporter's shape (the invented 2,000-procedure app can be generated from the issue text) and on a
+   corpus-sized partner app: parse, check and lower time of the workspace compile, and the size and encode time of an
+   entry. Record it here.
+2. Red: the corpus equality test and the serve restart test (a second daemon reports `workspaceCache: read`) fail.
+3. Build the key, the entry, the read path, pruning. Green on both.
+4. The key miss tests, the damaged-entry tests, the mode tests, the incremental-after-hit test.
+5. `tools/cache_vs_uncached.sh run` and `tools/demand_vs_eager.sh run`: 0 differences. The reporter's table repeated:
+   daemon 2's `compileMs` is expected at a small part of today's 858 ms (the read of the entry and the scan); the result
+   is recorded here, and the issue gets the numbers.
+
+### Alternatives considered
+
+- **Keep the daemon alive and never restart it.** The daemon already keeps its compile across requests. The restarts come
+  from refusals that leave the daemon's state unknown and from timeouts; a client must be able to start a fresh daemon
+  then. It also does nothing for `al-runner test` runs and CI reruns. Not taken.
+- **Cache only the parse.** Smaller, but a hit still pays the check and the lowering of every workspace object, which is
+  the main part of a compile of dependency apps (ADR-022 measurements, ADR-026). It needs the same key and the same
+  failure rules, so it carries the same risk for less gain. And with the full cache the parse is not paid either
+  (decision 4). Not taken.
+- **Serialize the in-memory `Compiled` with its workspace and parse trees.** The workspace holds rowan trees and
+  `OnceLock`s that have no stable encoding, and the trees are dropped after lowering anyway. Not taken.
+- **Per-object incremental cache on disk.** ADR-026 measured and recommended against per-object incremental compile;
+  the positions of the IR depend on the whole program. Not taken.
+- **Store the workspace objects in the top dependency layer.** A dependency layer is shared by projects; the workspace
+  changes with every edit. Mixing them would rebuild a shared file on every edit. Not taken.
+
+### Open for the owner
+
+1. Accept or reject this amendment.
+2. The limit of 4 entries per project (decision 9).
+3. The serve field: `cached` keeps its meaning and `workspaceCache` is added (decision 4). The reporter asked for
+   `cached: true` on a restarted daemon; that would change what `cached` means for current clients.
 
 ## Consequences
 
