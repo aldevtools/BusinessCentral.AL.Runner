@@ -1,7 +1,7 @@
 //! SetValue after New() on a trapped Card whose part shows rows of the blank link key.
 //!
-//! Measured shape (AL Runner issue 7879, corpus pull request 1343; assumption
-//! `trapped-card-draft-blank-part-set-value`): a Card caught by `Trap()`, `New()`, then SetValue of a non-key field.
+//! Measured shape (pages/parts/TestTrappedCardBlankPart.al:11-34, fixtures TestTrappedCardBlankPart1Fixture*.al): a Card
+//! run by a static `Page.Run(Id, Rec)` and caught by `Trap()` (:25-26), `New()`, then SetValue of a non-key field.
 //! The Card has no page or control triggers, no DelayedInsert, no page extension and no subscriber; its stored source table is keyed by
 //! one field, and the table's OnInsert gives the new row a key that is not blank. Its single part is a ListPart without
 //! extension or subscriber, linked by one `field(...)` entry on that key field. The SetValue's validation changes no field of
@@ -20,12 +20,14 @@ pub(super) fn blank_part_host_refusal<T>(m: PageMethod) -> Result<T, Signal> {
 }
 
 impl Session {
-    /// Whether SetValue of control `index` is the measured edit of the module doc. Marks the assumption when it is.
+    /// Whether SetValue of control `index` is the measured edit of the module doc.
     pub(super) fn trapped_card_blank_part_set_value(&self, st: &St, index: usize) -> Result<bool, Signal> {
         let engine = self.engine();
         let page = st.borrow();
         let object = page.object as usize;
         if !page.caught_by_trap
+            || !page.trapped_static_run
+            || page.modal
             || !page.draft
             || page.draft_from_open
             || page.draft_stored
@@ -66,7 +68,6 @@ impl Session {
         if rec.borrow().temporary || table.keys[0].contains(&field) {
             return Ok(false);
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TrappedCardDraftBlankPartSetValue);
         st.borrow_mut().trapped_blank_part_edit = true;
         Ok(true)
     }

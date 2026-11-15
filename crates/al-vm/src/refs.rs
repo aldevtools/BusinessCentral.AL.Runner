@@ -978,7 +978,10 @@ impl Session {
                     copy.unpinned_buffer = None;
                     copy.run_page_link = None;
                 }
-                self.variant_refs.install_get_table_buffer(lib, copy, !from_variant);
+                // The shared-buffer cells hand GetTable an unfiltered Record (`install_get_table_buffer`).
+                let measured_source =
+                    !from_variant && matches!(args.first(), Some(Value::Record(r)) if r.borrow().filters.is_empty());
+                self.variant_refs.install_get_table_buffer(lib, copy, measured_source);
                 return Ok(Value::Null);
             }
 

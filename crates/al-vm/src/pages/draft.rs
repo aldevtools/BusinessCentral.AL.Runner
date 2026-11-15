@@ -902,7 +902,8 @@ impl Session {
         }
         let pinned =
             st.borrow().draft_from_open && self.top_card_or_document(st) && self.key_typed_since_draft_start(st)?;
-        // The measured Worksheet (issue 7880, corpus pull request 1344): opened by the test's own OpenEdit, the test's only
+        // The measured Worksheet (pages/lifecycle/TestWorksheetDraftClose.al:11-29, fixtures TestWorksheetDraftClose1Fixture*.al):
+        // opened by the test's own OpenEdit, the test's only
         // calls on it SetValues that succeeded and then Close (`worksheet_draft_close_calls`), so its line started on the empty
         // page (no OpenNew draft, no saved starting buffer), AutoSplitKey, DelayedInsert and MultipleNewLines, OnNewRecord,
         // no extension or subscriber, no key field shown, and one FactBox part (`worksheet_draft_factbox`).
@@ -943,11 +944,6 @@ impl Session {
                 if !pinned && !worksheet {
                     return unsupported(
                         "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
-                    );
-                }
-                if worksheet {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::WorksheetDraftCloseEmptyPart,
                     );
                 }
                 c.borrow_mut().quiet_at_close = true;

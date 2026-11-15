@@ -2910,6 +2910,27 @@ fn measured_trapped_card_sets_non_key_field_with_blank_part_rows() {
     ));
 }
 
+/// The pin runs the Card with a static `Page.Run(Id, Header)` (TestTrappedCardBlankPart.al:26); a Page.Run without a record
+/// is not measured and keeps the refusal.
+#[test]
+fn trapped_card_run_without_a_record_keeps_the_refusal() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    let changed = source.replace(
+        "        Page.Run(Page::\"Draft Probe Card\", Header);",
+        "        Page.Run(Page::\"Draft Probe Card\");",
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "SetValueOnNewCardWithBlankLinkedRows")
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::NotRun(reason) if reason.contains("whose part shows rows of the blank key")),
+        "{outcome:?}"
+    );
+}
+
 #[test]
 fn issue_7879_neighbor_keeps_the_previous_result() {
     let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
@@ -3051,6 +3072,31 @@ fn measured_assist_edit_uses_the_linked_card_part_primary_key() {
     ));
 }
 
+/// The pin opens the Document host with the test's own OpenEdit (TestCardPartAssistEditKey.al:52); a trapped host keeps the
+/// previous result.
+#[test]
+fn linked_card_part_assist_edit_on_a_trapped_host_keeps_the_previous_result() {
+    let source = include_str!("../fixtures/linked-card-part-assist.al");
+    let changed = source.replacen(
+        "        Host.OpenEdit();\n        Host.GoToRecord(Header);\n",
+        "        Host.Trap();\n        Page.Run(Page::\"Linked Part Host\", Header);\n",
+        1,
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "AssistEditUsesTheLinkedPrimaryKey")
+        .unwrap();
+    assert_eq!(
+        outcome,
+        &Outcome::Fail(
+            "Before Assist must be equal to 'DETAIL-A'  in Linked Part Detail Row: Code=DETAIL-A. Current value is ''."
+                .into()
+        )
+    );
+}
+
 #[test]
 fn issue_7883_neighbor_keeps_the_previous_result() {
     let source = include_str!("../fixtures/linked-card-part-assist.al");
@@ -3135,12 +3181,51 @@ fn issue_7884_caption_after_language_or_binding_change_stays_refused() {
     }
 }
 
+/// The pin writes a page-variable control without OnValidate between the reads
+/// (TestLiteralFieldCaptionResolution1Fixture*.al: `field(EditValue; EditValue)`); a write that runs an OnValidate is not
+/// measured and keeps the refusal.
+#[test]
+fn literal_field_caption_after_a_validated_write_stays_refused() {
+    let source = include_str!("../fixtures/literal-field-caption.al");
+    let changed = source.replace(
+        "field(EditValue; EditValue) { ApplicationArea = All; }",
+        "field(EditValue; EditValue) { ApplicationArea = All; trigger OnValidate() begin end; }",
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    assert!(
+        matches!(results.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("a second Caption()")),
+        "{results:?}"
+    );
+}
+
 #[test]
 fn measured_recordref_get_table_updates_the_shared_event_buffer() {
     all_pass(run_with_deps(
         &[],
         include_str!("../fixtures/recordref-gettable-shared.al"),
     ));
+}
+
+/// The pin hands GetTable an unfiltered Record (TestRecordRefGetTableAlias.al:47-52); a filtered one is not measured and keeps
+/// the alias on a buffer of its own.
+#[test]
+fn recordref_get_table_of_a_filtered_record_keeps_its_own_buffer() {
+    let source = include_str!("../fixtures/recordref-gettable-shared.al");
+    let changed = source.replace(
+        "        Row.Category := 7;\n        Alias.GetTable(Row);",
+        "        Row.Category := 7;\n        Row.SetRange(Id, 1);\n        Alias.GetTable(Row);",
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "GetTableUpdatesAnAssignedAliasOfTheSameTable")
+        .unwrap();
+    assert_eq!(
+        outcome,
+        &Outcome::Fail("The assigned alias changed the value to 0.".into())
+    );
 }
 
 #[test]

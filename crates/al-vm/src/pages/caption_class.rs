@@ -25,9 +25,10 @@ impl Session {
 
     /// `Caption()` of control `index` whose field CaptionClass `class` raises OnResolveCaptionClass. The first read resolves it
     /// (XTablePropsTests.al:483-487). A second read gives the same caption without raising the event again only in the
-    /// measured sequences (AL Runner issue 7884, corpus pull request 1356, assumption `literal-field-caption-resolution-reused`):
-    /// two reads in a row, or a read after a SetValue on another control of the page, with the same class text, the same
-    /// language and the same bound subscriptions. Every other call between the reads keeps the refusal.
+    /// measured sequences (record/captions/TestLiteralFieldCaptionResolution.al:14-37): two reads in a row, or a read after
+    /// a SetValue on another control of the page bound to a page variable with no OnValidate (`field(EditValue; EditValue)`
+    /// of TestLiteralFieldCaptionResolution1Fixture*.al; no page extension or subscriber), with the same class text, the same language and the same bound
+    /// subscriptions. Every other call between the reads keeps the refusal.
     pub(super) fn read_literal_field_caption(
         &mut self,
         st: &St,
@@ -51,17 +52,17 @@ impl Session {
                 .find(|(i, _, _, _)| *i == index)
                 .cloned();
             let reused = prior_class == class
+                && self.unextended_unsubscribed(st)
                 && context.is_some_and(|(_, saved_revision, saved_subscriptions, saved_calls)| {
                     saved_revision == revision
                         && saved_subscriptions == subscriptions
-                        && Self::only_caption_reads_or_other_writes(st, index, saved_calls)
+                        && self.only_caption_reads_or_other_writes(st, index, saved_calls)
                 });
             if !reused {
                 return unsupported(
                     "a second Caption() of a field CaptionClass that raises OnResolveCaptionClass (whether BC raises it again is not pinned)",
                 );
             }
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LiteralFieldCaptionResolutionReused);
             if let Some(c) = st
                 .borrow_mut()
                 .literal_field_caption_contexts
@@ -84,7 +85,14 @@ impl Session {
     /// Whether every test call on the page tree of `st` from position `from` of its call log is a `Caption()` or a value
     /// typed into a control of `st` other than `index`, and none of them failed. False when the log does not tell
     /// (`PageState::tree_calls_unknown`).
-    fn only_caption_reads_or_other_writes(st: &St, index: usize, from: usize) -> bool {
+    fn only_caption_reads_or_other_writes(&self, st: &St, index: usize, from: usize) -> bool {
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let plain_var_control = |j: usize| {
+            page.controls.get(j).is_some_and(|c| {
+                matches!(c.binding, ir::Binding::Var(_)) && c.triggers.is_empty() && c.ext_triggers.is_empty()
+            })
+        };
         let (root, part) = Self::tree_root(st);
         let r = root.borrow();
         !r.tree_calls_unknown
@@ -94,7 +102,7 @@ impl Session {
                         && !c.failed
                         && match c.call {
                             TestCall::Other(PageMethod::Caption) => true,
-                            TestCall::Write(j) => j != index,
+                            TestCall::Write(j) => j != index && plain_var_control(j),
                             _ => false,
                         }
                 })
