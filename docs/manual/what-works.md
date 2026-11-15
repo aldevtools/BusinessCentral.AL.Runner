@@ -105,7 +105,7 @@ The core needs no .NET. AL code that uses the `DotNet` type is served by an opti
 `al-runner` and needs no helper: `StringBuilder`, `byte[]` access, `Encoding`, SHA
 and MD5 hashes, and Base64 conversion.
 
-Tests that reach any other `DotNet` call need the .NET 8 SDK. The binary carries the
+Tests that reach any other `DotNet` call need the .NET SDK 8 or newer. The binary carries the
 helper sources and builds the helper into the cache on first use. The helper then runs on
 the .NET runtime of the BC version's service tier: .NET 8 for BC 27 and 28, .NET 10 for
 BC 29, whose service-tier DLLs (OpenXml, `System.Drawing.Common`) are built for .NET 10 and

@@ -230,6 +230,82 @@ fn secs_w(d: Duration) -> String {
     format!("{:>6.2} s", d.as_secs_f64())
 }
 
+/// The `--timings` lines of the compile: its phases, the install baseline, the memory budget and the compile summary.
+fn print_compile_phases(p: &al_testrun::runtime::Phases) {
+    let c = &p.compile_parts;
+    eprintln!(
+        "compile: load {}, members {}, check workspace {}, baseline roots {}, demand {}, check rest {}, lower {}, engine {}",
+        secs(c.load),
+        secs(c.members),
+        secs(c.check.workspace),
+        secs(c.check.baseline),
+        secs(c.check.demand),
+        secs(c.check.rest),
+        secs(c.lower),
+        secs(p.engine)
+    );
+    if let Some(line) = p.baseline_line() {
+        eprintln!("{line}");
+    }
+    if let Some(line) = p.memory.line() {
+        eprintln!("{line}");
+    }
+    if let Some(line) = p.compile_line() {
+        eprintln!("{line}");
+    }
+}
+
+/// The `--timings` lines of the compile cache.
+fn print_compile_cache(p: &al_testrun::runtime::Phases) {
+    if let Some(c) = &p.cache {
+        eprintln!(
+            "compile cache: {}; {} {}",
+            if c.hit {
+                format!("hit, opened in {}", secs(c.open))
+            } else if c.built {
+                format!("miss, built in {}", secs(c.build))
+            } else {
+                "not used".to_string()
+            },
+            c.file.display(),
+            if c.notes.is_empty() {
+                String::new()
+            } else {
+                format!("({})", c.notes.join("; "))
+            }
+        );
+        for (i, l) in c.layers.iter().enumerate() {
+            eprintln!(
+                "compile cache: layer {} of {} ({}): {}, {:.1} MB",
+                i + 1,
+                c.layers.len(),
+                l.apps.join(", "),
+                if l.hit {
+                    "hit".to_string()
+                } else {
+                    format!("built in {}", secs(l.build))
+                },
+                l.bytes as f64 / 1e6
+            );
+        }
+        eprintln!(
+            "compile cache: {:.1} MB, {} dependency objects, {} compiled again because the workspace extends or implements what they embed",
+            c.bytes as f64 / 1e6,
+            c.objects,
+            c.relowered
+        );
+        eprintln!(
+            "compile cache: reading the blocks {}",
+            secs(p.compile_parts.cache_blocks)
+        );
+        let (n, took) = al_sema::provided::decoded_on_touch();
+        eprintln!(
+            "compile cache: {n} dependency objects decoded on first touch, {}",
+            secs(took)
+        );
+    }
+}
+
 fn secs(d: Duration) -> String {
     format!("{:.2} s", d.as_secs_f64())
 }
@@ -1890,6 +1966,12 @@ fn test_inner(
             into.bc_build = bc_build.clone();
             return Ok(code);
         }
+        // The phases before the compile stopped ran (al-runner issue 8103).
+        if a.timings {
+            print_compile_phases(p);
+            print_compile_cache(p);
+            eprintln!("time: total {}", secs(total_time));
+        }
         say!("{why}");
         let result = format!("Result: COMPILE ERRORS (exit {code})");
         say!("{}", style::bold(&style::yellow(&result)));
@@ -2015,77 +2097,11 @@ fn test_inner(
     }
 
     if a.timings {
-        let c = &p.compile_parts;
-        eprintln!(
-            "compile: load {}, members {}, check workspace {}, baseline roots {}, demand {}, check rest {}, lower {}, engine {}",
-            secs(c.load),
-            secs(c.members),
-            secs(c.check.workspace),
-            secs(c.check.baseline),
-            secs(c.check.demand),
-            secs(c.check.rest),
-            secs(c.lower),
-            secs(p.engine)
-        );
-        if let Some(line) = p.baseline_line() {
-            eprintln!("{line}");
-        }
-        if let Some(line) = p.memory.line() {
-            eprintln!("{line}");
-        }
-        if let Some(line) = p.compile_line() {
-            eprintln!("{line}");
-        }
+        print_compile_phases(p);
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {
             eprintln!("test data: {cost}");
         }
-        if let Some(c) = &p.cache {
-            eprintln!(
-                "compile cache: {}; {} {}",
-                if c.hit {
-                    format!("hit, opened in {}", secs(c.open))
-                } else if c.built {
-                    format!("miss, built in {}", secs(c.build))
-                } else {
-                    "not used".to_string()
-                },
-                c.file.display(),
-                if c.notes.is_empty() {
-                    String::new()
-                } else {
-                    format!("({})", c.notes.join("; "))
-                }
-            );
-            for (i, l) in c.layers.iter().enumerate() {
-                eprintln!(
-                    "compile cache: layer {} of {} ({}): {}, {:.1} MB",
-                    i + 1,
-                    c.layers.len(),
-                    l.apps.join(", "),
-                    if l.hit {
-                        "hit".to_string()
-                    } else {
-                        format!("built in {}", secs(l.build))
-                    },
-                    l.bytes as f64 / 1e6
-                );
-            }
-            eprintln!(
-                "compile cache: {:.1} MB, {} dependency objects, {} compiled again because the workspace extends or implements what they embed",
-                c.bytes as f64 / 1e6,
-                c.objects,
-                c.relowered
-            );
-            eprintln!(
-                "compile cache: reading the blocks {}",
-                secs(p.compile_parts.cache_blocks)
-            );
-            let (n, took) = al_sema::provided::decoded_on_touch();
-            eprintln!(
-                "compile cache: {n} dependency objects decoded on first touch, {}",
-                secs(took)
-            );
-        }
+        print_compile_cache(p);
         let slowest: Vec<String> = p
             .slowest
             .iter()

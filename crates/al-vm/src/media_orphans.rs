@@ -54,8 +54,9 @@ impl Session {
             }
             if self.is_unseeded(&t) {
                 return Err(Signal::unsupported(format!(
-                    "FindOrphans: the rows of {} could not be created (ADR-013 decision 5)",
-                    t.name
+                    "FindOrphans: the rows of {} could not be created (ADR-013 decision 5){}",
+                    t.name,
+                    self.unseeded_cause(&t)
                 )));
             }
             let scan_in: Vec<&String> = if t.per_company {

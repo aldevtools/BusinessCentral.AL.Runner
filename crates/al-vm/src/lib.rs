@@ -199,8 +199,9 @@ pub struct Engine {
     /// The .NET host, the registry of runtime-provided classes and the policy (ADR-014).
     pub dotnet: dotnet::DotNetConfig,
     /// Table objects whose rows the install baseline should have created and did not (ADR-013
-    /// decision 5): a `Get` that finds nothing in dependency code is not BC's answer for them.
-    pub unseeded: std::collections::HashSet<usize>,
+    /// decision 5): a `Get` that finds nothing in dependency code is not BC's answer for them. Each with the root that
+    /// should have written it and why it stopped, for the refusal of a read (al-runner issue 8104).
+    pub unseeded: std::collections::HashMap<usize, std::sync::Arc<str>>,
     /// Stored platform tables whose fresh-tenant rows nothing pins (`al_builtins::platform::UNSEEDED_ROWS`):
     /// unseeded for the tests, but not for install code, which writes them.
     pub platform_unseeded: std::collections::HashSet<usize>,

@@ -13,7 +13,7 @@ Microsoft supports, for example in a Business Central container on Windows
 ## What do I need to install?
 
 Only the `al-runner` binary. It needs no Docker, no SQL Server, no service tier and
-no .NET. Tests that use the `DotNet` type need the .NET 8 SDK; see
+no .NET. Tests that use the `DotNet` type need the .NET SDK 8 or newer; see
 [What works](what-works.md#dotnet). [Getting started](getting-started.md) has the
 install steps.
 
