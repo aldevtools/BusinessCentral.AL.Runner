@@ -64,6 +64,8 @@ struct State {
     pieces: Option<RenderPieces>,
     /// The first `render_probe` answer per need, or why no process could answer it.
     probe: Option<Result<ProbeAnswer, String>>,
+    /// The converter's assembly version read from the pieces ([`ReportRenderer::converter_version`]), once read.
+    converter: Option<Option<[u16; 4]>>,
 }
 
 /// The render host of a run.
@@ -90,6 +92,7 @@ impl RenderHost {
                 starts: 0,
                 pieces: None,
                 probe: None,
+                converter: None,
             }),
         }
     }
@@ -106,13 +109,7 @@ impl RenderHost {
             }
             st.starts += 1;
             let mut t = (self.start)()?;
-            let pieces = st.pieces.get_or_insert_with(|| {
-                let p = (self.prepare)();
-                for n in &p.notes {
-                    eprintln!("warning: report rendering: {n}");
-                }
-                p
-            });
+            let pieces = self.pieces(st);
             let answer = t.request(probe_request(pieces)).map_err(|f| match f {
                 CallError::Failed(f) => f.to_string(),
                 CallError::Gone(why) => format!("{why} (render_probe)"),
@@ -123,6 +120,17 @@ impl RenderHost {
             st.proc = Some(t);
         }
         Ok(st.proc.as_mut().expect("just set"))
+    }
+
+    /// The pieces of the run, made present on the first ask.
+    fn pieces<'a>(&self, st: &'a mut State) -> &'a RenderPieces {
+        st.pieces.get_or_insert_with(|| {
+            let p = (self.prepare)();
+            for n in &p.notes {
+                eprintln!("warning: report rendering: {n}");
+            }
+            p
+        })
     }
 
     /// The `render_probe` answer of this run, per need: what is available and the first missing piece of the rest.
@@ -161,6 +169,9 @@ impl State {
         (self.proc.is_none() && self.starts >= MAX_STARTS).then(|| format!("started {MAX_STARTS} times in this run"))
     }
 }
+
+/// The converter's assembly file in a service folder.
+const CONVERTER: &str = "Aspose.Words.dll";
 
 /// The name a refusal about the process itself uses as the missing piece.
 const THE_PROCESS: &str = "the render process";
@@ -249,6 +260,23 @@ impl ReportRenderer for RenderHost {
 
     fn word_to_html(&self, docx: &[u8]) -> Result<Vec<u8>, RenderFailure> {
         self.call(RenderNeed::Html, json!({"op": "word_to_html", "docx": base64(docx)}))
+    }
+
+    /// The assembly version of `Aspose.Words.dll` in the first probe folder that holds it (the process searches the top level
+    /// of the folders in order, `wire_probe_dirs`), read once.
+    fn converter_version(&self) -> Option<[u16; 4]> {
+        let mut st = self.lock();
+        if let Some(v) = st.converter {
+            return v;
+        }
+        let v = self
+            .pieces(&mut st)
+            .dirs
+            .iter()
+            .find_map(|d| std::fs::read(d.join(CONVERTER)).ok())
+            .and_then(|b| al_deps::assembly_refs::assembly_version(&b));
+        st.converter = Some(v);
+        v
     }
 }
 
@@ -428,6 +456,45 @@ mod tests {
             }),
         );
         (h, log, starts, prepares)
+    }
+
+    /// L5 of the review of draft PR 8140: the converter's version is read from the pieces before any render, once, and
+    /// starts no process.
+    #[test]
+    fn the_converter_version_is_read_once_from_the_first_folder_that_holds_it_without_a_process() {
+        let t = tempfile::tempdir().unwrap();
+        let (empty, other) = (t.path().join("a"), t.path().join("b"));
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join(CONVERTER), b"MZ, not an assembly").unwrap();
+        let prepares = Arc::new(AtomicUsize::new(0));
+        let p = prepares.clone();
+        let dirs = vec![empty, other];
+        let h = RenderHost::with_transport(
+            Box::new(|| panic!("no process for a version read")),
+            Box::new(move || {
+                p.fetch_add(1, Ordering::SeqCst);
+                RenderPieces {
+                    dirs: dirs.clone(),
+                    ..RenderPieces::default()
+                }
+            }),
+        );
+        assert_eq!(h.converter_version(), None);
+        assert_eq!(h.converter_version(), None);
+        assert_eq!(prepares.load(Ordering::SeqCst), 1);
+        // The pinned BC 29 build's converter, when the artifact cache holds its service folder.
+        let cached = al_deps::cache::cache_root_from_env(None).join("artifacts/29.0.54011.56262/service");
+        if cached.join(CONVERTER).is_file() {
+            let h = RenderHost::with_transport(
+                Box::new(|| panic!("no process for a version read")),
+                Box::new(move || RenderPieces {
+                    dirs: vec![cached.clone()],
+                    ..RenderPieces::default()
+                }),
+            );
+            assert_eq!(h.converter_version(), Some([26, 8, 0, 0]));
+        }
     }
 
     #[test]

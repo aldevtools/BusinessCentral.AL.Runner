@@ -1123,3 +1123,134 @@ AL Runner is a testing tool, not for production. Rendered output exists inside a
   (the sets and the nuget pieces), `tools/dotnet-sidecar/Render.cs`, later `al-vm/src/report_render/`.
 - Outcomes of tests that read rendered content depend on whether the machine can render. CI requires the renderer.
 - A save that BC's merger rejects is no longer answered "saved".
+
+## Amendment 2026-11-15: the Html of a Word layout made by BC's own merger and converter (Accepted, owner 2026-11-15)
+
+Status: Accepted by the owner on 2026-11-15, with the answers recorded under "Owner decisions (2026-11-15)" below. Makes decision 10 of the amendment of 2026-11-13b concrete for the e-mail body path, and changes what a
+test may read from such a Html (Part A and the rgba column of the amendments of 2026-11-12 and 2026-11-13 no longer apply to
+it). Part 1 of the amendment of 2026-11-13 (the save table) still decides whether a save is answered, its error and its events.
+
+### Context
+
+An outside suite (al-runner issue 6924, comment of 2026-11-13 00:47 UTC) has 229 tests that send a Word layout e-mail body
+through Microsoft's path (`Report Selections`.`SaveReportAsHTML`, `Email Item`, `Mail Management`, `Email Message`.`Create`).
+166 of them stop at `Email Message Impl.`.`ReplaceRgbaColorsWithRgb`: the opaque Html of Part A reaches `Regex.Replace`, and
+the rgba column answers only for the five renders corpus pull request 1371 measured. 41 of the 229 compare the body text
+(`Contains(<language marker>)`), which Part A can never answer.
+
+What BC does for `Report.SaveAs(.., ReportFormat::Html, ..)` of a Word layout, read from the service tier's own code in the
+platform artifact of BC 27.5, 28.1 and 29.1 (`Microsoft.Dynamics.Nav.Ncl.dll`: `ReportResultSetProcessorFactory.GetWordResultSetProcessor`,
+`ReportProcessorWordGenerator`, `ReportResultSetHtmlDecorator`; read locally, nothing of it is committed):
+
+1. The run writes the Xml dataset. With no dataset row BC raises `ReportResultEmpty` (already a row of the save table).
+2. The reporting trigger IntermediateDocumentReady gets the Xml dataset; a subscriber may replace it.
+3. `OfficeWordDocumentMerger.MergeWordDocument(layout, dataset, (Stream)null, "NavWordReportXmlPart",
+   "urn:microsoft-dynamics-nav/reports/", <report caption>, "", token)`: the public Stream overload. For Html and Word the
+   directory overload (the PDF merge of WordMergeDataItem) is off.
+4. BC 29 only: when the feature `DocumentReportExperience` is on and the layout is of subtype Body, the layout is first
+   composed with a header-footer layout and a theme layout (`ComposeDocumentsAsync`). BC 27 and 28 have no such step.
+5. `WordTransformation.ConvertToHtml(docx, html, token)`.
+6. DocumentReady; the post-processing step touches only Pdf; the bytes go to the stream.
+
+The render process of the amendment of 2026-11-13b already calls the methods of steps 3 and 5 from the same artifact.
+
+### Decision
+
+1. **Which saves.** A save renders real Html when all of these hold, each an equality on a measured fact:
+   - its row answers Html written for a Word layout (`Renders::Default` or `Renders::Selected`);
+   - the layout holds no picture control (picture bytes in Html depend on the platform's imaging; measured only later);
+   - no IntermediateDocumentReady subscriber is visible to the test;
+   - on BC 29: the session does not compose (a probe cell measures this on the test tenant; until it is pinned, an assumption);
+   - the renderer has `Merge` and `Html` available;
+   - the report shape is one of the hash cells (decision 4).
+   Every other save keeps Part A unchanged (the opaque value and the rgba column), so no pass is lost on a machine without
+   the renderer.
+2. **How.** `word_merge` with BC's arguments (no output stream, the report's caption, an empty company), then `word_to_html`,
+   at save time. The layout is the app's layout file (`Renders::Default`) or the docx of the Tenant Report Layout row the
+   selection names (`Renders::Selected`). A merger or converter exception refuses the save (no error text is pinned).
+3. **What a test may read.** The Html is plain text: every operation answers, also `Contains` that is false, lengths and
+   equality. This replaces "false is never answered" of the amendment of 2026-11-13 for these renders. Reason: the hash cells
+   pin every byte of the output for each measured shape and major, so nothing is answered that the probe does not cover.
+4. **Evidence.** A probe (corpus file `reports/html-email-body/RxHtmlHashTests.al`, to be opened) observes the SHA-256 and
+   the length of the Html BC writes, and of `Email Message.GetBody()` after `Create`, for the renders corpus pull request 1371
+   already measures (default, three rows, transparent colors, rgba static text, a Tenant Report Layout copy through a
+   temporary selection, two data items, a report extension column, `DefaultLayout = Word`) and one new report with Decimal,
+   Date and `& < > "` values. Until a bump pins it, each pass runs through the assumption `report-html-rendered-by-bc-converter`
+   (flagged), which names these shapes. A shape whose hash differs from the runner's own render on the local observe host is
+   left out of the list: it stays on Part A.
+5. **Gate before building** (decision 10 of the amendment of 2026-11-13b): the runner's render of every hash cell equals BC's
+   hash on 27, 28 and 29. If no cell matches, nothing of this amendment is built and Html stays on Part A.
+6. **Wiring.** The run's renderer reaches the VM as a field of `DotNetConfig` (`Arc<dyn ReportRenderer>`, `NoRenderer` by
+   default): additive.
+7. **Fetching.** Html needs the conversion set (about 65 MB download per build, the same set as PDF). It is fetched by
+   default, not only behind the PDF switch (owner decision 2).
+
+### What stays refused
+
+Html of an RDLC layout (BC raises `ReportUnsupportedFormat`, unchanged), a layout with a picture control, an
+IntermediateDocumentReady subscriber, BC 29 composition until measured, a merger or converter exception, a report shape no
+hash cell covers (Part A applies), and every save the save table does not answer.
+
+### Consequences
+
+- The outside suite's 166 can run through `Create`, and its 41 language tests get a real answer, when their layouts and
+  report shapes are among the hash cells. Layouts with a company logo (a picture control) stay on Part A.
+- Outcomes of these tests depend on whether the machine can render. CI does not require the renderer yet
+  (`--require-report-renderer` of the 2026-11-13b design is not built); the round that builds this adds it.
+- Cost per Html save: the merge (about 20 ms warm) and one conversion (not measured for Html; PDF is about 170 ms warm).
+
+### Owner decisions (2026-11-15)
+
+1. Real Html for the measured shapes, read as plain text (decision 3): accepted. The rgba column of Part A is not widened
+   cell by cell.
+2. The conversion set (about 65 MB per build) is fetched by default, not only when the PDF switch is on. The PDF switch and
+   the mandatory "test output" watermark of every PDF stay as decision 9 of the amendment of 2026-11-13b says.
+
+### Notes, 2026-11-15
+
+- What must equal BC (owner decision of 2026-11-15, "gate inputs, layout free"). The runner hands the layout bytes unchanged
+  to BC's own merger and converter. What must equal BC is every input the runner feeds them, and each input is gated by
+  equality with the probe cells: the call (`Report.SaveAs(Number, '', ReportFormat::Html, OutStream)` with its answer used,
+  no RecordRef, a UTF-8 stream whose buffer holds nothing and was never written by a stream, session language 1033); the
+  save's whole fact vector after the run (`report_save/html_cell.rs`); the report (exactly the properties `UsageCategory =
+  None`, `UseRequestPage = false` and `DefaultRenderingLayout`, so the title, the report's caption, is its name; no request
+  page, label or reportextension; one layout with only `Type = Word` and `LayoutFile`; one data item without view, link,
+  filter fields, `MaxIteration`, `PrintOnlyIfDetail`, `CalcFields` or trigger); the columns and the row count (the measured
+  datasets); the company (empty) and no pictures; the major and the converter version. The dataset values are what the
+  dataset writer writes; its Xml output is pinned also for negative and zero decimals, empty texts and dates and texts with
+  characters Xml escapes (reports/W3ReportObjectIdPreviewLanguage.al:863, reports/dataset/QwTernaryColumns.al:420 and
+  :501, reports/dataset/ReportSaveAsDataItems.al:201), and BC hands that same Xml to the merger (context, steps 1 to 3).
+  Probe cells for these values in the Bound report are still to add.
+- The layout's structure is free: any number, order and nesting of the elements the measured layouts use, any text and
+  attribute values, content controls with or without a binding (a binding must be the row section or one of its columns).
+  A layout feature that makes BC's server do more than merge and convert, or that the merger or converter resolves from
+  outside the file, keeps Part A. The gate keeps the layout to the vocabulary of the measured layouts (their parts,
+  relationship types with internal targets, element names of the document and settings parts, and namespace
+  declarations), which keeps on Part A at least: pictures (image parts, `w:drawing`, `w:pict`, `w:object`, picture controls
+  bound to data); header and footer parts and references (BC 29 composes header-footer and theme layouts for a body layout,
+  context step 4; a layout that declares a `Subtype` keeps Part A too); external targets (`TargetMode="External"`: linked
+  images, hyperlinks, attached templates); fields that pull in other content (`w:fldSimple`, `w:instrText`: INCLUDEPICTURE,
+  INCLUDETEXT, LINK); `w:altChunk` and `w:subDoc`; font, style, numbering and theme parts and embedded fonts, and tabs.
+  No probe cell measured the font, style, numbering and theme parts; tabs and numbering labels take their widths from font
+  metrics. BC's converter (`WordTransformation.ConvertToExternal`) saves with `new HtmlSaveOptions(SaveFormat.Html) {
+  ExportImagesAsBase64 = true }`, so `ResolveFontNames` and `ExportFontResources` keep their default (false) and font names
+  go into the CSS as the file states them; that is the basis for the next widening. A vocabulary is used rather than a list
+  of these features because a list cannot be shown complete; a probe cell widens the vocabulary.
+- BC 29 composition (decision 1, "on BC 29: the session does not compose"). The feature `DocumentReportExperience` is on in
+  a BC 29 test tenant (record/PFFeatureKeyColumns.al:179, `Enabled=All Users`), and BC composes only a layout of subtype
+  Body (context step 4). The gate requires a layout that declares no `Subtype` (subtype Default, as every probe layout), so
+  the feature state is not read (by context step 4 it matters only for a layout of subtype Body).
+- Shapes (corpus pull request 1415, merged, not pinned): two field columns and two rows (Hash_WordAlpha_TwoRows,
+  Hash_WordRgba_TwoRows); and two field columns, a Decimal expression with `AutoFormatType = 1` and a Date expression, one
+  or three rows (Bound_*). An expression column's kind is the kind of value it held on every row of the run; its static
+  type is not known to the gate. It must be an expression of operators or a call with arguments that names no field whose
+  `DecimalPlaces` or caption the dataset reads.
+- Converter version. The pinned builds of BC 27 and 28 carry Aspose.Words 26.8.0; the probe's CI builds carry 26.10.0 and the
+  Html names that version. Until `bc_build` of 27 and 28 moves to builds with 26.10.0 (decided at the bump that pins the
+  probe), the Html saves on those majors keep Part A. The renderer reads the converter assembly's version before it renders,
+  so such a save does not merge and convert only to drop the Html; the version the Html names still decides. al-runner
+  loads the merger and converter only from the user's folders, the extracted artifact of the chosen build itself, or the
+  sets it fetches of that build, never from another extracted build of the major.
+- `--require-report-renderer` is built (al-test-cli and al-runner): a save of a measured shape refuses when the renderer is
+  unavailable, instead of keeping Part A. CI does not pass it yet: CI's setup does not provide the render sets and the Linux
+  pieces.

@@ -10,6 +10,53 @@ use al_deps::service_tier::ServiceTier;
 use al_testrun::dotnet::{AssemblyFetch, SidecarConfig};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
+
+/// The sidecar configuration of a run and its report renderer (ADR-040 amendment 2026-11-15): BC's Word merger and Html
+/// converter of the build in use, started on the first measured Html save. The renderer loads them from the user's folders,
+/// the extracted artifact of that build itself, or else the sets it fetches of that build; never from another extracted build
+/// of the major, which the sidecar's assemblies may come from (`al_testrun::dotnet::renderer_probe_dirs`).
+pub fn sidecar_and_renderer(
+    a: &TestArgs,
+    build: Option<&ArtifactUse>,
+    major: u32,
+    source_root: Option<PathBuf>,
+) -> (SidecarConfig, Arc<dyn al_host::render::ReportRenderer>) {
+    let cfg = SidecarConfig {
+        sidecar: a.dotnet_sidecar.clone(),
+        source_root,
+        // Under the same cache root as the apps when the user chose one (issue 5747).
+        cache_dir: al_testrun::dotnet::sidecar_cache_dir_from_env(a.cache_dir.as_deref()),
+        allow_roll_forward: a.dotnet_allow_roll_forward,
+        timeout: Duration::from_secs(a.dotnet_timeout_secs.unwrap_or(60)),
+        // ADR-014 section 3, step 2 and issue 6924: the user's folders, an extracted artifact, then fetched assemblies.
+        ..dotnet_dirs(a, build, major)
+    };
+    let name = build.map(|u| u.build.to_string());
+    let sandbox = al_deps::cache::bcartifacts_sandbox_from_env();
+    let (assembly_dirs, fetch) =
+        al_testrun::dotnet::renderer_probe_dirs(&a.dotnet_assembly_dirs, sandbox.as_deref(), name.as_deref());
+    let renderer = al_testrun::report_render_pieces::run_renderer(
+        SidecarConfig {
+            assembly_dirs,
+            ..cfg.clone()
+        },
+        build.filter(|_| fetch).map(|u| u.build.clone()),
+        &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+        !a.no_download,
+    );
+    (cfg, renderer)
+}
+
+/// Gives the run's `dotnet` configuration its report renderer and `--require-report-renderer`.
+pub fn set_renderer(
+    dotnet: &mut al_vm::dotnet::DotNetConfig,
+    renderer: Arc<dyn al_host::render::ReportRenderer>,
+    a: &TestArgs,
+) {
+    dotnet.renderer = renderer;
+    dotnet.require_renderer = a.require_report_renderer;
+}
 
 /// A sidecar configuration with the probe folders and the fetch set, to fill in the rest of a run's configuration.
 pub fn dotnet_dirs(a: &TestArgs, build: Option<&ArtifactUse>, major: u32) -> SidecarConfig {
