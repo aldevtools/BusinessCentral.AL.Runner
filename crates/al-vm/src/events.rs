@@ -284,34 +284,12 @@ impl Registry {
         let mut reg = Registry::default();
         // Heads only: building the registry makes no object of a program whose objects are made on first read (ADR-054).
         let heads = program.objects.heads();
-        // Events declared in a table or page extension are subscribed to on the base object
-        // (corpus events/extension-events/TestExtensionDeclaredEvents.al:92 PageExtEvent_SubscriberBoundToBasePage_...).
-        let mut base_of: HashMap<usize, usize> = HashMap::new();
-        for (oi, o) in heads.iter().enumerate() {
-            if let Some(base) = o.report_ext_base {
-                base_of.insert(oi, base);
-            }
-            if let Some(t) = &o.table {
-                for &e in &t.extensions {
-                    base_of.insert(e, oi);
-                }
-            }
-            for &e in &o.page_extensions {
-                base_of.insert(e, oi);
-            }
-        }
+        let base_of = base_objects(heads);
         let mut by_name: HashMap<(ObjKind, String), usize> = HashMap::new();
         // Objects that share a kind and a name (they sit in different namespaces).
         let mut same_name: HashMap<(ObjKind, String), Vec<usize>> = HashMap::new();
         let mut by_id: HashMap<(ObjKind, u32), usize> = HashMap::new();
-        // Every object of the program by kind and name or id, shells included: a publisher among them is in a loaded app.
-        let mut any_head: std::collections::HashSet<(ObjKind, String)> = Default::default();
-        for o in heads.iter() {
-            any_head.insert((o.kind, o.name.to_lowercase()));
-            if let Some(id) = o.id {
-                any_head.insert((o.kind, id.to_string()));
-            }
-        }
+        let any_head = object_keys(heads);
         let present = |kind: ObjKind, target: &str| any_head.contains(&(kind, target.to_lowercase()));
         for (oi, o) in heads.iter().enumerate() {
             // A shell (an uncompiled object) is never found by kind and name.
@@ -775,6 +753,39 @@ pub fn unquote(arg: &str) -> String {
         return inner.to_string();
     }
     a.to_string()
+}
+
+/// The base object of each extension object: events declared in a table or page extension are subscribed to on the base
+/// object (corpus events/extension-events/TestExtensionDeclaredEvents.al:92 PageExtEvent_SubscriberBoundToBasePage_...).
+fn base_objects(heads: &[ir::ObjectHead]) -> HashMap<usize, usize> {
+    let mut base_of: HashMap<usize, usize> = HashMap::new();
+    for (oi, o) in heads.iter().enumerate() {
+        if let Some(base) = o.report_ext_base {
+            base_of.insert(oi, base);
+        }
+        if let Some(t) = &o.table {
+            for &e in &t.extensions {
+                base_of.insert(e, oi);
+            }
+        }
+        for &e in &o.page_extensions {
+            base_of.insert(e, oi);
+        }
+    }
+    base_of
+}
+
+/// Every object of the program by kind and lower-case name or id, shells included: a publisher among them is in a loaded
+/// app ([`Registry::absent`]).
+fn object_keys(heads: &[ir::ObjectHead]) -> std::collections::HashSet<(ObjKind, String)> {
+    let mut keys = std::collections::HashSet::new();
+    for o in heads {
+        keys.insert((o.kind, o.name.to_lowercase()));
+        if let Some(id) = o.id {
+            keys.insert((o.kind, id.to_string()));
+        }
+    }
+    keys
 }
 
 #[cfg(test)]
