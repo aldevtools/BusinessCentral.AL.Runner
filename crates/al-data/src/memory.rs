@@ -889,6 +889,16 @@ impl MemStore {
         self.versions.get(&slot) != self.committed_versions.get(&slot)
     }
 
+    /// The table objects (in any company) that a write after the change counter was `counter` changed, and that neither a
+    /// commit kept nor a rollback undid: the tables whose rows of those writes a rollback now takes back.
+    pub fn tables_rolled_back_since(&self, counter: u64) -> std::collections::BTreeSet<u32> {
+        self.versions
+            .iter()
+            .filter(|(slot, v)| **v > counter && self.committed_versions.get(slot) != Some(*v))
+            .map(|((_, object), _)| *object)
+            .collect()
+    }
+
     /// Whether any write since the last commit or rollback is pending.
     pub fn has_uncommitted(&self) -> bool {
         !(self.tables.ptr_eq(&self.committed) || (self.tables.is_empty() && self.committed.is_empty()))
@@ -2020,6 +2030,37 @@ impl SnapshotStore for MemStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Review of al-runner PR 8119: the test runner asks which tables install code wrote since it started that a rollback
+    // now takes back: not a write before it started, nor one it committed.
+    #[test]
+    fn the_store_tells_which_tables_a_rollback_takes_back_of_the_writes_since_a_mark() {
+        use crate::contract::{cx, row, table};
+        let c = cx("C");
+        let at = |object| {
+            let mut t = table();
+            t.object = object;
+            t
+        };
+        let mut s = MemStore::default();
+        s.insert(&c, &at(1), row("A", 1, 1)).unwrap();
+        let mark = s.change_counter();
+        s.insert(&c, &at(2), row("A", 1, 1)).unwrap();
+        assert_eq!(
+            s.tables_rolled_back_since(mark),
+            [2].into(),
+            "a write before the mark is not counted"
+        );
+        s.commit();
+        assert!(
+            s.tables_rolled_back_since(mark).is_empty(),
+            "a committed write is not taken back"
+        );
+        s.insert(&c, &at(3), row("A", 1, 1)).unwrap();
+        assert_eq!(s.tables_rolled_back_since(mark), [3].into());
+        s.rollback();
+        assert!(s.tables_rolled_back_since(mark).is_empty());
+    }
 
     // al-runner issue 5641: the test runner asks which tables a Company Triggers subscriber wrote while it ran, and whether a
     // test read or wrote one of them.

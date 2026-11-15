@@ -302,3 +302,12 @@ returns Ok.
 An outside report says BC allows shape S; a probe then measures denial in shapes that differ from S in several facts. The
 gate that now denies must require every measured value of every fact that differs from S (the sets and how they were
 assigned, the test codeunit's properties, the frames' attributes), not only one of them.
+
+## 20. Rows the runner does not know have more readers than the test (al-runner PR 8119)
+
+Rows the runner does not know (the tables of a stopped or not-run routine): list every kind of code that can read them
+(later install code, tests, OnRun, the test session's Company Triggers and login subscribers), and what a refused reader
+leaves outside the database (SingleInstance globals, session state). Refuse each, in one owner.
+
+Code that is rolled back also takes the rows it wrote. Refuse the readers of every table it wrote at run time, not only
+the tables its record variables name (al-runner PR 8119, probe n19).
