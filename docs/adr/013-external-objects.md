@@ -961,7 +961,8 @@ dependency order, every `OnInstallAppPerCompany`, then every `OnInstallAppPerDat
 per-company table is refused there, a `DataPerCompany = false` table works); then `Company-Initialize`; then
 `Session::capture_baseline` (rows, system id, row version and AutoIncrement counters, isolated storage, number
 sequences). Every test codeunit's session starts with `restore_baseline` (the persistent store makes both O(1));
-the project's own install codeunits still run per test codeunit, as before. A root that stops (Unsupported or an AL
+the project's own install codeunits still run per test codeunit, as before (without a baseline, since ADR-046's
+amendment of 2026-11-15, once per run when that gives each codeunit the same session). A root that stops (Unsupported or an AL
 error) is reported on stderr: `Company-Initialize` keeps the rows it wrote before, an install trigger is rolled back.
 The tables such a root writes rows to (a record variable's `Insert`, `Modify`, `Rename` or `ModifyAll` in its static
 closure; rows that event subscribers add and `RecordRef` writes are not found), minus the tables that hold a row in the

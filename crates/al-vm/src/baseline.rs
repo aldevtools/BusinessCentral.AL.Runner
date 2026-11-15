@@ -26,7 +26,8 @@ pub struct Baseline {
     last_stamp: i64,
     /// The workspace app's own install codeunits ran once, before this capture (the runner does it once per run, as
     /// publishing an app does, not once per test codeunit): the tables of those that could not run, and why.
-    /// `None`: they did not run here and each test codeunit's session runs them.
+    /// `None`: they did not run here; each test codeunit's session runs them, or starts from what one run of them in a
+    /// session of its own left (al-testrun `install_once.rs`, `Session::install_left`).
     pub workspace_installs: Option<Vec<(std::collections::BTreeSet<u32>, String)>>,
     /// The company data codeunit (Microsoft's DemoTool) built the company to its end before this capture: its setup rows
     /// (General Ledger Setup) are the ones BC's own build writes.

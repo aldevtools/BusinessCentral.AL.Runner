@@ -1,5 +1,5 @@
 //! The Html of a Word layout made by BC's own merger and converter (ADR-040 amendment 2026-11-15, accepted by the owner
-//! 2026-11-15): `OfficeWordDocumentMerger.MergeWordDocument(layout, dataset, null, .., <report name>, "", ..)`, then
+//! 2026-11-15): `OfficeWordDocumentMerger.MergeWordDocument(layout, dataset, null, .., <report caption>, "", ..)`, then
 //! `WordTransformation.ConvertToHtml`, both from the BC artifact through the run's renderer (`DotNetConfig::renderer`).
 //!
 //! Only a save of a measured shape (`shape`) renders. Every other Html save keeps the opaque value of the amendment of
@@ -15,12 +15,13 @@ pub(crate) use call::{RenderInputs, SaveCall};
 use crate::report_save::Renders;
 use crate::reports::Schema;
 use crate::{Session, Signal};
+use al_builtins::assumptions::{Assumption, assume};
 use al_host::render::{RenderNeed, WordMerge};
 
 /// The facts of the save itself, each by equality with every probe cell (RxHtmlHashTests.al:192, :218, :395, :433 and :471,
-/// through `HashCell`): its whole fact vector after the run is the cells' (`html_cell`, from `report_save`), its call is the
-/// cells' (`call::MEASURED_CALL`), it renders with the report's own default layout (`Renders::Default`), on a major of
-/// `shape::BUILDS`.
+/// RxHtmlWidenTests.al:394, :440, :482, :568 and :614, through `HashCell`): its whole fact vector after the run is the
+/// cells' (`html_cell`, from `report_save`), its call is the cells' (`call::MEASURED_CALL`), it renders with the report's
+/// own default layout (`Renders::Default`), on a major of `shape::BUILDS`.
 pub(crate) fn save_is_measured(html_cell: bool, call: SaveCall, renders: Renders, major: Option<u16>) -> bool {
     html_cell
         && call == call::MEASURED_CALL
@@ -50,11 +51,16 @@ impl Session {
         let Some(facts) = layout_facts::read(&layout).filter(shape::content_is_measured) else {
             return Ok(None);
         };
-        let measured = shape::save_shape(program, schema.object(), &facts, dataset, inputs.kinds)
-            .is_some_and(|s| shape::shape_is_measured(shape::SHAPES, &s));
-        if !measured {
+        let Some((save, title)) = shape::save_shape(program, schema.object(), &facts, dataset, inputs.kinds) else {
+            return Ok(None);
+        };
+        // A Caption a translation file could change in the call's language 1033 is not the measured title
+        // (RxHtmlWidenTests.al:648, measured in an app that ships no file of that language).
+        let translated = title.caption && self.app_translates_into(schema.object(), call::MEASURED_CALL.language);
+        if !shape::shape_is_measured(shape::SHAPES, &save) || translated {
             return Ok(None);
         }
+        let unpinned = shape::rests_on_unpinned_cells(shape::SHAPES, &facts, &save, &title);
         let renderer = self.engine.dotnet.renderer.clone();
         // A converter whose version no cell measured on this major gives Html that keeps Part A: do not render it.
         if let Some(version) = renderer.converter_version()
@@ -82,12 +88,12 @@ impl Session {
                 schema.name()
             ))
         };
-        // The title is the report's name: the report states neither Caption nor CaptionML (`shape::save_shape`).
+        // The title is the report's Caption, or its name when it states none (`shape::save_shape`).
         let docx = renderer
             .merge_word(&WordMerge {
                 layout,
                 dataset: dataset.to_vec(),
-                title: schema.name().to_string(),
+                title: title.text,
                 company: String::new(),
                 pictures: false,
             })
@@ -97,7 +103,11 @@ impl Session {
         if !major.is_some_and(|m| shape::build_is_measured(shape::BUILDS, m, &html)) {
             return Ok(None);
         }
-        // BC writes these bytes: RxHtmlHashTests.al:192, :218, :395, :433 and :471 assert their SHA-256 and length.
+        // BC writes these bytes: RxHtmlHashTests.al:192, :218, :395, :433 and :471 assert their SHA-256 and length. A save
+        // with a fact only corpus pull request 1419 (merged, not pinned) measured rests on its assumption.
+        if unpinned {
+            assume(Assumption::ReportHtmlRenderedByBcConverter);
+        }
         Ok(Some(html))
     }
 }

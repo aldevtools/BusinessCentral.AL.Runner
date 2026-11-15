@@ -252,11 +252,13 @@ fn host_in_company_perturbed(start: Option<i64>, company: Option<&str>, p: &crat
 /// outside the directory the user opted into).
 pub struct DirFileSystem {
     root: PathBuf,
+    /// [`FileSystem::changed`].
+    changed: bool,
 }
 
 impl DirFileSystem {
     pub fn new(root: PathBuf) -> DirFileSystem {
-        DirFileSystem { root }
+        DirFileSystem { root, changed: false }
     }
 
     fn resolve(&self, path: &str) -> Option<PathBuf> {
@@ -280,6 +282,7 @@ impl FileSystem for DirFileSystem {
         std::fs::read(self.resolve(path)?).ok()
     }
     fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
+        self.changed = true;
         let p = self
             .resolve(path)
             .ok_or_else(|| format!("`{path}` is outside the files directory"))?;
@@ -292,7 +295,11 @@ impl FileSystem for DirFileSystem {
         self.resolve(path).is_some_and(|p| p.is_file())
     }
     fn remove(&mut self, path: &str) -> bool {
+        self.changed = true;
         self.resolve(path).is_some_and(|p| std::fs::remove_file(p).is_ok())
+    }
+    fn changed(&self) -> bool {
+        self.changed
     }
     /// A folder the user put into the files directory: File.Create and File.Open into a subfolder of TemporaryPath() that
     /// does not exist fail (al-builtins file.rs `missing_folder`).

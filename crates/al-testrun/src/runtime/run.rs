@@ -412,22 +412,17 @@ fn run_codeunit_inner(
         Ok(models) => models,
         Err(why) => return all(Outcome::NotRun(why)),
     };
-    // What publishing the app does first: run its install codeunits, then commit.
-    let skipped_installs = match baseline.and_then(|b| b.workspace_installs.clone()) {
-        // Already run once for the whole run, with the baseline.
-        Some(skipped) => skipped,
-        None => {
-            // As the baseline does (`baseline::run_traced`, ADR-046 amendment 4): the corpus CI database's session company
-            // is an evaluation company.
-            if session.engine.test_data.is_none() && session.companies().len() > 1 {
-                session.mark_evaluation_company();
-            }
-            session.set_install_scope(true);
-            let skipped = run_install_codeunits(lowered, &mut session);
-            session.set_install_scope(false);
-            skipped
-        }
-    };
+    // What publishing the app does first: run its install codeunits, then commit. No single instance of an earlier
+    // codeunit moved in: the session is as `install_once` makes one.
+    let skipped_installs = super::install_once::installs_for(
+        lowered,
+        &mut session,
+        baseline,
+        scratch,
+        execute,
+        observe.is_some(),
+        moved.is_none(),
+    );
     // What install code wrote is known only in part (ADR-046): the tests read it through the facts of this engine.
     crate::install::ensure_facts(engine, lowered);
     session.mark_install_end();

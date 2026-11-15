@@ -439,6 +439,12 @@ pub struct Phases {
     pub decoded_on_touch: Option<usize>,
     /// Building the engine from the lowered program.
     pub engine: std::time::Duration,
+    /// How many times the install code of the apps under test ran for the test codeunits, when no install baseline ran it
+    /// (`install_once.rs`): once per run and texts of the resource files it read; once per codeunit in a run that notes
+    /// the code it runs; and once per codeunit when it left state a new session does not start from
+    /// (`Session::install_left`), the run that found that out being the first codeunit's. A run on files of a real folder
+    /// (`--files-dir`) also runs it once per codeunit.
+    pub install_runs: usize,
     /// The install baseline did not run because no selected test can observe it (`observe.rs`).
     pub baseline_skipped: bool,
     /// Why the baseline ran although the rule was tried: the first construct a selected test
@@ -665,6 +671,8 @@ pub(crate) struct Unit {
     /// This unit runs BcContainerHelper's discovery pass over these test codeunits instead of its tests
     /// (`discovery::run_pass`).
     discovery: Option<Arc<Vec<usize>>>,
+    /// See `Scratch::installs`.
+    installs: Arc<install_once::RunInstalls>,
 }
 
 /// What a scratch run or a capture leaves besides outcomes, per test.
@@ -719,6 +727,8 @@ pub(crate) struct Scratch {
     on_run_rows: OnRunRows,
     /// See `session_flags.rs`.
     flags: session_flags::SessionFlags,
+    /// What the install code left for the codeunits of the run that start from no install baseline (`install_once.rs`).
+    installs: Arc<install_once::RunInstalls>,
     /// See `RunOptions::report_unpinned_errors`.
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
@@ -898,6 +908,7 @@ fn run_unit(
             runner: u.runner,
             watch: u.watch,
             singles_past_stop: u.singles_past_stop,
+            installs: u.installs.clone(),
             ..Default::default()
         };
         if u.coverage {
@@ -1038,6 +1049,7 @@ fn scratch_unit(
         singles_past_stop: false,
         driver: opts.test_driver,
         discovery: None,
+        installs: Default::default(),
     }
 }
 
@@ -1169,6 +1181,7 @@ mod discovery;
 mod group1_sessions_tests;
 mod grow;
 mod handlers;
+mod install_once;
 mod install_snapshot;
 #[cfg(test)]
 mod install_unknown_tests;

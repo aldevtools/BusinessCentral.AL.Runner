@@ -215,13 +215,18 @@ pub(crate) fn new_variable(v: &Value, commits: u64, sources: &mut Sources) {
 /// is `false` no record of the session is a measured source and [`records_into_builtin`] has nothing to end. `table_copies`
 /// says the same of a [`TABLE_COPY`] record: only `Session::gettable_copy` stamps one, and adopted single instances may
 /// hold one. Neither is ever reset.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Sources {
     records: bool,
     table_copies: bool,
 }
 
 impl Sources {
+    /// Holds what a new session holds (`install_left.rs`): no record marked.
+    pub(crate) fn as_new(self) -> bool {
+        self == Sources::default()
+    }
+
     /// Whether any record of the session may be a measured source.
     #[inline]
     pub(crate) fn any(self) -> bool {

@@ -125,6 +125,8 @@ pub struct Layout {
     pub output: Vec<String>,
     /// The `Caption` property when it is a text literal.
     pub caption: Option<String>,
+    /// The `Caption` property states attributes after its literal (a `,` in its value: `Locked`, `Comment`, `MaxLength`).
+    pub caption_attributes: bool,
     /// The `FormatRegion` property (a text literal).
     pub format_region: Option<String>,
     /// The request page's `AboutTitle` and `AboutText` when they are text literals.
@@ -344,6 +346,7 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
         reasons: Vec::new(),
         output: Vec::new(),
         caption: None,
+        caption_attributes: false,
         format_region: None,
         about_title: None,
         about_text: None,
@@ -367,6 +370,10 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
         let (name, value) = (p.name().to_ascii_lowercase(), p.value_text());
         match name.as_str() {
             "caption" => {
+                out.caption_attributes = p
+                    .syntax()
+                    .descendants_with_tokens()
+                    .any(|t| t.kind() == SyntaxKind::Comma);
                 out.caption = text_literal(&value);
                 if out.caption.is_none() {
                     out.dataset_reasons
@@ -1404,6 +1411,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         output: layout.output.clone(),
         unsupported: reasons,
         caption: layout.caption.clone(),
+        caption_attributes: layout.caption_attributes,
         format_region: layout.format_region.clone(),
         about_title: layout.about_title.clone(),
         about_text: layout.about_text.clone(),

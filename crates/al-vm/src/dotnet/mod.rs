@@ -127,6 +127,41 @@ pub struct DotNetState {
 }
 
 impl DotNetState {
+    /// Holds what a new session holds (`install_left.rs`): no host session started and nothing noted. Every field is
+    /// named: a new one does not compile here until it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let DotNetState {
+            session,
+            release,
+            available,
+            bridges,
+            open_workbooks,
+            closed_workbooks,
+            worksheets,
+            workbook_readers,
+            worksheet_readers,
+            cleared,
+            entry_streams,
+            result_ty,
+            null_string,
+            password_rng,
+        } = self;
+        session.is_none()
+            && release.borrow().is_empty()
+            && available.is_none()
+            && bridges.is_empty()
+            && open_workbooks.is_empty()
+            && closed_workbooks.is_empty()
+            && worksheets.is_empty()
+            && workbook_readers.is_empty()
+            && worksheet_readers.is_empty()
+            && cleared.is_empty()
+            && entry_streams.is_empty()
+            && result_ty.is_none()
+            && !null_string
+            && password_rng.is_none()
+    }
+
     pub(crate) fn clear_null_string(&mut self) {
         self.null_string = false;
     }

@@ -1385,6 +1385,8 @@ impl CorpusRuntime {
         // pass first runs on several threads.
         let snapshot_once =
             super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder());
+        // What the install code left for the codeunits that start from no install baseline: one for the run (`install_once.rs`).
+        let installs = Arc::new(super::install_once::RunInstalls::default());
         let passes = Pass::of_run(opts, &opts_only, &memory, order, in_program_order);
         let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
         let mut pass_times: Vec<PassTime> = Vec::new();
@@ -1395,9 +1397,7 @@ impl CorpusRuntime {
             let reset_ns = std::sync::atomic::AtomicU64::new(0);
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
-            if let Ok(mut o) = engine.resource_overrides.write() {
-                o.clone_from(&pass.resources);
-            }
+            super::install_once::begin_pass(&engine, &pass.resources);
             // The install code read resource files, and this entry has resource files of its own: its install baseline
             // would be another one, which is not made per entry.
             let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
@@ -1462,6 +1462,7 @@ impl CorpusRuntime {
                             singles_past_stop: false,
                             driver,
                             discovery: None,
+                            installs: installs.clone(),
                         }),
                         Err(why) => {
                             if hub_path && requires_disabled(&lowered.program.objects[oi]) {
@@ -1830,9 +1831,7 @@ impl CorpusRuntime {
                 wall: pass_started.elapsed(),
             });
         }
-        if let Ok(mut o) = engine.resource_overrides.write() {
-            o.clear();
-        }
+        let install_runs = super::install_once::end_run(&engine, &installs);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -1892,6 +1891,7 @@ impl CorpusRuntime {
                 cache: cache_report.clone(),
                 engine: engine_time,
                 baseline_skipped,
+                install_runs,
                 baseline_why: baseline_note,
                 compile_cache_skipped,
                 source_index,

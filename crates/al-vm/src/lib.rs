@@ -96,6 +96,7 @@ pub mod group1_sessions;
 mod hostvalues;
 mod http;
 pub mod impact;
+mod install_left;
 mod interfaces;
 mod isdirty;
 mod license_ceiling;
@@ -140,6 +141,7 @@ pub mod report_placeholder;
 mod report_render;
 mod report_save;
 mod reports;
+mod resource_reads;
 mod run_page_link_open;
 mod sessionops;
 mod setup_no_op;
@@ -175,6 +177,8 @@ mod views;
 mod views_cross_enum;
 mod xmlports;
 mod xrec_blobs;
+pub use install_left::InstallLeft;
+pub use resource_reads::{ReadTexts, ResourceReads};
 pub use transactions::TxModel;
 pub use ui::{UiHandler, UiKind};
 
@@ -1155,6 +1159,8 @@ pub struct Session {
     pub(crate) package_load: bool,
     /// The time `Sleep` has waited, added to every clock reading.
     pub(crate) waited_ms: i64,
+    /// The resource files AL code of this session read (`resource_reads.rs`).
+    pub(crate) resource_reads: std::cell::RefCell<resource_reads::ResourceReads>,
     /// The running test's time limit in milliseconds, which its `Sleep` calls count toward (al-runner issue 5605), and
     /// the time they have asked for since the test started. `None` outside a test with a limit.
     pub(crate) sleep_budget: Option<i64>,
@@ -1320,6 +1326,7 @@ impl Session {
             through_recordref: false,
             host,
             waited_ms: 0,
+            resource_reads: Default::default(),
             companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),

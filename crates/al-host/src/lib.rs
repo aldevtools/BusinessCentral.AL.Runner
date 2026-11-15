@@ -737,6 +737,11 @@ pub trait FileSystem {
     fn near_match(&self, _path: &str) -> Option<String> {
         None
     }
+    /// Whether a write, a removal or a new folder changed the file system since it was made (`al-vm` install_left.rs). The
+    /// default answers yes: a file system that does not track it counts as changed.
+    fn changed(&self) -> bool {
+        true
+    }
 }
 
 /// The temporary folders of a run (`TemporaryPath()` is `\TEMP\`, `File.CreateTempFile` names files under `temp/`), as
@@ -759,6 +764,8 @@ fn mem_fold(path: &str) -> String {
 pub struct MemFileSystem {
     files: std::collections::BTreeMap<String, Vec<u8>>,
     dirs: std::collections::BTreeSet<String>,
+    /// [`FileSystem::changed`].
+    changed: bool,
 }
 
 impl MemFileSystem {
@@ -773,6 +780,7 @@ impl FileSystem for MemFileSystem {
         self.files.get(path).cloned()
     }
     fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
+        self.changed = true;
         self.files.insert(path.to_string(), bytes.to_vec());
         Ok(())
     }
@@ -780,7 +788,11 @@ impl FileSystem for MemFileSystem {
         self.files.contains_key(path)
     }
     fn remove(&mut self, path: &str) -> bool {
+        self.changed = true;
         self.files.remove(path).is_some()
+    }
+    fn changed(&self) -> bool {
+        self.changed
     }
     fn in_memory(&self) -> bool {
         true
@@ -795,6 +807,7 @@ impl FileSystem for MemFileSystem {
     /// The folder and the folders above it (a nested folder at once: QxDotNetDemoShapes.al:313-314). A file of that name
     /// raises a .NET exception no test pins: refused.
     fn create_dir(&mut self, path: &str) -> Result<(), String> {
+        self.changed = true;
         let k = mem_dir_key(path);
         if k.is_empty() || self.files.keys().any(|f| mem_dir_key(f) == k) {
             return Err("a file of that name exists, or the path is empty (the .NET exception is not pinned)".into());
@@ -809,6 +822,7 @@ impl FileSystem for MemFileSystem {
     /// A folder AL code created, with what it holds when `recursive` (QxDotNetDemoShapes.al:317-327); a missing folder,
     /// a temporary folder, and one that holds something without `recursive` raise .NET exceptions no test pins: refused.
     fn remove_dir(&mut self, path: &str, recursive: bool) -> Result<(), String> {
+        self.changed = true;
         let k = mem_dir_key(path);
         if !self.dirs.contains(&k) {
             return Err("the folder does not exist (the .NET exception is not pinned)".into());

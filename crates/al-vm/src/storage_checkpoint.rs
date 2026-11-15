@@ -33,6 +33,15 @@ pub(crate) struct Unmeasured {
     sequences: HashMap<Key, String>,
 }
 
+impl Unmeasured {
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let Unmeasured { isolated, sequences } = self;
+        isolated.is_empty() && sequences.is_empty()
+    }
+}
+
 /// The keys of `then` whose value `now` does not hold, sorted.
 fn unkept<V: PartialEq>(then: &HashMap<Key, V>, now: &HashMap<Key, V>) -> Vec<Key> {
     let mut keys: Vec<Key> = then

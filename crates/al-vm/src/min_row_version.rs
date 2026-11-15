@@ -16,7 +16,7 @@ use al_builtins::value::Value;
 use crate::Session;
 
 /// The minimum active row version of the running test codeunit ([`Session::freeze_min_active_row_version`]).
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub(crate) struct IsoMin {
     /// The value, once taken.
     value: Option<i64>,
@@ -27,6 +27,13 @@ pub(crate) struct IsoMin {
     held: bool,
     /// A background session committed rows after the value was taken: what the value is then is not pinned.
     unpinned: bool,
+}
+
+impl IsoMin {
+    /// Holds what a new session holds (`install_left.rs`): no value taken.
+    pub(crate) fn as_new(&self) -> bool {
+        *self == IsoMin::default()
+    }
 }
 
 impl Session {
