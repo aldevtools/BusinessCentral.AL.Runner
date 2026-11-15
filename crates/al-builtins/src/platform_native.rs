@@ -320,6 +320,17 @@ fn encoding(encoding: &Value, codepage: &Value, windows_text: bool) -> Result<En
     }
 }
 
+/// The encoding of `ToBase64(Text, Boolean, TextEncoding, Integer)`: [`encoding`]'s answer, but UTF8 with code page 1252 or
+/// 28591 refuses. The corpus measures only Windows with those code pages and UTF8 with 0 and 65001 (types/PVBase64.al:72,
+/// :76-78); System Application's `ToBase64(Text, TextEncoding)` passes 0, so only a direct call reaches it (al-runner issue
+/// 8069).
+fn to_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<Enc, Signal> {
+    if let (Value::Integer(cp @ (1252 | 28591)), true) = (codepage, member_name(encoding_arg)?.eq_ignore_ascii_case("utf8")) {
+        return unsupported(format!("ToBase64 with code page {cp} and TextEncoding::UTF8 (not pinned)"));
+    }
+    encoding(encoding_arg, codepage, windows_text)
+}
+
 /// The encoding of `FromBase64(Text, TextEncoding, Integer)`. The cells listed here are measured; every other pair keeps
 /// [`encoding`]'s answer (the `ToBase64` cells, which also answer UTF8 with 0 or 65001, Windows and MSDos with 0, 1252,
 /// 28591 or 65001, and UTF16 with 0), and its refusal of every other code page.
@@ -523,7 +534,7 @@ fn flag(v: &Value) -> Result<bool, Signal> {
 fn to_base64_text(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let bytes = encode_text(
         &text_arg(&a[0])?,
-        encoding(&a[2], &a[3], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?,
+        to_base64_encoding(&a[2], &a[3], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?,
     )?;
     Ok(Value::Text(b64_encode(&bytes, flag(&a[1])?).into()))
 }
@@ -531,7 +542,7 @@ fn to_base64_text(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut
 fn to_base64_text_out(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let bytes = encode_text(
         &text_arg(&a[0])?,
-        encoding(&a[2], &a[3], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?,
+        to_base64_encoding(&a[2], &a[3], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?,
     )?;
     let text = b64_encode(&bytes, flag(&a[1])?);
     write_raw_bytes(&mut a[4], text.as_bytes())?;
@@ -716,6 +727,26 @@ mod tests {
             }
         }
         assert_eq!(b64_decode("SGVs bG8=").ok().unwrap(), b"Hello");
+    }
+
+    /// The encoding `ToBase64(Text, InsertLineBreaks, TextEncoding, CodePage)` writes with.
+    fn to_enc(name: &str, cp: i32) -> Result<Enc, Signal> {
+        let members: std::sync::Arc<[String]> = ["MSDos", "UTF8", "UTF16", "Windows"].map(String::from).to_vec().into();
+        let i = members.iter().position(|m| m == name).unwrap() as i32;
+        to_base64_encoding(&Value::Option(i, members), &Value::Integer(cp), false)
+    }
+
+    // al-runner issue 8069: ToBase64 with UTF8 and code page 1252 or 28591 is not measured (types/PVBase64.al:76-78 measure
+    // only Windows with 1252 and 28591, and UTF8 with 65001); it refuses instead of writing Latin bytes.
+    #[test]
+    fn to_base64_with_utf8_and_a_latin_code_page_is_refused() {
+        for cp in [1252, 28591] {
+            assert!(matches!(to_enc("UTF8", cp), Err(Signal::Unsupported(_))), "{cp}");
+        }
+        assert!(matches!(to_enc("UTF8", 65001), Ok(Enc::Utf8)));
+        assert!(matches!(to_enc("UTF8", 0), Ok(Enc::Utf8)));
+        assert!(matches!(to_enc("Windows", 1252), Ok(Enc::Windows1252)));
+        assert!(matches!(to_enc("Windows", 28591), Ok(Enc::Latin1)));
     }
 
     #[test]
