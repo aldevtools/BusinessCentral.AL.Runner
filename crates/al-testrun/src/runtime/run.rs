@@ -291,7 +291,10 @@ fn run_codeunit_checked(
             engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
         );
     }
-    match super::test_handlers::refusal(lowered, object) {
+    let refusal = (engine.events)
+        .absent_publisher_subscriber(&lowered.program.objects[object], object)
+        .or_else(|| super::test_handlers::refusal(lowered, object));
+    match refusal {
         Some(why) => {
             let obj = &lowered.program.objects[object];
             obj.routines

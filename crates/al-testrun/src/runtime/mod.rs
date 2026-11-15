@@ -1144,6 +1144,8 @@ impl<T: Send + 'static> Drop for Retiring<T> {
     }
 }
 
+#[cfg(test)]
+mod absent_publisher_tests;
 mod al_runner;
 #[cfg(test)]
 mod al_runner_tests;
