@@ -419,6 +419,22 @@ fn the_title_is_the_plain_caption_or_the_name() {
     ] {
         assert_eq!(title_of(props), None, "{props}");
     }
+    // The label attribute signal is a Comma token of the Caption property: a comma inside the literal or inside a
+    // comment after it is not one, so the Caption stays the title.
+    for (props, text) in [
+        ("Caption = 'Rx, Cap';", "Rx, Cap"),
+        ("Caption = 'Rx Cap' /* a, b */;", "Rx Cap"),
+        ("Caption = 'Rx Cap'; // a, b\n", "Rx Cap"),
+    ] {
+        assert_eq!(
+            title_of(props),
+            Some(Title {
+                text: text.into(),
+                caption: true
+            }),
+            "{props}"
+        );
+    }
 }
 
 #[test]
