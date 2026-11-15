@@ -303,6 +303,13 @@ pub trait Ctx: FormatCtx {
     fn app_resources(&self) -> Option<AppResources> {
         None
     }
+    /// The name of the app that owns the running code and the content of its resource `name` (`None`: it has none of that
+    /// name). A context that tracks what is read notes only that file.
+    fn app_resource(&self, name: &str) -> Option<(String, Option<Vec<u8>>)> {
+        let (app, resources) = self.app_resources()?;
+        let content = resources.into_iter().find(|(n, _)| n == name).map(|(_, c)| c);
+        Some((app, content))
+    }
     /// The module BC answers `GetModuleInfo` with for the null app id: the installed application.
     fn application_module(&self) -> crate::value::ModuleInfoState {
         crate::value::ModuleInfoState {

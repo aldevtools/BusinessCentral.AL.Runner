@@ -38,6 +38,13 @@ pub(crate) struct Tasks {
 }
 
 impl Tasks {
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let Tasks { open, committed } = self;
+        open.is_empty() && committed.is_empty()
+    }
+
     pub(crate) fn commit(&mut self) {
         let open = std::mem::take(&mut self.open);
         self.committed.extend(open);

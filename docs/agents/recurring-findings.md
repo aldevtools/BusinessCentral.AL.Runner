@@ -331,3 +331,11 @@ A value read once flows on: a later test reads it after a keeping write, through
 row. Mark the first reader and every test after it, and count a keeping write (`+=`, `List.Add`, a `var` argument) as a
 read. Code that runs before the first test (session-open subscribers, OnRun) is a reader too. A write frees a value only when it drops every part of it (a simple type; not a record's filters or temporary rows)
 and only after its right side ran (a call on the right side may read the value).
+
+## 22. Code moved to a session of its own, with a restore of what it left (al-runner PR 8153)
+
+List every field of `Session` the code can write, not only the fields the existing snapshot type has (media, encryption
+key, files, scheduled tasks, table connections, last error, application areas, the Random stream). Take the new path only
+when the other fields equal a new session's, in one predicate next to the snapshot that names every field (no `..`), so a
+new field does not compile until it is decided. Probe each with code that writes it and a test that reads it, head
+against main.

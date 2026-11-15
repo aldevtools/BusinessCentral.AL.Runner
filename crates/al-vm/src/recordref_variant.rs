@@ -71,6 +71,17 @@ pub(crate) fn takes_param(ty: &RtType, by_var: bool) -> bool {
 }
 
 impl VariantRefs {
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let VariantRefs {
+            get_table,
+            typed_aliases,
+            variant_held,
+        } = self;
+        !get_table && typed_aliases.is_empty() && variant_held.is_empty()
+    }
+
     /// The value a parameter of type `ty` gets for RecordRef `handle` (`takes_param`). By value: a RecordRef of its own on
     /// the same buffer, so the callee's Close leaves the caller's open; a subscriber's RecordRef parameter is a typed alias.
     /// Bound to a `var` Variant: the Variant holds the caller's handle, noted as Variant-held, so a RecordRef assigned from
