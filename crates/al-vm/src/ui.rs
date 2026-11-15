@@ -98,6 +98,13 @@ fn typed_modal(kind: UiKind, params: usize, by_var: &[bool], p: Option<&RtType>,
         && matches!(response, Some(RtType::Option(_)) | Some(RtType::Enum(_)))
 }
 
+/// A page handler whose only parameter is a TestPage or TestRequestPage (both lower to `RtType::TestPage`).
+fn page_handler_of_test_page(kind: UiKind, params: usize, p: Option<&RtType>) -> bool {
+    matches!(kind, UiKind::Page | UiKind::ModalPage | UiKind::RequestPage)
+        && params == 1
+        && matches!(p, Some(RtType::TestPage(_)))
+}
+
 /// A `[PageHandler]` whose only parameter is `var P: Page X` (testpage/Y14PageTriage.al:383, corpus master).
 fn typed_page(kind: UiKind, params: usize, by_var: &[bool], p: Option<&RtType>) -> bool {
     kind == UiKind::Page && params == 1 && by_var == [true] && matches!(p, Some(RtType::Page(_)))
@@ -249,6 +256,12 @@ impl Session {
                 r.name,
                 kind.label()
             ));
+        }
+        // Under `--no-client` a handler that takes a TestPage or TestRequestPage (a PageHandler, ModalPageHandler or
+        // RequestPageHandler whose only parameter is one) is refused before the test starts (`clientless.rs`).
+        if self.is_clientless_session() && page_handler_of_test_page(kind, r.params, ty(0)) {
+            let handler = format!("the {}Handler {}", kind.label(), r.name);
+            return Err(Self::clientless_test_page_handler_reason(&handler));
         }
         // `[SendNotificationHandler(true)]` and `[RecallNotificationHandler(true)]` are optional: one that never runs does not fail
         // the test (al-language/testpage/notifications-and-control-values/CaNotificationTests.al:14-38, handlers at :61 and :70).

@@ -118,6 +118,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - the rows of a pinned table checked by key only: the other field values are what the page's code reads (a caption
     expression, a trigger). Require every field of every measured row by equality (al-runner PR 8113; the same miss for a
     handed record in PR 8009).
+  - a file-structure gate that checks the start and the last bytes but stops at the first scan segment: data after
+    the real end marker, or no data before it, passes. Walk the file to its end marker and require that marker to be
+    the last bytes (al-runner PR 8131, JPEG logo).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
@@ -195,6 +198,9 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
   Record-to-Record copies, but not at RecordRef.GetTable (Record or Variant), FieldRef reads of that copy, or Format(Rec).
   Put the check in the one clone helper and in the whole-buffer readers, then probe the next test of the codeunit through a
   global (al-runner PR 8120).
+- A mark set by a scan over a band: when the table has a poisoned row the band is the whole table, and filters on real
+  columns are not evaluated. A read whose key or pinned filters leave the assumed row out is flagged too, and pinned
+  clean passes turn flagged. Mark only rows that every filter on a real column keeps (al-runner PR 8131).
 
 ## 7. State that outlives its shape (6 of 34)
 

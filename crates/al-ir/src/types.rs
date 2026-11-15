@@ -417,6 +417,7 @@ mod tests {
             body: body.into(),
             expr_tys,
             reads_var_max_len: false,
+            local: false,
         }
     }
 
