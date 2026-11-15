@@ -75,6 +75,8 @@ const STATEMENT_UNSUPPORTED: &str = "as a statement, of a report whose layout ca
      raises before its error are not raised here; events/platform-triggers/PeVTests.al:713)";
 const FILE_UNSUPPORTED: &str =
     "to a file, of a report whose layout cannot give the format (only the stream form is pinned)";
+const STORED_RDLC_OTHER_CALL: &str = "under the company's stored RDLC (built-in) row, by a call other than Report.SaveAs by \
+     number with no request parameters (only that call is pinned: RxLayoutSelectionTests.al:116, :189)";
 const ON_POST: &str = "of a Word layout report whose run wrote no dataset row and that declares OnPostReport (BC does not \
      run it then; this runtime has run it before it counts the rows)";
 
@@ -201,10 +203,10 @@ fn policy_rows(t: &mut Vec<Cell>) {
 }
 
 /// A stored Report Layout Selection row of the company, pinned in RxLayoutSelectionTests.al: a Word default
-/// layout `DefaultRenderingLayout` names, no report extension, a stream, the answer used. The RDLC row: Html answers false
-/// with `ReportUnsupportedFormat`, Pdf, Word and Excel render the RDLC layout (:452, :477, :1082, :1116); with no dataset row
-/// it is not measured. The Custom Layout row with an unknown code: every format answers false with `ReportNoLayout` (:746,
-/// :771).
+/// layout `DefaultRenderingLayout` names, no report extension, a stream, the answer used, `Report.SaveAs` by number with no
+/// request parameters (:116, :189). The RDLC row: Html answers false with `ReportUnsupportedFormat`, Pdf, Word and Excel
+/// render the RDLC layout (:452, :477), also with a RecordRef (:1082, :1116); with no dataset row it is not measured. The
+/// Custom Layout row with an unknown code, without a RecordRef: every format answers false with `ReportNoLayout` (:746, :771).
 fn stored_rows(t: &mut Vec<Cell>) {
     let base = Key {
         answer: Is(AnswerForm::Used),
@@ -219,9 +221,13 @@ fn stored_rows(t: &mut Vec<Cell>) {
         file: Is(LayoutFile::Present),
         ..Key::ANY
     };
-    for format in FORMATS {
+    for (format, call) in FORMATS
+        .into_iter()
+        .flat_map(|f| [(f, Call::StaticPlain), (f, Call::StaticRecordRef)])
+    {
         let rdlc = Key {
             format: Is(format),
+            call: Is(call),
             stored: Is(Stored::RdlcBuiltin),
             selection: Is(Selection::OtherKind),
             ..base
@@ -249,18 +255,33 @@ fn stored_rows(t: &mut Vec<Cell>) {
                 Evidence::Pinned(STORED_RDLC),
             ));
         }
-        let none = Key {
-            format: Is(format),
-            stored: Is(Stored::CustomUnknownCode),
-            selection: Is(Selection::Unknown),
-            ..base
-        };
-        t.push(cell(
-            none,
-            Answer::False(ErrorId::NoLayout),
-            Events::NotRaised(&[]),
-            Evidence::Pinned(STORED_NO_LAYOUT),
-        ));
+        // The Custom Layout row was measured without a RecordRef only; another call under the RDLC row refuses, where the
+        // rows of the other kind would answer with the default layout.
+        if call == Call::StaticPlain {
+            t.push(cell(
+                Key {
+                    call: Is(Call::Other),
+                    rows: Is(Rows::Some),
+                    ..rdlc
+                },
+                Answer::Refuse(STORED_RDLC_OTHER_CALL),
+                Events::NotChecked,
+                Evidence::Pinned(STORED_RDLC),
+            ));
+            let none = Key {
+                format: Is(format),
+                call: Is(call),
+                stored: Is(Stored::CustomUnknownCode),
+                selection: Is(Selection::Unknown),
+                ..base
+            };
+            t.push(cell(
+                none,
+                Answer::False(ErrorId::NoLayout),
+                Events::NotRaised(&[]),
+                Evidence::Pinned(STORED_NO_LAYOUT),
+            ));
+        }
     }
 }
 

@@ -2723,7 +2723,7 @@ impl Session {
         }
         // ADR-040 and its amendments: the save table (`report_save`).
         if format != "Xml" {
-            match self.static_or_variable_save(&schema, &format, &target, result_used, custom.is_some())? {
+            match self.static_or_variable_save(&schema, &format, (&target, save_call), result_used, custom.is_some())? {
                 Ok(o) => output = o,
                 Err(e) => {
                     self.last_error = e;

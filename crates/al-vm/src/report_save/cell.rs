@@ -21,6 +21,7 @@ use K::Unread;
 pub(crate) struct Key {
     pub format: K<Format>,
     pub target: K<Target>,
+    pub call: K<Call>,
     pub answer: K<AnswerForm>,
     pub kind: K<Kind>,
     pub layout: K<Layout>,
@@ -46,6 +47,7 @@ impl Key {
     pub(crate) const ANY: Key = Key {
         format: Unread,
         target: Unread,
+        call: Unread,
         answer: Unread,
         kind: Unread,
         layout: Unread,

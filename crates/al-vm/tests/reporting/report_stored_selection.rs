@@ -163,6 +163,37 @@ codeunit 51064 "RS Tests"
     end;
     procedure EmptyCode(): Text begin Custom(''); exit(Saved(Report::"RS Word Rdlc", ReportFormat::Pdf)); end;
 
+    // The calls and reports the pin does not make (RxLayoutSelectionTests.al:116, :189; report 80020 declares an RDLC layout).
+    procedure UnknownCodeWordOnly(): Text
+    var S: Record "Report Layout Selection";
+    begin
+        Rows(2);
+        Select(Report::"RS Word Only", CompanyName(), S.Type::"Custom Layout", 'RSNOSUCH');
+        exit(Saved(Report::"RS Word Only", ReportFormat::Pdf));
+    end;
+    procedure UnknownCodeRecordRef(): Boolean
+    var Tmp: Record "RS Row" temporary; Out: OutStream; R: RecordRef;
+    begin
+        Custom('RSNOSUCH');
+        R.Open(Database::"RS Row");
+        Tmp.Data.CreateOutStream(Out);
+        exit(Report.SaveAs(Report::"RS Word Rdlc", '', ReportFormat::Pdf, Out, R));
+    end;
+    procedure RdlcPdfParameters(): Boolean
+    var Tmp: Record "RS Row" temporary; Out: OutStream;
+    begin
+        Rdlc(CompanyName());
+        Tmp.Data.CreateOutStream(Out);
+        exit(Report.SaveAs(Report::"RS Word Rdlc", '<?xml version="1.0" standalone="yes"?><ReportParameters/>', ReportFormat::Pdf, Out));
+    end;
+    procedure RdlcPdfVariable(): Boolean
+    var Tmp: Record "RS Row" temporary; Out: OutStream; Rep: Report "RS Word Rdlc";
+    begin
+        Rdlc(CompanyName());
+        Tmp.Data.CreateOutStream(Out);
+        exit(Rep.SaveAs('', ReportFormat::Pdf, Out));
+    end;
+
     procedure TwoRowsExcel(): Text
     var S: Record "Report Layout Selection";
     begin
@@ -288,6 +319,19 @@ fn stored_selection_neighbors_keep_mains_refusal() {
     for p in ["KnownCode", "RdlcRowWordOnly"] {
         refused(p, "not measured on BC");
     }
+    // A Custom Layout row of a report without an RDLC layout: the selection is no measured value.
+    refused(
+        "UnknownCodeWordOnly",
+        "stored selection row none (row: the company's Custom Layout row",
+    );
+    // A Custom Layout row with a RecordRef: measured for the RDLC row only.
+    refused(
+        "UnknownCodeRecordRef",
+        "call Report.SaveAs by number, no request parameters, a RecordRef (row: Report.SaveAs by number, no request parameters)",
+    );
+    // The RDLC row on a report variable; parameters typed by hand are refused before the save.
+    refused("RdlcPdfVariable", "by a call other than Report.SaveAs by number");
+    refused("RdlcPdfParameters", "a parameters string this runtime did not produce");
     refused(
         "RdlcPdfNoRow",
         "dataset rows none (row: some) [reports/html-email-body/RxLayoutSelectionTests.al:452]",

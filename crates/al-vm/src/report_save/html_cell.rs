@@ -6,13 +6,14 @@
 
 use super::Format;
 use super::facts::{
-    AnswerForm, DataItems, Decl, Declares, Extensions, Facts, Kind, Layout, LayoutFile, Rows, Selection, Stored,
+    AnswerForm, Call, DataItems, Decl, Declares, Extensions, Facts, Kind, Layout, LayoutFile, Rows, Selection, Stored,
     Target, Triggers,
 };
 
 /// The facts of the cells, each by equality:
 /// - the call `Ok := Report.SaveAs(ReportId, '', ReportFormat::Html, OutS)` into a Temp Blob stream (RxHtmlBodyFixtures.al:125):
-///   format Html, target a stream, the answer used;
+///   format Html, target a stream, the answer used (by number, no request parameters, no RecordRef: `Call::StaticPlain`,
+///   as `report_render::MEASURED_CALL`);
 /// - the reports RX Word Alpha (RxHtmlBodyFixtures.al:53), RX Word Rgba (RxLayoutSelFixtures.al:73), RX Hash Bound
 ///   (RxHtmlHashTests.al:50), RX Wd Plain, RX Wd Styles, RX Wd Theme, RX Wd Header and RX Wd Caption
 ///   (RxHtmlWidenTests.al:53, :80, :107, :161, :188): a Word layout that `DefaultRenderingLayout` names in the rendering
@@ -24,6 +25,7 @@ use super::facts::{
 pub(super) const HTML_HASH_CELL: Facts = Facts {
     format: Format::Html,
     target: Target::Stream,
+    call: Call::StaticPlain,
     answer: AnswerForm::Used,
     kind: Kind::Word,
     layout: Layout::NotRdlc,
