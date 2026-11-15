@@ -3895,11 +3895,11 @@ fn position_follows_al_reads_and_a_set_after_the_end_does_not_restart() {
     assert_eq!(text(r), "1;4|bcd|3;6|ef|2;10|ghij|4|Yes;2|Yes;10||0");
 }
 
-// GetDotNetType of an unassigned Dictionary`2 is System.Type.GetType of its name, marked as assumed
-// (assumption dotnet-type-open-generic); an unassigned Queue`1 keeps main's refusal. (An unassigned List`1 was the refused
+// GetDotNetType of an unassigned Dictionary`2 is System.Type.GetType of its name, pinned (no assumption hit)
+// (N4GetDotNetTypeGeneric.al:118-134); an unassigned Queue`1 keeps main's refusal. (An unassigned List`1 was the refused
 // neighbor here until corpus PR 1365, N4GetDotNetTypeGeneric.al:119-134, measured it as its open definition.)
 #[test]
-fn get_dotnet_type_of_an_unassigned_dictionary_is_assumed_and_of_a_queue_refused() {
+fn get_dotnet_type_of_an_unassigned_dictionary_is_its_definition_and_of_a_queue_refused() {
     let host = Fake::new(|r| match r {
         Req::Invoke(DotNetTarget::Static(t), m, a) if t.name == "System.Type" && m == "GetType" => {
             assert!(
@@ -3919,10 +3919,7 @@ fn get_dotnet_type_of_an_unassigned_dictionary_is_assumed_and_of_a_queue_refused
     );
     let hits = al_builtins::assumptions::take_hits();
     assert_eq!(text(r), "ok");
-    assert!(
-        hits.contains(&al_builtins::assumptions::Assumption::DotnetTypeOpenGeneric),
-        "{hits:?}"
-    );
+    assert!(hits.is_empty(), "{hits:?}");
     let host = Fake::new(|r| panic!("unexpected request {r:?}"));
     let r = run(
         &host,
@@ -4188,7 +4185,7 @@ fn a_failed_call_with_a_stream_argument_keeps_the_refusal() {
     }
 }
 
-// ---- GetDotNetType of an open generic (al-runner issue 7833; corpus PR 1365, N4GetDotNetTypeGeneric.al) ----------------------
+// ---- GetDotNetType of an open generic (al-runner issue 7833; N4GetDotNetTypeGeneric.al) ----------------------
 
 /// A host that answers `System.Type.GetType(name)` with a type object and records the names asked.
 fn type_host(asked: Arc<Mutex<Vec<String>>>) -> Fake {
@@ -4204,10 +4201,9 @@ fn type_host(asked: Arc<Mutex<Vec<String>>>) -> Fake {
 }
 
 // An unassigned List`1 or KeyValuePair`2, and a Dictionary`2 its own constructor made, give the open generic type definition
-// (N4GetDotNetTypeGeneric.al:119-134, :153-161), marked as assumed; an unassigned Queue`1 stays refused (not measured).
+// (N4GetDotNetTypeGeneric.al:119-134, :164-172), with no assumption hit; an unassigned Queue`1 stays refused (not measured).
 #[test]
 fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
-    use al_builtins::assumptions::Assumption;
     let asked = Arc::new(Mutex::new(Vec::new()));
     let host = type_host(asked.clone());
     for (vars, body) in [
@@ -4226,7 +4222,8 @@ fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
     ] {
         hits();
         assert_eq!(text(run(&host, vars, body, ": Text")), "ok", "{vars}");
-        assert!(hits().contains(&Assumption::DotnetTypeOpenGeneric), "{vars}");
+        let hits = hits();
+        assert!(hits.is_empty(), "{vars}: {hits:?}");
     }
     assert_eq!(
         *asked.lock().unwrap(),
