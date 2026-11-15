@@ -1286,6 +1286,11 @@ fn open_test_session_company(
         }
     }
     let raise = matches!(decision, crate::login::Login::Raise);
+    // Under `--no-client` which login events BC raises is not pinned. The dependency apps' login code read CurrentClientType
+    // and was refused there; now that it answers (al-vm `clientless.rs`), the raised login is refused here instead.
+    if raise && watched == Some(crate::login::NO_CLIENT) {
+        return Err(format!("the login: {}", crate::login::NO_CLIENT_RAISE));
+    }
     let partner = crate::partner_login::subscribers(lowered, &engine.events, raise, watched);
     let (own, watched): (&[crate::login::OwnEvent], _) = match &decision {
         crate::login::Login::Own { events, watched } => (events, *watched),
