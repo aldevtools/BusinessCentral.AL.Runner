@@ -5,7 +5,40 @@
 //! TestAllSubscriptionsAreActive and TestSubscriptionTableHasNoErrors measure Active and Error Information in the cell of
 //! [`ACTIVE_CELLS`]. Assumption `extension-event-subscriber-active`, in those cells only.
 
-use al_ir::{ObjKind, ObjectHead};
+use super::objects::prop;
+use al_ir::{ObjKind, ObjectFacts, ObjectHead, PageType};
+
+/// The base object as the measured cells hold it, each fact by its one measured value.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Base {
+    /// A table that states no TableType (ExtensionEventSubscriptionRows.al:14-24; System Application's "Retention Policy
+    /// Setup" states none either).
+    Table,
+    /// A page with `PageType = Card` (:26-29).
+    CardPage,
+    /// A page with `PageType = ListPart` (System Application's "Retention Policy Setup Lines", an [`ACTIVE_CELLS`] cell).
+    ListPartPage,
+    /// A page with `PageType = List` (Base Application's "Error Messages", an [`ACTIVE_CELLS`] cell).
+    ListPage,
+    /// A report with `ProcessingOnly = true` (:41-44).
+    ProcessingOnlyReport,
+}
+
+impl Base {
+    fn of(publisher: &ObjectHead) -> Option<Base> {
+        let facts = ObjectFacts::of_properties(&publisher.properties);
+        match publisher.kind {
+            ObjKind::Table if facts.table_type.is_none() => Some(Base::Table),
+            ObjKind::Page if facts.page_type == Some(PageType::Card) => Some(Base::CardPage),
+            ObjKind::Page if facts.page_type == Some(PageType::Other("listpart".into())) => Some(Base::ListPartPage),
+            ObjKind::Page if facts.page_type == Some(PageType::List) => Some(Base::ListPage),
+            ObjKind::Report if prop(publisher, "ProcessingOnly").is_some_and(|v| v.eq_ignore_ascii_case("true")) => {
+                Some(Base::ProcessingOnlyReport)
+            }
+            _ => None,
+        }
+    }
+}
 
 /// Where the base object sits against the extension that declares the event, whose app is the subscriber's app in every
 /// measured cell.
@@ -28,10 +61,12 @@ enum EventAttr {
     Business,
 }
 
-/// A measured cell: the publisher kind (the extension kind is its pair), the event attribute, the subscriber's
+/// A measured cell: the base object (the extension kind is its pair), the event attribute, the subscriber's
 /// SkipOnMissingLicense and SkipOnMissingPermission, whether its codeunit is EventSubscriberInstance = Manual, and the
-/// placement. In every cell exactly one extension of the publisher declares the event and the subscriber's element is ''.
-type Cell = (ObjKind, EventAttr, bool, bool, bool, Placement);
+/// placement. In every cell exactly one extension of the publisher declares the event, as a `local` procedure, under the name
+/// the subscriber writes; the subscriber's element is '' and its codeunit states neither Subtype nor SingleInstance
+/// (ExtensionEventSubscriptionRows.al:52-150; the Base Application objects of [`ACTIVE_CELLS`]).
+type Cell = (Base, EventAttr, bool, bool, bool, Placement);
 
 /// The cells of corpus PR 1412 (merged, not pinned; events/extension-events/ExtensionEventSubscriptionRows.al, identical on
 /// BC 27.5, 28.5 and 29.0): Event Type Integration or Business as declared, Publisher Object Type and ID of the base object,
@@ -39,7 +74,7 @@ type Cell = (ObjKind, EventAttr, bool, bool, bool, Placement);
 const ROW_CELLS: &[Cell] = &[
     // :178-188
     (
-        ObjKind::Table,
+        Base::Table,
         EventAttr::Integration,
         false,
         false,
@@ -48,7 +83,7 @@ const ROW_CELLS: &[Cell] = &[
     ),
     // :190-198
     (
-        ObjKind::Table,
+        Base::Table,
         EventAttr::IntegrationWithSender,
         false,
         false,
@@ -56,17 +91,10 @@ const ROW_CELLS: &[Cell] = &[
         Placement::OneApp,
     ),
     // :200-208
-    (
-        ObjKind::Table,
-        EventAttr::Business,
-        false,
-        false,
-        false,
-        Placement::OneApp,
-    ),
+    (Base::Table, EventAttr::Business, false, false, false, Placement::OneApp),
     // :210-218
     (
-        ObjKind::Table,
+        Base::Table,
         EventAttr::Integration,
         true,
         true,
@@ -75,7 +103,7 @@ const ROW_CELLS: &[Cell] = &[
     ),
     // :220-230
     (
-        ObjKind::Page,
+        Base::CardPage,
         EventAttr::Integration,
         false,
         false,
@@ -84,7 +112,7 @@ const ROW_CELLS: &[Cell] = &[
     ),
     // :232-242
     (
-        ObjKind::Report,
+        Base::ProcessingOnlyReport,
         EventAttr::Integration,
         false,
         false,
@@ -93,7 +121,7 @@ const ROW_CELLS: &[Cell] = &[
     ),
     // :244-252
     (
-        ObjKind::Table,
+        Base::Table,
         EventAttr::Integration,
         false,
         false,
@@ -102,7 +130,7 @@ const ROW_CELLS: &[Cell] = &[
     ),
     // :254-264 (the reporter's shape: a table extension of System Application's "Retention Policy Setup")
     (
-        ObjKind::Table,
+        Base::Table,
         EventAttr::Integration,
         false,
         false,
@@ -111,17 +139,30 @@ const ROW_CELLS: &[Cell] = &[
     ),
 ];
 
-/// The cell only Microsoft's tests measure, Active Yes and a blank Error Information and nothing else: Base Application's
-/// "Serv. Integration Mgt".SetIsDocumentArchiveTable_OnAfterSetIsDocumentArchiveTable on System Application's "Retention Policy
-/// Setup Lines", pageextension 3997 "Reten. Pol. Setup Lines Ext." (BC 29.0 source).
-const ACTIVE_CELLS: &[Cell] = &[(
-    ObjKind::Page,
-    EventAttr::Integration,
-    true,
-    true,
-    false,
-    Placement::BaseInAnotherApp,
-)];
+/// The cells only Microsoft's tests measure, Active Yes and a blank Error Information and nothing else (Tests-Misc codeunit
+/// 134299 TestAllSubscriptionsAreActive and TestSubscriptionTableHasNoErrors; the facts are alike in the BC 27.5, 28.5 and 29.0
+/// sources): Base Application's "Serv. Integration Mgt".SetIsDocumentArchiveTable_OnAfterSetIsDocumentArchiveTable on System
+/// Application's "Retention Policy Setup Lines", pageextension 3997 "Reten. Pol. Setup Lines Ext."; Base Application's
+/// "Check Dimensions".OnOpenRelatedRecord on "Error Messages", pageextension 705 "Error Messages Extension", all three in Base
+/// Application.
+const ACTIVE_CELLS: &[Cell] = &[
+    (
+        Base::ListPartPage,
+        EventAttr::Integration,
+        true,
+        true,
+        false,
+        Placement::BaseInAnotherApp,
+    ),
+    (
+        Base::ListPage,
+        EventAttr::Integration,
+        false,
+        false,
+        false,
+        Placement::OneApp,
+    ),
+];
 
 /// What a measured cell knows of the row.
 pub(super) enum Measured<'a> {
@@ -147,19 +188,22 @@ pub(super) fn measured<'a>(
         "true" => Some(true),
         _ => None,
     };
-    if args.len() != 6 || !crate::events::unquote(&args[3]).is_empty() {
-        return None;
-    }
+    (args.len() == 6 && crate::events::unquote(&args[3]).is_empty()).then_some(())?;
     let (license, permission) = (flag(&args[4])?, flag(&args[5])?);
+    let base = Base::of(publisher)?;
+    let plain_codeunit = (prop(subscriber, "Subtype"), prop(subscriber, "SingleInstance")) == (None, None);
+    plain_codeunit.then_some(())?;
+    // Found without regard to case, so that a declaration in a second extension counts; each measured subscriber writes
+    // the name as declared (the equality below).
     let mut declaring = extensions_of(objects, publisher)?.filter_map(|ext| {
         let routine = ext.events.iter().find(|r| r.name.eq_ignore_ascii_case(event))?;
         let attribute = routine.attributes.iter().find(|a| event_attribute(&a.name))?;
-        Some((ext, routine.name.clone(), attribute))
+        Some((ext, routine, attribute))
     });
-    let (ext, published, attribute) = declaring.next()?;
-    if declaring.next().is_some() || subscriber.app != ext.app {
-        return None;
-    }
+    let (ext, routine, attribute) = declaring.next()?;
+    let measured = declaring.next().is_none() && subscriber.app == ext.app && routine.name == event && routine.local;
+    measured.then_some(())?;
+    let published = routine.name.clone();
     let attr_args: Vec<Option<bool>> = crate::events::split_args(&attribute.text)
         .iter()
         .map(|a| flag(a))
@@ -175,7 +219,7 @@ pub(super) fn measured<'a>(
     } else {
         Placement::BaseInAnotherApp
     };
-    let cell = (publisher.kind, attr, license, permission, manual, placement);
+    let cell = (base, attr, license, permission, manual, placement);
     if ROW_CELLS.contains(&cell) {
         let event_type = if attr == EventAttr::Business { 1 } else { 2 };
         return Some(Measured::Row { published, event_type });

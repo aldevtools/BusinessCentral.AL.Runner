@@ -4456,6 +4456,87 @@ codeunit 50104 "EE Manual Sub" { EventSubscriberInstance = Manual;
     assert_flagged_passes(&ext_event_outcomes(&src, None));
 }
 
+/// al-runner #8060, the columns the session changes. Corpus PR 1412 reads "Active Manual Instances" 0 of the manual subscriber
+/// with no instance bound (ExtensionEventSubscriptionRows.al:244-252) and never reads "Number of Calls". On an assumed row a read
+/// of "Active Manual Instances" while an instance of the subscriber codeunit is bound refuses (the rest of the row answers, and
+/// after the unbind the column reads 0 again), and so do a read of and a filter on "Number of Calls". A codeunit event's
+/// subscriber keeps main's answer.
+#[test]
+fn extension_event_subscription_row_columns_the_session_changes() {
+    let subs = r#"
+codeunit 50101 "EE Table Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnInt(Code: Code[10]) begin end; }
+codeunit 50104 "EE Manual Sub" { EventSubscriberInstance = Manual;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnManual(Code: Code[10]) begin end; }
+codeunit 50110 "EE Plain Pub" {
+  [IntegrationEvent(false, false)] procedure OnPlain() begin end; }
+codeunit 50111 "EE Plain Sub" {
+  [EventSubscriber(ObjectType::Codeunit, Codeunit::"EE Plain Pub", 'OnPlain', '', false, false)] local procedure OnPlainSub() begin end; }
+"#;
+    let tests = r#"
+  [Test] procedure BoundRow() var M: Codeunit "EE Manual Sub"; E: Record "Event Subscription"; begin BindSubscription(M); E.Get(50104, 'OnManual'); if E."Published Function" <> 'OnTableExtEvent' then Error('function'); end;
+  [Test] procedure BoundInstances() var M: Codeunit "EE Manual Sub"; E: Record "Event Subscription"; begin BindSubscription(M); E.Get(50104, 'OnManual'); if E."Active Manual Instances" <> 1 then Error('instances'); end;
+  [Test] procedure Unbound() var M: Codeunit "EE Manual Sub"; E: Record "Event Subscription"; begin BindSubscription(M); UnbindSubscription(M); E.Get(50104, 'OnManual'); if E."Active Manual Instances" <> 0 then Error('instances'); end;
+  [Test] procedure Calls() var E: Record "Event Subscription"; begin E.Get(50101, 'OnInt'); if E."Number of Calls" <> 0 then Error('calls'); end;
+  [Test] procedure CallsFilter() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50101); E.SetRange("Number of Calls", 0); if E.IsEmpty() then Error('calls'); end;
+  [Test] procedure PlainCalls() var E: Record "Event Subscription"; begin E.Get(50111, 'OnPlainSub'); if E."Number of Calls" <> 0 then Error('calls'); end;
+"#;
+    let src = format!("{EXT_EVENT_OBJECTS}{subs}codeunit 50000 \"T\" {{ Subtype = Test;\n{tests}}}");
+    let out = ext_event_outcomes(&src, None);
+    let get = |n: &str| out.iter().find(|(x, _, _)| x == n).cloned().expect(n);
+    assert_flagged_passes(&[get("BoundRow"), get("Unbound")]);
+    assert_refused(&[get("BoundInstances"), get("Calls"), get("CallsFilter")]);
+    let plain = get("PlainCalls");
+    assert_eq!((plain.1, plain.2), (Outcome::Pass, false), "main's answer, no flag");
+}
+
+/// al-runner #8060, object facts corpus PR 1412 holds by one value each: a table of no TableType (ExtensionEventSubscriptionRows.al
+/// :14-24), a Card page (:26-29), a ProcessingOnly report (:41-44), local event procedures (:52-94), subscriber codeunits without
+/// Subtype or SingleInstance (:96-150), and the event's name as declared. A Temporary table, a Worksheet page, a report that is not
+/// ProcessingOnly, an event procedure that is not local, a SingleInstance or Test subscriber codeunit and a subscriber that
+/// writes the name in other case keep main's refusal.
+#[test]
+fn extension_event_subscription_row_of_unmeasured_objects_stays_refused() {
+    let objects = r#"
+table 50200 "EE Temp" { TableType = Temporary; fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+tableextension 50200 "EE Temp Ext" extends "EE Temp" {
+  [IntegrationEvent(false, false)] local procedure OnTempExtEvent(Code: Code[10]) begin end; }
+page 50201 "EE List" { PageType = Worksheet; SourceTable = "EE Row"; layout { area(Content) { repeater(R) { field(Code; Rec.Code) { } } } } }
+pageextension 50201 "EE List Ext" extends "EE List" {
+  [IntegrationEvent(false, false)] local procedure OnListExtEvent(Code: Code[10]) begin end; }
+report 50202 "EE Printed" { dataset { dataitem(I; Integer) { } } }
+reportextension 50202 "EE Printed Ext" extends "EE Printed" {
+  [IntegrationEvent(false, false)] local procedure OnPrintedExtEvent(Code: Code[10]) begin end; }
+tableextension 50203 "EE Row Public Ext" extends "EE Row" {
+  [IntegrationEvent(false, false)] procedure OnPublicExtEvent(Code: Code[10]) begin end; }
+codeunit 50201 "EE Temp Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Temp", 'OnTempExtEvent', '', false, false)] local procedure OnTemp(Code: Code[10]) begin end; }
+codeunit 50202 "EE List Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"EE List", 'OnListExtEvent', '', false, false)] local procedure OnList(Code: Code[10]) begin end; }
+codeunit 50203 "EE Printed Sub" {
+  [EventSubscriber(ObjectType::Report, Report::"EE Printed", 'OnPrintedExtEvent', '', false, false)] local procedure OnPrinted(Code: Code[10]) begin end; }
+codeunit 50204 "EE Public Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnPublicExtEvent', '', false, false)] local procedure OnPublic(Code: Code[10]) begin end; }
+codeunit 50205 "EE Single Sub" { SingleInstance = true;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnSingle(Code: Code[10]) begin end; }
+codeunit 50206 "EE Test Sub" { Subtype = Test;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnTest(Code: Code[10]) begin end; }
+codeunit 50207 "EE Case Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'ontableextevent', '', false, false)] local procedure OnCase(Code: Code[10]) begin end; }
+"#;
+    let tests = (50201..=50207)
+        .map(|id| {
+            format!(
+                "  [Test] procedure Sub{id}() var E: Record \"Event Subscription\"; begin E.SetRange(\"Subscriber Codeunit ID\", {id}); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end;\n"
+            )
+        })
+        .collect::<String>();
+    let src = format!("{EXT_EVENT_OBJECTS}{objects}codeunit 50000 \"T\" {{ Subtype = Test;\n{tests}}}");
+    let out = ext_event_outcomes(&src, None);
+    assert_eq!(out.len(), 7);
+    assert_refused(&out);
+}
+
 /// al-runner #8060, the reporter's shape (ExtensionEventSubscriptionRows.al:254-264): a table extension of a table of another
 /// app declares an integration event, a subscriber of the extension's app binds to the base table. A flagged pass.
 #[test]
@@ -4526,13 +4607,13 @@ codeunit 50000 "T" { Subtype = Test;
 
 /// al-runner #8060, the cell only Microsoft's Tests-Misc measures: a page extension of a dependency's page declares the event, a
 /// subscriber of the same app with SkipOnMissingLicense and SkipOnMissingPermission true (Base Application's "Serv. Integration
-/// Mgt." on System Application's "Retention Policy Setup Lines"). A filter on Active leaves the row out (a flagged pass); a read
-/// that returns or counts the row stays refused, and so does a page of the same app with both flags true, which corpus PR 1412
-/// does not hold either.
+/// Mgt." on System Application's ListPart "Retention Policy Setup Lines"). A filter on Active leaves the row out (a flagged pass);
+/// a read that returns or counts the row stays refused, and so do a Card page of another app and a page of the same app with
+/// both flags true, which corpus PR 1412 does not hold either.
 #[test]
 fn extension_event_subscription_row_of_a_page_in_another_app() {
     let dep = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
-page 50100 "EE Card" { PageType = Card; SourceTable = "EE Row"; layout { area(Content) { field(Code; Rec.Code) { } } } }"#;
+page 50100 "EE Card" { PageType = ListPart; SourceTable = "EE Row"; layout { area(Content) { field(Code; Rec.Code) { } } } }"#;
     let main = r#"pageextension 50150 "EE Card Ext" extends "EE Card" {
   [IntegrationEvent(false, false)] local procedure OnPageExtEvent(Code: Code[10]) begin end; }
 codeunit 50151 "EE Measured Sub" {
@@ -4544,6 +4625,8 @@ codeunit 50000 "T" { Subtype = Test;
     let get = |n: &str| out.iter().find(|(x, _, _)| x == n).cloned().expect(n);
     assert_flagged_passes(&[get("Inactive")]);
     assert_refused(&[get("Counted")]);
+    let card = dep.replace("PageType = ListPart", "PageType = Card");
+    assert_refused(&ext_event_outcomes(main, Some(&card))[..1]);
     let src = format!(
         r#"{EXT_EVENT_OBJECTS}
 codeunit 50101 "EE Page Sub" {{
@@ -4552,6 +4635,27 @@ codeunit 50000 "T" {{ Subtype = Test;
   [Test] procedure OneAppFlagsTrue() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50101); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end; }}"#
     );
     assert_refused(&ext_event_outcomes(&src, None));
+}
+
+/// al-runner #8060, the second cell only Microsoft's Tests-Misc measures: a page extension of a List page of the same app declares
+/// the event, a subscriber of that app with both Skip flags false (Base Application's "Check Dimensions".OnOpenRelatedRecord on
+/// "Error Messages", pageextension 705). A filter on Active leaves the row out (a flagged pass); a read that returns or counts
+/// the row stays refused.
+#[test]
+fn extension_event_subscription_row_of_a_list_page_of_the_same_app() {
+    let src = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+page 50100 "EE List" { PageType = List; SourceTable = "EE Row"; layout { area(Content) { repeater(R) { field(Code; Rec.Code) { } } } } }
+pageextension 50150 "EE List Ext" extends "EE List" {
+  [IntegrationEvent(false, false)] local procedure OnListExtEvent(Code: Code[10]) begin end; }
+codeunit 50151 "EE List Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"EE List", 'OnListExtEvent', '', false, false)] local procedure OnListExt(Code: Code[10]) begin end; }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Inactive() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end;
+  [Test] procedure Counted() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); if E.Count() <> 1 then Error('count'); end; }"#;
+    let out = ext_event_outcomes(src, None);
+    let get = |n: &str| out.iter().find(|(x, _, _)| x == n).cloned().expect(n);
+    assert_flagged_passes(&[get("Inactive")]);
+    assert_refused(&[get("Counted")]);
 }
 
 // reports/runtime/Y6TenantReportLayoutRows.al:16-89 (corpus master): Tenant Report Layout holds no row of a

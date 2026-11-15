@@ -347,8 +347,14 @@ fn subscription_row(
             use super::ext_event_row::Measured;
             let assumption = al_builtins::assumptions::Assumption::ExtensionEventSubscriberActive;
             match publisher.and_then(|p| super::ext_event_row::measured(c.objects, o, manual, p, &event, &args)) {
+                // Corpus PR 1412 never reads "Number of Calls" (8), and reads "Active Manual Instances" (13) only with no
+                // instance of the subscriber codeunit bound (ExtensionEventSubscriptionRows.al:159-168, :244-252): both stay
+                // unknown here, and `Providers::with_event_stats` gives 13 its 0 only while no instance is bound.
                 Some(Measured::Row { published, event_type }) => {
-                    rests_on = Some((assumption, vec![3, 6, 7, 9]));
+                    r[pos(t, 8)] = super::unknown(t, 8, &format!("{}, whose event an extension declares", what()));
+                    r[pos(t, 13)] =
+                        super::unknown(t, 13, &format!("{} while an instance of its codeunit is bound", what()));
+                    rests_on = Some((assumption, vec![3, 6, 7, 9, 13]));
                     (published, event_type)
                 }
                 Some(Measured::ActiveOnly { extension }) => {

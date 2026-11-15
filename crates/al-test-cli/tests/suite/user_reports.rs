@@ -1648,6 +1648,23 @@ fn run_over_system_as(
     dep: Option<&str>,
     main: &str,
 ) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+    run_over_system_with(target, main_id, logo, dep.map(|d| (d, None)), false, main)
+}
+
+/// [`run_over_system_as`] with the dependency's logo, and dependency apps published as global when `global`
+/// (`Engine::dependencies_published_global`).
+fn run_over_system_with(
+    target: Option<&str>,
+    main_id: &str,
+    logo: Option<al_ir::AppLogo>,
+    dep: Option<(&str, Option<al_ir::AppLogo>)>,
+    global: bool,
+    main: &str,
+) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+    let (dep, dep_logo) = match dep {
+        Some((d, l)) => (Some(d), l),
+        None => (None, None),
+    };
     use al_deps::package::read_package;
     let system = read_package(&std::fs::read(al_testfiles::system_app()).unwrap())
         .expect("System.app reads")
@@ -1684,9 +1701,15 @@ fn run_over_system_as(
         if a.id == main_id {
             a.logo = logo.clone();
         }
+        if a.id == DEP_ID {
+            a.logo = dep_logo.clone();
+        }
     }
     let target = target.map(|v| al_version::Target::for_bc(al_version::BcVersion::parse(v).unwrap()));
-    let engine = Engine::with_target(std::sync::Arc::new(program), blocked, target);
+    let mut engine = Engine::with_target(std::sync::Arc::new(program), blocked, target);
+    std::sync::Arc::get_mut(&mut engine)
+        .expect("a new engine is not shared")
+        .dependencies_published_global = global;
     let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
     let mut hits = Vec::new();
     let out = al_testrun::runtime::run_codeunit_full(
@@ -1892,18 +1915,73 @@ codeunit 50000 T {{ Subtype = Test;
             "{target:?}: a flagged pass"
         );
     }
-    // A progressive JPEG (start-of-frame FF C2): not measured.
+    // A JPEG built otherwise than the measured one: not measured, refused as on main.
+    for other in unmeasured_jpegs() {
+        let o = run_over_system_as(
+            None,
+            MAIN_ID,
+            Some(al_ir::AppLogo::File(other)),
+            None,
+            &main("image/jpeg"),
+        );
+        assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+    }
+}
+
+/// JPEG files built otherwise than the measured logo [`XAPP_E_JPEG`]: progressive (start-of-frame FF C2), cut after the
+/// start-of-frame segment, bytes after FF D9, one component, an EXIF segment after the JFIF one, and precision 12.
+fn unmeasured_jpegs() -> Vec<Vec<u8>> {
+    let sof = XAPP_E_JPEG.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+    let sos = XAPP_E_JPEG.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
     let mut progressive = XAPP_E_JPEG.to_vec();
-    let sof = progressive.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
     progressive[sof + 1] = 0xC2;
-    let o = run_over_system_as(
-        None,
-        MAIN_ID,
-        Some(al_ir::AppLogo::File(progressive)),
-        None,
-        &main("image/jpeg"),
+    let cut = XAPP_E_JPEG[..sos].to_vec();
+    let mut trailing = XAPP_E_JPEG.to_vec();
+    trailing.extend_from_slice(b"GE");
+    let mut gray = XAPP_E_JPEG.to_vec();
+    gray[sof + 9] = 1;
+    let mut exif = XAPP_E_JPEG[..20].to_vec();
+    exif.extend_from_slice(&[0xFF, 0xE1, 0x00, 0x08, b'E', b'x', b'i', b'f', 0, 0]);
+    exif.extend_from_slice(&XAPP_E_JPEG[20..]);
+    let mut precision = XAPP_E_JPEG.to_vec();
+    precision[sof + 4] = 12;
+    vec![progressive, cut, trailing, gray, exif, precision]
+}
+
+/// The JPEG logo reader takes the measured file's structure by equality and reads the size from its frame.
+#[test]
+fn jfif_logo_size_takes_the_measured_structure_only() {
+    assert_eq!(al_builtins::media::jfif_logo_size(&XAPP_E_JPEG), Some((8, 8)));
+    for other in unmeasured_jpegs() {
+        assert_eq!(
+            al_builtins::media::jfif_logo_size(&other),
+            None,
+            "{:02x?}",
+            &other[..24]
+        );
+    }
+}
+
+/// al-runner issue 8061: a dependency app published as global rests on `dependency-published-as-global`; its JPEG logo, which
+/// rests on `published-application-jpeg-logo`, is not served on that row (one assumption per row), and its Media row is not
+/// listed either (`apps::served_logo`, the one owner of both). A read of the Logo refuses.
+#[test]
+fn issue_8061_jpeg_logo_of_a_dependency_published_as_global_is_refused() {
+    let main = format!(
+        r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure DepLogo() var App: Record "Published Application"; begin
+    App.SetRange(ID, '{DEP_ID}');
+    if not App.FindFirst() then Error('no row');
+    if not App.Logo.HasValue() then Error('no logo'); end; }}"#
     );
+    let dep = "codeunit 50100 D { }";
+    let jpeg = Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
+    let o = run_over_system_with(None, MAIN_ID, None, Some((dep, jpeg.clone())), true, &main);
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+    // Published as Dev (the default): the logo is served on the JPEG assumption.
+    let o = run_over_system_with(None, MAIN_ID, None, Some((dep, jpeg)), false, &main);
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
 /// al-runner issue 6148: Guided Experience Impl.InsertGuidedExperienceItem imports the app's logo with the extension id (a

@@ -54,17 +54,6 @@ const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 
 /// The size a JPEG's start-of-frame segment gives (`FF C0`..`FF CF` but `C4`, `C8`, `CC`: height, then width, big endian).
 fn jpeg_size(b: &[u8]) -> Option<(i32, i32)> {
-    jpeg_frame(b).map(|(_, size)| size)
-}
-
-/// The size of a baseline JPEG, whose start-of-frame segment is `FF C0`; `None` for any other content, another JPEG kind
-/// (progressive `FF C2` and the other start-of-frame markers) included.
-pub fn baseline_jpeg_size(b: &[u8]) -> Option<(i32, i32)> {
-    jpeg_frame(b).and_then(|(marker, size)| (marker == 0xC0).then_some(size))
-}
-
-/// The marker of a JPEG's start-of-frame segment and the size it gives (width, height).
-fn jpeg_frame(b: &[u8]) -> Option<(u8, (i32, i32))> {
     if !b.starts_with(&[0xFF, 0xD8]) {
         return None;
     }
@@ -78,11 +67,44 @@ fn jpeg_frame(b: &[u8]) -> Option<(u8, (i32, i32))> {
         if (0xC0..=0xCF).contains(&marker) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
             let h = u16::from_be_bytes([*b.get(i + 5)?, *b.get(i + 6)?]);
             let w = u16::from_be_bytes([*b.get(i + 7)?, *b.get(i + 8)?]);
-            return Some((marker, (i32::from(w), i32::from(h))));
+            return Some((i32::from(w), i32::from(h)));
         }
         i += 2 + len;
     }
     None
+}
+
+/// The size (width, height) of a JPEG built as the one JPEG app logo measured (corpus PR 1412, tests/al-language-xapp-e/
+/// logo.jpg, 8 x 8, 307 bytes), each part by equality: SOI, an APP0 `JFIF` segment first, then only quantization tables
+/// (`FF DB`), one baseline start-of-frame segment (`FF C0`) of precision 8 and 3 components, Huffman tables (`FF C4`), a
+/// start-of-scan segment (`FF DA`) of 3 components, and `FF D9` as the last two bytes. The size is read from the frame.
+/// `None` for any other file.
+pub fn jfif_logo_size(b: &[u8]) -> Option<(i32, i32)> {
+    let framed =
+        b.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0]) && b.get(6..11) == Some(&b"JFIF\0"[..]) && b.ends_with(&[0xFF, 0xD9]);
+    framed.then_some(())?;
+    let mut size = None;
+    let mut i = 2;
+    loop {
+        (*b.get(i)? == 0xFF).then_some(())?;
+        let marker = *b.get(i + 1)?;
+        let len = usize::from(u16::from_be_bytes([*b.get(i + 2)?, *b.get(i + 3)?]));
+        let segment = b.get(i + 4..i + 2 + len)?;
+        match (marker, segment) {
+            (0xE0, _) if i == 2 => {}
+            (0xDB | 0xC4, _) => {}
+            (0xC0, [8, h1, h2, w1, w2, 3, ..]) if len == 17 && size.is_none() => {
+                size = Some((
+                    i32::from(u16::from_be_bytes([*w1, *w2])),
+                    i32::from(u16::from_be_bytes([*h1, *h2])),
+                ));
+            }
+            // The scan's coded data follows, up to the closing FF D9.
+            (0xDA, [3, ..]) if len == 12 && i + 2 + len + 2 <= b.len() => return size,
+            _ => return None,
+        }
+        i += 2 + len;
+    }
 }
 
 /// Whether a JPEG starts with a JFIF header of units 1 (dots per inch) and density 300 x 300: SOI, APP0, "JFIF\0", version,
