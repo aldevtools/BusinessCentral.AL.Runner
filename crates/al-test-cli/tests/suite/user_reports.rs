@@ -1869,9 +1869,8 @@ const XAPP_E_JPEG: [u8; 307] = [
 
 /// al-runner issue 8061: the Published Application Logo of an app whose manifest declares a baseline JPEG logo is a media with a
 /// value and the same id on every read; its Media row holds the file's bytes unchanged, the picture's size, every other column
-/// empty, and Mime Type image/png on BC 27.5 and 28.5, image/jpeg on BC 29.0 (corpus PR 1412, merged, not pinned:
-/// onprem session-system/UsAppLogoJpeg.al:82-120). A flagged pass (assumption published-application-jpeg-logo). A progressive
-/// JPEG stays refused.
+/// empty, and Mime Type image/png on BC 27.5 and 28.5, image/jpeg on BC 29.0 (onprem session-system/UsAppLogoJpeg.al:82-120,
+/// pinned). A pass without an assumption. A progressive JPEG, and a JPEG of another size, stay refused.
 #[test]
 fn issue_8061_extension_logo_of_an_app_with_a_jpeg_logo() {
     let main = |mime: &str| {
@@ -1909,14 +1908,14 @@ codeunit 50000 T {{ Subtype = Test;
     ] {
         let o = run_over_system_as(target, MAIN_ID, jpeg(), None, &main(mime));
         assert_eq!(o[0].1, Outcome::Pass, "{target:?}: {o:?}");
-        assert!(
-            o[0].2
-                .contains(&al_builtins::assumptions::Assumption::PublishedApplicationJpegLogo),
-            "{target:?}: a flagged pass"
-        );
+        assert!(o[0].2.is_empty(), "{target:?}: pinned, no assumption");
     }
-    // A JPEG built otherwise than the measured one: not measured, refused as on main.
-    for other in unmeasured_jpegs() {
+    // A JPEG built otherwise than the measured one, or built so in another size than 8 x 8: not measured, refused as on main.
+    let sized = [
+        include_bytes!("../fixtures/jpeg/wide16x8.jpg").to_vec(),
+        include_bytes!("../fixtures/jpeg/big400x300.jpg").to_vec(),
+    ];
+    for other in unmeasured_jpegs().into_iter().chain(sized) {
         let o = run_over_system_as(
             None,
             MAIN_ID,
@@ -1995,8 +1994,8 @@ fn jfif_logo_size_takes_the_measured_structure_only() {
     }
 }
 
-/// al-runner issue 8061: a dependency app published as global rests on `dependency-published-as-global`; its JPEG logo, which
-/// rests on `published-application-jpeg-logo`, is not served on that row (one assumption per row), and its Media row is not
+/// al-runner issue 8061: a dependency app published as global rests on `dependency-published-as-global`; its JPEG logo, pinned
+/// only on a row that rests on no assumption (UsAppLogoJpeg.al:82-120), is not served on that row, and its Media row is not
 /// listed either (`apps::served_logo`, the one owner of both). A read of the Logo refuses.
 #[test]
 fn issue_8061_jpeg_logo_of_a_dependency_published_as_global_is_refused() {
@@ -2012,7 +2011,7 @@ codeunit 50000 T {{ Subtype = Test;
     let jpeg = Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
     let o = run_over_system_with(None, MAIN_ID, None, Some((dep, jpeg.clone())), true, &main);
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
-    // Published as Dev (the default): the logo is served on the JPEG assumption.
+    // Published as Dev (the default): the logo is served, without an assumption.
     let o = run_over_system_with(None, MAIN_ID, None, Some((dep, jpeg)), false, &main);
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }

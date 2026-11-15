@@ -1,9 +1,9 @@
 //! The Event Subscription row of a subscriber to an event that an extension of the publisher object declares
 //! (al-runner issue 8060). The corpus pins that such a subscriber, bound to the base object, fires
-//! (events/extension-events/TestExtensionDeclaredEvents.al:92); it does not pin its row yet. Corpus PR 1412 (merged, not
-//! pinned) measures the whole row in the cells of [`ROW_CELLS`]; Microsoft's Tests-Misc codeunit 134299
-//! TestAllSubscriptionsAreActive and TestSubscriptionTableHasNoErrors measure Active and Error Information in the cell of
-//! [`ACTIVE_CELLS`]. Assumption `extension-event-subscriber-active`, in those cells only.
+//! (events/extension-events/TestExtensionDeclaredEvents.al:92), and its whole row in the cells of [`ROW_CELLS`]
+//! (events/extension-events/ExtensionEventSubscriptionRows.al:178-281). Every other cell is refused, also the two that only
+//! Microsoft's Tests-Misc codeunit 134299 measures (a page extension of another app's ListPart page with both Skip flags
+//! true, of a List page of the same app with both flags false): no probe holds them.
 
 use super::objects::prop;
 use al_ir::{ObjKind, ObjectFacts, ObjectHead, PageType};
@@ -16,10 +16,6 @@ enum Base {
     Table,
     /// A page with `PageType = Card` (:26-29).
     CardPage,
-    /// A page with `PageType = ListPart` (System Application's "Retention Policy Setup Lines", an [`ACTIVE_CELLS`] cell).
-    ListPartPage,
-    /// A page with `PageType = List` (Base Application's "Error Messages", an [`ACTIVE_CELLS`] cell).
-    ListPage,
     /// A report with `ProcessingOnly = true` (:41-44).
     ProcessingOnlyReport,
 }
@@ -30,8 +26,6 @@ impl Base {
         match publisher.kind {
             ObjKind::Table if facts.table_type.is_none() => Some(Base::Table),
             ObjKind::Page if facts.page_type == Some(PageType::Card) => Some(Base::CardPage),
-            ObjKind::Page if facts.page_type == Some(PageType::Other("listpart".into())) => Some(Base::ListPartPage),
-            ObjKind::Page if facts.page_type == Some(PageType::List) => Some(Base::ListPage),
             ObjKind::Report if prop(publisher, "ProcessingOnly").is_some_and(|v| v.eq_ignore_ascii_case("true")) => {
                 Some(Base::ProcessingOnlyReport)
             }
@@ -65,11 +59,10 @@ enum EventAttr {
 /// SkipOnMissingLicense and SkipOnMissingPermission, whether its codeunit is EventSubscriberInstance = Manual, and the
 /// placement. In every cell exactly one extension of the publisher declares the event, as a `local` procedure, under the name
 /// the subscriber writes; the subscriber's element is '' and its codeunit states neither Subtype nor SingleInstance
-/// (ExtensionEventSubscriptionRows.al:52-150; the Base Application objects of [`ACTIVE_CELLS`]).
+/// (ExtensionEventSubscriptionRows.al:52-150).
 type Cell = (Base, EventAttr, bool, bool, bool, Placement);
 
-/// The cells of corpus PR 1412 (merged, not pinned; events/extension-events/ExtensionEventSubscriptionRows.al, identical on
-/// BC 27.5, 28.5 and 29.0): Event Type Integration or Business as declared, Publisher Object Type and ID of the base object,
+/// The cells of events/extension-events/ExtensionEventSubscriptionRows.al (identical on BC 27.5, 28.5 and 29.0): Event Type Integration or Business as declared, Publisher Object Type and ID of the base object,
 /// Published Function the event's name, Active Yes, Error Information blank.
 const ROW_CELLS: &[Cell] = &[
     // :178-188
@@ -139,50 +132,23 @@ const ROW_CELLS: &[Cell] = &[
     ),
 ];
 
-/// The cells only Microsoft's tests measure, Active Yes and a blank Error Information and nothing else (Tests-Misc codeunit
-/// 134299 TestAllSubscriptionsAreActive and TestSubscriptionTableHasNoErrors; the facts are alike in the BC 27.5, 28.5 and 29.0
-/// sources): Base Application's "Serv. Integration Mgt".SetIsDocumentArchiveTable_OnAfterSetIsDocumentArchiveTable on System
-/// Application's "Retention Policy Setup Lines", pageextension 3997 "Reten. Pol. Setup Lines Ext."; Base Application's
-/// "Check Dimensions".OnOpenRelatedRecord on "Error Messages", pageextension 705 "Error Messages Extension", all three in Base
-/// Application.
-const ACTIVE_CELLS: &[Cell] = &[
-    (
-        Base::ListPartPage,
-        EventAttr::Integration,
-        true,
-        true,
-        false,
-        Placement::BaseInAnotherApp,
-    ),
-    (
-        Base::ListPage,
-        EventAttr::Integration,
-        false,
-        false,
-        false,
-        Placement::OneApp,
-    ),
-];
-
-/// What a measured cell knows of the row.
-pub(super) enum Measured<'a> {
-    /// The whole row ([`ROW_CELLS`]): the routine's name as declared (the Published Function) and the Event Type's option
-    /// value (1 Business, 2 Integration, as `metadata::subscription_row` numbers a declared event).
-    Row { published: String, event_type: i32 },
-    /// Active and Error Information only ([`ACTIVE_CELLS`]).
-    ActiveOnly { extension: &'a ObjectHead },
+/// The row of a measured cell ([`ROW_CELLS`]): the routine's name as declared (the Published Function) and the Event Type's
+/// option value (1 Business, 2 Integration, as `metadata::subscription_row` numbers a declared event).
+pub(super) struct Measured {
+    pub(super) published: String,
+    pub(super) event_type: i32,
 }
 
-/// What a measured cell knows of the row of a subscription to `event` of `publisher`; `None` for any other shape. `args` are
+/// The row of a subscription to `event` of `publisher`; `None` for any other shape. `args` are
 /// the subscriber attribute's arguments, `manual` whether its codeunit is EventSubscriberInstance = Manual.
-pub(super) fn measured<'a>(
-    objects: &'a [ObjectHead],
+pub(super) fn measured(
+    objects: &[ObjectHead],
     subscriber: &ObjectHead,
     manual: bool,
-    publisher: &'a ObjectHead,
+    publisher: &ObjectHead,
     event: &str,
     args: &[String],
-) -> Option<Measured<'a>> {
+) -> Option<Measured> {
     let flag = |s: &str| match crate::events::unquote(s).to_ascii_lowercase().as_str() {
         "false" => Some(false),
         "true" => Some(true),
@@ -220,13 +186,10 @@ pub(super) fn measured<'a>(
         Placement::BaseInAnotherApp
     };
     let cell = (base, attr, license, permission, manual, placement);
-    if ROW_CELLS.contains(&cell) {
-        let event_type = if attr == EventAttr::Business { 1 } else { 2 };
-        return Some(Measured::Row { published, event_type });
-    }
-    ACTIVE_CELLS
-        .contains(&cell)
-        .then_some(Measured::ActiveOnly { extension: ext })
+    ROW_CELLS.contains(&cell).then(|| Measured {
+        published,
+        event_type: if attr == EventAttr::Business { 1 } else { 2 },
+    })
 }
 
 /// The extensions of `publisher` of its paired kind: table extensions of a table, page extensions of a page, report

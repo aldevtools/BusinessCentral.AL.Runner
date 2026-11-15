@@ -391,9 +391,7 @@ pub enum Gate {
     /// sv-SE and nb-NO (a one-digit day, a Time, an hour below 10, a negative amount, the long date) are asserted from BC 29 only;
     /// BC 27 and 28 hold `Observer.Discard()` (reports/runtime/BdRegionTests.al:143-398; consumed by al-builtins
     /// format/region.rs). The Media row of an app's baseline JPEG logo has the Mime Type `image/jpeg` from BC 29 and `image/png`
-    /// on BC 27.5 and 28.5 (al-language-onprem/session-system/UsAppLogoJpeg.al:111-115, corpus PR 1412, merged, not pinned yet;
-    /// consumed by al-vm platform/apps.rs under assumption `published-application-jpeg-logo`; its evidence row is added when the
-    /// corpus pin holds the file).
+    /// on BC 27.5 and 28.5 (al-language-onprem/session-system/UsAppLogoJpeg.al:111-115; consumed by al-vm platform/apps.rs).
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).
@@ -1584,6 +1582,11 @@ const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
     Evidence {
         file: "testpage/parts/HiddenPartJournalShape.al",
         lines: "557,591,625,659,697",
+    },
+    // Corpus bump to 2c02f723: the Media row of an app's baseline JPEG logo has the Mime Type image/jpeg from BC 29.
+    Evidence {
+        file: "../al-language-onprem/session-system/UsAppLogoJpeg.al",
+        lines: "111",
     },
 ];
 
