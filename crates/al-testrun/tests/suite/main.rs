@@ -27,6 +27,7 @@ mod execute;
 mod ext_validate_across_apps;
 mod failure_after_refused_test;
 mod failure_after_unfinished_test;
+mod failure_after_untrusted_failure_test;
 mod fieldref_calcfield_blob;
 mod filter_page_caption_assign;
 mod hidden_part_turns;
