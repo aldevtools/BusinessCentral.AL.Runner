@@ -380,7 +380,7 @@ impl Session {
                     && (filter.group == 0
                         || filter.group == 2 && matches!(table.fields[field].ty, RtType::Enum(_))) =>
             {
-                let exact = match &filter.expr {
+                match &filter.expr {
                     FilterExpr::Eq(value) if filter.group == 0 => Some(value.clone()),
                     FilterExpr::Range(Some(lower), Some(upper)) if ops::compare(lower, upper)?.is_eq() => {
                         Some(lower.clone())
@@ -390,8 +390,7 @@ impl Session {
                             "TableRelation validation requires one exact source FlowFilter value (not pinned)",
                         );
                     }
-                };
-                exact
+                }
             }
             _ => {
                 return unsupported(
