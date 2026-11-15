@@ -6,23 +6,26 @@ use al_builtins::builtin_id::{Class, ids};
 use al_builtins::value::RtType;
 use types::{DeclaredTypes, ExprTypes, Ty, of_rt};
 
-/// Compiles `r`.
+/// Compiles routine `routine` of object `o`.
 /// `captured`: the form a value capture runs (ADR-030): statement and loop ops that tell the capture
 /// what a statement did.
-pub(crate) fn compile(r: &ir::Routine, captured: bool) -> Option<Chunk> {
-    compile_form(r, captured, false)
+pub(crate) fn compile(o: &ir::Object, routine: usize, captured: bool) -> Option<Chunk> {
+    compile_form(o, routine, captured, false)
 }
 
-/// The debug form of `r` (ADR-048): the plain form with an `Op::DbgHit` after each statement marker, where a debugger
-/// may stop. The ops between two markers are the plain form's, so a debugged test computes what it computes without one.
-pub(crate) fn compile_debug(r: &ir::Routine) -> Option<Chunk> {
-    compile_form(r, false, true)
+/// The debug form of routine `routine` of object `o` (ADR-048): the plain form with an `Op::DbgHit` after each statement
+/// marker, where a debugger may stop. The ops between two markers are the plain form's, so a debugged test computes what
+/// it computes without one.
+pub(crate) fn compile_debug(o: &ir::Object, routine: usize) -> Option<Chunk> {
+    compile_form(o, routine, false, true)
 }
 
-fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
+fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> Option<Chunk> {
+    let r = &o.routines[routine];
     let nlocals = u16::try_from(r.locals.len()).ok()?;
     let mut c = Compiler {
         locals_ty: r.locals.iter().map(|l| l.ty.clone()).collect(),
+        globals: &o.globals,
         tys: DeclaredTypes {
             locals: r.locals.iter().map(|l| l.ty.clone()).collect(),
             lowered: al_ir::types::ExprTypes::new(r),
@@ -78,6 +81,8 @@ struct LoopCtx {
 struct Compiler<'a> {
     /// The declared type of each local.
     locals_ty: Vec<RtType>,
+    /// The globals of the routine's object.
+    globals: &'a [ir::Slot],
     /// Where the static types come from; the instruction selection asks only this.
     tys: DeclaredTypes<'a>,
     chunk: Chunk,
@@ -359,7 +364,8 @@ impl<'a> Compiler<'a> {
         };
         let (g, kind) = match id {
             ids::SYSTEM_CLEAR_1 | ids::SYSTEM_CLEAR_2 | ids::SYSTEM_CLEAR_3 => {
-                (global(args.first())?, SingleWriteKind::Replace)
+                let g = global(args.first())?;
+                (g, self.replace_kind(g as usize))
             }
             ids::RECORD_GET_1
             | ids::RECORD_GETBYSYSTEMID_1
@@ -1321,16 +1327,13 @@ impl<'a> Compiler<'a> {
             }
         }
         // `G := x` where `x` is made without `G` replaces the value without using it: after a guard that read `G`, the
-        // refill (ADR-066 amendment 3, R1b; `WhenGotGLSetup := CurrentDateTime` in Get Shortcut Dimension Values).
-        if let ir::Place::Global(g) = p {
-            if free_of_global(e, *g, 0) {
-                self.emit(Op::SingleWrite {
-                    i: *g as u32,
-                    kind: SingleWriteKind::Replace,
-                });
-            }
-        }
-        if self.variant_copy(p, e)? {
+        // refill (ADR-066 amendment 3, R1b; `WhenGotGLSetup := CurrentDateTime` in Get Shortcut Dimension Values). The
+        // note is emitted after `x` is evaluated, just before the store: code that `x` calls may read `G` first.
+        let single = match p {
+            ir::Place::Global(g) if free_of_global(e, *g, 0) => Some((*g as u32, self.replace_kind(*g))),
+            _ => None,
+        };
+        if self.variant_copy(p, e, single)? {
             return Ok(());
         }
         match p {
@@ -1364,15 +1367,45 @@ impl<'a> Compiler<'a> {
                     self.emit(Op::BlobFieldRead { r: a, read });
                 }
                 let pi = self.place(&rp);
+                if let Some((i, kind)) = single {
+                    self.emit(Op::SingleWrite { i, kind });
+                }
                 self.emit(Op::StorePlace { p: pi, a });
             }
         }
         Ok(())
     }
 
+    /// How a write that replaces global `g` without using it is noted: `Reset` only for a global of a simple type, whose
+    /// value has no part a `Clear` or an assignment keeps; `Replace` (a touch) for every other type, such as a record
+    /// (`Clear` keeps a temporary record's rows, run-onrun/RunCommitClear.al:386-405; the runtime keeps the target's
+    /// filters on an assignment), a RecordRef, a collection or a handle.
+    fn replace_kind(&self, g: usize) -> SingleWriteKind {
+        match self.globals.get(g).map(|s| &s.ty) {
+            Some(
+                RtType::Integer
+                | RtType::BigInteger
+                | RtType::Decimal
+                | RtType::Boolean
+                | RtType::Char
+                | RtType::Text(_)
+                | RtType::Code(_)
+                | RtType::Date
+                | RtType::Time
+                | RtType::DateTime
+                | RtType::Duration
+                | RtType::Guid
+                | RtType::Option(_)
+                | RtType::Enum(_),
+            ) => SingleWriteKind::Reset,
+            _ => SingleWriteKind::Replace,
+        }
+    }
+
     /// `p := Convert(Variant, x)` where `x` may be a Variant (`variant_copy::source_of`): a site of `variant_copy.rs`, which
     /// decides at run time what a temporary record does there. False for every other assignment.
-    fn variant_copy(&mut self, p: &'a ir::Place, e: &'a ir::Expr) -> R<bool> {
+    /// `single`: the `Op::SingleWrite` of a global `p`, emitted before the store.
+    fn variant_copy(&mut self, p: &'a ir::Place, e: &'a ir::Expr, single: Option<(u32, SingleWriteKind)>) -> R<bool> {
         let ir::Expr::Convert(RtType::Variant, inner) = e else {
             return Ok(false);
         };
@@ -1404,6 +1437,9 @@ impl<'a> Compiler<'a> {
             at: u32::MAX,
         });
         let s = u32::try_from(self.chunk.variant_copies.len() - 1).map_err(|_| ())?;
+        if let Some((i, kind)) = single {
+            self.emit(Op::SingleWrite { i, kind });
+        }
         self.emit(Op::StoreVariantCopy { s, a });
         Ok(true)
     }
