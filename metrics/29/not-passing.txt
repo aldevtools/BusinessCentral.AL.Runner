@@ -1558,7 +1558,6 @@
 79929 CodeField_CalcField
 79929 Validate_RelationOnFlowField_FlowFieldAfter
 79929 Validate_RelationOnFlowField_KindZero
-80017 WordAlpha_TransparentColors_EmailBody
 80017 WordDefault_OneRow_EmailBody
 80017 WordDefault_Sanitized_EmailBody
 80017 WordDefault_ThreeRows_EmailBody
@@ -1587,8 +1586,6 @@
 80023 StoredWordBuiltinTenantGuid_WordExcel
 80023 StoredWordBuiltin_HtmlPdf
 80023 StoredWordBuiltin_WordExcel
-80024 Default_WordRgba_EmailBody
-80024 Default_WordRgba_TextCounts
 80024 LegacyDefaultLayoutWord_EmailBody
 80024 ParentChildDataItems_EmailBody
 80024 ReportExtensionColumn_EmailBody
@@ -1597,18 +1594,13 @@
 80024 TenantGuid_WordRgba_EmailBody
 80024 TenantGuid_WordRgba_TextCounts
 80024 TenantPlainName_WordRgba_EmailBody
-80029 Bound_OneRow
-80029 Bound_RowCountChangesHash
-80029 Bound_ThreeRows
 80029 Hash_ExtColumn
 80029 Hash_LegacyDefaultLayoutWord
 80029 Hash_TenantGuid_WordRgba_SameAsOwnLayout
 80029 Hash_TwoItems_ParentChild
 80029 Hash_Values_DecimalDateSpecialChars
-80029 Hash_WordAlpha_TwoRows
 80029 Hash_WordDefault_OneRow
 80029 Hash_WordDefault_ThreeRows
-80029 Hash_WordRgba_TwoRows
 80029 Pdf_TwoItems_NoRow
 80043 SaveAsRecord_NoRow_TempEmpty_Html
 80043 SaveAsRecord_NoRow_TempEmpty_Word
