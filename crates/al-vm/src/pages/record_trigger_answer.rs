@@ -4,11 +4,11 @@
 //!   OnInsertRecord_ReturningFalse_SuppressesTheInsert, pages/triggers/OnInsertRecordFalse.al).
 //! - A trigger without any `exit(value)` and without a named return value does not veto (pages/currpage/
 //!   PageUpdateNewRowCard.Page.al: OnInsertRecord assigns the key and exits nothing, and the row is saved).
-//! - A named return value that ends true saves (open corpus PR 1367, pages/triggers/RecordTriggerReturnValue.al:446-541, the
-//!   True cells; the rule main had).
+//! - A named return value that ends true saves (pages/triggers/RecordTriggerReturnValue.al:446-541, the True cells; the rule
+//!   main had).
 //! - An `exit(value)` that did not run, without a named return value, saves (RecordTriggerReturnValue.al, the Cond cells; corpus
 //!   testpage/CcPageLeads.al:341), and a named return value assigned false vetoes (the False cells). Both run only in the
-//!   measured shapes (`probe_cell`, `mod_mode_cell`), under an assumption; every other shape of them is refused, because the
+//!   pinned shapes (`probe_cell`, `mod_mode_cell`); every other shape of them is refused, because the
 //!   earlier rule (the default value of an unnamed return is a veto, a named one never vetoes) is the one the probe showed
 //!   wrong. A named return value with an `exit(value)` that did not run keeps the earlier answer, the value it ends with (not
 //!   measured with such an exit).
@@ -18,7 +18,6 @@ use super::pinned_shape::{
     PinnedCode, TestCall, code_stmts, rec_text_log_call, text_log_routine, unconverted, without_pos,
 };
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
 
 /// The probe's cards (RecordTriggerReturnValue.al:49 "PG6 RT Cond Card", :94 "PG6 RT False Card"): the three record triggers,
@@ -60,7 +59,6 @@ impl Session {
             // corpus testpage/CcPageLeads.al:341 ModifyRecord_AssignsAnotherRecord agrees: its `case` runs no exit and sets Rec to
             // row 2, and the save leaves both rows as they were (`row1` a, `row2` b).
             if self.probe_cell(st, name, ProbeForm::Cond)? || self.mod_mode_cell(st, name)? {
-                assume(Assumption::PageRecordTriggerExitNotTakenSaves);
                 return Ok(None);
             }
             return unsupported(format!(
@@ -74,7 +72,6 @@ impl Session {
         // RecordTriggerReturnValue.al:350 False_Insert_OpenNewSetValueClose, :373 _Next, :397 False_Modify_SetValueNext,
         // :422 _Close: `Ok := false;` vetoes.
         if self.probe_cell(st, name, ProbeForm::False)? {
-            assume(Assumption::PageRecordTriggerNamedFalseVetoes);
             self.pages.named_false_insert = name == "oninsertrecord";
             return Ok(Some(false));
         }

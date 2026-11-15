@@ -1076,8 +1076,8 @@ impl Session {
         }
         if go == Some(false) && std::mem::take(&mut self.pages.named_false_insert) {
             // The page's own OnInsertRecord vetoed by its named return value, the insert of a SetValue: the SetValue raises
-            // the filtered-view error and nothing is stored (open corpus PR 1367, pages/triggers/RecordTriggerReturnValue.al:350
-            // False_Insert_OpenNewSetValueClose `end|text`, `log` `I N1 ; `; assumption page-record-trigger-named-false-vetoes).
+            // the filtered-view error and nothing is stored (pages/triggers/RecordTriggerReturnValue.al:350
+            // False_Insert_OpenNewSetValueClose `end|text`, `log` `I N1 ; `).
             // What the page holds afterwards is not measured: every later call on it, Close too, is refused.
             {
                 let mut s = st.borrow_mut();
