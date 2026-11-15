@@ -1945,13 +1945,46 @@ fn unmeasured_jpegs() -> Vec<Vec<u8>> {
     exif.extend_from_slice(&XAPP_E_JPEG[20..]);
     let mut precision = XAPP_E_JPEG.to_vec();
     precision[sof + 4] = 12;
-    vec![progressive, cut, trailing, gray, exif, precision]
+    // The images of the round-2 review of al-runner PR 8131: bytes and a second FF D9 after the real end marker
+    // (trail_ffd9.jpg), the file twice (double.jpg), FF D9 right after the start-of-scan header (noscan.jpg), and a width
+    // of 0 in the frame (zerowidth.jpg); a height of 0 (the height comes from a DNL marker) and a restart marker.
+    let mut trail_ffd9 = XAPP_E_JPEG.to_vec();
+    trail_ffd9.extend_from_slice(b"XXXX\xff\xd9");
+    let double = [XAPP_E_JPEG, XAPP_E_JPEG].concat();
+    let mut noscan = XAPP_E_JPEG[..sos + 14].to_vec();
+    noscan.extend_from_slice(&[0xFF, 0xD9]);
+    let mut zero_width = XAPP_E_JPEG.to_vec();
+    zero_width[sof + 7..sof + 9].copy_from_slice(&[0, 0]);
+    let mut zero_height = XAPP_E_JPEG.to_vec();
+    zero_height[sof + 5..sof + 7].copy_from_slice(&[0, 0]);
+    let mut restart = XAPP_E_JPEG[..sos + 15].to_vec();
+    restart.extend_from_slice(&[0xFF, 0xD0]);
+    restart.extend_from_slice(&XAPP_E_JPEG[sos + 15..]);
+    vec![
+        progressive,
+        cut,
+        trailing,
+        gray,
+        exif,
+        precision,
+        trail_ffd9,
+        double,
+        noscan,
+        zero_width,
+        zero_height,
+        restart,
+    ]
 }
 
 /// The JPEG logo reader takes the measured file's structure by equality and reads the size from its frame.
 #[test]
 fn jfif_logo_size_takes_the_measured_structure_only() {
     assert_eq!(al_builtins::media::jfif_logo_size(&XAPP_E_JPEG), Some((8, 8)));
+    // Two baseline JFIF files of the same structure in other sizes (round-2 review of al-runner PR 8131).
+    let wide = include_bytes!("../fixtures/jpeg/wide16x8.jpg");
+    assert_eq!(al_builtins::media::jfif_logo_size(wide), Some((16, 8)));
+    let big = include_bytes!("../fixtures/jpeg/big400x300.jpg");
+    assert_eq!(al_builtins::media::jfif_logo_size(big), Some((400, 300)));
     for other in unmeasured_jpegs() {
         assert_eq!(
             al_builtins::media::jfif_logo_size(&other),

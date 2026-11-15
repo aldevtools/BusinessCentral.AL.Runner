@@ -118,6 +118,9 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - the rows of a pinned table checked by key only: the other field values are what the page's code reads (a caption
     expression, a trigger). Require every field of every measured row by equality (al-runner PR 8113; the same miss for a
     handed record in PR 8009).
+  - a file-structure gate that checks the start and the last bytes but stops at the first scan segment: data after
+    the real end marker, or no data before it, passes. Walk the file to its end marker and require that marker to be
+    the last bytes (al-runner PR 8131, JPEG logo).
 - Probe the neighbors yourself: flip one fact at a time and check that the path refuses or keeps main's
   result.
 
