@@ -347,6 +347,8 @@ pub struct PageState {
     /// and a test read of what that run changes refuses, naming the fact the page misses (`data_caption_open.rs`). Cleared at
     /// the next open.
     pub data_caption_open_unmeasured: Option<&'static str>,
+    /// The measured cell of WorksheetTriggersOpen.al this page opened in (`ws_trigger_order.rs`). Cleared at the next open.
+    pub ws_trigger_order: Option<crate::pages::ws_trigger_order::WsTriggerOrder>,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
     /// (`lookup_start.rs`).
     pub lookup_held_row: bool,
@@ -1056,6 +1058,7 @@ impl PageState {
         self.pinned_end = None;
         self.data_caption_at_open = false;
         self.data_caption_open_unmeasured = None;
+        self.ws_trigger_order = None;
         self.test_filters = Vec::new();
         self.open_editable = OpenEditable::Unset;
         self.provider_no_row_landed = false;

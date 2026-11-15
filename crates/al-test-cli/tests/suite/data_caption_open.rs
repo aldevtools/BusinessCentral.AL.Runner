@@ -344,7 +344,7 @@ fn neighbors_of_the_measured_open_keep_main_outcome_or_refuse() {
     assert!(get("D13_FieldExpr").contains("the test read the caption"));
 }
 
-// The page of al-runner issue 6924 (APPD), as the reporter described it: filter controls with OnValidate and OnLookup, a third
+// The page of al-runner issue 6924 (the reporter's price page), as the reporter described it: filter controls with OnValidate and OnLookup, a third
 // control on a Date variable, and an OnOpenPage that asks a codeunit and assigns its answer to CurrPage.Editable. The probe's
 // controls have no trigger and show Text variables (DataCaptionExprWorksheet.al:120-130).
 const REPORTED: &str = r#"
@@ -443,7 +443,7 @@ codeunit 69955 T
 }
 "#;
 
-// al-runner issue 6924 (APPD): main's path ran the expression only at a caption read, so the handler read empty controls where BC
+// al-runner issue 6924 (the reporter's price page): main's path ran the expression only at a caption read, so the handler read empty controls where BC
 // ran it twice before the handler (DataCaptionExprWorksheet.al:412). Control triggers and a Date variable are not measured: on the
 // empty view the page refuses before the handler and names the fact it misses.
 #[test]

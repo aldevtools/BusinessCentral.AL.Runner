@@ -77,6 +77,7 @@ impl Session {
             next: NextEnd::Refused,
             close: true,
             ok: false,
+            walk: false,
         });
         self.inserted_outside_view(st, idx)
     }

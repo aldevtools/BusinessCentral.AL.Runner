@@ -45,7 +45,10 @@ impl Session {
         let rows = std::mem::take(&mut self.baseline_rows);
         let origin = self.baseline_origin;
         let company_built = self.company_built;
+        // The tables install code wrote since a group 1 filter ended are kept across the rewind (`group1_sessions.rs`).
+        self.collect_group1_writes();
         self.restore_baseline(b);
+        self.restart_group1_writes();
         self.baseline_rows = rows;
         self.baseline_origin = origin;
         self.company_built = company_built;
