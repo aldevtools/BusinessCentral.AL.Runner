@@ -3,6 +3,7 @@
 //! answer it had before (a refusal), and a RecordRef closed after it was open keeps the answers main gave a RecordRef not open.
 //! The measured cells themselves are the corpus cases.
 
+use al_builtins::assumptions::{Assumption, take_hits};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
@@ -274,8 +275,8 @@ fn format_and_gettable_of_records_without_a_refusing_mark_keep_their_answer() {
 }
 
 /// The states corpus PR 1411 measured (UhUntouchedStreamsAfter.al, codeunit 66996): a RecordRef after Open(0) and after Open then
-/// Clear raises "The record is not open." on the never-opened members, a KeyRef after Clear raises NotInitialized on FieldCount
-/// and Active.
+/// Clear raises "The record is not open." on the never-opened members, a KeyRef that held a key raises NotInitialized on Active
+/// after Clear. Each runs flagged.
 #[test]
 fn the_states_after_open_zero_and_clear_answer_as_measured() {
     for (setup, call, text) in [
@@ -292,24 +293,112 @@ fn the_states_after_open_zero_and_clear_answer_as_measured() {
         ),
         (
             "RR.Open(50100); KR := RR.KeyIndex(1); Clear(KR);",
-            "N := KR.FieldCount();",
-            "Microsoft.Dynamics.Nav.Runtime.NavKeyRef variable not initialized.",
-        ),
-        (
-            "RR.Open(50100); KR := RR.KeyIndex(1); Clear(KR);",
             "B := KR.Active();",
             "Microsoft.Dynamics.Nav.Runtime.NavKeyRef variable not initialized.",
         ),
     ] {
+        take_hits();
         let r = run(&format!(
             "procedure F(): Text var RR: RecordRef; KR: KeyRef; B: Boolean; T: Text; N: Integer;
             begin {setup} asserterror begin {call} end; exit(GetLastErrorText() + '|' + GetLastErrorCode()); end;"
         ));
+        let hits = take_hits();
+        assert!(
+            hits.contains(&Assumption::RecordRefNotOpenMembers) || hits.contains(&Assumption::KeyRefUnassignedMembers),
+            "{setup} {call}: {hits:?}"
+        );
         let code = if text.starts_with("The record") {
             "RecordNotOpened"
         } else {
             "NotInitialized"
         };
         assert_eq!(al_testkit::text(r), format!("{text}|{code}"), "{setup} {call}");
+    }
+}
+
+/// Members corpus PR 1411 did not measure after Clear and after Open(0), and the sequences around them it did not use, keep their
+/// answer before the probe (a refusal): the members UhUnopenedRecordRef.al measured on a RecordRef never opened and closed, FieldCount
+/// after Clear, Clear of a RecordRef never opened, Open(0) after Clear, and a failed Open after Clear.
+#[test]
+fn recordref_members_not_measured_after_clear_or_open_zero_refuse() {
+    for setup in ["RR.Open(0);", "RR.Open(50100); Clear(RR);"] {
+        for call in [
+            "B := RR.FindSet();",
+            "B := RR.ReadPermission();",
+            "B := RR.WritePermission();",
+            "B := RR.FindFirst();",
+            "RR.CopyLinks(R);",
+            "RR.CopyLinks(Src);",
+        ] {
+            refused(&format!(
+                "procedure F(): Text var RR: RecordRef; Src: RecordRef; R: Record Row; B: Boolean; begin Src.Open(50100); {setup} {call} end;"
+            ));
+        }
+    }
+    for (setup, call) in [
+        ("RR.Open(50100); Clear(RR);", "N := RR.FieldCount();"),
+        ("Clear(RR);", "B := RR.FindLast();"),
+        ("Clear(RR);", "B := RR.FindSet();"),
+        ("RR.Open(50100); Clear(RR); RR.Open(0);", "B := RR.FindLast();"),
+        ("RR.Open(0); RR.Open(0);", "B := RR.FindLast();"),
+        (
+            "RR.Open(50100); Clear(RR); asserterror RR.Open(99999999);",
+            "B := RR.FindLast();",
+        ),
+        ("RR.Open(50100); RR.Close(); Clear(RR);", "T := RR.GetFilters();"),
+    ] {
+        refused(&format!(
+            "procedure F(): Text var RR: RecordRef; B: Boolean; T: Text; N: Integer; begin {setup} {call} end;"
+        ));
+    }
+}
+
+/// After Clear and after Open(0) a RecordRef keeps the answers main gave a RecordRef not open: Number, Format and the members of
+/// RfTOpen.al Closed_Errors. FieldCount after Open(0) is pinned (RfTOpen.al:630) and runs unflagged.
+#[test]
+fn recordref_after_clear_or_open_zero_keeps_the_answers_of_one_not_open() {
+    for setup in ["RR.Open(0);", "RR.Open(50100); Clear(RR);"] {
+        let r = run(&format!(
+            "procedure F(): Text var RR: RecordRef; T: Text; begin {setup}
+            T := Format(RR.Number()) + '|' + Format(RR) + '|';
+            asserterror T := RR.Name();
+            exit(T + GetLastErrorCode()); end;"
+        ));
+        assert_eq!(al_testkit::text(r), "0||RecordNotOpened", "{setup}");
+    }
+    take_hits();
+    let r = run(
+        "procedure F(): Text var RR: RecordRef; N: Integer; begin RR.Open(0); asserterror N := RR.FieldCount(); exit(GetLastErrorCode()); end;",
+    );
+    assert_eq!(al_testkit::text(r), "RecordNotOpened");
+    assert!(!take_hits().contains(&Assumption::RecordRefNotOpenMembers));
+}
+
+/// A KeyRef after Clear: only Active was asserted by corpus PR 1411 (FieldCount was observed, not asserted). FieldIndex(1), Record
+/// and FieldCount refuse, and so does Active on a KeyRef cleared while it held nothing.
+#[test]
+fn keyref_members_not_measured_after_clear_refuse() {
+    for call in ["N := KR.FieldCount();", "FR := KR.FieldIndex(1);", "R2 := KR.Record();"] {
+        refused(&format!(
+            "procedure F(): Text var RR: RecordRef; R2: RecordRef; KR: KeyRef; FR: FieldRef; N: Integer;
+            begin RR.Open(50100); KR := RR.KeyIndex(1); Clear(KR); {call} end;"
+        ));
+    }
+    refused("procedure F(): Text var KR: KeyRef; B: Boolean; begin Clear(KR); B := KR.Active(); end;");
+}
+
+/// GetTable of a Variant that holds no record on a RecordRef after Clear or Open(0): no probe measured it, so every value keeps its
+/// answer before the probe (a refusal).
+#[test]
+fn gettable_of_a_variant_after_clear_or_open_zero_refuses() {
+    for setup in ["RR.Open(50100); Clear(RR);", "RR.Open(0);"] {
+        for value in ["''", "'abc'", "5", "'ALT Universal'"] {
+            refused(&format!(
+                "procedure F(): Text var RR: RecordRef; V: Variant; begin {setup} V := {value}; RR.GetTable(V); end;"
+            ));
+        }
+        refused(&format!(
+            "procedure F(): Text var RR: RecordRef; V: Variant; begin {setup} RR.GetTable(V); end;"
+        ));
     }
 }

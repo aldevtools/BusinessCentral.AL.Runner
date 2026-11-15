@@ -2,13 +2,15 @@
 //! (tests/al-language/recordref-fieldref/UhUnopenedRecordRef.al, BC 27.5, 28.5 and 29.0; al-runner issues 7760, 7764, 8084,
 //! 8001). The probe is merged and not yet pinned: every path here marks `recordref-not-open-members`,
 //! `recordref-gettable-variant-not-record` or `keyref-unassigned-members`, except the cells the pinned corpus already measured
-//! (cited where they are answered). Every other shape keeps the answer of its owner in `refs.rs` (which refuses it).
+//! (cited where they are answered). Corpus PR 1411 (streams/instream-outstream/UhUntouchedStreamsAfter.al, codeunit 66996, merged,
+//! not yet pinned) measured some of them after `Open(0)` and after `Open` then `Clear`. Every other shape keeps the answer of its
+//! owner in `refs.rs` (which refuses it).
 
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{AlError, Signal};
 use al_builtins::recordref_closed::not_open;
-use al_builtins::value::{LibraryValue, RecordState, Value};
+use al_builtins::value::{EmptiedRef, LibraryValue, RecordState, Value};
 
 /// "The record is not open." (code RecordNotOpened), the error of a RecordRef that is not open.
 pub(crate) fn record_not_open() -> Signal {
@@ -99,6 +101,13 @@ impl Session {
         let state_measured = match lib {
             LibraryValue::Empty => true,
             LibraryValue::ClosedRecordRef => measured == Measured::NeverOpenedAndClosed,
+            // UhUntouchedStreamsAfter.al:353-379 AfterOpenZero_Members and AfterOpenClear_Members (setups :219-225, members
+            // :228-248): exactly the never-opened-only members raise there.
+            LibraryValue::EmptiedRef(EmptiedRef::ClearedOpenRecordRef) => measured == Measured::NeverOpened,
+            // And FieldCount after Open(0), pinned below.
+            LibraryValue::EmptiedRef(EmptiedRef::ZeroOpenedRecordRef) => {
+                measured == Measured::NeverOpened || method == "FieldCount"
+            }
             _ => false,
         };
         if !state_measured {
@@ -106,7 +115,11 @@ impl Session {
         }
         // FieldCount of a RecordRef never opened, with the result used, is pinned (recordref-fieldref/recordref/RfTOpen.al:191,
         // Closed_Errors `fieldcount`, a RecordRef that no Open reached; :630 Open_Zero_Members, after `Open(0)`).
-        let pinned = method == "FieldCount" && matches!(lib, LibraryValue::Empty);
+        let pinned = method == "FieldCount"
+            && matches!(
+                lib,
+                LibraryValue::Empty | LibraryValue::EmptiedRef(EmptiedRef::ZeroOpenedRecordRef)
+            );
         if !pinned {
             assume(Assumption::RecordRefNotOpenMembers);
         }
@@ -119,7 +132,8 @@ impl Session {
     /// (:154-172, it stays open), "NavVariant variable not initialized."; `V` holds the Integer 5 or the Text 'ALT Universal' on
     /// a RecordRef never opened (:119-144), the Conversion error naming NavInteger or NavText. Assumed
     /// (`recordref-gettable-variant-not-record`): the Text '' or 'abc' on a RecordRef never opened (UhUnopenedRecordRef.al:225-230
-    /// `gt_empty`, :242-247 `gt_text`; tests :687, :717), the Conversion error naming NavText.
+    /// `gt_empty`, :242-247 `gt_text`; tests :687, :717), the Conversion error naming NavText. A RecordRef emptied by `Clear` or
+    /// `Open(0)` is not one never opened: no probe measured GetTable there.
     pub(crate) fn get_table_variant_not_record(&self, lib: &LibraryValue, arg: Option<&Value>) -> Option<Signal> {
         if self.ret_used {
             return None;
@@ -149,19 +163,21 @@ impl Session {
     /// `Some` with "Microsoft.Dynamics.Nav.Runtime.NavKeyRef variable not initialized." (NotInitialized) for the members of a
     /// KeyRef nothing assigned that UhUnopenedRecordRef.al measured, each with its result used: FieldCount and Active
     /// (:248-251 `kr_fieldcount`, `kr_active`; tests :727, :737), FieldIndex(1) (:252-256, test :747) and Record (:257-261,
-    /// test :757). `None` to go on.
+    /// test :757); and on a KeyRef that held a key, after `Clear`, Active with its result used (UhUntouchedStreamsAfter.al:285-299
+    /// `TryKeyRef`, test :418; FieldCount there is observed, not asserted, :419). `None` to go on.
     pub(crate) fn keyref_unassigned_measured(
         &self,
         method: &str,
         lib: &LibraryValue,
         args: &[Value],
     ) -> Option<Signal> {
-        if !matches!(lib, LibraryValue::Empty) || !self.ret_used {
+        if !self.ret_used {
             return None;
         }
-        let measured = match method {
-            "FieldCount" | "Active" | "Record" => args.is_empty(),
-            "FieldIndex" => matches!(args, [Value::Integer(1)]),
+        let measured = match (lib, method) {
+            (LibraryValue::Empty, "FieldCount" | "Active" | "Record") => args.is_empty(),
+            (LibraryValue::Empty, "FieldIndex") => matches!(args, [Value::Integer(1)]),
+            (LibraryValue::EmptiedRef(EmptiedRef::ClearedAssignedKeyRef), "Active") => args.is_empty(),
             _ => false,
         };
         if !measured {
@@ -175,22 +191,27 @@ impl Session {
     }
 }
 
-/// Whether `method` on the RecordRef `lib` is an `Open` or a `Get` on a RecordRef never opened ([`after_open_attempt`]).
+/// Whether `method` on the RecordRef `lib` is an `Open` or a `Get` on a RecordRef never opened or emptied ([`after_open_attempt`]).
 pub(crate) fn open_attempt_on_new_ref(method: &str, lib: &LibraryValue) -> bool {
-    matches!(method, "Open" | "Get") && matches!(lib, LibraryValue::Empty)
+    matches!(method, "Open" | "Get") && matches!(lib, LibraryValue::Empty | LibraryValue::EmptiedRef(_))
 }
 
 /// After an `Open` that raised, or a `Get` that left the ref not open (a miss, a blank RecordId, an error), on a RecordRef never
 /// opened: the ref counts as closed. Both answer alike everywhere except the members the probe measured only on a new variable
 /// ([`measured_member`], `Measured::NeverOpened`), which then keep their answer before the probe (a refusal). An `Open(0)` that
-/// raised nothing leaves the ref never opened: Open_Zero_Members (recordref-fieldref/recordref/RfTOpen.al:584-641) measured
-/// Number, Name, FieldCount, KeyCount, IsEmpty, IsTemporary and Count there as on a new ref; the never-opened-only members after
-/// `Open(0)` are not measured, and the entry text of `recordref-not-open-members` names them.
+/// raised nothing on a RecordRef never opened leaves `EmptiedRef::ZeroOpenedRecordRef`: it answers as one never opened
+/// ([`al_builtins::recordref_closed::not_open`]; Open_Zero_Members, recordref-fieldref/recordref/RfTOpen.al:584-641, Number, Name,
+/// FieldCount, KeyCount, IsEmpty, IsTemporary and Count), and [`measured_member`] runs there what UhUntouchedStreamsAfter.al
+/// measured. An `Open` or a `Get` that leaves an emptied RecordRef not open leaves `EmptiedRef::OtherRecordRef`, which no probe
+/// measured.
 pub(crate) fn after_open_attempt(method: &str, lib: &std::cell::RefCell<LibraryValue>, r: &Result<Value, Signal>) {
-    let left_new = matches!(&*lib.borrow(), LibraryValue::Empty);
-    if left_new && (method == "Get" || r.is_err()) {
-        *lib.borrow_mut() = LibraryValue::ClosedRecordRef;
-    }
+    let next = match &*lib.borrow() {
+        LibraryValue::Empty if method == "Get" || r.is_err() => LibraryValue::ClosedRecordRef,
+        LibraryValue::Empty => LibraryValue::EmptiedRef(EmptiedRef::ZeroOpenedRecordRef),
+        LibraryValue::EmptiedRef(_) => LibraryValue::EmptiedRef(EmptiedRef::OtherRecordRef),
+        _ => return,
+    };
+    *lib.borrow_mut() = next;
 }
 
 impl Session {

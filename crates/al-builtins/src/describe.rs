@@ -147,6 +147,13 @@ impl Describe for LibraryValue {
         match self {
             LibraryValue::ClearedStream => "a cleared stream".into(),
             LibraryValue::ClosedRecordRef => "a closed RecordRef".into(),
+            LibraryValue::EmptiedRef(e) => match e {
+                crate::value::EmptiedRef::ClearedAssignedKeyRef | crate::value::EmptiedRef::OtherKeyRef => {
+                    "a cleared KeyRef".into()
+                }
+                crate::value::EmptiedRef::ZeroOpenedRecordRef => "a RecordRef after Open(0)".into(),
+                _ => "a cleared RecordRef".into(),
+            },
             LibraryValue::Empty => "an untouched handle".into(),
             LibraryValue::HandedContext => "a context the test framework handed over".into(),
             LibraryValue::HandlerContext(_) => "a TestHandlerContext the test runner handed over".into(),
