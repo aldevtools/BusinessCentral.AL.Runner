@@ -542,6 +542,21 @@ impl<'a> JoinedReach<'a> {
             .any(|f| f.globals_read.range((o, 0)..=(o, usize::MAX)).next().is_some())
     }
 
+    /// Whether the joined reach reads or changes one of the session state `bits` ([`state`]).
+    pub fn uses_state(&self, bits: u16) -> bool {
+        self.parts().any(|f| (f.state_reads | f.state_writes) & bits != 0)
+    }
+
+    /// [`ReachFacts::random`] of the joined reach.
+    pub fn random(&self) -> bool {
+        self.parts().any(ReachFacts::random)
+    }
+
+    /// The first reason of [`ReachFacts::unknown`] of the joined reach.
+    pub fn unknown(&self) -> Option<&'a str> {
+        self.parts().find_map(|f| f.unknown.as_deref())
+    }
+
     /// The facts of the joined reach, built.
     #[cfg(test)]
     fn facts(&self) -> ReachFacts {
