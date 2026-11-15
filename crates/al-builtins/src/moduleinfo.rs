@@ -422,11 +422,11 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
 /// (session-system/TestNavAppGetResource.al:62-85: "A resource matching '{0}' could not be found in app
 /// '{1}'."; the corpus asserts the part up to the app name).
 fn resource(c: &dyn Ctx, name: &str) -> Result<Vec<u8>, Signal> {
-    let Some((app, resources)) = c.app_resources() else {
+    let Some((app, content)) = c.app_resource(name) else {
         return unsupported("resources of an app the runtime does not know");
     };
-    match resources.into_iter().find(|(n, _)| n == name) {
-        Some((_, bytes)) => Ok(bytes),
+    match content {
+        Some(bytes) => Ok(bytes),
         None => Err(Signal::Error(Box::new(AlError {
             message: format!("A resource matching '{name}' could not be found in app '{app}'."),
             code: String::new(),

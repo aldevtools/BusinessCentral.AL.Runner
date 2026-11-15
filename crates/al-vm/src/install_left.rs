@@ -30,6 +30,10 @@ pub struct InstallLeft {
     caption_context_revision: u64,
     /// The language the Event Subscription and Report Layout lists follow (`EventStats::language`, 0 for 1033 until set).
     stats_language: i32,
+    /// How many events each subscriber handled (`EventStats::calls`, counted in al-vm dispatch.rs). Its one reader is the
+    /// Event Subscription row's "Number of Calls" and the active-instances column next to it (platform/mod.rs
+    /// `with_event_stats`); nothing clears it, so a session in which the install code ran reads these counts.
+    subscriber_calls: std::collections::HashMap<(usize, usize), i64>,
 }
 
 impl Session {
@@ -193,8 +197,11 @@ impl Session {
             constants: _,
             // The stop flag of the session's own time limit, set from another thread.
             stop: _,
-            // Counts read only as a difference around one test method (al-testrun isolation.rs).
+            // Compared only with a count noted earlier in the same session, by code that runs then: a record's row origin
+            // (stale_buffer_origin.rs:55, assigned_audit.rs:327), a blob (blob_transfer.rs:977), a query (query_reopen.rs:43),
+            // a page run (pages/page_run_close.rs:631), the SQL counters (sqlcount.rs:886, reset by `left_inactive`).
             commits: _,
+            // Checked (`holds_as_new`).
             blob_sources: _,
             error_scopes: _,
             // Caches of what the program defines: the same values in every session.
@@ -223,8 +230,8 @@ impl Session {
             package_load: _,
             // Carried in InstallLeft.
             waited_ms: _,
-            // Read by the caller (`Session::read_resources`).
-            read_resources: _,
+            // Read by the caller (`Session::resource_reads`).
+            resource_reads: _,
             sleep_budget: _,
             slept_in_test: _,
             encrypted: _,
@@ -270,6 +277,7 @@ impl Session {
             sql: self.sql.left_inactive()?,
             caption_context_revision: self.events.caption_context_revision,
             stats_language: self.events.event_stats.language.get(),
+            subscriber_calls: self.events.event_stats.calls.borrow().clone(),
         })
     }
 
@@ -526,5 +534,10 @@ impl Session {
         self.sql.restore_left(&left.sql);
         self.events.caption_context_revision = left.caption_context_revision;
         self.events.event_stats.language.set(left.stats_language);
+        self.events
+            .event_stats
+            .calls
+            .borrow_mut()
+            .clone_from(&left.subscriber_calls);
     }
 }

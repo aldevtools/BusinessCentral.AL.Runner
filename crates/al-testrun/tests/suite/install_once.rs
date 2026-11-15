@@ -1,7 +1,8 @@
 //! The install code of an app with no dependency app runs once per run when what it left is only what a codeunit's
 //! session can start from (al-runner issue 8144, al-testrun `install_once.rs`, al-vm `Session::install_left`). Install
 //! code that leaves any other session state keeps running in each test codeunit's session, as before: every case below
-//! gives that run's answer and counts one install run per codeunit.
+//! gives that run's answer and counts one install run per codeunit, as that run does (the first codeunit's session is the
+//! one the install code ran in to find out).
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
@@ -52,6 +53,37 @@ fn run_with(src: &str, target: &str, opts: &RunOptions) -> CorpusRuntime {
     .expect("the run starts")
 }
 
+/// [`run_with`] with the platform's System app, which declares the Event Subscription table, under the default options.
+fn run_with_system(src: &str) -> CorpusRuntime {
+    let bytes = std::fs::read(al_testfiles::system_app()).expect("System.app");
+    let system = al_deps::package::read_package(&bytes).expect("System.app reads").1;
+    let platform = al_sema::workspace::PLATFORM_APP_ID;
+    CorpusRuntime::try_run_suites_with(
+        vec![
+            AppSource {
+                id: "main".into(),
+                name: "main".into(),
+                dependencies: vec![platform.into()],
+                files: vec![("main.al".into(), src.to_string())],
+            },
+            AppSource {
+                id: platform.into(),
+                name: "System".into(),
+                dependencies: vec![],
+                files: system,
+            },
+        ],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[manifest(""), manifest("")],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    )
+    .expect("the run starts")
+}
+
 /// Every test's failure text, by codeunit.
 fn failures(rt: &CorpusRuntime) -> Vec<(u32, String)> {
     let mut v: Vec<(u32, String)> = rt
@@ -93,8 +125,9 @@ fn app(locals: &str, install: &str, on_run: &str, read: &str) -> String {
     )
 }
 
-/// Runs `src` and checks that both test codeunits fail with `want` and that the install code ran once per codeunit, after
-/// the one run in a session of its own whose verdict was that a codeunit's session cannot start from it.
+/// Runs `src` and checks that both test codeunits fail with `want` and that the install code ran once per codeunit, as on a
+/// run that runs it in each codeunit's session: the session it ran in to find out that a codeunit's session cannot start
+/// from what it left is the first codeunit's session.
 fn keeps_install_per_codeunit(src: &str, target: &str, want: &str) {
     let rt = run_with(src, target, &RunOptions::default());
     let got = failures(&rt);
@@ -103,7 +136,7 @@ fn keeps_install_per_codeunit(src: &str, target: &str, want: &str) {
         vec![(60510, want.to_string()), (60511, want.to_string())],
         "{got:?}"
     );
-    assert_eq!(rt.phases.install_runs, 1 + 2, "{got:?}");
+    assert_eq!(rt.phases.install_runs, 2, "{got:?}");
 }
 
 const MEDIA_IN: &str = "T.B.CreateOutStream(OS); OS.WriteText('picture-bytes'); T.B.CreateInStream(IStr);";
@@ -222,6 +255,74 @@ fn install_code_that_reseeds_random_runs_per_codeunit() {
         "StrSubstNo('rnd=%1', Saw)",
     );
     keeps_install_per_codeunit(&src, "", "rnd=66811");
+}
+
+/// An automatic subscriber (60504) and a manual one (60506) of the row's OnAfterInsertEvent, and what a test reads of them:
+/// the Event Subscription row's "Number of Calls" (al-vm platform `with_event_stats`).
+const SUBSCRIBERS: &str = "codeunit 60504 \"Io Sub\" {
+        [EventSubscriber(ObjectType::Table, Database::\"Io Row\", 'OnAfterInsertEvent', '', false, false)]
+        local procedure OnIns(var Rec: Record \"Io Row\"; RunTrigger: Boolean) begin end; }
+    codeunit 60506 \"Io Manual\" { EventSubscriberInstance = Manual;
+        [EventSubscriber(ObjectType::Table, Database::\"Io Row\", 'OnAfterInsertEvent', '', false, false)]
+        local procedure OnIns(var Rec: Record \"Io Row\"; RunTrigger: Boolean) begin end; }
+    codeunit 60505 \"Io Calls\" {
+        procedure Of(Id: Integer): BigInteger var E: Record \"Event Subscription\";
+        begin E.SetRange(\"Subscriber Codeunit ID\", Id); E.FindFirst(); exit(E.\"Number of Calls\"); end; }";
+
+/// [`app`] with [`SUBSCRIBERS`]: the tests fail with the "Number of Calls" of both subscribers.
+fn subscribed_app(locals: &str, install: &str) -> String {
+    let src = app(locals, install, "", "'x'").replace(
+        "begin Error('x'); end; }",
+        "begin Error('auto=%1 manual=%2', C.Of(60504), C.Of(60506)); end; }",
+    );
+    format!(
+        "{}\n{SUBSCRIBERS}",
+        src.replace("Ok: Boolean;", "Ok: Boolean; C: Codeunit \"Io Calls\";")
+    )
+}
+
+/// Install code that fires an automatic subscriber runs once for the run: each codeunit's session starts with the calls
+/// the install code's session counted, as when it ran there.
+#[test]
+fn install_code_that_fires_an_automatic_subscriber_runs_once_per_run() {
+    let src = subscribed_app("", "S.Code := 'SUB'; S.Insert(true);");
+    let rt = run_with_system(&src);
+    let got = failures(&rt);
+    let want = "auto=1 manual=0".to_string();
+    assert_eq!(got, vec![(60510, want.clone()), (60511, want)], "{got:?}");
+    assert_eq!(rt.phases.install_runs, 1, "{got:?}");
+}
+
+/// Install code that binds a manual subscriber, fires it and unbinds it again runs once for the run: the binding ended
+/// with the install code, and the calls it counted are carried.
+#[test]
+fn install_code_that_binds_and_unbinds_a_manual_subscriber_runs_once_per_run() {
+    let src = subscribed_app(
+        "M: Codeunit \"Io Manual\";",
+        "BindSubscription(M); S.Code := 'MAN'; S.Insert(true); UnbindSubscription(M);",
+    );
+    let rt = run_with_system(&src);
+    let got = failures(&rt);
+    let want = "auto=1 manual=1".to_string();
+    assert_eq!(got, vec![(60510, want.clone()), (60511, want)], "{got:?}");
+    assert_eq!(rt.phases.install_runs, 1, "{got:?}");
+}
+
+/// The neighbor: install code whose manual subscriber stays bound (a SingleInstance codeunit holds it) keeps running in
+/// each codeunit's session, once per codeunit.
+#[test]
+fn install_code_that_leaves_a_manual_subscriber_bound_runs_per_codeunit() {
+    let holder = "codeunit 60507 \"Io Holder\" { SingleInstance = true; var M: Codeunit \"Io Manual\";
+        procedure Bind() begin BindSubscription(M); end; }";
+    let src = subscribed_app(
+        "H: Codeunit \"Io Holder\";",
+        "H.Bind(); S.Code := 'MAN'; S.Insert(true);",
+    );
+    let rt = run_with_system(&format!("{src}\n{holder}"));
+    let got = failures(&rt);
+    let want = "auto=1 manual=1".to_string();
+    assert_eq!(got, vec![(60510, want.clone()), (60511, want)], "{got:?}");
+    assert_eq!(rt.phases.install_runs, 2, "{got:?}");
 }
 
 /// Install code that writes rows, takes a NumberSequence number and an AutoIncrement value.

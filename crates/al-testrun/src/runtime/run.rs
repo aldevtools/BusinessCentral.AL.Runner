@@ -409,18 +409,17 @@ fn run_codeunit_inner(
         Ok(models) => models,
         Err(why) => return all(Outcome::NotRun(why)),
     };
-    // What publishing the app does first: run its install codeunits, then commit.
-    let skipped_installs = match baseline.and_then(|b| b.workspace_installs.clone()) {
-        // Already run once for the whole run, with the baseline.
-        Some(skipped) => skipped,
-        // A session that starts from no baseline takes what the install code left from its run once per run
-        // (`install_once.rs`); one that starts from a baseline the install code did not run on runs it on that baseline.
-        None => baseline
-            .is_none()
-            .then(|| super::install_once::start_installed(lowered, &mut session, scratch, execute, observe.is_some()))
-            .flatten()
-            .unwrap_or_else(|| super::install_once::run_installs_in(lowered, &mut session, &scratch.installs)),
-    };
+    // What publishing the app does first: run its install codeunits, then commit. No single instance of an earlier
+    // codeunit moved in: the session is as `install_once` makes one.
+    let skipped_installs = super::install_once::installs_for(
+        lowered,
+        &mut session,
+        baseline,
+        scratch,
+        execute,
+        observe.is_some(),
+        moved.is_none(),
+    );
     // What install code wrote is known only in part (ADR-046): the tests read it through the facts of this engine.
     crate::install::ensure_facts(engine, lowered);
     session.mark_install_end();

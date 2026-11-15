@@ -88,7 +88,7 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
 }
 
 /// Event subscriptions, what the Event Subscription table reports and the install's own event state. Not checked:
-/// `caption_context_revision` (carried, `InstallLeft`) and the language of `event_stats` (carried).
+/// `caption_context_revision`, the language and the calls of `event_stats` (all carried, `InstallLeft`).
 pub(super) fn events_as_new(e: &EventState) -> bool {
     let EventState {
         bindings,
@@ -120,7 +120,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         global_setups,
     } = e;
     let crate::platform::EventStats {
-        calls,
+        calls: _,
         active,
         language: _,
         install_view,
@@ -137,7 +137,6 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && page_held.is_empty()
         && pages_with_instance.is_empty()
         && page_var_runs.is_empty()
-        && calls.borrow().is_empty()
         && active.borrow().is_empty()
         && *install_view.borrow() == crate::platform::InstallView::default()
         && !publish_frame

@@ -440,8 +440,10 @@ pub struct Phases {
     /// Building the engine from the lowered program.
     pub engine: std::time::Duration,
     /// How many times the install code of the apps under test ran for the test codeunits, when no install baseline ran it
-    /// (`install_once.rs`): once per run and resource texts it read, or once per codeunit in a run that notes the code it
-    /// runs or whose install code left state a new session does not start from (`Session::install_left`).
+    /// (`install_once.rs`): once per run and texts of the resource files it read; once per codeunit in a run that notes
+    /// the code it runs; and once per codeunit when it left state a new session does not start from
+    /// (`Session::install_left`), the run that found that out being the first codeunit's. A run on files of a real folder
+    /// (`--files-dir`) also runs it once per codeunit.
     pub install_runs: usize,
     /// The install baseline did not run because no selected test can observe it (`observe.rs`).
     pub baseline_skipped: bool,

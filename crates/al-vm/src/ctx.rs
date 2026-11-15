@@ -393,28 +393,10 @@ impl al_builtins::native::Ctx for Session {
         self.module_of_app(self.engine.program.objects[self.frames[at]].app as usize)
     }
     fn app_resources(&self) -> Option<al_builtins::native::AppResources> {
-        let obj = *self.frames.last()?;
-        let index = self.engine.program.objects[obj].app as usize;
-        let app = self.engine.program.apps.get(index)?;
-        self.engine
-            .resources_read
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        self.read_resources.set(true);
-        // The program's files, each replaced one with the run's content (`ResourceOverrides`).
-        let overrides = self.engine.resource_overrides.read().ok();
-        let replaced = overrides.as_ref().and_then(|o| o.get(&index));
-        let resources = app
-            .resources
-            .iter()
-            .map(|(name, content)| {
-                let content = replaced
-                    .and_then(|r| r.iter().find(|(n, _)| n == name))
-                    .map_or(content, |(_, c)| c);
-                (name.clone(), content.clone())
-            })
-            .collect();
-        // BC names the app `<name> by <publisher> <version>` (session-system/W5NavAppResources.al:GetResourceAsText_NameMatching).
-        Some((format!("{} by {} {}", app.name, app.publisher, app.version), resources))
+        self.running_app_resources()
+    }
+    fn app_resource(&self, name: &str) -> Option<(String, Option<Vec<u8>>)> {
+        self.running_app_resource(name)
     }
     fn runner_call_stack(&self) -> String {
         self.runner_text_frames()

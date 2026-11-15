@@ -42,11 +42,6 @@ impl Session {
         self.host.clock.now_utc_millis() + self.waited_ms
     }
 
-    /// Whether AL code of this session read the resource files of an app.
-    pub fn read_resources(&self) -> bool {
-        self.read_resources.get()
-    }
-
     /// One reading of the clock by AL code (`Today`, `Time`, `CurrentDateTime`, the .NET clock
     /// members): the instant now, after which the clock moves on by the host's step (1 ms, the resolution of `DateTime`
     /// and `Time`; `Host::clock_step_ms`), so the next

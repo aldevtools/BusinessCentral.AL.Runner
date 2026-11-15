@@ -22,6 +22,29 @@ pub(super) fn run_installs_in(
     skipped
 }
 
+/// What publishing the app does first for a test codeunit's `session`: run its install codeunits, then commit. Returns the
+/// routines that could not run. With an install baseline that ran them, the session started from it; a session that starts
+/// from no baseline takes what they left from their run once per run ([`start_installed`]); one that starts from a
+/// baseline they did not run on runs them on that baseline.
+pub(super) fn installs_for(
+    lowered: &Lowered,
+    session: &mut Session,
+    baseline: Option<&al_vm::Baseline>,
+    scratch: &Scratch,
+    execute: bool,
+    observed: bool,
+    as_made_here: bool,
+) -> Vec<(BTreeSet<u32>, String)> {
+    if let Some(skipped) = baseline.and_then(|b| b.workspace_installs.clone()) {
+        return skipped;
+    }
+    baseline
+        .is_none()
+        .then(|| start_installed(lowered, session, scratch, execute, observed, as_made_here))
+        .flatten()
+        .unwrap_or_else(|| run_installs_in(lowered, session, &scratch.installs))
+}
+
 /// What the install code left for the codeunits of one run, shared by every test thread of the run ([`start_installed`]).
 /// The run makes one (`corpus.rs`) and hands it to each codeunit (`Unit`, `Scratch`); it ends with the run.
 #[derive(Default)]
@@ -37,12 +60,13 @@ pub(crate) struct RunInstalls {
 struct Installed {
     /// The engine it ran on (`Engine::uid`) and how the codeunit's session was set up.
     key: Key,
-    /// The resource texts of the run when it ran (`Engine::resource_overrides`), and whether it read a resource file.
-    overrides: al_vm::ResourceOverrides,
-    read_resources: bool,
+    /// The resource files it read (`Session::resource_reads`) and their texts when it ran (`ResourceReads::texts`).
+    reads: al_vm::ResourceReads,
+    texts: al_vm::ReadTexts,
     /// What a codeunit's session starts from. `None`: the install code left state a new session does not start from
     /// (`Session::install_left`), or data that cannot be shared between threads (`Baseline::freeze`); each codeunit's session
-    /// then runs the install code itself, as on a run without this path, and the run keeps that verdict.
+    /// then runs the install code itself, as on a run without this path. The run keeps that verdict while the key and the
+    /// texts of the resource files the install code read stay the same.
     left: Option<Left>,
 }
 
@@ -67,7 +91,8 @@ struct Key {
     flags: super::session_flags::SessionFlags,
 }
 
-/// The start of a pass: its entry's resource texts (`Engine::resource_overrides`), which [`start_installed`] compares.
+/// The start of a pass: its entry's resource texts (`Engine::resource_overrides`), of which [`start_installed`] compares
+/// those of the files the install code read.
 pub(super) fn begin_pass(engine: &Engine, resources: &al_vm::ResourceOverrides) {
     if let Ok(mut o) = engine.resource_overrides.write() {
         o.clone_from(resources);
@@ -91,16 +116,22 @@ pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> usize {
 /// not run, as [`run_installs_in`] returns them. Only for a codeunit whose session starts from no install baseline, as the
 /// session the install code runs in here does.
 ///
-/// It runs again for a codeunit whose resource texts (an entry's, ADR-028 decision 11) differ from those of its last run
-/// when that run read a resource file. `None` (the caller runs it in `session`): a scratch run (`execute`), a run that
+/// It runs again for a codeunit whose texts (an entry's, ADR-028 decision 11) of the resource files its last run read
+/// differ from those that run read. `None` (the caller runs it in `session`): a scratch run (`execute`), a run that
 /// follows the code it runs per codeunit (coverage, the impact trace, `--explain`, the profiler), and install code that left
 /// more than `Session::install_left` carries.
-pub(super) fn start_installed(
+///
+/// When the install code left more than that, the session it ran in is the codeunit's session, as the caller would have
+/// made it and run the install code in it, if `as_made_here`: the caller made `session` as [`install`] makes its own
+/// (`Session::with_host` on the same host, the session flags, no code run). So a run in which no codeunit can start from
+/// what the install code left runs it once per codeunit, as a run without this path does.
+fn start_installed(
     lowered: &Lowered,
     session: &mut Session,
     scratch: &Scratch,
     execute: bool,
     observed: bool,
+    as_made_here: bool,
 ) -> Option<Vec<(BTreeSet<u32>, String)>> {
     let follows_code = session.notes_code_run() || observed || crate::profiling::active();
     if execute || follows_code {
@@ -114,18 +145,27 @@ pub(super) fn start_installed(
         run_seed: scratch.run_seed,
         flags: scratch.flags,
     };
-    let overrides = engine.resource_overrides.read().map(|o| o.clone()).unwrap_or_default();
     // A panic in the install code leaves the slot as it was (it is set only after the install returned).
     let mut kept = scratch
         .installs
         .kept
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let fits = kept
-        .as_ref()
-        .is_some_and(|i| i.key == key && (!i.read_resources || i.overrides == overrides));
+    let fits = kept.as_ref().is_some_and(|i| {
+        i.key == key
+            && engine
+                .resource_overrides
+                .read()
+                .is_ok_and(|o| i.reads.texts(&o) == i.texts)
+    });
     if !fits {
-        *kept = Some(install(lowered, &engine, scratch, key, overrides));
+        let (made, ran_in) = install(lowered, &engine, scratch, key);
+        *kept = Some(made);
+        if let (Some((own, skipped)), true) = (ran_in, as_made_here) {
+            drop(kept);
+            *session = own;
+            return Some(skipped);
+        }
     }
     let left = kept.as_ref().expect("kept or made just now").left.as_ref()?;
     let mut data = left.data.thaw(Some(&engine));
@@ -136,44 +176,56 @@ pub(super) fn start_installed(
     data.workspace_installs
 }
 
+/// The session the install code ran in, with the routines that could not run, when it left more than
+/// `Session::install_left` carries; nothing was done to it after the install code returned.
+type RanIn = Option<(Session, Vec<(BTreeSet<u32>, String)>)>;
+
 /// Runs the install code in a session of its own, made as the codeunit's session is (`run.rs` `run_codeunit_inner`).
-fn install(
-    lowered: &Lowered,
-    engine: &Arc<Engine>,
-    scratch: &Scratch,
-    key: Key,
-    overrides: al_vm::ResourceOverrides,
-) -> Installed {
+fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key) -> (Installed, RanIn) {
     let mut host = crate::host::host_perturbed(scratch.clock_start, &scratch.perturb);
     host.run_seed = scratch.run_seed.seed;
     // Files on a real folder (`--files-dir`) outlive the session: a write of this run would be seen by the codeunits'
     // own install runs, so it runs only on the session's own in-memory files.
     if !host.files.in_memory() {
-        return Installed {
+        let none = Installed {
             key,
-            overrides,
-            read_resources: false,
+            reads: Default::default(),
+            texts: Vec::new(),
             left: None,
         };
+        return (none, None);
     }
     let mut s = Session::with_host(engine.clone(), host);
     scratch.flags.apply(&mut s);
     let skipped = run_installs_in(lowered, &mut s, &scratch.installs);
+    let reads = s.resource_reads();
+    let texts = engine
+        .resource_overrides
+        .read()
+        .map(|o| reads.texts(&o))
+        .unwrap_or_default();
     // Before the capture, which commits and clears part of what the check reads.
-    let left = s.install_left().and_then(|rest| {
-        let mut data = s.capture_baseline();
-        data.workspace_installs = Some(skipped);
-        let data = data.freeze().ok()?;
-        Some(Left {
-            data,
-            install_rows: s.install_rows(),
-            rest,
-        })
+    let Some(rest) = s.install_left() else {
+        let installed = Installed {
+            key,
+            reads,
+            texts,
+            left: None,
+        };
+        return (installed, Some((s, skipped)));
+    };
+    let mut data = s.capture_baseline();
+    data.workspace_installs = Some(skipped);
+    let left = data.freeze().ok().map(|data| Left {
+        data,
+        install_rows: s.install_rows(),
+        rest,
     });
-    Installed {
+    let installed = Installed {
         key,
-        overrides,
-        read_resources: s.read_resources(),
+        reads,
+        texts,
         left,
-    }
+    };
+    (installed, None)
 }
