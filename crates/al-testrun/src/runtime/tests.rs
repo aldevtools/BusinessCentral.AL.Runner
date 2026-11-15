@@ -2446,49 +2446,6 @@ fn sleep_time_counts_toward_the_time_limit() {
     assert!(wall < std::time::Duration::from_secs(2), "{wall:?}");
 }
 
-/// The limit counts the CPU time of the test thread: a thread that waits is not stopped at the
-/// limit (the machine's load must not decide an outcome), one that computes is.
-#[cfg(unix)]
-#[test]
-fn the_time_limit_counts_cpu_time_not_wall_time() {
-    let limit = std::time::Duration::from_millis(200);
-    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let w = Watchdog::start(flag.clone(), limit);
-    std::thread::sleep(limit * 3);
-    assert!(!w.finish(), "a thread that waited was stopped");
-    assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
-
-    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let w = Watchdog::start(flag.clone(), limit);
-    let started = std::time::Instant::now();
-    let mut x = 0u64;
-    while !flag.load(std::sync::atomic::Ordering::Relaxed) && started.elapsed() < std::time::Duration::from_secs(10) {
-        x = x.wrapping_add(std::hint::black_box(1));
-    }
-    assert!(w.finish() && x > 0, "a thread that computed was not stopped");
-}
-
-/// The limit is per test: the CPU time a thread used before the test started does not count.
-/// Three tests on one thread, each using 60 % of the limit, all stay under it.
-#[cfg(any(unix, windows))]
-#[test]
-fn the_cpu_limit_is_measured_from_the_start_of_each_test() {
-    let limit = std::time::Duration::from_millis(500);
-    for n in 0..3 {
-        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let w = Watchdog::start(flag.clone(), limit);
-        let clock = crate::cpuclock::ThreadClock::current().expect("a CPU clock");
-        let from = clock.read().expect("a reading");
-        let mut x = 0u64;
-        while clock.read().expect("a reading") - from < limit * 6 / 10 {
-            x = x.wrapping_add(std::hint::black_box(1));
-        }
-        // Let the watchdog poll once more after the work.
-        std::thread::sleep(WATCHDOG_POLL * 3);
-        assert!(!w.finish() && x > 0, "test {n} was stopped under 60 % of the limit");
-    }
-}
-
 /// The test names with the unprobed assumptions each ran through, from the first test codeunit of `src`.
 fn assumptions_of(src: &str) -> Vec<(String, Vec<&'static str>)> {
     let (ws, l) = al_sema::lower::compile(

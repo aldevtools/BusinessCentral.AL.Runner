@@ -997,7 +997,8 @@ fn run_codeunit_inner(
             // statement of its own body refused: what it wrote before the refusal and the reach of the statements from that one
             // on count (`remainder_reach_facts`, al-runner issue 5961). A failed test counts only through the `Random`
             // sequence: its draws are not rolled back, while its database writes are, as they are in BC when the test fails
-            // there too.
+            // there too. A failure judged not trusted may pass on BC and leave its writes and globals: it counts with its whole
+            // reach, as a test refused while it ran (`Ended::Untrusted`).
             // The numbers this test drew from a sequence it did not seed itself: they depend on what earlier tests drew
             // (Tests-SCM-Planning CalcPlanReqWkshForTransferLFLItem: a random end date before a random receipt date).
             let drew = session.inherited_random_draws() > draws_before;
@@ -1033,7 +1034,8 @@ fn run_codeunit_inner(
                 Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),
                 o => Err(o),
             };
-            let outcome = match judged {
+            // `untrusted`: this test's failure was judged not trusted just above; it holds the failure's own error.
+            let (outcome, untrusted) = match judged {
                 Ok((kind, m)) => {
                     let engine = session.engine.clone();
                     let index: &ReachIndex =
@@ -1077,20 +1079,20 @@ fn run_codeunit_inner(
                                 u.what
                             )
                         }),
-                        Ended::RefusedBeforeStart | Ended::RefusedMidRun => {
+                        Ended::RefusedBeforeStart | Ended::RefusedMidRun | Ended::Untrusted => {
                             // An unknown part of the earlier reach answers without this test's reach.
                             let later = match facts.unknown {
                                 Some(_) => &ReachFacts::default(),
                                 None => mine.get_or_insert_with(|| reach_facts(&engine.events, lowered, index, object, r)),
                             };
                             facts.changes_read_by(later, checkpoint.is_none(), drew, &settled, lowered).map(|what| {
-                                let when = if u.ended == Ended::RefusedMidRun {
-                                    "refused while it ran"
-                                } else {
-                                    "refused before it started"
+                                let how = match u.ended {
+                                    Ended::RefusedMidRun => "was refused while it ran",
+                                    Ended::Untrusted => "failed and its failure is not trusted",
+                                    _ => "was refused before it started",
                                 };
                                 format!(
-                                    "an earlier test of this codeunit was {when} ({}): {what}, so the state it would have left is not BC's",
+                                    "an earlier test of this codeunit {how} ({}): {what}, so the state it would have left is not BC's",
                                     u.what
                                 )
                             })
@@ -1098,24 +1100,25 @@ fn run_codeunit_inner(
                     }
                 });
                     match found {
-                        Some(why) => Outcome::NotRun(format!("{why}; this {kind} is not trusted: {m}")),
-                        None if kind == "timeout" => Outcome::NotRun(m),
-                        None => Outcome::Fail(m),
+                        Some(why) => {
+                            let untrusted = (kind == "failure").then(|| m.clone());
+                            (
+                                Outcome::NotRun(format!("{why}; this {kind} is not trusted: {m}")),
+                                untrusted,
+                            )
+                        }
+                        None if kind == "timeout" => (Outcome::NotRun(m), None),
+                        None => (Outcome::Fail(m), None),
                     }
                 }
-                Err(o) => o,
+                Err(o) => (o, None),
             };
-            let ended = ended_of(&outcome, began);
+            let ended = ended_of(&outcome, began, untrusted.is_some());
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
-                let how = match ended {
-                    Ended::RefusedBeforeStart => "not run",
-                    Ended::RefusedMidRun => "did not run",
-                    Ended::Failed => "failed",
-                };
                 unfinished.push(Unfinished {
                     routine: r,
-                    what: format!("{}: {how} ({why})", routine.name).chars().take(120).collect(),
+                    what: what_of(&routine.name, ended, why, untrusted.as_deref()),
                     left_bindings: left_bindings(session, &bound_before, ended),
                     ended,
                     facts: None,
@@ -1575,7 +1578,8 @@ impl Carried {
 
 /// Sets a session's stop flag when a test has used more than its limit of CPU time. The time the
 /// test thread computes is counted, not the wall time, so the load of the machine cannot stop a
-/// test (an outcome must not depend on it). A wall-clock backstop, `WALL_BACKSTOP` times the limit,
+/// test (an outcome must not depend on it). A wall-clock backstop, `WALL_BACKSTOP` times the limit (saturating: a
+/// limit too large for that has no backstop),
 /// still ends a test that hangs without computing. One thread per test that is run; it polls
 /// until the limit or until `finish`. Where the thread's CPU clock cannot be read, the wall clock
 /// counts.
@@ -1674,7 +1678,7 @@ impl Watchdog {
                     .map(|cpu| cpu.saturating_sub(base));
                 match used {
                     Some(cpu) => {
-                        if cpu >= limit || elapsed() >= limit * WALL_BACKSTOP {
+                        if cpu >= limit || elapsed() >= limit.saturating_mul(WALL_BACKSTOP) {
                             return stop(&flag);
                         }
                     }
@@ -1710,6 +1714,9 @@ fn note_unfinished(scratch: &mut Scratch, ended: Option<Ended>, runner_refused: 
 enum Ended {
     RefusedBeforeStart,
     RefusedMidRun,
+    /// It failed and the failure was judged not trusted: on BC it may have passed, so it counts with its whole reach, as
+    /// a test refused while it ran does. It is not one for `Ends::refused_mid_run`.
+    Untrusted,
     Failed,
 }
 
@@ -1745,7 +1752,7 @@ impl Unfinished {
 
 /// The manual bindings alive after a failed test that were not alive when it started.
 fn left_bindings(session: &Session, before: &[usize], ended: Ended) -> Vec<usize> {
-    if ended != Ended::Failed {
+    if !matches!(ended, Ended::Failed | Ended::Untrusted) {
         return Vec::new();
     }
     session
@@ -1765,11 +1772,24 @@ struct Rest {
     written: BTreeSet<u32>,
 }
 
-/// How a test that did not pass ended (`None`: it passed or was skipped).
-fn ended_of(outcome: &Outcome, began: bool) -> Option<Ended> {
+/// The name of test `name` and how it ended, for a later reason text, cut at 120 characters. `why` is its outcome's
+/// text; `untrusted` the failure's own error when it was judged not trusted. An untrusted failure names that error, not
+/// the reason it is not trusted, so a chain of them does not nest.
+fn what_of(name: &str, ended: Ended, why: &str, untrusted: Option<&str>) -> String {
+    let (how, why) = match (ended, untrusted) {
+        (Ended::RefusedBeforeStart, _) => ("not run", why),
+        (Ended::RefusedMidRun, _) => ("did not run", why),
+        (Ended::Untrusted, Some(error)) => ("failed, not trusted", error),
+        (Ended::Failed | Ended::Untrusted, _) => ("failed", why),
+    };
+    format!("{name}: {how} ({why})").chars().take(120).collect()
+}
+
+/// How a test that did not pass ended (`None`: it passed or was skipped). `untrusted`: its failure was judged not trusted.
+fn ended_of(outcome: &Outcome, began: bool, untrusted: bool) -> Option<Ended> {
     match outcome {
+        Outcome::NotRun(_) if untrusted => Some(Ended::Untrusted),
         Outcome::NotRun(_) if !began => Some(Ended::RefusedBeforeStart),
-        Outcome::NotRun(why) if why.contains("this failure is not trusted") => Some(Ended::Failed),
         Outcome::NotRun(_) => Some(Ended::RefusedMidRun),
         Outcome::Fail(_) => Some(Ended::Failed),
         _ => None,
@@ -1828,5 +1848,88 @@ fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool) {
     }
     for &a in &lowered.program.assumes {
         al_builtins::assumptions::assume(a);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Ended, Unfinished, WATCHDOG_POLL, Watchdog, ends_of};
+    use std::sync::Arc;
+
+    /// The limit counts the CPU time of the test thread: a thread that waits is not stopped at the
+    /// limit (the machine's load must not decide an outcome), one that computes is.
+    #[cfg(unix)]
+    #[test]
+    fn the_time_limit_counts_cpu_time_not_wall_time() {
+        let limit = std::time::Duration::from_millis(200);
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let w = Watchdog::start(flag.clone(), limit);
+        std::thread::sleep(limit * 3);
+        assert!(!w.finish(), "a thread that waited was stopped");
+        assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
+
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let w = Watchdog::start(flag.clone(), limit);
+        let started = std::time::Instant::now();
+        let mut x = 0u64;
+        while !flag.load(std::sync::atomic::Ordering::Relaxed) && started.elapsed() < std::time::Duration::from_secs(10)
+        {
+            x = x.wrapping_add(std::hint::black_box(1));
+        }
+        assert!(w.finish() && x > 0, "a thread that computed was not stopped");
+    }
+
+    /// A limit so large that ten times it does not fit a `Duration` (a client may send any whole number of seconds,
+    /// al-runner issue 8125) is no limit in practice: the watchdog keeps watching and does not stop the test.
+    #[test]
+    fn a_huge_time_limit_does_not_stop_the_watchdog_or_the_test() {
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let w = Watchdog::start(flag.clone(), std::time::Duration::from_secs(u64::MAX));
+        std::thread::sleep(WATCHDOG_POLL * 4);
+        assert!(!w.thread.is_finished(), "the watchdog thread ended (it panicked)");
+        assert!(!w.finish(), "a huge limit stopped the test");
+        assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    /// The limit is per test: the CPU time a thread used before the test started does not count.
+    /// Three tests on one thread, each using 60 % of the limit, all stay under it.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn the_cpu_limit_is_measured_from_the_start_of_each_test() {
+        let limit = std::time::Duration::from_millis(500);
+        for n in 0..3 {
+            let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let w = Watchdog::start(flag.clone(), limit);
+            let clock = crate::cpuclock::ThreadClock::current().expect("a CPU clock");
+            let from = clock.read().expect("a reading");
+            let mut x = 0u64;
+            while clock.read().expect("a reading") - from < limit * 6 / 10 {
+                x = x.wrapping_add(std::hint::black_box(1));
+            }
+            // Let the watchdog poll once more after the work.
+            std::thread::sleep(WATCHDOG_POLL * 3);
+            assert!(!w.finish() && x > 0, "test {n} was stopped under 60 % of the limit");
+        }
+    }
+
+    fn unfinished(ended: Ended) -> Unfinished {
+        Unfinished {
+            routine: 0,
+            what: String::new(),
+            ended,
+            facts: None,
+            rest: None,
+            left_bindings: Vec::new(),
+        }
+    }
+
+    /// An untrusted failure counts as a test that started and did not run to its end, as a trusted failure does, but it
+    /// is not a test refused while it ran: the strict-order taint and the hand-on of single instances read only that.
+    #[test]
+    fn an_untrusted_failure_is_unfinished_after_start_but_not_refused_mid_run() {
+        let e = ends_of(&[unfinished(Ended::Untrusted)], false);
+        assert!(e.unfinished_after_start && !e.refused_mid_run);
+        let e = ends_of(&[unfinished(Ended::Untrusted), unfinished(Ended::RefusedMidRun)], false);
+        assert!(e.refused_mid_run);
     }
 }
