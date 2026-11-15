@@ -170,7 +170,7 @@ impl Session {
                 for row in &all {
                     self.check_events(schema, &facts, row.events)?;
                 }
-                refuse_data_item_triggers_before_false(&all, &facts, schema)?;
+                refuse_unmeasured_data_items_before_false(&all, &facts, schema, &self.engine.tables)?;
                 // When every row the run can end in marks the same assumption (a stored selection, a temporary
                 // selection), it is marked now, as main did; otherwise the row the run ends in marks it.
                 if let Some(a) = lookup::one_mark_after_any_run(table, &facts) {
@@ -315,18 +315,24 @@ impl Session {
     }
 }
 
-/// Refuses a run that can end in a false answer after the run while a data item declares a trigger: the cells of those rows
-/// ran a data item without one (reports/html-email-body/RxdDeclFixtures.al:39), so whether BC runs it before it answers false
-/// is not measured.
-fn refuse_data_item_triggers_before_false(rows: &[&Cell], facts: &Facts, schema: &Schema) -> Result<(), Signal> {
+/// Refuses a run that can end in a false answer after the run unless every data item is as the cells of those rows ran it
+/// (`fact_report::data_items_as_measured_for_false`): whether BC runs a data item trigger or a computed column source before
+/// it answers false is not measured.
+fn refuse_unmeasured_data_items_before_false(
+    rows: &[&Cell],
+    facts: &Facts,
+    schema: &Schema,
+    tables: &[Option<std::sync::Arc<al_data::TableDef>>],
+) -> Result<(), Signal> {
     let Some(row) = rows.iter().find(|c| matches!(c.answer, Answer::FalseAfterRun(_))) else {
         return Ok(());
     };
-    if !fact_report::data_items_declare_triggers(schema) {
+    if fact_report::data_items_as_measured_for_false(schema, tables) {
         return Ok(());
     }
     Err(Signal::unsupported(format!(
-        "{} while a data item declares a trigger: not measured on BC (the cells of {} ran a data item without one)",
+        "{} while a data item declares a trigger or a column whose source is not a stored field of its table: not \
+         measured on BC (the cells of {} ran a data item without either)",
         what(facts, schema),
         row.evidence.cite()
     )))

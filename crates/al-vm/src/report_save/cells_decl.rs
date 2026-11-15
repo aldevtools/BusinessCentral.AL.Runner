@@ -3,8 +3,8 @@
 //! rendering section, one data item without a trigger, no report trigger, no report extension, saved to a stream, no
 //! subscriber to a layout event. Every cell saved with two dataset rows (`Rows(2)`, RxdDeclFixtures.al:54), so every row reads
 //! the run's rows, the false answers too: they answer after the run, and a save with no dataset row refuses then. The false
-//! answers refuse before the run when a data item declares a trigger (`Session::refuse_data_item_triggers_before_false`). The
-//! probe binds no subscriber, so every row refuses a subscriber the test can see to any layout event (SubstituteReport,
+//! answers refuse before the run when a data item declares a trigger or a column whose source is not a stored field of its
+//! table (`refuse_unmeasured_data_items_before_false`). The probe binds no subscriber, so every row refuses a subscriber the test can see to any layout event (SubstituteReport,
 //! OnDocumentReady, SelectedBuiltinLayoutType, ...). Measured the same on the three BC majors the corpus runs.
 
 use super::Format;

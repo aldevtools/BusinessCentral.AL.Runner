@@ -84,11 +84,22 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     }
 }
 
-/// Whether a data item of the report declares OnPreDataItem, OnAfterGetRecord or OnPostDataItem.
-pub(super) fn data_items_declare_triggers(schema: &Schema) -> bool {
-    schema
-        .report()
-        .items
-        .iter()
-        .any(|i| i.on_pre.is_some() || i.on_after_get.is_some() || i.on_post.is_some())
+/// Whether every data item is as the false answers measured it (reports/html-email-body/RxdDeclFixtures.al:39-43): it declares
+/// no OnPreDataItem, OnAfterGetRecord or OnPostDataItem, and every column's source is a stored field of the item's own table
+/// (`column(RowId; Id)`, `column(RowTxt; Txt)`), so a run before the false answer runs no AL code.
+pub(super) fn data_items_as_measured_for_false(
+    schema: &Schema,
+    tables: &[Option<std::sync::Arc<al_data::TableDef>>],
+) -> bool {
+    schema.report().items.iter().all(|i| {
+        let table = i.table.and_then(|t| tables.get(t)?.as_deref());
+        i.on_pre.is_none()
+            && i.on_after_get.is_none()
+            && i.on_post.is_none()
+            && i.columns.iter().all(|c| {
+                c.unsupported.is_none()
+                    && c.value_unsupported.is_none()
+                    && c.field.and_then(|p| table?.fields.get(p)).is_some_and(|f| f.stored)
+            })
+    })
 }

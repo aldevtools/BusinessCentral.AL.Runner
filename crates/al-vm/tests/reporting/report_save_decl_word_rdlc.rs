@@ -1,7 +1,7 @@
 //! A rendering save of a report whose `WordLayout` and `RDLCLayout` properties declare its layouts (`DefaultLayout = Word`,
 //! no rendering section, one data item, no trigger, no extension), saved to a stream with dataset rows: the two cells of
 //! reports/html-email-body/RxdDeclLayoutTests.al and RxdDeclEmailBodyTests.al (`report_save::cells_decl`). Every other
-//! neighbor, a save with no dataset row, a false answer while a data item declares a trigger, and every save while the test
+//! neighbor, a save with no dataset row, a false answer while a data item declares a trigger or a computed column, and every save while the test
 //! can see a subscriber to a layout event, refuses.
 
 use al_builtins::assumptions::{self, Assumption};
@@ -64,6 +64,23 @@ report 51405 "RD Decl Item Trigger"
     RDLCLayout = 'RdDeclRdlc.rdl';
     DefaultLayout = Word;
     dataset { dataitem(T; "RD Row") { column(Id; Id) { } trigger OnAfterGetRecord() begin end; } }
+}
+
+report 51406 "RD Decl Col Call"
+{
+    WordLayout = 'RdDeclWord.docx';
+    RDLCLayout = 'RdDeclRdlc.rdl';
+    DefaultLayout = Word;
+    dataset { dataitem(T; "RD Row") { column(Id; Id) { } column(Calls; Bump()) { } } }
+    local procedure Bump(): Integer begin exit(1); end;
+}
+
+report 51407 "RD Decl Col Expr"
+{
+    WordLayout = 'RdDeclWord.docx';
+    RDLCLayout = 'RdDeclRdlc.rdl';
+    DefaultLayout = Word;
+    dataset { dataitem(T; "RD Row") { column(Id; T.Id + 1) { } } }
 }
 
 codeunit 51404 "RD Tests"
@@ -137,6 +154,10 @@ codeunit 51404 "RD Tests"
     procedure ItemTriggerRdlcHtml(): Text begin Rows(2); RdlcRow(Report::"RD Decl Item Trigger"); exit(Saved(Report::"RD Decl Item Trigger", ReportFormat::Html)); end;
     procedure ItemTriggerTempExcel(): Text begin Rows(2); TempWord(Report::"RD Decl Item Trigger"); exit(Saved(Report::"RD Decl Item Trigger", ReportFormat::Excel)); end;
 
+    procedure ColCallRdlcPdf(): Text begin Rows(2); RdlcRow(Report::"RD Decl Col Call"); exit(Saved(Report::"RD Decl Col Call", ReportFormat::Pdf)); end;
+    procedure ColCallRdlcHtml(): Text begin Rows(2); RdlcRow(Report::"RD Decl Col Call"); exit(Saved(Report::"RD Decl Col Call", ReportFormat::Html)); end;
+    procedure ColCallTempExcel(): Text begin Rows(2); TempWord(Report::"RD Decl Col Call"); exit(Saved(Report::"RD Decl Col Call", ReportFormat::Excel)); end;
+    procedure ColExprRdlcHtml(): Text begin Rows(2); RdlcRow(Report::"RD Decl Col Expr"); exit(Saved(Report::"RD Decl Col Expr", ReportFormat::Html)); end;
     procedure RdlcRowOf(Id: Integer) begin RdlcRow(Id); end;
     procedure TempWordOf(Id: Integer) begin TempWord(Id); end;
     procedure RowsOf(N: Integer) begin Rows(N); end;
@@ -334,6 +355,15 @@ fn decl_word_rdlc_false_answers_with_no_dataset_row_refuse() {
 fn decl_word_rdlc_false_answers_with_a_data_item_trigger_refuse() {
     refused(&["ItemTriggerRdlcHtml", "ItemTriggerTempExcel"]);
     marked("ItemTriggerRdlcPdf", "Yes|Yes|");
+}
+
+/// A column whose source is not a plain field of the data item's table: the probe's columns are (RxdDeclFixtures.al:41-42),
+/// so whether BC evaluates such a source before the false answer is not measured, and the false answers refuse before the
+/// run. A save that renders runs it, as every run does.
+#[test]
+fn decl_word_rdlc_false_answers_with_a_computed_column_refuse() {
+    refused(&["ColCallRdlcHtml", "ColCallTempExcel", "ColExprRdlcHtml"]);
+    marked("ColCallRdlcPdf", "Yes|Yes|");
 }
 
 #[track_caller]

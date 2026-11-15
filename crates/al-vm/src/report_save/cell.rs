@@ -113,7 +113,7 @@ pub(crate) enum Answer {
     TrueNothing,
     /// After a run that wrote dataset rows: false with this error as the last error, nothing written (a statement raises
     /// it). The row reads the run fact its cells measured; the run itself writes nothing a test can see when the report and
-    /// its data items declare no trigger (`Session::refuse_data_item_triggers_before_false`).
+    /// its data items are as measured (`fact_report::data_items_as_measured_for_false`).
     FalseAfterRun(ErrorId),
 }
 
