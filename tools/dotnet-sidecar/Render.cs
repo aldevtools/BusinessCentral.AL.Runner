@@ -70,14 +70,14 @@ public sealed class RenderServer
                 var m = Method(MergerAssembly, MergerType, "MergeWordDocument", MergeRow);
                 using var layout = new MemoryStream(Bytes(req, "layout"));
                 using var data = new MemoryStream(Bytes(req, "dataset"));
-                var output = new MemoryStream();
-                // The two custom XML names of the recipe of al-runner issue 7977 (the merger's data part); the title and
-                // the company are the caller's.
-                var ret = Invoke(m, layout, data, output, "NavWordReportXmlPart", "urn:microsoft-dynamics-nav/reports/",
+                // As the service tier calls it for a Word or Html save (ReportProcessorWordGenerator, BC 27.5, 28.1 and
+                // 29.1; ADR-040 amendment 2026-11-15): no output stream, the merger's returned stream holds the document;
+                // the two custom XML names of its data part; the title and the company are the caller's.
+                var ret = Invoke(m, layout, data, null, "NavWordReportXmlPart", "urn:microsoft-dynamics-nav/reports/",
                     req["title"]?.GetValue<string>() ?? "", req["company"]?.GetValue<string>() ?? "",
                     CancellationToken.None);
-                var stream = ret as Stream ?? output;
-                return Ok(new JsonObject { ["bytes"] = Convert.ToBase64String(ReadAll(stream)) });
+                if (ret is not Stream stream) throw new Refusal("MergeWordDocument returned no stream for a null output");
+                using (stream) return Ok(new JsonObject { ["bytes"] = Convert.ToBase64String(ReadAll(stream)) });
             }
             case "word_to_pdf":
                 return Ok(new JsonObject { ["bytes"] = Convert.ToBase64String(ConvertDocx("ConvertToPdf", req)) });

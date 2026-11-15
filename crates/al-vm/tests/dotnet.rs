@@ -280,6 +280,7 @@ fn cfg(host: &Fake) -> DotNetConfig {
         host: Arc::new(host.clone()),
         registry: Arc::new(Registry::builtin()),
         policy: Arc::new(Policy::builtin()),
+        ..DotNetConfig::default()
     }
 }
 

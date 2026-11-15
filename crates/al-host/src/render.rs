@@ -96,6 +96,11 @@ pub trait ReportRenderer: Send + Sync {
     fn merge_word(&self, req: &WordMerge) -> Result<Vec<u8>, RenderFailure>;
     fn word_to_pdf(&self, docx: &[u8]) -> Result<Vec<u8>, RenderFailure>;
     fn word_to_html(&self, docx: &[u8]) -> Result<Vec<u8>, RenderFailure>;
+    /// The assembly version of the converter (`Aspose.Words.dll`) the render process loads, read from the file without
+    /// starting the process; `None` when it cannot be told.
+    fn converter_version(&self) -> Option<[u16; 4]> {
+        None
+    }
 }
 
 /// The renderer of a run that has none: every need is unavailable, every call refused.
