@@ -97,9 +97,20 @@ impl Session {
         }
     }
 
-    /// The page facts both evidence pages share: a Worksheet with a source table and a DataCaptionExpression of its own,
-    /// SourceTableTemporary = true, InsertAllowed = false.
+    /// The page facts both evidence pages share (Microsoft's Navigate and Order Promising Lines): a Worksheet with a source
+    /// table and a DataCaptionExpression of its own, SourceTableTemporary = true, InsertAllowed = false, no Editable and no
+    /// DelayedInsert, page triggers among OnInit, OnOpenPage and OnClosePage; no page extension sets one of these properties
+    /// (an extension's value is the one BC applies, pages/extensions/UPageProps.al) or adds a page trigger, and no
+    /// subscriber listens to the page's OnOpenPageEvent.
     fn kept_page(&self, st: &St) -> bool {
+        const GATED: [&str; 5] = [
+            "datacaptionexpression",
+            "insertallowed",
+            "sourcetabletemporary",
+            "editable",
+            "delayedinsert",
+        ];
+        const TRIGGERS: [&str; 3] = ["oninit", "onopenpage", "onclosepage"];
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let props = &engine.program.objects[object].properties;
@@ -109,9 +120,23 @@ impl Session {
                 .find(|(k, _)| k.eq_ignore_ascii_case(name))
                 .map(|(_, v)| v.trim().to_ascii_lowercase())
         };
+        let Some(page) = engine.program.objects[object].page.as_ref() else {
+            return false;
+        };
+        let extensions_keep_page = page.extensions.iter().all(|&e| {
+            engine.program.objects[e]
+                .properties
+                .iter()
+                .all(|(k, _)| GATED.iter().all(|g| !k.eq_ignore_ascii_case(g)))
+        }) && page.ext_triggers.is_empty();
         engine.object_facts[object].page_type == Some(al_ir::PageType::Worksheet)
             && prop("sourcetabletemporary").as_deref() == Some("true")
             && prop("insertallowed").as_deref() == Some("false")
+            && prop("editable").is_none()
+            && prop("delayedinsert").is_none()
+            && page.triggers.iter().all(|(n, _)| TRIGGERS.contains(&n.as_str()))
+            && extensions_keep_page
+            && !engine.events.is_subscribed(object, "onopenpageevent")
             && self.has_source(st)
             && self.has_own_data_caption_expression(st)
     }
@@ -188,7 +213,7 @@ fn plain(body: &[Stmt]) -> Vec<&Stmt> {
 }
 
 /// `body` is `if Rec.F <> '' then exit(StrSubstNo(Lbl, Rec.F)); exit('');`: F one stored Text field of the page's Rec (global
-/// `rec`, its table's `fields`), Lbl a label whose text has one `%1` and no other `%` or `#`.
+/// `rec`, its table's `fields`), Lbl a label whose text passes `one_placeholder`.
 fn label_body(body: &[&Stmt], rec: usize, fields: &[al_ir::Field]) -> bool {
     let [
         Stmt::If(cond, then, otherwise),
@@ -231,8 +256,16 @@ fn label_body(body: &[&Stmt], rec: usize, fields: &[al_ir::Field]) -> bool {
         && text_field
         && *id == ids::TEXT_STRSUBSTNO_1
         && rec_field(value) == Some(f)
-        && label_text(label)
-            .is_some_and(|t| t.matches("%1").count() == 1 && t.matches('%').count() == 1 && !t.contains('#'))
+        && label_text(label).is_some_and(one_placeholder)
+}
+
+/// `text` has one `%1`, not followed by a digit (`%10` is placeholder ten), and no other `%` or `#`.
+fn one_placeholder(text: &str) -> bool {
+    text.matches('%').count() == 1
+        && !text.contains('#')
+        && text
+            .split_once("%1")
+            .is_some_and(|(_, after)| after.chars().next().is_none_or(|c| !c.is_ascii_digit()))
 }
 
 /// The text of a label loaded as an expression: the translated-text builtin over constants, the first one the text.

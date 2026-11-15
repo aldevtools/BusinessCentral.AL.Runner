@@ -290,3 +290,124 @@ fn every_neighbor_keeps_the_refusal_at_the_open() {
         assert!(o.contains("NotRun") && o.contains(NEIGHBOR), "{t}: {o}");
     }
 }
+
+/// A copy of page "KO Nav" (the trapped shape's page) as page `id` `name`, with `props` added to its properties, `label` as the
+/// text of its caption label and `extra` added to its body.
+fn nav_page(id: u32, name: &str, props: &str, label: &str, extra: &str) -> String {
+    format!(
+        r#"page {id} "{name}"
+{{
+    PageType = Worksheet; SourceTable = "KO Entry"; SourceTableTemporary = true; InsertAllowed = false; Caption = 'KO';
+    DataCaptionExpression = GetCaptionText(); UsageCategory = None; {props}
+    layout {{ area(Content) {{ group(F) {{ field(DocCtl; DocNo) {{ }} }} repeater(L) {{ field(NameCtl; Rec."Doc Name") {{ }} }} }} }}
+    var DocNo: Code[20]; SelectedLbl: Label '{label}';
+    procedure SetDoc(No: Code[20]) begin DocNo := No; end;
+    trigger OnOpenPage() begin Rec."Entry No." := 1; Rec."Doc Name" := 'N ' + DocNo; Rec.Insert(); end;
+    local procedure GetCaptionText(): Text
+    begin
+        if Rec."Doc Name" <> '' then
+            exit(StrSubstNo(SelectedLbl, Rec."Doc Name"));
+        exit('');
+    end;
+    {extra}
+}}
+"#
+    )
+}
+
+/// The trapped shape on pages that differ from "KO Nav" in one fact each: test `X<id>` opens page `id`.
+fn neighbor_src() -> String {
+    let mut src = String::from(
+        r#"table 69900 "KO Entry" { fields { field(1; "Entry No."; Integer) { } field(2; "Doc Name"; Text[50]) { } } keys { key(PK; "Entry No.") { } } }
+"#,
+    );
+    let lbl = "Picked - %1";
+    src += &nav_page(69910, "KO Base", "", lbl, "");
+    // The two shapes of the review of the pull request, as in its probe apps p3.al X02 and p4.al X09.
+    src += &nav_page(69911, "KO ExtExpr", "", lbl, "");
+    src += "pageextension 69931 \"KO ExtExpr X\" extends \"KO ExtExpr\" { DataCaptionExpression = Boom(); procedure Boom(): Text begin Error('boom'); end; }\n";
+    src += &nav_page(69912, "KO ExtInsert", "", lbl, "");
+    src += "pageextension 69932 \"KO ExtInsert X\" extends \"KO ExtInsert\" { InsertAllowed = true; }\n";
+    src += &nav_page(69913, "KO ExtTemp", "", lbl, "");
+    src += "pageextension 69933 \"KO ExtTemp X\" extends \"KO ExtTemp\" { SourceTableTemporary = false; }\n";
+    src += &nav_page(69914, "KO ExtTrigger", "", lbl, "");
+    src += "pageextension 69934 \"KO ExtTrigger X\" extends \"KO ExtTrigger\" { trigger OnOpenPage() begin end; }\n";
+    src += &nav_page(69915, "KO Sub", "", lbl, "");
+    src += "codeunit 69935 \"KO Sub Mgt\" { [EventSubscriber(ObjectType::Page, Page::\"KO Sub\", 'OnOpenPageEvent', '', false, false)] local procedure OnOpen(var Rec: Record \"KO Entry\") begin end; }\n";
+    src += &nav_page(
+        69916,
+        "KO GetCurr",
+        "",
+        lbl,
+        "trigger OnAfterGetCurrRecord() begin end;",
+    );
+    src += &nav_page(69917, "KO NotEditable", "Editable = false;", lbl, "");
+    src += &nav_page(69918, "KO Delayed", "DelayedInsert = true;", lbl, "");
+    src += &nav_page(69919, "KO TenHole", "", "Picked %10", "");
+    src += &nav_page(
+        69920,
+        "KO Closing",
+        "",
+        lbl,
+        "trigger OnInit() begin end; trigger OnClosePage() begin end;",
+    );
+    src += &nav_page(69921, "KO ExtEditable", "", lbl, "");
+    src += "pageextension 69936 \"KO ExtEditable X\" extends \"KO ExtEditable\" { Editable = false; }\n";
+    src += "codeunit 69909 T\n{\n    Subtype = Test;\n";
+    for (id, name) in [
+        (69910, "KO Base"),
+        (69911, "KO ExtExpr"),
+        (69912, "KO ExtInsert"),
+        (69913, "KO ExtTemp"),
+        (69914, "KO ExtTrigger"),
+        (69915, "KO Sub"),
+        (69916, "KO GetCurr"),
+        (69917, "KO NotEditable"),
+        (69918, "KO Delayed"),
+        (69919, "KO TenHole"),
+        (69920, "KO Closing"),
+        (69921, "KO ExtEditable"),
+    ] {
+        src += &format!(
+            "    [Test] procedure X{id}() var Pg: Page \"{name}\"; P: TestPage \"{name}\"; begin P.Trap(); Pg.SetDoc('D1'); Pg.Run(); end;\n"
+        );
+    }
+    src += "}\n";
+    src
+}
+
+#[test]
+fn the_page_facts_of_the_evidence_pages_keep_mains_open_flagged() {
+    let out = run(&neighbor_src());
+    // The evidence page, and the same page with OnInit and OnClosePage (both Microsoft pages declare OnInit, Order Promising
+    // Lines also OnClosePage).
+    for t in ["X69910", "X69920"] {
+        let (o, h) = get(&out, t);
+        assert_eq!(o, "Pass", "{t}");
+        assert_eq!(h, [Assumption::DataCaptionTwoMicrosoftOpensSkipped], "{t}");
+    }
+}
+
+#[test]
+fn a_page_outside_the_evidence_page_facts_keeps_the_refusal_at_the_open() {
+    let out = run(&neighbor_src());
+    let wrong = [
+        "X69911", // an extension's DataCaptionExpression that raises (review probe p3.al X02)
+        "X69912", // an extension's InsertAllowed = true (review probe p4.al X09)
+        "X69913", // an extension's SourceTableTemporary = false
+        "X69914", // an extension's OnOpenPage trigger
+        "X69915", // an OnOpenPageEvent subscriber
+        "X69916", // a page trigger outside OnInit, OnOpenPage and OnClosePage
+        "X69917", // Editable = false
+        "X69918", // DelayedInsert = true
+        "X69919", // a label 'Picked %10': placeholder ten, no %1
+        "X69921", // an extension's Editable = false
+    ]
+    .into_iter()
+    .filter(|t| {
+        let (o, h) = get(&out, t);
+        !(h.is_empty() && o.contains("NotRun") && o.contains(NEIGHBOR))
+    })
+    .collect::<Vec<_>>();
+    assert!(wrong.is_empty(), "not refused at the open: {wrong:?}");
+}
