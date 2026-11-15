@@ -1,15 +1,15 @@
 //! The delete of a stored Tenant Permission Set row (2000000165) whose App ID is zero, while Tenant Permission rows (2000000166)
-//! or Tenant Permission Set Rel. rows (2000000253) name it: BC deletes those rows with the set. Corpus probe
-//! permissions/permission-sets/TenantSetDeleteCascade.al (corpus pull request 1340, not yet in the pinned corpus; al-runner issue
-//! 7854) measured it, so the runner deletes them through the assumption `tenant-set-delete-cascade`, for the shapes the probe
-//! has only (`Session::tenant_set_cascade`). Every other shape where rows name the set is refused; a delete where no row names
-//! the set keeps its result.
+//! or Tenant Permission Set Rel. rows (2000000253) name it: BC deletes those rows with the set (pinned:
+//! tests/al-language/permissions/permission-sets/TenantSetDeleteCascade.al; al-runner issue 7854). The runner deletes them for
+//! the shapes the probe has only (`Session::tenant_set_cascade`). Every other shape where rows name the set is refused; a delete
+//! where no row names the set keeps its result. With Microsoft's apps loaded (the corpus run), the delete of the set row is not
+//! known to raise no event or database trigger; what BC raises for the rows the cascade takes is not pinned, so there the
+//! delete is refused (`tenant_set_cascade_hooks_off`) and the probe's cases do not run in the corpus run.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;
 use crate::platform::{TENANT_PERMISSION, TENANT_PERMISSION_SET, TENANT_PERMISSION_SET_REL, pos};
 use crate::records::Rec;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 use al_data::{AccessContext, Row, Store, TableDef, position};
@@ -74,7 +74,7 @@ impl Session {
     /// What deleting the stored set row `row` of `t` deletes with it. `None`: no row names it (the App ID is not zero, or
     /// no Tenant Permission row with App ID zero and its Role ID, and no Rel. row with App ID zero and its Role ID or Related
     /// App ID zero and its Related Role ID), and the delete keeps its result. Otherwise every fact of the probe's cell must
-    /// hold, else it refuses (TenantSetDeleteCascade.al, corpus pull request 1340):
+    /// hold, else it refuses (TenantSetDeleteCascade.al):
     /// - no subscriber of the delete events of the three tables, no delete trigger of the set table, and the database delete
     ///   trigger known to be off for the three (the probe binds a subscriber only in TSDC_DeleteAllPermSubscriber, :234-250,
     ///   whose event arguments it does not log);
@@ -226,8 +226,8 @@ impl Session {
             .map_err(|e| Signal::unsupported(format!("{e}")))
     }
 
-    /// Deletes what `c` names once its set row is gone (the delete that planned it ran), through the assumption
-    /// `tenant-set-delete-cascade`. A set row still stored (the delete did not delete it) takes nothing with it.
+    /// Deletes what `c` names once its set row is gone (the delete that planned it ran; TenantSetDeleteCascade.al:121, :135,
+    /// :149, :163, :179, :195). A set row still stored (the delete did not delete it) takes nothing with it.
     pub(crate) fn tenant_set_cascade_apply(
         &mut self,
         cx: &AccessContext,
@@ -242,7 +242,6 @@ impl Session {
         if still {
             return Ok(());
         }
-        assume(Assumption::TenantSetDeleteCascade);
         for (id, keys) in [(TENANT_PERMISSION, c.perms), (TENANT_PERMISSION_SET_REL, c.rels)] {
             let Some(def) = self.table_def(id) else { continue };
             for pk in keys {
