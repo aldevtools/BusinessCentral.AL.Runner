@@ -209,6 +209,10 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
 - A mark set by a scan over a band: when the table has a poisoned row the band is the whole table, and filters on real
   columns are not evaluated. A read whose key or pinned filters leave the assumed row out is flagged too, and pinned
   clean passes turn flagged. Mark only rows that every filter on a real column keeps (al-runner PR 8131).
+- An entry retired after its pin landed: read the entry's own "not measured", "not checked" and "treated as measured"
+  clauses. Each is a shape that ran flagged. After the retirement it must refuse or keep the path main had before the
+  entry; "gate already exact" is true only when none of those clauses is left (al-runner PR 8149: group 2 enum
+  FlowFilter, GetTable alias, open generic Dictionary).
 
 ## 7. State that outlives its shape (6 of 34)
 
