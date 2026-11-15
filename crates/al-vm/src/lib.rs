@@ -2184,8 +2184,7 @@ impl Session {
     /// A RecordRef (held by a Variant) handed by value to a Record parameter of table `table`: of the same table, the Record
     /// `ops::record_ref_into_record` makes (streams/ArRecordProbes.al:366 VariantRecordRef_PassedToRecordParameter).
     /// Of another table it raises ObjectDefinitionChanged, naming the first field of the ref's table: pinned for that field a Code
-    /// where the parameter's table has an Integer (ArRecordProbes.al SG_VariantRecordRef_OtherTable_AssignAndParameter `param`,
-    /// corpus bump PR 738); other pairs of types, and a ref that is not open, raise an error whose text is not pinned.
+    /// where the parameter's table has an Integer (ArRecordProbes.al SG_VariantRecordRef_OtherTable_AssignAndParameter `param`, corpus bump PR 738); other pairs of types and a ref not open raise an unpinned error.
     pub(crate) fn record_ref_into_record_param(
         &mut self,
         h: &Rc<RefCell<al_builtins::value::LibraryValue>>,

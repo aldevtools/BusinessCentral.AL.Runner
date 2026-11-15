@@ -157,3 +157,25 @@ impl Session {
         ))
     }
 }
+
+impl Session {
+    /// `Get(RecordId)` on a RecordRef not open: opens the table, asks `Get`, and a miss (or an open that fails) leaves the ref as
+    /// it was, never opened or closed.
+    pub(crate) fn get_on_unopened_ref(
+        &mut self,
+        lib: &std::rc::Rc<std::cell::RefCell<LibraryValue>>,
+        table_no: u32,
+        args: &mut [Value],
+    ) -> Result<Value, Signal> {
+        let before = std::mem::take(&mut *lib.borrow_mut());
+        if let Err(e) = self.rr_open(lib, &[Value::Integer(table_no as i32)]) {
+            *lib.borrow_mut() = before;
+            return Err(e);
+        }
+        let found = self.recordref_op("Get", lib, args);
+        if !matches!(found, Ok(Value::Boolean(true))) {
+            *lib.borrow_mut() = before;
+        }
+        found
+    }
+}

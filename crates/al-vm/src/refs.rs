@@ -521,7 +521,7 @@ impl Session {
     }
 
     /// `RecordRef.Open(No, Temp, CompanyName)`.
-    fn rr_open(&mut self, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
+    pub(crate) fn rr_open(&mut self, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
         // Open on a RecordRef that holds a table raises (types/variant/VaTIsChecks.al:Is_Record_RecordRef_FieldRef `af137`,
         // after GetTable).
         if matches!(&*lib.borrow(), LibraryValue::RecordRef(_)) {
@@ -866,7 +866,7 @@ impl Session {
         }
     }
 
-    fn recordref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
+    pub(crate) fn recordref_op(&mut self, method: &str, lib: &Lib, args: &mut [Value]) -> Result<Value, Signal> {
         // A RecordRef on a table whose filter group 1 another record set (records.rs `global_group_check`).
         if !self.global_group1.is_empty() && method != "FilterGroup" {
             if let LibraryValue::RecordRef(rec) = &*lib.borrow() {
@@ -1023,17 +1023,7 @@ impl Session {
                     },
                     _ => return Self::open_ref(lib, "RecordRef.Get").map(|_| Value::Null),
                 };
-                // A miss leaves the ref as it was: never opened or closed.
-                let before = std::mem::take(&mut *lib.borrow_mut());
-                if let Err(e) = self.rr_open(lib, &[Value::Integer(table_no as i32)]) {
-                    *lib.borrow_mut() = before;
-                    return Err(e);
-                }
-                let found = self.recordref_op("Get", lib, args);
-                if !matches!(found, Ok(Value::Boolean(true))) {
-                    *lib.borrow_mut() = before;
-                }
-                return found;
+                return self.get_on_unopened_ref(lib, table_no, args);
             }
             _ => {}
         }
