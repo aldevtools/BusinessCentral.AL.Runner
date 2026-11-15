@@ -1,9 +1,8 @@
 //! The partner dependency apps' login subscribers in the strict-order lane (al-runner issue 8115, scenario s09; review of
 //! al-runner PR 8138, probes p2/s_set, s_none, s_bumpfn). The login sets `Cnt` to 10 in every session; in BC's order the
-//! value an earlier test codeunit left wins (`Session::adopt_single_instances`), and the readers are flagged. In the default
-//! order each test codeunit starts with fresh SingleInstance state and its own login (ADR-066 amendment 12).
+//! value an earlier test codeunit left wins (`Session::adopt_single_instances`; PlLoginSingleTests.al:109-128). In the
+//! default order each test codeunit starts with fresh SingleInstance state and its own login (ADR-066 amendment 12).
 
-use al_builtins::assumptions::Assumption;
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
 use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions, SuiteRun};
@@ -94,54 +93,43 @@ fn manifest(p: &str) -> Manifest {
     }
 }
 
-/// Every test passes; returns whether each of `B1` and `B2` relies on the partner login.
-fn assert_passes(rt: &CorpusRuntime) -> (bool, bool) {
+/// Every test passes.
+fn assert_passes(rt: &CorpusRuntime) {
     for r in rt.results() {
         assert_eq!(r.outcome, Outcome::Pass, "{}: {:?}", r.test, r.outcome);
     }
-    let flagged = |name: &str| {
-        rt.results()
-            .iter()
-            .any(|r| r.test.ends_with(name) && r.assumptions.contains(&Assumption::PartnerLoginSubscriberInTestSession))
-    };
-    (flagged("B1"), flagged("B2"))
 }
 
 // p2/s_set: A sets 99; in BC's order B reads 99, not the 10 its own session's login set.
 #[test]
 fn an_earlier_codeunits_value_wins_over_the_login_in_bcs_order() {
-    let rt = run(&tests("C.Set(99);", 99));
-    assert_passes(&rt);
+    assert_passes(&run(&tests("C.Set(99);", 99)));
 }
 
-// p2/s_none: A touches nothing; B reads the login's 10 and relies on it, and so does the test after it.
+// p2/s_none: A touches nothing; B reads the login's 10.
 #[test]
 fn a_reader_after_an_untouched_codeunit_sees_the_login_value() {
-    let rt = run(&tests("", 10));
-    assert_eq!(assert_passes(&rt), (true, true));
+    assert_passes(&run(&tests("", 10)));
 }
 
 // p2/s_bumpfn: A reads the login's 10 and sets 11; B reads 11.
 #[test]
 fn a_codeunit_that_reads_the_login_value_and_writes_hands_it_on() {
-    let rt = run(&tests("if C.GetCount() = 10 then C.Set(11);", 11));
-    assert!(assert_passes(&rt).0);
+    assert_passes(&run(&tests("if C.GetCount() = 10 then C.Set(11);", 11)));
 }
 
-// Corpus PR 1416 (PlLoginSingleTests.al, codeunit 98484): BC runs the login once per session and keeps the single across
-// test codeunits, so B reads the 11 that A's `Cnt += 1` left. In BC's order B gets 11 and relies on the login.
+// PlLoginSingleTests.al:109-128: BC runs the login once per session and keeps the single across test codeunits, so B
+// reads the 11 that A's `Cnt += 1` left.
 #[test]
 fn a_later_codeunit_reads_the_value_an_earlier_codeunit_bumped_in_bcs_order() {
-    let rt = run(&tests("C.Bump();", 11));
-    assert!(assert_passes(&rt).0);
+    assert_passes(&run(&tests("C.Bump();", 11)));
 }
 
-// The same shape in the default order: B starts fresh and reads its own login's 10 (the deviation of ADR-066 amendment 12).
-// That pass is never clean: B relies on the login. A test that expects BC's 11 fails there.
+// The same shape in the default order: B starts fresh and reads its own login's 10 (ADR-066 amendment 12), as for the
+// SingleInstance codeunits of the apps under test. A test that expects BC's 11 fails there.
 #[test]
-fn a_later_codeunit_after_a_bump_in_the_default_order_is_marked() {
-    let rt = run_in(&tests("C.Bump();", 10), false);
-    assert_eq!(assert_passes(&rt), (true, true));
+fn a_later_codeunit_after_a_bump_in_the_default_order_starts_fresh() {
+    assert_passes(&run_in(&tests("C.Bump();", 10), false));
     let rt = run_in(&tests("C.Bump();", 11), false);
     let b1 = rt.results().iter().find(|r| r.test.ends_with("B1")).expect("B1 ran");
     assert!(

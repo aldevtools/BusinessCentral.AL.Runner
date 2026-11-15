@@ -1,20 +1,18 @@
 //! The login subscribers of the partner dependency apps in the test session (al-runner issue 8115, scenario s09).
 //!
 //! BC raises "System Initialization".`OnAfterLogin` in every session, the test session too, and a dependency app's
-//! subscriber runs there: a group 1 filter its body sets is there in the test (corpus PR 1405,
-//! G1sInstallSessionTests.al:98, :103, the subscriber at G1sXaInstall.al:116-124, a dependency app whose publisher is
-//! "AL Language"). Where the test session raises the login through Microsoft's code (`login::Login::Raise`) that code
-//! runs them. Otherwise ([`subscribers`]) they run here, at the place "System Initialization Impl." raises the login,
-//! together with the apps under test's own (`install::own_login`, in the order the event reaches them, [`steps`]), and
-//! what they leave is watched ([`raise`]): the measured filter stays; rows and other session state, which the probe does
-//! not measure, refuse their readers. The globals of SingleInstance codeunits they set stay for the session, as an own login
-//! subscriber's do (LgnLoginChecklistTests.al:93 sets them, :132 the first test reads them): each test codeunit runs on a
-//! session of its own that raises the login once before it, the BC session in which it runs first (ADR-066 amendment 12),
-//! and in BC's order the single instances moved in from the codeunit before replace the ones this login made
-//! (`Session::adopt_single_instances`). From the first touch of such a global on, by the session-open code after them, the
-//! OnRun trigger or a test, every test relies on them ([`PartnerLogin::test_read`]); session-open code after them that
-//! touches a table they wrote or filtered refuses the codeunit ([`PartnerLogin::after_open`]). Not pinned yet: assumption
-//! `partner-login-subscriber-in-test-session`.
+//! subscriber runs there: a group 1 filter its body sets is there in the test (G1sInstallSessionTests.al:98, :103, the
+//! subscriber at G1sXaInstall.al:116-124, a dependency app whose publisher is "AL Language"), and so are the globals it
+//! sets on a SingleInstance codeunit of its own app, an Integer, a List of [Text] and a Text (PlXaLoginSingles.al:12-27;
+//! the first test reads them, PlLoginSingleTests.al:54-74, the next test reads what the first left, :79-98, and the
+//! session-open code after the login reads them, :66-74). Where the test session raises the login through Microsoft's
+//! code (`login::Login::Raise`) that code runs them. Otherwise ([`subscribers`]) they run here, at the place
+//! "System Initialization Impl." raises the login, together with the apps under test's own (`install::own_login`, in the
+//! order the event reaches them, [`steps`]), and what they leave is watched ([`raise`]): the measured filter and globals
+//! stay; rows refuse their readers; a SingleInstance codeunit of another shape or of another app, and other session
+//! state, refuse the codeunit or its readers. In the default order each test codeunit starts with fresh SingleInstance
+//! state and its own login (ADR-066 amendment 12); in BC's order the single instances moved in from the codeunit before
+//! replace the ones this login made (`Session::adopt_single_instances`; PlLoginSingleTests.al:109-128).
 
 use crate::login::OwnEvent;
 use al_builtins::native::Signal;
@@ -27,14 +25,8 @@ use std::collections::BTreeSet;
 pub(crate) struct PartnerLogin {
     /// The tables they wrote: a test or an OnRun that reads or writes one is not run.
     pub tables: BTreeSet<u32>,
-    /// The tables whose group 1 filters they changed: a test that reads or writes one relies on the assumption.
+    /// The tables whose group 1 filters they changed: the filter stays for the session (G1sInstallSessionTests.al:103).
     pub group1: BTreeSet<u32>,
-    /// The SingleInstance codeunits (object index) whose globals they changed: from the first touch of one of their
-    /// globals on, every test relies on the assumption ([`PartnerLogin::test_read`]).
-    pub singles: BTreeSet<usize>,
-    /// The session-open code that ran after them (a later login step, a Company Triggers subscriber) touched a global of
-    /// `singles` ([`PartnerLogin::read_in_open`]): every test relies on the assumption.
-    pub open_read: bool,
     /// The first of `tables` and `group1` that code after them in the session open read or wrote, while the window
     /// ([`PartnerLogin::watch_after`]) was open on fewer tables than now.
     window_hit: Option<u32>,
@@ -46,39 +38,13 @@ impl PartnerLogin {
         self.tables.iter().chain(&self.group1)
     }
 
-    /// After a test that began, of the tables it touched (`hits`), the first one they wrote. A table whose group 1 filter
-    /// they set marks the assumption: what the test found there rests on the subscribers having run.
+    /// After a test that began, of the tables it touched (`hits`), the first one they wrote.
     pub fn test_hit(&self, hits: &BTreeSet<u32>) -> Option<u32> {
-        if !self.group1.is_disjoint(hits) {
-            mark();
-        }
         hits.iter().find(|t| self.tables.contains(t)).copied()
     }
 
-    /// Whether the session notes the use of SingleInstance globals for [`PartnerLogin::test_read`].
-    pub fn notes_singles(&self) -> bool {
-        !self.singles.is_empty()
-    }
-
-    /// After a test (`ran`: it began): marks the assumption when the session-open code after them, the OnRun trigger, this
-    /// test or an earlier one touched a global of a SingleInstance codeunit they changed while it still held what they
-    /// left (`Session::single_touched`: a read, or a write that keeps the value). What a test found may rest on the value
-    /// through a copy, a row or a later write, so the mark stays for every later test.
-    pub fn test_read(&self, session: &Session, ran: bool) {
-        if ran && self.notes_singles() && (self.open_read || session.single_touched(&self.singles)) {
-            mark();
-        }
-    }
-
-    /// Before the notes of the test codeunit start (they start again from the values the session holds): sets
-    /// [`PartnerLogin::open_read`] from the notes [`PartnerLogin::watch_after`] began.
-    pub fn read_in_open(&mut self, session: &Session) {
-        self.open_read = self.notes_singles() && session.single_touched(&self.singles);
-    }
-
     /// After a step of theirs: the code that runs after it in the session open reads what they left. Opens the store's
-    /// window on the tables they wrote or filtered ([`PartnerLogin::close_window`] refuses on a hit), and starts the notes
-    /// of SingleInstance globals when they changed one.
+    /// window on the tables they wrote or filtered ([`PartnerLogin::after_open`] refuses on a hit).
     fn watch_after(&mut self, session: &mut Session) {
         let store = session.store_mut();
         if let Some(t) = store.watch_window_end() {
@@ -87,9 +53,6 @@ impl PartnerLogin {
         let tables: BTreeSet<u32> = self.watched().copied().collect();
         if !tables.is_empty() {
             store.watch_window(tables);
-        }
-        if self.notes_singles() && !session.tracks_single_instances() {
-            session.track_single_instances();
         }
     }
 
@@ -102,8 +65,7 @@ impl PartnerLogin {
     }
 
     /// After the test codeunit's OnRun, which touched the tables `hits`: `Err` why the codeunit is not run when one of
-    /// them is a table they wrote or set a group 1 filter on (what an OnRun finds there is not measured). A
-    /// SingleInstance global the OnRun touched marks every test ([`PartnerLogin::test_read`]).
+    /// them is a table they wrote or set a group 1 filter on (what an OnRun finds there is not measured).
     pub fn after_on_run(&self, hits: &BTreeSet<u32>, lowered: &Lowered) -> Result<(), String> {
         let hit = hits.iter().find(|t| self.tables.contains(t) || self.group1.contains(t));
         match hit.and_then(|&t| self.touched(t, lowered)) {
@@ -122,11 +84,6 @@ impl PartnerLogin {
             )
         })
     }
-}
-
-/// Marks the assumption for the running test.
-pub(crate) fn mark() {
-    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartnerLoginSubscriberInTestSession);
 }
 
 /// The partner dependency apps' login subscribers the test session runs itself, or none. Every fact the probe measured,
@@ -217,10 +174,10 @@ pub(crate) fn steps(
 }
 
 /// Raises step `step` of the partner subscribers and notes what they left in `left`: the tables they wrote, the tables whose
-/// group 1 filters they changed, the SingleInstance codeunits whose globals they changed. `Err`: why the codeunit is not
-/// run (a subscriber that cannot run, an error, a change of the session state besides rows and SingleInstance globals that
-/// the probe does not measure and the watch cannot follow: of the session language, WorkDate or the bindings, or of other
-/// state the test codeunit can see, [`seen_by_test`]).
+/// group 1 filters they changed. `Err`: why the codeunit is not run (a subscriber that cannot run, an error, a change of
+/// a SingleInstance codeunit other than the measured one, [`unmeasured_single`], a change of the session state besides
+/// rows that the probe does not measure and the watch cannot follow: of the session language, WorkDate or the bindings,
+/// or of other state the test codeunit can see, [`seen_by_test`]).
 pub(crate) fn raise(
     lowered: &Lowered,
     session: &mut Session,
@@ -269,10 +226,35 @@ pub(crate) fn raise(
             "{who} ran before the first test and changed {what}, which this test codeunit can read and which is not a row the run can watch: what BC leaves there is not pinned"
         ));
     }
+    if let Some(what) = unmeasured_single(lowered, step, &change.singles) {
+        return Err(format!(
+            "{who} ran before the first test and changed {what}: what BC leaves there is not pinned"
+        ));
+    }
     left.group1.extend(before.group1_changed(&after));
-    left.singles.extend(change.singles.iter().copied());
     left.watch_after(session);
     Ok(())
+}
+
+/// Of the SingleInstance codeunits whose state the step changed (`singles`), the first one outside the measured shape, for
+/// a reason text: the codeunit is of the app of a subscriber of the step and every global of it is an Integer, a Text
+/// or a List of [Text] (PlXaLoginSingles.al:12-19, the subscriber of the same app at :56-62).
+fn unmeasured_single(lowered: &Lowered, step: &Step, singles: &std::collections::BTreeSet<usize>) -> Option<String> {
+    use al_builtins::value::RtType;
+    let objs = &lowered.program.objects;
+    let measured = |o: usize| {
+        step.subscribers.iter().any(|&(s, _)| objs[s].app == objs[o].app)
+            && (objs[o].globals.iter()).all(|g| match &g.ty {
+                RtType::Integer | RtType::Text(None) => true,
+                RtType::List(item) => **item == RtType::Text(None),
+                _ => false,
+            })
+    };
+    let o = singles.iter().copied().find(|&o| !measured(o))?;
+    Some(format!(
+        "SingleInstance codeunit {}, which is not a codeunit of the subscriber's app whose globals are all Integer, Text or List of [Text]",
+        objs[o].name
+    ))
 }
 
 /// One kind of session state other than rows that the partner subscribers changed ([`seen_by_test`]).
@@ -312,8 +294,8 @@ impl Left {
     }
 }
 
-/// What of `change` other than SingleInstance globals (which holds no state that every code reads without naming it) the static reach of the session's
-/// test codeunit can see, for a reason text ([`Left::seen_by`]). When part of the reach is not known, or the session has
+/// What of `change` other than SingleInstance globals ([`unmeasured_single`]) the static reach of the session's test
+/// codeunit can see, for a reason text ([`Left::seen_by`]). When part of the reach is not known, or the session has
 /// no test codeunit, every change counts. Changed state no test of the codeunit can see stays as the subscribers left it.
 fn seen_by_test(lowered: &Lowered, session: &Session, change: &al_vm::LeftChange) -> Option<String> {
     let left = Left::of(change);
