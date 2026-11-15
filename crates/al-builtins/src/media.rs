@@ -272,11 +272,7 @@ fn media_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
     // A field that already holds a media takes the new one (corpus streams/media/PXMediaFileName.al:
     // ImportStream_DescriptionOnly_AndEmptyDescription imports into the same field twice); what becomes
     // of the old media object is not pinned, it stays.
-    let current = id_of(&r)?;
-    let blank = current == [0; 16];
-    if let Some(v) = crate::stream_cleared::import_from_uncreated(c.ret_used(), false, blank, a) {
-        return Ok(v);
-    }
+    id_of(&r)?;
     // An empty stream imports no media: the field holds none afterwards (streams/StTMedia.al:MediaImportEmptyStream, `HasValue` No).
     // What the call answers is not pinned; the null Guid is assumed.
     if pending_of(a.first()).is_none()
@@ -297,10 +293,6 @@ fn media_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out 
 
 fn set_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let current = id_of(&r)?;
-    let blank = current == [0; 16];
-    if let Some(v) = crate::stream_cleared::import_from_uncreated(c.ret_used(), true, blank, a) {
-        return Ok(v);
-    }
     if current != [0; 16] {
         // Another import adds a member and answers the set's id again (streams/StTMedia.al:MediaSetImportThreeArgs `count2` 2,
         // :MediaSetImportTwiceAdds `count` 2 and `ids-differ` No).

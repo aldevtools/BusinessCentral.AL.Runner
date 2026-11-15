@@ -7,7 +7,8 @@
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{AlError, Signal};
-use al_builtins::value::{LibraryValue, Value};
+use al_builtins::recordref_closed::not_open;
+use al_builtins::value::{LibraryValue, RecordState, Value};
 
 /// "The record is not open." (code RecordNotOpened), the error of a RecordRef that is not open.
 pub(crate) fn record_not_open() -> Signal {
@@ -29,15 +30,16 @@ enum Measured {
 }
 
 /// The members of a RecordRef that is not open that UhUnopenedRecordRef.al measured raising "The record is not open.", with the
-/// call form and the arguments of the probe. `used` is whether the result is used. Each line cites its step and its tests.
-fn measured_member(method: &str, args: &[Value], used: bool) -> Option<Measured> {
+/// call form and the arguments of the probe. `id` is the overload the call site picked, `used` whether the result is used. Each
+/// line cites its step and its tests.
+fn measured_member(id: &str, method: &str, args: &[Value], used: bool) -> Option<Measured> {
     use Measured::*;
     let none = args.is_empty();
     let one = matches!(args, [Value::Integer(1)]);
     match method {
         // :48-51 `u_copylinks`, :168-172 `c_copylinks` (an open RecordRef as the source), :213-224 `u_copylinksrec`,
         // `c_copylinksrec` (a Record variable); tests :277, :577, :667, :677. A statement.
-        "CopyLinks" if !used && copy_links_source_measured(args) => Some(NeverOpenedAndClosed),
+        "CopyLinks" if !used && copy_links_source_measured(id, args) => Some(NeverOpenedAndClosed),
         // :52-71 and :173-197 (`u_`/`c_` findset, readpermission, writepermission, fieldcount, findfirst); tests :287-335,
         // :587-635. The result is used.
         "FindSet" | "ReadPermission" | "WritePermission" | "FieldCount" | "FindFirst" if used && none => {
@@ -54,28 +56,46 @@ fn measured_member(method: &str, args: &[Value], used: bool) -> Option<Measured>
     }
 }
 
-/// The sources of `CopyLinks` the probe passed: a RecordRef open on a table and a Record variable, neither temporary
-/// (UhUnopenedRecordRef.al:37-46, `Rec` and `Src.Open(66990)`).
-fn copy_links_source_measured(args: &[Value]) -> bool {
+/// The sources of `CopyLinks` the probe passed (UhUnopenedRecordRef.al:37-46): the Record variable `Rec` and the RecordRef `Src`
+/// just opened (`Src.Open(66990)`), each not temporary, with no filter, standing on no row and with nothing written to its buffer
+/// ([`fresh_source`]). `id` is the overload the call site picked: a Variant argument picks the Variant one (`#3`), which the probe
+/// did not pass; a Record or RecordRef argument picks a typed one (`#1` Record, `#2` RecordRef).
+fn copy_links_source_measured(id: &str, args: &[Value]) -> bool {
+    if !matches!(id, "RecordRef.CopyLinks#1" | "RecordRef.CopyLinks#2") {
+        return false;
+    }
     match args {
-        [Value::Record(r)] => !r.borrow().temporary,
-        [Value::Library(name, l)] if name.eq_ignore_ascii_case("RecordRef") => {
-            matches!(&*l.borrow(), LibraryValue::RecordRef(r) if !r.borrow().temporary)
-        }
+        [Value::Record(r)] => fresh_source(&r.borrow()),
+        [Value::Library(_, l)] => matches!(&*l.borrow(), LibraryValue::RecordRef(r) if fresh_source(&r.borrow())),
         _ => false,
     }
 }
 
+/// The state of the probe's sources: a declared Record and a RecordRef right after `Open`, in the session's company.
+fn fresh_source(r: &RecordState) -> bool {
+    !r.temporary
+        && r.company.is_none()
+        && r.filters.is_empty()
+        && r.marks.is_empty()
+        && r.position.is_none()
+        && r.row_origin.is_none()
+        && !r.touched
+}
+
 impl Session {
-    /// `Some` with "The record is not open." when `method` on the RecordRef `lib`, which is not open, is a measured cell
-    /// ([`measured_member`]) in the state the probe measured it in; `None` to go on to `refs.rs` `open_ref`.
+    /// `Some` with "The record is not open." when `method` (by the overload `id`) on the RecordRef `lib`, which is not open, is a
+    /// measured cell ([`measured_member`]) in the state the probe measured it in; `None` to go on to `refs.rs` `recordref_op`.
     pub(crate) fn recordref_not_open_measured(
         &self,
+        id: &str,
         method: &str,
         lib: &LibraryValue,
         args: &[Value],
     ) -> Option<Signal> {
-        let measured = measured_member(method, args, self.ret_used)?;
+        if !not_open(lib) {
+            return None;
+        }
+        let measured = measured_member(id, method, args, self.ret_used)?;
         let state_measured = match lib {
             LibraryValue::Empty => true,
             LibraryValue::ClosedRecordRef => measured == Measured::NeverOpenedAndClosed,
@@ -85,7 +105,7 @@ impl Session {
             return None;
         }
         // FieldCount of a RecordRef never opened, with the result used, is pinned (recordref-fieldref/recordref/RfTOpen.al:191,
-        // Closed_Errors `fieldcount`, a RecordRef that no Open reached).
+        // Closed_Errors `fieldcount`, a RecordRef that no Open reached; :630 Open_Zero_Members, after `Open(0)`).
         let pinned = method == "FieldCount" && matches!(lib, LibraryValue::Empty);
         if !pinned {
             assume(Assumption::RecordRefNotOpenMembers);
@@ -115,10 +135,7 @@ impl Session {
             )
         };
         match arg? {
-            Value::Null if never_opened || open_stored => Some(crate::transactions::al_error_code(
-                "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized.",
-                "NotInitialized",
-            )),
+            Value::Null if never_opened || open_stored => Some(crate::recordref_variant::variant_not_initialized()),
             Value::Integer(5) if never_opened => Some(conversion("NavInteger")),
             Value::Text(t) if never_opened && t.as_str() == "ALT Universal" => Some(conversion("NavText")),
             Value::Text(t) if never_opened && (t.as_str() == "" || t.as_str() == "abc") => {
@@ -158,9 +175,27 @@ impl Session {
     }
 }
 
+/// Whether `method` on the RecordRef `lib` is an `Open` or a `Get` on a RecordRef never opened ([`after_open_attempt`]).
+pub(crate) fn open_attempt_on_new_ref(method: &str, lib: &LibraryValue) -> bool {
+    matches!(method, "Open" | "Get") && matches!(lib, LibraryValue::Empty)
+}
+
+/// After an `Open` that raised, or a `Get` that left the ref not open (a miss, a blank RecordId, an error), on a RecordRef never
+/// opened: the ref counts as closed. Both answer alike everywhere except the members the probe measured only on a new variable
+/// ([`measured_member`], `Measured::NeverOpened`), which then keep their answer before the probe (a refusal). An `Open(0)` that
+/// raised nothing leaves the ref never opened: Open_Zero_Members (recordref-fieldref/recordref/RfTOpen.al:584-641) measured
+/// Number, Name, FieldCount, KeyCount, IsEmpty, IsTemporary and Count there as on a new ref; the never-opened-only members after
+/// `Open(0)` are not measured, and the entry text of `recordref-not-open-members` names them.
+pub(crate) fn after_open_attempt(method: &str, lib: &std::cell::RefCell<LibraryValue>, r: &Result<Value, Signal>) {
+    let left_new = matches!(&*lib.borrow(), LibraryValue::Empty);
+    if left_new && (method == "Get" || r.is_err()) {
+        *lib.borrow_mut() = LibraryValue::ClosedRecordRef;
+    }
+}
+
 impl Session {
     /// `Get(RecordId)` on a RecordRef not open: opens the table, asks `Get`, and a miss (or an open that fails) leaves the ref as
-    /// it was, never opened or closed.
+    /// it was, not open ([`after_open_attempt`] then counts a ref never opened as closed).
     pub(crate) fn get_on_unopened_ref(
         &mut self,
         lib: &std::rc::Rc<std::cell::RefCell<LibraryValue>>,

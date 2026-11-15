@@ -16,7 +16,7 @@ fn run(body: &str) -> Result<Value, Signal> {
 
 fn refused(body: &str) {
     let r = run(body);
-    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{body}: {r:?}");
 }
 
 #[test]
@@ -125,6 +125,67 @@ fn stream_shapes_the_probe_did_not_use_refuse() {
     }
 }
 
+#[test]
+fn a_recordref_whose_open_or_get_failed_is_not_one_never_opened() {
+    // A failed Open and a Get(RecordId) that missed leave a RecordRef not open; the probe measured a new variable only.
+    for setup in [
+        "asserterror RR.Open(99999999);",
+        "R.Id := 7; Id := R.RecordId(); B := RR.Get(Id);",
+    ] {
+        for call in ["B := RR.FindLast();", "T := RR.GetFilters();", "RR.SetRecFilter();"] {
+            refused(&format!(
+                "procedure F(): Text var RR: RecordRef; R: Record Row; Id: RecordId; B: Boolean; T: Text; begin {setup} {call} end;"
+            ));
+        }
+        // It keeps the answers of a RecordRef not open (a closed one).
+        let r = run(&format!(
+            "procedure F(): Text var RR: RecordRef; R: Record Row; Id: RecordId; B: Boolean; begin {setup} asserterror B := RR.FindFirst(); exit(Format(RR.Number()) + '|' + GetLastErrorCode()); end;"
+        ));
+        assert_eq!(al_testkit::text(r), "0|RecordNotOpened", "{setup}");
+    }
+}
+
+#[test]
+fn copylinks_sources_the_probe_did_not_pass_refuse() {
+    for (setup, call) in [
+        // A Variant that holds a Record.
+        ("V := R;", "RR.CopyLinks(V);"),
+        // A source with a filter, and one standing on a stored row.
+        ("R.SetRange(Id, 1);", "RR.CopyLinks(R);"),
+        ("R.Id := 1; R.Insert(); R.Get(1);", "RR.CopyLinks(R);"),
+        ("Src.Open(50100); Src.Field(1).SetRange(1);", "RR.CopyLinks(Src);"),
+    ] {
+        refused(&format!(
+            "procedure F(): Text var RR: RecordRef; Src: RecordRef; R: Record Row; V: Variant; begin {setup} {call} end;"
+        ));
+    }
+}
+
+#[test]
+fn media_imports_from_an_uncreated_stream_into_records_the_probe_did_not_use_refuse() {
+    for call in [
+        // An inserted record and a temporary one.
+        "R.Id := 1; R.Insert(); G := R.Pic.ImportStream(InS, 'icon');",
+        "T.Id := 1; G := T.Pic.ImportStream(InS, 'icon');",
+        "T.Id := 1; G := T.Pics.ImportStream(InS, 'icon');",
+        // What the record holds after the import is not measured: its field, its Insert and a copy of it.
+        "R.Id := 1; G := R.Pic.ImportStream(InS, 'icon'); B := R.Pic.HasValue();",
+        "R.Id := 1; G := R.Pics.ImportStream(InS, 'icon'); N := R.Pics.Count();",
+        "R.Id := 1; G := R.Pic.ImportStream(InS, 'icon'); R.Insert();",
+        "R.Id := 1; G := R.Pic.ImportStream(InS, 'icon'); R2 := R; R2.Insert();",
+        "R.Id := 1; G := R.Pic.ImportStream(InS, 'icon'); R2.TransferFields(R); R2.Insert();",
+        "R.Id := 1; G := R.Pic.ImportStream(InS, 'icon'); R2.Copy(R); R2.Insert();",
+        "R.Id := 1; G := R.Pic.ImportStream(InS, 'icon'); RR.GetTable(R); RR.Insert();",
+        "R.Id := 1; G := R.Pic.ImportStream(InS, 'icon'); V := R; R2 := V; R2.Insert();",
+        "R.Id := 1; G := R.Pic.ImportStream(InS, 'icon'); Keep(R);",
+    ] {
+        refused(&format!(
+            "procedure F(): Text var R: Record Row; R2: Record Row; T: Record Row temporary; RR: RecordRef; V: Variant; InS: InStream; G: Guid; B: Boolean; N: Integer; begin {call} end;
+            local procedure Keep(R: Record Row) begin R.Insert(); end;"
+        ));
+    }
+}
+
 /// The control of the tests above: the measured shapes, built the same way, raise BC's error (or answer) instead of refusing.
 #[test]
 fn the_measured_shapes_run_in_this_harness() {
@@ -136,6 +197,16 @@ fn the_measured_shapes_run_in_this_harness() {
             "RecordNotOpened",
         ),
         ("RR: RecordRef; R: Record Row;", "RR.CopyLinks(R);", "RecordNotOpened"),
+        (
+            "RR: RecordRef; Src: RecordRef;",
+            "Src.Open(50100); RR.CopyLinks(Src);",
+            "RecordNotOpened",
+        ),
+        (
+            "RR: RecordRef; R: Record Row;",
+            "RR.Open(50100); RR.Close(); RR.CopyLinks(R);",
+            "RecordNotOpened",
+        ),
         ("RR: RecordRef; V: Variant;", "V := ''; RR.GetTable(V);", "Conversion"),
         ("KR: KeyRef; FR: FieldRef;", "FR := KR.FieldIndex(1);", "NotInitialized"),
         ("E: XmlElement;", "E.SetAttribute('a', 'b');", "NotInitialized"),

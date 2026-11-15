@@ -109,11 +109,15 @@ pub(crate) const XP_ROW_AFTER_ONCE: &str = "the row a MaxOccurs = Once table ele
 pub(crate) const XP_NESTED_ROW_AFTER_ONCE: &str =
     "the row a linked MaxOccurs = Once table element record holds after a pass of two or more rows is not pinned";
 
-/// Whether `rec` carries one of the marks of a table element record after an export under `SourceTableView`.
-pub(crate) fn xp_export_marked(rec: &Rec) -> Option<&'static str> {
-    rec.borrow()
-        .unpinned_buffer
-        .filter(|w| *w == XP_VIEW_AFTER_EXPORT || *w == XP_BUFFER_AFTER_EXPORT)
+/// Whether `rec` carries a mark whose unpinned view or buffer a copy from it (an assignment, Copy, TransferFields) would carry
+/// over: one of the marks of a table element record after an export under `SourceTableView`, or the record of a media import
+/// from an InStream never created (`al_builtins::stream_cleared::UNCREATED_IMPORT_BUFFER`).
+pub(crate) fn copy_refused_mark(rec: &Rec) -> Option<&'static str> {
+    rec.borrow().unpinned_buffer.filter(|w| {
+        *w == XP_VIEW_AFTER_EXPORT
+            || *w == XP_BUFFER_AFTER_EXPORT
+            || *w == al_builtins::stream_cleared::UNCREATED_IMPORT_BUFFER
+    })
 }
 
 /// [`RUN_PAGE_LINK_OPEN`] in the shape the corpus pins (see `run_page_link_fill`, pages/runobject.rs): the linked fields are

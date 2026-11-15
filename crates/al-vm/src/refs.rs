@@ -256,7 +256,13 @@ impl Session {
             other => return unsupported(format!("{id} on {}", other.describe())),
         };
         match sig.receiver.as_str() {
-            "RecordRef" => self.recordref_op(&sig.name, &lib, args),
+            "RecordRef" => {
+                let measured = self.recordref_not_open_measured(id, &sig.name, &lib.borrow(), args);
+                match measured {
+                    Some(e) => Err(e),
+                    None => self.recordref_op(&sig.name, &lib, args),
+                }
+            }
             "FieldRef" => {
                 self.fieldref_arg_values(&sig.name, &lib, args)?;
                 self.fieldref_op(&sig.name, &lib, args)
@@ -874,7 +880,11 @@ impl Session {
                 self.global_group_check(rec, table, &format!("RecordRef.{method}"))?;
             }
         }
+        let new_ref_tried = crate::unopened_refs::open_attempt_on_new_ref(method, &lib.borrow());
         let r = self.recordref_op_inner(method, lib, args);
+        if new_ref_tried {
+            crate::unopened_refs::after_open_attempt(method, lib, &r);
+        }
         // What the ref read or wrote is what IsDirty compares with. A read that found nothing leaves the buffer alone.
         let snapshot = match (&r, method) {
             (Ok(Value::Boolean(false)), _) | (Ok(Value::Integer(0)), "Next") => None,
@@ -1037,9 +1047,6 @@ impl Session {
             return unsupported(format!(
                 "RecordRef.{method} by this overload on a RecordRef that is not open (not pinned)"
             ));
-        }
-        if let Some(e) = self.recordref_not_open_measured(method, &lib.borrow(), args) {
-            return Err(e);
         }
         let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
         let t = self.table(&rec)?;
@@ -1344,10 +1351,7 @@ impl Session {
             match args.first() {
                 Some(Value::Null) => {
                     // :188-203 WC_SetTable_EmptyVariant.
-                    return Err(crate::transactions::al_error_code(
-                        "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized.",
-                        "NotInitialized",
-                    ));
+                    return Err(crate::recordref_variant::variant_not_initialized());
                 }
                 Some(Value::Library(name, other)) if name.eq_ignore_ascii_case("RecordRef") => {
                     return self.set_table_into_recordref(rec, lib, other);

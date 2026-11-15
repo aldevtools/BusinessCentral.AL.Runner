@@ -69,6 +69,8 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a pinned call on a variable checked by its current state only: the pin starts from a new or cleared variable. An
     earlier run, a filter set and removed, a Close, or a copy of the variable leave the same current state. Keep "first
     use since new or Clear" as a fact on the variable and require it (al-runner PR 8048; page records in al-runner PR 8009).
+  - a handle state read as "never used" from the empty state: a failed Open, a Get that missed, a Clear and a Close leave the
+    same empty state. Give each a state of its own, or require first use since new (al-runner PR 8120).
   - a body with branches (`case`, `if`) checked by its form only: the pin measured one branch. Require the branch that
     ran (a run-time fact), and the exact branches.
   - a static check over the lowered body (writes, reads, effects): lowering removes exactly the statements it could not

@@ -11,7 +11,7 @@ pub mod recordref_closed;
 pub mod signature;
 pub mod stream;
 mod stream_call_stack;
-mod stream_cleared;
+pub mod stream_cleared;
 mod stream_read_len;
 pub mod testcontexts;
 pub mod text;
