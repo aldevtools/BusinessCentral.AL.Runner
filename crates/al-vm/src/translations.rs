@@ -65,6 +65,16 @@ enum RecordIdCaptionShape {
 }
 
 impl Session {
+    /// Whether the app of object `object` may translate its texts in `language` (`translates_into`): it ships a translation
+    /// file of that language, or one whose language is not known.
+    pub(crate) fn app_translates_into(&self, object: usize, language: i32) -> bool {
+        let p = &self.engine.program;
+        p.objects
+            .get(object)
+            .and_then(|o| p.apps.get(o.app as usize))
+            .is_none_or(|a| translates_into(a, language))
+    }
+
     /// Why a read of a translatable text of object `object` (a table, field, enum value, page or control caption, an
     /// OptionCaption) is refused: the language in force is not 1033 and the object's app, or the app of an extension of
     /// it, ships a translation file. `what` names the text read.

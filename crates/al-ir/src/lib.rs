@@ -620,6 +620,10 @@ pub struct Report {
     /// The `Caption` property when it is a plain text literal.
     #[serde(default)]
     pub caption: Option<String>,
+    /// The `Caption` property states label attributes after its literal (`Locked`, `Comment`, `MaxLength`); the lowered
+    /// property value holds the literal only.
+    #[serde(default)]
+    pub caption_attributes: bool,
     /// The `FormatRegion` property: the culture of a SaveAs Xml dataset and of `Format` while it is written.
     #[serde(default)]
     pub format_region: Option<String>,

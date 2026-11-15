@@ -78,6 +78,10 @@ finds the next neighbor shape. Write the gate in allowlist form:
     or `FitOrRefuse`, as doing anything (al-runner PR 8015).
   - "Microsoft's app" read from the publisher string alone: the app under test can name "Microsoft" too. Require a
     dependency app as well (al-runner PR 8015).
+  - an answer made by an outside component (BC's converter) that reads the host: fonts, locale, time zone. A cell that
+    passes on one machine does not show the answer is the same on another. Before a layout feature is admitted, run its
+    cell again with the host resource hidden (the font folder, another locale) and require the same bytes (al-runner
+    PR 8159, list labels).
   - a pinned call checked by its name only: the pin also has its outcome (a `Next` that moved, a `GoToKey` that found its
     row, a `SetValue` that did not raise). Read the calls from the log that keeps outcomes (`tree_calls`, through
     `test_calls_all_succeeded`), not from the names (`test_calls`).

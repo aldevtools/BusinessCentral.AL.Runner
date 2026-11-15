@@ -13,17 +13,26 @@
 //! has two rows. Bound_OneRow (:395), Bound_ThreeRows (:433) and Bound_RowCountChangesHash (:471) save report
 //! `RX Hash Bound` (:50), whose hand-built RxHashBound.docx binds the two field columns and the expressions `Id * 1234.5`
 //! (`AutoFormatType = 1`) and `DMY2Date(1, 2, 2026)`; one and three rows.
+//!
+//! The cells of corpus pull request 1419 (merged, not pinned; reports/html-email-body/RxHtmlWidenTests.al), each on the
+//! Bound report's columns with two rows: Plain_TwoRows (:394, the bound layout), Styles_ArialParagraphStyle (:440),
+//! Theme_FontScheme (:482) and Header_FromSectPr (:568), each the bound layout plus one part; Caption_RxCap_PlainBoundLayout
+//! (:614, a report `Caption`, the title). Numbering_BulletList_NoTabs (:524) keeps Part A: the converter pads the list label
+//! by its width in the host's fonts (`content_is_measured`).
 
 use super::layout_facts::LayoutFacts;
 use crate::dataset::ValueKind;
 use al_builtins::value::RtType;
 use al_ir as ir;
 
-/// A report column by its source: a table field of the data item, by the field's type, or an expression of the measured
-/// syntax, value kind and format properties (RxHtmlHashTests.al:62-63). Any other source has no kind.
+/// A report column by its source: a normal table field of the data item, by the field's type and properties, or an
+/// expression of the measured syntax, value kind and format properties (RxHtmlHashTests.al:62-63). Any other source has no
+/// kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ColumnKind {
+    /// An Integer field that states no property (`RX Row`.Id, RxHtmlBodyFixtures.al:18).
     IntegerField,
+    /// A Text field that states no property (`RX Row`.Txt, RxHtmlBodyFixtures.al:19).
     TextField,
     /// An expression that held a Decimal on every row, with `AutoFormatType = 1`, no `AutoFormatExpression` and no
     /// `DecimalPlaces`.
@@ -55,7 +64,8 @@ pub(crate) const SHAPES: &[MeasuredShape] = &[
         columns: &[ColumnKind::IntegerField, ColumnKind::TextField],
         rows: &[2],
     },
-    // Bound_OneRow and Bound_ThreeRows: RowId, RowTxt, Amount and Day, one or three rows.
+    // Bound_OneRow and Bound_ThreeRows: RowId, RowTxt, Amount and Day, one or three rows; two rows in the cells of
+    // RxHtmlWidenTests.al (Html.Rows(2), :403, :445, :487, :573, :619).
     MeasuredShape {
         columns: &[
             ColumnKind::IntegerField,
@@ -63,7 +73,7 @@ pub(crate) const SHAPES: &[MeasuredShape] = &[
             ColumnKind::DecimalExpression,
             ColumnKind::DateExpression,
         ],
-        rows: &[1, 3],
+        rows: &[1, 2, 3],
     },
 ];
 
@@ -94,7 +104,10 @@ pub(crate) const BUILDS: &[MeasuredBuild] = &[
     },
 ];
 
-/// The parts of the measured layout files (RxWordAlpha.docx, RxWordRgba.docx and RxHashBound.docx have the same).
+/// The parts of the measured layout files: those of RxWordAlpha.docx, RxWordRgba.docx and RxHashBound.docx (corpus pull
+/// request 1415), and the one part each layout of corpus pull request 1419 (merged, not pinned;
+/// reports/html-email-body/RxHtmlWidenTests.al) adds to them: a styles part (RxWdStyles.docx, Styles_ArialParagraphStyle
+/// :440), a theme part (RxWdTheme.docx, Theme_FontScheme :482) and a header part (RxWdHeader.docx, Header_FromSectPr :568).
 const PARTS: &[&str] = &[
     "[Content_Types].xml",
     "_rels/.rels",
@@ -103,19 +116,28 @@ const PARTS: &[&str] = &[
     "docProps/app.xml",
     "word/_rels/document.xml.rels",
     "word/document.xml",
+    "word/header1.xml",
     "word/settings.xml",
+    "word/styles.xml",
+    "word/theme/theme1.xml",
 ];
 
 /// The relationship types of the measured layouts' `_rels/.rels` and `word/_rels/document.xml.rels`, each with an internal
-/// target (no `TargetMode`).
+/// target (no `TargetMode`): the four of corpus pull request 1415's layouts, then the styles, theme and header
+/// relationships of RxWdStyles.docx, RxWdTheme.docx and RxWdHeader.docx (corpus pull request 1419).
 const RELATIONSHIPS: &[&str] = &[
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument",
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties",
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings",
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml",
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles",
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header",
 ];
 
-/// The element names of the measured layouts' `word/document.xml` (the three files together).
+/// The element names of the measured layouts' `word/document.xml` (all of them together). Of corpus pull request 1419's
+/// layouts: `w:pStyle` (RxWdStyles.docx), `w:rFonts` with theme font attributes (RxWdTheme.docx), `w:headerReference` in
+/// `w:sectPr` (RxWdHeader.docx).
 const DOCUMENT_ELEMENTS: &[&str] = &[
     "w14:alpha",
     "w14:solidFill",
@@ -131,13 +153,16 @@ const DOCUMENT_ELEMENTS: &[&str] = &[
     "w:docGrid",
     "w:document",
     "w:gridCol",
+    "w:headerReference",
     "w:highlight",
     "w:id",
     "w:p",
     "w:pPr",
+    "w:pStyle",
     "w:pgMar",
     "w:pgSz",
     "w:r",
+    "w:rFonts",
     "w:rPr",
     "w:sdt",
     "w:sdtContent",
@@ -157,8 +182,82 @@ const DOCUMENT_ELEMENTS: &[&str] = &[
     "w:tr",
 ];
 
-/// The namespace declarations of the measured layouts' document and settings parts (prefix, URI).
+/// The element names of the measured layouts' `word/settings.xml`.
+const SETTINGS_ELEMENTS: &[&str] = &["w:compat", "w:compatSetting", "w:settings", "w:useFELayout"];
+
+/// The element names of RxWdStyles.docx's `word/styles.xml`: document defaults with a font size, and paragraph styles with a
+/// name, a base style, `w:qFormat` and run properties of font, bold and size (corpus pull request 1419, :440; the
+/// `font-family` values BC writes are the style's font and `'Times New Roman'`, RxHtmlWidenTests.al:473).
+const STYLES_ELEMENTS: &[&str] = &[
+    "w:b",
+    "w:basedOn",
+    "w:docDefaults",
+    "w:name",
+    "w:qFormat",
+    "w:rFonts",
+    "w:rPr",
+    "w:rPrDefault",
+    "w:style",
+    "w:styles",
+    "w:sz",
+];
+
+/// The element names of RxWdTheme.docx's `word/theme/theme1.xml`: a color scheme, a font scheme and a format scheme
+/// (corpus pull request 1419, :482; the theme fonts the document names resolve to the scheme's typefaces,
+/// RxHtmlWidenTests.al:515).
+const THEME_ELEMENTS: &[&str] = &[
+    "a:accent1",
+    "a:accent2",
+    "a:accent3",
+    "a:accent4",
+    "a:accent5",
+    "a:accent6",
+    "a:bgFillStyleLst",
+    "a:clrScheme",
+    "a:cs",
+    "a:dk1",
+    "a:dk2",
+    "a:ea",
+    "a:effectLst",
+    "a:effectStyle",
+    "a:effectStyleLst",
+    "a:fillStyleLst",
+    "a:fmtScheme",
+    "a:folHlink",
+    "a:fontScheme",
+    "a:hlink",
+    "a:latin",
+    "a:ln",
+    "a:lnStyleLst",
+    "a:lt1",
+    "a:lt2",
+    "a:majorFont",
+    "a:minorFont",
+    "a:schemeClr",
+    "a:solidFill",
+    "a:srgbClr",
+    "a:sysClr",
+    "a:theme",
+    "a:themeElements",
+];
+
+/// The element names of RxWdHeader.docx's `word/header1.xml`: paragraphs of plain runs of text (corpus pull request 1419,
+/// :568; BC writes them in a `-aw-headerfooter-type:header-primary` div before the body, RxHtmlWidenTests.al:609).
+const HEADER_ELEMENTS: &[&str] = &["w:hdr", "w:p", "w:r", "w:t"];
+
+/// Each XML part under `word/` with the element names the measured layouts use in it.
+const PART_ELEMENTS: &[(&str, &[&str])] = &[
+    ("word/document.xml", DOCUMENT_ELEMENTS),
+    ("word/settings.xml", SETTINGS_ELEMENTS),
+    ("word/styles.xml", STYLES_ELEMENTS),
+    ("word/theme/theme1.xml", THEME_ELEMENTS),
+    ("word/header1.xml", HEADER_ELEMENTS),
+];
+
+/// The namespace declarations of the measured layouts' XML parts under `word/` (prefix, URI): the document and settings
+/// parts, and the DrawingML namespace of RxWdTheme.docx's theme part (the styles and header parts declare only `w`).
 const NAMESPACES: &[(&str, &str)] = &[
+    ("a", "http://schemas.openxmlformats.org/drawingml/2006/main"),
     ("m", "http://schemas.openxmlformats.org/officeDocument/2006/math"),
     ("mc", "http://schemas.openxmlformats.org/markup-compatibility/2006"),
     ("o", "urn:schemas-microsoft-com:office:office"),
@@ -196,29 +295,33 @@ const NAMESPACES: &[(&str, &str)] = &[
     ),
 ];
 
-/// The element names of the measured layouts' `word/settings.xml`.
-const SETTINGS_ELEMENTS: &[&str] = &["w:compat", "w:compatSetting", "w:settings", "w:useFELayout"];
-
 /// Whether the layout is made only of what the measured layouts are made of: their parts, relationship types with internal
-/// targets, the element names of their document and settings parts, and their namespace declarations (so each prefix of
-/// those names stands for the namespace it stands for there). The structure is free (owner decision of
-/// 2026-11-15, "gate inputs, layout free"): any number, order and nesting of those elements, any text and attribute values,
-/// any content control with or without a binding the reader understands (`save_shape`). What this keeps on Part A includes
-/// every layout feature that makes BC's server do more than merge and convert, or that the merger or converter resolves
-/// from outside the file (ADR-040, Notes of 2026-11-15): pictures (an image part, `w:drawing`, `w:pict`, `w:object`, a
-/// picture control), header and footer parts (`w:headerReference`, `w:footerReference`), an external target
-/// (`TargetMode="External"`: a linked image, a hyperlink, an attached template), fields that include other content
-/// (`w:fldSimple`, `w:instrText`: INCLUDEPICTURE, INCLUDETEXT, LINK), `w:altChunk` and `w:subDoc`, embedded fonts and the
-/// font, style, numbering and theme parts (no probe cell measured them), and tabs (`w:tab`; tabs and numbering labels take
-/// their widths from font metrics). BC's converter saves with `HtmlSaveOptions(SaveFormat.Html) { ExportImagesAsBase64 =
-/// true }`: `ResolveFontNames` and `ExportFontResources` stay false, so font names go into the CSS as written.
+/// targets, the element names of each of their XML parts under `word/` ([`PART_ELEMENTS`]), and their namespace
+/// declarations (so each prefix of those names stands for the namespace it stands for there). The structure is free (owner
+/// decision of 2026-11-15, "gate inputs, layout free"): any number, order and nesting of those elements, any text and
+/// attribute values, any content control with or without a binding the reader understands (`save_shape`). What this keeps
+/// on Part A includes every layout feature that makes BC's server do more than merge and convert, or that the merger or
+/// converter resolves from outside the file (ADR-040, Notes of 2026-11-15): pictures (an image part, `w:drawing`,
+/// `w:pict`, `w:object`, a picture control), footer parts and references (`w:footerReference`; BC 29 composes header-footer
+/// layouts for a body layout), header parts other than `word/header1.xml`, an external target (`TargetMode="External"`: a
+/// linked image, a hyperlink, an attached template), fields that include other content (`w:fldSimple`, `w:instrText`:
+/// INCLUDEPICTURE, INCLUDETEXT, LINK), `w:altChunk` and `w:subDoc`, embedded fonts and the font table part, tabs (`w:tab`,
+/// `w:tabs`, `w:ptab`), and list labels (the numbering part, its relationship, `w:numPr`). Tabs and list labels take their
+/// widths from the font metrics of the host the converter runs on: the converter pads a label to the indent by the label's
+/// width in its font, so Numbering_BulletList_NoTabs (RxHtmlWidenTests.al:524) gives other bytes on a host without a Times
+/// New Roman metric font. BC's converter saves with `HtmlSaveOptions(SaveFormat.Html) { ExportImagesAsBase64 = true }`:
+/// `ResolveFontNames` and `ExportFontResources` stay false, so font names go into the CSS as written.
 pub(crate) fn content_is_measured(f: &LayoutFacts) -> bool {
     f.parts.iter().all(|p| PARTS.contains(&p.as_str()))
         && f.relationships
             .iter()
             .all(|r| RELATIONSHIPS.contains(&r.kind.as_str()) && !r.external)
-        && f.document.iter().all(|e| DOCUMENT_ELEMENTS.contains(&e.as_str()))
-        && f.settings.iter().all(|e| SETTINGS_ELEMENTS.contains(&e.as_str()))
+        && f.elements.iter().all(|(part, names)| {
+            PART_ELEMENTS
+                .iter()
+                .find(|(p, _)| p == part)
+                .is_some_and(|(_, vocabulary)| names.iter().all(|e| vocabulary.contains(&e.as_str())))
+        })
         && f.namespaces
             .iter()
             .all(|(p, u)| NAMESPACES.contains(&(p.as_str(), u.as_str())))
@@ -259,37 +362,74 @@ fn generator(html: &[u8]) -> Option<&str> {
     std::str::from_utf8(&rest[..rest.iter().position(|b| *b == b'"')?]).ok()
 }
 
-/// The object properties of each measured report by name and value (RxHtmlBodyFixtures.al:55-57, RxLayoutSelFixtures.al:75-77,
-/// RxHtmlHashTests.al:52-54): `UsageCategory = None`, `UseRequestPage = false` and `DefaultRenderingLayout` naming its one
-/// layout. Neither `Caption` nor `CaptionML`: BC passes the report's caption to the merger as the title (ADR-040 amendment
-/// 2026-11-15, context step 3), which for these reports is the name the runner passes; no translation applies in the
-/// session language 1033 of the call (`super::call::MEASURED_CALL`; ADR-053 step 1).
-fn properties_are_measured(o: &ir::Object, layout: &str) -> bool {
-    let mut props: Vec<(String, String)> = o
+/// The title BC hands the merger for report `o` (its caption, ADR-040 amendment 2026-11-15, context step 3), when the
+/// report's object properties are those of a measured report, by name and value (RxHtmlBodyFixtures.al:55-57,
+/// RxLayoutSelFixtures.al:75-77, RxHtmlHashTests.al:52-54): `UsageCategory = None`, `UseRequestPage = false` and
+/// `DefaultRenderingLayout` naming its one layout; the title is then the report name (Plain_TwoRows,
+/// RxHtmlWidenTests.al:431 with :53). Or those three and `Caption` with a value that is exactly one text literal that is not
+/// empty and states no label attribute (`Comment`, `Locked`, `MaxLength`: no cell measured one;
+/// `ir::Report::caption_attributes`): the title is that text (`RX Wd Caption`, RxHtmlWidenTests.al:190;
+/// Caption_RxCap_PlainBoundLayout :648). No translation applies: the call is in session language 1033
+/// (`super::call::MEASURED_CALL`) and the gate in `super` requires that the report's app ships no translation file of that
+/// language. `None` for every other set (`CaptionML` among them).
+fn measured_title(o: &ir::Object, r: &ir::Report, layout: &str) -> Option<Title> {
+    let mut props: Vec<(String, &str)> = o
         .properties
         .iter()
-        .map(|(k, v)| (k.to_ascii_lowercase(), v.trim().to_ascii_lowercase()))
+        .map(|(k, v)| (k.to_ascii_lowercase(), v.trim()))
         .collect();
     props.sort();
+    let caption = match props.iter().position(|(k, _)| k == "caption") {
+        Some(at) if !r.caption_attributes => Some(caption_literal(props.remove(at).1)?),
+        Some(_) => return None,
+        None => None,
+    };
     let measured = [
         ("defaultrenderinglayout", layout.to_ascii_lowercase()),
         ("usagecategory", "none".to_string()),
         ("userequestpage", "false".to_string()),
     ];
-    props.len() == measured.len() && props.iter().zip(&measured).all(|(p, m)| p.0 == m.0 && p.1 == m.1)
+    let three = props.len() == measured.len()
+        && props
+            .iter()
+            .zip(&measured)
+            .all(|(p, m)| p.0 == m.0 && p.1.eq_ignore_ascii_case(&m.1));
+    three.then(|| match caption {
+        Some(text) => Title { text, caption: true },
+        None => Title {
+            text: o.name.clone(),
+            caption: false,
+        },
+    })
 }
 
-/// Whether report `o` is as the measured reports are, beyond its columns: [`properties_are_measured`]; its rendering section
+/// The title BC hands the merger, and whether it is the report's `Caption` (a text a translation file could change) rather
+/// than its name.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Title {
+    pub(crate) text: String,
+    pub(crate) caption: bool,
+}
+
+/// The text of a `Caption` value that is exactly one text literal that is not empty (`'Rx Cap'`, quotes doubled inside);
+/// `None` for anything more or less.
+fn caption_literal(v: &str) -> Option<String> {
+    let text = crate::platform::objects::string_lit(v)?;
+    (!text.is_empty() && format!("'{}'", text.replace('\'', "''")) == v).then_some(text)
+}
+
+/// The title of report `o` ([`measured_title`]) when it is as the measured reports are, beyond its columns: its object
+/// properties ([`measured_title`]); its rendering section
 /// declares one layout with only `Type = Word` and `LayoutFile` (so no `Subtype`: a layout of subtype Default, which BC 29
 /// does not compose with a header-footer or theme layout, ADR-040 amendment 2026-11-15, context step 4); no request page, no
 /// label, no report extension of any kind; one data item over a table, with no `DataItemTableView`, link, request filter
 /// fields, `MaxIteration`, `PrintOnlyIfDetail`, `CalcFields` or trigger.
-fn report_is_measured(program: &ir::Program, o: &ir::Object, r: &ir::Report) -> bool {
+pub(super) fn report_title(program: &ir::Program, o: &ir::Object, r: &ir::Report) -> Option<Title> {
     let [item] = r.items.as_slice() else {
-        return false;
+        return None;
     };
     let [layout] = o.layouts.as_slice() else {
-        return false;
+        return None;
     };
     let mut layout_props: Vec<String> = layout.properties.iter().map(|(k, _)| k.to_ascii_lowercase()).collect();
     layout_props.sort();
@@ -301,8 +441,8 @@ fn report_is_measured(program: &ir::Program, o: &ir::Object, r: &ir::Report) -> 
         .objects
         .iter()
         .any(|x| x.kind == ir::ObjKind::ReportExtension && x.extends_id.is_some() && x.extends_id == o.id);
-    properties_are_measured(o, &layout.name)
-        && r.default_rendering_layout.as_deref() == Some(layout.name.as_str())
+    let title = measured_title(o, r, &layout.name)?;
+    let measured = r.default_rendering_layout.as_deref() == Some(layout.name.as_str())
         && layout_props == ["layoutfile", "type"]
         && word
         && r.rendering_layouts.len() == 1
@@ -323,24 +463,24 @@ fn report_is_measured(program: &ir::Program, o: &ir::Object, r: &ir::Report) -> 
         && item.calc_fields.is_empty()
         && item.on_pre.is_none()
         && item.on_after_get.is_none()
-        && item.on_post.is_none()
+        && item.on_post.is_none();
+    measured.then_some(title)
 }
 
-/// The facts of a save of report `object` with layout facts `layout` and dataset `dataset`, or `None` when the report is
-/// not as the measured reports are ([`report_is_measured`]), a column has no [`ColumnKind`], or a content control binds
-/// anything but a row section over the data item or one of its columns inside that section.
+/// The facts of a save of report `object` with layout facts `layout` and dataset `dataset`, and the title BC hands the
+/// merger, or `None` when the report is not as the measured reports are ([`report_title`]), a column has no
+/// [`ColumnKind`], or a content control binds anything but a row section over the data item or one of its columns inside
+/// that section.
 pub(crate) fn save_shape(
     program: &ir::Program,
     object: usize,
     layout: &LayoutFacts,
     dataset: &[u8],
     kinds: &[(String, Option<ValueKind>)],
-) -> Option<SaveShape> {
+) -> Option<(SaveShape, Title)> {
     let o = program.objects.get(object)?;
     let r = o.report.as_ref()?;
-    if !report_is_measured(program, o, r) {
-        return None;
-    }
+    let title = report_title(program, o, r)?;
     let item = r.items.first()?;
     let table = program.objects.get(item.table?)?.table.as_ref()?;
     let mut columns = Vec::new();
@@ -379,20 +519,32 @@ pub(crate) fn save_shape(
     // One data item without children: each of its rows is one `DataItem` element of the dataset (`dataset::Header::write`).
     const ROW: &[u8] = b"<DataItem ";
     let rows = dataset.windows(ROW.len()).filter(|w| *w == ROW).count();
-    Some(SaveShape { columns, rows })
+    Some((SaveShape { columns, rows }, title))
 }
 
-/// The [`ColumnKind`] of column `c` of a data item over `table`. A field column names a field of the data item by itself; an
-/// expression column has the syntax of the measured `Id * 1234.5` and `DMY2Date(1, 2, 2026)` (operators or a call with an
-/// argument list, `SourceSyntax::Other`) and names no field whose properties the dataset reads (no `places_table`, no
-/// `caption_table`). An expression's kind is the kind of value it held on every row of the run (`kinds`, from the dataset
+/// The [`ColumnKind`] of column `c` of a data item over `table`. A field column names a normal field of the data item by
+/// itself (not a FlowField or FlowFilter), with no column format property, and the field's properties (a table extension's
+/// `modify` included) are none; an expression column has the syntax of the measured `Id * 1234.5` and
+/// `DMY2Date(1, 2, 2026)` (operators or a call with an argument list, `SourceSyntax::Other`) and names no field whose
+/// properties the dataset reads (no `places_table`, no `caption_table`). An expression's kind is the kind of value it held on every row of the run (`kinds`, from the dataset
 /// writer): its static type is not known to the gate.
-fn column_kind(table: &ir::Table, c: &ir::ReportColumn, kinds: &[(String, Option<ValueKind>)]) -> Option<ColumnKind> {
+pub(super) fn column_kind(
+    table: &ir::Table,
+    c: &ir::ReportColumn,
+    kinds: &[(String, Option<ValueKind>)],
+) -> Option<ColumnKind> {
     if let Some(field) = c.field {
-        let plain = c.decimal_places.is_none() && c.auto_format_type.is_none() && c.auto_format_expression.is_none();
-        return match table.fields.get(field)?.ty {
-            RtType::Integer if plain => Some(ColumnKind::IntegerField),
-            RtType::Text(_) if plain => Some(ColumnKind::TextField),
+        let f = table.fields.get(field)?;
+        let plain = c.decimal_places.is_none()
+            && c.auto_format_type.is_none()
+            && c.auto_format_expression.is_none()
+            && f.stored
+            && f.calc.is_none()
+            && f.calc_refusal.is_none()
+            && !f.flow_filter;
+        return match f.ty {
+            RtType::Integer if plain && f.properties.is_empty() => Some(ColumnKind::IntegerField),
+            RtType::Text(_) if plain && f.properties.is_empty() => Some(ColumnKind::TextField),
             _ => None,
         };
     }
