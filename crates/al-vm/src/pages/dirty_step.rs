@@ -254,7 +254,7 @@ impl Session {
                 s.save_failed = true;
                 s.errors.push((usize::MAX, e.message.clone()));
                 drop(s);
-                self.last_error = *e;
+                self.hold_error(*e)?;
                 Ok(())
             }
             other => other,

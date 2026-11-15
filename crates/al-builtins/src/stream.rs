@@ -95,8 +95,9 @@ pub struct BlobBuf {
     /// last written, while a stream write is not saved or fetched yet (`written`). A later `ReadText` through a stream of the other of the two encodings does not decode as that stream
     /// says, and what it does is not pinned (`refuse_unicode_switch`). A copy does not keep it.
     pub unicode_read: Option<Encoding>,
-    /// Counts the changes of the bytes of this buffer (a stream write, an `Import`, a `CalcFields` load, a `Clear` in place):
-    /// an `InStream` remembers it at its creation, so `line_break_source` sees a buffer written after the stream was created.
+    /// Counts the changes of the bytes of this buffer (a stream write, an `Import`, a `CalcFields` load, a `Clear` in place)
+    /// and each `CreateOutStream` on it: an `InStream` remembers it at its creation, so `line_break_source` sees a buffer
+    /// written or opened for writing after the stream was created.
     pub content_edits: u32,
 }
 
@@ -828,6 +829,11 @@ pub struct InState {
     pub created_edits: u32,
     /// `Position := n` or `ResetPosition` moved the stream.
     pub position_set: bool,
+    /// Where `ReadText(Text, Length)` calls alone moved the stream from 0: equal to `pos` while no other read moved it
+    /// (`in_read_text`).
+    pub text_len_pos: usize,
+    /// A `:=` gave the stream to another variable, which shares it (al-vm `exec/run.rs` `mark_assigned_stream`).
+    pub shared_by_assign: bool,
 }
 
 /// Which `ToBase64(InStream, true ...)` form last ran on a stream (see [`InState::after_line_break_call`]).
@@ -854,6 +860,8 @@ impl InState {
             on_blob_field: false,
             created_edits: 0,
             position_set: false,
+            text_len_pos: 0,
+            shared_by_assign: false,
         }
     }
 
@@ -882,6 +890,8 @@ impl InState {
             on_blob_field: false,
             created_edits: 0,
             position_set: false,
+            text_len_pos: 0,
+            shared_by_assign: false,
         }
     }
 
@@ -1066,6 +1076,8 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
         let mut buf = b.borrow_mut();
         buf.dotnet_view = 0;
+        // An InStream created before reads a buffer a new OutStream may write over (`stream_line_breaks`).
+        buf.content_edits = buf.content_edits.wrapping_add(1);
         if !buf.loaded && buf.db_row {
             // A record read from the database without CalcFields: the stream replaces the stored content at its first
             // write, and leaves it while nothing is written (BlobCalcFieldsLength.al:222, :350). The Blob stays unloaded
@@ -1786,6 +1798,9 @@ fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
             })));
         }
         s.pos = pos + consumed;
+        if max_chars != usize::MAX && s.text_len_pos == pos {
+            s.text_len_pos = s.pos;
+        }
         // The line holds the mark of untracked call stack frames, which may hold line breaks: where the line ends in BC is not
         // known (a JSON text of a call stack has none and reads back equal, WdCallStackWriteText.al:530).
         s.past_call_stack_mark |= crate::stream_call_stack::holds_mark(&text);

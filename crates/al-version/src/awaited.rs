@@ -18,29 +18,9 @@ pub fn journal_temp_part_reads_after_refresh(target: Option<&Target>) -> Option<
     }
 }
 
-/// Whether the `Permissions` property of a page is the object grant of the OnOpenPage trigger of its page extensions (permissions/
-/// testpermissions/Y19PermExtAndCompose.al:376-383, the same cells on 27.5, 28.5 and 29.0): `Some(true)` on 27, 28 and 29.
-pub fn base_page_permissions_cover_page_extension_open_page(target: Option<&Target>) -> Option<bool> {
-    match target.map(|t| t.bc.major) {
-        Some(27..=29) | None => Some(true),
-        Some(_) => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_base_page_grant_of_page_extension_code_holds_on_the_measured_majors() {
-        let at = |v: &str| base_page_permissions_cover_page_extension_open_page(Some(&target(v)));
-        for v in ["27.5", "28.5", "29.0"] {
-            assert_eq!(at(v), Some(true), "{v}");
-        }
-        assert_eq!(base_page_permissions_cover_page_extension_open_page(None), Some(true));
-        assert_eq!(at("26.0"), None);
-        assert_eq!(at("30.0"), None);
-    }
 
     fn target(v: &str) -> Target {
         Target::for_bc(crate::BcVersion::parse(v).unwrap())

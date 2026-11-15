@@ -1070,7 +1070,7 @@ impl Session {
                     let mut e = e;
                     e.code = format!("NSValidateField:{}", e.code);
                     self.error_finals = None;
-                    self.last_error = *e;
+                    self.hold_error(*e)?;
                     return Ok(Value::Null);
                 }
                 // Out of the table's OnValidate (or anything else than the control's own trigger) only an error with a text is
@@ -1096,7 +1096,7 @@ impl Session {
                     let mut e = e;
                     e.code = format!("NSValidateField:{}", e.code);
                     self.error_finals = None;
-                    self.last_error = *e;
+                    self.hold_error(*e)?;
                     return Ok(Value::Null);
                 }
                 // `RequestPage.Activate` in a request page control's OnValidate aborts the page: the error reaches the test as it

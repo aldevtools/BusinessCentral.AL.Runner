@@ -1,8 +1,8 @@
 //! `Base64Convert.ToBase64(InStream, true[, OutStream])` on BC 28 and 29: the streams and targets
 //! tests/al-language/streams/Base64LineBreaks.al measured, and the refusal of every other one.
 
-use crate::native::Signal;
 use crate::native::unsupported;
+use crate::native::{Ctx, Signal};
 use crate::stream::{AfterLineBreakCall, BlobBuf, Encoding, InState, out_buf, with_in_unknown_ok};
 use crate::value::{LibraryValue, Value};
 
@@ -11,7 +11,7 @@ use crate::value::{LibraryValue, Value};
 /// stream is then marked: where it stands is not measured, and only the same InStream form may run on it again. `Ok(None)`
 /// when the stream does not read a Blob buffer, or reads a file's; `Err` for a stream or a use of it the pin does not cover
 /// (see [`measured_line_break_stream`]). Its one caller cites what it pins.
-pub fn line_break_source(v: &mut Value, out_form: bool) -> Result<Option<Vec<u8>>, Signal> {
+pub fn line_break_source(ctx: &dyn Ctx, v: &mut Value, out_form: bool) -> Result<Option<Vec<u8>>, Signal> {
     with_in_unknown_ok(Some(v), |s| {
         let reads_blob = s
             .live_blob()
@@ -19,9 +19,9 @@ pub fn line_break_source(v: &mut Value, out_form: bool) -> Result<Option<Vec<u8>
         if !reads_blob {
             return Ok(None);
         }
-        if !measured_line_break_stream(s) {
+        if !measured_line_break_stream(ctx, s) {
             return unsupported(
-                "Base64Convert.ToBase64(InStream, true ...) of a stream other than one Blob.CreateInStream made with the default encoding on a Temp Blob written before, moved only by reads (not measured)",
+                "Base64Convert.ToBase64(InStream, true ...) of a stream other than one Blob.CreateInStream made with the default encoding on the Blob a Temp Blob holds, written before, moved only by ReadText with a length, never assigned (not measured)",
             );
         }
         match (s.after_line_break_call, out_form) {
@@ -47,19 +47,30 @@ pub fn line_break_source(v: &mut Value, out_form: bool) -> Result<Option<Vec<u8>
     })
 }
 
-/// The stream Base64LineBreaks.al measured (`FillStream`, :53-61): `Blob.CreateInStream` without an encoding on the Blob of
-/// a Temp Blob, written before the stream was created, and moved only by `ReadText` (:186-187).
-fn measured_line_break_stream(s: &InState) -> bool {
+/// The stream Base64LineBreaks.al measured (`FillStream`, :53-61): `Blob.CreateInStream` without an encoding on the Blob the
+/// temporary record of a live "Temp Blob Impl." holds now, written before the stream was created and not opened for writing
+/// since, moved only by `ReadText(Text, 10)` (:186-187), never given to another variable by `:=`.
+fn measured_line_break_stream(ctx: &dyn Ctx, s: &InState) -> bool {
     let Some(b) = s.live_blob() else {
         return false;
     };
     let buf = b.borrow();
-    (s.on_blob_field, s.enc, s.position_set, s.created_edits) == (true, Encoding::MsDos, false, buf.content_edits)
+    let stream = (
+        s.on_blob_field,
+        s.enc,
+        s.position_set,
+        s.created_edits,
+        s.pos,
+        s.shared_by_assign,
+    );
+    stream == (true, Encoding::MsDos, false, buf.content_edits, s.text_len_pos, false)
         && temp_blob_buffer(&buf)
+        && ctx.held_by_temp_blob_impl(b)
 }
 
-/// The Blob of a Temp Blob: the field of the temporary record inside "Temp Blob Impl.", which that codeunit never inserts,
-/// reads or assigns, holding what streams wrote to it (Base64LineBreaks.al:53-61, :351-403).
+/// The state of the Blob of a Temp Blob: the field of the temporary record inside "Temp Blob Impl.", which that codeunit never
+/// inserts, reads or assigns, holding what streams wrote to it (Base64LineBreaks.al:53-61, :351-403). That such a record holds
+/// the buffer is [`Ctx::held_by_temp_blob_impl`].
 fn temp_blob_buffer(b: &BlobBuf) -> bool {
     let row = (
         b.db_row,
@@ -85,8 +96,8 @@ fn temp_blob_buffer(b: &BlobBuf) -> bool {
 }
 
 /// The target of `ToBase64(InStream, true, OutStream)` as Base64LineBreaks.al:351-403 measured it: an OutStream of the default
-/// encoding on another Temp Blob, empty or after what that stream wrote (`AB`), so it writes at the end.
-pub fn refuse_unmeasured_line_break_target(target: &mut Value, source: &Value) -> Result<(), Signal> {
+/// encoding on the Blob another live Temp Blob holds, empty or after what that stream wrote (`AB`), so it writes at the end.
+pub fn refuse_unmeasured_line_break_target(ctx: &dyn Ctx, target: &mut Value, source: &Value) -> Result<(), Signal> {
     let (b, enc) = out_buf(Some(target))?;
     let source_blob = match source {
         Value::Library(_, h) => match &*h.borrow() {
@@ -97,7 +108,10 @@ pub fn refuse_unmeasured_line_break_target(target: &mut Value, source: &Value) -
     };
     let other_blob = source_blob.is_some_and(|s| !std::sync::Arc::ptr_eq(&s, &b));
     let buf = b.borrow();
-    if (enc, other_blob, buf.write_pos) == (Encoding::MsDos, true, buf.bytes.len()) && temp_blob_buffer(&buf) {
+    if (enc, other_blob, buf.write_pos) == (Encoding::MsDos, true, buf.bytes.len())
+        && temp_blob_buffer(&buf)
+        && ctx.held_by_temp_blob_impl(&b)
+    {
         return Ok(());
     }
     unsupported(

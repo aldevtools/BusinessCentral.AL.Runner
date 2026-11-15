@@ -524,11 +524,12 @@ fn to_base64_text_out(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: 
 
 /// The bytes `ToBase64(InStream, true[, OutStream])` converts on BC 28 and 29, in the shapes Base64LineBreaks.al measured: a
 /// stream `Blob.CreateInStream` made on a Temp Blob (:53-61), every byte of it (10 bytes read before: the whole stream,
-/// :186-193 BC28PLUS; a second InStream-form call gives the same text, :195-198). The OutStream form is measured only at
-/// position 0 (:284-286, :364-367). Where the stream stands after the call is not measured: `stream::line_break_source` marks
+/// :186-193 BC28PLUS). The second InStream-form call of :195-198 is not reached: "Base64 Convert Impl." asks the stream's
+/// Length and EOS before the call, and every use of the stream after a first call refuses (`stream::with_in_core`), so that
+/// case stays listed. The OutStream form is measured only at position 0 (:284-286, :364-367). Where the stream stands after the call is not measured: `stream::line_break_source` marks
 /// it, and refuses every other stream.
-fn line_broken_source(stream: &mut Value, out_form: bool) -> Result<Vec<u8>, Signal> {
-    match crate::stream_line_breaks::line_break_source(stream, out_form)? {
+fn line_broken_source(c: &dyn crate::native::Ctx, stream: &mut Value, out_form: bool) -> Result<Vec<u8>, Signal> {
+    match crate::stream_line_breaks::line_break_source(c, stream, out_form)? {
         Some(bytes) => Ok(bytes),
         None => unsupported(
             "Base64Convert.ToBase64 with line breaks of a stream that is not on a Blob buffer, or is on a file (not measured)",
@@ -544,7 +545,7 @@ fn to_base64_stream(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &m
     }
     // CR LF after each 76 characters, none after the last line (Base64LineBreaks.al:103-168).
     let bytes = if line_breaks {
-        line_broken_source(&mut a[0], false)?
+        line_broken_source(c, &mut a[0], false)?
     } else {
         // The bytes from the read position on; the stream moves to its end (types/PVBase64.al:208, from position 0).
         drain_in(&mut a[0])?
@@ -552,13 +553,13 @@ fn to_base64_stream(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &m
     Ok(Value::Text(b64_encode(&bytes, line_breaks).into()))
 }
 
-fn to_base64_stream_out(_: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
+fn to_base64_stream_out(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let line_breaks = flag(&a[1])?;
     // Appended to what the target holds, CR LF as in the string form (Base64LineBreaks.al:303-348, :385-402).
     let bytes = if line_breaks {
         let (source, rest) = a.split_at_mut(1);
-        crate::stream_line_breaks::refuse_unmeasured_line_break_target(&mut rest[1], &source[0])?;
-        line_broken_source(&mut a[0], true)?
+        crate::stream_line_breaks::refuse_unmeasured_line_break_target(c, &mut rest[1], &source[0])?;
+        line_broken_source(c, &mut a[0], true)?
     } else {
         drain_in(&mut a[0])?
     };

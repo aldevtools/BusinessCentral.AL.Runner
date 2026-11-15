@@ -15,12 +15,25 @@ impl Session {
     /// The record of a Rename that raised the SQL range error of its new key still lives where the error is caught: what it
     /// holds then is not measured (record/filters/SqlDateFloor1753.al:2468-2600 reads only the stored row), so that is refused.
     pub(crate) fn catch_error(&mut self, e: AlError) -> Result<(), Signal> {
+        self.refuse_live_failed_rename()?;
+        self.note_caught(e);
+        Ok(())
+    }
+
+    /// A page, report or xmlport path ended a trigger's error itself and keeps `e` as the last error, without AL code catching
+    /// it (the count stays). The record of a failed Rename is refused there as in [`Self::catch_error`].
+    pub(crate) fn hold_error(&mut self, e: AlError) -> Result<(), Signal> {
+        self.refuse_live_failed_rename()?;
+        self.last_error = e;
+        Ok(())
+    }
+
+    fn refuse_live_failed_rename(&mut self) -> Result<(), Signal> {
         if self.tx.failed_sql_rename.take().is_some_and(|r| r.upgrade().is_some()) {
             return Err(Signal::unsupported(
                 "a record whose Rename raised the SQL range error of its new key is still alive where the error is caught (what it holds is not measured)",
             ));
         }
-        self.note_caught(e);
         Ok(())
     }
 
