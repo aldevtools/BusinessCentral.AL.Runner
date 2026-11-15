@@ -8,17 +8,14 @@
 //! of its own (recordref-fieldref/recordref/PWRecordMisc.al:234-250, `Interp::write_as`), a temporary record handed to a
 //! Variant parameter keeps its table (PWRecordMisc.al:221-231, `call_inner`).
 //!
-//! Not pinned yet: the probe is merged in the corpus (corpus PR 1406, tests/al-language/types/variant/
-//! VariantFromVariantTempRecord.al, codeunit 96471 "LT VFV Tests"), not in the pinned corpus. Its cells C1-C7 and C9 (the
-//! same on every BC major of its CI) run under the assumption `variant-from-variant-temp-record-keeps-rows`
-//! ([`Session::measured`]): the new Variant holds a record over the same temporary table, one table for both holders. Every
-//! other temporary record moved that way gets main's store, a by-value copy over an empty table of its own, and that table
-//! is marked (`TempId::mark_rows_unmeasured`): its field values read as on main, every read of its rows and every write
+//! Pinned by tests/al-language/types/variant/VariantFromVariantTempRecord.al (codeunit 96471 "LT VFV Tests"): in its cells
+//! C1-C7 and C9 (C1 :95 to C7 :202, C9 :228; [`Session::measured`]) the new Variant holds a record over the same temporary
+//! table, one table for both holders. Every other temporary record moved that way gets main's store, a by-value copy over an
+//! empty table of its own, and that table is marked (`TempId::mark_rows_unmeasured`): its field values read as on main, every read of its rows and every write
 //! refuses (`Session::store_for`, which every read of rows and every write passes). Anything that is not a temporary
 //! record keeps main's store (C8 is a stored record).
 
 use crate::{Frame, Session};
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::FilterExpr;
 use al_builtins::native::Signal;
 use al_builtins::value::{RecordState, RtType, Value};
@@ -132,8 +129,8 @@ enum Filters {
     OneValueRange,
 }
 
-/// Whether a move of these facts is a cell of the probe (corpus PR 1406, VariantFromVariantTempRecord.al, codeunit 96471,
-/// the same on every BC major of its CI). Every cell keeps the rows and the temporary state, and the copy holds the same
+/// Whether a move of these facts is a cell of tests/al-language/types/variant/VariantFromVariantTempRecord.al (codeunit 96471):
+/// C1 :95, C2 :110, C3 :131, C4 :152, C5 :169, C6 :181, C7 :202, C9 :228. Every cell keeps the rows and the temporary state, and the copy holds the same
 /// table as its source.
 fn is_cell(cell: (Source, Target, Held, Filters)) -> bool {
     use self::{Filters as F, Held as H, Source as S, Target as T};
@@ -175,7 +172,6 @@ impl Session {
         if self.measured(site, lone, &rc.borrow(), f) {
             // The probe's cells: the new Variant holds a record over the source's temporary table, a copy as a Variant
             // parameter's is (`call_inner`); a write through either holder shows through the other (C6).
-            assume(Assumption::VariantFromVariantTempRecordKeepsRows);
             let shared = Value::Record(Rc::new(RefCell::new(rc.borrow().copy_as_unmeasured_variable())));
             return match site.place {
                 ir::Place::Local(i) => {

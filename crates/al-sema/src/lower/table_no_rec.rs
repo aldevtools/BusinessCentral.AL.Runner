@@ -1,14 +1,12 @@
 //! Names in a codeunit with TableNo that the implicit Rec of OnRun can take: a field of the TableNo table named like a
 //! system function, and a global variable named `Rec`. OnRun has the implicit Rec; a procedure has none (corpus
-//! must-not-compile 3140 and 3141, corpus PR 1386, merged, not pinned yet).
+//! must-not-compile 3140 and 3141).
 //!
-//! What BC runs there is measured by corpus PR 1393 (open, not pinned), tests/al-language/codeunits/
-//! TableNoBareSystemFunction.al, on each of the three supported majors, for codeunits without a Subtype only. Until it
-//! is pinned the procedure shapes run under assumptions; a codeunit with a Subtype (Test, Install, TestRunner: compiled
-//! but not run there, :20-23) keeps main's result.
+//! What BC runs there is pinned by tests/al-language/codeunits/TableNoBareSystemFunction.al, for codeunits without a
+//! Subtype only; a codeunit with a Subtype (Test, Install, TestRunner: compiled but not run there, :20-23) keeps main's
+//! result.
 
 use super::*;
-use al_builtins::assumptions::Assumption;
 use al_syntax::ast::NodeText;
 
 /// The codeunit has no Subtype property: the only kind TableNoBareSystemFunction.al runs (its codeunits 83003, 83004).
@@ -68,9 +66,9 @@ pub(super) fn declared_rec_refusal(
 
 impl Lowerer<'_> {
     /// `Rec` in a codeunit without Subtype that declares main's global `Rec` (`declared_rec_refusal`). In a plain global
-    /// procedure it is the declared variable, under `TableNoCodeunitGlobalRecOwnVariable`; in OnRun it is the record given
-    /// to Codeunit.Run (the implicit slot, main's result). TableNoBareSystemFunction.al:459-482: `Proc.RecUserId` = the
-    /// global, `OnRun.RecUserId` = the run record. Every other routine refuses: main's one slot reads the run record there
+    /// procedure it is the declared variable; in OnRun it is the record given to Codeunit.Run (the implicit slot, main's
+    /// result). tests/al-language/codeunits/TableNoBareSystemFunction.al:459-482 GlobalRecVariable_BareNames_Source:
+    /// `Proc.RecUserId` = the global, `OnRun.RecUserId` = the run record. Every other routine refuses: main's one slot reads the run record there
     /// after Codeunit.Run, and BC's value is not measured. A codeunit with a Subtype records no declared slot and keeps
     /// main's one slot.
     pub(super) fn declared_rec_place(&mut self, n: &SyntaxNode) -> L<ir::Place> {
@@ -83,7 +81,6 @@ impl Lowerer<'_> {
         };
         let routine = n.ancestors().find_map(ast::Routine::cast);
         if routine.as_ref().is_some_and(plain_global_procedure) {
-            self.assume(Assumption::TableNoCodeunitGlobalRecOwnVariable);
             return Ok(ir::Place::Global(slot));
         }
         if routine.is_some_and(|r| r.is_trigger() && r.name().eq_ignore_ascii_case("OnRun")) {
@@ -96,8 +93,8 @@ impl Lowerer<'_> {
 
     /// A call of a system function (`UserId`, `Today`, with or without parentheses, quoted or not) with no receiver,
     /// outside the OnRun trigger of a codeunit with TableNo whose table has a field of that name. There the name is the
-    /// system function. In a procedure of a codeunit without Subtype it runs under `TableNoProcedureBareSystemFunction`
-    /// (TableNoBareSystemFunction.al:337-417, :421-431, :435-456, :459-482). Every other shape keeps main's refusal: a
+    /// system function, in a procedure of a codeunit without Subtype (tests/al-language/codeunits/
+    /// TableNoBareSystemFunction.al:337-417, :421-431, :435-456, :459-482). Every other shape keeps main's refusal: a
     /// trigger other than OnRun and every routine of a codeunit with a Subtype.
     pub(super) fn system_function_named_like_a_rec_field(
         &mut self,
@@ -122,12 +119,11 @@ impl Lowerer<'_> {
         if in_on_run || self.members[table].field(&name).is_none() {
             return Ok(());
         }
-        let assumed_codeunit = node
+        let measured_codeunit = node
             .ancestors()
             .find_map(ast::Object::cast)
             .is_some_and(|o| codeunit_without_subtype(&o));
-        if in_procedure(node) && assumed_codeunit {
-            self.assume(Assumption::TableNoProcedureBareSystemFunction);
+        if in_procedure(node) && measured_codeunit {
             return Ok(());
         }
         Err(format!(

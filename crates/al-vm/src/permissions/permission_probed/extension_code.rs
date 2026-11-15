@@ -1,25 +1,22 @@
 //! Which `Permissions` property covers the code of a table extension or page extension (al-runner issue 8093).
 //!
-//! An extension object cannot declare `Permissions` (AL0246). Corpus PR 1403 (merged, not pinned; permissions/testpermissions/
-//! Y19PermExtAndCompose.al, test PC_B_ExtensionCode) measured an Insert into another table from that code on BC 27.5, 28.5
-//! and 29.0 (assumption `extension-code-object-grant`):
+//! An extension object cannot declare `Permissions` (AL0246). tests/al-language/permissions/testpermissions/
+//! Y19PermExtAndCompose.al:303-385 (PC_B_ExtensionCode) pins an Insert into another table from that code:
 //! - table extension code (its OnInsert trigger, a procedure of it): the base table's `Permissions` is the object grant on
-//!   27 and 28 and none is on 29 (`al_version::base_table_permissions_cover_extension_code`);
-//! - page extension OnOpenPage: the base page's `Permissions` is the object grant on every measured major
-//!   (`al_version::base_page_permissions_cover_page_extension_open_page`), and a denial
+//!   27 and 28 and none is on 29 (`al_version::Gate::ExtensionCodeWithoutBaseTableGrantFrom29`);
+//! - page extension OnOpenPage: the base page's `Permissions` is the object grant, the same on 27, 28 and 29, and a denial
 //!   closes the page with `Page <name> has to close.`, code `FormAbort:Permission`.
 //!
 //! The measured shapes are allowlists of their facts here; every other access of extension code stays refused.
 use crate::Session;
 use crate::permission_bulk_no_match::{RecordCall, RecordCaller};
 use crate::permissions::{Access, Op, SetModel};
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
 
 impl Session {
-    /// Whether the code of extension object `caller` making `access` gets an object grant, in the shapes corpus PR 1403
-    /// measured; `None` in every other shape (the caller refuses). Marks the assumption when it answers.
+    /// Whether the code of extension object `caller` making `access` gets an object grant, in the shapes
+    /// Y19PermExtAndCompose.al:303-385 measures; `None` in every other shape (the caller refuses).
     pub(crate) fn extension_code_grant(&self, access: Access, caller: usize) -> Option<bool> {
         let base = self.measured_extension_base(access, caller)?;
         let engine = self.engine.clone();
@@ -31,20 +28,18 @@ impl Session {
         let covers = match engine.program.objects.heads()[caller].kind {
             // Y19PermExtAndCompose.al:317-328 (b13, b14 allowed on 27 and 28, denied on 29) and :333-342 (b17, b18
             // `IndirectInsert` on 27 and 28, `Insert` on 29); :349-370 the same for the procedure (b23, b24, b27, b28).
-            al_ir::ObjKind::TableExtension => al_version::base_table_permissions_cover_extension_code(target)?,
-            // :376-383: b33 allowed (the base page grants), b31, b32, b34 denied.
-            _ => al_version::base_page_permissions_cover_page_extension_open_page(target)?,
+            al_ir::ObjKind::TableExtension => {
+                !al_version::gate_on(target, al_version::Gate::ExtensionCodeWithoutBaseTableGrantFrom29)
+            }
+            // :376-383: b33 allowed (the base page grants), b31, b32, b34 denied, the same on 27, 28 and 29.
+            _ => true,
         };
-        let grant = covers && base_grant;
-        assume(Assumption::ExtensionCodeObjectGrant);
-        Some(grant)
+        Some(covers && base_grant)
     }
 
     /// The error of a denied `access` by the code of `by`, when `by` is a page extension in the measured shape: the page
     /// closes (Y19PermExtAndCompose.al:376-383, `Page LT PC Page Plain has to close.`, `FormAbort:Permission`, the base page
-    /// named, with or without its Permissions). It does not ask the version function itself: a `Deny` of a page extension's
-    /// code reaches it only after [`Self::extension_code_grant`] answered for the same shape (`measured_extension_base`), and that
-    /// asks `al_version::base_page_permissions_cover_page_extension_open_page` first and refuses on a major it does not know.
+    /// named, with or without its Permissions), the same on 27, 28 and 29.
     pub(crate) fn extension_page_denial(&self, access: Access, by: usize) -> Option<Signal> {
         let heads = self.engine.program.objects.heads();
         if heads[by].kind != al_ir::ObjKind::PageExtension {
@@ -54,7 +49,7 @@ impl Session {
         Some(self.page_close_for_permission(base))
     }
 
-    /// The base object of extension `caller` when its code makes `access` in a shape corpus PR 1403 measured: an Insert into a
+    /// The base object of extension `caller` when its code makes `access` in a shape Y19PermExtAndCompose.al measures: an Insert into a
     /// table of the same app that runs no trigger (`LT PC B`, Y19PermExtAndCompose.al:37), the sets giving `imd` or nothing on
     /// it (:214-226) as `Permissions Mock.Set` assigns them (:518-521), from
     /// - the OnInsert trigger of a table extension (:94-101), started by the statement `Insert(true)` of a Record variable of

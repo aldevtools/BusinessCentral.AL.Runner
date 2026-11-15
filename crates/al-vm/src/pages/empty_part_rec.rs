@@ -107,7 +107,7 @@ impl Session {
         if !self.measured_read(st, &landing, call) {
             return f(self);
         }
-        assume_list_cell(landing.triggers);
+        assume_list_cell();
         if let Some(l) = st.borrow_mut().empty_list_landing.as_mut() {
             l.reading = true;
         }
@@ -282,7 +282,7 @@ impl Session {
             return Ok(Shape::Measured);
         };
         // A test whose part landed in a cell is flagged, whether or not it reads the values.
-        assume_list_cell(cell.triggers);
+        assume_list_cell();
         Ok(Shape::ListCell(cell))
     }
 }
@@ -325,13 +325,10 @@ const OUTSIDE_READ: &str = "a read of Rec of a part that shows no row, on a fiel
      reads the List-host cells measured (an action of the part the test invokes right after the landing, with no other call, \
      write to the store, rollback or error since): whether BC keeps the filter's value on Rec there is not pinned";
 
-/// Marks the assumptions a List-host cell runs through: `empty-part-rec-list-host`, and on a host with the page triggers of
-/// probe 1378 also `empty-part-rec-list-host-triggers`.
-fn assume_list_cell(triggers: bool) {
+/// Marks the assumption a List-host cell runs through: `empty-part-rec-list-host`. The page triggers of the hosts of
+/// tests/al-language/pages/parts/EmptyPartRecListHostTriggers.al are pinned there and add no mark.
+fn assume_list_cell() {
     assumptions::assume(Assumption::EmptyPartRecListHost);
-    if triggers {
-        assumptions::assume(Assumption::EmptyPartRecListHostTriggers);
-    }
 }
 
 /// The fields the filters of `rec` name hold a `Value::Unknown` whose read is refused with `why`.

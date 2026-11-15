@@ -117,7 +117,7 @@ impl RootRun<'_> {
         };
         session.set_no_client(false);
         session.set_install_without_client(false);
-        let relied_on_group1 = session.end_group1_install_routine(called.is_ok());
+        session.end_group1_install_routine(called.is_ok());
         if is_step {
             session.set_company_build(false);
             for m in session.stop_capturing_messages() {
@@ -147,11 +147,6 @@ impl RootRun<'_> {
         session.set_company(&self.company_name);
         match why {
             None => {
-                if relied_on_group1 {
-                    // It relied on the group 1 assumption (al-vm `group1_sessions.rs`): the tables main refused for it,
-                    // as for a root that did not run to its end, are flagged.
-                    session.flag_group1_tables(crate::baseline::tables_written_or_loaded(self.lowered, oi, ri));
-                }
                 self.ran += 1;
                 self.steps_built += usize::from(is_step);
                 session.commit_transaction();

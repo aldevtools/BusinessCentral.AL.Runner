@@ -1,4 +1,4 @@
-//! The table code corpus PR 1398 (tests/al-language/record/filters/SqlDateFloor1753.al) ran around a write of a value the SQL
+//! The table code record/filters/SqlDateFloor1753.al ran around a write of a value the SQL
 //! column cannot hold. The error rolls back what that code wrote to the database; the record variable keeps what a trigger set
 //! on it (Kept_RecordAfterModifyError: `Hits` 10 in the variable, 0 in the row). `records/sql_range.rs` takes a table with code
 //! only when that code has a measured body, statement for statement; every other body keeps the table out of the measured

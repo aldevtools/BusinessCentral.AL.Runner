@@ -1,5 +1,5 @@
-//! The page triggers of the List hosts of corpus pull request 1378 (pages/parts/EmptyPartRecListHostTriggers.al, merged, not yet
-//! in the pinned corpus; assumption `empty-part-rec-list-host-triggers`): the reporter's host of al-runner issue 6924 has an
+//! The page triggers of the List hosts of tests/al-language/pages/parts/EmptyPartRecListHostTriggers.al (codeunit 76872, 85
+//! tests :575-2380): the reporter's host of al-runner issue 6924 has an
 //! OnOpenPage that sets CurrPage.Editable from a value read at run time and sends a notification, and an OnAfterGetCurrRecord that
 //! sends the same notification. The probe measured Rec of the empty part on hosts with exactly those triggers, both or one of them
 //! (pages 76865-76870). `host_trigger_cell` compares each trigger body, statement by statement, with the probe's, and each called

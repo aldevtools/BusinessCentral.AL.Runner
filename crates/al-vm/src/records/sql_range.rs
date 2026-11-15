@@ -1,10 +1,8 @@
 //! The writes of a value the SQL column of a database table cannot hold (`sqltime::bad_field`): which statement raises the
-//! platform's error, and when. The cells of Insert, Modify, ModifyAll and Rename that corpus PR 1398
-//! (tests/al-language/record/filters/SqlDateFloor1753.al, the corpus CI legs of the majors 27, 28 and 29) measured run
-//! through the assumption `sql-date-first-year` until that probe is pinned; every other write of such a value is refused.
-//! The Insert of the values record/filters/P130DateFilters.al:255-293 pins stays a clean pass.
+//! platform's error, and when. The cells of Insert, Modify, ModifyAll and Rename that record/filters/SqlDateFloor1753.al
+//! pins run; every other write of such a value is refused. The Insert of the values record/filters/P130DateFilters.al:255-293
+//! pins runs as well.
 
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{RtType, Value};
 use al_data::{Store, TableDef};
@@ -189,12 +187,12 @@ impl Session {
     ///
     /// The Insert does not fail, the next access of the table does (record/filters/P130DateFilters.al:255-275, stage `get`),
     /// as for a duplicate key: main's shape, without a Blob or AutoIncrement field, the result not used, no after-insert
-    /// table extension trigger or subscriber; a value only corpus PR 1398 measured (`InsertEvidence::ProbeHour`,
-    /// `ProbePlain`, `ProbeOutside`) only by the Insert statement into the tables it measured. Assumed
-    /// (`sql-date-first-year`, corpus PR 1398 SqlDateFloor1753.al Subscriber_Date_1, Subscriber_DateTime_1): with the
+    /// table extension trigger or subscriber; a value only SqlDateFloor1753.al measured (`InsertEvidence::ProbeHour`,
+    /// `ProbePlain`, `ProbeOutside`) only by the Insert statement into the tables it measured. Pinned
+    /// (record/filters/SqlDateFloor1753.al:2254 Subscriber_Date_1, :2300 Subscriber_DateTime_1): with the
     /// measured Before and After insert subscribers and Insert(true), the After event still fires, then the next access
-    /// fails; Extra_SubscriberReadsDate: so does the one After subscriber that logs the Date field, and it sees the value.
-    /// Assumed (`blob_insert_measured`): an Insert into a table with a Blob field and no insert code raises the error at the
+    /// fails; :1468 Extra_SubscriberReadsDate: so does the one After subscriber that logs the Date field, and it sees the
+    /// value. Pinned (`blob_insert_measured`): an Insert into a table with a Blob field and no insert code raises the error at the
     /// Insert. A CRM table has no SQL column: what its table connection does with such a value is not pinned. Every other
     /// shape is refused.
     pub(super) fn insert_sql_range(
@@ -222,7 +220,6 @@ impl Session {
             || (base && bad.insert == InsertEvidence::ProbeOutside && shape.of_al && code == TableCode::Plain);
         let key_free = keyed_cell && !self.key_stored(rec, t)?;
         if blob_cell && key_free {
-            assume(Assumption::SqlDateFirstYear);
             Self::restore_row_version(rec, old_version);
             Self::unstamp(rec, stamped);
             return Err(Signal::Error(Box::new(bad.error)));
@@ -236,7 +233,7 @@ impl Session {
             && cell_value
             && (code == TableCode::Subscribers
                 || (code == TableCode::AfterReader && bad.kind == BadKind::Date1753 && key_free));
-        // Main's shape. A value only corpus PR 1398 measured runs only by the Insert statement into the tables it measured
+        // Main's shape. A value only SqlDateFloor1753.al measured runs only by the Insert statement into the tables it measured
         // (`InsertEvidence`).
         let value_measured = match bad.insert {
             InsertEvidence::Pinned | InsertEvidence::Reporter => true,
@@ -257,17 +254,6 @@ impl Session {
                 t.name
             ));
         }
-        if after_event
-            || matches!(
-                bad.insert,
-                InsertEvidence::Reporter
-                    | InsertEvidence::ProbeHour
-                    | InsertEvidence::ProbePlain
-                    | InsertEvidence::ProbeOutside
-            )
-        {
-            assume(Assumption::SqlDateFirstYear);
-        }
         Self::restore_row_version(rec, old_version);
         Self::unstamp(rec, stamped);
         self.defer_insert(rec, t.object, bad.error);
@@ -277,11 +263,12 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
-    /// A Modify of a row with a value its SQL column cannot hold. Assumed (`sql-date-first-year`, corpus PR 1398
-    /// SqlDateFloor1753.al): the Modify raises the platform's error and writes nothing, after the Before event and the table's
-    /// OnModify trigger and without the After event (Subscriber_Date_1: log `beforeModify;`; Extra_TriggerLog: log
-    /// `trigModify:1753-06-15;`; RowAfterError_1: the row keeps its values; Kept_RecordAfterModifyError: the record keeps
-    /// what the trigger set), also when its result is used (`if not Modify()` raises, it does not answer false: Modify_Date_Forms_1),
+    /// A Modify of a row with a value its SQL column cannot hold. Pinned (record/filters/SqlDateFloor1753.al):
+    /// the Modify raises the platform's error and writes nothing, after the Before event and the table's
+    /// OnModify trigger and without the After event (:2254 Subscriber_Date_1: log `beforeModify;`; :1402 Extra_TriggerLog: log
+    /// `trigModify:1753-06-15;`; :2421 RowAfterError_1: the row keeps its values; :1656 Kept_RecordAfterModifyError: the record
+    /// keeps what the trigger set), also when its result is used (`if not Modify()` raises, it does not answer false: :1988
+    /// Modify_Date_Forms_1),
     /// in the measured cells of `modify_cell_measured`. Every other Modify of such a value is refused: RecordRef.Modify, a
     /// page save, ModifyAll(.., false) row by row, a row that does not exist (the corpus pins only the Insert:
     /// record/filters/P130DateFilters.al:234-275).
@@ -309,15 +296,14 @@ impl Session {
         if !measured {
             return unsupported("a Modify of a value its SQL column cannot hold, in a form not measured (not pinned)");
         }
-        assume(Assumption::SqlDateFirstYear);
         Err(Signal::Error(Box::new(bad.error)))
     }
 
     /// ModifyAll(field, value) of AL code on a Record variable that does not run the triggers, of a table whose modify events no
     /// subscriber declares (`bulk`, one statement for every row): a value the column cannot hold raises the platform's error
-    /// at the ModifyAll. Assumed (`sql-date-first-year`, corpus PR 1398 SqlDateFloor1753.al ModifyAll_Forms_1,
-    /// ModifyAll_Forms_2, Trigger_ModifyAll_1 `trig modifyall`, Extra_ModifyAllNoRow; RowAfterError_2: the rows keep their
-    /// values) in the cells of `modify_all_cell_measured`, for a field the table declares itself. Any other ModifyAll of AL
+    /// at the ModifyAll. Pinned (record/filters/SqlDateFloor1753.al:2100 ModifyAll_Forms_1,
+    /// :2124 ModifyAll_Forms_2, :2216 Trigger_ModifyAll_1 `trig modifyall`, :1564 Extra_ModifyAllNoRow; :2445 RowAfterError_2:
+    /// the rows keep their values) in the cells of `modify_all_cell_measured`, for a field the table declares itself. Any other ModifyAll of AL
     /// code of such a value over no row is refused: main raised nothing there, and the measured ModifyAll(.., false) over no
     /// row raises, so whether the other forms raise is not known. With rows it keeps main's path: row by row through Modify.
     pub(crate) fn modify_all_sql_range(
@@ -343,7 +329,6 @@ impl Session {
             .is_some_and(|f| f.declared_in == Some(t.object));
         let code = self.table_code(rec, t, Write::Modify)?;
         if bulk && own_field && modify_all_cell_measured(code, bad.kind) {
-            assume(Assumption::SqlDateFirstYear);
             return Err(Signal::Error(Box::new(bad.error)));
         }
         if no_row {
@@ -354,16 +339,16 @@ impl Session {
         Ok(())
     }
 
-    /// A Rename to a key value its SQL column cannot hold. Assumed (`sql-date-first-year`, corpus PR 1398 SqlDateFloor1753.al
-    /// Rename_DateKey_1, Rename_DateKey_2, Rename_DateKey_NextAccess_1, Rename_DateTimeKey_1): the Rename raises the platform's
-    /// error and the row keeps its key, for a Date in 1753, the Date 1752-12-31 and a DateTime in 1753, in a table whose
-    /// primary key is that one field and that has no rename code, Blob field or related field, by the Rename statement of
-    /// AL code on a Record variable, its result not used, of a stored row whose fields outside the key the record holds as
-    /// stored (the cells read the row with Get, then Rename). The record takes back its values from before the Rename, as for a
-    /// unique key the Rename breaks (what it holds is not measured). Assumed (Extra_RenameAbsentKey_1, _2): when no row has
-    /// the key the record holds (the cells assigned it, read nothing), the Rename to a Date or a DateTime in 1753 raises the
-    /// RecordNotFound of a missing row first, as a Rename to a value the column holds does. Every other Rename of such a value
-    /// is refused.
+    /// A Rename to a key value its SQL column cannot hold. Pinned (record/filters/SqlDateFloor1753.al:2468 Rename_DateKey_1,
+    /// :2501 Rename_DateKey_2, :2514 Rename_DateKey_NextAccess_1, :2560 Rename_DateTimeKey_1): the Rename raises the
+    /// platform's error and the row keeps its key, for a Date in 1753, the Date 1752-12-31 and a DateTime in 1753, in a table
+    /// whose primary key is that one field and that has no rename code, Blob field or related field, by the Rename statement
+    /// of AL code on a Record variable, its result not used, of a stored row whose fields outside the key the record holds as
+    /// stored (the cells read the row with Get, then Rename). What the record holds after the error is not measured: the
+    /// record is marked, and catching the error while it still lives is refused (`catch_error`). Pinned (:1524
+    /// Extra_RenameAbsentKey_1, :1544 _2): when no row has the key the record holds (the cells assigned it, read nothing),
+    /// the Rename to a Date or a DateTime in 1753 raises the RecordNotFound of a missing row first, as a Rename to a value the
+    /// column holds does. Every other Rename of such a value is refused.
     pub(super) fn fail_rename_sql_range(
         &mut self,
         rec: &Rec,
@@ -388,7 +373,6 @@ impl Session {
         let measured = match (&stored, bad.kind) {
             (Some(row), BadKind::Date1753 | BadKind::Date1752 | BadKind::DateTime1753) => Self::holds_row(t, old, row),
             (None, BadKind::Date1753 | BadKind::DateTime1753) => {
-                assume(Assumption::SqlDateFirstYear);
                 rec.borrow_mut().fields = old.to_vec();
                 return self.fail(t, old, false);
             }
@@ -397,8 +381,8 @@ impl Session {
         if !measured {
             return unsupported("a Rename with a value its SQL column cannot hold (not pinned)");
         }
-        assume(Assumption::SqlDateFirstYear);
         rec.borrow_mut().fields = old.to_vec();
+        self.tx.failed_sql_rename = Some(std::rc::Rc::downgrade(rec));
         Err(Signal::Error(Box::new(bad.error)))
     }
 
@@ -459,7 +443,7 @@ struct ModifyForm {
     used: bool,
 }
 
-/// The Modify cells SqlDateFloor1753.al measured (corpus PR 1398): form, table and kind of value.
+/// The Modify cells record/filters/SqlDateFloor1753.al pins: form, table and kind of value.
 /// - The statement in any form, `LT SD Floor Row`: Dates and DateTimes in 1753, the DateTime 1752-12-31 12:00
 ///   (Modify_Date_1753, Modify_DateTime_MorningHours_1 to Modify_DateTime_RoundingEdge_2, Modify_Date_Forms_1,
 ///   ValidateThenModify_1).

@@ -118,7 +118,7 @@ const REPORTER_TRIGGER_LANDINGS: &[TriggerLanding] = &[
 pub(super) struct ListCell {
     /// The number of reads by an action of the part the cell measured after its landing (`Session::measured_read`).
     pub(super) reads: usize,
-    /// The host has the page triggers of probe 1378 (assumption `empty-part-rec-list-host-triggers`).
+    /// The host has the page triggers of EmptyPartRecListHostTriggers.al (pinned, `empty_part_rec_list_triggers.rs`).
     pub(super) triggers: bool,
 }
 

@@ -1,4 +1,4 @@
-//! The DataCaptionExpression of a Worksheet that AL code opens with a handler or after a Trap, in the cells of corpus PR 1401
+//! The DataCaptionExpression of a Worksheet that AL code opens with a handler or after a Trap, in the cells of
 //! pages/properties/DataCaptionGetOpen.al (`data_caption_get_open.rs`), and the TestPage filter '=0' / '=1' on a temporary
 //! Worksheet the test opened with OpenEdit (testpage/filters/WorksheetOpenEditTemp.al, `filter_eq_text.rs`). These tests hold a
 //! measured cell, the refusals of the new paths, and neighbors that keep the refusal.
@@ -187,6 +187,67 @@ page 50350 "GO NoOpen"
         Log.Add('DC=' + V); exit(V);
     end;
 }
+page 50351 "GO Unguarded"
+{
+    PageType = Worksheet; SourceTable = "GO Row"; Caption = 'GO Unguarded'; DataCaptionExpression = Cap(); UsageCategory = None;
+    layout { area(Content) { group(H) { field(GCtl; G) { } } repeater(L) { field(CodeCtl; Rec."Code") { } } } }
+    var Log: Codeunit "GO Log"; G: Text[30];
+    local procedure Cap(): Text
+    var Other: Record "GO Other"; V: Text;
+    begin
+        Other.Get('K1'); V := Other.Title; G := 'ran'; Log.Add('DC=' + V); exit(V);
+    end;
+    trigger OnOpenPage() begin end;
+}
+page 50352 "GO RecRead"
+{
+    PageType = Worksheet; SourceTable = "GO Row"; Caption = 'GO RecRead'; DataCaptionExpression = Cap(); UsageCategory = None;
+    layout { area(Content) { group(H) { field(GCtl; G) { } } repeater(L) { field(CodeCtl; Rec."Code") { } } } }
+    var Log: Codeunit "GO Log"; G: Text[30];
+    local procedure Cap(): Text
+    var Other: Record "GO Other"; V: Text;
+    begin
+        if Other.Get('K1') then V := Other.Title else V := 'none'; G := Rec.Name; Log.Add('DC=' + V); exit(V);
+    end;
+    trigger OnOpenPage() begin end;
+}
+page 50353 "GO KeyVar"
+{
+    PageType = Worksheet; SourceTable = "GO Row"; Caption = 'GO KeyVar'; DataCaptionExpression = Cap(); UsageCategory = None;
+    layout { area(Content) { group(H) { field(GCtl; G) { } } repeater(L) { field(CodeCtl; Rec."Code") { } } } }
+    var Log: Codeunit "GO Log"; G: Text[30];
+    local procedure Cap(): Text
+    var Other: Record "GO Other"; V: Text; K: Code[20];
+    begin
+        K := 'K1'; if Other.Get(K) then V := Other.Title else V := 'none'; G := 'ran'; Log.Add('DC=' + V); exit(V);
+    end;
+    trigger OnOpenPage() begin end;
+}
+page 50354 "GO OtherRecKey"
+{
+    PageType = Worksheet; SourceTable = "GO Row"; Caption = 'GO OtherRecKey'; DataCaptionExpression = Cap(); UsageCategory = None;
+    layout { area(Content) { group(H) { field(GCtl; G) { } } repeater(L) { field(CodeCtl; Rec."Code") { } } } }
+    var Log: Codeunit "GO Log"; G: Text[30];
+    local procedure Cap(): Text
+    var Other: Record "GO Other"; V: Text;
+    begin
+        if Other.Get(Rec."Code") then V := Other.Title else V := 'none'; G := 'ran'; Log.Add('DC=' + V); exit(V);
+    end;
+    trigger OnOpenPage() begin end;
+}
+page 50355 "GO Long"
+{
+    PageType = Worksheet; SourceTable = "GO Row"; Caption = 'GO Long'; DataCaptionExpression = Cap(); UsageCategory = None;
+    layout { area(Content) { group(H) { field(GCtl; G) { } } repeater(L) { field(CodeCtl; Rec."Code") { } } } }
+    var Log: Codeunit "GO Log"; G: Text[30];
+    local procedure Cap(): Text
+    var Other: Record "GO Other"; V: Text;
+    begin
+        if Other.Get('K1') then V := Other.Title else V := 'none';
+        G := V + ' and a text that does not fit into thirty characters'; exit(V);
+    end;
+    trigger OnOpenPage() begin end;
+}
 codeunit 50328 T
 {
     Subtype = Test;
@@ -201,6 +262,46 @@ codeunit 50328 T
     local procedure Check(Expected: Text)
     begin
         if Log.Joined() <> Expected then Error('%1', Log.Joined());
+    end;
+    // DataCaptionGetOpen.al measured a Get as an If's condition keyed by a constant (:90) or by Rec's key on its own table (:191),
+    // and no other read of Rec: another form refuses.
+    [Test]
+    procedure Body_Unguarded_Refused()
+    var Row: Record "GO Row"; TP: TestPage "GO Unguarded";
+    begin
+        Seed(3); TP.Trap(); Page.Run(Page::"GO Unguarded", Row); TP.Close();
+    end;
+    // DataCaptionGetOpen.al measured a Get as an If's condition keyed by a constant (:90) or by Rec's key on its own table (:191),
+    // and no other read of Rec: another form refuses.
+    [Test]
+    procedure Body_RecRead_Refused()
+    var Row: Record "GO Row"; TP: TestPage "GO RecRead";
+    begin
+        Seed(3); TP.Trap(); Page.Run(Page::"GO RecRead", Row); TP.Close();
+    end;
+    // DataCaptionGetOpen.al measured a Get as an If's condition keyed by a constant (:90) or by Rec's key on its own table (:191),
+    // and no other read of Rec: another form refuses.
+    [Test]
+    procedure Body_KeyVar_Refused()
+    var Row: Record "GO Row"; TP: TestPage "GO KeyVar";
+    begin
+        Seed(3); TP.Trap(); Page.Run(Page::"GO KeyVar", Row); TP.Close();
+    end;
+    // DataCaptionGetOpen.al measured a Get as an If's condition keyed by a constant (:90) or by Rec's key on its own table (:191),
+    // and no other read of Rec: another form refuses.
+    [Test]
+    procedure Body_OtherRecKey_Refused()
+    var Row: Record "GO Row"; TP: TestPage "GO OtherRecKey";
+    begin
+        Seed(3); TP.Trap(); Page.Run(Page::"GO OtherRecKey", Row); TP.Close();
+    end;
+    // A measured body whose run raises (here a text too long for the page variable): BC raised the error at the open as a
+    // wrapped error (:643), not modelled; refused.
+    [Test]
+    procedure Run_Raises_Refused()
+    var Row: Record "GO Row"; TP: TestPage "GO Long";
+    begin
+        Seed(3); TP.Trap(); Page.Run(Page::"GO Long", Row); TP.Close();
     end;
     // DataCaptionGetOpen.al:365 Get_None_Trap: three rows, three runs before the Trap's reads, the global hidden.
     [Test]
@@ -226,7 +327,7 @@ codeunit 50328 T
     begin
         Seed(3); Row.SetFilter(Name, 'N*'); Page.Run(Page::"GO Get", Row);
     end;
-    // The expression raises (:643 Miss_None_Run raised a wrapped error): refused.
+    // An unguarded Get that fails (:643 Miss_None_Run raised a wrapped error): no measured body; refused at the open.
     [Test] [HandlerFunctions('MissHandler')]
     procedure Miss_Refused()
     var Row: Record "GO Row";
@@ -442,10 +543,11 @@ fn data_caption_get_cells_run_and_their_neighbors_refuse() {
     assert_eq!(get("Get_Three_Trap"), "Some(Pass)");
     assert_eq!(get("Get_Empty_Run"), "Some(Pass)");
     assert_eq!(get("Own_Three_Run"), "Some(Pass)");
-    let main_refusal = "can raise an error or leave something behind at the open";
+    let main_refusal = "can raise an error or leave something behind";
     for (t, why) in [
         ("Get_TextFilter_Refused", "outside the measured cells"),
-        ("Miss_Refused", "raised an error at the open"),
+        ("Miss_Refused", "outside the measured cells"),
+        ("Run_Raises_Refused", "raised an error at the open"),
         ("Write_Refused", main_refusal),
         ("Own_Three_RunModal_Refused", main_refusal),
         (
@@ -462,16 +564,20 @@ fn data_caption_get_cells_run_and_their_neighbors_refuse() {
         ("Body_Update_Refused", main_refusal),
         ("Body_Msg_Refused", main_refusal),
         ("Body_Close_Refused", main_refusal),
+        ("Body_Unguarded_Refused", "outside the measured cells"),
+        ("Body_RecRead_Refused", "outside the measured cells"),
+        ("Body_KeyVar_Refused", "outside the measured cells"),
+        ("Body_OtherRecKey_Refused", "outside the measured cells"),
     ] {
         let o = get(t);
         assert!(o.contains("NotRun") && o.contains(why), "{t}: {o}");
     }
 }
 
-// A Worksheet whose expression can neither raise nor leave anything behind keeps main's open and main's answers to the handler's
-// moves and writes (al-runner PR 8108 review, round 1: main answered these, the measured open had refused them).
+// A Worksheet whose expression can neither raise nor leave anything behind, outside the measured cells: no corpus test measures
+// its open, so it refuses there.
 #[test]
-fn a_pure_expression_keeps_mains_open() {
+fn a_pure_expression_refuses_at_the_open() {
     let outcomes = outcomes_in(SRC, "TP");
     for t in [
         "Pure_Three_HandlerNext",
@@ -479,8 +585,11 @@ fn a_pure_expression_keeps_mains_open() {
         "Pure_Empty_HandlerSetValue",
         "Pure_Three_TrapNext",
     ] {
-        let o = outcomes.iter().find(|(n, _)| n == t).map(|(_, o)| o);
-        assert_eq!(format!("{o:?}"), "Some(Pass)", "{t}");
+        let o = format!("{:?}", outcomes.iter().find(|(n, _)| n == t).map(|(_, o)| o));
+        assert!(
+            o.contains("NotRun") && o.contains("BC runs the expression at the open"),
+            "{t}: {o}"
+        );
     }
 }
 

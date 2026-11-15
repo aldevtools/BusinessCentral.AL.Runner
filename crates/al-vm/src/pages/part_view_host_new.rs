@@ -1,8 +1,8 @@
 //! `New()` on a ListPart of a host the test opened with OpenView. BC denies it: "New method failed because Insert is not
-//! allowed. Page = <part>, Id = <id>.", code DB:ClientInsertDenied, and no trigger runs (open corpus PR 1399, pages/parts/
-//! PartSplitKeyInsertTiming.al:1353 Doc_OpenView_New `view|text`, `log` `[]`; :1385 Card_OpenView_New; all three majors
-//! alike). The measured shape, a direct part of that page, raises that error under the assumption
-//! `part-new-on-view-host-denied`; every other part below such a page, at any depth, refuses the `New()`.
+//! allowed. Page = <part>, Id = <id>.", code DB:ClientInsertDenied, and no trigger runs
+//! (tests/al-language/pages/parts/PartSplitKeyInsertTiming.al:1353 Doc_OpenView_New `view|text`, `log` `[]`; :1383
+//! Card_OpenView_New). The measured shape, a direct part of that page, raises that error; every other part below such a
+//! page, at any depth, refuses the `New()`.
 
 use super::pinned_shape::{PartStep, PinnedPart, TestCall};
 use super::*;
@@ -25,12 +25,11 @@ impl Session {
                 "New() on a part of a page the test opened with OpenView, other than the measured shape (not pinned)",
             );
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartNewOnViewHostDenied);
         Err(self.new_denied_error(st)?)
     }
 
     /// The measured shape, every fact required:
-    /// - the pages (`part_pages_are`): a Card (:1385) or a Document (:1353) host with no trigger whose controls are fields of Rec
+    /// - the pages (`part_pages_are`): a Card (:1383) or a Document (:1353) host with no trigger whose controls are fields of Rec
     ///   and this part; a ListPart with AutoSplitKey and no DelayedInsert whose triggers are OnNewRecord and OnInsertRecord
     ///   (page 62724), controls over fields of Rec without a trigger; no page extension, table extension or subscriber;
     /// - `SubPageLink` on the primary key fields but the last, an Integer, and a SubPageView in a secondary key, ascending

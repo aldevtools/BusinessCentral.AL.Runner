@@ -1,6 +1,5 @@
-//! A Variant assigned from another Variant that holds a temporary record (al-runner issue 8070). The probe's cells (corpus
-//! PR 1406, VariantFromVariantTempRecord.al, codeunit 96471) share the table under the assumption
-//! `variant-from-variant-temp-record-keeps-rows`; the other shapes of a temporary record going from a Variant into a Variant
+//! A Variant assigned from another Variant that holds a temporary record (al-runner issue 8070). The cells of
+//! types/variant/VariantFromVariantTempRecord.al (codeunit 96471) share the table and run clean (no assumption); the other shapes of a temporary record going from a Variant into a Variant
 //! keep main's by-value copy, whose field values read as on main and whose rows refuse; a record put into a Variant from a
 //! record variable keeps main's by-value copy (recordref-fieldref/recordref/PWRecordMisc.al:234-250).
 
@@ -639,7 +638,7 @@ codeunit 69893 T
 }
 "#;
 
-/// Runs `routine` of codeunit `T` and returns its text and whether it marked the assumption of the issue.
+/// Runs `routine` of codeunit `T` and returns its text and whether it marked any assumption.
 fn run(routine: &str) -> (String, bool) {
     al_builtins::assumptions::clear_hits();
     let got = text(al_testkit::run_in(SRC, "T", routine));
@@ -647,9 +646,7 @@ fn run(routine: &str) -> (String, bool) {
 }
 
 fn marked() -> bool {
-    al_builtins::assumptions::take_hits()
-        .iter()
-        .any(|a| a.info().id == "variant-from-variant-temp-record-keeps-rows")
+    !al_builtins::assumptions::take_hits().is_empty()
 }
 
 fn refused(routine: &str) -> String {
@@ -664,40 +661,40 @@ fn refused(routine: &str) -> String {
 /// and C2.
 #[test]
 fn the_reporters_shapes_keep_the_temporary_rows() {
-    assert_eq!(run("ReturnValueStored"), ("2".into(), true));
-    assert_eq!(run("ReturnValueStoredThroughEvent"), ("15".into(), true));
-    assert_eq!(run("ParameterCopied"), ("2/2".into(), true));
+    assert_eq!(run("ReturnValueStored"), ("2".into(), false));
+    assert_eq!(run("ReturnValueStoredThroughEvent"), ("15".into(), false));
+    assert_eq!(run("ParameterCopied"), ("2/2".into(), false));
 }
 
-/// The probe's other cells (corpus PR 1406, VariantFromVariantTempRecord.al, codeunit 96471): a var parameter (C3), a
+/// The other cells of VariantFromVariantTempRecord.al (codeunit 96471): a var parameter (C3), a
 /// local (C4), a global target (C5), a filtered record (C7), a target holding an Integer (C9); C1 in a `[Test]` method.
 #[test]
 fn the_probes_cells_keep_the_temporary_rows() {
-    assert_eq!(run("FromVarParameter"), ("2".into(), true));
-    assert_eq!(run("FromLocalVariant"), ("2/2".into(), true));
-    assert_eq!(run("IntoGlobal"), ("2".into(), true));
-    assert_eq!(run("FilteredResult"), ("1 Entry No.: 2".into(), true));
-    assert_eq!(run("IntoAssignedVariant"), ("2".into(), true));
-    assert_eq!(run("ClearedTarget"), ("2".into(), true));
+    assert_eq!(run("FromVarParameter"), ("2".into(), false));
+    assert_eq!(run("FromLocalVariant"), ("2/2".into(), false));
+    assert_eq!(run("IntoGlobal"), ("2".into(), false));
+    assert_eq!(run("FilteredResult"), ("1 Entry No.: 2".into(), false));
+    assert_eq!(run("IntoAssignedVariant"), ("2".into(), false));
+    assert_eq!(run("ClearedTarget"), ("2".into(), false));
     al_builtins::assumptions::clear_hits();
     match al_testkit::run_in(SRC, "T", "InTestMethod") {
         Err(al_builtins::native::Signal::Error(e)) => assert_eq!(e.message, "2"),
         other => panic!("InTestMethod: {other:?}"),
     }
-    assert!(marked());
+    assert!(!marked());
 }
 
 /// C6: one table for both holders, a write through either shows through the other; the caller's record reads it too.
 #[test]
 fn both_holders_share_one_table() {
-    assert_eq!(run("WriteThroughEitherSide"), ("4/4".into(), true));
-    assert_eq!(run("SharedThenCallerReads"), ("1".into(), true));
+    assert_eq!(run("WriteThroughEitherSide"), ("4/4".into(), false));
+    assert_eq!(run("SharedThenCallerReads"), ("1".into(), false));
 }
 
 /// Main's results: a record variable into a Variant is a copy over an empty table (PWRecordMisc.al:234-250), a stored
 /// record keeps reading the stored rows (C8), a value that is no record is copied.
 #[test]
-fn shapes_outside_the_assumption_keep_mains_result() {
+fn shapes_outside_the_cells_keep_mains_result() {
     assert_eq!(run("RecordIntoVariant"), ("0".into(), false));
     assert_eq!(run("StoredReturnValue"), ("1".into(), false));
     assert_eq!(run("IntegerReturnValue"), ("4".into(), false));

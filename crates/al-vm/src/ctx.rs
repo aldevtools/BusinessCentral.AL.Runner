@@ -323,6 +323,9 @@ impl al_builtins::native::Ctx for Session {
     fn company_build(&self) -> bool {
         self.company_build
     }
+    fn held_by_temp_blob_impl(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        self.temp_blob_impl_fields.holds(b)
+    }
     fn calling_object(&self) -> Option<(String, String)> {
         let obj = *self.frames.last()?;
         let o = &self.engine.program.objects[obj];

@@ -40,9 +40,6 @@ pub struct Baseline {
     pub company_unknown: Vec<(String, u32, String)>,
     /// The companies `Database.CopyCompany` made from the session company (`Session::full_copies`). Sorted.
     pub full_copies: Vec<String>,
-    /// The tables install code wrote after a group 1 filter ended and relied on that (`group1_sessions.rs`): a test that
-    /// touches one relies on the assumption too. Sorted.
-    group1_flagged: std::collections::BTreeSet<u32>,
     /// Names what the baseline holds: baselines with the same origin hold the same data. Each baseline made gets a
     /// number of its own; [`Baseline::with_origin`] gives a copy read from another's bytes that one's.
     origin: u64,
@@ -56,7 +53,7 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x06";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x07";
 
 /// The order of a table's keys (`al_data::memory::PkStorage`): the count of its key fields (0 for text order), then one
 /// byte per field.
@@ -163,10 +160,6 @@ impl Baseline {
         for company in &self.full_copies {
             put_str(&mut out, company);
         }
-        put_u32(&mut out, self.group1_flagged.len() as u32);
-        for t in &self.group1_flagged {
-            put_u32(&mut out, *t);
-        }
         Some(out)
     }
 
@@ -249,10 +242,6 @@ impl Baseline {
         for _ in 0..r.u32()? {
             full_copies.push(r.str()?);
         }
-        let mut group1_flagged = std::collections::BTreeSet::new();
-        for _ in 0..r.u32()? {
-            group1_flagged.insert(r.u32()?);
-        }
         if !r.is_empty() {
             return None;
         }
@@ -269,7 +258,6 @@ impl Baseline {
             company_built,
             company_unknown,
             full_copies,
-            group1_flagged,
             install_rows: None,
             origin: new_origin(),
         })
@@ -350,7 +338,6 @@ impl Session {
                 v
             },
             full_copies: self.full_copies.iter().cloned().collect(),
-            group1_flagged: self.global_group1.flagged.clone(),
             install_rows: None,
             origin: new_origin(),
         }
@@ -415,7 +402,6 @@ impl Session {
             && !start.company_built
             && unknown == start_unknown
             && self.full_copies.iter().eq(start.full_copies.iter())
-            && self.global_group1.flagged == start.group1_flagged
     }
 
     /// Puts into `b` the numbers the session took since `b` from the sequences `b` holds. Under runner 130450 a test's
@@ -502,7 +488,6 @@ impl Session {
             .map(|(c, t, why)| ((c.clone(), *t), why.clone()))
             .collect();
         self.full_copies = b.full_copies.iter().cloned().collect();
-        self.global_group1.flagged.clone_from(&b.group1_flagged);
         // A store read back from bytes holds the copies' tables but not which restored rows they read (see
         // `MemStore::note_copy`): a full copy is a copy of the session company.
         let session = self.cx.company.to_string();
@@ -568,7 +553,6 @@ mod tests {
             company_built: true,
             company_unknown: vec![("My Company".into(), 311, "why".into())],
             full_copies: vec!["Copy".into()],
-            group1_flagged: [60960_u32, 60961].into_iter().collect(),
             install_rows: None,
             origin: new_origin(),
         }
@@ -578,7 +562,7 @@ mod tests {
     fn summary(b: &Baseline) -> String {
         let rows = b.store.export_committed().expect("no backing");
         format!(
-            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?} {:?}",
+            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?}",
             b.next_guid,
             b.next_row_version,
             b.committed_row_version,
@@ -588,8 +572,7 @@ mod tests {
             b.last_stamp,
             b.workspace_installs,
             b.company_unknown,
-            b.full_copies,
-            b.group1_flagged
+            b.full_copies
         )
     }
 

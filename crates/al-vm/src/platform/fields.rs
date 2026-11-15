@@ -135,147 +135,8 @@ fn table_of<'a>(c: &'a Catalog, i: usize) -> Option<(&'a Object, &'a al_ir::Tabl
     o.table.as_ref().map(|t| (o, t))
 }
 
-/// The package ids of a Field row a key lookup finds: a `Get`, or a FindFirst or FindSet whose filters set TableNo and No. to one
-/// value each in a shape the probes measured (`measured_key_scan`). A field the table declares gives null ids unless a table extension of the table's own app extends the
-/// table; then, and for a system field and a field another app's extension adds ([`extension_packages`]), the row keeps the ids a
-/// scan gives (metadata/platform-tables/PlatformMetadataColumnValues.al:287-311 for a table of the app under test and Item;
-/// :516-532 for System Application's and Base Application's tables; :569-605 for the rule and the key FindFirst and FindSet;
-/// :618-646 for the system fields; corpus PRs 1404 and 1407, merged, not pinned yet). Where the answer differs from the earlier
-/// rule (null exactly for a table of the app under test, whose two ids are equal, on a Get), assumption
-/// `field-key-lookup-package-ids` until the corpus bump pins them. Every table extension of the table's own app counts, with or
-/// without a field (measured: one that declares a field and one that only modifies a field, :784-815, corpus PR 1410; not
-/// measured: one with neither). A row the rule does not know (the user-name system rows) keeps the earlier rule on a Get and the
-/// scan's ids on a key scan.
-pub(super) fn key_lookup(p: &Providers, t: &TableDef, mut r: al_data::Row, key_scan: bool) -> al_data::Row {
-    let col = |name: &str| t.fields.iter().position(|x| x.name == name);
-    let (Some(pc), Some(rt)) = (col("App Package ID"), col("App Runtime Package ID")) else {
-        return r;
-    };
-    let (Value::Guid(a), Value::Guid(b)) = (&r[pc], &r[rt]) else {
-        return r;
-    };
-    let rule = key_lookup_rule(p, t, &r);
-    // The earlier rule did not null a field another app's extension adds (al-runner PR 8054).
-    let earlier = !key_scan && a == b && !rule.is_some_and(|(_, other_app)| other_app);
-    let null = rule.and_then(|(null, _)| null).unwrap_or(earlier);
-    if null != earlier {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldKeyLookupPackageIds);
-    }
-    if null {
-        r[pc] = Value::Guid([0; 16]);
-        r[rt] = Value::Guid([0; 16]);
-    }
-    r
-}
-
-/// Whether a key lookup gives Field row `r` null package ids ([`key_lookup`]), `None` where the rule is not measured, with
-/// whether another app's table extension adds the field. `None` for a row of no field of a compiled table.
-pub(super) fn key_lookup_rule(p: &Providers, t: &TableDef, r: &al_data::Row) -> Option<(Option<bool>, bool)> {
-    let (Value::Integer(tid), Value::Integer(no)) = (&r[pos(t, 1)], &r[pos(t, 2)]) else {
-        return None;
-    };
-    let engine = p.engine();
-    let c = Catalog::new(&engine);
-    let table = c.table_by_id(*tid as u32)?;
-    let field = table.table.as_ref()?.fields.iter().find(|f| f.id == *no as u32)?;
-    if declaring_extension(&c, table, field).is_some() {
-        return Some((Some(false), true));
-    }
-    if (2_000_000_000..=2_000_000_004).contains(&field.id) {
-        return Some((Some(false), false));
-    }
-    if super::objects::platform_object(table) {
-        return Some((None, false));
-    }
-    Some((Some(!c.extended_in_own_app(*tid as u32)), false))
-}
-
-/// The (TableNo, No.) a scan's filters set to one value each, outside the cross-column OR group: a scan that can find only the
-/// row of that key, which BC answers as a `Get` ([`key_lookup`]).
-pub(super) fn key_scan(t: &TableDef, filters: &[al_builtins::filter::FieldFilter]) -> Option<(Value, Value)> {
-    let one = |id: u32| {
-        filters
-            .iter()
-            .filter(|f| f.field == pos(t, id) && f.group != al_builtins::filter::OR_GROUP)
-            .find_map(|f| super::mat::single_value_of(&f.expr))
-    };
-    Some((one(1)?, one(2)?))
-}
-
-/// The filter group of the one single-value filter on Field column `id` among `filters`, if there is exactly one filter on it.
-fn single_value_group(t: &TableDef, filters: &[al_builtins::filter::FieldFilter], id: u32) -> Option<i32> {
-    match filters.iter().filter(|f| f.field == pos(t, id)).collect::<Vec<_>>()[..] {
-        [f] if super::mat::single_value_of(&f.expr).is_some() => Some(f.group),
-        _ => None,
-    }
-}
-
-/// Whether `scan` starts at the start: a Find, or a Next from a blank record, whose position is the blank key (TableNo 0, No. 0).
-fn from_start(scan: &al_data::Scan) -> bool {
-    scan.after
-        .is_none_or(|a| a.iter().all(|v| matches!(v, Value::Integer(0))))
-}
-
-/// Whether `scan` is a key read the probes measured, which BC answers as a `Get` ([`key_lookup`]): a read in primary key order,
-/// either direction, from the start (FindFirst, FindSet, FindLast, Find('-'), Find('+'), Next from a blank record,
-/// RecordRef.FindFirst), whose filters are one single-value filter each on TableNo and No. in filter group 0, optionally with a
-/// single-value filter on Class in group 0; the Class filter and the group 2 filters (both in group 2, or TableNo in group 2 and
-/// No. in group 0) only on an ascending read without a position (FindFirst, FindSet, Find('-'))
-/// (metadata/platform-tables/PlatformMetadataColumnValues.al:569-605, corpus PR 1407, the ascending FindFirst and FindSet;
-/// :662-737, helper ObserveReadForms, corpus PR 1410, the other forms). Another key, a Next from a position, a third filter on
-/// another column, the other filter groups, and the Class filter or group 2 with FindLast, Find('+') or Next are not measured
-/// and keep the scan's ids.
-pub(super) fn measured_key_scan(t: &TableDef, scan: &al_data::Scan) -> bool {
-    if scan.key != 0 || !from_start(scan) {
-        return false;
-    }
-    let groups = (
-        single_value_group(t, scan.filters, 1),
-        single_value_group(t, scan.filters, 2),
-    );
-    // The Class filter and the filters in group 2 are measured on a FindFirst only (:662-737, ObserveReadForms): ascending, no
-    // position.
-    let find_first = scan.ascending && scan.after.is_none();
-    match (groups, scan.filters.len()) {
-        ((Some(0), Some(0)), 2) => true,
-        ((Some(0), Some(0)), 3) => find_first && single_value_group(t, scan.filters, 7) == Some(0),
-        ((Some(2), Some(2)) | (Some(2), Some(0)), 2) => find_first,
-        _ => false,
-    }
-}
-
-/// Whether `scan` is the key read with a package filter the probe measured: a FindFirst or FindSet (ascending, primary key, no
-/// position) whose filters are one single-value filter each on TableNo and No. and one `=` or `<>` filter of one value on App
-/// Package ID, all in filter group 0. BC tests that filter against the ids the key lookup gives, while IsEmpty and Count test it
-/// against the table's (metadata/platform-tables/PlatformMetadataColumnValues.al:827-842, helper ObservePackageFilters, corpus
-/// PR 1410). A Next from a blank record is not measured.
-pub(super) fn measured_key_package_scan(t: &TableDef, scan: &al_data::Scan) -> bool {
-    use al_builtins::filter::FilterExpr;
-    let package = scan
-        .filters
-        .iter()
-        .filter(|f| t.fields[f.field].name == "App Package ID")
-        .collect::<Vec<_>>();
-    scan.key == 0
-        && scan.ascending
-        && scan.after.is_none()
-        && scan.filters.len() == 3
-        && single_value_group(t, scan.filters, 1) == Some(0)
-        && single_value_group(t, scan.filters, 2) == Some(0)
-        && matches!(package[..], [f] if f.group == 0
-            && (super::mat::single_value_of(&f.expr).is_some() || matches!(f.expr, FilterExpr::Ne(_))))
-}
-/// Whether the filters read App Package ID or App Runtime Package ID.
-pub(super) fn filters_package(t: &TableDef, filters: &[al_builtins::filter::FieldFilter]) -> bool {
-    filters.iter().any(|f| {
-        matches!(
-            t.fields[f.field].name.as_str(),
-            "App Package ID" | "App Runtime Package ID"
-        )
-    })
-}
 /// The table extension that declares field `f`, when one does (`al_ir::Field::declared_in`).
-fn declaring_extension<'a>(c: &Catalog<'a>, table: &Object, f: &Field) -> Option<&'a Object> {
+pub(super) fn declaring_extension<'a>(c: &Catalog<'a>, table: &Object, f: &Field) -> Option<&'a Object> {
     c.objects
         .get(f.declared_in? as usize)
         .filter(|o| o.kind == al_ir::ObjKind::TableExtension && o.app != table.app)
@@ -395,15 +256,9 @@ fn table_entries(
             r[col] = Value::Boolean(in_key);
         }
         let extension = extension_packages(c, o, f, t);
-        let row_packages = extension.as_ref().map_or(&packages[..], |(p, _)| &p[..]);
+        let row_packages = extension.as_deref().unwrap_or(&packages[..]);
         match field_row(c, o, f, t, blank, row_packages, &mut r) {
-            Ok(()) => out.push(match extension {
-                Some((p, true)) => Entry::ok(r).assuming_in(
-                    al_builtins::assumptions::Assumption::FieldRowExtensionPackageIds,
-                    p.iter().map(|(col, _)| *col).collect(),
-                ),
-                _ => Entry::ok(r),
-            }),
+            Ok(()) => out.push(Entry::ok(r)),
             Err(why) => {
                 let mut k = blank.row();
                 k[pos(t, 1)] = Value::Integer(tid as i32);
@@ -446,14 +301,13 @@ fn package_columns(c: &Catalog, table: &Object, t: &TableDef) -> Vec<(usize, Val
 
 /// App Package ID and App Runtime Package ID of the Field row of field `f` of `table` when a table extension adds it: the
 /// extension's AllObj ones, not the table's, after Get, FindFirst on the key and in a scan, and a filter on App Package ID <> the
-/// table's keeps only such fields (al-runner issue 8051; metadata/platform-tables/PlatformMetadataColumnValues.al:339-376 and
-/// :385-405, corpus PR 1402, merged, not pinned yet: assumption `field-row-extension-package-ids` until the bump). With `true`
-/// when the shape is the measured
-/// one: an extension of an app under test on a table of an app under test or of Base Application. Any other extension (of a
-/// dependency app, on another dependency app's table or on a platform table) leaves both columns unknown, with `false`. `None`
-/// for a field the table declares itself, and for a system field. An extension in the table's own app keeps the table's ids
-/// (not measured by corpus PR 1402).
-fn extension_packages(c: &Catalog, table: &Object, f: &Field, t: &TableDef) -> Option<(Vec<(usize, Value)>, bool)> {
+/// table's keeps only such fields (al-runner issue 8051; tests/al-language/metadata/platform-tables/
+/// PlatformMetadataColumnValues.al:360-376 FieldTable_AppPackageIds_OfTableExtensionField_AreTheExtensionApps and :388-405
+/// FieldTable_FilterAppPackageIdNotTheTables_KeepsOnlyExtensionFields), in the measured shape: an extension of an app under
+/// test on a table of an app under test or of Base Application. Any other extension (of a dependency app, on another
+/// dependency app's table or on a platform table) leaves both columns unknown. `None` for a field the table declares itself,
+/// and for a system field. An extension in the table's own app has the app's ids, which are the table's.
+fn extension_packages(c: &Catalog, table: &Object, f: &Field, t: &TableDef) -> Option<Vec<(usize, Value)>> {
     let ext = declaring_extension(c, table, f)?;
 
     let from_package = |o: &Object| c.apps.get(o.app as usize).is_some_and(|a| a.dependency);
@@ -481,7 +335,7 @@ fn extension_packages(c: &Catalog, table: &Object, f: &Field, t: &TableDef) -> O
             out.push((col, v));
         }
     }
-    Some((out, measured))
+    Some(out)
 }
 
 /// The Field row of the rowversion: No. 0, FieldName `timestamp`, Type BigInteger, Class Normal, Len 8, Enabled. Only a
