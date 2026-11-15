@@ -14,6 +14,7 @@ mod blob_transfer_copy;
 mod blob_value_copy_shapes;
 mod blob_write_then_record_copies;
 mod blob_write_unloaded;
+mod blob_xrec_write;
 mod bump_36_transferfields_system_fields;
 mod calcsums_duration;
 mod clear_table_filter;
