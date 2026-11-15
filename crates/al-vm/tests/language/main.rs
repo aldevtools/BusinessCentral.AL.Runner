@@ -159,6 +159,7 @@ mod lane_settled_31_32;
 mod lane_text_compare;
 mod lane_values_builtins;
 mod last_error_origin;
+mod list_search_xml;
 mod lazy_objects;
 mod list_read_in_foreach;
 mod marked_text_char_write;

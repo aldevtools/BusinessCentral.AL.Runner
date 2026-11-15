@@ -33,7 +33,10 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
         })
     }),
     ("List.Contains#1", |_, r, a| {
-        read_list(r, |l| Ok(Value::Boolean(position_checked(l, &a[0])?.is_some())))
+        read_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "Contains")?;
+            Ok(Value::Boolean(position_checked(l, &a[0])?.is_some()))
+        })
     }),
     ("List.Count#1", |_, r, _| {
         read_list(r, |l| Ok(Value::Integer(l.len() as i32)))
@@ -77,6 +80,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("List.IndexOf#1", |_, r, a| {
         read_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "IndexOf")?;
             Ok(Value::Integer(position_checked(l, &a[0])?.map_or(0, |p| p as i32 + 1)))
         })
     }),
@@ -87,6 +91,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
             ));
         }
         read_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "LastIndexOf")?;
             Ok(Value::Integer(
                 l.iter().rposition(|x| eq(x, &a[0])).map_or(0, |p| p as i32 + 1),
             ))
@@ -105,6 +110,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("List.Remove#1", |_, r, a| {
         let dictionary = matches!(a[0], Value::Dictionary(_));
         with_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "Remove")?;
             // A Dictionary is found by identity, any other one cannot be compared (CsCollections.al:DictionaryList_ContainsAndIndexOf).
             let at = if dictionary {
                 position_checked(l, &a[0])?
@@ -364,6 +370,44 @@ fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
     match free {
         Some(i) => d[i] = (k, v),
         None => d.push((k, v)),
+    }
+}
+
+/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is an XML
+/// handle: no corpus case measures how BC compares two of them (al-runner issue 8165), and `eq` would answer "not equal".
+/// A list holds values of one AL type, so the searched value and the first element decide.
+fn refuse_unmeasured_search(l: &[Value], v: &Value, member: &str) -> Result<(), Signal> {
+    if is_xml_handle(v) || l.first().is_some_and(is_xml_handle) {
+        return Err(Signal::unsupported(format!(
+            "List.{member} on a list of XML handles: how BC compares them is not measured"
+        )));
+    }
+    Ok(())
+}
+
+/// A value of an XML handle type: a node or document, a node list, an attribute collection, a name table or a namespace
+/// manager, assigned or not. `XmlReadOptions` and `XmlWriteOptions` are not handles.
+fn is_xml_handle(v: &Value) -> bool {
+    use crate::library_kind::LibraryKind as K;
+    match v {
+        Value::Library(k, _) => matches!(
+            k,
+            K::XmlAttribute
+                | K::XmlAttributeCollection
+                | K::XmlCData
+                | K::XmlComment
+                | K::XmlDeclaration
+                | K::XmlDocument
+                | K::XmlDocumentType
+                | K::XmlElement
+                | K::XmlNamespaceManager
+                | K::XmlNameTable
+                | K::XmlNode
+                | K::XmlNodeList
+                | K::XmlProcessingInstruction
+                | K::XmlText
+        ),
+        _ => false,
     }
 }
 
