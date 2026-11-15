@@ -200,7 +200,7 @@ fn policy_rows(t: &mut Vec<Cell>) {
     }
 }
 
-/// A stored Report Layout Selection row of the company that the probe measured (corpus pull request 1371): a Word default
+/// A stored Report Layout Selection row of the company, pinned in RxLayoutSelectionTests.al: a Word default
 /// layout `DefaultRenderingLayout` names, no report extension, a stream, the answer used. The RDLC row: Html answers false
 /// with `ReportUnsupportedFormat`, Pdf, Word and Excel render the RDLC layout (:452, :477, :1082, :1116); with no dataset row
 /// it is not measured. The Custom Layout row with an unknown code: every format answers false with `ReportNoLayout` (:746,
@@ -219,7 +219,6 @@ fn stored_rows(t: &mut Vec<Cell>) {
         file: Is(LayoutFile::Present),
         ..Key::ANY
     };
-    let marks = |p| Evidence::Awaiting(Assumption::ReportStoredLayoutSelection, p);
     for format in FORMATS {
         let rdlc = Key {
             format: Is(format),
@@ -236,7 +235,7 @@ fn stored_rows(t: &mut Vec<Cell>) {
                 key,
                 Answer::False(ErrorId::UnsupportedFormat),
                 Events::NotRaised(&[]),
-                marks(STORED_RDLC),
+                Evidence::Pinned(STORED_RDLC),
             ));
         } else {
             let key = Key {
@@ -247,7 +246,7 @@ fn stored_rows(t: &mut Vec<Cell>) {
                 key,
                 Answer::Placeholder(Renders::StoredRdlc),
                 Events::NotRaised(&[]),
-                marks(STORED_RDLC),
+                Evidence::Pinned(STORED_RDLC),
             ));
         }
         let none = Key {
@@ -260,7 +259,7 @@ fn stored_rows(t: &mut Vec<Cell>) {
             none,
             Answer::False(ErrorId::NoLayout),
             Events::NotRaised(&[]),
-            marks(STORED_NO_LAYOUT),
+            Evidence::Pinned(STORED_NO_LAYOUT),
         ));
     }
 }
