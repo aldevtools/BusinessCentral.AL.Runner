@@ -817,7 +817,7 @@ fn refuse(
     // A routine the compile for a selection left out: the run is redone on the full run's compile, whatever the tests
     // touch (al-runner issue 6924).
     crate::runtime::narrowing::note_install(&engine, &why);
-    if in_company.is_empty() || in_company == session_company {
+    if in_session_company(in_company, session_company) {
         skipped.push((touched(&engine, lowered, oi, ri), why));
         return;
     }
@@ -826,6 +826,11 @@ fn refuse(
         written.extend(crate::baseline::tables_written(lowered, so, sr));
     }
     refuse_in_other_company(lowered, session, skipped, in_company, written, why);
+}
+
+/// Whether install code that runs in `in_company` runs in the session company or in the per-database part (`""`).
+fn in_session_company(in_company: &str, session_company: &str) -> bool {
+    in_company.is_empty() || in_company == session_company
 }
 
 /// Records that install code that ran in declared company `in_company`, not the session company, may have written the
@@ -1762,7 +1767,7 @@ struct Stopped {
 
 impl Stopped {
     /// Rolls back what it wrote and settles the session state (`stopped_state`); `Some(why)`: the state after it is
-    /// not known (`leaves` too). Install code `(in_company, session_company)` as for [`refuse`].
+    /// not known (`leaves` too). `(in_company, session_company)`: where it ran, as for [`refuse`].
     ///
     /// The roll back takes the rows of every table written since the last commit, through any path, and on BC that code
     /// ran to its end and kept them: those tables join `skipped` too, besides the ones the callers' [`refuse`] names from
@@ -1784,7 +1789,7 @@ impl Stopped {
             label(lowered, self.root.0, self.root.1),
             self.why
         );
-        if in_company.is_empty() || in_company == session_company {
+        if in_session_company(in_company, session_company) {
             written.retain(|&x| !crate::runtime::listed_from_objects(lowered, x));
             if !written.is_empty() {
                 skipped.push((written, why));
