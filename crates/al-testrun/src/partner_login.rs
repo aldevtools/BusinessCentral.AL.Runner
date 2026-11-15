@@ -237,22 +237,26 @@ pub(crate) fn raise(
 }
 
 /// Of the SingleInstance codeunits whose state the step changed (`singles`), the first one outside the measured shape, for
-/// a reason text: the codeunit is of the app of a subscriber of the step and every global of it is an Integer, a Text
-/// or a List of [Text] (PlXaLoginSingles.al:12-19, the subscriber of the same app at :56-62).
+/// a reason text. The pin (PlXaLoginSingles.al:12-27, the subscriber at :56-62): the step has one subscriber, it changes one
+/// SingleInstance codeunit of its own app, and that codeunit's globals are two Integers, one List of [Text] and one Text.
 fn unmeasured_single(lowered: &Lowered, step: &Step, singles: &std::collections::BTreeSet<usize>) -> Option<String> {
     use al_builtins::value::RtType;
     let objs = &lowered.program.objects;
     let measured = |o: usize| {
-        step.subscribers.iter().any(|&(s, _)| objs[s].app == objs[o].app)
-            && (objs[o].globals.iter()).all(|g| match &g.ty {
-                RtType::Integer | RtType::Text(None) => true,
-                RtType::List(item) => **item == RtType::Text(None),
-                _ => false,
-            })
+        let globals = |ty: &RtType| objs[o].globals.iter().filter(|g| g.ty == *ty).count();
+        let shape = (
+            objs[o].globals.len(),
+            globals(&RtType::Integer),
+            globals(&RtType::List(Box::new(RtType::Text(None)))),
+            globals(&RtType::Text(None)),
+        );
+        matches!(step.subscribers.as_slice(), [(s, _)] if objs[*s].app == objs[o].app)
+            && singles.len() == 1
+            && shape == (4, 2, 1, 1)
     };
     let o = singles.iter().copied().find(|&o| !measured(o))?;
     Some(format!(
-        "SingleInstance codeunit {}, which is not a codeunit of the subscriber's app whose globals are all Integer, Text or List of [Text]",
+        "SingleInstance codeunit {}, which is not the one codeunit of the one subscriber's app with the measured globals (two Integer, a List of [Text], a Text)",
         objs[o].name
     ))
 }

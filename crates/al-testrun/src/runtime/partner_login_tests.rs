@@ -17,16 +17,20 @@ fn sys(isolated: bool) -> String {
     )
 }
 
-/// A partner dependency app (`dep2`): table `Other`, a SingleInstance `Cache` of the measured shape (an Integer, a list of
-/// Text and a Text, PlXaLoginSingles.al:12-27), a SingleInstance `Flags` of another shape (a Boolean and a record global),
+/// A partner dependency app (`dep2`): table `Other`, a SingleInstance `Cache` of the measured shape (two Integers, a list of
+/// Text and a Text, PlXaLoginSingles.al:12-27), SingleInstance codeunits of other shapes: `Counter` (one Integer), `Wider`
+/// (the measured globals and one Text more) and `Flags` (a Boolean and a record global),
 /// a manual subscriber `Hook`, and the OnAfterLogin subscriber with body `login`.
 fn partner(login: &str) -> String {
     format!(
         "table 60900 Other {{ fields {{ field(1; No; Code[20]) {{ }} field(2; Blocked; Boolean) {{ }} }} }}
-        codeunit 60904 Cache {{ SingleInstance = true; var Cnt: Integer; Log: List of [Text]; Txt: Text;
+        codeunit 60904 Cache {{ SingleInstance = true; var Cnt: Integer; Log: List of [Text]; Txt: Text; Calls: Integer;
             procedure Set(N: Integer) begin Cnt := N; end; procedure Bump() begin Cnt += 1; end;
             procedure GetCount(): Integer begin exit(Cnt); end; procedure AddTxt(T: Text) begin Txt += T; end;
             procedure AddLog(T: Text) begin Log.Add(T); end; procedure LogCount(): Integer begin exit(Log.Count()); end; }}
+        codeunit 60909 Counter {{ SingleInstance = true; var N: Integer; procedure Put() begin N := 1; end; }}
+        codeunit 60903 Wider {{ SingleInstance = true; var Cnt: Integer; Log: List of [Text]; Txt: Text; Calls: Integer; More: Text;
+            procedure Put() begin Cnt := 1; end; }}
         codeunit 60908 Flags {{ SingleInstance = true; var On: Boolean; Row: Record Other;
             procedure Put() begin On := true; end; procedure Sort() begin Row.SetCurrentKey(Blocked); end; }}
         codeunit 60906 Pub {{ procedure Ask(): Integer var N: Integer; begin N := 1; OnAsk(N); exit(N); end;
@@ -161,6 +165,22 @@ fn a_partner_subscriber_that_sets_an_unmeasured_single_instance_refuses_the_code
         assert!(
             o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Flags")),
             "{o:?}"
+        );
+    }
+}
+
+// Globals of the measured types but not the measured set (one Integer only; the measured set and one Text more): no test runs.
+#[test]
+fn a_partner_subscriber_that_sets_a_single_instance_of_other_globals_refuses_the_codeunit() {
+    for (login, name) in [
+        ("var C: Codeunit Counter; begin C.Put(); end;", "Counter"),
+        ("var W: Codeunit Wider; begin W.Put(); end;", "Wider"),
+    ] {
+        let (o, _) = run(login);
+        assert!(
+            o.iter()
+                .all(|(_, x)| not_run_for(x, &format!("SingleInstance codeunit {name}"))),
+            "{login}: {o:?}"
         );
     }
 }

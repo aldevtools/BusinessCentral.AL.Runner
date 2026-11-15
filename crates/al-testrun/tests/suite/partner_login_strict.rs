@@ -13,7 +13,9 @@ const SYS: &str = "codeunit 150 \"System Initialization\" { procedure Raise() be
         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
         local procedure InitCompany() var S: Codeunit \"System Initialization\"; begin S.Raise(); end; }";
 
-const PARTNER: &str = "codeunit 60904 Cache { SingleInstance = true; var Cnt: Integer;
+/// The SingleInstance codeunit has the pinned globals (PlXaLoginSingles.al:12-19).
+const PARTNER: &str =
+    "codeunit 60904 Cache { SingleInstance = true; var Cnt: Integer; Names: List of [Text]; Txt: Text; Calls: Integer;
         procedure Set(N: Integer) begin Cnt := N; end; procedure GetCount(): Integer begin exit(Cnt); end;
         procedure Bump() begin Cnt += 1; end; }
     codeunit 60901 DepLogin {
