@@ -173,8 +173,9 @@ pub fn run_codeunit_full(
 
 /// What the test session does when it opens the company, before the codeunit's OnRun and first test: the login code that
 /// sets WorkDate, then the Company Triggers subscribers and the login (`install::test_session_company_open`, under
-/// RequiredTestIsolation = Disabled when `disabled`), committed; then the `workDate.offset` of a stability run. `Err`: why
-/// the codeunit is not run.
+/// RequiredTestIsolation = Disabled when `disabled`), committed; then the `workDate.offset` of a stability run. With it, the
+/// marks of the assumptions this step relied on: they count for every test of the session (`mark_test_start_assumptions`).
+/// `Err`: why the codeunit is not run.
 fn open_company(
     engine: &Engine,
     lowered: &Lowered,
@@ -182,11 +183,12 @@ fn open_company(
     mode: Option<bool>,
     skipped_installs: &[(BTreeSet<u32>, String)],
     perturb: &crate::stability::Perturb,
-) -> Result<crate::install::CompanyOpenWrites, String> {
+) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), String> {
     // A scratch run is not a test session: it opens nothing.
     let Some(disabled) = mode else {
         return Ok(Default::default());
     };
+    al_builtins::assumptions::clear_hits();
     // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
     // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
     // (docs/probes-needed.md, WorkDate row).
@@ -199,7 +201,7 @@ fn open_company(
         let day = session.work_date();
         session.set_work_date(shift.apply_day(day));
     }
-    Ok(wrote)
+    Ok((wrote, al_builtins::assumptions::take_hit_bits()))
 }
 
 /// The tables `watched` and those of `skipped_installs` (`skipped_install_tables`), for the store's watch.
@@ -433,12 +435,13 @@ fn run_codeunit_inner(
     session.hub_disabled = isolation == TestIsolation::Disabled;
     session.test_object = Some(object);
     // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
-    // amendment 1, A4 item 10). A scratch run (`execute`) is not a test session.
+    // amendment 1, A4 item 10). What the step relied on counts for every test of the session
+    // (`mark_test_start_assumptions`).
     // `None`: a scratch run (`execute`), not a test session; else whether the isolation is Disabled.
     let mode = (!execute).then_some(isolation == TestIsolation::Disabled);
     let opened = open_company(engine, lowered, &mut session, mode, &skipped_installs, &perturb);
-    let mut company_open = match opened {
-        Ok(wrote) => wrote,
+    let (mut company_open, company_open_marks) = match opened {
+        Ok(opened) => opened,
         Err(why) => return all(Outcome::NotRun(why)),
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
@@ -744,7 +747,7 @@ fn run_codeunit_inner(
                         session.store_mut().watch(watched);
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        mark_test_start_assumptions(lowered, on_run_shape_assumed);
+                        mark_test_start_assumptions(lowered, on_run_shape_assumed, company_open_marks);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                         session.start_random_scope();
@@ -1898,8 +1901,15 @@ fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: b
 }
 
 /// The marks every test of the codeunit starts with: the program's own (`ir::Program::assumes`: it compiled only through
-/// them) and, when the codeunit's OnRun shape is assumed, `TestCodeunitOnRunRows`.
-fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool) {
+/// them), when the codeunit's OnRun shape is assumed `TestCodeunitOnRunRows`, and `company_open`, the marks of the login
+/// and Company Triggers step that opened the company for this session before its first test (orchestrator decision
+/// 2026-11-15, al-runner issue 8060: every test of the session runs on what that step left).
+fn mark_test_start_assumptions(
+    lowered: &Lowered,
+    on_run_shape_assumed: bool,
+    company_open: al_builtins::assumptions::HitBits,
+) {
+    al_builtins::assumptions::add_hit_bits(company_open);
     if on_run_shape_assumed {
         al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
     }

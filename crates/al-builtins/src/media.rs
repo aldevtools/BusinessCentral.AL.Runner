@@ -74,6 +74,50 @@ fn jpeg_size(b: &[u8]) -> Option<(i32, i32)> {
     None
 }
 
+/// The size (width, height) of a JPEG built as the one JPEG app logo measured (corpus PR 1412, tests/al-language-xapp-e/
+/// logo.jpg, 8 x 8, 307 bytes), each part by equality: SOI, an APP0 `JFIF` segment first, then only quantization tables
+/// (`FF DB`), one baseline start-of-frame segment (`FF C0`) of precision 8 and 3 components, Huffman tables (`FF C4`), a
+/// start-of-scan segment (`FF DA`) of 3 components, at least one byte of coded data in which every `FF` is followed by
+/// `00`, and then `FF D9` as the last two bytes. The size is read from the frame; width and height are at least 1.
+/// `None` for any other file.
+pub fn jfif_logo_size(b: &[u8]) -> Option<(i32, i32)> {
+    let framed = b.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0]) && b.get(6..11) == Some(&b"JFIF\0"[..]);
+    framed.then_some(())?;
+    let mut size = None;
+    let mut i = 2;
+    loop {
+        (*b.get(i)? == 0xFF).then_some(())?;
+        let marker = *b.get(i + 1)?;
+        let len = usize::from(u16::from_be_bytes([*b.get(i + 2)?, *b.get(i + 3)?]));
+        let segment = b.get(i + 4..i + 2 + len)?;
+        match (marker, segment) {
+            (0xE0, _) if i == 2 => {}
+            (0xDB | 0xC4, _) => {}
+            (0xC0, [8, h1, h2, w1, w2, 3, ..]) if len == 17 && size.is_none() => {
+                let (w, h) = (u16::from_be_bytes([*w1, *w2]), u16::from_be_bytes([*h1, *h2]));
+                (w >= 1 && h >= 1).then_some(())?;
+                size = Some((i32::from(w), i32::from(h)));
+            }
+            (0xDA, [3, ..]) if len == 12 => return size.filter(|_| coded_data_then_end(&b[i + 2 + len..])),
+            _ => return None,
+        }
+        i += 2 + len;
+    }
+}
+
+/// Whether the bytes after the measured logo's start-of-scan header are at least one byte of coded data, in which every
+/// `FF` is followed by `00` (no restart or other marker), and then `FF D9` as the last two bytes.
+fn coded_data_then_end(rest: &[u8]) -> bool {
+    let Some(coded) = rest.strip_suffix(&[0xFF, 0xD9]) else {
+        return false;
+    };
+    !coded.is_empty()
+        && coded
+            .iter()
+            .enumerate()
+            .all(|(k, &x)| x != 0xFF || coded.get(k + 1) == Some(&0))
+}
+
 /// Whether a JPEG starts with a JFIF header of units 1 (dots per inch) and density 300 x 300: SOI, APP0, "JFIF\0", version,
 /// then units at byte 13 and the two densities.
 fn jfif_300_dpi(b: &[u8]) -> bool {
