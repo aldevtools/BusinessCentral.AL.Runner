@@ -311,3 +311,6 @@ leaves outside the database (SingleInstance globals, session state). Refuse each
 
 Code that is rolled back also takes the rows it wrote. Refuse the readers of every table it wrote at run time, not only
 the tables its record variables name (al-runner PR 8119, probe n19).
+
+Code that stopped did not write what came after the stop. A write set from the run covers only what ran. For the rest,
+use the static reach, RecordRef opens included (al-runner PR 8119, probe n19d).
