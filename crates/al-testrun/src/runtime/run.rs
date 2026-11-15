@@ -171,6 +171,33 @@ pub fn run_codeunit_full(
     )
 }
 
+/// What the test session does when it opens the company, before the codeunit's OnRun and first test: the login code that
+/// sets WorkDate, then the Company Triggers subscribers and the login (`install::test_session_company_open`, under
+/// RequiredTestIsolation = Disabled when `disabled`), committed; then the `workDate.offset` of a stability run. `Err`: why
+/// the codeunit is not run.
+fn open_company(
+    engine: &Engine,
+    lowered: &Lowered,
+    session: &mut Session,
+    disabled: bool,
+    skipped_installs: &[(BTreeSet<u32>, String)],
+    perturb: &crate::stability::Perturb,
+) -> Result<crate::install::CompanyOpenWrites, String> {
+    // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
+    // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
+    // (docs/probes-needed.md, WorkDate row).
+    crate::install::login_work_date(engine, lowered, session)?;
+    let wrote = crate::install::test_session_company_open(lowered, session, disabled, skipped_installs)?;
+    session.commit_transaction();
+    // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
+    // a `WorkDate(d)` of the test still wins.
+    if let Some(shift) = perturb.work_date {
+        let day = session.work_date();
+        session.set_work_date(shift.apply_day(day));
+    }
+    Ok(wrote)
+}
+
 /// The tables `watched` and those of `skipped_installs` (`skipped_install_tables`), for the store's watch.
 fn with_skipped<'a>(
     watched: impl Iterator<Item = &'a u32>,
@@ -406,24 +433,10 @@ fn run_codeunit_inner(
     let company_open = if execute {
         crate::install::CompanyOpenWrites::default()
     } else {
-        // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
-        // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
-        // (docs/probes-needed.md, WorkDate row).
-        if let Err(why) = crate::install::login_work_date(engine, lowered, &mut session) {
-            return all(Outcome::NotRun(why));
-        }
-        match crate::install::test_session_company_open(lowered, &mut session, isolation == TestIsolation::Disabled) {
+        let disabled = isolation == TestIsolation::Disabled;
+        match open_company(engine, lowered, &mut session, disabled, &skipped_installs, &perturb) {
+            Ok(wrote) => wrote,
             Err(why) => return all(Outcome::NotRun(why)),
-            Ok(wrote) => {
-                session.commit_transaction();
-                // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the
-                // login code set it; a `WorkDate(d)` of the test still wins.
-                if let Some(shift) = perturb.work_date {
-                    let day = session.work_date();
-                    session.set_work_date(shift.apply_day(day));
-                }
-                wrote
-            }
         }
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
@@ -462,7 +475,9 @@ fn run_codeunit_inner(
     let leak: BTreeSet<u32> = scratch.leak.as_deref().cloned().unwrap_or_default();
     // The reach facts of a routine of this codeunit, for the writes of the Company Triggers subscribers.
     let company_open_refuses = |r: usize| -> Option<String> {
-        company_open.who.as_ref()?;
+        if company_open.who.is_none() && company_open.dependency_login.is_none() {
+            return None;
+        }
         let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
         company_open.refuses(&reach_facts(&engine.events, lowered, &index, object, r), lowered)
     };

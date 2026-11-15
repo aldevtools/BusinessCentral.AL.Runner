@@ -698,7 +698,7 @@ fn company_triggers_run_in_the_install_session_before_the_per_company_routines()
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
-pub(super) use super::app_outcomes::{OutcomesAndHits, outcomes_and_hits_of_apps};
+pub(super) use super::app_outcomes_tests::{OutcomesAndHits, outcomes_and_hits_of_apps};
 
 // ADR-046 amendment 1, A4 item 4, owner decision 2026-10-19 (al-runner issue 6046): the install session of an app raises
 // Company Triggers OnCompanyOpen to the subscribers of every installed app, not only its own: an assumption until probe Q3.
