@@ -82,7 +82,7 @@ pub(super) fn ident(v: &str) -> String {
 
 /// The first string literal of a property value: `'It''s'` is `It's`. A value that does not start
 /// with a literal has none.
-pub(super) fn string_lit(v: &str) -> Option<String> {
+pub(crate) fn string_lit(v: &str) -> Option<String> {
     let rest = v.trim().strip_prefix('\'')?;
     let mut out = String::new();
     let mut chars = rest.chars().peekable();

@@ -18,6 +18,11 @@ use crate::{Frame, Session};
 pub(crate) struct TempBlobImplFields(Vec<(Weak<RefCell<RecordState>>, usize)>);
 
 impl TempBlobImplFields {
+    /// Holds what a new session holds (`install_left.rs`): no field noted.
+    pub(crate) fn as_new(&self) -> bool {
+        self.0.is_empty()
+    }
+
     fn note(&mut self, rec: &Rc<RefCell<RecordState>>, pos: usize) {
         self.0.retain(|(w, _)| w.strong_count() > 0);
         if !self.0.iter().any(|(w, p)| *p == pos && w.as_ptr() == Rc::as_ptr(rec)) {

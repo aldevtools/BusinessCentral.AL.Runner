@@ -78,6 +78,10 @@ finds the next neighbor shape. Write the gate in allowlist form:
     or `FitOrRefuse`, as doing anything (al-runner PR 8015).
   - "Microsoft's app" read from the publisher string alone: the app under test can name "Microsoft" too. Require a
     dependency app as well (al-runner PR 8015).
+  - an answer made by an outside component (BC's converter) that reads the host: fonts, locale, time zone. A cell that
+    passes on one machine does not show the answer is the same on another. Before a layout feature is admitted, run its
+    cell again with the host resource hidden (the font folder, another locale) and require the same bytes (al-runner
+    PR 8159, list labels).
   - a pinned call checked by its name only: the pin also has its outcome (a `Next` that moved, a `GoToKey` that found its
     row, a `SetValue` that did not raise). Read the calls from the log that keeps outcomes (`tree_calls`, through
     `test_calls_all_succeeded`), not from the names (`test_calls`).
@@ -331,3 +335,11 @@ A value read once flows on: a later test reads it after a keeping write, through
 row. Mark the first reader and every test after it, and count a keeping write (`+=`, `List.Add`, a `var` argument) as a
 read. Code that runs before the first test (session-open subscribers, OnRun) is a reader too. A write frees a value only when it drops every part of it (a simple type; not a record's filters or temporary rows)
 and only after its right side ran (a call on the right side may read the value).
+
+## 22. Code moved to a session of its own, with a restore of what it left (al-runner PR 8153)
+
+List every field of `Session` the code can write, not only the fields the existing snapshot type has (media, encryption
+key, files, scheduled tasks, table connections, last error, application areas, the Random stream). Take the new path only
+when the other fields equal a new session's, in one predicate next to the snapshot that names every field (no `..`), so a
+new field does not compile until it is decided. Probe each with code that writes it and a test that reads it, head
+against main.

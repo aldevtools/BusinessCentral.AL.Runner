@@ -3,7 +3,7 @@
 use super::RunOptions;
 use al_vm::Session;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct SessionFlags {
     ignore_permission_mock: bool,
     permissions_off: bool,

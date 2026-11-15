@@ -1,7 +1,8 @@
 //! The fact vector, after the run, of every Html hash cell of corpus pull request 1415 (merged, not pinned;
 //! reports/html-email-body/RxHtmlHashTests.al:192 Hash_WordAlpha_TwoRows, :218 Hash_WordRgba_TwoRows, :395 Bound_OneRow,
-//! :433 Bound_ThreeRows, :471 Bound_RowCountChangesHash). `crate::report_render` renders real Html only for a save whose
-//! whole vector equals [`HTML_HASH_CELL`]; every other save keeps Part A.
+//! :433 Bound_ThreeRows, :471 Bound_RowCountChangesHash), and of corpus pull request 1419 (merged, not pinned;
+//! reports/html-email-body/RxHtmlWidenTests.al:394, :440, :482, :568, :614). `crate::report_render` renders real Html only
+//! for a save whose whole vector equals [`HTML_HASH_CELL`]; every other save keeps Part A.
 
 use super::Format;
 use super::facts::{
@@ -12,9 +13,10 @@ use super::facts::{
 /// The facts of the cells, each by equality:
 /// - the call `Ok := Report.SaveAs(ReportId, '', ReportFormat::Html, OutS)` into a Temp Blob stream (RxHtmlBodyFixtures.al:125):
 ///   format Html, target a stream, the answer used;
-/// - the reports RX Word Alpha (RxHtmlBodyFixtures.al:53), RX Word Rgba (RxLayoutSelFixtures.al:73) and RX Hash Bound
-///   (RxHtmlHashTests.al:50): a Word layout that `DefaultRenderingLayout` names in the rendering section, no RDLC layout,
-///   one data item, no report extension, no report trigger, not processing only;
+/// - the reports RX Word Alpha (RxHtmlBodyFixtures.al:53), RX Word Rgba (RxLayoutSelFixtures.al:73), RX Hash Bound
+///   (RxHtmlHashTests.al:50), RX Wd Plain, RX Wd Styles, RX Wd Theme, RX Wd Header and RX Wd Caption
+///   (RxHtmlWidenTests.al:53, :80, :107, :161, :188): a Word layout that `DefaultRenderingLayout` names in the rendering
+///   section, no RDLC layout, one data item, no report extension, no report trigger, not processing only;
 /// - the session: no layout of Type Custom, not the company build, not on the ADR-040 allow-list, no layout selection row
 ///   of the company or the tenant, and none naming the report before or after the run;
 /// - the run: one row or more (`RX Html Body`.Rows, RxHtmlBodyFixtures.al:105-116, with 1, 2 or 3), and no `rgba(` in the
