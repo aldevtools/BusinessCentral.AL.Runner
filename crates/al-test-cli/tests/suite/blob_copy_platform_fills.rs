@@ -1,6 +1,6 @@
 //! Records that platform code filled, or that are not the declared variables the Blob copy probes measured (cells F10, F12,
 //! F15, F22, F23 of the round-3 review of al-runner PR 7951): passed by value they share their Blob with the callee, as before
-//! assumption `blob-transfer-copies`. Each test ends with `Error('OBS ...')` of what the caller reads after the callee wrote
+//! the pinned Blob copy cells (al-vm `blob_transfer.rs`). Each test ends with `Error('OBS ...')` of what the caller reads after the callee wrote
 //! 'zz': `zz` at the start is the shared Blob.
 
 const SRC: &str = r#"
