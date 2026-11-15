@@ -175,3 +175,26 @@ fn a_limit_the_compile_passes_stops_the_compile_and_no_test_runs() {
     assert_eq!(xml.matches("memory limit (--max-memory 1 MB)").count(), 2, "{xml}");
     assert!(xml.contains("Budget Tests"), "the codeunit name is reported: {xml}");
 }
+
+// al-runner issue 8103: an app that does not compile (exit 3) still ran load, check and lower; `--timings` prints those
+// phases, the memory line and the total time.
+#[test]
+fn timings_print_the_compile_phases_when_the_app_does_not_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(
+        d.path(),
+        "broken",
+        "11111111-0000-0000-0000-000000000032",
+        "Broken",
+        "src/Broken.al",
+        "codeunit 50320 \"Broken\" { procedure B() var i: Integer; begin i := 'not an integer'; end; }",
+    );
+    let o = alrunner(&["test", app.to_str().unwrap(), "--no-download", "--timings"]);
+    let t = text(&o);
+    assert_eq!(code(&o), 3, "{t}");
+    assert!(t.lines().any(|l| l.starts_with("compile: load ")), "{t}");
+    assert!(t.lines().any(|l| l.starts_with("memory: budget")), "{t}");
+    assert!(t.lines().any(|l| l.starts_with("time: total ")), "{t}");
+    let without = text(&alrunner(&["test", app.to_str().unwrap(), "--no-download"]));
+    assert!(!without.contains("compile: load "), "{without}");
+}

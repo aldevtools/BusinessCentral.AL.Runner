@@ -1193,6 +1193,8 @@ mod test_handlers;
 mod test_marks;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod diagnostics_tests;
 mod threads;
 pub(crate) mod written;
 

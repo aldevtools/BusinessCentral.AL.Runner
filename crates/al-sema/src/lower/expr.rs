@@ -367,6 +367,26 @@ impl Lowerer<'_> {
     }
 
     /// Whether the routine being lowered was made from a property expression (a control's source).
+    /// The kind of object `Kw::Name` names when it is an object literal (`Database::"X"`, `Report::"X"`, ...) and no
+    /// loaded app declares that object (al-runner issues 8101, 8099).
+    fn names_no_loaded_object(&self, kw: &str, name: &str) -> Option<ObjKind> {
+        let kind = match kw.trim().to_ascii_lowercase().as_str() {
+            "database" => ObjKind::Table,
+            "report" => ObjKind::Report,
+            "page" => ObjKind::Page,
+            "codeunit" => ObjKind::Codeunit,
+            "query" => ObjKind::Query,
+            "xmlport" => ObjKind::XmlPort,
+            _ => return None,
+        };
+        let parts = crate::types::qualified_parts(name.trim());
+        matches!(
+            self.ws.resolve_ref(self.file, kind, &parts),
+            crate::workspace::Resolution::Missing
+        )
+        .then_some(kind)
+    }
+
     pub(crate) fn in_synthetic_routine(&self) -> bool {
         self.routine_nodes
             .get(self.oi)
@@ -1032,7 +1052,15 @@ impl Lowerer<'_> {
                             m.trim().trim_matches('"'),
                             e.trim()
                         )),
-                        _ => Err(format!("`{text}` is not lowered yet")),
+                        Some((kw, name)) => match self.names_no_loaded_object(kw, name) {
+                            Some(kind) => Err(format!(
+                                "`{text}` names no {} of the loaded apps: an object of a dependency that was skipped as \
+                                 not found, or of another country's Base Application (which needs --country), is not loaded",
+                                kind.label()
+                            )),
+                            None => Err(format!("`{text}` is not lowered yet")),
+                        },
+                        None => Err(format!("`{text}` is not lowered yet")),
                     }
                 }
             },

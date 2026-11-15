@@ -16,7 +16,7 @@
 use crate::company_data::CompanyData;
 use al_sema::lower::Lowered;
 use al_vm::{Baseline, Engine, Session};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// What the baseline run leaves.
@@ -26,8 +26,8 @@ pub struct BaselineRun {
     /// Tables the roots that did not run (or stopped early) would have written rows to (a record
     /// variable's Insert, Modify, Rename or ModifyAll in the root's own call closure), and that hold no row in the baseline or
     /// belong to a root that was rolled back (al-runner issue 6973), unless the restored company holds their rows: object
-    /// indexes.
-    pub unseeded: BTreeSet<u32>,
+    /// indexes, each with the root that should have written it and why it stopped (`StoppedRoot::cause`).
+    pub unseeded: BTreeMap<u32, String>,
     /// How many tables hold a row in the baseline.
     pub filled: usize,
     /// One line per root that could not run to its end.
@@ -340,8 +340,7 @@ pub fn run_traced_halting(
     // So that a root that stops can say where (fault sites are noted only on an error or a refusal).
     session.trace_faults(true);
     let mut notes = Vec::new();
-    // Per root that stopped: the tables it writes, and whether its rows before the stop are kept.
-    let mut stopped: Vec<(BTreeSet<u32>, bool)> = Vec::new();
+    let mut stopped: Vec<crate::baseline_roots::StoppedRoot> = Vec::new();
     al_builtins::assumptions::clear_hits();
     let run_environment = session.environment();
     let company_name = session.set_company("");
@@ -524,14 +523,22 @@ pub fn demo_row_tables(lowered: &Lowered) -> std::collections::HashSet<usize> {
 /// restored company holds rows for is seeded, whether or not a root could write it. A root that stopped and was rolled back
 /// wrote none of its rows, so a table it writes is unseeded even when other roots put rows in it: a read that finds no row,
 /// or a scan, is not BC's answer (al-runner issue 6973: another app's flags in the table, the stopped install's flag
-/// missing). A root whose rows before the stop are kept (`keep_prefix`) counts only for tables that hold no row.
-fn unseeded_tables(stopped: &[(BTreeSet<u32>, bool)], filled: &BTreeSet<u32>, session: &Session) -> BTreeSet<u32> {
-    stopped
-        .iter()
-        .flat_map(|(tables, kept)| tables.iter().filter(move |t| !kept || !filled.contains(t)))
-        .copied()
-        .filter(|&t| !session.backs_rows(t))
-        .collect()
+/// missing). A root whose rows before the stop are kept (`keep_prefix`) counts only for tables that hold no row. Each table
+/// keeps the cause of the first root that stopped and writes it.
+fn unseeded_tables(
+    stopped: &[crate::baseline_roots::StoppedRoot],
+    filled: &BTreeSet<u32>,
+    session: &Session,
+) -> BTreeMap<u32, String> {
+    let mut out = BTreeMap::new();
+    for root in stopped {
+        for &t in &root.tables {
+            if (!root.kept || !filled.contains(&t)) && !session.backs_rows(t) {
+                out.entry(t).or_insert_with(|| root.cause.clone());
+            }
+        }
+    }
+    out
 }
 
 pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {

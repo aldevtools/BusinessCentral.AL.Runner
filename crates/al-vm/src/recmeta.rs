@@ -1940,8 +1940,9 @@ impl Session {
                 self.install_unknown(t.object).unwrap_or_default()
             )),
             None if self.is_unseeded(t) && !rec.borrow().temporary => unsupported(format!(
-                "{} row not found by GetBySystemId: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5)",
-                t.name
+                "{} row not found by GetBySystemId: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5){}",
+                t.name,
+                self.unseeded_cause(t)
             )),
             None if self.ret_used => Ok(Value::Boolean(false)),
             // "The PX Row does not exist. Identification fields and values: {x}" / DB:RecordNotFound

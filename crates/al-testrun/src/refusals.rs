@@ -144,11 +144,14 @@ fn fold_quotes(s: &str) -> String {
     out
 }
 
-/// A run of digits that is not part of a word (`#4`, `(61)`, `format 2`) becomes `N`.
+/// A run of digits that is not part of a word (`#4`, `(61)`, `format 2`) becomes `N`. A reference to a decision record keeps
+/// its numbers (`ADR-013 decision 5`, `ADR-066 amendment 12, decision 3`): it names the rule, not a value.
 fn fold_numbers(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let word = |c: char| c.is_alphabetic() || c == '_';
     let mut out = String::with_capacity(s.len());
+    // Where the last number of an ADR reference ended in `out`.
+    let mut adr_end: Option<usize> = None;
     let mut i = 0;
     while i < chars.len() {
         if !chars[i].is_ascii_digit() {
@@ -161,11 +164,19 @@ fn fold_numbers(s: &str) -> String {
             j += 1;
         }
         let in_word = (i > 0 && word(chars[i - 1])) || (j < chars.len() && word(chars[j]));
-        if in_word {
+        let adr = out.ends_with("ADR-")
+            || adr_end.is_some_and(|e| {
+                matches!(
+                    out[e..].trim_start_matches(','),
+                    " decision " | " amendment "
+                )
+            });
+        if in_word || adr {
             out.extend(&chars[i..j]);
         } else {
             out.push('N');
         }
+        adr_end = adr.then_some(out.len());
         i = j;
     }
     out
@@ -314,5 +325,23 @@ mod tests {
             normalise_reason("it doesn't fit and don't try"),
             "it doesn't fit and don't try"
         );
+    }
+
+    // al-runner issue 8104: a reference to a decision record is part of the cause, not a number to fold.
+    #[test]
+    fn an_adr_reference_keeps_its_numbers() {
+        assert_eq!(
+            normalise_reason("FindSet on 'X': the rows (ADR-013 decision 5) and 7 more"),
+            "FindSet on <name>: the rows (ADR-013 decision 5) and N more"
+        );
+        assert_eq!(
+            normalise_reason("on the Company table (ADR-046 decision 4a)"),
+            "on the Company table (ADR-046 decision 4a)"
+        );
+        assert_eq!(
+            normalise_reason("ADR-066 amendment 12, decision 3 of 4"),
+            "ADR-066 amendment 12, decision 3 of N"
+        );
+        assert_eq!(normalise_reason("decision 5 alone"), "decision N alone");
     }
 }

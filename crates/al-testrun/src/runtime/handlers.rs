@@ -57,6 +57,17 @@ pub(crate) fn resolve_handlers(lowered: &Lowered, object: usize, test: usize) ->
                 .iter()
                 .find(|(k, r)| *k == kind && (!is_page || page_of(&obj.routines[*r]) == page_of(routine)))
             {
+                // A page handler whose page type was not lowered (its parameter is refused, so `page_of` is `None`) is
+                // refused for that reason, as with one handler (al-runner issue 8100), not as a binding to choose.
+                if is_page {
+                    for r in [*other, hr] {
+                        if page_of(&obj.routines[r]).is_none()
+                            && let Some(reason) = blocked_reason(lowered, object, r)
+                        {
+                            return Err(format!("handler {}: {reason}", obj.routines[r].name));
+                        }
+                    }
+                }
                 return Err(format!(
                     "{} and {} are both {kind:?} handlers; which one BC would bind is not pinned",
                     obj.routines[*other].name, routine.name

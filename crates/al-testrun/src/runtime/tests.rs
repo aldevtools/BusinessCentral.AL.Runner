@@ -3,7 +3,7 @@
 use super::*;
 use al_sema::workspace::AppSource;
 
-fn outcomes(src: &str) -> Vec<(String, Outcome)> {
+pub(super) fn outcomes(src: &str) -> Vec<(String, Outcome)> {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -1829,7 +1829,7 @@ fn running_a_dependency_page_nothing_compiled_by_its_id_is_refused() {
 
 /// The full run (install baseline included) of workspace app `main` over dependency app `dep`:
 /// the outcome of test `name` of the test codeunit `50001`.
-fn with_baseline(main: &str, dep: &str) -> impl Fn(&str) -> Outcome {
+pub(super) fn with_baseline(main: &str, dep: &str) -> impl Fn(&str) -> Outcome {
     let app = |id: &str, deps: &[&str], src: &str| AppSource {
         id: id.into(),
         name: id.into(),
