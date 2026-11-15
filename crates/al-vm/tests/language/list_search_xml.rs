@@ -30,6 +30,15 @@ codeunit 50332 T
         exit(Search(L, N, Member));
     end;
 
+    procedure EmptyList(Member: Integer): Text
+    var
+        L: List of [XmlNode];
+        N: XmlNode;
+    begin
+        N := XmlElement.Create('a').AsXmlNode();
+        exit(Search(L, N, Member));
+    end;
+
     procedure Element(Member: Integer): Text
     var
         L: List of [XmlElement];
@@ -124,7 +133,9 @@ fn refused(routine: &str, member: i32) -> String {
 
 #[test]
 fn a_search_of_a_list_of_xml_values_refuses() {
-    for routine in ["Node", "UnassignedNode", "Element", "Document", "Attribute"] {
+    // An empty list too: main answered No / 0 there, but BC may refuse the call on a list of handles whatever it holds, as it
+    // does for a list of interfaces (collections/ListComplex.al:Interface_List).
+    for routine in ["Node", "UnassignedNode", "EmptyList", "Element", "Document", "Attribute"] {
         for (member, name) in [(1, "Contains"), (2, "IndexOf"), (3, "LastIndexOf"), (4, "Remove")] {
             let why = refused(routine, member);
             assert!(why.contains(&format!("List.{name}")) && why.contains("XML"), "{routine}: {why}");
