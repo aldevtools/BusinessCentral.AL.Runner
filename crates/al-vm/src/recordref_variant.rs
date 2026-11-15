@@ -12,12 +12,23 @@
 //! seen by the other (:460-482) and a RecordRef parameter by value that the callee closes (:484-500).
 
 use al_builtins::library_kind::LibraryKind;
+use al_builtins::native::Signal;
 use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 type Lib = Rc<RefCell<LibraryValue>>;
 type WeakLib = Weak<RefCell<LibraryValue>>;
+
+/// "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized." (NotInitialized): `RecordRef.SetTable` and
+/// `RecordRef.GetTable` of a Variant that holds nothing (types/WcSetTableVariant.al:188-203 WC_SetTable_EmptyVariant;
+/// recordref-fieldref/recordref/GetTableVariantKinds.al:79-116).
+pub(crate) fn variant_not_initialized() -> Signal {
+    crate::transactions::al_error_code(
+        "Microsoft.Dynamics.Nav.Runtime.NavVariant variable not initialized.",
+        "NotInitialized",
+    )
+}
 
 /// What the `RecordRef.GetTable` that runs was given (refs.rs `ref_op`).
 #[derive(Default)]
@@ -149,5 +160,47 @@ impl VariantRefs {
         } else {
             *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
         }
+    }
+}
+
+impl crate::Session {
+    /// A RecordRef (held by a Variant) handed by value to a Record parameter of table `table`: of the same table, the Record
+    /// `ops::record_ref_into_record` makes (streams/ArRecordProbes.al:366 VariantRecordRef_PassedToRecordParameter).
+    /// Of another table it raises ObjectDefinitionChanged, naming the first field of the ref's table: pinned for that field a Code
+    /// where the parameter's table has an Integer (ArRecordProbes.al SG_VariantRecordRef_OtherTable_AssignAndParameter `param`, corpus bump PR
+    /// 738); other pairs of types and a ref not open raise an unpinned error.
+    pub(crate) fn record_ref_into_record_param(&mut self, h: &Lib, table: u32) -> Result<Value, Signal> {
+        let other = match &*h.borrow() {
+            LibraryValue::RecordRef(rec) if rec.borrow().table == table => {
+                return al_builtins::ops::record_ref_into_record(&rec.borrow());
+            }
+            LibraryValue::RecordRef(rec) => rec.borrow().table,
+            l if al_builtins::recordref_closed::not_open(l) => {
+                return Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())));
+            }
+            _ => {
+                return Err(Signal::Unsupported(
+                    "a RecordRef value that is no record into a Record parameter".into(),
+                ));
+            }
+        };
+        let first = |t: u32| {
+            self.engine.program.objects[t as usize]
+                .table
+                .as_ref()
+                .and_then(|s| s.fields.first())
+                .map(|f| (f.name.clone(), f.ty.clone()))
+        };
+        if let (Some((_, RtType::Integer)), Some((name, RtType::Code(_)))) = (first(table), first(other)) {
+            return Err(Signal::Error(Box::new(al_builtins::native::AlError {
+                message: format!(
+                    "The definition of the {name} field has changed; old type: Integer, new type: Code. Start your activity again."
+                ),
+                code: "ObjectDefinitionChanged".into(),
+                call_stack: String::new(),
+                ..Default::default()
+            })));
+        }
+        Err(Signal::Error(Box::new(al_builtins::native::unpinned_error())))
     }
 }

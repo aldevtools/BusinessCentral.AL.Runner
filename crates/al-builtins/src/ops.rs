@@ -694,7 +694,7 @@ fn convert_rare(v: Value, t: &RtType) -> Result<Value, Signal> {
         {
             LibraryValue::RecordRef(rec) if rec.borrow().table == *table => record_ref_into_record(&rec.borrow()),
             LibraryValue::RecordRef(_) => raise("The requested operation is not supported.", "NotSupportedOperation"),
-            LibraryValue::Empty => raise(RECORD_REF_NOT_OPEN, "Conversion"),
+            l if crate::recordref_closed::not_open(l) => raise(RECORD_REF_NOT_OPEN, "Conversion"),
             _ => unsupported(format!("conversion of {} to {t}", v.describe(), t = t.describe())),
         },
         // A Record into a RecordRef variable or by-value parameter: see `record_into_recordref`.

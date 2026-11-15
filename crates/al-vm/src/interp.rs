@@ -90,12 +90,23 @@ impl Session {
                 _ => None,
             };
         }
+        // The variable a KeyRef method is called on, for `keyref_unassigned_measured`; cleared once the native returns.
+        let keyref_call = matches!(
+            recv,
+            Some(Value::Library(al_builtins::library_kind::LibraryKind::KeyRef, _))
+        );
+        if keyref_call {
+            self.keyref_receiver_local = self.keyref_receiver_measured(receiver, f);
+        }
         // A background task this call enqueued runs once the call wrote its arguments back; one that a call further out
         // enqueued waits for that call.
         let drain_pending = self.pages.bg_drain_after_call.is_some();
         let ret = native(self, recv.as_mut(), &mut values);
         if query_call {
             self.query_receiver = None;
+        }
+        if keyref_call {
+            self.keyref_receiver_local = false;
         }
         let ret = ret?;
         // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
@@ -1415,11 +1426,7 @@ impl Session {
         match record {
             Value::Record(rc) => {
                 self.connection_check(&rc)?;
-                if let Some(why) = rc
-                    .borrow()
-                    .unpinned_buffer
-                    .filter(|w| !crate::records::run_page_link_fields_read(w) && *w != crate::records::HELD_PART_REC)
-                {
+                if let Some(why) = crate::records::buffer_read_refused(&rc) {
                     if why == crate::records::RUN_PAGE_LINK_OPEN {
                         return Err(Signal::unsupported(format!("a read of a field of Rec {why}")));
                     }
@@ -1548,6 +1555,15 @@ impl Session {
                 al_builtins::library_kind::LibraryKind::FilterPageBuilder,
                 filterpage::copy_for_assignment(&cell),
             ),
+            // `:=` from a KeyRef cleared after it held a key (`recordref_closed::keyref_assigned_copy`); a builtin's write-back
+            // (`Clear` itself) keeps the handle.
+            Value::Library(al_builtins::library_kind::LibraryKind::KeyRef, cell) if assign => {
+                let copy = al_builtins::recordref_closed::keyref_assigned_copy(&cell.borrow());
+                Value::Library(
+                    al_builtins::library_kind::LibraryKind::KeyRef,
+                    copy.map_or(cell, |c| Rc::new(std::cell::RefCell::new(c))),
+                )
+            }
             v => v,
         };
         // `:=` between records copies the fields into the target record (ADR-010); the target keeps its own SecurityFiltering
@@ -1591,9 +1607,8 @@ impl Session {
                         if let ir::Place::Global(i) = p {
                             self.single_replaced(&f.instance, *i);
                         }
-                        // The source's buffer after an export under SourceTableView is not pinned (records.rs
-                        // `XP_VIEW_AFTER_EXPORT`).
-                        if let Some(why) = crate::records::xp_export_marked(src) {
+                        // A source whose buffer is not pinned and must not be copied (records.rs `copy_refused_mark`).
+                        if let Some(why) = crate::records::copy_refused_mark(src) {
                             return Err(Signal::unsupported(format!("an assignment from a record: {why}")));
                         }
                         // A copied record holds copies of its Blobs (value semantics). The corpus

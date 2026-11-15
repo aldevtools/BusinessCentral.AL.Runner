@@ -93,13 +93,17 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
     let v = &mut args[0];
     *v = match v {
         Value::Record(_) => return ctx.record(RecordOp::Clear, Some(v), &mut []),
-        // Clearing a RecordRef/FieldRef/KeyRef closes it: a fresh, unopened handle.
+        // Clearing a RecordRef or a KeyRef gives a new handle that holds nothing, kept apart from one never opened or assigned
+        // (`recordref_closed::cleared`).
+        Value::Library(name, h) if matches!(name.as_str(), "RecordRef" | "KeyRef") => {
+            let emptied = crate::recordref_closed::cleared(name.as_str() == "RecordRef", &h.borrow());
+            Value::Library(name.clone(), std::rc::Rc::new(std::cell::RefCell::new(emptied)))
+        }
+        // Clearing a FieldRef closes it: a fresh, unopened handle.
         Value::Library(name, _)
             if matches!(
                 name.as_str(),
-                "RecordRef"
-                    | "FieldRef"
-                    | "KeyRef"
+                "FieldRef"
                     | "RecordId"
                     | "WebServiceActionContext"
                     | "SessionSettings"
