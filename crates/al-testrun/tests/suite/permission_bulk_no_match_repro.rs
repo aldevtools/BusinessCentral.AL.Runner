@@ -1,14 +1,15 @@
 //! al-runner issue 8068, the reporter's own repro (`repro8068/`, unchanged): `ReproParent.Delete(true)` from a test method
 //! runs the OnDelete trigger of "Repro Parent", whose ModifyAll on "Repro Other" matches no row while the sets give R on
-//! it. The reporter's run on BC 28.5 raised no error: it runs under assumption `bulk-write-no-match-in-delete-trigger` on
-//! BC 28 only. Each neighbor below differs from it in one fact the reporter's run does not measure, and is refused.
+//! it. Corpus PR 1403 measured that BC denies this write in every shape it changed, op 11 of record/Y19PermNoMatchShapes.al
+//! being the reporter's trigger on a target with an Integer primary key (`permission_bulk_no_match_probed.rs`). The
+//! reporter's target has a Code primary key, which no probe measured: the repro and each neighbor below are refused on
+//! every major.
 //!
 //! The fixture stands in for what the reporter's run took from Microsoft's apps: the Permissions Mock with its OnRun (the
 //! test runner runs it around each test method), the All Objects set, and a "D365 BASIC" set that grants nothing on the
 //! repro's tables.
 
 use super::permission_writes::run_main_on_target;
-use al_builtins::assumptions::Assumption;
 use al_testrun::Outcome;
 use al_testrun::isolation::TestIsolation;
 use al_testrun::runtime::{CorpusRuntime, RunOptions};
@@ -581,14 +582,8 @@ fn refused(rt: &CorpusRuntime, test: &str) {
 }
 
 #[test]
-fn the_reporters_repro_runs_flagged_on_bc_28() {
-    let r = result(on_28(), REPRO);
-    assert_eq!(r.outcome, Outcome::Pass);
-    assert_eq!(r.assumptions, vec![Assumption::BulkWriteNoMatchInDeleteTrigger]);
-}
-
-#[test]
-fn the_reporters_repro_is_refused_on_majors_it_was_not_run_on() {
+fn the_reporters_repro_is_refused_on_every_major() {
+    refused(on_28(), REPRO);
     for major in [Some(27), Some(29), None] {
         refused(&run_on(major), REPRO);
     }
