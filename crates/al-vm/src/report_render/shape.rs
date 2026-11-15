@@ -52,10 +52,7 @@ pub(crate) struct MeasuredShape {
 /// Hash_WordAlpha_TwoRows and Hash_WordRgba_TwoRows: RowId and RowTxt, a row section binding RowTxt, two rows.
 pub(crate) const SHAPES: &[MeasuredShape] = &[MeasuredShape {
     columns: &[ColumnKind::IntegerField, ColumnKind::TextField],
-    bindings: &[
-        BindingKind::RowSection,
-        BindingKind::Column(ColumnKind::TextField),
-    ],
+    bindings: &[BindingKind::RowSection, BindingKind::Column(ColumnKind::TextField)],
     rows: &[2],
 }];
 
@@ -178,7 +175,12 @@ fn generator(html: &[u8]) -> Option<&str> {
 /// the layout has a fact no measured shape has: more than one data item, a data item without a table, a column that is not
 /// an Integer or Text field, a caption, a label, a report extension, a layout not named by DefaultRenderingLayout, or a
 /// binding other than a row section over the data item and its columns inside it.
-pub(crate) fn save_shape(program: &ir::Program, object: usize, layout: &LayoutFacts, dataset: &[u8]) -> Option<SaveShape> {
+pub(crate) fn save_shape(
+    program: &ir::Program,
+    object: usize,
+    layout: &LayoutFacts,
+    dataset: &[u8],
+) -> Option<SaveShape> {
     let o = program.objects.get(object)?;
     let r = o.report.as_ref()?;
     let [item] = r.items.as_slice() else {

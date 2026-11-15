@@ -687,6 +687,25 @@ fn sidecar_config(args: &Args, root: &Path, major: u16) -> SidecarConfig {
     }
 }
 
+/// The DotNet configuration of a run on `host`, with its report renderer (ADR-040 amendment 2026-11-15): BC's Word merger and
+/// Html converter of the pinned build `bc_build`, started on the first measured Html save.
+fn dotnet_config(
+    host: Arc<dyn al_host::dotnet::DotNetHost>,
+    args: &Args,
+    root: &Path,
+    major: u16,
+    bc_build: Option<&str>,
+) -> al_vm::dotnet::DotNetConfig {
+    let mut dotnet = al_test_cli::dotnet::sidecar_config(host);
+    dotnet.renderer = al_testrun::report_render_pieces::run_renderer(
+        sidecar_config(args, root, major),
+        bc_build.and_then(|b| al_deps::build::BuildId::parse(b).ok()),
+        &al_deps::cache::cache_root_from_env(args.cache_dir.as_deref()),
+        !args.no_download,
+    );
+    dotnet
+}
+
 /// The corpus apps published before the main app (`deps::corpus_publish_dirs`), without the apps that run as suites.
 ///
 /// The folders some suite lists in `extra_dirs` are left out (CI publishes them in that suite's job only); `own` is
@@ -1138,15 +1157,7 @@ fn run_version_inner(
         // starts overlap the compile; a run without them starts nothing (ADR-014 section 6).
         sidecar_host.prewarm(al_test_cli::dotnet::STANDBY_SIDECARS);
     }
-    let mut dotnet = al_test_cli::dotnet::sidecar_config(host);
-    // ADR-040 amendment 2026-11-15: BC's Word merger and Html converter of the pinned build, started on the first measured
-    // Html save.
-    dotnet.renderer = al_testrun::report_render_pieces::run_renderer(
-        sidecar_config(args, root, version.major),
-        bc_build.as_deref().and_then(|b| al_deps::build::BuildId::parse(b).ok()),
-        &al_deps::cache::cache_root_from_env(args.cache_dir.as_deref()),
-        !args.no_download,
-    );
+    let dotnet = dotnet_config(host, args, root, version.major, bc_build.as_deref());
     let mut runs = vec![runtime::SuiteRun {
         name: String::new(),
         app: None,

@@ -39,10 +39,7 @@ fn only_the_converter_version_a_cell_measured_on_that_major_is_bcs_answer() {
 fn cell_shape() -> SaveShape {
     SaveShape {
         columns: vec![ColumnKind::IntegerField, ColumnKind::TextField],
-        bindings: vec![
-            BindingKind::RowSection,
-            BindingKind::Column(ColumnKind::TextField),
-        ],
+        bindings: vec![BindingKind::RowSection, BindingKind::Column(ColumnKind::TextField)],
         rows: 2,
     }
 }

@@ -20,9 +20,7 @@ use al_host::render::{RenderNeed, WordMerge};
 /// the report (`Plan::is_measured_html_stream_save`), rendered with the report's own default layout (`Renders::Default`), on a
 /// major of `shape::BUILDS`.
 pub(crate) fn save_is_measured(plan_is_measured: bool, renders: Renders, major: Option<u16>) -> bool {
-    plan_is_measured
-        && renders == Renders::Default
-        && major.is_some_and(|m| shape::BUILDS.iter().any(|b| b.major == m))
+    plan_is_measured && renders == Renders::Default && major.is_some_and(|m| shape::BUILDS.iter().any(|b| b.major == m))
 }
 
 impl Session {
@@ -49,7 +47,8 @@ impl Session {
         let measured = shape::save_shape(program, schema.object(), &facts, dataset)
             .is_some_and(|s| shape::shape_is_measured(shape::SHAPES, &s));
         let renderer = self.engine.dotnet.renderer.clone();
-        let available = || renderer.availability(RenderNeed::Merge).is_ok() && renderer.availability(RenderNeed::Html).is_ok();
+        let available =
+            || renderer.availability(RenderNeed::Merge).is_ok() && renderer.availability(RenderNeed::Html).is_ok();
         if !measured || !available() {
             return Ok(None);
         }

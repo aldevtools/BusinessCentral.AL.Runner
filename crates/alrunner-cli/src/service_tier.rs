@@ -10,6 +10,35 @@ use al_deps::service_tier::ServiceTier;
 use al_testrun::dotnet::{AssemblyFetch, SidecarConfig};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
+
+/// The sidecar configuration of a run and its report renderer (ADR-040 amendment 2026-11-15): BC's Word merger and Html
+/// converter of the build in use, started on the first measured Html save. The renderer's sets are fetched only when no
+/// extracted artifact serves the build, as the assemblies of [`dotnet_dirs`].
+pub fn sidecar_and_renderer(
+    a: &TestArgs,
+    build: Option<&ArtifactUse>,
+    major: u32,
+    source_root: Option<PathBuf>,
+) -> (SidecarConfig, Arc<dyn al_host::render::ReportRenderer>) {
+    let cfg = SidecarConfig {
+        sidecar: a.dotnet_sidecar.clone(),
+        source_root,
+        // Under the same cache root as the apps when the user chose one (issue 5747).
+        cache_dir: al_testrun::dotnet::sidecar_cache_dir_from_env(a.cache_dir.as_deref()),
+        allow_roll_forward: a.dotnet_allow_roll_forward,
+        timeout: Duration::from_secs(a.dotnet_timeout_secs.unwrap_or(60)),
+        // ADR-014 section 3, step 2 and issue 6924: the user's folders, an extracted artifact, then fetched assemblies.
+        ..dotnet_dirs(a, build, major)
+    };
+    let renderer = al_testrun::report_render_pieces::run_renderer(
+        cfg.clone(),
+        build.filter(|_| cfg.fetch_assembly.is_some()).map(|u| u.build.clone()),
+        &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+        !a.no_download,
+    );
+    (cfg, renderer)
+}
 
 /// A sidecar configuration with the probe folders and the fetch set, to fill in the rest of a run's configuration.
 pub fn dotnet_dirs(a: &TestArgs, build: Option<&ArtifactUse>, major: u32) -> SidecarConfig {

@@ -13,7 +13,7 @@ use al_host::dotnet::DotNetHost;
 use al_host::testdata::TestData;
 use al_testrun::deps::{self, Provision};
 use al_testrun::discover;
-use al_testrun::dotnet::{SidecarConfig, SidecarHost};
+use al_testrun::dotnet::SidecarHost;
 use al_testrun::refusals;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun, TestResult};
 use al_testrun::{CaseId, Outcome, target};
@@ -1552,27 +1552,11 @@ fn test_inner(
         .chain(a.defines.iter().cloned())
         .collect();
 
-    let sidecar_cfg = SidecarConfig {
-        sidecar: a.dotnet_sidecar.clone(),
-        source_root: source_root(),
-        // Under the same cache root as the apps when the user chose one (issue 5747).
-        cache_dir: al_testrun::dotnet::sidecar_cache_dir_from_env(a.cache_dir.as_deref()),
-        allow_roll_forward: a.dotnet_allow_roll_forward,
-        timeout: Duration::from_secs(a.dotnet_timeout_secs.unwrap_or(60)),
-        // ADR-014 section 3, step 2 and issue 6924: the user's folders, an extracted artifact, then fetched assemblies.
-        ..crate::service_tier::dotnet_dirs(a, dependencies.build.as_ref(), u32::from(chosen.target.bc.major))
-    };
-    // ADR-040 amendment 2026-11-15: BC's Word merger and Html converter of the build in use, started on the first measured
-    // Html save; the sets are fetched only when no extracted artifact serves the build (as the assemblies of `dotnet_dirs`).
-    let renderer = al_testrun::report_render_pieces::run_renderer(
-        sidecar_cfg.clone(),
-        dependencies
-            .build
-            .as_ref()
-            .filter(|_| sidecar_cfg.fetch_assembly.is_some())
-            .map(|u| u.build.clone()),
-        &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
-        !a.no_download,
+    let (sidecar_cfg, renderer) = crate::service_tier::sidecar_and_renderer(
+        a,
+        dependencies.build.as_ref(),
+        u32::from(chosen.target.bc.major),
+        source_root(),
     );
     let host = Arc::new(SidecarHost::new(sidecar_cfg));
     if a.require_dotnet {
@@ -1612,10 +1596,8 @@ fn test_inner(
             sidecar_host.prewarm(al_testrun::dotnet::STANDBY_SIDECARS);
         }
     }
-    let dotnet = al_vm::dotnet::DotNetConfig {
-        renderer,
-        ..al_testrun::dotnet::sidecar_config(host)
-    };
+    let mut dotnet = al_testrun::dotnet::sidecar_config(host);
+    dotnet.renderer = renderer;
     // `--affected` (ADR-050): the stored result of the last run, and the callback that narrows this one.
     let affected = if a.affected && collect.is_none() {
         Some(crate::affected::Affected::prepare(
