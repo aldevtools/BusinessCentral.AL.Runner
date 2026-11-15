@@ -454,3 +454,27 @@ fn a_group1_filter_set_in_the_other_company_keeps_mains_refusal() {
         "{o:?}"
     );
 }
+
+// Probe n19c in the other company: the per-company install routine writes a shared table there only through a RecordRef,
+// then the runner stops it. The roll back takes the row, and the static reach does not name the table: as for a shared table
+// the routine names, a test that reads it is not run (decision 6).
+#[test]
+fn a_shared_table_a_stopped_routine_wrote_through_a_recordref_in_the_other_company_is_refused() {
+    let main = format!(
+        "{COMPANY_TABLE}
+        table 60902 Shared {{ DataPerCompany = false; fields {{ field(1; K; Code[40]) {{ }} field(2; Blocked; Boolean) {{ }} }} }}
+        codeunit 60905 Inst {{ Subtype = Install;
+            trigger OnInstallAppPerCompany() var R: RecordRef; T: Record Shared temporary;
+            begin if CompanyName() <> '{OTHER}' then exit; R.Open(Database::Shared); R.Init(); if R.Insert() then;
+                T.FilterGroup(1); T.SetRange(Blocked, true); T.FilterGroup(0); end; }}
+        codeunit 60102 T {{ Subtype = Test;
+            [Test] procedure SharedRow() var Sh: Record Shared; begin if Sh.IsEmpty() then Error('no row'); end;
+            [Test] procedure NoTable() begin end; }}"
+    );
+    let o = outcomes_of_apps(&[("main", &[], &main)]);
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(r) if r.contains("My Company") && r.contains("decision 6")),
+        "{o:?}"
+    );
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+}
