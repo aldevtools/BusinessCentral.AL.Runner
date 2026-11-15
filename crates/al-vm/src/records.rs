@@ -2088,7 +2088,12 @@ impl Session {
                     continue;
                 }
             } else if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
-                continue;
+                // An assigned copy of an in-memory write in a record never inserted reads empty
+                // (streams/BlobCopyNeighbors.al:3102-3134, :3311-3316, `AssignedNeverInserted`).
+                let assigned_never_inserted = stored.is_none() && !rec.borrow().inserted && buf.borrow().assigned_write;
+                if !assigned_never_inserted {
+                    continue;
+                }
             }
             // A row that is not stored (a copy of a record never inserted) leaves the Blob empty: the buffer
             // showed `*` after `Copy1 := Row`, and CalcFields reads nothing back
@@ -2107,6 +2112,7 @@ impl Session {
             b.written = false;
             b.written_base = None;
             b.assigned_unsaved = false;
+            b.assigned_write = false;
             b.fetched = true;
             // ADR-040: the stored row carries the mark of an output that was never produced.
             b.render_pending = pending;
@@ -2124,6 +2130,7 @@ impl Session {
                 b.written = false;
                 b.written_base = None;
                 b.assigned_unsaved = false;
+                b.assigned_write = false;
                 // A Blob the record read without CalcFields stays as stored by the save (record/load-fields/
                 // P81LoadFields.al:700-711) and stays unloaded: a later CalcFields fetches it (streams/TestBlob.al
                 // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), it does not keep the empty view the buffer shows.

@@ -82,6 +82,11 @@ pub struct BlobBuf {
     /// `blob_transfer::assigned_copy`, al-runner issue 7961, tests/al-language/streams/BlobAssignThenCalcFields.al:244-256 (Assign_Ins_FromTmpIns)), and nothing saved, fetched or wrote it since:
     /// `CalcFields` keeps it as it keeps an unsaved stream write (al-vm `Session::load_blobs`). A copy does not keep it.
     pub assigned_unsaved: bool,
+    /// The buffer is the copy `Target.Field := Source.Blob` stored of content a stream wrote in memory into a buffer not tied
+    /// to a row (al-vm `blob_transfer::assigned_copy`), and nothing saved, fetched or wrote it since. `CalcFields` of a
+    /// database record never inserted then reads it empty (streams/BlobCopyNeighbors.al:3102-3134, :3311-3316; al-vm
+    /// `Session::load_blobs`). Copies of the buffer keep it.
+    pub assigned_write: bool,
     /// The empty Blob `FieldRef.Value` hands out for a stored row's Blob that holds content and was not read with CalcFields
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
@@ -384,6 +389,7 @@ pub fn new_blob() -> BlobRef {
         dotnet_view: 0,
         unread_content: false,
         assigned_unsaved: false,
+        assigned_write: false,
         utf16_binary: false,
         unicode_read: None,
         content_edits: 0,
@@ -429,6 +435,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         dotnet_view: 0,
         unread_content: false,
         assigned_unsaved: false,
+        assigned_write: false,
         utf16_binary: b.utf16_binary,
         unicode_read: None,
         content_edits: 0,
@@ -479,6 +486,7 @@ fn write_bytes_at(b: &BlobRef, bytes: &[u8]) -> bool {
     let mut buf = b.borrow_mut();
     buf.unicode_read = None;
     buf.assigned_unsaved = false;
+    buf.assigned_write = false;
     if !buf.written {
         buf.written_base = Some(buf.bytes.clone());
     }
@@ -1157,6 +1165,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         dotnet_view: 0,
         unread_content: false,
         assigned_unsaved: false,
+        assigned_write: false,
         utf16_binary: false,
         unicode_read: None,
         content_edits: 0,

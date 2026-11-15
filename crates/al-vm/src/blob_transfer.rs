@@ -3,7 +3,6 @@
 //! `TransferFields`, a Variant (an assignment, a by-value parameter), `Record.Copy` and a record passed by value.
 
 use crate::Session;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::{BuiltinId, ids};
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
@@ -663,9 +662,8 @@ impl FieldKind {
 /// `TransferFields` of a Blob of a row read without CalcFields, and not written since, moves an empty one: the target has no
 /// value, and inserting it stores none (record/crud/RcBTransfer.al:486-493, Transfer_Blob_Field_BQ `withoutCalcFields`).
 ///
-/// Every other copy runs through assumption `blob-transfer-copies` (corpus PR 1369, recordref-fieldref/fieldref/
-/// FieldRefValueBlobCopy.al; PR 1372, streams/BlobValueCopyShapes.al; PR 1375, streams/BlobCopyStates.al; the lines are in
-/// the entry), for the cells
+/// Every other copy is pinned by recordref-fieldref/fieldref/FieldRefValueBlobCopy.al, streams/BlobValueCopyShapes.al,
+/// streams/BlobCopyStates.al and streams/BlobCopyNeighbors.al, for the cells
 /// [`measured`] names. `holder` is the record the source Blob is a field of. `kind` says of which kind the fields are the Blob
 /// moves between; it is asked only for a Blob in such a cell or in one [`refused_before`] names. A Blob outside the measured
 /// cells is stored as it comes, as before, or refused where it was refused before.
@@ -739,7 +737,6 @@ pub(crate) fn moved(
         _ => None,
     };
     let Some(cell) = cell else { return Ok(v) };
-    assume(Assumption::BlobTransferCopies);
     Ok(Value::Blob(match cell {
         Cell::Copy => copy_for_assignment(b),
         Cell::Unread => new_blob(),
@@ -782,6 +779,8 @@ fn assigned_copy(cur: Option<&Value>, b: &al_builtins::stream::BlobRef, s: &Sour
     if source_in_cell && target_in_cell {
         copy.borrow_mut().assigned_unsaved = true;
     }
+    // Content a stream wrote in memory (streams/BlobCopyNeighbors.al:3110-3111, `W(Other, 'beta')` then the assignment).
+    copy.borrow_mut().assigned_write = matches!((s.in_memory, s.written, s.content), (true, true, true));
     Value::Blob(copy)
 }
 
@@ -803,7 +802,7 @@ struct Source {
     plain_buffer: bool,
 }
 
-/// What a measured cell of assumption `blob-transfer-copies` gives the target.
+/// What a measured cell (the probe files [`moved`] names) gives the target.
 #[derive(PartialEq, Eq)]
 enum Cell {
     /// A copy of the source.

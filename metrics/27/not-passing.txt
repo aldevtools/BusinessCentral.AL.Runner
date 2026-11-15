@@ -2475,9 +2475,7 @@
 97732 Assign_GetEmpty_FromTmpIns
 97732 Assign_Ins_FromCalc
 97732 Assign_NotIns_FromCalc
-97732 Assign_NotIns_FromMem
 97732 Assign_NotIns_FromTmpIns
-97732 Assign_NotIns_FromTmpMem
 97732 Assign_Temp_FromCalc
 97732 Assign_Temp_FromMem
 97732 Assign_Temp_FromTmpIns
@@ -2503,7 +2501,6 @@
 97767 OnModify_Mode2_Calc
 97767 OnModify_Mode2_Get
 97767 OnModify_Mode2_Ins
-97866 CalcFields_AfterAssign_ByValueAndCopy
 97910 ECR_CardAssertStatus_1033
 97910 ECR_CardAssertStatus_2067
 97910 ECR_CardSetEnuOnly_1033

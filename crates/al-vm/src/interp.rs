@@ -1651,6 +1651,7 @@ impl Session {
                                             dotnet_view: 0,
                                             unread_content: false,
                                             assigned_unsaved: false,
+                                            assigned_write: false,
                                             utf16_binary: b.utf16_binary,
                                             ..Default::default()
                                         },
