@@ -1,6 +1,6 @@
 //! Rows install code left that the runner does not know (al-runner issue 8115): install code after a stopped install
 //! routine, a not-run install routine's table read through a RecordRef, and a dependency app's login subscriber.
-use super::tests::{outcomes_and_hits_of_apps, outcomes_and_hits_of_published_apps};
+use super::app_outcomes::{outcomes_and_hits_of_apps, outcomes_and_hits_of_published_apps};
 use super::*;
 
 /// App A: table `Item`; its install trigger inserts two rows and then runs `tail`.

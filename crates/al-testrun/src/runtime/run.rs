@@ -171,6 +171,16 @@ pub fn run_codeunit_full(
     )
 }
 
+/// The tables `watched` and those of `skipped_installs` (`skipped_install_tables`), for the store's watch.
+fn with_skipped<'a>(
+    watched: impl Iterator<Item = &'a u32>,
+    skipped_installs: &[(BTreeSet<u32>, String)],
+) -> BTreeSet<u32> {
+    let mut out: BTreeSet<u32> = watched.copied().collect();
+    out.extend(skipped_install_tables(skipped_installs));
+    out
+}
+
 /// The reason of the first skipped install that wrote a table `routine` can reach. The tables the routine reaches are
 /// found once, and only when an install was skipped: the walk of its calls cost as much as the test for every skipped install.
 fn skipped_install_touching<'a>(
@@ -489,9 +499,7 @@ fn run_codeunit_inner(
             if let Some(reason) = company_open_refuses(on_run) {
                 return Err(on_run_refused(format!("OnRun: {reason}")));
             }
-            let mut watched = leak.clone();
-            watched.extend(skipped_install_tables(&skipped_installs));
-            session.store_mut().watch(watched);
+            session.store_mut().watch(with_skipped(leak.iter(), &skipped_installs));
             // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
             // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
             // AL code observes.
@@ -510,9 +518,7 @@ fn run_codeunit_inner(
             let timed_out = watchdog.is_some_and(Watchdog::finish);
             let ran = on_run_time_limit(session, ran, limit, timed_out);
             let hits = session.store_mut().watch_hits();
-            if !leak.is_disjoint(&hits) {
-                scratch.leak_hit = true;
-            }
+            scratch.leak_hit |= !leak.is_disjoint(&hits);
             session.store_mut().watch(Default::default());
             if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
@@ -712,9 +718,7 @@ fn run_codeunit_inner(
                     Err(reason) => Outcome::NotRun(reason),
                     Ok(()) => {
                         began = true;
-                        let mut watched = company_open.watched();
-                        watched.extend(leak.iter().copied());
-                        watched.extend(skipped_install_tables(&skipped_installs));
+                        let watched = with_skipped(company_open.watched().union(&leak), &skipped_installs);
                         session.store_mut().watch(watched);
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
@@ -1020,12 +1024,10 @@ fn run_codeunit_inner(
             // A test that read or wrote a table install code that could not run touches, through a path its record
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
-            let skipped_hit = || {
-                skipped_install_hit(&skipped_installs, &touched)
-                    .filter(|_| began)
-                    .map(|(_, why)| why.clone())
-            };
-            let outcome = match hit.and_then(|t| company_open.touched(t, lowered)).or_else(skipped_hit) {
+            let skipped_hit = skipped_install_hit(&skipped_installs, &touched).filter(|_| began);
+            let outcome = match (hit.and_then(|t| company_open.touched(t, lowered)))
+                .or_else(|| skipped_hit.map(|(_, why)| why.clone()))
+            {
                 Some(why) => Outcome::NotRun(why),
                 None => {
                     if began && !leak.is_disjoint(&touched) {
