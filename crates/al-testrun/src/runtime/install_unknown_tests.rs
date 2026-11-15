@@ -388,3 +388,84 @@ fn a_table_a_rolled_back_company_triggers_subscriber_wrote_through_a_recordref_i
     assert!(not_run(&o[0].1), "{o:?}");
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
+
+/// App B of probe n19d (review of al-runner PR 8119): its install trigger stops (`STOPS` on a temporary record) before
+/// `tail`; a test reads `Mark`, one touches `Setup`, one no table.
+fn app_b_stops_before(tail: &str) -> String {
+    format!(
+        "table 60960 Setup {{ fields {{ field(1; K; Code[10]) {{ }} field(2; Blocked; Boolean) {{ }} }} }}
+        table 60964 Mark {{ fields {{ field(1; K; Code[10]) {{ }} }} }}
+        codeunit 60961 InstB {{ Subtype = Install;
+            trigger OnInstallAppPerCompany() var T: Record Setup temporary; R: RecordRef; Id: Integer;
+            begin T.FilterGroup(1); T.SetRange(Blocked, true); T.FilterGroup(0); {tail} end; }}
+        codeunit 60962 T {{ Subtype = Test;
+            [Test] procedure MarkSaw() var M: Record Mark; begin if M.IsEmpty() then Error('no mark'); end;
+            [Test] procedure SetupTable() var S: Record Setup; begin S.K := 'X'; S.Insert(); end;
+            [Test] procedure NoTable() begin end; }}"
+    )
+}
+
+// Probe n19d: B stops before its RecordRef insert into Mark. On BC it runs to its end and the mark row is there; on main
+// MarkSaw failed with "no mark". The table of a RecordRef.Open with a constant id is refused now.
+#[test]
+fn a_stopped_routines_recordref_write_after_the_stop_refuses_its_readers() {
+    let b = app_b_stops_before("R.Open(Database::Mark); R.Init(); if R.Insert() then;");
+    let o = run_ab(&app_a(""), &b);
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+}
+
+// The same with a table id known only at run time: every table may hold a row BC keeps, so every reader is refused; the
+// test that touches no table runs.
+#[test]
+fn a_stopped_routines_recordref_write_of_a_run_time_table_refuses_every_reader() {
+    let b = app_b_stops_before("Id := 60964; R.Open(Id); R.Init(); if R.Insert() then;");
+    let o = run_ab(&app_a(""), &b);
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert!(not_run(&o[1].1), "{o:?}");
+    assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+}
+
+// A neighbor that keeps main's result: a RecordRef that only reads after the stop adds no table.
+#[test]
+fn a_stopped_routines_recordref_read_after_the_stop_keeps_mains_result() {
+    let b = app_b_stops_before("Id := 60964; R.Open(Id); if R.IsEmpty() then;");
+    let o = run_ab(&app_a(""), &b);
+    assert!(matches!(&o[0].1, Outcome::Fail(m) if m.contains("no mark")), "{o:?}");
+}
+
+/// The tests of `main` (codeunit `T`) on the install baseline of the dependency app `dep`.
+fn on_baseline(dep: &str, main: &str) -> Vec<(String, Outcome)> {
+    super::app_outcomes_tests::outcomes_on_dependency_baseline(dep, main).0
+}
+
+// The same gap for a dependency app's install routine (the install baseline, `baseline_roots.rs`): it stops before its
+// RecordRef insert into Mark; a test that reads Mark is not run.
+#[test]
+fn a_dependency_install_routine_that_stops_before_a_recordref_write_refuses_its_readers() {
+    let dep = "table 60964 Mark { fields { field(1; K; Code[10]) { } field(2; Blocked; Boolean) { } } }
+        codeunit 60961 InstD { Subtype = Install;
+            trigger OnInstallAppPerCompany() var T: Record Mark temporary; R: RecordRef;
+            begin T.FilterGroup(1); T.SetRange(Blocked, true); T.FilterGroup(0); R.Open(Database::Mark); R.Init(); if R.Insert() then; end; }";
+    let main = "codeunit 60962 T { Subtype = Test;
+        [Test] procedure MarkSaw() var M: Record Mark; begin if M.IsEmpty() then Error('no mark'); end;
+        [Test] procedure NoTable() begin end; }";
+    let o = on_baseline(dep, main);
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+}
+
+// Probe n19c on the install baseline: a dependency install routine writes Mark through a RecordRef and then stops; the
+// roll back takes the row BC keeps.
+#[test]
+fn a_dependency_install_routine_that_stops_after_a_recordref_write_refuses_its_readers() {
+    let dep = "table 60964 Mark { fields { field(1; K; Code[10]) { } field(2; Blocked; Boolean) { } } }
+        table 60965 Other { fields { field(1; K; Code[10]) { } field(2; Blocked; Boolean) { } } }
+        codeunit 60961 InstD { Subtype = Install;
+            trigger OnInstallAppPerCompany() var T: Record Other temporary; R: RecordRef; Id: Integer;
+            begin Id := 60964; R.Open(Id); R.Init(); if R.Insert() then; R.Close(); T.FilterGroup(1); T.SetRange(Blocked, true); end; }";
+    let main = "codeunit 60962 T { Subtype = Test;
+        [Test] procedure MarkSaw() var M: Record Mark; begin if M.IsEmpty() then Error('no mark'); end; }";
+    let o = on_baseline(dep, main);
+    assert!(not_run(&o[0].1), "{o:?}");
+}

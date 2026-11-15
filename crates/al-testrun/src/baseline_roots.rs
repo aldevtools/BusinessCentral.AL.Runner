@@ -89,6 +89,7 @@ impl RootRun<'_> {
         }
         session.clear_fault_site();
         let before = session.carried_state();
+        let mark = session.store_mut().change_counter();
         // A Message while the company is built goes to the run log (`company_data::MESSAGE_NOTE`).
         if is_step {
             session.capture_messages();
@@ -136,6 +137,13 @@ impl RootRun<'_> {
                 session.commit_transaction();
             }
             Some(why) => {
+                // The rows it wrote before the stop, through any path (a RecordRef too), are rolled back, and on BC it ran
+                // to its end and kept them (review of al-runner PR 8119, probe n19c; the same rule as `install.rs`
+                // `Stopped::roll_back`).
+                let mut tables = crate::baseline::tables_written_or_loaded(self.lowered, oi, ri);
+                if !keep_prefix {
+                    tables.extend(session.store_mut().tables_rolled_back_since(mark));
+                }
                 if keep_prefix {
                     session.commit_transaction();
                 } else if let Some(unknown) =
@@ -160,10 +168,7 @@ impl RootRun<'_> {
                         }
                     ));
                 }
-                self.stopped.push((
-                    crate::baseline::tables_written_or_loaded(self.lowered, oi, ri),
-                    keep_prefix,
-                ));
+                self.stopped.push((tables, keep_prefix));
             }
         }
     }

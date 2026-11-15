@@ -95,6 +95,13 @@ impl Group1Filters {
     pub(crate) fn signature(&self, table: u32) -> Option<&str> {
         self.filters.by_table.get(&table).map(|e| e.signature.as_str())
     }
+
+    /// The group 1 filters of every table that holds some, as text to compare (al-vm `state_stamp.rs`).
+    pub(crate) fn signatures(&self) -> std::collections::BTreeMap<u32, String> {
+        (self.filters.by_table.iter())
+            .map(|(&t, e)| (t, e.signature.clone()))
+            .collect()
+    }
 }
 
 impl Session {

@@ -534,6 +534,17 @@ fn unseeded_tables(stopped: &[(BTreeSet<u32>, bool)], filled: &BTreeSet<u32>, se
         .collect()
 }
 
+/// What a reach does through a `RecordRef` ([`tables_written_or_loaded`]).
+#[derive(Default)]
+struct RecRefWrites {
+    /// The tables a `RecordRef.Open` with a constant id or a `RecordRef.GetTable` of a stored record opens.
+    opens: BTreeSet<u32>,
+    /// A `RecordRef.Open` whose table id is known only at run time.
+    any_table: bool,
+    /// An Insert, Modify, Rename or ModifyAll on a RecordRef.
+    writes: bool,
+}
+
 pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
     tables_written_in(lowered, object, routine, false)
 }
@@ -541,6 +552,12 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
 /// [`tables_written`] and the tables a `NavApp.LoadPackageData` with a constant table id fills (al-runner issue 7359): what
 /// a root that stopped or could not run leaves without the rows BC has. The order analyses of the install routines keep
 /// [`tables_written`] (a load writes no SystemCreatedAt the corpus orders).
+///
+/// Also the tables a `RecordRef` can write when the reach writes through one (Insert, Modify, Rename or ModifyAll on a
+/// RecordRef): each table a `RecordRef.Open` with a constant table id or a `RecordRef.GetTable` of a record not declared
+/// temporary opens; when one `RecordRef.Open` takes a table id known only at run time, every table. Code that stopped
+/// did not write what came after the stop, and the static reach is all that shows it (review of al-runner PR 8119, probes
+/// n19d, n23).
 pub(crate) fn tables_written_or_loaded(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
     tables_written_in(lowered, object, routine, true)
 }
@@ -555,6 +572,7 @@ fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bo
         heads: &'a [al_ir::ObjectHead],
         loads: bool,
         out: &'a mut BTreeSet<u32>,
+        recref: &'a mut RecRefWrites,
     }
     impl W<'_> {
         /// `NavApp.LoadPackageData(Database::X)` with a constant table id writes the rows of table X (al-runner issue 7359:
@@ -569,6 +587,29 @@ fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bo
                 .position(|o| o.kind == al_ir::ObjKind::Table && o.id.is_some_and(|id| i64::from(id) == i64::from(*n)));
             if let Some(t) = found {
                 self.out.insert(t as u32);
+            }
+        }
+        /// `RecordRef.Open`, `RecordRef.GetTable` and the RecordRef writes, for [`RecRefWrites`].
+        fn recordref(&mut self, method: &str, args: &[Arg]) {
+            match method {
+                "Open" => match args.first() {
+                    Some(Arg::Value(Expr::Const(al_ir::Const::Integer(n)))) => {
+                        let found = self.heads.iter().position(|o| {
+                            o.kind == al_ir::ObjKind::Table && o.id.is_some_and(|id| i64::from(id) == i64::from(*n))
+                        });
+                        self.recref.opens.extend(found.map(|t| t as u32));
+                    }
+                    _ => self.recref.any_table = true,
+                },
+                "GetTable" => {
+                    let place = match args.first() {
+                        Some(Arg::Ref(p) | Arg::Value(Expr::Load(p))) => Some(p),
+                        _ => None,
+                    };
+                    self.recref.opens.extend(place.and_then(|p| self.record_of(p)));
+                }
+                "Insert" | "Modify" | "Rename" | "ModifyAll" => self.recref.writes = true,
+                _ => {}
             }
         }
         fn root(p: &Place) -> Option<&Place> {
@@ -661,6 +702,10 @@ fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bo
                     if self.loads && id.name() == "NavApp.LoadPackageData#1" {
                         self.package_data_table(args);
                     }
+                    if let (true, Some(rest)) = (self.loads && receiver.is_some(), id.name().strip_prefix("RecordRef."))
+                    {
+                        self.recordref(rest.split('#').next().unwrap_or(""), args);
+                    }
                     if let Some(r) = receiver {
                         if let Some(rest) = id.name().strip_prefix("Record.") {
                             let method = rest.split('#').next().unwrap_or("");
@@ -739,6 +784,7 @@ fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bo
     }
 
     let mut out = BTreeSet::new();
+    let mut recref = RecRefWrites::default();
     let mut seen = BTreeSet::new();
     let mut stack = vec![(object, routine)];
     while let Some((o, r)) = stack.pop() {
@@ -753,9 +799,21 @@ fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bo
             heads: lowered.program.objects.heads(),
             loads,
             out: &mut out,
+            recref: &mut recref,
         }
         .stmts(&rt.body);
         lowered.calls_into(o, r, &mut stack);
+    }
+    if recref.writes {
+        out.extend(recref.opens);
+        if recref.any_table {
+            let heads = lowered.program.objects.heads();
+            out.extend(
+                (0..heads.len())
+                    .filter(|&t| heads[t].kind == al_ir::ObjKind::Table)
+                    .map(|t| t as u32),
+            );
+        }
     }
     // Rows that event subscribers of those writes add are not counted: which of them run depends on
     // data (a subscriber that writes a table when something else is configured), and counting every

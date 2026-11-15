@@ -1,0 +1,200 @@
+//! The login subscribers of the partner dependency apps in the test session (al-runner issue 8115, scenario s09).
+//!
+//! BC raises "System Initialization".`OnAfterLogin` in every session, the test session too, and a dependency app's
+//! subscriber runs there: a group 1 filter its body sets is there in the test (corpus PR 1405,
+//! G1sInstallSessionTests.al:98, :103, the subscriber at G1sXaInstall.al:116-124, a dependency app whose publisher is
+//! "AL Language"). Where the test session raises the login through Microsoft's code (`login::Login::Raise`) that code
+//! runs them. Otherwise ([`subscribers`]) they run here, at the place "System Initialization Impl." raises the login,
+//! together with the apps under test's own (`install::own_login`, in the order the event reaches them, [`steps`]), and
+//! what they leave is watched ([`raise`]): the measured filter stays; rows and other session state, which the probe does
+//! not measure, refuse their readers. Not pinned yet: assumption `partner-login-subscriber-in-test-session`.
+
+use crate::login::OwnEvent;
+use al_builtins::native::Signal;
+use al_sema::lower::Lowered;
+use al_vm::Session;
+use std::collections::BTreeSet;
+
+/// What the partner dependency apps' login subscribers left in the test session ([`raise`]).
+#[derive(Debug, Default)]
+pub(crate) struct PartnerLogin {
+    /// The tables they wrote: a test or an OnRun that reads or writes one is not run.
+    pub tables: BTreeSet<u32>,
+    /// The tables whose group 1 filters they changed: a test that reads or writes one relies on the assumption.
+    pub group1: BTreeSet<u32>,
+}
+
+impl PartnerLogin {
+    /// The tables a test is watched for.
+    pub fn watched(&self) -> impl Iterator<Item = &u32> {
+        self.tables.iter().chain(&self.group1)
+    }
+
+    /// After a test that began, of the tables it touched (`hits`), the first one they wrote. A table whose group 1 filter
+    /// they set marks the assumption: what the test found there rests on the subscribers having run.
+    pub fn test_hit(&self, hits: &BTreeSet<u32>) -> Option<u32> {
+        if !self.group1.is_disjoint(hits) {
+            mark();
+        }
+        hits.iter().find(|t| self.tables.contains(t)).copied()
+    }
+
+    /// After the test codeunit's OnRun, of the tables it touched (`hits`), the first one they wrote or set a group 1
+    /// filter on: what an OnRun finds there is not measured.
+    pub fn on_run_hit(&self, hits: &BTreeSet<u32>) -> Option<u32> {
+        hits.iter()
+            .find(|t| self.tables.contains(t) || self.group1.contains(t))
+            .copied()
+    }
+
+    /// Why code that read or wrote table `t` is not run: `None` when they did not write or filter `t`.
+    pub fn touched(&self, t: u32, lowered: &Lowered) -> Option<String> {
+        (self.tables.contains(&t) || self.group1.contains(&t)).then(|| {
+            format!(
+                "the login subscribers of the partner dependency apps ran before the first test and wrote or filtered \
+                 table {}, which this code read or wrote: what BC leaves there is not pinned",
+                lowered.program.objects.get(t as usize).map_or("?", |o| o.name.as_str())
+            )
+        })
+    }
+}
+
+fn mark() {
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartnerLoginSubscriberInTestSession);
+}
+
+/// The partner dependency apps' login subscribers the test session runs itself, or none. Every fact the probe measured,
+/// by equality: the login is not raised through Microsoft's code (`raised` false, `own_watched` none: no login subscriber
+/// of an app under test, or `Login::Own` in the measured session); a session with a client and Codeunit isolation
+/// (`session_watched` none: not `--no-client`, not Disabled; the corpus test session, G1sInstallSessionTests.al:31-34);
+/// the automatic subscribers to "System Initialization".`OnAfterLogin` of a dependency app whose publisher is known and is
+/// not Microsoft (`install_orders::is_partner`; G1sXaInstall.al:116, the app "AL Language"). A subscriber the compile left
+/// out is not in the registry: it is not run, as on main.
+pub(crate) fn subscribers(
+    lowered: &Lowered,
+    events: &al_vm::events::Registry,
+    raised: bool,
+    session_watched: Option<&'static str>,
+) -> Vec<(usize, usize)> {
+    if raised || session_watched.is_some() {
+        return Vec::new();
+    }
+    let objs = &lowered.program.objects;
+    (crate::login::after_login_subscribers(lowered, events).iter().copied())
+        .filter(|&(o, _)| lowered.dependency[o] && crate::install_orders::is_partner(lowered, objs[o].app))
+        .collect()
+}
+
+/// One raise of a login event to some of its subscribers (`install::own_login`).
+pub(crate) struct Step {
+    /// The publisher routine (object, routine).
+    pub publisher: (usize, usize),
+    /// Lower-case event name.
+    pub event: &'static str,
+    /// The subscribers, in the order the event reaches them.
+    pub subscribers: Vec<(usize, usize)>,
+    /// The subscribers are the partner dependency apps' ([`raise`]), else the apps under test's own.
+    pub partner: bool,
+}
+
+/// The raises of the login: the apps under test's own events `own` in their order, and `OnAfterLogin` raised to the
+/// apps' own subscribers and the partner subscribers `partner` in the order the event reaches them (the registry's), one
+/// step per run of subscribers of the same side, so that what each side wrote is told apart.
+pub(crate) fn steps(
+    lowered: &Lowered,
+    events: &al_vm::events::Registry,
+    own: &[OwnEvent],
+    partner: &[(usize, usize)],
+) -> Vec<Step> {
+    let after_login = "onafterlogin";
+    let mut out: Vec<Step> = (own.iter())
+        .filter(|e| e.event != after_login || partner.is_empty())
+        .map(|e| Step {
+            publisher: e.publisher,
+            event: e.event,
+            subscribers: e.subscribers.clone(),
+            partner: false,
+        })
+        .collect();
+    if partner.is_empty() {
+        return out;
+    }
+    let own_after: &[(usize, usize)] = (own.iter().find(|e| e.event == after_login)).map_or(&[], |e| &e.subscribers);
+    let Some(publisher) = crate::login::after_login_publisher(lowered, events) else {
+        return out;
+    };
+    let order = events
+        .subscribers
+        .get(&(publisher.0, after_login.to_string()))
+        .into_iter()
+        .flatten();
+    for s in order {
+        let sub = (s.object, s.routine);
+        let side = if partner.contains(&sub) {
+            true
+        } else if own_after.contains(&sub) {
+            false
+        } else {
+            continue;
+        };
+        match out.last_mut() {
+            Some(last) if last.event == after_login && last.partner == side => last.subscribers.push(sub),
+            _ => out.push(Step {
+                publisher,
+                event: after_login,
+                subscribers: vec![sub],
+                partner: side,
+            }),
+        }
+    }
+    out
+}
+
+/// Raises step `step` of the partner subscribers and notes what they left in `left`: the tables they wrote, the tables whose
+/// group 1 filters they changed. `Err`: why the codeunit is not run (a subscriber that cannot run, an error, a change of
+/// the session state besides rows, which the probe does not measure and the watch cannot follow).
+pub(crate) fn raise(
+    lowered: &Lowered,
+    session: &mut Session,
+    step: &Step,
+    left: &mut PartnerLogin,
+) -> Result<(), String> {
+    let who = "OnAfterLogin raised to the login subscribers of the partner dependency apps";
+    for &(o, r) in &step.subscribers {
+        if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
+            return Err(format!(
+                "{who}: {} before the first test: {reason}",
+                crate::install::label(lowered, o, r)
+            ));
+        }
+    }
+    let before = session.left_stamp();
+    let since = session.store_mut().change_counter();
+    let (po, pr) = step.publisher;
+    match session.raise_to(po, pr, &step.subscribers) {
+        Ok(()) => {}
+        Err(Signal::Unsupported(why)) => return Err(format!("{who} before the first test: {why}")),
+        Err(Signal::Error(e)) => {
+            return Err(format!(
+                "{who} failed before the first test (behaviour not pinned): {}",
+                e.message
+            ));
+        }
+        Err(_) => return Err(format!("{who} stopped before the first test (not pinned)")),
+    }
+    let store = session.store_mut();
+    if store.virtual_write_pending() {
+        return Err(format!(
+            "{who} changed a platform table in the test session before the first test: what the test runner does with the change is not pinned"
+        ));
+    }
+    left.tables.extend(store.tables_changed_since(since));
+    let after = session.left_stamp();
+    if let Some(what) = before.changed(&after) {
+        return Err(format!(
+            "{who} ran before the first test and changed {what}, which is not a row the run can watch: what BC leaves there is not pinned"
+        ));
+    }
+    left.group1.extend(before.group1_changed(&after));
+    Ok(())
+}

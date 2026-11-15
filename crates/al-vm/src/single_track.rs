@@ -243,7 +243,7 @@ fn put(v: &Value, depth: u8, out: &mut Vec<u8>, e: &crate::Engine) -> bool {
     }
 }
 
-fn fp(v: &Value, e: &crate::Engine) -> Fp {
+pub(crate) fn fp(v: &Value, e: &crate::Engine) -> Fp {
     let mut out = Vec::new();
     if put(v, 0, &mut out, e) {
         Fp::Val(out.into())

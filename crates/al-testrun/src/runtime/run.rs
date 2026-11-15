@@ -512,7 +512,11 @@ fn run_codeunit_inner(
             if let Some(reason) = company_open_refuses(on_run) {
                 return Err(on_run_refused(format!("OnRun: {reason}")));
             }
-            session.store_mut().watch(with_skipped(leak.iter(), &skipped_installs));
+            // What the partner dependency apps' login subscribers left is watched too (`partner_login.rs`).
+            let partner = &company_open.partner_login;
+            session
+                .store_mut()
+                .watch(with_skipped(leak.iter().chain(partner.watched()), &skipped_installs));
             // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
             // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
             // AL code observes.
@@ -534,6 +538,9 @@ fn run_codeunit_inner(
             scratch.leak_hit |= !leak.is_disjoint(&hits);
             session.store_mut().watch(Default::default());
             if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits) {
+                return Err(on_run_refused(format!("OnRun: {why}")));
+            }
+            if let Some(why) = partner.on_run_hit(&hits).and_then(|t| partner.touched(t, lowered)) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
             match ran {

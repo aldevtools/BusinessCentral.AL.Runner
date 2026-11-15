@@ -292,52 +292,10 @@ fn a_filter_of_a_procedure_the_login_subscriber_calls_keeps_mains_refusal() {
 /// The tests of `main` (codeunit `T`) on the install baseline of dependency app `dep`, as the baseline cache keeps it:
 /// the outcomes and, per test, whether it relied on the assumption.
 fn on_dependency_baseline(dep: &str, main: &str) -> Vec<(Outcome, bool)> {
-    // The install baseline's roots: the dependency app's install codeunit is compiled.
-    let (ws, l) = al_sema::lower::compile_apps_with(
-        vec![
-            AppSource {
-                id: "dep".into(),
-                name: "dep".into(),
-                dependencies: vec![],
-                files: vec![("dep.al".into(), dep.into())],
-            },
-            AppSource {
-                id: "main".into(),
-                name: "main".into(),
-                dependencies: vec!["dep".into()],
-                files: vec![("main.al".into(), main.into())],
-            },
-        ],
-        vec![al_sema::AppKind::Dependency, al_sema::AppKind::Workspace],
-        &Default::default(),
-        None,
-        al_sema::check::Roots {
-            baseline: true,
-            ..Default::default()
-        },
-    );
-    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    let engine = Engine::new(l.program.clone(), Vec::new());
-    let base = crate::baseline::run(&engine, &l, None).expect("the dependency app has install code");
-    // The baseline as the cache keeps it.
-    let back = al_vm::Baseline::from_bytes(&base.baseline.to_bytes().expect("plain rows")).expect("read back");
-    let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
-    let mut hits = Vec::new();
-    let o = run_codeunit_full(
-        &engine,
-        &l,
-        oi,
-        Some(&back),
-        TestIsolation::Codeunit,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut hits,
-        None,
-    );
+    let (o, hits) = super::app_outcomes_tests::outcomes_on_dependency_baseline(dep, main);
     (o.into_iter())
         .map(|(n, out)| {
-            let hit = hits.iter().any(|(m, h)| *m == n && h.iter().any(|a| a.info().id == ID));
+            let hit = hits.iter().any(|(m, h)| *m == n && h.contains(&ID));
             (out, hit)
         })
         .collect()

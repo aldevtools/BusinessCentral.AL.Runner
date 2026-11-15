@@ -202,6 +202,24 @@ pub(crate) fn after_login_subscribers(lowered: &Lowered, events: &Registry) -> s
         .collect()
 }
 
+/// The publisher routine (object, routine) of "System Initialization".`OnAfterLogin` in a dependency app ([`LOGIN_EVENTS`]).
+pub(crate) fn after_login_publisher(lowered: &Lowered, events: &Registry) -> Option<(usize, usize)> {
+    let objects = &lowered.program.objects;
+    let &(id, name, event) = LOGIN_EVENTS.iter().find(|e| e.2 == "onafterlogin")?;
+    (objects.heads().iter().enumerate())
+        .filter(|(i, o)| {
+            o.is_kind(al_ir::ObjKind::Codeunit)
+                && lowered.dependency.get(*i).copied().unwrap_or(false)
+                && o.id == Some(id)
+                && o.name.eq_ignore_ascii_case(name)
+        })
+        .find_map(|(i, _)| {
+            (events.publishers.iter())
+                .find(|((po, _), p)| *po == i && p.event == event)
+                .map(|(k, _)| *k)
+        })
+}
+
 /// Why the apps under test's login subscribers `subs` read what the dependency apps' login code writes before they run,
 /// so that alone they would see other state than inside the login (review of al-runner issue 7717, rounds three and
 /// four: alone, a subscriber that asks `Checklist.ShouldInitializeChecklist`, `SystemInitialization.IsInProgress()` or
