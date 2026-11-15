@@ -1570,6 +1570,18 @@ const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
         file: "testpage/F3ValidationAddinFilter.al",
         lines: "409,447",
     },
+    // Corpus bump to 2c02f723: the Html a Word layout converts to carries the converter's version (Aspose.Words 26.8.0 on
+    // BC 29, 26.10.0 on 27 and 28), so its char count and hash differ from BC 29 (RxHtmlHashTests.al:10-13).
+    Evidence {
+        file: "reports/html-email-body/RxHtmlHashTests.al",
+        lines: "156,181,203,230,266,277,285,306,327,348,370,407,422,445,460,484,495",
+    },
+    // Corpus bump to 2c02f723: on BC 29 a temporary ListPart of a Document reads its rows a third time after an action and runs
+    // OnAfterGetCurrRecord on its empty rows after Next (HiddenPartJournalShape.al:20-22).
+    Evidence {
+        file: "testpage/parts/HiddenPartJournalShape.al",
+        lines: "557,591,625,659,697",
+    },
 ];
 
 const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
