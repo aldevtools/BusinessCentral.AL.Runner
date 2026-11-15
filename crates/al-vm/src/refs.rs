@@ -705,6 +705,7 @@ impl Session {
         let found = self.record_op(RecordOp::Get, &rec, &mut a)?;
         match found {
             Value::Boolean(true) => {
+                self.recordref_get_of_field_row(&t, &rec);
                 *lib.borrow_mut() = LibraryValue::RecordRef(rec);
                 Ok(Some(found))
             }
@@ -741,7 +742,16 @@ impl Session {
         self.recordref_permission_call();
         let got = self.record_op(RecordOp::Get, rec, &mut a);
         rec.borrow_mut().load.request = request;
+        if matches!(got, Ok(Value::Boolean(true))) {
+            self.recordref_get_of_field_row(t, rec);
+        }
         got
+    }
+
+    /// A Field row RecordRef.Get(RecordId) found: Record.Get, Find('=') and RecordRef.Find('=') answer as a Get
+    /// (metadata/platform-tables/PlatformMetadataColumnValues.al:753-772); this form is not measured.
+    fn recordref_get_of_field_row(&self, t: &TableDef, rec: &Rec) {
+        crate::platform::unmeasured_key_read(&self.engine, t, &mut rec.borrow_mut().fields, "RecordRef.Get(RecordId)");
     }
 
     /// Whether the buffer differs from what the ref last read or wrote (`dirty_base`); a buffer that came from elsewhere

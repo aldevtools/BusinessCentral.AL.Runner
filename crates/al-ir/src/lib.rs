@@ -557,6 +557,9 @@ pub struct Object {
     /// For a report: the layouts its `rendering` section declares.
     #[serde(default)]
     pub layouts: Vec<LayoutDecl>,
+    /// For a table extension: its `modify` blocks, each as the field name and the names of the properties it sets, as written.
+    #[serde(default)]
+    pub modified_fields: Vec<(String, Vec<String>)>,
 }
 
 /// `layout(Name) { Type = Word; ... }` of a report.
@@ -2307,6 +2310,7 @@ mod tests {
                 namespace: None,
                 extends_id: None,
                 layouts: Vec::new(),
+                modified_fields: Vec::new(),
                 routines: vec![Routine {
                     name: "P".into(),
                     field: None,
