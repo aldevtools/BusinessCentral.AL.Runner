@@ -151,20 +151,36 @@ impl VariantRefs {
         })
     }
 
-    /// GetTable on the copy of a typed alias pair (an assigned RecordRef or a by-value subscriber argument), with an unfiltered
-    /// Record of the same table, both not temporary, replaces the row both handles share
-    /// (recordref-fieldref/recordref/TestRecordRefGetTableAlias.al:13-29 and :37-52). `typed_source`: the argument was such a
-    /// Record, not a Variant. Every other GetTable gives the receiver a buffer of its own.
-    pub(crate) fn install_get_table_buffer(&self, lib: &Lib, copy: RecordState, typed_source: bool) {
+    /// GetTable on the copy of a typed alias pair (an assigned RecordRef or a by-value subscriber argument) with a Record of the
+    /// same table replaces the row both handles share, in the pinned shape only (recordref-fieldref/recordref/
+    /// TestRecordRefGetTableAlias.al:13-29 and :37-52): the Record is not temporary, unfiltered and in its primary key, and the
+    /// shared buffer is not temporary, unfiltered, in its primary key and held by exactly the two handles of the pair. With a
+    /// Record and a buffer of that table, both not temporary, another filter, key or number of handles refuses. `record_source`:
+    /// the argument was a Record, not a Variant. Every other GetTable gives the receiver a buffer of its own (main's path).
+    pub(crate) fn install_get_table_buffer(
+        &self,
+        lib: &Lib,
+        copy: RecordState,
+        record_source: bool,
+    ) -> Result<(), Signal> {
         let shared = match &*lib.borrow() {
             LibraryValue::RecordRef(current)
-                if typed_source && !copy.temporary && self.has_typed_alias(lib, current) =>
+                if record_source && !copy.temporary && self.has_typed_alias(lib, current) && {
+                    let buffer = current.borrow();
+                    !buffer.temporary && buffer.table == copy.table
+                } =>
             {
-                let same_table = {
-                    let current = current.borrow();
-                    !current.temporary && current.table == copy.table
+                let pinned = {
+                    let buffer = current.borrow();
+                    let plain = |r: &RecordState| r.filters.is_empty() && r.key == 0 && r.adhoc.is_none();
+                    plain(&copy) && plain(&buffer) && Rc::strong_count(current) == 2
                 };
-                same_table.then(|| current.clone())
+                if !pinned {
+                    return Err(Signal::Unsupported(
+                        "GetTable on a RecordRef that shares its row with another handle, outside the pinned shape (two handles, unfiltered, primary key, same table, not temporary) (not pinned)".into(),
+                    ));
+                }
+                Some(current.clone())
             }
             _ => None,
         };
@@ -173,6 +189,7 @@ impl VariantRefs {
         } else {
             *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
         }
+        Ok(())
     }
 }
 

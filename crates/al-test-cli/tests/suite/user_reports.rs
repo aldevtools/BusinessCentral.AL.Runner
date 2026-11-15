@@ -3455,25 +3455,52 @@ fn measured_recordref_get_table_updates_the_shared_event_buffer() {
     ));
 }
 
-/// The pin hands GetTable an unfiltered Record (TestRecordRefGetTableAlias.al:47-52); a filtered one is not measured and keeps
-/// the alias on a buffer of its own.
+/// The pin hands GetTable an unfiltered Record in its primary key, on the copy of a pair of handles that share an unfiltered
+/// buffer in its primary key (TestRecordRefGetTableAlias.al:44-52). A filtered or keyed source, a filtered original and a
+/// third handle are not measured: GetTable refuses.
 #[test]
-fn recordref_get_table_of_a_filtered_record_keeps_its_own_buffer() {
+fn recordref_get_table_on_an_alias_outside_the_pin_is_refused() {
     let source = include_str!("../fixtures/recordref-gettable-shared.al");
-    let changed = source.replace(
-        "        Row.Category := 7;\n        Alias.GetTable(Row);",
-        "        Row.Category := 7;\n        Row.SetRange(Id, 1);\n        Alias.GetTable(Row);",
-    );
-    assert_ne!(source, changed);
-    let results = run_with_deps(&[], &changed);
-    let (_, outcome) = results
-        .iter()
-        .find(|(name, _)| name == "GetTableUpdatesAnAssignedAliasOfTheSameTable")
-        .unwrap();
-    assert_eq!(
-        outcome,
-        &Outcome::Fail("The assigned alias changed the value to 0.".into())
-    );
+    let get_table = "        Row.Category := 7;\n        Alias.GetTable(Row);";
+    let vars = "        Alias: RecordRef;\n        Observed: Variant;\n";
+    assert!(source.contains(get_table) && source.contains(vars));
+    let shapes = [
+        (
+            "filtered source",
+            source.replace(get_table, "        Row.Category := 7;\n        Row.SetRange(Id, 1);\n        Alias.GetTable(Row);"),
+        ),
+        (
+            "source with another key",
+            source.replace(get_table, "        Row.Category := 7;\n        Row.SetCurrentKey(Category);\n        Alias.GetTable(Row);"),
+        ),
+        (
+            "filtered original",
+            source.replace(
+                "        Original.GetTable(Row);\n        Alias := Original;",
+                "        Original.GetTable(Row);\n        Original.Field(1).SetRange(1, 3);\n        Alias := Original;",
+            ),
+        ),
+        (
+            "three handles",
+            source
+                .replace(
+                    "        Alias := Original;\n        Row.Category := 7;\n        Alias.GetTable(Row);",
+                    "        Alias := Original;\n        Third := Alias;\n        Row.Category := 7;\n        Third.GetTable(Row);",
+                )
+                .replace(vars, &format!("{vars}        Third: RecordRef;\n")),
+        ),
+    ];
+    for (shape, changed) in shapes {
+        assert_ne!(source, changed, "{shape}");
+        let outcome = outcome_named(
+            &run_with_deps(&[], &changed),
+            "GetTableUpdatesAnAssignedAliasOfTheSameTable",
+        );
+        assert!(
+            matches!(&outcome, Outcome::NotRun(reason) if reason.contains("GetTable on a RecordRef that shares")),
+            "{shape}: {outcome:?}"
+        );
+    }
 }
 
 #[test]

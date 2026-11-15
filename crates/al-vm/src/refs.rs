@@ -106,10 +106,10 @@ fn key_fields(t: &TableDef, k: usize) -> Option<Vec<usize>> {
     None
 }
 
-/// GetTable's argument is a Record, not a Variant, and has no filters: the shared-buffer cells hand GetTable such a Record
+/// GetTable's argument is a Record, not a Variant: the shared-buffer cells hand GetTable such a Record
 /// (`install_get_table_buffer`).
-fn unfiltered_record_source(from_variant: bool, args: &[Value]) -> bool {
-    !from_variant && matches!(args.first(), Some(Value::Record(r)) if r.borrow().filters.is_empty())
+fn record_source(from_variant: bool, args: &[Value]) -> bool {
+    !from_variant && matches!(args.first(), Some(Value::Record(_)))
 }
 
 /// A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target answers as any RecordRef: it drops the RunPageLink marks.
@@ -990,7 +990,7 @@ impl Session {
                 // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
                 forget_run_page_link_open(&mut copy);
                 self.variant_refs
-                    .install_get_table_buffer(lib, copy, unfiltered_record_source(from_variant, args));
+                    .install_get_table_buffer(lib, copy, record_source(from_variant, args))?;
                 return Ok(Value::Null);
             }
 
