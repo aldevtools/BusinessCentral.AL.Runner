@@ -173,7 +173,10 @@ fn app_b_keep(first: &str) -> String {
 fn install_code_after_a_refused_routine_that_wrote_a_global_is_not_run() {
     let o = run_ab(&app_a(STOPS), &app_b_keep("K.Put(I.Count() + 100);"));
     assert!(
-        not_run_for(&o[0].1, "can change a codeunit global or the session state"),
+        not_run_for(
+            &o[0].1,
+            "can change a SingleInstance codeunit's global or the session state"
+        ),
         "{o:?}"
     );
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
@@ -184,6 +187,28 @@ fn install_code_after_a_refused_routine_that_wrote_a_global_is_not_run() {
 #[test]
 fn install_code_after_a_refused_routine_that_left_nothing_runs() {
     let o = run_ab(&app_a(STOPS), &app_b_keep("if I.IsEmpty() then;"));
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+}
+
+// The neighbors keep main's result for the routine after it: the refused routine's reach is not known (a codeunit run by
+// an id known only at run time), or the global it writes belongs to a codeunit that is not SingleInstance, which ends
+// with the routine.
+#[test]
+fn install_code_after_a_refused_routine_whose_reach_is_not_known_keeps_mains_result() {
+    let o = run_ab(
+        &app_a(STOPS),
+        &app_b_keep("if I.IsEmpty() then; Id := 60965; Codeunit.Run(Id);").replace(
+            "K: Codeunit Keep; begin if I",
+            "K: Codeunit Keep; Id: Integer; begin if I",
+        ),
+    );
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+}
+
+#[test]
+fn install_code_after_a_refused_routine_that_wrote_a_plain_global_runs() {
+    let b = app_b_keep("K.Put(I.Count() + 100);").replace("SingleInstance = true; ", "");
+    let o = run_ab(&app_a(STOPS), &b);
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
@@ -202,7 +227,10 @@ fn install_code_after_a_refused_company_triggers_subscriber_is_not_run() {
     assert!(b.contains("OnInstallAppPerDatabase"));
     let o = run_ab(&app_a(STOPS), &b);
     assert!(
-        not_run_for(&o[0].1, "can change a codeunit global or the session state"),
+        not_run_for(
+            &o[0].1,
+            "can change a SingleInstance codeunit's global or the session state"
+        ),
         "{o:?}"
     );
 }

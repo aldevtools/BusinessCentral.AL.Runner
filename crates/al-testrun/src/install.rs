@@ -1784,9 +1784,9 @@ impl Stopped {
 /// to its end (scenario s15 of al-runner issue 8115: B counted 0 rows of A's rolled-back routine, BC 2). Install code that
 /// read or wrote one, through any path, did not run to its end either: it is rolled back and refused like a routine the
 /// runner stopped. No statement stopped it, so nothing of the session language and WorkDate is set back
-/// (`stopped_state`); and what else it left outside the database (a SingleInstance codeunit's global, other session
-/// state) stays, so the rest of the app's install code in this install session is not run ([`leaves_outside_rows`];
-/// review of al-runner PR 8119, probe n1b).
+/// (`stopped_state`); and where its reach shows that it can leave something else outside the database (a SingleInstance
+/// codeunit's global, other session state), the rest of the app's install code in this install session is not run
+/// ([`leaves_outside_rows`]; review of al-runner PR 8119, probe n1b).
 fn watching_skipped(
     lowered: &Lowered,
     session: &mut Session,
@@ -1807,24 +1807,23 @@ fn watching_skipped(
     }
 }
 
-/// Why install code `roots` may have left something besides rows that a roll back does not set back: `None` only when the
-/// reach of each is known and writes no codeunit global and no session state (`runtime::written::reach_facts`).
+/// Why install code `roots`, rolled back after the watch hit, left something besides rows that the roll back does not set
+/// back: the reach of one of them is known and writes a global of a SingleInstance codeunit or the session state
+/// (`runtime::written::reach_facts`; probe n1b of the review of al-runner PR 8119). A global of another codeunit ends with
+/// its instance. A reach that is not known keeps main's result: only its rows are rolled back.
 fn leaves_outside_rows(engine: &Engine, lowered: &Lowered, roots: &[(usize, usize)]) -> Option<String> {
     let index = engine.derived(|| crate::runtime::written::ReachIndex::new(&engine.events, lowered));
     roots.iter().find_map(|&(o, r)| {
         let facts = crate::runtime::written::reach_facts(&engine.events, lowered, &index, o, r);
-        let what = match &facts.unknown {
-            Some(why) => format!("what it reaches is not known ({why})"),
-            None if !facts.globals_written.is_empty() || facts.state_writes != 0 => {
-                "it can change a codeunit global or the session state".to_string()
-            }
-            None => return None,
-        };
-        Some(format!(
-            "install code {} read or wrote a table whose rows are not known and was rolled back, but {what}, which the \
-             roll back does not set back",
-            label(lowered, o, r)
-        ))
+        let single_instance_global = facts.globals_written.iter().any(|&(g, _)| crate::login::single_instance(lowered, g));
+        let leaves = facts.unknown.is_none() && (single_instance_global || facts.state_writes != 0);
+        leaves.then(|| {
+            format!(
+                "install code {} read or wrote a table whose rows are not known and was rolled back, but it can change a \
+                 SingleInstance codeunit's global or the session state, which the roll back does not set back",
+                label(lowered, o, r)
+            )
+        })
     })
 }
 

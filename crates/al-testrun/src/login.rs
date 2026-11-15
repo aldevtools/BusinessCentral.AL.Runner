@@ -409,7 +409,7 @@ fn keyed_on_own_object(lowered: &Lowered, object: usize, routine: usize, args: &
 }
 
 /// Whether object `o` is a SingleInstance codeunit: only its globals outlive the call that set them.
-fn single_instance(lowered: &Lowered, o: usize) -> bool {
+pub(crate) fn single_instance(lowered: &Lowered, o: usize) -> bool {
     let obj = &lowered.program.objects[o];
     obj.is_kind(al_ir::ObjKind::Codeunit)
         && (obj.properties.iter())
