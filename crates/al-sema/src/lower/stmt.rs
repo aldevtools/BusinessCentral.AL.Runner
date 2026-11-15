@@ -2008,22 +2008,6 @@ impl Lowerer<'_> {
                         .map(|i| ir::Place::Global(*i))
                         .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"))
                 }
-                // A WithEvents variable no trigger handles (`with_events::marker`) runs as a plain one, assumed.
-                Some(Res::Global(name))
-                    if !self.in_request_page
-                        && self
-                            .global_var_attrs
-                            .get(name)
-                            .is_some_and(|a| a.iter().any(|a| a == super::with_events::WITH_EVENTS_NO_TRIGGER)) =>
-                {
-                    let place = self
-                        .globals
-                        .get(name)
-                        .map(|i| ir::Place::Global(*i))
-                        .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"));
-                    self.assume(al_builtins::assumptions::Assumption::WithEventsNoTrigger);
-                    place
-                }
                 // The request page's Rec in OnInitReport: reading it raises (reports/request-page/YRequestPageTests.al:551,
                 // RS_RequestPageRec_ReadInOnInitReport_Raises; report 88566 in RsRequestPageRec.al:224). xRec is not pinned.
                 Some(Res::Global(name))

@@ -1,19 +1,16 @@
-//! Global `[WithEvents]` DotNet variables whose uses run (al-runner issue 7832): which ones, and for a Timer with an Elapsed
-//! trigger, which uses. Every other WithEvents variable keeps the refusal of `Lowerer::var_attr_refusal`.
+//! Global `[WithEvents]` DotNet variables whose uses run (al-runner issue 7832): a System.Timers.Timer, and which of its uses.
+//! Every other WithEvents variable keeps the refusal of `Lowerer::var_attr_refusal`. Pinned by
+//! tests/al-language-onprem-dotnet/dotnet/ac/N4WithEventsNoRaise.al.
 
 use super::*;
 use al_syntax::ast::NodeText;
 
 /// The name a global `[WithEvents]` variable's attribute gets when its uses run, or `None` (the refusal of
-/// `Lowerer::var_attr_refusal` stays):
-/// - [`WITH_EVENTS_NO_TRIGGER`]: a DotNet variable of a codeunit that declares no `trigger name::Event` for it. No AL code then
-///   runs on its events, and its uses run as a plain DotNet variable's, marked with assumption `with-events-no-trigger`
-///   (Microsoft's Sales and Inventory Forecast Tests, codeunit 139540 TestMissingApiUriOpenSetup; corpus PR 1365,
-///   onprem-dotnet dotnet/ac/N4WithEventsNoRaise.al:320).
-/// - [`WITH_EVENTS_TIMER_ELAPSED`]: a `System.Timers.Timer` variable of a codeunit, a page, a table or a report whose one trigger
-///   is `name::Elapsed` (N4WithEventsNoRaise.al:291 codeunit, :372 page, :387 table, :405 report). The timer never starts, so the
-///   trigger never runs; the uses that may run are those the probe made (`Lowerer::with_events_timer_use`, `Lowerer::with_events_timer_member`), marked with
-///   assumption `with-events-timer-elapsed-not-started`.
+/// `Lowerer::var_attr_refusal` stays): [`WITH_EVENTS_TIMER_ELAPSED`] for a `System.Timers.Timer` variable of a codeunit, a
+/// page, a table or a report whose one trigger is `name::Elapsed` (N4WithEventsNoRaise.al:291 codeunit, :372 page, :387 table,
+/// :405 report), or of a codeunit that declares no trigger for it (:320-345). The timer never starts, so no trigger runs; the
+/// uses that may run are those the probe made (`Lowerer::with_events_timer_use`, `Lowerer::with_events_timer_member`). A
+/// variable of another DotNet type with no trigger is not measured and stays refused.
 pub(super) fn marker(
     ws: &Workspace,
     file: usize,
@@ -28,9 +25,6 @@ pub(super) fn marker(
         .triggers()
         .filter_map(|t| t.name().to_lowercase().strip_prefix(&prefix).map(str::to_string))
         .collect();
-    if events.is_empty() && kind == ObjKind::Codeunit {
-        return Some(WITH_EVENTS_NO_TRIGGER);
-    }
     let timer = ws
         .resolve_dotnet(file, alias)
         .is_some_and(|i| ws.dotnet[i].decl.type_name == "System.Timers.Timer");
@@ -38,7 +32,8 @@ pub(super) fn marker(
         kind,
         ObjKind::Codeunit | ObjKind::Page | ObjKind::Table | ObjKind::Report
     );
-    (timer && measured_kind && events == ["elapsed"]).then_some(WITH_EVENTS_TIMER_ELAPSED)
+    let measured_triggers = events == ["elapsed"] || (events.is_empty() && kind == ObjKind::Codeunit);
+    (timer && measured_kind && measured_triggers).then_some(WITH_EVENTS_TIMER_ELAPSED)
 }
 
 /// The name of a global of object `oi` that [`marker`] accepts as a [`WITH_EVENTS_TIMER_ELAPSED`] Timer, if it has one.
@@ -64,10 +59,7 @@ pub(super) fn timer_elapsed_trigger(ws: &Workspace, oi: usize) -> Option<String>
         .map(|n| format!("{}::elapsed", n.to_lowercase()))
 }
 
-/// The name a `[WithEvents]` attribute gets for a variable [`marker`] accepts with no trigger.
-pub(crate) const WITH_EVENTS_NO_TRIGGER: &str = "withevents-no-trigger";
-
-/// The name a `[WithEvents]` attribute gets for a Timer variable [`marker`] accepts with an Elapsed trigger.
+/// The name a `[WithEvents]` attribute gets for a Timer variable [`marker`] accepts.
 pub(crate) const WITH_EVENTS_TIMER_ELAPSED: &str = "withevents-timer-elapsed";
 
 /// The builtin `Clear` of a [`WITH_EVENTS_TIMER_ELAPSED`] variable lowers to (al-builtins `native/values.rs`).
@@ -108,7 +100,6 @@ impl Lowerer<'_> {
             _ => false,
         };
         if allowed {
-            self.assume(al_builtins::assumptions::Assumption::WithEventsTimerElapsedNotStarted);
             return Ok(());
         }
         self.timer_refusal(name)
@@ -159,7 +150,7 @@ impl Lowerer<'_> {
 
     fn timer_refusal(&mut self, name: &str) -> L<()> {
         let why = format!(
-            "variable `{name}` has the attribute WithEvents and an Elapsed trigger: only its constructor without arguments, Interval, Enabled, IsNull and Clear are measured"
+            "variable `{name}` has the attribute WithEvents: only its constructor without arguments, Interval, Enabled, IsNull and Clear are measured"
         );
         self.run_refusals.insert(why.clone());
         Err(why)

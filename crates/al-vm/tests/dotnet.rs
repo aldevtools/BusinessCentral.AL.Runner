@@ -4312,7 +4312,7 @@ fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
     assert!(unsupported(&r).contains("Queue`1"), "{}", unsupported(&r));
 }
 
-// ---- [WithEvents] Timer with an Elapsed trigger (al-runner issue 7832; corpus PR 1365, N4WithEventsNoRaise.al) --------------
+// ---- [WithEvents] Timer, no trigger or an Elapsed trigger (al-runner issue 7832; pinned N4WithEventsNoRaise.al) ------------
 
 /// Runs `routine` of `object` in `src` (after the shared DotNet declarations) on `host`.
 fn run_src(host: &Fake, src: &str, object: &str, routine: &str) -> Ran {
@@ -4379,10 +4379,15 @@ const TIMER_USES: &str = "procedure F(): Text var S: Text; begin S := Format(IsN
 const ELAPSED: &str = "trigger Tm::Elapsed(sender: Variant; e: DotNet ClrObject) begin N += 1; end;";
 
 // The uses the probe made run on a codeunit, a page, a table and a report, and the Elapsed trigger never runs
-// (N4WithEventsNoRaise.al:291-318, :372-385, :387-403, :405-417).
+// (N4WithEventsNoRaise.al:291-318, :372-385, :387-403, :405-417); on a codeunit with no trigger for the Timer they run too
+// (:320-345). The file is pinned: no assumption.
 #[test]
 fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
-    use al_builtins::assumptions::Assumption;
+    let src = format!("codeunit 50100 W {{ var [WithEvents] Tm: DotNet Timer; N: Integer; {TIMER_USES} }}");
+    hits();
+    let r = run_src(&timer_host(), &src, "W", "F");
+    assert_eq!(text(r), "Yes|No|1,000|No|2,000|Yes|0", "no trigger");
+    assert!(hits().is_empty(), "no trigger");
     for (kind, head) in [
         ("codeunit", "codeunit 50100 W"),
         ("page", "page 50100 W"),
@@ -4397,7 +4402,7 @@ fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
         hits();
         let r = run_src(&timer_host(), &src, "W", "F");
         assert_eq!(text(r), "Yes|No|1,000|No|2,000|Yes|0", "{kind}");
-        assert!(hits().contains(&Assumption::WithEventsTimerElapsedNotStarted), "{kind}");
+        assert!(hits().is_empty(), "{kind}");
     }
 }
 
@@ -4406,7 +4411,6 @@ fn a_with_events_timer_with_an_elapsed_trigger_runs_its_measured_uses() {
 // (N4WithEventsNoRaise.al:113-152, :405-415; the probe's data item is the Integer table, outside this test's workspace).
 #[test]
 fn a_report_with_a_with_events_timer_runs_as_the_probe_runs_it() {
-    use al_builtins::assumptions::Assumption;
     let src = format!(
         "{TABLE} report 50101 R {{ ProcessingOnly = true; UsageCategory = None; \
          dataset {{ dataitem(One; \"ALT Blob\") {{ \
@@ -4421,11 +4425,12 @@ fn a_report_with_a_with_events_timer_runs_as_the_probe_runs_it() {
     hits();
     let r = run_src(&timer_host(), &src, "W", "F");
     assert_eq!(text(r), "0");
-    assert!(hits().contains(&Assumption::WithEventsTimerElapsedNotStarted));
+    assert!(hits().is_empty());
 }
 
 // ClearAll nulls the WithEvents Timer, which the probe does not measure (it measures Clear): refused in the object that holds
-// the Timer and in an extension of it. ClearAll in an object whose WithEvents variable has no trigger keeps main's result.
+// the Timer and in an extension of it, and in a codeunit whose WithEvents Timer has no trigger (main ran that one through the
+// deleted assumption with-events-no-trigger).
 #[test]
 fn clear_all_where_it_reaches_a_with_events_timer_is_refused() {
     let host = Fake::new(|r| match r {
@@ -4446,7 +4451,8 @@ fn clear_all_where_it_reaches_a_with_events_timer_is_refused() {
     assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
     let src = "codeunit 50100 W { var [WithEvents] Tm: DotNet Timer; N: Integer; \
          procedure F(): Text begin N := 5; ClearAll(); exit(Format(N) + Format(IsNull(Tm))); end; }";
-    assert_eq!(text(run_src(&host, src, "W", "F")), "0Yes");
+    let r = run_src(&host, src, "W", "F");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
 }
 
 // Every other use, member, trigger set or type keeps the refusal.
