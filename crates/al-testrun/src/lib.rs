@@ -35,6 +35,7 @@ pub mod junit;
 pub mod license;
 mod login;
 pub mod observe;
+mod partner_login;
 pub mod profiling;
 pub mod reach;
 pub mod refusals;

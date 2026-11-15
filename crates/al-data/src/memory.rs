@@ -954,9 +954,14 @@ impl MemStore {
         }
     }
 
-    /// Closes the window of [`MemStore::watch_window`]: the first of its tables accessed while it was open, if any.
+    /// Closes the window of [`MemStore::watch_window`]: the first of its tables accessed while it was open, if any. A watch
+    /// that only held the window ends with it.
     pub fn watch_window_end(&mut self) -> Option<u32> {
-        self.watch.as_ref()?.borrow_mut().window.take()?.1
+        let hit = self.watch.as_ref()?.borrow_mut().window.take()?.1;
+        if self.watch.as_ref().is_some_and(|w| w.borrow().tables.is_empty()) {
+            self.watch = None;
+        }
+        hit
     }
 
     /// Notes an access to table `object` for the watch.

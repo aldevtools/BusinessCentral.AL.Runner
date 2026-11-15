@@ -1181,6 +1181,8 @@ pub(crate) mod narrowing;
 mod not_run_link;
 mod numbers_taken;
 mod order_hint;
+#[cfg(test)]
+mod partner_login_tests;
 mod run;
 #[cfg(test)]
 mod run_on_client_reach_tests;
