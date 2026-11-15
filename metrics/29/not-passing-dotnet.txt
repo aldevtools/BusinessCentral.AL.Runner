@@ -39,8 +39,6 @@
 99005 WordAlpha_Replace
 99005 WordDefault_Replace_Unchanged
 99013 N4_WithEvents_DisposedTrigger_AssignReassignClear
-99013 N4_WithEvents_NoTrigger_Helper
-99013 N4_WithEvents_Page_OnOpenPage
 99100 AL_JsonTextWriter_SimpleObject
 99112 ALTimer_Elapsed
 99112 ALTimer_NoHandler
