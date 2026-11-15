@@ -69,10 +69,17 @@ fn first_flagged(a: &str, b: &str) {
 
 // The reporter's repro (issue 8071; G1sXaInstall.al:88-96): a group 1 filter A's OnAfterLogin subscriber set in A's install
 // session is not there in B's install session, where the subscriber sets it again. B's install code ran through the
-// assumption: the test that reads what it wrote is flagged, the one that touches no table is clean.
+// assumption, and so did the test session's own login, which raises the subscriber once more on the table whose filter
+// ended: every test of that session rests on the login step, so both tests pass flagged (`run.rs`
+// `mark_test_start_assumptions`; orchestrator decision 2026-11-15, al-runner issue 8060).
 #[test]
 fn a_group1_filter_of_one_install_session_does_not_reach_the_next() {
-    first_flagged(&app_a(LOGIN, SET_BY_RECORD), APP_B);
+    let (o, hits) = run(&app_a(LOGIN, SET_BY_RECORD), APP_B);
+    assert_eq!(o.len(), 2, "{o:?}");
+    for (n, r) in &o {
+        assert_eq!(*r, Outcome::Pass, "{o:?}");
+        assert!(hits.iter().any(|(t, h)| t == n && h.contains(&ID)), "{n}: {hits:?}");
+    }
 }
 
 // Cell b (G1sInstallSessionTests.al:58; G1sXaInstall.al:115-117): a filter A's install routine left set, read with a new
@@ -143,7 +150,7 @@ fn the_dropped_filter_marks_the_assumption() {
     assumptions::clear_hits();
     let skipped = crate::install::run_apps_under_test(&l, &mut session);
     assert!(skipped.is_empty(), "{skipped:?}");
-    assert!(assumptions::hit(Assumption::GlobalFilterEndsWithInstallSession));
+    assert!(assumptions::take_hits().contains(&Assumption::GlobalFilterEndsWithInstallSession));
 }
 
 fn refused_by_group1(o: &Outcome) -> bool {

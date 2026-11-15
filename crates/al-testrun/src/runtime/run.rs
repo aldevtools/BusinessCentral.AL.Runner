@@ -391,31 +391,11 @@ fn run_codeunit_inner(
     // (corpus PR 735, SdIsolStartSession.Codeunit.al:20-22): refused there, as no second session is modelled.
     session.hub_disabled = isolation == TestIsolation::Disabled;
     session.test_object = Some(object);
-    // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
-    // amendment 1, A4 item 10). A scratch run (`execute`) is not a test session.
-    let company_open = if execute {
-        crate::install::CompanyOpenWrites::default()
-    } else {
-        // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
-        // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
-        // (docs/probes-needed.md, WorkDate row).
-        if let Err(why) = crate::install::login_work_date(engine, lowered, &mut session) {
-            return all(Outcome::NotRun(why));
-        }
-        match crate::install::test_session_company_open(lowered, &mut session, isolation == TestIsolation::Disabled) {
+    let (company_open, company_open_marks) =
+        match open_company(engine, lowered, &mut session, isolation, &perturb, execute) {
+            Ok(opened) => opened,
             Err(why) => return all(Outcome::NotRun(why)),
-            Ok(wrote) => {
-                session.commit_transaction();
-                // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the
-                // login code set it; a `WorkDate(d)` of the test still wins.
-                if let Some(shift) = perturb.work_date {
-                    let day = session.work_date();
-                    session.set_work_date(shift.apply_day(day));
-                }
-                wrote
-            }
-        }
-    };
+        };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
     // single instances of the codeunit before are moved in.
     start_singles(&mut session, execute, moved, scratch.watch);
@@ -711,7 +691,7 @@ fn run_codeunit_inner(
                             .watch(company_open.watched().union(&leak).copied().collect());
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        mark_test_start_assumptions(lowered, on_run_shape_assumed);
+                        mark_test_start_assumptions(lowered, on_run_shape_assumed, company_open_marks);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                         session.start_random_scope();
@@ -1840,9 +1820,46 @@ fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: b
     }
 }
 
+/// Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
+/// amendment 1, A4 item 10), with the marks of the assumptions this step relied on: they count for every test of the
+/// session (`mark_test_start_assumptions`). A scratch run (`execute`) is not a test session.
+fn open_company(
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    session: &mut Session,
+    isolation: TestIsolation,
+    perturb: &crate::stability::Perturb,
+    execute: bool,
+) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), String> {
+    if execute {
+        return Ok(Default::default());
+    }
+    al_builtins::assumptions::clear_hits();
+    // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
+    // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
+    // (docs/probes-needed.md, WorkDate row).
+    crate::install::login_work_date(engine, lowered, session)?;
+    let wrote = crate::install::test_session_company_open(lowered, session, isolation == TestIsolation::Disabled)?;
+    session.commit_transaction();
+    // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set
+    // it; a `WorkDate(d)` of the test still wins.
+    if let Some(shift) = perturb.work_date {
+        let day = session.work_date();
+        session.set_work_date(shift.apply_day(day));
+    }
+    Ok((wrote, al_builtins::assumptions::take_hit_bits()))
+}
+
 /// The marks every test of the codeunit starts with: the program's own (`ir::Program::assumes`: it compiled only through
-/// them) and, when the codeunit's OnRun shape is assumed, `TestCodeunitOnRunRows`.
-fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool) {
+/// them), when the codeunit's OnRun shape is assumed `TestCodeunitOnRunRows`, and `company_open`, the marks of the login
+/// and Company Triggers step that opened the company for this session before its first test (orchestrator decision
+/// 2026-11-15, al-runner issue 8060: every test of the session runs on what that step left).
+fn mark_test_start_assumptions(
+    lowered: &Lowered,
+    on_run_shape_assumed: bool,
+    company_open: al_builtins::assumptions::HitBits,
+) {
+    al_builtins::assumptions::add_hit_bits(company_open);
     if on_run_shape_assumed {
         al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
     }

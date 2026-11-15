@@ -1949,3 +1949,56 @@ fn a_guided_experience_run_of_an_own_object_gets_the_login_raised() {
         false,
     ));
 }
+
+// A Company Triggers subscriber that runs when the test session opens the company (before the first test), through an
+// assumption: every test of that session rests on the step, so each pass carries its id (orchestrator decision,
+// 2026-11-15, al-runner issue 8060). A mark a test makes itself stays with that test alone.
+#[test]
+fn an_assumption_the_company_open_step_relied_on_flags_every_test_of_the_session() {
+    const SRC: &str = "
+codeunit 51990 \"Open Subs\"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure Completed() var D: Decimal; begin D := Round(1, 0.01); end;
+}
+codeunit 51991 \"Open Flag Tests\"
+{
+    Subtype = Test;
+    [Test] procedure First() begin end;
+    [Test] procedure Second() var D: Decimal; begin D := Round(1, 0.001); end;
+    [Test] procedure Third() begin end;
+}
+";
+    let (o, hits) = super::tests::outcomes_and_hits_of_apps(&[("main", &[], SRC)], "Open Flag Tests");
+    assert_all_pass(&o);
+    let id = "round-keeps-the-precision-decimals";
+    for n in ["First", "Second", "Third"] {
+        assert!(hits.iter().any(|(t, h)| t == n && h == &vec![id]), "{n}: {hits:?}");
+    }
+}
+
+// Out of scope: a session whose company-open step made no mark keeps main's result. A mark of one test stays with it
+// alone, and the next test is a clean pass.
+#[test]
+fn without_a_company_open_mark_only_the_test_that_made_a_mark_is_flagged() {
+    const SRC: &str = "
+codeunit 51992 \"Open Subs Clean\"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure Completed() var D: Decimal; begin D := 1; end;
+}
+codeunit 51993 \"Open Clean Tests\"
+{
+    Subtype = Test;
+    [Test] procedure Marks() var D: Decimal; begin D := Round(1, 0.001); end;
+    [Test] procedure After() begin end;
+}
+";
+    let (o, hits) = super::tests::outcomes_and_hits_of_apps(&[("main", &[], SRC)], "Open Clean Tests");
+    assert_all_pass(&o);
+    assert_eq!(
+        hits,
+        vec![("Marks".to_string(), vec!["round-keeps-the-precision-decimals"])],
+        "{hits:?}"
+    );
+}
