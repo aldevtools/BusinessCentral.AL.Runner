@@ -1829,8 +1829,8 @@ mod tests {
     }
 
     /// The syntax of a column source (reports/dataset/DatasetDecimalPlacesValueOrigins.al:47 `D05`, :52 `Row.D05`, :71
-    /// `RecLiteral.D05`, :79 `VarLiteral`; :53 `D05 * 1` is an expression). al-vm `decimal_column.rs` marks the trailing zeros a
-    /// name or two names write as an assumption; an expression's are pinned.
+    /// `RecLiteral.D05`, :79 `VarLiteral`; :53 `D05 * 1` is an expression). The dataset no longer reads it (every shape is pinned,
+    /// reports/dataset/DatasetDecimalRoundScaleSources.al).
     #[test]
     fn a_column_source_is_a_name_two_names_or_other() {
         use ir::SourceSyntax::{Member, Name, Other};

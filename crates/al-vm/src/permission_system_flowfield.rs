@@ -1,8 +1,8 @@
 //! The read that a system table's own FlowField makes of an internal table when the session's permission sets do not grant
 //! that table (ADR-062). Only "Published Application"."Tenant Visible" over "NAV App Extra", in the two shapes Microsoft's
-//! Guided Experience tests reach under `Guided Exp Edit` (they pass on BC), runs under assumption
-//! `system-flowfield-reads-internal-table` (al-runner issue 8038, corpus PR 1395). Every other shape keeps the refusal of
-//! `Session::permission_gate_flowfield_decided`.
+//! Guided Experience tests reach under `Guided Exp Edit`, runs (al-runner issue 8038): shape 1 as
+//! permissions/SysFlowFieldPermFilter.al pins it, shape 2 as permissions/SysFlowFieldPerm.al pins it. Every other shape
+//! keeps the refusal of `Session::permission_gate_flowfield_decided`.
 
 use std::rc::Rc;
 
@@ -67,10 +67,22 @@ impl Session {
     }
 
     /// `CalcFields`, `CalcSums` and `SetAutoCalcFields` on a Record method call: [`Self::flow_op_asked`] with the caller from
-    /// [`Self::asked_by_calc_fields`].
+    /// [`Self::asked_by_calc_fields`]. Shape 2 is pinned for a CalcFields of one FlowField called by codeunit code
+    /// (permissions/SysFlowFieldPerm.al:494-540, `Op` of the test codeunit): CalcFields of two or more fields, or with a page,
+    /// a table or another object on the call stack, asks as [`Asked::Other`], so shape 2 does not take it.
     pub(crate) fn flow_op(&mut self, method: RecordOp, rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
-        let asked = self.asked_by_calc_fields(method, rec);
+        let asked = match self.asked_by_calc_fields(method, rec) {
+            Asked::CalcFields if args.len() == 1 && self.called_by_codeunits_only() => Asked::CalcFields,
+            Asked::CalcFields => Asked::Other,
+            other => other,
+        };
         self.flow_op_asked(method, rec, args, asked)
+    }
+
+    /// Every routine on the call stack is a codeunit's.
+    fn called_by_codeunits_only(&self) -> bool {
+        let heads = self.engine.program.objects.heads();
+        self.frames.iter().all(|&o| heads[o].is_kind(ir::ObjKind::Codeunit))
     }
 
     /// Shape 1 starts: the AL call `Record.FindFirst` on a Record variable `rec` that is not temporary and holds the state of
@@ -149,9 +161,8 @@ impl Session {
         inner.asked == Asked::RecordFilter && self.find_first_read && filters
     }
 
-    /// Shape 2 ("Guided Experience Item"."Extension Name", reached by the same tests through the AL call `Record.CalcFields`; the issue's repro;
-    /// probe PR 1395 SysFlowFieldPerm.al `PARead_Found_CalcNamePublisher`, `PARead_Found_CalcExistCount`, the same on 27.5, 28.5
-    /// and 29.0): a FlowField of an app table (id below 2000000000) that `Record.CalcFields` calculates on a record that is
+    /// Shape 2 ("Guided Experience Item"."Extension Name", reached by the same tests through the AL call `Record.CalcFields`; the
+    /// issue's repro; permissions/SysFlowFieldPerm.al:94 `PARead_Found_CalcNamePublisher`, :113 `PARead_Found_CalcExistCount`): a FlowField of an app table (id below 2000000000) that `Record.CalcFields` calculates on a record that is
     /// not temporary, not negated, with exactly the conditions ID = field(F), F a stored Guid field, and "Tenant Visible" = const(true), that is a Lookup of Published Application
     /// Name or Publisher, an Exist or a Count. The stack holds that FlowField and "Tenant Visible", asked for by the condition
     /// of a source row.

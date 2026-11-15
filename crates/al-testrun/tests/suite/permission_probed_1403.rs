@@ -1,9 +1,8 @@
-//! The permission cells corpus PR 1403 measured (permissions/testpermissions/Y19InherentAttrIndirect.al and
-//! Y19PermExtAndCompose.al): each measured shape runs flagged under its assumption, and each neighbor below differs in one
-//! fact the probe did not measure and keeps main's refusal.
+//! The permission cells tests/al-language/permissions/testpermissions/Y19InherentAttrIndirect.al:153-185 and
+//! Y19PermExtAndCompose.al:265-453 pin: each measured shape passes with no assumption marked, and each neighbor below differs
+//! in one fact the probe did not measure and keeps main's refusal.
 
 use super::permission_writes::{BASE, run_main_on_target};
-use al_builtins::assumptions::Assumption;
 use al_testrun::Outcome;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, TestResult};
 
@@ -745,10 +744,10 @@ fn result(major: u16, test: &str) -> &'static TestResult {
         .unwrap_or_else(|| panic!("{test} did not run"))
 }
 
-fn assert_flagged(major: u16, test: &str, assumption: Assumption) {
+fn assert_clean(major: u16, test: &str) {
     let r = result(major, test);
     assert_eq!(r.outcome, Outcome::Pass, "{test} on {major}");
-    assert_eq!(r.assumptions, vec![assumption], "{test} on {major}");
+    assert!(r.assumptions.is_empty(), "{test} on {major}: {:?}", r.assumptions);
 }
 
 fn assert_refused(major: u16, test: &str, reason: &str) {
@@ -759,22 +758,22 @@ fn assert_refused(major: u16, test: &str, reason: &str) {
 }
 
 #[test]
-fn measured_no_match_reads_are_flagged_and_neighbors_refuse() {
-    assert_flagged(28, "NoMatchFindSetDenied", Assumption::ReadNoMatchDenied);
-    assert_flagged(28, "NoMatchIsEmptyAllowed", Assumption::ReadNoMatchDenied);
+fn measured_no_match_reads_pass_and_neighbors_refuse() {
+    assert_clean(28, "NoMatchFindSetDenied");
+    assert_clean(28, "NoMatchIsEmptyAllowed");
     for test in ["NoMatchThreeRows", "NoMatchOtherValue", "NoMatchInTestMethod"] {
         assert_refused(28, test, "a read other than FindFirst that finds no row");
     }
 }
 
 #[test]
-fn measured_indirect_letters_are_flagged_and_neighbors_refuse() {
+fn measured_indirect_letters_pass_and_neighbors_refuse() {
     for test in [
         "LetterIWithPermissionsAllowed",
         "LetterIWithoutPermissionsDenied",
         "LetterMReadDeniedIndirect",
     ] {
-        assert_flagged(28, test, Assumption::InherentAttributeIndirectLetter);
+        assert_clean(28, test);
     }
     assert_refused(28, "TwoLetters", "an indirect [InherentPermissions] attribute");
     for test in [
@@ -798,7 +797,7 @@ fn measured_indirect_letters_are_flagged_and_neighbors_refuse() {
 #[test]
 fn measured_exclusions_stay_in_their_set_and_neighbors_refuse() {
     for test in ["IncludedExclusionStaysInSet", "AssignedExclusionStaysInSet"] {
-        assert_flagged(28, test, Assumption::PermissionSetExclusionStaysInSet);
+        assert_clean(28, test);
     }
     assert_refused(28, "IncludingSetWithOwnGrants", "not fully composed");
     // The excluding included set adds nothing, as on main; the other included set grants the Insert, unflagged.
@@ -809,16 +808,8 @@ fn measured_exclusions_stay_in_their_set_and_neighbors_refuse() {
 #[test]
 fn extension_code_grants_follow_the_measured_majors() {
     for major in [28, 29] {
-        assert_flagged(
-            major,
-            "TableExtensionTriggerInsert",
-            Assumption::ExtensionCodeObjectGrant,
-        );
-        assert_flagged(
-            major,
-            "PageExtensionOpenViewCloses",
-            Assumption::ExtensionCodeObjectGrant,
-        );
+        assert_clean(major, "TableExtensionTriggerInsert");
+        assert_clean(major, "PageExtensionOpenViewCloses");
         assert_refused(major, "TableExtensionModify", "which Permissions property covers");
         assert_refused(major, "PageExtensionOpenEdit", "which Permissions property covers");
         assert_refused(

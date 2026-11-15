@@ -1,19 +1,17 @@
-//! The rows of the save table for a report declared as report 80040 "RXD Decl Word" is (corpus pull request 1381, branch
-//! al-runtime-rs-staging-reports-decl, merged, not in the runtime's pin yet; reports/html-email-body/RxdDeclFixtures.al):
-//! `WordLayout` and `RDLCLayout` properties with `DefaultLayout = Word`, no rendering section, one data item, no report
-//! trigger, no report extension, saved to a stream, no subscriber to a layout event. The probe saved with two dataset rows:
-//! the rows that write read the run's rows; Html of the stored RDLC row and Excel of the temporary selection answer false
-//! before the run, so they answer the same with no row, which is not measured. The probe binds no subscriber, so every row
-//! refuses a subscriber the test can see to any layout event (SubstituteReport, OnDocumentReady, SelectedBuiltinLayoutType,
-//! ...). Measured the same on the three BC majors the corpus runs. Every row marks `report-save-decl-word-rdlc` until a
-//! corpus bump pins the file.
+//! The rows of the save table for a report declared as report 80040 "RXD Decl Word" is
+//! (reports/html-email-body/RxdDeclFixtures.al:31): `WordLayout` and `RDLCLayout` properties with `DefaultLayout = Word`, no
+//! rendering section, one data item without a trigger, no report trigger, no report extension, saved to a stream, no
+//! subscriber to a layout event. Every cell saved with two dataset rows (`Rows(2)`, RxdDeclFixtures.al:54), so every row reads
+//! the run's rows, the false answers too: they answer after the run, and a save with no dataset row refuses then. The false
+//! answers refuse before the run when a data item declares a trigger or a column whose source is not a stored field of its
+//! table (`refuse_unmeasured_data_items_before_false`). The probe binds no subscriber, so every row refuses a subscriber the test can see to any layout event (SubstituteReport,
+//! OnDocumentReady, SelectedBuiltinLayoutType, ...). Measured the same on the three BC majors the corpus runs.
 
 use super::Format;
 use super::cell::K::Is;
 use super::cell::*;
 use super::cells::{SAVE_FORMS, cell, pin};
 use super::facts::*;
-use al_builtins::assumptions::Assumption;
 
 const RXD: &str = "reports/html-email-body/RxdDeclLayoutTests.al";
 const RXD_BODY: &str = "reports/html-email-body/RxdDeclEmailBodyTests.al";
@@ -76,10 +74,6 @@ fn base(answer: AnswerForm, format: Format, selection: Selection, stored: Stored
     }
 }
 
-fn marks(p: &'static [Pin]) -> Evidence {
-    Evidence::Awaiting(Assumption::ReportSaveDeclWordRdlc, p)
-}
-
 pub(super) fn decl_rows(t: &mut Vec<Cell>) {
     for answer in SAVE_FORMS {
         stored_rdlc_rows(t, answer);
@@ -97,7 +91,7 @@ pub(super) fn decl_rows(t: &mut Vec<Cell>) {
             key,
             Answer::Placeholder(Renders::Selected),
             Events::NotRaised(&[]),
-            marks(RGBA_TEMP),
+            Evidence::Pinned(RGBA_TEMP),
         )
     });
 }
@@ -112,15 +106,18 @@ fn stored_rdlc_rows(t: &mut Vec<Cell>, answer: AnswerForm) {
             key,
             Answer::Placeholder(Renders::StoredRdlc),
             Events::NotRaised(&[]),
-            marks(STORED_RDLC),
+            Evidence::Pinned(STORED_RDLC),
         ));
     }
-    let key = base(answer, Format::Html, Selection::OtherKind, Stored::RdlcBuiltin);
+    let key = Key {
+        rows: Is(Rows::Some),
+        ..base(answer, Format::Html, Selection::OtherKind, Stored::RdlcBuiltin)
+    };
     t.push(cell(
         key,
-        Answer::False(ErrorId::UnsupportedFormat),
+        Answer::FalseAfterRun(ErrorId::UnsupportedFormat),
         Events::NotRaised(&[]),
-        marks(STORED_RDLC),
+        Evidence::Pinned(STORED_RDLC),
     ));
 }
 
@@ -134,14 +131,17 @@ fn temp_rows(t: &mut Vec<Cell>, answer: AnswerForm) {
             key,
             Answer::Placeholder(Renders::Selected),
             Events::NotRaised(&[]),
-            marks(TEMP),
+            Evidence::Pinned(TEMP),
         ));
     }
-    let key = base(answer, Format::Excel, Selection::TempWord, Stored::None);
+    let key = Key {
+        rows: Is(Rows::Some),
+        ..base(answer, Format::Excel, Selection::TempWord, Stored::None)
+    };
     t.push(cell(
         key,
-        Answer::False(ErrorId::UnsupportedFormat),
+        Answer::FalseAfterRun(ErrorId::UnsupportedFormat),
         Events::NotRaised(&[]),
-        marks(TEMP),
+        Evidence::Pinned(TEMP),
     ));
 }

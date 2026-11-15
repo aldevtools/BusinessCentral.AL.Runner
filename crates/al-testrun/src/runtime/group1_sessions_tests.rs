@@ -1,11 +1,8 @@
-//! A filter in filter group 1 across install sessions (al-runner issue 8071; assumption
-//! `global-filter-ends-with-install-session`, corpus PR 1405, owner al-vm `group1_sessions.rs`).
+//! A filter in filter group 1 across install sessions (al-runner issue 8071; pinned by
+//! tests/al-language/install-upgrade/G1sInstallSessionTests.al, owner al-vm `group1_sessions.rs`).
 use super::tests::outcomes_and_hits_of_apps;
 use super::*;
-use al_builtins::assumptions::{self, Assumption};
 use al_sema::AppSource;
-
-const ID: &str = "global-filter-ends-with-install-session";
 
 /// System Application's login, as the install session raises it: "System Initialization Impl." subscribes to Company
 /// Triggers OnCompanyOpenCompleted and raises "System Initialization".OnAfterLogin.
@@ -55,27 +52,22 @@ fn outcome(a: &str, b: &str) -> Outcome {
     run(a, b).0[0].1.clone()
 }
 
-/// Asserts B's first test passed flagged and its second passed clean.
-fn first_flagged(a: &str, b: &str) {
+/// Asserts B's tests passed clean: no assumption marks (the behavior is pinned).
+fn passes_clean(a: &str, b: &str) {
     let (o, hits) = run(a, b);
-    let hit = |k: usize| hits.iter().any(|(n, h)| *n == o[k].0 && h.contains(&ID));
-    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
-    assert!(hit(0), "{hits:?}");
-    if o.len() > 1 {
-        assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
-        assert!(!hit(1), "{hits:?}");
-    }
+    assert!(o.iter().all(|(_, out)| *out == Outcome::Pass), "{o:?}");
+    assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
 }
 
-// The reporter's repro (issue 8071; G1sXaInstall.al:88-96): a group 1 filter A's OnAfterLogin subscriber set in A's install
-// session is not there in B's install session, where the subscriber sets it again. B's install code ran through the
-// assumption: the test that reads what it wrote is flagged, the one that touches no table is clean.
+// The reporter's repro (issue 8071; G1sXaInstall.al:116-124, G1sInstallSessionTests.al:87-105): a group 1 filter A's
+// OnAfterLogin subscriber set in A's install session is not there in B's install session, where the subscriber sets it
+// again. B's install code runs, and its tests pass clean.
 #[test]
 fn a_group1_filter_of_one_install_session_does_not_reach_the_next() {
-    first_flagged(&app_a(LOGIN, SET_BY_RECORD), APP_B);
+    passes_clean(&app_a(LOGIN, SET_BY_RECORD), APP_B);
 }
 
-// Cell b (G1sInstallSessionTests.al:58; G1sXaInstall.al:115-117): a filter A's install routine left set, read with a new
+// Cell b (G1sInstallSessionTests.al:55-63; G1sXaInstall.al:151-153): a filter A's install routine left set, read with a new
 // record in B's install session: both rows, no filter.
 #[test]
 fn the_next_install_session_reads_the_table_without_the_filter() {
@@ -90,11 +82,11 @@ fn the_next_install_session_reads_the_table_without_the_filter() {
             begin I.FilterGroup(1); G1 := I.GetFilters(); I.FilterGroup(0); L.Seen := StrSubstNo('count=%1;g1=%2', I.Count(), G1); L.Insert(); end; }
         codeunit 60962 T { Subtype = Test;
             [Test] procedure Seen() var L: Record Log; begin L.Get(); if L.Seen <> 'count=2;g1=' then Error('%1', L.Seen); end; }";
-    first_flagged(a, b);
+    passes_clean(a, b);
 }
 
 // A dependency app's install session (the install baseline, `baseline_roots.rs`): a filter its install routine left set
-// is not there in the app under test's install session. The test that reads what that wrote is flagged through the
+// is not there in the app under test's install session (G1sInstallSessionTests.al:65-73). The tests pass clean on the
 // baseline.
 #[test]
 fn a_dependency_apps_install_session_ends_its_group1_filter() {
@@ -109,41 +101,7 @@ fn a_dependency_apps_install_session_ends_its_group1_filter() {
             [Test] procedure Seen() var L: Record Log; begin L.Get(); if L.N <> 2 then Error('%1', L.N); end;
             [Test] procedure NoTable() begin end; }";
     let o = on_dependency_baseline(dep, main);
-    assert_eq!(o, [(Outcome::Pass, true), (Outcome::Pass, false)]);
-}
-
-// The drop is marked: the install part relied on the assumption (the baseline notes name it).
-#[test]
-fn the_dropped_filter_marks_the_assumption() {
-    let a = app_a(LOGIN, SET_BY_RECORD);
-    let (ws, l) = al_sema::lower::compile_apps(
-        [
-            ("dep", vec![], DEP.to_string()),
-            ("a", vec!["dep".to_string()], a),
-            ("b", vec!["a".to_string()], APP_B.into()),
-        ]
-        .into_iter()
-        .map(|(id, dependencies, src)| AppSource {
-            id: id.into(),
-            name: id.into(),
-            dependencies,
-            files: vec![(format!("{id}.al"), src)],
-        })
-        .collect(),
-        vec![
-            al_sema::AppKind::Dependency,
-            al_sema::AppKind::Workspace,
-            al_sema::AppKind::Workspace,
-        ],
-        &Default::default(),
-    );
-    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    let engine = Engine::new(l.program.clone(), Vec::new());
-    let mut session = Session::new(engine);
-    assumptions::clear_hits();
-    let skipped = crate::install::run_apps_under_test(&l, &mut session);
-    assert!(skipped.is_empty(), "{skipped:?}");
-    assert!(assumptions::hit(Assumption::GlobalFilterEndsWithInstallSession));
+    assert_eq!(o, [(Outcome::Pass, false), (Outcome::Pass, false)]);
 }
 
 fn refused_by_group1(o: &Outcome) -> bool {
@@ -218,10 +176,10 @@ fn app_a_other(tail: &str, more: &str) -> String {
     )
 }
 
-/// In A's install trigger: the filter set in the trigger's own body (G1sXaInstall.al:115-117).
+/// In A's install trigger: the filter set in the trigger's own body (G1sXaInstall.al:151-153).
 const SET_IN_TRIGGER: &str = "G.FilterGroup(1); G.SetRange(Blocked, true); G.FilterGroup(0);";
 
-// The probe measured a setter routine that ran to its end (G1sXaInstall.al:115-118). A's install trigger sets the filter
+// The probe measured a setter routine that ran to its end (G1sXaInstall.al:131-155). A's install trigger sets the filter
 // and then stops (a new record of the table in the same session, which main refuses): its rows are rolled back, and its
 // filter keeps main's refusal in B's install session.
 #[test]
@@ -231,23 +189,22 @@ fn a_filter_of_a_setter_that_stops_keeps_mains_refusal() {
     assert!(refused_by_group1(&o), "{o:?}");
 }
 
-// The control: the same setter run to its end. B's install code counts both rows, and its test is flagged.
+// The control: the same setter run to its end. B's install code counts both rows, and its test passes clean.
 #[test]
 fn a_filter_of_a_setter_that_ran_to_its_end_ends() {
-    first_flagged(&app_a_other(SET_IN_TRIGGER, ""), &app_b_counts(2));
+    passes_clean(&app_a_other(SET_IN_TRIGGER, ""), &app_b_counts(2));
 }
 
-// A relying install routine that read A's table and wrote nothing (main refused it for the tables it touches): the test
-// that reads a table the routine touches is flagged, the one that touches no table is clean.
+// An install routine that reads A's table after its filter ended and writes nothing: it runs, and the tests pass clean.
 #[test]
-fn a_relying_routine_flags_the_tables_it_touches() {
+fn a_routine_that_reads_the_ended_table_runs() {
     let b = "table 60960 Setup { fields { field(1; K; Code[10]) { } } }
         codeunit 60961 InstB { Subtype = Install;
             trigger OnInstallAppPerCompany() var O: Record Other; S: Record Setup; begin O.SetRange(Blocked, false); if O.IsEmpty() then S.Insert(); end; }
         codeunit 60962 T { Subtype = Test;
             [Test] procedure SetupEmpty() var S: Record Setup; begin if not S.IsEmpty() then Error('B wrote'); end;
             [Test] procedure NoTable() begin end; }";
-    first_flagged(&app_a_other(SET_IN_TRIGGER, ""), b);
+    passes_clean(&app_a_other(SET_IN_TRIGGER, ""), b);
 }
 
 // Out of the measured shape (the probe sets the filter in the trigger's body), main's refusal stays: a procedure the
@@ -279,7 +236,7 @@ fn a_filter_of_an_own_event_subscriber_keeps_mains_refusal() {
 const SET_OTHER_BODY: &str =
     "var G: Record Other; begin G.FilterGroup(1); G.SetRange(Blocked, true); G.FilterGroup(0); end;";
 
-// Out of the measured shape (the probe sets the filter in the OnAfterLogin subscriber's body, G1sXaInstall.al:88-96), main's
+// Out of the measured shape (the probe sets the filter in the OnAfterLogin subscriber's body, G1sXaInstall.al:121-123), main's
 // refusal stays: a procedure the subscriber calls sets it (the reporter's layout otherwise).
 #[test]
 fn a_filter_of_a_procedure_the_login_subscriber_calls_keeps_mains_refusal() {
@@ -290,7 +247,7 @@ fn a_filter_of_a_procedure_the_login_subscriber_calls_keeps_mains_refusal() {
 }
 
 /// The tests of `main` (codeunit `T`) on the install baseline of dependency app `dep`, as the baseline cache keeps it:
-/// the outcomes and, per test, whether it relied on the assumption.
+/// the outcomes and, per test, whether it carries an assumption mark.
 fn on_dependency_baseline(dep: &str, main: &str) -> Vec<(Outcome, bool)> {
     // The install baseline's roots: the dependency app's install codeunit is compiled.
     let (ws, l) = al_sema::lower::compile_apps_with(
@@ -337,16 +294,16 @@ fn on_dependency_baseline(dep: &str, main: &str) -> Vec<(Outcome, bool)> {
     );
     (o.into_iter())
         .map(|(n, out)| {
-            let hit = hits.iter().any(|(m, h)| *m == n && h.iter().any(|a| a.info().id == ID));
+            let hit = hits.iter().any(|(m, h)| *m == n && !h.is_empty());
             (out, hit)
         })
         .collect()
 }
 
-// Cell d (G1sInstallSessionTests.al:80): the test session reads the table whose filter a dependency app's install session
-// ended, with no install code after it. On the install baseline the test relies on the assumption too.
+// Cell d (G1sInstallSessionTests.al:75-85): the test session reads the table whose filter a dependency app's install
+// session ended, with no install code after it, on the install baseline.
 #[test]
-fn a_test_that_reads_the_ended_table_on_the_baseline_is_flagged() {
+fn a_test_reads_the_ended_table_on_the_baseline() {
     let dep = "table 60940 Feature { fields { field(1; K; Code[10]) { } field(2; On; Boolean) { } } }
         codeunit 60941 DepInst { Subtype = Install;
             trigger OnInstallAppPerCompany() var F: Record Feature; G: Record Feature;
@@ -355,7 +312,7 @@ fn a_test_that_reads_the_ended_table_on_the_baseline_is_flagged() {
             [Test] procedure Seen() var F: Record Feature; begin if F.Count() <> 2 then Error('%1', F.Count()); end;
             [Test] procedure NoTable() begin end; }";
     let o = on_dependency_baseline(dep, main);
-    assert_eq!(o, [(Outcome::Pass, true), (Outcome::Pass, false)]);
+    assert_eq!(o, [(Outcome::Pass, false), (Outcome::Pass, false)]);
 }
 
 // A dependency app's install routine (the install baseline, `baseline_roots.rs`) that sets the filter and then stops keeps

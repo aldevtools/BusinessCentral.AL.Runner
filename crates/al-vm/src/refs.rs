@@ -705,6 +705,7 @@ impl Session {
         let found = self.record_op(RecordOp::Get, &rec, &mut a)?;
         match found {
             Value::Boolean(true) => {
+                self.recordref_get_of_field_row(&t, &rec);
                 *lib.borrow_mut() = LibraryValue::RecordRef(rec);
                 Ok(Some(found))
             }
@@ -741,7 +742,16 @@ impl Session {
         self.recordref_permission_call();
         let got = self.record_op(RecordOp::Get, rec, &mut a);
         rec.borrow_mut().load.request = request;
+        if matches!(got, Ok(Value::Boolean(true))) {
+            self.recordref_get_of_field_row(t, rec);
+        }
         got
+    }
+
+    /// A Field row RecordRef.Get(RecordId) found: Record.Get, Find('=') and RecordRef.Find('=') answer as a Get
+    /// (metadata/platform-tables/PlatformMetadataColumnValues.al:753-772); this form is not measured.
+    fn recordref_get_of_field_row(&self, t: &TableDef, rec: &Rec) {
+        crate::platform::unmeasured_key_read(&self.engine, t, &mut rec.borrow_mut().fields, "RecordRef.Get(RecordId)");
     }
 
     /// Whether the buffer differs from what the ref last read or wrote (`dirty_base`); a buffer that came from elsewhere
@@ -1342,6 +1352,12 @@ impl Session {
     fn rr_set_table(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
         let done = self.rr_set_table_into(rec, lib, args);
         crate::blob_transfer::recordref_set_table_ran(rec);
+        // A key moved this way is no cell of TempBlobEmptyInsertShare.al (`temp_blob_share::measured_detach`).
+        if let Some(Value::Record(dst)) = args.first()
+            && let Some(id) = &dst.borrow().temp_id
+        {
+            id.forget_empty_blob_inserter();
+        }
         done
     }
 
@@ -1494,7 +1510,6 @@ impl Session {
                 return Err(fieldref_not_initialized());
             }
             LibraryValue::Empty if unassigned_filter_member_measured(method, args) => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldrefUnassignedFilters);
                 return Err(fieldref_not_initialized());
             }
             _ => {
@@ -1774,9 +1789,9 @@ pub(crate) fn fieldref_not_initialized() -> Signal {
     }))
 }
 
-/// The filter members corpus PR 1382 measured on a FieldRef that holds no field, both never assigned and after `Clear`, which
-/// the runtime cannot tell apart (recordref-fieldref/fieldref/FieldRefUnassignedFilters.al:88-127, not pinned yet, assumption
-/// `fieldref-unassigned-filters`): SetRange with no argument or one Text, SetFilter with one Text and no placeholder value,
+/// The filter members measured on a FieldRef that holds no field, both never assigned and after `Clear`, which the runtime
+/// cannot tell apart (tests/al-language/recordref-fieldref/fieldref/FieldRefUnassignedFilters.al:88 Unassigned_SetRange_Forms,
+/// :106 Unassigned_SetFilter_GetFilter_Range, :127 Cleared_Filter_Members): SetRange with no argument or one Text, SetFilter with one Text and no placeholder value,
 /// GetFilter and GetRangeMin. SetRange with an Integer or two values, SetFilter(''), GetRangeMax were measured only never
 /// assigned (:88, :106) and keep the refusal.
 fn unassigned_filter_member_measured(method: &str, args: &[Value]) -> bool {

@@ -131,8 +131,8 @@ const OBJECT_GRANT: &str = r#"
   end;
 "#;
 
-/// Corpus PR 1403 (merged, not pinned; permissions/testpermissions/Y19PermExtAndCompose.al PC_D_ExpandedPermissionOfTenantObjectGrants,
-/// assumption `tenant-object-grants-expanded-as-stored`): object rows with every column Yes are listed as stored. A System id
+/// tests/al-language/permissions/testpermissions/Y19PermExtAndCompose.al:432-453 (PC_D_ExpandedPermissionOfTenantObjectGrants):
+/// object rows with every column Yes are listed as stored. A System id
 /// other than 1350, a column left blank, an object row of an included or excluded set, and a set that another set includes or
 /// excludes are not measured and keep the refusal.
 #[test]

@@ -1,13 +1,12 @@
 //! A Provider chain whose Provider part shows no row, with the linked part added by a page extension outside FactBoxes
 //! (al-runner issue 7392). BC shows no row in the linked part (ProviderPartOutsideFactBoxes.al:419 `h2`, with a detail row
 //! of `Line Ref` 0 stored at :273);
-//! the runner links it to the blank values instead, which shows the same only while no row holds them. The probe's cells run
-//! under the assumption `provider-no-row-ext-chain` (corpus pull request 1384, testpage/parts/ProviderNoRowFirst.al); every
-//! other shape keeps the refusal in `sync_part` (`NO_ROW_CHAIN_REFUSAL`).
+//! the runner links it to the blank values instead, which shows the same only while no row holds them. Only the cells of
+//! tests/al-language/testpage/parts/ProviderNoRowFirst.al:192, :240, :259, :278, :301 take this path; every other shape keeps
+//! the refusal in `sync_part` (`NO_ROW_CHAIN_REFUSAL`).
 
 use super::pinned_shape::{NextEnd, PLAIN_PROPERTIES, PinnedEnd, TestCall};
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::FieldFilter;
 use al_builtins::page_op::PageMethod;
 
@@ -75,7 +74,6 @@ impl Session {
         if self.stored_rows_passing(&rec, link.to_vec())? != 0 {
             return Ok(false);
         }
-        assume(Assumption::ProviderNoRowExtChain);
         let mut h = host.borrow_mut();
         if !h.provider_no_row_landed {
             h.provider_no_row_landed = true;

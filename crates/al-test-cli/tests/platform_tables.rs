@@ -2302,13 +2302,7 @@ codeunit 50000 "T" { Subtype = Test;
                 (
                     n.clone(),
                     *o == Outcome::Pass,
-                    // The package ids a Get of a system field gives rest on their own assumption (field-key-lookup-package-ids),
-                    // which says nothing about the SystemId this test reads.
-                    hits.iter().any(|(h, m)| {
-                        h == n
-                            && m.iter()
-                                .any(|a| *a != al_builtins::assumptions::Assumption::FieldKeyLookupPackageIds)
-                    }),
+                    hits.iter().any(|(h, m)| h == n && !m.is_empty()),
                 )
             })
             .collect::<Vec<_>>()

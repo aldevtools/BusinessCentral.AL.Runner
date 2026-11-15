@@ -122,20 +122,20 @@ pub(crate) enum InsertEvidence {
     /// The corpus pins it: 1753-01-01, 1752-12-31 (also as a closing date), 1753-01-01 00:00, 1752-12-31 12:00 and a DateTime
     /// that rounds past 9999-12-31 (P130DateFilters.al:255-293, :306-318).
     Pinned,
-    /// The reporter of al-runner issue 8006 measured it (assumption `sql-date-first-year`, statement not reported): another
+    /// The reporter of al-runner issue 8006 measured it (statement not reported): another
     /// Date in 1753 that is not a closing date, a DateTime in 1753 whose 12-hour clock hour has two digits and that stays in
     /// its minute.
     Reporter,
-    /// Only corpus PR 1398 measured it: a DateTime in 1753 whose 12-hour clock hour has one digit and that stays in its
+    /// Only record/filters/SqlDateFloor1753.al measured it: a DateTime in 1753 whose 12-hour clock hour has one digit and that stays in its
     /// minute, by the Insert statement into `LT SD Floor Row`, `Trig` with Insert(true), `Sub` and `Blob`
     /// (SqlDateFloor1753.al Insert_DateTime_MorningHours_1, Trigger_DateTime_1, Subscriber_DateTime_1, Blob_DateTime_1).
     ProbeHour,
-    /// Only corpus PR 1398 measured it, by the Insert statement into a table without insert code (`LT SD Floor Row`:
+    /// Only record/filters/SqlDateFloor1753.al measured it, by the Insert statement into a table without insert code (`LT SD Floor Row`:
     /// Insert_Date_1753_1, Insert_DateTime_RoundingEdge_1): a closing date in 1753, 1753-12-31 23:59:59.999.
     ProbePlain,
-    /// Only corpus PR 1398 measured it, by the Insert() statement into a table without insert code (`LT SD Floor Row`:
-    /// Outside_Date_Insert, Outside_DateTime_Insert): a Date from 1700-01-01 to 1752-12-30, a DateTime from 1700-01-01 to
-    /// 1752-12-31 that stays in its minute (other than the pinned 1752-12-31 12:00).
+    /// Measured only by the Insert() statement into a table without insert code (`LT SD Floor Row`:
+    /// record/filters/SqlDateFloor1753.al:1584-1633, Outside_Date_Insert, Outside_DateTime_Insert): the Date 1700-01-01,
+    /// the DateTimes 1700-01-01 12:00 and 1752-12-31 23:59.
     ProbeOutside,
 }
 
@@ -154,9 +154,9 @@ pub(crate) enum BadKind {
     DateTime1753,
     /// The DateTime 1752-12-31 12:00.
     DateTime1752,
-    /// A Date from 1700-01-01 to 1752-12-30 that is not a closing date.
+    /// The Date 1700-01-01.
     DatePre1753,
-    /// A DateTime from 1700-01-01 to 1752-12-31 that stays in its minute, other than 1752-12-31 12:00.
+    /// The DateTime 1700-01-01 12:00 or 1752-12-31 23:59.
     DateTimePre1753,
     /// A DateTime that rounds past 9999-12-31.
     PastMax,
@@ -181,11 +181,12 @@ fn edge_days() -> (i64, i64, i64, i64) {
 
 /// A Date before 1754-01-01 the column cannot hold, or `None` when it fits. Pinned: 1753-01-01 and 1752-12-31 (also as a
 /// closing date) fail, 0D and 0001-01-01 store (P130DateFilters.al:255-293; 0001-01-01 reads back as it was written, :261-262,
-/// which a blank date would not: types/date-time/Arithmetic.al:111-116). Assumed (`sql-date-first-year`, corpus PR 1398
-/// SqlDateFloor1753.al Insert_Date_1753_1, Insert_Date_1753_2): every other date in 1753 fails, a closing date too, shown as
-/// MM/DD/YYYY with a `C` before a closing date (`C06/15/1753`). Assumed (Outside_Date_Insert, Outside_Date_Modify, which
-/// measured 1700-01-01 and 1752-12-31): a date from 1700-01-01 to 1752-12-30 fails as well, shown the same way
-/// (`01/01/1700`). Every other date before 1754-01-01 is refused.
+/// which a blank date would not: types/date-time/Arithmetic.al:111-116). Every other date in 1753 fails, a closing date
+/// too, shown as MM/DD/YYYY with a `C` before a closing date (`C06/15/1753`): record/filters/SqlDateFloor1753.al:1274
+/// (Insert_Date_1753_1, _2), :1342-1400 (Modify_Date_ClosingAndOutside_1 to _5), and the reporter of al-runner issue 8006.
+/// 1700-01-01 fails as well, shown the same way (`01/01/1700`): SqlDateFloor1753.al:1584-1615 (Outside_Date_Insert,
+/// Outside_Date_Modify). The days between 1700-01-01 and 1752-12-31 are not measured, and every other date before
+/// 1754-01-01 is refused.
 fn bad_date(d: i32, closing: bool) -> Result<Option<Shown>, Signal> {
     let (d1700, d1752, d1753, d1754) = edge_days();
     let day = i64::from(d);
@@ -204,7 +205,7 @@ fn bad_date(d: i32, closing: bool) -> Result<Option<Shown>, Signal> {
         (d, true) if d == d1752 => shown(BadKind::ClosingDate1752, InsertEvidence::Pinned),
         (d, false) if d > d1753 && d < d1754 => shown(BadKind::Date1753, InsertEvidence::Reporter),
         (d, true) if d >= d1753 && d < d1754 => shown(BadKind::ClosingDate1753, InsertEvidence::ProbePlain),
-        (d, false) if d >= d1700 && d < d1752 => shown(BadKind::DatePre1753, InsertEvidence::ProbeOutside),
+        (d, false) if d == d1700 => shown(BadKind::DatePre1753, InsertEvidence::ProbeOutside),
         _ => {
             return Err(Signal::unsupported(
                 "a Date before 1754-01-01 in a database table, other than the measured ones (not pinned)",
@@ -214,15 +215,14 @@ fn bad_date(d: i32, closing: bool) -> Result<Option<Shown>, Signal> {
 }
 
 /// A DateTime the column cannot hold, or `None` when it fits. Pinned: 1753-01-01 00:00 and 1752-12-31 12:00 fail, and a value
-/// that rounds past 9999-12-31, which shows to the minute (P130DateFilters.al:285-293, :315). Assumed (`sql-date-first-year`,
-/// corpus PR 1398 SqlDateFloor1753.al Insert_DateTime_MorningHours_1 and _2, Insert_DateTime_AfternoonHours_1 and _2,
-/// Insert_DateTime_RoundingEdge_1): every other value on a day in 1753 fails and shows as MM/DD/YYYY hh:mm with AM or PM,
+/// that rounds past 9999-12-31, which shows to the minute (P130DateFilters.al:285-293, :315). Pinned by
+/// record/filters/SqlDateFloor1753.al (Insert_DateTime_MorningHours_1 and _2, Insert_DateTime_AfternoonHours_1 and _2,
+/// Insert_DateTime_RoundingEdge_1) and the reporter of al-runner issue 8006: every other value on a day in 1753 fails and shows as MM/DD/YYYY hh:mm with AM or PM,
 /// the hour of the 12-hour clock in two digits and the time cut to the minute (00:00:01 `12:00 AM`, 01:00 `01:00 AM`, 13:00
 /// `01:00 PM`, 21:59:59 `09:59 PM`). 1753-12-31 23:59:59.999, which the column would round into 1754, fails too and shows
-/// `12/31/1753 11:59 PM`. Assumed (Outside_DateTime_Insert, Outside_DateTime_Modify, which measured 1700-01-01 12:00 and
-/// 1752-12-31 23:59): a value from 1700-01-01 to 1752-12-31 that stays in its minute fails as well and shows the same way
-/// (`01/01/1700 12:00 PM`). Another value the rounding moves into another minute is refused, as is every other value before
-/// 1754-01-01.
+/// `12/31/1753 11:59 PM`. 1700-01-01 12:00 and 1752-12-31 23:59 fail as well and show the same way (`01/01/1700 12:00 PM`;
+/// Outside_DateTime_Insert, Outside_DateTime_Modify). Another value the rounding moves into another minute is refused, as is
+/// every other value before 1754-01-01.
 fn bad_datetime(v: i64) -> Result<Option<Shown>, Signal> {
     let (d1700, d1752, d1753, d1754) = edge_days();
     let (day, in_day) = ((v - 1).div_euclid(MS_PER_DAY) + 1, (v - 1).rem_euclid(MS_PER_DAY));
@@ -259,6 +259,12 @@ fn bad_datetime(v: i64) -> Result<Option<Shown>, Signal> {
         return Err(refuse());
     }
     let in_1753 = day >= d1753;
+    // Before 1753 only the measured values: 1700-01-01 12:00 and 1752-12-31 23:59 (SqlDateFloor1753.al:1620-1647,
+    // Outside_DateTime_Insert, Outside_DateTime_Modify). The minutes between are not measured.
+    let measured_before_1753 = (day == d1700 && in_day == 43_200_000) || (day == d1752 && in_day == 86_340_000);
+    if !(in_1753 || measured_before_1753) {
+        return Err(refuse());
+    }
     let (hour, minute) = (in_day / 3_600_000, in_day / 60_000 % 60);
     let hour12 = if hour % 12 == 0 { 12 } else { hour % 12 };
     let (y, m, dd) = al_builtins::format::civil_from_day(day as i32);
@@ -328,23 +334,37 @@ pub(crate) fn bad_field(
     }))
 }
 
-/// Rounds the Time and DateTime values of `row` and checks its dates against what the column holds (`bad_field`). A row with
-/// two such values reports the first in field order (not measured).
+/// Rounds the Time and DateTime values of `row` and checks its dates against what the column holds (`bad_field`). The cells
+/// of record/filters/SqlDateFloor1753.al write one such value per row; a row with two is refused (which one the error names
+/// is not measured).
 pub(crate) fn store(
     t: &TableDef,
     field_caption: &dyn Fn(usize) -> String,
     table_caption: &str,
     row: &mut [Value],
 ) -> Result<Stored, Signal> {
-    for (i, (f, v)) in t.fields.iter().zip(row.iter_mut()).enumerate() {
+    for (i, f) in t.fields.iter().enumerate() {
+        let Some(v) = row.get(i) else { break };
         if let Some(bad) = bad_field(t, i, v, field_caption, table_caption)? {
+            for (j, w) in row
+                .iter()
+                .enumerate()
+                .skip(i + 1)
+                .take(t.fields.len().saturating_sub(i + 1))
+            {
+                if bad_field(t, j, w, field_caption, table_caption)?.is_some() {
+                    return Err(Signal::unsupported(
+                        "a row with two values their SQL columns cannot hold (which one the error names is not measured)",
+                    ));
+                }
+            }
             return Ok(Stored::Bad(bad));
         }
         // A primary key field the rounding changes is stored rounded like any other field: the row stands under the
         // rounded key while the record keeps its own value (P130DateFilters.al:527-735, al-runner issue 5689). The system
         // fields keep the value the runtime stamps: whether the buffer then holds the rounded value is not pinned.
         if f.stored && f.id < 2_000_000_000 && matches!(f.ty, RtType::Time | RtType::DateTime) {
-            *v = rounded(v);
+            row[i] = rounded(&row[i]);
         }
     }
     Ok(Stored::Fits)
