@@ -997,7 +997,8 @@ fn run_codeunit_inner(
             // statement of its own body refused: what it wrote before the refusal and the reach of the statements from that one
             // on count (`remainder_reach_facts`, al-runner issue 5961). A failed test counts only through the `Random`
             // sequence: its draws are not rolled back, while its database writes are, as they are in BC when the test fails
-            // there too.
+            // there too. A failure judged not trusted may pass on BC and leave its writes and globals: it counts with its whole
+            // reach, as a test refused while it ran (`Ended::Untrusted`).
             // The numbers this test drew from a sequence it did not seed itself: they depend on what earlier tests drew
             // (Tests-SCM-Planning CalcPlanReqWkshForTransferLFLItem: a random end date before a random receipt date).
             let drew = session.inherited_random_draws() > draws_before;
@@ -1033,7 +1034,8 @@ fn run_codeunit_inner(
                 Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),
                 o => Err(o),
             };
-            let outcome = match judged {
+            // `untrusted`: this test's failure was judged not trusted just above.
+            let (outcome, untrusted) = match judged {
                 Ok((kind, m)) => {
                     let engine = session.engine.clone();
                     let index: &ReachIndex =
@@ -1077,17 +1079,17 @@ fn run_codeunit_inner(
                                 u.what
                             )
                         }),
-                        Ended::RefusedBeforeStart | Ended::RefusedMidRun => {
+                        Ended::RefusedBeforeStart | Ended::RefusedMidRun | Ended::Untrusted => {
                             // An unknown part of the earlier reach answers without this test's reach.
                             let later = match facts.unknown {
                                 Some(_) => &ReachFacts::default(),
                                 None => mine.get_or_insert_with(|| reach_facts(&engine.events, lowered, index, object, r)),
                             };
                             facts.changes_read_by(later, checkpoint.is_none(), drew, &settled, lowered).map(|what| {
-                                let when = if u.ended == Ended::RefusedMidRun {
-                                    "refused while it ran"
-                                } else {
-                                    "refused before it started"
+                                let when = match u.ended {
+                                    Ended::RefusedMidRun => "refused while it ran",
+                                    Ended::Untrusted => "a failure judged not trusted",
+                                    _ => "refused before it started",
                                 };
                                 format!(
                                     "an earlier test of this codeunit was {when} ({}): {what}, so the state it would have left is not BC's",
@@ -1098,20 +1100,23 @@ fn run_codeunit_inner(
                     }
                 });
                     match found {
-                        Some(why) => Outcome::NotRun(format!("{why}; this {kind} is not trusted: {m}")),
-                        None if kind == "timeout" => Outcome::NotRun(m),
-                        None => Outcome::Fail(m),
+                        Some(why) => (
+                            Outcome::NotRun(format!("{why}; this {kind} is not trusted: {m}")),
+                            kind == "failure",
+                        ),
+                        None if kind == "timeout" => (Outcome::NotRun(m), false),
+                        None => (Outcome::Fail(m), false),
                     }
                 }
-                Err(o) => o,
+                Err(o) => (o, false),
             };
-            let ended = ended_of(&outcome, began);
+            let ended = ended_of(&outcome, began, untrusted);
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
                 let how = match ended {
                     Ended::RefusedBeforeStart => "not run",
                     Ended::RefusedMidRun => "did not run",
-                    Ended::Failed => "failed",
+                    Ended::Failed | Ended::Untrusted => "failed",
                 };
                 unfinished.push(Unfinished {
                     routine: r,
@@ -1710,6 +1715,9 @@ fn note_unfinished(scratch: &mut Scratch, ended: Option<Ended>, runner_refused: 
 enum Ended {
     RefusedBeforeStart,
     RefusedMidRun,
+    /// It failed and the failure was judged not trusted: on BC it may have passed, so it counts with its whole reach, as
+    /// a test refused while it ran does. It is not one for `Ends::refused_mid_run`.
+    Untrusted,
     Failed,
 }
 
@@ -1745,7 +1753,7 @@ impl Unfinished {
 
 /// The manual bindings alive after a failed test that were not alive when it started.
 fn left_bindings(session: &Session, before: &[usize], ended: Ended) -> Vec<usize> {
-    if ended != Ended::Failed {
+    if !matches!(ended, Ended::Failed | Ended::Untrusted) {
         return Vec::new();
     }
     session
@@ -1765,11 +1773,11 @@ struct Rest {
     written: BTreeSet<u32>,
 }
 
-/// How a test that did not pass ended (`None`: it passed or was skipped).
-fn ended_of(outcome: &Outcome, began: bool) -> Option<Ended> {
+/// How a test that did not pass ended (`None`: it passed or was skipped). `untrusted`: its failure was judged not trusted.
+fn ended_of(outcome: &Outcome, began: bool, untrusted: bool) -> Option<Ended> {
     match outcome {
+        Outcome::NotRun(_) if untrusted => Some(Ended::Untrusted),
         Outcome::NotRun(_) if !began => Some(Ended::RefusedBeforeStart),
-        Outcome::NotRun(why) if why.contains("this failure is not trusted") => Some(Ended::Failed),
         Outcome::NotRun(_) => Some(Ended::RefusedMidRun),
         Outcome::Fail(_) => Some(Ended::Failed),
         _ => None,
