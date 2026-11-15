@@ -14,9 +14,10 @@
 //! Every fact of the pages, their code, the opener, the BC major, the test's calls, the views of the host's and the part's Rec
 //! and the part's state before and after each step is required by equality (`journal_host_miss`, `journal_part_miss`,
 //! [`MEASURED_PAIRS`]); any other shape keeps the earlier path (a GoToRecord, a move of a page outside the shape or between
-//! two hidden states) or is refused (a turn by an action, a step after it, a move between other states of the part).
+//! two hidden states) or is refused (a turn by an action, a step after it, a move between other states of the part, and every
+//! step of a page that has each fact but calls a codeunit procedure that does more than log: `journal_tree`).
 
-use super::hidden_part_journal_code::{host_bodies_are, log_call, part_procedure_is, visible_variable};
+use super::hidden_part_journal_code::{Calls, host_bodies_are, part_procedure_is, visible_variable};
 use super::pinned_shape::{NextEnd, PinnedCode, PinnedEnd, TestCall, code_stmts, codeunit_var_call};
 use super::*;
 use al_builtins::page_op::PageMethod;
@@ -272,6 +273,11 @@ impl Session {
     /// - a temporary part's Rec is in the plain view (`rec_view_is`: page 75313's procedure refills the rows and sets no
     ///   filter). The callers ask after the procedure ran: at the open, in the host's refresh, in the action's body.
     pub(super) fn journal_part_miss(&self, st: &St, i: usize, child: &St) -> Result<JournalPart, &'static str> {
+        self.journal_part_miss_with(st, i, child, Calls::Log)
+    }
+
+    /// `journal_part_miss`, with the codeunit calls `calls` lets through.
+    fn journal_part_miss_with(&self, st: &St, i: usize, child: &St, calls: Calls) -> Result<JournalPart, &'static str> {
         let engine = self.engine();
         let host = st.borrow().object as usize;
         let control = &page_of(&engine, st).controls[i];
@@ -325,16 +331,16 @@ impl Session {
         let bodies = page.triggers.iter().all(|(_, r)| {
             matches!(code_stmts(&engine.program, object, *r).as_slice(), [ir::Stmt::Expr(e)]
                 if codeunit_var_call(&engine.program, object, e)
-                    && log_call(&engine.program, e)
+                    && calls.allows(&engine.program, e)
                     && matches!(e, ir::Expr::Call { args, .. } if args.iter().all(|a| matches!(a, ir::Arg::Value(_)))))
         });
         let controls = one_repeater_of_fields(page) && controls_declare_only_application_area(page, None);
-        let procedure = part_procedure_is(&engine.program, object, page).is_some();
+        let procedure = part_procedure_is(&engine.program, object, page, calls).is_some();
         let pair = self
             .journal_host_type(st)
             .zip(kind)
             .is_some_and(|cell| MEASURED_PAIRS.contains(&cell));
-        let host_bodies = host_bodies_are(&engine.program, host, page_of(&engine, st), i);
+        let host_bodies = host_bodies_are(&engine.program, host, page_of(&engine, st), i, calls);
         let plain_view = kind != Some(JournalPart::Temporary) || self.rec_view_is(child, 0);
         [
             (unlinked, "the part has a SubPageLink or a Provider"),
@@ -400,7 +406,18 @@ impl Session {
         let Some(host) = self.journal_host_type(st) else {
             return Ok(None);
         };
-        Ok(self.journal_part_miss(st, i, &child).ok().map(|kind| Journal {
+        let kind = match self.journal_part_miss(st, i, &child) {
+            Ok(kind) => kind,
+            // Every fact but the log calls: the measured steps are not pinned for this page, and the earlier path is not
+            // measured for it either (HiddenPartJournalShape.al:485-490 pages only log).
+            Err(_) if self.journal_part_miss_with(st, i, &child, Calls::AnyCodeunit).is_ok() => {
+                return unsupported(
+                    "a page of the journal shape calls a codeunit procedure that does more than append text to a log (not pinned)",
+                );
+            }
+            Err(_) => return Ok(None),
+        };
+        Ok(Some(Journal {
             host,
             i,
             child,

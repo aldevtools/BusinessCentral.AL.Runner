@@ -1733,7 +1733,8 @@ fn other_part_pages_are_refused_by_name() {
 }
 
 /// A part whose read writes to the database (here through the codeunit its trigger calls) is refused at the turn.
-/// `journal_read` refuses a read that writes; the codeunit here writes inside its log procedure, which the shape refuses first.
+/// `journal_read` refuses a read that writes; the codeunit here writes inside its log procedure, which the shape refuses first
+/// (`Session::journal_tree`).
 #[test]
 fn part_read_that_writes_is_refused() {
     let src = variant(
@@ -1741,14 +1742,8 @@ fn part_read_that_writes_is_refused() {
         "    procedure Add(Line: Text)\n    var\n        Doc: Record \"PG6 HJ Doc\";\n    begin\n        if Line = 'st-agcr(1)' then begin\n            Doc.Init();\n            Doc.\"No.\" := 'H3';\n            Doc.Insert();\n        end;\n",
     );
     let (out, _) = run_src(&src, "28.5", "WorksheetSendVal");
-    // The log procedure that writes is no log call any more (`log_call`): the part leaves the journal shape.
-    assert!(
-        refused(
-            &out,
-            "a trigger of the part page does more than call one procedure of a codeunit variable"
-        ),
-        "{out:?}"
-    );
+    // The log procedure that writes is no log call any more (`log_call`): the GoToRecord of the page is refused.
+    assert!(refused(&out, NOT_ONLY_LOG), "{out:?}");
 }
 
 const UNMEASURED_MOVE: &str =
@@ -2094,14 +2089,23 @@ fn move_that_writes_is_refused() {
         "    procedure Add(Line: Text)\n    begin\n",
         "    procedure Add(Line: Text)\n    var\n        Status: Record \"PG6 HJ Status\";\n    begin\n        if Line = 'host-agcr(H2)' then begin\n            Status.Init();\n            Status.\"Entry No.\" := 1;\n            Status.Insert();\n        end;\n",
     );
-    // The log procedure that writes is no log call any more (`log_call`): the page leaves the journal shape and its moves
-    // keep the earlier path, without the assumption.
-    for bc in ["28.5", "29.0"] {
-        let (out, hits) = run_src(&src, bc, "WorksheetRequestBeforeOpen");
-        assert!(out.is_ok(), "on {bc}: {out:?}");
-        assert!(only_other_rules(&hits), "on {bc}");
+    // The log procedure that writes is no log call any more (`log_call`). The page has every other fact of the journal shape,
+    // and the earlier path is not measured for its moves: they are refused. So is a host trigger that calls a procedure that
+    // does not write and does not only log (`Log.Reset`).
+    let resets = variant(
+        "        Log.Add('host-agcr(' + Rec.\"No.\" + ')');",
+        "        Log.Reset();",
+    );
+    for src in [&src, &resets] {
+        for bc in ["28.5", "29.0"] {
+            let (out, _) = run_src(src, bc, "WorksheetRequestBeforeOpen");
+            assert!(refused(&out, NOT_ONLY_LOG), "on {bc}: {out:?}");
+        }
     }
 }
+
+const NOT_ONLY_LOG: &str =
+    "a page of the journal shape calls a codeunit procedure that does more than append text to a log";
 
 /// The codeunit procedures the measured pages call from their triggers and from the part's procedure only append text to a log
 /// (HiddenPartJournalShape.al:485-490, `Log.Add`). A trigger or the part's procedure that calls another procedure of a codeunit
@@ -2129,8 +2133,13 @@ fn a_codeunit_call_that_does_not_log_is_refused() {
         ),
     ];
     for (src, reason) in cases {
-        let (out, hits) = run_src(&src, "28.5", "WorksheetSendVal");
+        // The turn as the test's first call names the fact the page misses.
+        let (out, hits) = run_src(&src, "28.5", "TurnWithoutGoToRecord");
         assert!(refused(&out, reason), "{reason}: {out:?}");
+        assert!(only_other_rules(&hits), "{reason}");
+        // The GoToRecord before it is a step of the shape, refused for a page that has every fact but the log calls.
+        let (out, hits) = run_src(&src, "28.5", "WorksheetSendVal");
+        assert!(refused(&out, NOT_ONLY_LOG), "{reason}: {out:?}");
         assert!(only_other_rules(&hits), "{reason}");
     }
 }

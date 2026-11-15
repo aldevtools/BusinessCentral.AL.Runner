@@ -41,6 +41,22 @@ pub(super) fn visible_variable(program: &ir::Program, host: usize, control: &ir:
     }
 }
 
+/// Which codeunit calls the code checks let through in the host's page triggers, the part's triggers and the part's procedure.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Calls {
+    /// Only log calls (`log_call`), as the measured pages make (HiddenPartJournalShape.al:485-490).
+    Log,
+    /// Any procedure of a codeunit variable: to find a page that has every other fact of the shape, whose steps are refused
+    /// (`Session::journal_tree`).
+    AnyCodeunit,
+}
+
+impl Calls {
+    pub(super) fn allows(self, program: &ir::Program, e: &ir::Expr) -> bool {
+        self == Calls::AnyCodeunit || log_call(program, e)
+    }
+}
+
 /// `e` calls a procedure of a codeunit that only appends text to a Text global of its codeunit (`text_log_routine`): `Log.Add`
 /// of the measured pages (HiddenPartJournalShape.al:485-490).
 pub(super) fn log_call(program: &ir::Program, e: &ir::Expr) -> bool {
@@ -98,7 +114,7 @@ fn procedures(program: &ir::Program, object: usize, page: &ir::Page) -> Vec<usiz
 /// `Fill` procedures hold (HiddenPartJournalShape.al:118-134, :180-185): the methods of [`FILL_RECORD_METHODS`] on Rec or on a
 /// local record with value arguments, `Format`, calls of a log procedure of a codeunit variable (`log_call`), constants, Rec, locals, their
 /// fields and operations on them. Not in it: a method of `CurrPage`, a call of another procedure, any other builtin.
-pub(super) fn part_procedure_is(program: &ir::Program, object: usize, page: &ir::Page) -> Option<usize> {
+pub(super) fn part_procedure_is(program: &ir::Program, object: usize, page: &ir::Page, calls: Calls) -> Option<usize> {
     let &[fill] = procedures(program, object, page).as_slice() else {
         return None;
     };
@@ -146,7 +162,7 @@ pub(super) fn part_procedure_is(program: &ir::Program, object: usize, page: &ir:
                 ..
             } => *id == ids::SYSTEM_FORMAT_1 && values(args),
             ir::Expr::Call { args, .. } => {
-                codeunit_var_call(program, object, e) && log_call(program, e) && values(args)
+                codeunit_var_call(program, object, e) && calls.allows(program, e) && values(args)
             }
             _ => false,
         };
@@ -162,13 +178,13 @@ pub(super) fn part_procedure_is(program: &ir::Program, object: usize, page: &ir:
 ///   variable, a global or a local of the trigger, whose arguments are constants, Rec and fields of Rec (:219-223, :255-270);
 ///   each call in a page trigger is a log call (`log_call`, `Log.Add`); an action also calls other procedures
 ///   (`Send.SendByValue(Rec)`, :226-231), whose effect `journal_turn` and `journal_part_after_action_refresh` check.
-pub(super) fn host_bodies_are(program: &ir::Program, host: usize, page: &ir::Page, part: usize) -> bool {
+pub(super) fn host_bodies_are(program: &ir::Program, host: usize, page: &ir::Page, part: usize, calls: Calls) -> bool {
     let o = &program.objects[host];
     let control = &page.controls[part];
     let facts = || {
         let rec = o.rec_slot?;
         let part_page = control.part_page?;
-        let fill = part_procedure_is(program, part_page, program.objects[part_page].page.as_ref()?)?;
+        let fill = part_procedure_is(program, part_page, program.objects[part_page].page.as_ref()?, calls)?;
         let visible = visible_variable(program, host, control)?;
         let &[refresh] = procedures(program, host, page).as_slice() else {
             return None;
@@ -219,7 +235,10 @@ pub(super) fn host_bodies_are(program: &ir::Program, host: usize, page: &ir::Pag
             .iter()
             .try_fold(0usize, |n, s| measured_stmt(r, s).map(|log| n + usize::from(!log)))
     };
-    let page_triggers = page.triggers.iter().all(|(_, r)| others(*r) == Some(0));
+    let page_triggers = page
+        .triggers
+        .iter()
+        .all(|(_, r)| others(*r).is_some_and(|n| n == 0 || calls == Calls::AnyCodeunit));
     let actions = page
         .controls
         .iter()
