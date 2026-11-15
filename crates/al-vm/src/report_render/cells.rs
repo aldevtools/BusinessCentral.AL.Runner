@@ -15,40 +15,27 @@ pub(crate) struct HtmlCell {
     pub(crate) title: &'static str,
 }
 
-/// The two-row data part of the RX Row reports: RowId and RowTxt of rows 1 and 2 (BC 27; BC 28 and 29 write it differently).
-const TWO_ROWS_27: &str = "3a3126860bb485a439f7e376c1f6982f7f1d652150931a827d22c0c059223e04";
-const TWO_ROWS_28_29: &str = "63197f3063e02466c4ce60f8765423c6ab03e14d2d961cddf89f2b25617c8685";
+/// The two-row data part of the RX Row reports on BC 29: RowId and RowTxt of rows 1 and 2.
+const TWO_ROWS_29: &str = "63197f3063e02466c4ce60f8765423c6ab03e14d2d961cddf89f2b25617c8685";
 const WORD_ALPHA: &str = "cf5f8283ccaf5498c5dc2281a3bd7843641e24da8062b72c3de9f661994c5f9e";
 const WORD_RGBA: &str = "29b1be5b3ea88195d785d3f917f86274d7e1e3c6b4627340105feab2b3dd24cb";
 
-/// The measured cells (corpus pull request 1415, reports/html-email-body/RxHtmlHashTests.al). Candidates until the runner's
-/// render is shown equal to BC's hash on each listed major.
+/// The measured cells (corpus pull request 1415, reports/html-email-body/RxHtmlHashTests.al): the runner's render equals BC's
+/// SHA-256, length and GetBody SHA-256 on BC 29.0. On BC 27.5 and 28.5 the runner's Html is one character shorter than BC's
+/// (1747 against 1748 for Alpha), so those majors are no cell yet.
 pub(crate) const CELLS: &[HtmlCell] = &[
     // Hash_WordAlpha_TwoRows (RxHtmlHashTests.al:163): `RX Word Alpha`, two rows.
     HtmlCell {
-        majors: &[27],
+        majors: &[29],
         layout_sha256: WORD_ALPHA,
-        data_sha256: TWO_ROWS_27,
+        data_sha256: TWO_ROWS_29,
         title: "RX Word Alpha",
     },
+    // Hash_WordRgba_TwoRows (:189): `RX Word Rgba`, two rows.
     HtmlCell {
-        majors: &[28, 29],
-        layout_sha256: WORD_ALPHA,
-        data_sha256: TWO_ROWS_28_29,
-        title: "RX Word Alpha",
-    },
-    // Hash_WordRgba_TwoRows (:189) and the own-layout save of Hash_TenantGuid_WordRgba_SameAsOwnLayout (:216): `RX Word
-    // Rgba`, two rows.
-    HtmlCell {
-        majors: &[27],
+        majors: &[29],
         layout_sha256: WORD_RGBA,
-        data_sha256: TWO_ROWS_27,
-        title: "RX Word Rgba",
-    },
-    HtmlCell {
-        majors: &[28, 29],
-        layout_sha256: WORD_RGBA,
-        data_sha256: TWO_ROWS_28_29,
+        data_sha256: TWO_ROWS_29,
         title: "RX Word Rgba",
     },
 ];
