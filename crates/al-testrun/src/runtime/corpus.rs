@@ -1062,7 +1062,6 @@ impl CorpusRuntime {
             .iter()
             .map(|o| o.iter().map(|r| r.first().map(|r| r.reason().to_owned())).collect())
             .collect();
-        let limit = opts.test_time_limit;
         // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3); the memory budget may cut.
         let mut memory = super::memory::Plan::after_compile(opts, test_workers());
         let mut workers = memory.workers();
@@ -1386,32 +1385,7 @@ impl CorpusRuntime {
         // pass first runs on several threads.
         let snapshot_once =
             super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder());
-        // The passes of the run: one, or one per entry (issue 5635), each over the same compile and install baseline.
-        let passes: Vec<Pass> = if opts.entries.is_empty() {
-            vec![Pass {
-                only: opts_only.clone(),
-                run_only: opts.run_only.clone(),
-                hooks: memory.hooks(&opts.hooks),
-                resources: Default::default(),
-            }]
-        } else {
-            opts.entries
-                .iter()
-                .map(|e| Pass {
-                    only: e.only.as_deref().map(in_program_order).or_else(|| opts_only.clone()),
-                    run_only: e.run_only.clone(),
-                    hooks: memory.hooks(&e.hooks),
-                    resources: e
-                        .resources
-                        .iter()
-                        .filter_map(|(caller, r)| {
-                            let p = order.iter().position(|o| o == caller)?;
-                            Some((p, Arc::new(r.clone())))
-                        })
-                        .collect(),
-                })
-                .collect()
-        };
+        let passes = Pass::of_run(opts, &opts_only, &memory, order, in_program_order);
         let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
         let mut pass_times: Vec<PassTime> = Vec::new();
         for pass in &passes {
@@ -1429,7 +1403,7 @@ impl CorpusRuntime {
             let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
             "the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()
         });
-            let opts_only = &pass.only;
+            let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
             // Codeunits with RequiredTestIsolation = Disabled under the TestRunnerHub that are not run (suite, id, object, why).
@@ -1628,7 +1602,15 @@ impl CorpusRuntime {
                 .for_each(|u| super::discovery::skip_methods_if_raised(u, &chain_report.discovery_raised));
             let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
             let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
-                run_serially(&engine, lowered, baseline.as_ref(), &units, &rest, &mut details, opts)
+                run_serially(
+                    &engine,
+                    lowered,
+                    baseline.as_ref(),
+                    rest.iter().map(|&k| &units[k]),
+                    &mut details,
+                    opts.trace,
+                    limit,
+                )
             } else {
                 // Test codeunits run on a session each and do not share anything (the install baseline is put back for
                 // each), so worker threads take them in turn, each with its own copy of the baseline (`threads.rs`).
@@ -2297,25 +2279,24 @@ fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, 
     Ok(Some(isolation))
 }
 
-/// Runs the codeunits `rest` of `units` one after the other on this thread; with `--trace` it notes what each test
-/// observed for `--explain`.
-fn run_serially(
+/// Runs `units` one after the other on this thread, each test under `limit`; with `trace` (`--explain`) it notes what
+/// each test observed.
+fn run_serially<'a>(
     engine: &Arc<al_vm::Engine>,
     lowered: &Lowered,
     baseline: Option<&al_vm::Baseline>,
-    units: &[Unit],
-    rest: &[usize],
+    units: impl Iterator<Item = &'a Unit>,
     details: &mut std::collections::HashMap<(usize, u32, String), explain::TestDetail>,
-    opts: &RunOptions,
+    trace: bool,
+    limit: Option<std::time::Duration>,
 ) -> Vec<UnitResult> {
-    rest.iter()
-        .map(|&k| &units[k])
+    units
         .map(|u| {
             let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
                 details.insert((u.si, u.id, name.to_lowercase()), observed_detail(lowered, seen));
             };
-            let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
-            run_unit(engine, lowered, baseline, u, trace, opts.test_time_limit)
+            let trace: Option<&mut Observer> = trace.then_some(&mut observe);
+            run_unit(engine, lowered, baseline, u, trace, limit)
         })
         .collect()
 }
