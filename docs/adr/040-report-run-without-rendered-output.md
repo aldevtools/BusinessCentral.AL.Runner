@@ -1230,10 +1230,12 @@ hash cell covers (Part A applies), and every save the save table does not answer
   bound to data); header and footer parts and references (BC 29 composes header-footer and theme layouts for a body layout,
   context step 4; a layout that declares a `Subtype` keeps Part A too); external targets (`TargetMode="External"`: linked
   images, hyperlinks, attached templates); fields that pull in other content (`w:fldSimple`, `w:instrText`: INCLUDEPICTURE,
-  INCLUDETEXT, LINK); `w:altChunk` and `w:subDoc`; font, style, numbering and theme parts and embedded fonts, and tabs
-  (the converter reads the machine's fonts and computes tab widths from their metrics). A vocabulary is used rather than a
-  list of these features because the features that read the machine's fonts cannot be listed with certainty; a probe cell
-  widens the vocabulary.
+  INCLUDETEXT, LINK); `w:altChunk` and `w:subDoc`; font, style, numbering and theme parts and embedded fonts, and tabs.
+  No probe cell measured the font, style, numbering and theme parts; tabs and numbering labels take their widths from font
+  metrics. BC's converter (`WordTransformation.ConvertToExternal`) saves with `new HtmlSaveOptions(SaveFormat.Html) {
+  ExportImagesAsBase64 = true }`, so `ResolveFontNames` and `ExportFontResources` keep their default (false) and font names
+  go into the CSS as the file states them; that is the basis for the next widening. A vocabulary is used rather than a list
+  of these features because a list cannot be shown complete; a probe cell widens the vocabulary.
 - BC 29 composition (decision 1, "on BC 29: the session does not compose"). The feature `DocumentReportExperience` is on in
   a BC 29 test tenant (record/PFFeatureKeyColumns.al:179, `Enabled=All Users`), and BC composes only a layout of subtype
   Body (context step 4). The gate requires a layout that declares no `Subtype` (subtype Default, as every probe layout), so

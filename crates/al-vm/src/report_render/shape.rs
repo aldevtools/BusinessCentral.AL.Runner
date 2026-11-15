@@ -209,8 +209,9 @@ const SETTINGS_ELEMENTS: &[&str] = &["w:compat", "w:compatSetting", "w:settings"
 /// picture control), header and footer parts (`w:headerReference`, `w:footerReference`), an external target
 /// (`TargetMode="External"`: a linked image, a hyperlink, an attached template), fields that include other content
 /// (`w:fldSimple`, `w:instrText`: INCLUDEPICTURE, INCLUDETEXT, LINK), `w:altChunk` and `w:subDoc`, embedded fonts and the
-/// font, style, numbering and theme parts (the converter reads the machine's fonts), and tabs (`w:tab`, whose width the
-/// converter computes from font metrics).
+/// font, style, numbering and theme parts (no probe cell measured them), and tabs (`w:tab`; tabs and numbering labels take
+/// their widths from font metrics). BC's converter saves with `HtmlSaveOptions(SaveFormat.Html) { ExportImagesAsBase64 =
+/// true }`: `ResolveFontNames` and `ExportFontResources` stay false, so font names go into the CSS as written.
 pub(crate) fn content_is_measured(f: &LayoutFacts) -> bool {
     f.parts.iter().all(|p| PARTS.contains(&p.as_str()))
         && f.relationships
