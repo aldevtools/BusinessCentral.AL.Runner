@@ -2697,6 +2697,14 @@ fn issue_7877_other_group_two_flowfilter_shapes_keep_their_refusals() {
                 r#"Source.SetRange("Kind Filter", Source."Kind Filter"::Other, Source."Kind Filter"::Selected);"#,
             ),
         ),
+        // The pin sets the group 2 filter with SetRange (TestRecordEnumFlowFilterGroup.al:139); SetFilter is not measured.
+        (
+            "SetFilter",
+            source.replace(
+                narrow,
+                r#"Source.SetFilter("Kind Filter", '%1', Source."Kind Filter"::Selected);"#,
+            ),
+        ),
         (
             "assigned buffer",
             source.replace(
@@ -2756,6 +2764,38 @@ codeunit 50993 T {
     all_pass(run_with_deps(&[], source));
 }
 
+/// The pin calls `CurrPage.SaveRecord()` on a ListPart (TestCurrPageSaveRecordName1Fixture51744.al:9,28); on a Card the
+/// same collision is not measured and refuses.
+#[test]
+fn currpage_save_record_collision_on_a_card_refuses() {
+    let source = r#"
+page 50992 "Save Collision Control" {
+    PageType = Card;
+    layout { area(Content) { field(Observed; Called) {} } }
+    actions { area(Processing) {
+        action(Check) { trigger OnAction() begin CurrPage.SaveRecord(); end; }
+    } }
+    var Called: Boolean;
+    internal procedure SaveRecord() begin Called := true; end;
+}
+codeunit 50993 T {
+    Subtype = Test;
+    [Test] procedure CurrPageCall() var P: TestPage "Save Collision Control";
+    begin
+        P.OpenView();
+        P.Check.Invoke();
+        if P.Observed.AsBoolean() then Error('CurrPage.SaveRecord invoked the page procedure.');
+        P.Close();
+    end;
+}
+"#;
+    let outcomes = run_with_deps(&[], source);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(why))] if why.contains("internal SaveRecord")),
+        "{outcomes:?}"
+    );
+}
+
 #[test]
 fn extension_save_record_still_calls_the_base_procedure() {
     let outcomes = run_with_deps(
@@ -2799,6 +2839,21 @@ codeunit 50995 T {
 #[test]
 fn measured_card_new_skips_empty_part_current_record() {
     all_pass(run_with_deps(&[], include_str!("../fixtures/card-new-empty-part.al")));
+}
+
+/// The pin opens the Card host with the test's own OpenEdit (TestCardNewEmptyPartRead.al:22); a host that AL code ran and
+/// the test trapped is not measured and refuses.
+#[test]
+fn card_new_empty_part_on_a_trapped_host_refuses() {
+    let src = include_str!("../fixtures/card-new-empty-part.al").replace(
+        "        Document.OpenEdit();",
+        "        Document.Trap();\n        Page.Run(Page::\"Document Repro With Part\", Row);",
+    );
+    let outcomes = run_with_deps(&[], &src);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(why))] if why.contains("host runs New()")),
+        "{outcomes:?}"
+    );
 }
 
 #[test]
@@ -3033,6 +3088,23 @@ fn default_update_propagation_keeps_main_scan_result() {
     let default_propagation = source.replace("                UpdatePropagation = Both;\n", "");
     assert_ne!(source, default_propagation);
     let outcomes = run_with_deps(&[], &default_propagation);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "Before the next scan the page showed FIRST. The scan used package FIRST."),
+        "{outcomes:?}"
+    );
+}
+
+/// The pin opens the Document host with the test's own OpenEdit (TestCardPartDrilldownRefresh.al:22); a trapped host is not
+/// measured and keeps main's scan result (no deferred reread).
+#[test]
+fn trapped_document_host_keeps_main_scan_result() {
+    let source = include_str!("../fixtures/card-part-drilldown-refresh.al");
+    let trapped = source.replace(
+        "        Document.OpenEdit();\n        Document.GoToRecord(Row);\n",
+        "        Document.Trap();\n        Page.Run(Page::\"Probe Packing Document\", Row);\n",
+    );
+    assert_ne!(source, trapped);
+    let outcomes = run_with_deps(&[], &trapped);
     assert!(
         matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "Before the next scan the page showed FIRST. The scan used package FIRST."),
         "{outcomes:?}"

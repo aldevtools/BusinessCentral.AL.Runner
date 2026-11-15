@@ -358,8 +358,9 @@ impl Session {
     /// (record/filters/RelationWhereFlowFilter.al:398-412), or one equality for an exact
     /// filter in group 0 (RelationWhereFlowFilter.al:426-441 accepts a match, :444-459
     /// rejects a mismatch; BC 27, 28, 29). The outer None preserves the existing
-    /// buffer-based comparison for a field assigned without a filter. The neutral
-    /// record/filters/TestRecordEnumFlowFilterGroup.al (corpus PR 1341, issue 7877) measures one exact enum in group 2.
+    /// buffer-based comparison for a field assigned without a filter. One enum value set with SetRange in group 2 (a
+    /// Range of equal bounds, not the Eq of SetFilter) is one equality too (record/filters/TestRecordEnumFlowFilterGroup.al:
+    /// 68-108, filter :136-140).
     fn source_relation_flowfilter(
         &self,
         rec: &Rec,
@@ -380,7 +381,7 @@ impl Session {
                         || filter.group == 2 && matches!(table.fields[field].ty, RtType::Enum(_))) =>
             {
                 let exact = match &filter.expr {
-                    FilterExpr::Eq(value) => Some(value.clone()),
+                    FilterExpr::Eq(value) if filter.group == 0 => Some(value.clone()),
                     FilterExpr::Range(Some(lower), Some(upper)) if ops::compare(lower, upper)?.is_eq() => {
                         Some(lower.clone())
                     }
@@ -390,11 +391,6 @@ impl Session {
                         );
                     }
                 };
-                if filter.group == 2 {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::GroupTwoEnumFlowFilterRelation,
-                    );
-                }
                 exact
             }
             _ => {
