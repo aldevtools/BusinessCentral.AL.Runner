@@ -132,7 +132,12 @@ fn a_report_run_that_shows_no_page_goes_on_and_an_unprobed_one_is_refused() {
     let (r, flagged) = run_on("ReportHidden");
     assert!(matches!(&r, Ok(Value::Text(t)) if &**t == "ran"), "{r:?}");
     assert!(!flagged);
-    for routine in ["ReportInit", "ReportOnVariable", "ReportWithControl", "ReportWithWindow"] {
+    for routine in [
+        "ReportInit",
+        "ReportOnVariable",
+        "ReportWithControl",
+        "ReportWithWindow",
+    ] {
         refused(routine);
     }
 }
@@ -171,9 +176,15 @@ fn a_dialog_the_measurement_does_not_cover_is_refused() {
 #[test]
 fn message_and_hyperlink_outside_a_test_method_end_as_with_a_client() {
     let (r, _) = run_on("Say");
-    assert!(matches!(&r, Err(Signal::Unsupported(m)) if m.contains("outside a test method")), "{r:?}");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("outside a test method")),
+        "{r:?}"
+    );
     let (r, _) = run_on("Link");
-    assert!(matches!(&r, Err(Signal::Error(e)) if e.message == "Unhandled UI: Hyperlink https://example.com"), "{r:?}");
+    assert!(
+        matches!(&r, Err(Signal::Error(e)) if e.message == "Unhandled UI: Hyperlink https://example.com"),
+        "{r:?}"
+    );
 }
 
 #[test]

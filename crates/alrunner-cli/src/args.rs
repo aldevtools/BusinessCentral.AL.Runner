@@ -689,10 +689,10 @@ selects only the tests both match)
                          by a user on Business Central 28.4: GuiAllowed() is false and
                          CurrentClientType() is ODataV4; Confirm, StrMenu, Message, Hyperlink
                          and Notification.Send go to the test's handlers, and a Message or
-                         Hyperlink that no handler takes fails with "Unhandled UI"; a static
+                         Hyperlink that no handler takes fails with `Unhandled UI`; a static
                          Report.Run or RunModal of a processing-only report with an empty
                          request page and no triggers skips the request page, so a bound
-                         RequestPageHandler ends in "not executed". A test that passes through
+                         RequestPageHandler ends in `not executed`. A test that passes through
                          one of these is a flagged pass, `no-client-session`; so is a read of
                          the WorkDate that Base Application's login code would have set. Not
                          run, as Business Central fails them there with an error that is not

@@ -500,12 +500,22 @@ fn an_unmeasured_dialog_is_not_run() {
         ("Ask", "Confirm without a ConfirmHandler"),
         ("StrMenuUnhandled", "StrMenu without a StrMenuHandler"),
         ("Menu", "StrMenu without a StrMenuHandler"),
-        ("NotificationUnhandled", "Notification.Send without a SendNotificationHandler"),
+        (
+            "NotificationUnhandled",
+            "Notification.Send without a SendNotificationHandler",
+        ),
         ("PageRunById", "Page.Run or RunModal of page \"No Client Card\""),
-        ("RunsPageWithPageTypedHandler", "Page.Run or RunModal of page \"No Client Card\""),
+        (
+            "RunsPageWithPageTypedHandler",
+            "Page.Run or RunModal of page \"No Client Card\"",
+        ),
         ("DialogOpen", "Dialog.Open, Update or Close"),
     ] {
-        refused_as(&rt, test, &format!("{what} in a session without a client (--no-client)"));
+        refused_as(
+            &rt,
+            test,
+            &format!("{what} in a session without a client (--no-client)"),
+        );
     }
 }
 
@@ -706,10 +716,7 @@ fn a_call_on_a_test_page_that_is_not_an_open_is_not_run() {
 #[test]
 fn a_test_bound_to_a_handler_that_takes_a_test_page_is_not_run() {
     let rt = run(true);
-    for test in [
-        "RunsPageWithTestPageHandler",
-        "RunsModalPageWithTestPageHandler",
-    ] {
+    for test in ["RunsPageWithTestPageHandler", "RunsModalPageWithTestPageHandler"] {
         refused_as(
             &rt,
             test,
