@@ -56,6 +56,44 @@ where
     Box::new(move || pieces(&src, &|p: &NugetPiece| HttpSource::new(http_agent(), p.url())))
 }
 
+/// The needs a run prepares pieces for: the merge, and the Html conversion of a Word layout. The conversion set (about 65 MB
+/// per build) is fetched by default (owner decision of 2026-11-15, ADR-040 amendment 2026-11-15); PDF stays behind its switch.
+pub const RUN_NEEDS: [RenderNeed; 2] = [RenderNeed::Merge, RenderNeed::Html];
+
+/// The renderer of a run of BC `build`: the render process of `cfg`, started on the first save that asks it, with the sets
+/// of [`RUN_NEEDS`] fetched by range from the build's platform artifact into the cache when no probe folder of `cfg` holds
+/// them (`download: false`: only what the cache holds).
+pub fn run_renderer(
+    cfg: crate::dotnet::SidecarConfig,
+    build: Option<al_deps::build::BuildId>,
+    cache_root: &Path,
+    download: bool,
+) -> Arc<dyn al_host::render::ReportRenderer> {
+    let tier = build.map(|b| {
+        Arc::new(ServiceTier::new(
+            al_deps::artifact::HttpCdn::from_env(),
+            cache_root,
+            b,
+            download,
+        ))
+    });
+    let mut dirs = cfg.assembly_dirs.clone();
+    if let Some(t) = &tier
+        && !dirs.contains(&t.dir())
+    {
+        dirs.push(t.dir());
+    }
+    let src = PieceSources {
+        dirs,
+        tier,
+        cache_root: cache_root.to_path_buf(),
+        download,
+        linux: cfg!(target_os = "linux"),
+        needs: RUN_NEEDS.to_vec(),
+    };
+    Arc::new(crate::report_render::RenderHost::new(cfg, prepare(src)))
+}
+
 /// The pieces of `src`; `nuget` opens a package (tests give a file).
 pub(crate) fn pieces<C: Cdn, S: al_deps::remote::RangeSource>(
     src: &PieceSources<C>,
