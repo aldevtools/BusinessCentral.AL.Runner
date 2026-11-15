@@ -238,7 +238,8 @@ codeunit 69909 T
 "#;
 
 /// The start of main's refusal at the open (`data_caption_open_neighbor`).
-const NEIGHBOR: &str = "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the measured cells";
+const NEIGHBOR: &str =
+    "a Worksheet with DataCaptionExpression that AL code opened with a handler or a Trap, outside the measured cells";
 
 #[test]
 fn the_two_evidence_opens_keep_mains_open_flagged() {

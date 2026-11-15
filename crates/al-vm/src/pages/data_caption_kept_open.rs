@@ -123,13 +123,15 @@ impl Session {
         let object = &engine.program.objects[page];
         let routine = self.data_caption_routine(st)?;
         let expression = plain(object.routines[routine].body.stmts());
-        let [Stmt::Exit(Some(Expr::Call {
-            object: callee,
-            routine: r,
-            instance,
-            args,
-            try_call: false,
-        }))] = expression.as_slice()
+        let [
+            Stmt::Exit(Some(Expr::Call {
+                object: callee,
+                routine: r,
+                instance,
+                args,
+                try_call: false,
+            })),
+        ] = expression.as_slice()
         else {
             return None;
         };
@@ -171,7 +173,11 @@ impl Session {
         routine.params == 0
             && !routine.is_trigger
             && routine.ret == Some(RtType::Text(None))
-            && engine.blocked.get(o).and_then(|x| x.get(r)).is_some_and(Option::is_none)
+            && engine
+                .blocked
+                .get(o)
+                .and_then(|x| x.get(r))
+                .is_some_and(Option::is_none)
             && !engine.events.publishers.contains_key(&(o, r))
     }
 }
@@ -184,7 +190,11 @@ fn plain(body: &[Stmt]) -> Vec<&Stmt> {
 /// `body` is `if Rec.F <> '' then exit(StrSubstNo(Lbl, Rec.F)); exit('');`: F one stored Text field of the page's Rec (global
 /// `rec`, its table's `fields`), Lbl a label whose text has one `%1` and no other `%` or `#`.
 fn label_body(body: &[&Stmt], rec: usize, fields: &[al_ir::Field]) -> bool {
-    let [Stmt::If(cond, then, otherwise), Stmt::Exit(Some(Expr::Const(Const::Text(empty))))] = body else {
+    let [
+        Stmt::If(cond, then, otherwise),
+        Stmt::Exit(Some(Expr::Const(Const::Text(empty)))),
+    ] = body
+    else {
         return false;
     };
     let Expr::Binary(al_ir::BinOp::Ne, field, blank) = cond else {
@@ -201,12 +211,14 @@ fn label_body(body: &[&Stmt], rec: usize, fields: &[al_ir::Field]) -> bool {
         .get(f)
         .is_some_and(|x| x.stored && matches!(x.ty, RtType::Text(_)));
     let then = plain(then);
-    let [Stmt::Exit(Some(Expr::Builtin {
-        id,
-        receiver: None,
-        args,
-        ..
-    }))] = then.as_slice()
+    let [
+        Stmt::Exit(Some(Expr::Builtin {
+            id,
+            receiver: None,
+            args,
+            ..
+        })),
+    ] = then.as_slice()
     else {
         return false;
     };
@@ -219,7 +231,8 @@ fn label_body(body: &[&Stmt], rec: usize, fields: &[al_ir::Field]) -> bool {
         && text_field
         && *id == ids::TEXT_STRSUBSTNO_1
         && rec_field(value) == Some(f)
-        && label_text(label).is_some_and(|t| t.matches("%1").count() == 1 && t.matches('%').count() == 1 && !t.contains('#'))
+        && label_text(label)
+            .is_some_and(|t| t.matches("%1").count() == 1 && t.matches('%').count() == 1 && !t.contains('#'))
 }
 
 /// The text of a label loaded as an expression: the translated-text builtin over constants, the first one the text.
@@ -233,7 +246,11 @@ fn label_text(e: &Expr) -> Option<&str> {
     else {
         return None;
     };
-    if *id != ids::SYSTEM_TRANSLATEDTEXT_1 || !args.iter().all(|a| matches!(a, Arg::Value(Expr::Const(Const::Text(_))))) {
+    if *id != ids::SYSTEM_TRANSLATEDTEXT_1
+        || !args
+            .iter()
+            .all(|a| matches!(a, Arg::Value(Expr::Const(Const::Text(_)))))
+    {
         return None;
     }
     match args.first() {
