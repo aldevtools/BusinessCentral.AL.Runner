@@ -115,6 +115,10 @@ finds the next neighbor shape. Write the gate in allowlist form:
   - a gate that checks the extension's side of a page and not the base's: the base request page (properties, triggers, the
     number and place of its fields) and the call that opened and closed the page are pinned facts too. Require the base
     object's shape, and name the measured open and close calls (al-runner PR 8053).
+  - a page property the gate requires, read from the page's own declaration: a page extension can set InsertAllowed,
+    ModifyAllowed, DeleteAllowed, Editable and DataCaptionExpression, and BC applies its value (pages/extensions/UPageProps.al:275,
+    BdPageExtTwice.al:30-35). Read the property through `effective_prop`, or require that no extension declares it (al-runner
+    PR 8147). This is the reverse of the row before.
   - the rows of a pinned table checked by key only: the other field values are what the page's code reads (a caption
     expression, a trigger). Require every field of every measured row by equality (al-runner PR 8113; the same miss for a
     handed record in PR 8009).
