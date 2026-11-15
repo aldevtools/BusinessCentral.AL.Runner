@@ -26,7 +26,7 @@ impl Session {
         let page = st.borrow();
         let object = page.object as usize;
         if !page.caught_by_trap
-            || !page.trapped_static_run
+            || page.trapped_run != Some(super::page_run_close::PageRunCall::StaticWithRecord)
             || page.modal
             || !page.draft
             || page.draft_from_open

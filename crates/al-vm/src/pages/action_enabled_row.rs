@@ -73,7 +73,7 @@ impl Session {
 
     /// `Enabled()` of action `idx` for the row the page stands on, when every fact of the repro holds:
     /// - the page is the repro's page (`action_enabled_row_page`), at the top level, run by the static `Page.Run(Page::X, Rec)`
-    ///   into a trapped TestPage (`trapped_static_run`), not modal and not in lookup mode;
+    ///   into a trapped TestPage (`trapped_run`), not modal and not in lookup mode;
     /// - the action's Enabled is an expression of the page's variables (`prop_global_slots`), each one set by OnAfterGetRecord
     ///   from Rec alone and set by no other code of the page (`row_function_slots`);
     /// - the test's call just before this one was a `GoToKey` on the page that found its row;
@@ -94,7 +94,7 @@ impl Session {
             let s = st.borrow();
             s.open
                 && s.caught_by_trap
-                && s.trapped_static_run
+                && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord)
                 && !s.opened_by_test
                 && !s.modal
                 && !s.lookup

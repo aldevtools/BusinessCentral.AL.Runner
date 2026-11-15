@@ -262,6 +262,7 @@ mod controls;
 mod currpage_run_typed_key;
 mod data_caption_get_body;
 mod data_caption_get_open;
+mod data_caption_kept_open;
 mod data_caption_open;
 mod data_caption_run;
 mod delayed_blank_key_save;

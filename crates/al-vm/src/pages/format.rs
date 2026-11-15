@@ -1310,6 +1310,7 @@ impl Session {
     /// P113DataCaption.al (P113_DC_CardCaption, _CardNewRecord, _PageLevelDataCaptionFields, _EmptyDataCaptionFields, _ListCaption,
     /// _EmptyTable). A `DataCaptionExpression` is refused: the expression is not evaluated here.
     pub(super) fn test_page_caption(&mut self, st: &St) -> Result<String, Signal> {
+        self.refuse_kept_open_caption(st)?;
         let base = self.page_caption(st);
         let engine = self.engine();
         let object = st.borrow().object as usize;

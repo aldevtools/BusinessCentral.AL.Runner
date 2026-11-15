@@ -748,7 +748,7 @@ impl Session {
             }
             PageMethod::OpenEdit | PageMethod::OpenView | PageMethod::OpenNew => {
                 st.borrow_mut().caught_by_trap = false;
-                st.borrow_mut().trapped_static_run = false;
+                st.borrow_mut().trapped_run = None;
                 let mode = match method.method() {
                     PageMethod::OpenEdit => PageMode::Edit,
                     PageMethod::OpenView => PageMode::View,

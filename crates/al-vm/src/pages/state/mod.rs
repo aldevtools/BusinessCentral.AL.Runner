@@ -343,6 +343,10 @@ pub struct PageState {
     /// The DataCaptionExpression of this page ran at the open as `data_caption_open.rs` measured: a TestPage's Caption() shows
     /// what that run left (`data_caption_value`) and does not evaluate the expression again. Cleared at the next open.
     pub data_caption_at_open: bool,
+    /// This Worksheet's DataCaptionExpression did not run at the open, where BC runs it, under the assumption
+    /// `data-caption-two-microsoft-opens-skipped` (`data_caption_kept_open.rs`): a TestPage's Caption() refuses. Cleared at the
+    /// next open.
+    pub data_caption_open_kept: bool,
     /// The measured cell of WorksheetTriggersOpen.al this page opened in (`ws_trigger_order.rs`). Cleared at the next open.
     pub ws_trigger_order: Option<crate::pages::ws_trigger_order::WsTriggerOrder>,
     /// A lookup page handed the related row a field holds opens on it as a list opens on a row its OnOpenPage left Rec on
@@ -931,9 +935,10 @@ pub struct PageState {
     pub shown_doubt_call: Option<&'static str>,
     /// The page was run by code and caught by `TestPage.Trap()`, not opened by the test (OpenView, OpenEdit, OpenNew).
     pub caught_by_trap: bool,
-    /// The trap caught the static `Page.Run(Page::X, Rec)` (`PageRunCall::StaticWithRecord`), not a Page variable's `Run()` or
-    /// another run. Set and cleared where `caught_by_trap` is (`PageRun::catch_by_trap`, RunObject, the test's own opens).
-    pub trapped_static_run: bool,
+    /// How AL code ran the page the trap caught (`PageRunCall`); `None` for a run that is no `PageRun` (an action's RunObject)
+    /// and for a page the test opened. Set and cleared where `caught_by_trap` is (`PageRun::catch_by_trap`, RunObject, the test's
+    /// own opens).
+    pub trapped_run: Option<super::page_run_close::PageRunCall>,
 }
 
 // The page instance holds `CurrPage`, which points back here: print only the facts.
@@ -1053,6 +1058,7 @@ impl PageState {
         self.typed_key_dropped = false;
         self.pinned_end = None;
         self.data_caption_at_open = false;
+        self.data_caption_open_kept = false;
         self.ws_trigger_order = None;
         self.test_filters = Vec::new();
         self.open_editable = OpenEditable::Unset;
