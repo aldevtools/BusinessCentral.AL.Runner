@@ -33,7 +33,10 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
         })
     }),
     ("List.Contains#1", |_, r, a| {
-        read_list(r, |l| Ok(Value::Boolean(position_checked(l, &a[0])?.is_some())))
+        read_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "Contains")?;
+            Ok(Value::Boolean(position_checked(l, &a[0])?.is_some()))
+        })
     }),
     ("List.Count#1", |_, r, _| {
         read_list(r, |l| Ok(Value::Integer(l.len() as i32)))
@@ -77,6 +80,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     ("List.IndexOf#1", |_, r, a| {
         read_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "IndexOf")?;
             Ok(Value::Integer(position_checked(l, &a[0])?.map_or(0, |p| p as i32 + 1)))
         })
     }),
@@ -87,6 +91,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
             ));
         }
         read_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "LastIndexOf")?;
             Ok(Value::Integer(
                 l.iter().rposition(|x| eq(x, &a[0])).map_or(0, |p| p as i32 + 1),
             ))
@@ -105,6 +110,7 @@ pub const REGISTRY: &[(&str, NativeFn)] = &[
     ("List.Remove#1", |_, r, a| {
         let dictionary = matches!(a[0], Value::Dictionary(_));
         with_list(r, |l| {
+            refuse_unmeasured_search(l, &a[0], "Remove")?;
             // A Dictionary is found by identity, any other one cannot be compared (CsCollections.al:DictionaryList_ContainsAndIndexOf).
             let at = if dictionary {
                 position_checked(l, &a[0])?
@@ -365,6 +371,18 @@ fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
         Some(i) => d[i] = (k, v),
         None => d.push((k, v)),
     }
+}
+
+/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is the XmlNode
+/// that AsXmlNode of an unassigned XmlElement returned: not measured (al-builtins `xml/unassigned_element.rs`).
+fn refuse_unmeasured_search(l: &[Value], v: &Value, member: &str) -> Result<(), Signal> {
+    let node = crate::xml::is_node_of_unassigned_element;
+    if node(v) || l.iter().any(node) {
+        return Err(Signal::unsupported(format!(
+            "List.{member} with the XmlNode that AsXmlNode of an unassigned XmlElement returned (not measured)"
+        )));
+    }
+    Ok(())
 }
 
 fn eq(a: &Value, b: &Value) -> bool {

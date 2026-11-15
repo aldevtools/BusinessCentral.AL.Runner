@@ -31,7 +31,7 @@ Every value that differs between real BC environments or runs is fixed to a stat
 
 | Value | Today | Where |
 |---|---|---|
-| Clock | Noon UTC of today's UTC date at the first read, then 1 ms later on every read; `Sleep(n)` adds n ms; `ALRUNNER_REAL_CLOCK=1` uses the wall clock | ADR-045, `al-testrun/src/host.rs` `run_clock_start`, `al-vm/src/hostvalues.rs` |
+| Clock | 12:34:56.789 UTC of today's UTC date at the first read (ADR-045 amendment, 2026-11-15; noon before), then 1 ms later on every read; `Sleep(n)` adds n ms; `ALRUNNER_REAL_CLOCK=1` uses the wall clock | ADR-045, `al-testrun/src/host.rs` `run_clock_start`, `al-vm/src/hostvalues.rs` |
 | Work date | Today, or what `LogInManagement.GetDefaultWorkDate()` answers in a test session with a client; reset for each test codeunit | `docs/probes-needed.md` row "WorkDate", `al-testrun` `install::login_work_date` |
 | Random | .NET's `System.Random` with host seed 1 (`al_host::DEFAULT_RANDOM_SEED`) per test codeunit session; before every test method the runner runs codeunit 130301, which calls `LibraryRandom.SetSeed(1)` | `al-host/src/random.rs`, `docs/probes-needed.md` row "Random numbers", `docs/owner-review.md` 2026-10-19 per-test reset |
 | Guids | `CreateGuid` and new SystemIds from a counter and a seed; the seed is the host's random seed | `al-vm/src/ctx.rs` `fresh_guid`, `fresh_system_id` |
@@ -87,7 +87,7 @@ as separate cells (section 3).
 | `random.hostSeed` | The seed of the session's `Random` before AL calls `Randomize` | safe | BC seeds from the clock (row "Random numbers"); AL sees only the range. |
 | `guid.seed` | The seed of `CreateGuid` and new SystemIds | safe | Today tied to the random seed; it becomes its own host value. BC's Guids are random. The SystemIds of restored test data do not change. |
 | `clock.date` | The date of the run clock: an offset (`+1Y`, `-3M`, `+45D`) or a fixed date (`2028-02-29`) | safe | A suite can run on any day. Moves `Today`, `CurrentDateTime`, the default work date (when it comes from today) and system stamps. |
-| `clock.timeOfDay` | The time of day the run clock starts at, for example `23:59:59.000` | safe | ADR-045 chose noon so that the date does not change during a run; this axis tests the opposite, including `Any.SetDefaultSeed` and `LibraryRandom.Init` seeds that come from `Time`. |
+| `clock.timeOfDay` | The time of day the run clock starts at, for example `23:59:59.000` | safe | The normal run starts at 12:34:56.789 UTC, so the date does not change during a run (ADR-045 amendment, 2026-11-15); this axis tests the opposite, including `Any.SetDefaultSeed` and `LibraryRandom.Init` seeds that come from `Time`. |
 | `clock.stepMs` | Milliseconds the clock moves per read: a fixed number or a range | safe | ADR-045: a test can only rely on "later than". 0 is refused (two reads must differ). |
 | `workDate.offset` | The work date each test codeunit session starts with, relative to the login work date | safe | Microsoft's "work date one year later". Applied where the login work date is set today, so `WorkDate(d)` in the test still wins. |
 | `identity.userId` | `UserId` and the session user's User row | safe for plain names (letters, digits, up to 50 characters); pin first for names with `\` or spaces | Any user can run tests. The User row is created with the same name, so lookups match. |
@@ -125,7 +125,7 @@ the perturbation axes, the strategy and the selection.
     "isolation.alone": [false, true],
     "random.librarySeed": { "range": [1, 1000000], "samples": 3 },
     "workDate.offset": ["+0D", "+1Y"],
-    "clock.timeOfDay": ["12:00:00.000", "23:59:59.500"]
+    "clock.timeOfDay": ["12:34:56.789", "23:59:59.500"]
   },
   "strategy": "oneAtATime",
   "masterSeed": 4711,
