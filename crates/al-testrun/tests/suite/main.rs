@@ -38,6 +38,7 @@ mod install_db_event_order;
 mod install_dep_package_data;
 mod install_hold_back;
 mod install_load_package_data;
+mod install_once;
 mod install_order_independent;
 mod install_own_table_guard;
 mod install_own_table_rows;

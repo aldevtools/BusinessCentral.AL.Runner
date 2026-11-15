@@ -91,7 +91,7 @@ pub(crate) struct EventStats {
 /// The apps an install has not reached, and the app whose install runs: the "NAV App Installed App" list leaves them out
 /// (record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al: during XApp A's install `install_own` is `no row`, the
 /// fixture app installed before it is listed, B and the main app are not yet).
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq)]
 pub(crate) struct InstallView {
     /// Apps (indexes in `Program::apps`) not installed yet.
     pub not_installed: std::collections::BTreeSet<u32>,
