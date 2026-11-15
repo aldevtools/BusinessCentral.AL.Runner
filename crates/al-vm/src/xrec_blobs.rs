@@ -57,7 +57,7 @@ impl Session {
         let is_xrec = (self.live_xrecs.iter()).any(|w| w.strong_count() > 0 && w.as_ptr() == Rc::as_ptr(&rc));
         if is_xrec {
             return Err(Signal::Unsupported(
-                "a stream write to a Blob field of xRec, whose buffer Rec shares: on BC the write does not show in Rec \
+                "a stream write to a Blob field of xRec, whose buffer another holder shares: on BC the write does not show in Rec \
                  (streams/BlobCopyStates.al:2419-2453); the runtime shares the buffer"
                     .into(),
             ));

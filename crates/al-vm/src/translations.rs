@@ -99,7 +99,7 @@ impl Session {
 
     /// The measured shape of the table with object index `object` whose caption [`Self::translated_read_refusal`] refuses, for
     /// `Format` of a RecordId; `None` for any other table. Both shapes are a table that declares its own `Caption` and no
-    /// `CaptionML`, of which no table extension declares a Caption or CaptionML, measured by corpus PR 1413 (merged, not pinned)
+    /// `CaptionML`, of which no table extension declares a Caption or CaptionML, measured
     /// under 1043 in localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al: the extended tables there are in a
     /// namespace (Item, Sales Invoice Header), the corpus app's own table is not (LT TA Item).
     fn record_id_caption_shape(&self, object: usize) -> Option<RecordIdCaptionShape> {

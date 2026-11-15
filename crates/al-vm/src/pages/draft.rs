@@ -1219,7 +1219,7 @@ impl Session {
     }
 }
 
-/// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487, open corpus PR 1367
+/// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487,
 /// pages/triggers/RecordTriggerReturnValue.al:365).
 fn view_filtered_error() -> Signal {
     error_code(
