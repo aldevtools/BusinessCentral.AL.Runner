@@ -828,8 +828,8 @@ fn find_sidecar(cfg: &SidecarConfig, dotnet: &Path) -> Result<PathBuf, String> {
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default();
-    if !sdks.lines().any(|l| l.trim_start().starts_with("8.")) {
-        return Err(format!("{NOT_BUILT} (no .NET 8 SDK found to build it)"));
+    if !can_build_sidecar(&sdks) {
+        return Err(format!("{NOT_BUILT} (no .NET SDK 8 or newer found to build it)"));
     }
     eprintln!("building the .NET sidecar into {} (once)", dir.display());
     let tmp = cache.join(format!(".build-{hash:016x}-{}", std::process::id()));
@@ -883,6 +883,18 @@ fn find_sidecar(cfg: &SidecarConfig, dotnet: &Path) -> Result<PathBuf, String> {
     } else {
         Err(format!("{NOT_BUILT} (could not move the build into {})", dir.display()))
     }
+}
+
+/// Whether `dotnet --list-sdks` lists an SDK that builds the sidecar: it targets net8.0, which SDK 8 and every newer major
+/// builds (`global.json` takes SDK 8 when it is installed and rolls forward to a newer major when not; al-runner issue 8081).
+fn can_build_sidecar(list_sdks: &str) -> bool {
+    list_sdks.lines().any(|l| {
+        l.trim_start()
+            .split('.')
+            .next()
+            .and_then(|major| major.parse::<u32>().ok())
+            .is_some_and(|major| major >= 8)
+    })
 }
 
 /// `dotnet publish` of the sidecar's sources `src` into `out`, ReadyToRun when `ready_to_run`.
@@ -1955,5 +1967,21 @@ mod pool {
         // The start fails: the first session stops waiting and starts its own.
         pool.deposit(Err("test".into()));
         assert!(!first.join().unwrap(), "nothing was deposited");
+    }
+}
+
+#[cfg(test)]
+mod sdk {
+    use super::*;
+
+    /// al-runner issue 8081: the sidecar targets net8.0, which the .NET 8 SDK and every newer one build (the reporter built
+    /// it with SDK 10.0.202); an older SDK or none cannot.
+    #[test]
+    fn an_sdk_of_major_8_or_newer_builds_the_sidecar() {
+        assert!(can_build_sidecar("8.0.132 [/usr/share/dotnet/sdk]\n"));
+        assert!(can_build_sidecar("10.0.202 [C:\\Program Files\\dotnet\\sdk]\n"));
+        assert!(can_build_sidecar("6.0.400 [/sdk]\n9.0.313 [/sdk]\n"));
+        assert!(!can_build_sidecar("6.0.400 [/sdk]\n7.0.100 [/sdk]\n"));
+        assert!(!can_build_sidecar(""));
     }
 }

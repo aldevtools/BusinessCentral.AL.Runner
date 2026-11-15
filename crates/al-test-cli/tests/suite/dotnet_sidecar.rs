@@ -401,6 +401,38 @@ fn an_instance_property_or_indexer_on_a_variable_holding_no_object_says_so() {
     sess.close();
 }
 
+// An instance method on a variable that holds no object, whose name also has static overloads that do not take the arguments
+// (Regex.IsMatch with one argument, Replace with two), is refused as "the variable holds no object", not as a missing
+// overload (al-runner issue 8036). A static overload that takes the arguments still runs, and on a constructed Regex the
+// instance overloads run.
+#[test]
+fn an_instance_overload_on_a_variable_holding_no_object_says_so_when_no_static_overload_fits() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let regex = || ty("System.Text.RegularExpressions.Regex");
+    let why = refused(sess.invoke(DotNetTarget::Static(regex()), "IsMatch", vec![s("a")]));
+    assert!(
+        why.contains("'System.Text.RegularExpressions.Regex.IsMatch' is an instance member and the variable holds no object"),
+        "{why}"
+    );
+    let why = refused(sess.invoke(DotNetTarget::Static(regex()), "Replace", vec![s("a"), s("b")]));
+    assert!(
+        why.contains("'System.Text.RegularExpressions.Regex.Replace' is an instance member and the variable holds no object"),
+        "{why}"
+    );
+    let r = sess.invoke(DotNetTarget::Static(regex()), "IsMatch", vec![s("aa"), s("a+")]).unwrap();
+    assert!(matches!(r.value, DotNetValue::Bool(true)), "{r:?}");
+    let rx = handle_of(&sess.construct(&regex(), vec![s("a+")]).unwrap());
+    let r = sess.invoke(DotNetTarget::Instance(rx), "IsMatch", vec![s("a")]).unwrap();
+    assert!(matches!(r.value, DotNetValue::Bool(true)), "{r:?}");
+    let r = sess.invoke(DotNetTarget::Instance(rx), "Replace", vec![s("xaay"), s("b")]).unwrap();
+    assert_eq!(text_of(&r), "xby");
+    // A name no instance member carries keeps the overload refusal.
+    let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![]));
+    assert!(why.contains("no overload taking 0 argument"), "{why}");
+    sess.close();
+}
+
 // A method that is generic only, with its one type parameter as its return type (OpenXml's `T GetWorksheetByName<T>(string)`),
 // is refused by a plain call with a text that says so, and runs when the call names the type argument.
 #[test]

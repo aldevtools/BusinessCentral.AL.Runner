@@ -225,7 +225,17 @@ public sealed class Server
                 }
                 if (cands.Length == 0)
                     throw new Refusal(NoObjectOrMissing(target, type, name, $"member '{name}' not found on '{type.FullName}'"));
-                var (best, coerced, _) = Pick(cands, args, $"{type.FullName}.{name}", textAsGuidFallback: true);
+                // With no object only the static overloads are candidates. When none of them takes the arguments and an
+                // instance overload does (`Regex.IsMatch('a')`, `Regex.Replace('a', 'b')` on a variable never assigned;
+                // al-runner issue 8036), the call meant the instance member: say the variable holds no object.
+                (MethodBase Best, object?[] Coerced, int Score) picked;
+                try { picked = Pick(cands, args, $"{type.FullName}.{name}", textAsGuidFallback: true); }
+                catch (Refusal) when (target == null && type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                    .Any(m => m.Name == name && !m.IsGenericMethodDefinition && TakesArgCount(m, args.Length)))
+                {
+                    throw new Refusal(NoObject(type, name));
+                }
+                var (best, coerced, _) = picked;
                 bound = PlainParameters(best) ? "method" : null;
                 object? result = ((MethodInfo)best).Invoke(((MethodInfo)best).IsStatic ? null : target, coerced);
                 return Done(result, best, coerced, args, ((MethodInfo)best).ReturnType);
@@ -305,9 +315,10 @@ public sealed class Server
         || type.GetFields(BindingFlags.Public | BindingFlags.Instance).Any(f => f.Name == name);
 
     static string NoObjectOrMissing(object? target, Type type, string name, string missing) =>
-        target == null && HasPublicInstanceMember(type, name)
-            ? $"'{type.FullName}.{name}' is an instance member and the variable holds no object"
-            : missing;
+        target == null && HasPublicInstanceMember(type, name) ? NoObject(type, name) : missing;
+
+    static string NoObject(Type type, string name) =>
+        $"'{type.FullName}.{name}' is an instance member and the variable holds no object";
 
     static bool PlainParameters(MethodBase m) => m.GetParameters().All(p => p.ParameterType.IsByRef == false);
 
