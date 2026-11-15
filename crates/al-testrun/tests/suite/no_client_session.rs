@@ -25,6 +25,13 @@ page 50971 "No Client Card"
 
 table 50972 "No Client Row" { fields { field(1; "No."; Code[10]) { } } keys { key(PK; "No.") { Clustered = true; } } }
 
+page 50974 "No Client List"
+{
+    PageType = List;
+    SourceTable = "No Client Row";
+    layout { area(Content) { repeater(Rows) { field("No."; Rec."No.") { } } } }
+}
+
 report 50973 "No Client Report"
 {
     ProcessingOnly = true;
@@ -32,9 +39,46 @@ report 50973 "No Client Report"
     requestpage { layout { area(Content) { } } }
 }
 
+// A global TestPage: the first test would open it, the second calls a field of it.
+codeunit 50975 "No Client Shared"
+{
+    Subtype = Test;
+
+    var
+        Shared: TestPage "No Client List";
+
+    [Test]
+    procedure OpensSharedTestPage()
+    begin
+        Shared.OpenView();
+    end;
+
+    [Test]
+    procedure ChecksSharedTestPage()
+    begin
+        asserterror Shared."No.".AssertEquals('');
+    end;
+}
+
 codeunit 50970 "No Client"
 {
     Subtype = Test;
+
+    [Test]
+    procedure GoesToKeyInAssertError()
+    var
+        List: TestPage "No Client List";
+    begin
+        asserterror List.GoToKey('A');
+    end;
+
+    [Test]
+    procedure SetsFieldInAssertError()
+    var
+        List: TestPage "No Client List";
+    begin
+        asserterror List."No.".SetValue('A');
+    end;
 
     [Test]
     procedure OpensTestPage()
@@ -278,6 +322,27 @@ fn a_test_page_open_is_not_run() {
     }
 }
 
+// No TestPage can be open under --no-client (the opens and the TestPage handlers are refused), so every other call on a
+// TestPage, TestPart, TestField, TestAction, TestFilter or TestRequestPage is refused too, also inside asserterror and on a
+// global TestPage after the test that would have opened it: the answer "The TestPage is not open." is pinned only with a
+// client (testpage/lifecycle/TestPageTeardown.al:3-24).
+#[test]
+fn a_call_on_a_test_page_that_is_not_an_open_is_not_run() {
+    let rt = run(true);
+    refused_as_test_page(&rt, "OpensSharedTestPage");
+    for (test, call) in [
+        ("GoesToKeyInAssertError", "TestPage.GoToKey"),
+        ("SetsFieldInAssertError", "TestField.SetValue"),
+        ("ChecksSharedTestPage", "TestField.AssertEquals"),
+    ] {
+        refused_as(
+            &rt,
+            test,
+            &format!("{call} in a session without a client (--no-client): what BC does there is not pinned"),
+        );
+    }
+}
+
 // A handler that takes a TestPage or a TestRequestPage is refused before the test starts (al-runner issue 8028): a
 // PageHandler, a ModalPageHandler, a RequestPageHandler (the reporter's repro).
 #[test]
@@ -329,6 +394,10 @@ fn off_nothing_is_flagged_and_the_dialogs_end_as_before() {
         "OpensTestPageForEdit",
         "OpensTestPageForNew",
         "RunsRequestPage",
+        "GoesToKeyInAssertError",
+        "SetsFieldInAssertError",
+        "OpensSharedTestPage",
+        "ChecksSharedTestPage",
         "Nothing",
     ] {
         assert!(!flagged(&rt, test), "{test}");
@@ -350,8 +419,20 @@ fn off_nothing_is_flagged_and_the_dialogs_end_as_before() {
     ] {
         assert_eq!(result(&rt, test).outcome, Outcome::Pass, "{test}");
     }
-    // With a client the TestPage shapes refused under --no-client end as before.
+    // With a client the TestPage shapes refused under --no-client end as before: a call on a page that is not open raises
+    // "The TestPage is not open." inside asserterror; the global TestPage the first test opened stays open.
+    for test in [
+        "GoesToKeyInAssertError",
+        "SetsFieldInAssertError",
+        "OpensSharedTestPage",
+    ] {
+        assert_eq!(result(&rt, test).outcome, Outcome::Pass, "{test}");
+    }
     let expected = "An error was expected inside an ASSERTERROR statement.";
+    assert_eq!(
+        result(&rt, "ChecksSharedTestPage").outcome,
+        Outcome::Fail(expected.into())
+    );
     for test in [
         "OpensTestPageInAssertError",
         "TrapsAndRunsPage",

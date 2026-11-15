@@ -698,11 +698,12 @@ selects only the tests both match)
                          Trap) and a test that binds a page or request page handler taking a
                          TestPage or TestRequestPage are not run: Business Central fails a
                          TestPage open in a web-service session, with an error that is not
-                         measured. A call that
-                         is not measured there is not run, with the reason: CurrentClientType, a
-                         page run with a record or of a page with triggers, a report run on a
-                         variable or with a RequestPageHandler, Xmlport.Run with its request
-                         page, Report.RunRequestPage, file download.
+                         measured. Every other call on a TestPage or its fields, actions,
+                         parts and filters is not run either: no TestPage can be open there. A
+                         call that is not measured there is not run, with the reason:
+                         CurrentClientType, a page run with a record or of a page with triggers,
+                         a report run on a variable or with a RequestPageHandler, Xmlport.Run
+                         with its request page, Report.RunRequestPage, file download.
                          In `serve`: the runTests field `noClient`.
     --dependencies-published-global
                          Show Published As of NAV App Installed App as Global, not Dev, for a

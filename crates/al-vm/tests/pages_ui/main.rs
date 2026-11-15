@@ -14,6 +14,7 @@ mod base_access;
 mod bg_task_child_session;
 mod bg_task_error_level;
 mod bg_task_id;
+mod bg_task_test_page_calls;
 mod caption_class_counts;
 mod caption_class_empty;
 mod caption_expression_plain;
