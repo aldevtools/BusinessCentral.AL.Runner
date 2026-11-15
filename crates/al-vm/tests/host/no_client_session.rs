@@ -1,16 +1,14 @@
-//! `--no-client` (`Session::set_clientless_session`, al-runner issue 7564): the test session is a session without a client.
-//! Every answer is the one a page background task worker gives. Pins: corpus tests/al-language/pages/background-tasks/
-//! BjNoGuiDialogs.al:8-10 (GuiAllowed false; Message returns and reaches no MessageHandler; Confirm raises
-//! CallbackNotAllowed whatever its default) and BjNoClientDialogs.al, RunPageBackgroundTask_Dialogs (the steps `01` to `14`
-//! named below; corpus pull request 1286, BC 27.5, 28.5 and 29.0). Whether a web-service session answers as that worker
-//! does is the assumption `no-client-session`; a dialog or a call shape the probe does not cover is refused.
-
+//! `--no-client` (`Session::set_clientless_session`, al-runner issue 7564): the test session is a session without a client, a
+//! web-service session as the reporter of al-runner issues 8154 and 8028 measured it on BC 28.4 (assumption
+//! `no-client-session`). The routines below run outside a test method (no handler can be bound): GuiAllowed answers false and
+//! CurrentClientType ODataV4, flagged; a processing-only report with a requestpage section and no trigger skips its request
+//! page and runs, flagged; the dialogs a page background task worker answers (BjNoGuiDialogs.al, BjNoClientDialogs.al) are
+//! refused, since those answers are not measured in a web-service session. The handler paths are tested in al-testrun
+//! `tests/suite/no_client_session.rs`.
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_testkit::{Built, boolean};
-
-const SERVER: &str = "Microsoft Dynamics 365 Business Central Server";
 
 const SRC: &str = r#"
 table 50101 "NC Row" { fields { field(1; "No."; Code[10]) { } } keys { key(PK; "No.") { Clustered = true; } } }
@@ -30,6 +28,12 @@ report 50104 "NC Report"
     ProcessingOnly = true;
     requestpage { layout { area(Content) { field(Flag; Flag) { } } } }
     var Flag: Boolean;
+}
+report 50107 "NC Plain"
+{
+    ProcessingOnly = true;
+    dataset { dataitem(Row; "NC Row") { } }
+    requestpage { layout { area(Content) { } } }
 }
 report 50105 "NC Hidden" { ProcessingOnly = true; UseRequestPage = false; }
 report 50106 "NC Init"
@@ -58,8 +62,10 @@ codeunit 50100 "NC Probe"
     procedure Link(): Text begin Hyperlink('https://example.com'); exit('ran'); end;
     procedure Notify(): Boolean var N: Notification; begin N.Message := 'note'; exit(N.Send()); end;
     procedure Recall() var N: Notification; begin N.Message := 'note'; N.Recall(); end;
-    procedure ReportModal() begin Report.RunModal(Report::"NC Report"); end;
-    procedure ReportRun() begin Report.Run(Report::"NC Report"); end;
+    procedure ReportModal(): Text begin Report.RunModal(Report::"NC Plain"); exit('ran'); end;
+    procedure ReportRun(): Text begin Report.Run(Report::"NC Plain"); exit('ran'); end;
+    procedure ReportWithControl() begin Report.Run(Report::"NC Report"); end;
+    procedure ReportWithWindow() begin Report.Run(Report::"NC Plain", true); end;
     procedure ReportHidden(): Text begin Report.Run(Report::"NC Hidden"); exit('ran'); end;
     procedure ReportInit() begin Report.Run(Report::"NC Init"); end;
     procedure ReportOnVariable() var R: Report "NC Report"; begin R.Run(); end;
@@ -91,31 +97,6 @@ fn returned_text(routine: &str, want: &str) {
     assert!(flagged, "{routine} is not flagged");
 }
 
-fn returned_boolean(routine: &str, want: bool) {
-    let (r, flagged) = run_on(routine);
-    assert!(matches!(&r, Ok(Value::Boolean(b)) if *b == want), "{routine}: {r:?}");
-    assert!(flagged, "{routine} is not flagged");
-}
-
-/// `routine` raises CallbackNotAllowed for the callback `what`, with the worker's text.
-fn callback_not_allowed(routine: &str, what: &str) {
-    let (r, flagged) = run_on(routine);
-    match r {
-        Err(Signal::Error(e)) => {
-            assert_eq!(e.code, "CallbackNotAllowed", "{routine}");
-            assert_eq!(
-                e.message,
-                format!(
-                    "{SERVER} attempted to issue a client callback to {what}. Client callbacks are not supported on {SERVER}."
-                ),
-                "{routine}"
-            );
-        }
-        other => panic!("{routine}: {other:?}"),
-    }
-    assert!(flagged, "{routine} is not flagged");
-}
-
 fn refused(routine: &str) {
     let (r, flagged) = run_on(routine);
     match r {
@@ -127,52 +108,23 @@ fn refused(routine: &str) {
 
 #[test]
 fn gui_allowed_answers_false_without_a_client() {
-    returned_boolean("Gui", false);
+    let (r, flagged) = run_on("Gui");
+    assert!(matches!(r, Ok(Value::Boolean(false))), "{r:?}");
+    assert!(flagged);
 }
 
+// Al-runner issue 8028: CurrentClientType answers ODataV4 in a web-service session.
 #[test]
-fn message_returns_without_an_error_without_a_client() {
-    returned_text("Say", "returned");
+fn current_client_type_answers_odata_v4() {
+    returned_text("Kind", "ODataV4");
 }
 
-// BjNoGuiDialogs.al:9-10; the worker's text names the Server (BjNoGuiDialogs.al:204).
+// Al-runner issue 8154: a processing-only report with an empty request page skips it in a web-service session and runs. A
+// report whose request page has a control, or a call with a RequestWindow argument, is refused.
 #[test]
-fn confirm_raises_callback_not_allowed_whatever_its_default() {
-    for routine in ["AskYes", "AskNo"] {
-        callback_not_allowed(
-            routine,
-            "show a confirmation dialog box: sure? (CodeUnit 50100 NC Probe)",
-        );
-    }
-}
-
-// BjNoClientDialogs.al `01 StrMenu with instruction`, `02 StrMenu without instruction` (two spaces after the colon).
-#[test]
-fn strmenu_raises_callback_not_allowed_with_and_without_an_instruction() {
-    callback_not_allowed("Menu", "show a selection menu: pick one (CodeUnit 50100 NC Probe)");
-    callback_not_allowed("MenuPlain", "show a selection menu:  (CodeUnit 50100 NC Probe)");
-}
-
-// BjNoClientDialogs.al `03 Page.RunModal by id`, `13 Page.RunModal on a variable`, `04 Page.Run by id`.
-#[test]
-fn a_page_run_raises_callback_not_allowed() {
-    callback_not_allowed("ModalById", "run page 50102 NC Dialog Page as modal");
-    callback_not_allowed("ModalOnVariable", "run page 50102 NC Dialog Page as modal");
-    callback_not_allowed("RunById", "run page 50102 NC Dialog Page");
-}
-
-#[test]
-fn a_page_run_shape_the_probe_does_not_cover_is_refused() {
-    for routine in ["RunOnVariable", "ModalWithRecord", "ModalWithTrigger"] {
-        refused(routine);
-    }
-}
-
-// BjNoClientDialogs.al `08 Report.RunModal`, `09 Report.Run`.
-#[test]
-fn a_report_run_whose_request_page_would_open_raises_callback_not_allowed() {
-    callback_not_allowed("ReportModal", "run page 50104 RequestOptionsPage as modal");
-    callback_not_allowed("ReportRun", "run page 50104 RequestOptionsPage as modal");
+fn a_processing_only_report_skips_its_request_page() {
+    returned_text("ReportRun", "ran");
+    returned_text("ReportModal", "ran");
 }
 
 #[test]
@@ -180,29 +132,48 @@ fn a_report_run_that_shows_no_page_goes_on_and_an_unprobed_one_is_refused() {
     let (r, flagged) = run_on("ReportHidden");
     assert!(matches!(&r, Ok(Value::Text(t)) if &**t == "ran"), "{r:?}");
     assert!(!flagged);
-    for routine in ["ReportInit", "ReportOnVariable"] {
+    for routine in ["ReportInit", "ReportOnVariable", "ReportWithControl", "ReportWithWindow"] {
         refused(routine);
     }
 }
 
-// BjNoClientDialogs.al `05 Dialog Open Update Close`, `14 Dialog Open only`, `06 Hyperlink`, `07 Notification.Send`,
-// `10 FilterPageBuilder.RunModal`, `11 UploadIntoStream`, `12 SessionSettings.RequestSessionUpdate`.
+// The page background task worker's answers do not stand in for a web-service session: Confirm and StrMenu without a
+// handler, a page run, Dialog.Open, Notification.Send without a handler, FilterPageBuilder.RunModal, UploadIntoStream and
+// RequestSessionUpdate are refused, as are the calls the worker does not answer either.
 #[test]
-fn the_dialogs_that_return_in_the_worker_return() {
-    returned_text("Progress", "done");
-    returned_text("OpenOnly", "open returned");
-    returned_text("Link", "ran");
-    returned_boolean("Notify", true);
-    returned_boolean("FilterPage", false);
-    returned_boolean("Upload", false);
-    returned_text("SessionUpdate", "ran");
-}
-
-#[test]
-fn a_dialog_the_probe_does_not_cover_is_refused() {
-    for routine in ["Recall", "Download", "Kind"] {
+fn a_dialog_the_measurement_does_not_cover_is_refused() {
+    for routine in [
+        "AskYes",
+        "AskNo",
+        "Menu",
+        "MenuPlain",
+        "ModalById",
+        "ModalOnVariable",
+        "RunById",
+        "RunOnVariable",
+        "ModalWithRecord",
+        "ModalWithTrigger",
+        "Progress",
+        "OpenOnly",
+        "Notify",
+        "FilterPage",
+        "Upload",
+        "SessionUpdate",
+        "Recall",
+        "Download",
+    ] {
         refused(routine);
     }
+}
+
+// Outside a test method a Message and a Hyperlink have no handler to reach, as with a client: Message is refused, Hyperlink
+// raises Unhandled UI (session_fns.rs `hyperlink`).
+#[test]
+fn message_and_hyperlink_outside_a_test_method_end_as_with_a_client() {
+    let (r, _) = run_on("Say");
+    assert!(matches!(&r, Err(Signal::Unsupported(m)) if m.contains("outside a test method")), "{r:?}");
+    let (r, _) = run_on("Link");
+    assert!(matches!(&r, Err(Signal::Error(e)) if e.message == "Unhandled UI: Hyperlink https://example.com"), "{r:?}");
 }
 
 #[test]

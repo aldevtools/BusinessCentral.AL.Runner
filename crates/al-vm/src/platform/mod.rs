@@ -86,6 +86,9 @@ pub(crate) struct EventStats {
     pub language: std::cell::Cell<i32>,
     /// What the install of an app lets the "NAV App Installed App" list show ([`InstallView`]).
     pub install_view: RefCell<InstallView>,
+    /// The test session runs under `--no-client` (al-vm `Session::set_clientless_session`): a read of the Session table is
+    /// refused ([`Providers::listed`]).
+    pub clientless_session: std::cell::Cell<bool>,
 }
 
 /// The apps an install has not reached, and the app whose install runs: the "NAV App Installed App" list leaves them out
@@ -637,6 +640,14 @@ impl Providers {
 
     /// The rows of a table that is listed in full.
     fn listed(&self, t: &TableDef, kind: Virtual) -> Result<Listed, StoreError> {
+        // BC fails every read of the Session table in a web-service session, with a text the corpus does not measure (al-runner
+        // issue 8158, the reporter's measurement on BC 28.4: IsEmpty and FindFirst, with and without the Read grant): refused
+        // under `--no-client`. With a client the session's own row is listed below.
+        if kind == Virtual::Session && self.events.clientless_session.get() {
+            return Err(refused(
+                "a read of the Session table in a session without a client (--no-client): BC fails it there (al-runner issue 8158), and its error is not measured",
+            ));
+        }
         // In another language than 1033 the layouts' descriptions are that language's: listed per read, not kept.
         if kind == Virtual::ReportLayoutList && self.language() != 1033 {
             return Ok(Listed::Own(Rc::new(mat::Mat::new(

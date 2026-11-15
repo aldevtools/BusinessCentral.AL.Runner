@@ -117,9 +117,8 @@ pub struct TestArgs {
     /// `--dev-endpoint-ui` (issue 3697): a UI call no handler takes gets the answer of Business Central's dev-endpoint
     /// test runner, for the measured shapes, with a warning per call; such a pass is flagged `dev-endpoint-ui`.
     pub dev_endpoint_ui: bool,
-    /// `--no-client` (issue 7564): the test session is a session without a client: GuiAllowed false, Message silent, Confirm,
-    /// StrMenu and a page that would open raise CallbackNotAllowed, calls not probed are not run. Such a pass is flagged
-    /// `no-client-session`.
+    /// `--no-client` (issues 7564, 8154): the test session is a web-service session, as a user measured it on BC (al-vm
+    /// `clientless.rs`); calls not measured there are not run. Such a pass is flagged `no-client-session`.
     pub no_client: bool,
     /// `--allow-write-in-try-functions` (al-runner issue 7143): run as a service tier whose setting DisableWriteInsideTryFunctions
     /// is off (Business Central online). Default: the setting's default, as a BC container: such a write raises TryFunctionWrite.
@@ -685,28 +684,25 @@ selects only the tests both match)
                          measured on Business Central are answered; the others still fail. Each
                          answer prints a warning with the test, the call and the answer, and such a
                          test is a flagged pass, `dev-endpoint-ui`.
-    --no-client          Run the tests as a session without a client, as a web-service session is
-                         (for example a mutation-testing run compared with a web-service run on
-                         Business Central). Every dialog answers as it does in a page background
-                         task worker, and no handler of the test sees the call: GuiAllowed() is
-                         false; Message, Dialog.Open, Hyperlink and RequestSessionUpdate(false)
-                         return; Notification.Send returns true; FilterPageBuilder.RunModal and
-                         UploadIntoStream return false; Confirm, StrMenu, Page.Run(Id),
-                         Page.RunModal and a static Report.Run or RunModal whose request page
-                         would open raise the CallbackNotAllowed error. Business Central is
-                         measured only for that worker, so a test that passes through one of
-                         these is a flagged pass, `no-client-session`. So is a read of the
-                         WorkDate that Base Application's login code would have set (it does not
-                         run without a client). A TestPage open (OpenView, OpenEdit, OpenNew,
-                         Trap) and a test that binds a page or request page handler taking a
-                         TestPage or TestRequestPage are not run: Business Central fails a
-                         TestPage open in a web-service session, with an error that is not
-                         measured. Every other call on a TestPage or its fields, actions,
-                         parts and filters is not run either: no TestPage can be open there. A
-                         call that is not measured there is not run, with the reason:
-                         CurrentClientType, a page run with a record or of a page with triggers,
-                         a report run on a variable or with a RequestPageHandler, Xmlport.Run
-                         with its request page, Report.RunRequestPage, file download.
+    --no-client          Run the tests as a web-service session runs them (Microsoft's test
+                         runner called over OData, as a mutation-testing tool does), measured
+                         by a user on Business Central 28.4: GuiAllowed() is false and
+                         CurrentClientType() is ODataV4; Confirm, StrMenu, Message, Hyperlink
+                         and Notification.Send go to the test's handlers, and a Message or
+                         Hyperlink that no handler takes fails with "Unhandled UI"; a static
+                         Report.Run or RunModal of a processing-only report with an empty
+                         request page and no triggers skips the request page, so a bound
+                         RequestPageHandler ends in "not executed". A test that passes through
+                         one of these is a flagged pass, `no-client-session`; so is a read of
+                         the WorkDate that Base Application's login code would have set. Not
+                         run, as Business Central fails them there with an error that is not
+                         measured: a TestPage open and every other call on a TestPage,
+                         Report.RunRequestPage, a read of the Session table. Not run, as not
+                         measured: Confirm, StrMenu and Notification.Send without a handler,
+                         a page handler that takes a TestPage, Page.Run and Page.RunModal,
+                         Dialog.Open, the file dialogs, FilterPageBuilder.RunModal,
+                         RequestSessionUpdate, any other report request page, Xmlport.Run with
+                         its request page. --dev-endpoint-ui has no effect with it.
                          In `serve`: the runTests field `noClient`.
     --dependencies-published-global
                          Show Published As of NAV App Installed App as Global, not Dev, for a

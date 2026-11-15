@@ -1909,12 +1909,11 @@ impl Session {
         self.no_client = on;
     }
 
-    /// `--no-client` (al-runner issue 7564): the test session is a session without a client. `GuiAllowed` answers false,
-    /// `Message` returns and reaches no handler, `Confirm` raises CallbackNotAllowed whatever its default (all three as a page
-    /// background task worker does, pages/background-tasks/BjNoGuiDialogs.al:8-10; that a web-service session does the same is
-    /// the assumption `no-client-session`), and the other dialogs answer as that worker does or are refused (`clientless.rs`).
+    /// `--no-client` (al-runner issue 7564): the test session is a session without a client, a web-service session as the
+    /// reporter of al-runner issues 8154, 8158 and 8028 measured it: what each call does there is in `clientless.rs`.
     pub fn set_clientless_session(&mut self, on: bool) {
         self.ui_state.clientless = on;
+        self.events.event_stats.clientless_session.set(on);
     }
 
     /// An install routine of an app runs (or no longer runs): BC runs it in a session without a client. `GuiAllowed()` is
