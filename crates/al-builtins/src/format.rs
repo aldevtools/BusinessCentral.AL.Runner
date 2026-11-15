@@ -46,6 +46,11 @@ pub trait FormatCtx {
         let _ = table;
         None
     }
+    /// The namespace of the table with object index `table` (`Some(None)`: none), for `Format(RecordId, 0, 9)`, which names the
+    /// table and never shows its caption; None where the format is refused. By default the context's [`Self::record_id_table`].
+    fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {
+        self.record_id_table(table).map(|(_, namespace)| namespace)
+    }
     /// Whether the target BC version has the behavior of `gate` (false where the context knows no target).
     fn format_gate(&self, gate: al_version::Gate) -> bool {
         let _ = gate;
@@ -94,6 +99,9 @@ impl FormatCtx for WithoutRegion<'_> {
     }
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         self.0.record_id_table(table)
+    }
+    fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {
+        self.0.record_id_namespace(table)
     }
     fn format_gate(&self, gate: al_version::Gate) -> bool {
         self.0.format_gate(gate)
@@ -634,27 +642,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                // Format 1 names the table by its caption (record/crud/RcBMeta.al:572, :578, also under
-                // GlobalLanguage 1031); format 9 of a table in a namespace names it `[<namespace>.<name>]`
-                // (language/namespaces/P69NsConsumers.al:214, a name with spaces; :210 format 1 of the same table
-                // gives the plain name, which is its caption), a one-word name too, and a name with a dot is quoted
-                // inside the brackets (corpus branch al-runtime-rs-staging-r6985, language/namespaces/
-                // R7003RecordIdFormat9.al: Format9_NamespacedOwnTables, Format9_BaseAppContactAndItem `[Microsoft.CRM.Contact.Contact]`;
-                // a table outside a namespace gives the plain name, Format9_TablesWithoutNamespace). The other numbers give
-                // the plain name (RcBMeta.al:570-574).
-                let shown = match standard {
-                    1 | 9 => {
-                        let Some((caption, namespace)) = ctx.record_id_table(*table) else {
-                            return Err(format!("Format of a RecordId with standard format {standard} where the table caption is not known").into());
-                        };
-                        match (standard, namespace) {
-                            (1, _) => caption,
-                            (_, Some(ns)) => format!("[{ns}.{}]", recordid_number::namespaced_name(name)?),
-                            (_, None) => name.clone(),
-                        }
-                    }
-                    _ => name.clone(),
-                };
+                let shown = recordid_number::table_shown(standard, *table, name, ctx)?;
                 // A RecordId made by Evaluate from a table name alone has no key values and reads as the name
                 // (format-evaluate/P128EvalRecordId.al:P128_Evaluate_IntoRecordId_OtherTexts `table name only`); format 9 of a
                 // table in a namespace reads as the bracketed name alone (language/namespaces/RecordIdFormat9Evaluate.al:285-286,
