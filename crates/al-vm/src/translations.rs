@@ -56,10 +56,11 @@ fn read_files(a: &al_ir::AppInfo) -> impl Iterator<Item = &al_ir::TranslationFil
 /// (`Session::record_id_caption_shape`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RecordIdCaptionShape {
-    /// Its own app ships no translation file of the language in force; an app that ships one extends it (Item and Sales
-    /// Invoice Header in R7184BaseAppCaption.al).
+    /// A table in a namespace whose own app ships no translation file of the language in force; an app that ships one extends
+    /// it (Item and Sales Invoice Header in R7184BaseAppCaption.al).
     ExtendedByTranslatingApp,
-    /// Its own app ships a translation file of the language in force, and no extension extends it (LT TA Item).
+    /// A table outside any namespace whose own app ships a translation file of the language in force, and no extension
+    /// extends it (LT TA Item).
     OwnAppTranslates,
 }
 
@@ -87,9 +88,10 @@ impl Session {
     }
 
     /// The measured shape of the table with object index `object` whose caption [`Self::translated_read_refusal`] refuses, for
-    /// `Format` of a RecordId; `None` for any other table. Both shapes are a table that declares a `Caption`, no `CaptionML` and
-    /// no table extension's Caption over it, measured by corpus PR 1413 under 1043 in
-    /// localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al.
+    /// `Format` of a RecordId; `None` for any other table. Both shapes are a table that declares its own `Caption` and no
+    /// `CaptionML`, of which no table extension declares a Caption or CaptionML, measured by corpus PR 1413 (merged, not pinned)
+    /// under 1043 in localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al: the extended tables there are in a
+    /// namespace (Item, Sales Invoice Header), the corpus app's own table is not (LT TA Item).
     fn record_id_caption_shape(&self, object: usize) -> Option<RecordIdCaptionShape> {
         let p = &self.engine.program;
         let o = p.objects.get(object)?;
@@ -98,10 +100,21 @@ impl Session {
             .properties
             .iter()
             .any(|(k, _)| k == al_ir::CAPTION_REFUSED || k == al_ir::EXT_CAPTION_OVER_OWN);
+        // Lowering merges a table extension's Caption into the table's own list, so the Caption must not come from one.
+        // Extension objects keep their own properties.
+        let extension_captions = o.id.is_some()
+            && p.objects.iter().any(|e| {
+                e.kind.extended() == Some(al_ir::ObjKind::Table)
+                    && e.extends_id == o.id
+                    && e.properties
+                        .iter()
+                        .any(|(k, _)| k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML"))
+            });
         if o.kind != al_ir::ObjKind::Table
             || !declares("Caption")
             || declares("CaptionML")
             || flagged
+            || extension_captions
             || self.translated_read_refusal(object, String::new).is_none()
         {
             return None;
@@ -109,9 +122,12 @@ impl Session {
         let language = al_builtins::format::FormatCtx::language(self);
         if !p.apps.get(o.app as usize).is_some_and(|a| translates_into(a, language)) {
             // The gate refuses only because an app that ships a file of the language extends the table.
-            return Some(RecordIdCaptionShape::ExtendedByTranslatingApp);
+            return o
+                .namespace
+                .is_some()
+                .then_some(RecordIdCaptionShape::ExtendedByTranslatingApp);
         }
-        (!self.extended(object)).then_some(RecordIdCaptionShape::OwnAppTranslates)
+        (o.namespace.is_none() && !self.extended(object)).then_some(RecordIdCaptionShape::OwnAppTranslates)
     }
 
     /// Whether `Format(RecordId, 0, 9)` of the table with object index `object` runs although [`Self::translated_read_refusal`]

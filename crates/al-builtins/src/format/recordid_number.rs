@@ -46,10 +46,9 @@ pub(super) fn bookmark_text(rid: &crate::value::LibraryValue, ctx: &dyn FormatCt
 /// caption (record/crud/RcBMeta.al:572, :578, also under GlobalLanguage 1031), untranslated where a translation file gives
 /// `TableCaption` another text (corpus PR 1413, R7184BaseAppCaption.al:305-336); format 9 of a table in a namespace names it
 /// `[<namespace>.<name>]` (language/namespaces/P69NsConsumers.al:214, a name with spaces; :210 format 1 of the same table gives
-/// the plain name, which is its caption), a one-word name too, and a name with a dot is quoted inside the brackets (corpus
-/// branch al-runtime-rs-staging-r6985, language/namespaces/R7003RecordIdFormat9.al: Format9_NamespacedOwnTables,
-/// Format9_BaseAppContactAndItem `[Microsoft.CRM.Contact.Contact]`; a table outside a namespace gives the plain name,
-/// Format9_TablesWithoutNamespace). Format 9 never shows the caption, so it asks only for the namespace (al-runner issue 8123).
+/// the plain name, which is its caption), a one-word name too, and a name with a dot is quoted inside the brackets
+/// (language/namespaces/R7003RecordIdFormat9.al:56-63; :103 `[Microsoft.CRM.Contact.Contact]`; a table outside a namespace
+/// gives the plain name, :87-88). Format 9 never shows the caption, so it asks only for the namespace (al-runner issue 8123).
 /// The other numbers give the plain name (RcBMeta.al:570-574).
 pub(super) fn table_shown(standard: i32, table: u32, name: &str, ctx: &dyn FormatCtx) -> Result<String, FormatFail> {
     let unknown =
@@ -68,9 +67,9 @@ pub(super) fn table_shown(standard: i32, table: u32, name: &str, ctx: &dyn Forma
 }
 
 /// The table name inside the brackets of `Format(RecordId, 0, 9)` for a table in a namespace: as it is when it holds only
-/// letters, digits, spaces, `_`, `-` and `/`; in double quotes when it also holds a dot (corpus branch al-runtime-rs-staging-r6985,
-/// language/namespaces/R7003RecordIdFormat9.al: Format9_NamespacedOwnTables `R7003_Under`, `R7003-Hyphen`, `R7003/Slash`,
-/// `"R7003.Dot"`; P69NsConsumers.al:214 a name with spaces). Other characters are not pinned.
+/// letters, digits, spaces, `_`, `-` and `/`; in double quotes when it also holds a dot
+/// (language/namespaces/R7003RecordIdFormat9.al:56-63 `R7003_Under`, `R7003-Hyphen`, `"R7003.Dot"`,
+/// `R7003/Slash`; P69NsConsumers.al:214 a name with spaces). Other characters are not pinned.
 pub(super) fn namespaced_name(name: &str) -> Result<String, FormatFail> {
     if !name
         .chars()

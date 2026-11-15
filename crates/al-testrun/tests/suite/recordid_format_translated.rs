@@ -31,9 +31,25 @@ table 50831 "ALR Movement Line"
     fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
     keys { key(PK; "No.") { } }
 }
+table 50836 "ALR Captionless"
+{
+    fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
+    keys { key(PK; "No.") { } }
+}
 "#;
 
-/// The app under test: it extends one of the two tables and ships a da-DK file with a unit for its own field only.
+/// An app without a translation file whose table is outside any namespace.
+const BARE: &str = r#"
+table 50838 "ALR Bare Row"
+{
+    Caption = 'Bare Row';
+    fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
+    keys { key(PK; "No.") { } }
+}
+"#;
+
+/// The app under test: it extends tables of the other apps and ships a da-DK file with units for its own field and for the
+/// caption of its own table ALR Ns Gadget.
 const EXT: &str = r#"
 namespace ALR.Ext;
 
@@ -53,7 +69,27 @@ tableextension 50835 "ALR Own Row Ext" extends "ALR Own Row"
 {
     fields { field(50835; Note; Text[50]) { Caption = 'Note'; } }
 }
-table 50836 "ALR Own Gadget"
+tableextension 50837 "ALR Captionless Ext" extends "ALR Captionless"
+{
+    Caption = 'Captionless';
+    fields { field(50837; Note; Text[50]) { Caption = 'Note'; } }
+}
+tableextension 50839 "ALR Bare Row Ext" extends "ALR Bare Row"
+{
+    fields { field(50839; Note; Text[50]) { Caption = 'Note'; } }
+}
+table 50841 "ALR Ns Gadget"
+{
+    Caption = 'Ns Gadget';
+    fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
+    keys { key(PK; "No.") { } }
+}
+"#;
+
+/// An app outside any namespace that ships a da-DK file with a unit for its own table's caption, as the corpus app does for
+/// LT TA Item.
+const OWN: &str = r#"
+table 50840 "ALR Own Gadget"
 {
     Caption = 'Gadget';
     fields { field(1; "No."; Code[20]) { Caption = 'No.'; } }
@@ -65,6 +101,7 @@ const TESTS: &str = r#"
 namespace ALR.Tests;
 
 using ALR.Base;
+using ALR.Ext;
 
 codeunit 50833 "ALR RecordId Format Tests"
 {
@@ -109,6 +146,26 @@ codeunit 50833 "ALR RecordId Format Tests"
     end;
 
     [Test]
+    procedure Format9OfATableWhoseCaptionAnExtensionGivesUnderDanish()
+    var
+        R: Record "ALR Captionless";
+    begin
+        R."No." := 'C1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 9));
+    end;
+
+    [Test]
+    procedure Format9OfAnExtendedTableOutsideANamespaceUnderDanish()
+    var
+        R: Record "ALR Bare Row";
+    begin
+        R."No." := 'B1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 9));
+    end;
+
+    [Test]
     procedure Format1OfTheExtendedTableUnderDanish()
     var
         R: Record "ALR Unit";
@@ -135,6 +192,36 @@ codeunit 50833 "ALR RecordId Format Tests"
     begin
         GlobalLanguage(1030);
         Error('%1', R.TableCaption());
+    end;
+
+    [Test]
+    procedure Format1OfAnOwnTableInANamespaceUnderDanish()
+    var
+        R: Record "ALR Ns Gadget";
+    begin
+        R."No." := 'N1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 1));
+    end;
+
+    [Test]
+    procedure Format1OfATableWhoseCaptionAnExtensionGivesUnderDanish()
+    var
+        R: Record "ALR Captionless";
+    begin
+        R."No." := 'C1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 1));
+    end;
+
+    [Test]
+    procedure Format1OfAnExtendedTableOutsideANamespaceUnderDanish()
+    var
+        R: Record "ALR Bare Row";
+    begin
+        R."No." := 'B1';
+        GlobalLanguage(1030);
+        Error('%1', Format(R.RecordId(), 0, 1));
     end;
 
     [Test]
@@ -177,32 +264,51 @@ fn unit_id(parts: &[(&str, &str)]) -> String {
         .join(" - ")
 }
 
-/// The extension app's da-DK file: a unit for the field its table extension adds, and one for its own table's caption.
-fn danish() -> al_ir::TranslationFile {
-    let note = unit_id(&[
-        ("TableExtension", "ALR Unit Ext"),
-        ("Field", "Note"),
-        ("Property", "Caption"),
-    ]);
-    let gadget = unit_id(&[("Table", "ALR Own Gadget"), ("Property", "Caption")]);
+/// A da-DK file named `name` with `units` (XLIFF id, target).
+fn danish(name: &str, units: Vec<(String, String)>) -> al_ir::TranslationFile {
     al_ir::TranslationFile {
-        name: "Translations/Ext.da-DK.xlf".into(),
+        name: format!("Translations/{name}.da-DK.xlf"),
         target_language: "da-DK".into(),
-        units: vec![(note, "Bemærkning".to_string()), (gadget, "Dims".to_string())],
+        units,
         error: None,
         states: Vec::new(),
     }
 }
 
+/// The extension app's da-DK file: a unit for the field its table extension adds, and one for its own table's caption.
+fn ext_danish() -> al_ir::TranslationFile {
+    let note = unit_id(&[
+        ("TableExtension", "ALR Unit Ext"),
+        ("Field", "Note"),
+        ("Property", "Caption"),
+    ]);
+    let gadget = unit_id(&[("Table", "ALR Ns Gadget"), ("Property", "Caption")]);
+    danish("Ext", vec![(note, "Bemærkning".into()), (gadget, "Ns Dims".into())])
+}
+
+/// The own app's da-DK file: a unit for its table's caption.
+fn own_danish() -> al_ir::TranslationFile {
+    let gadget = unit_id(&[("Table", "ALR Own Gadget"), ("Property", "Caption")]);
+    danish("Own", vec![(gadget, "Dims".into())])
+}
+
 fn run() -> Vec<(String, Outcome, Vec<Assumption>)> {
     let rt = CorpusRuntime::try_run_suites_with(
         vec![
-            app("tests", &["ext", "base"], TESTS),
-            app("ext", &["base"], EXT),
+            app("tests", &["ext", "base", "bare", "own"], TESTS),
+            app("ext", &["base", "bare"], EXT),
             app("base", &[], BASE),
+            app("bare", &[], BARE),
+            app("own", &[], OWN),
         ],
-        vec![al_sema::AppKind::Workspace; 3],
-        &[manifest(Vec::new()), manifest(vec![danish()]), manifest(Vec::new())],
+        vec![al_sema::AppKind::Workspace; 5],
+        &[
+            manifest(Vec::new()),
+            manifest(vec![ext_danish()]),
+            manifest(Vec::new()),
+            manifest(Vec::new()),
+            manifest(vec![own_danish()]),
+        ],
         &Default::default(),
         None,
         Default::default(),
@@ -278,6 +384,25 @@ fn table_caption_of_that_own_table_stays_translated_and_clean() {
     assert!(assumed.is_empty(), "{assumed:?}");
 }
 
+/// Format 1 in the shapes the probe did not measure stays refused: an own table of a translating app in a namespace (LT TA
+/// Item is outside one), a table whose Caption a table extension gives, an extended table outside a namespace (Item and
+/// Sales Invoice Header are in one).
+#[test]
+fn format_1_in_unmeasured_shapes_stays_refused() {
+    let got = run();
+    for test in [
+        "Format1OfAnOwnTableInANamespaceUnderDanish",
+        "Format1OfATableWhoseCaptionAnExtensionGivesUnderDanish",
+        "Format1OfAnExtendedTableOutsideANamespaceUnderDanish",
+    ] {
+        let (_, outcome, _) = find(&got, test);
+        assert!(
+            matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 1 where the table caption is not known")),
+            "{test}: {outcome:?}"
+        );
+    }
+}
+
 /// An own table of the translating app that the app also extends: a shape no probe measured, so format 1 stays refused.
 #[test]
 fn format_1_of_an_own_table_the_translating_app_also_extends_stays_refused() {
@@ -295,6 +420,30 @@ fn format_1_of_an_own_table_the_translating_app_also_extends_stays_refused() {
 fn format_9_of_an_own_table_of_the_translating_app_stays_refused() {
     let got = run();
     let (_, outcome, _) = find(&got, "Format9OfAnOwnTableOfTheTranslatingAppUnderDanish");
+    assert!(
+        matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 9 where the table caption is not known")),
+        "{outcome:?}"
+    );
+}
+
+/// A table that declares no Caption and gets one from a table extension (lowering merges it into the table's properties):
+/// the probe measured only tables with their own Caption, so format 9 stays refused.
+#[test]
+fn format_9_of_a_table_whose_caption_a_table_extension_gives_stays_refused() {
+    let got = run();
+    let (_, outcome, _) = find(&got, "Format9OfATableWhoseCaptionAnExtensionGivesUnderDanish");
+    assert!(
+        matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 9 where the table caption is not known")),
+        "{outcome:?}"
+    );
+}
+
+/// An extended table outside any namespace: both extended tables the probe measured are in a namespace, so format 9 stays
+/// refused.
+#[test]
+fn format_9_of_an_extended_table_outside_a_namespace_stays_refused() {
+    let got = run();
+    let (_, outcome, _) = find(&got, "Format9OfAnExtendedTableOutsideANamespaceUnderDanish");
     assert!(
         matches!(outcome, Outcome::NotRun(m) if m.contains("standard format 9 where the table caption is not known")),
         "{outcome:?}"
