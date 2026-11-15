@@ -63,6 +63,14 @@ impl Session {
                     } => (renders, selected, rgba),
                 };
                 let format = plan.format();
+                // ADR-040 amendment 2026-11-15: the measured Html cells are BC's own render, plain text without a mark.
+                if format == Format::Html
+                    && let SaveTarget::Stream(blob) = &target
+                    && let Some(html) = self.rendered_html(&plan, schema, renders, dataset)?
+                {
+                    al_builtins::stream::write_bytes(blob, &html);
+                    return Ok(true);
+                }
                 let layout_kind = match renders {
                     Renders::StoredRdlc => "rdlc",
                     Renders::Default | Renders::Selected => schema.report().default_layout_kind.as_str(),

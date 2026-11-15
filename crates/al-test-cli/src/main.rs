@@ -1138,7 +1138,15 @@ fn run_version_inner(
         // starts overlap the compile; a run without them starts nothing (ADR-014 section 6).
         sidecar_host.prewarm(al_test_cli::dotnet::STANDBY_SIDECARS);
     }
-    let dotnet = al_test_cli::dotnet::sidecar_config(host);
+    let mut dotnet = al_test_cli::dotnet::sidecar_config(host);
+    // ADR-040 amendment 2026-11-15: BC's Word merger and Html converter of the pinned build, started on the first measured
+    // Html save.
+    dotnet.renderer = al_testrun::report_render_pieces::run_renderer(
+        sidecar_config(args, root, version.major),
+        bc_build.as_deref().and_then(|b| al_deps::build::BuildId::parse(b).ok()),
+        &al_deps::cache::cache_root_from_env(args.cache_dir.as_deref()),
+        !args.no_download,
+    );
     let mut runs = vec![runtime::SuiteRun {
         name: String::new(),
         app: None,

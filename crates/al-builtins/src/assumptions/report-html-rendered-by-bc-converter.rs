@@ -1,0 +1,11 @@
+ReportHtmlRenderedByBcConverter => {
+    id: "report-html-rendered-by-bc-converter",
+    assumed: "Report.SaveAs(Id, '', ReportFormat::Html, OutStream) with its answer used, of a report whose default layout is a Word layout its app holds, into a stream, with no layout selection naming the report, no subscriber (seen by the test or not) to IntermediateDocumentReady other than Base Application's ReportManagement and none to ReportManagement's OnAfterIntermediateDocumentReady, writes the bytes of OfficeWordDocumentMerger.MergeWordDocument(layout, dataset, null, .., <report caption>, '', ..) then WordTransformation.ConvertToHtml from the BC artifact (ADR-040 amendment 2026-11-15), as plain text without a mark. Only for a save whose BC major, layout file bytes (SHA-256), dataset labels and data items (SHA-256 of the part after BCReportInformation) and report caption equal one measured cell of al-vm report_render/cells.rs, and only when the run's renderer has the merge and the Html conversion. Every other Html save keeps the opaque value of the amendment of 2026-11-12, Part A. A merger or converter failure refuses the save.",
+    tests: "al-runner issue 6924: the reporter's e-mail body tests send the Html of Word layouts through Email Message.Create and compare its text; they pass on BC. Corpus pull request 1415 (open) observes the SHA-256 and the length of the Html BC writes for each cell on BC 27, 28 and 29.",
+    probe: "Corpus pull request 1415, reports/html-email-body/RxHtmlHashTests.al: Hash_WordDefault_OneRow, Hash_WordDefault_ThreeRows, Hash_WordAlpha_TwoRows, Hash_WordRgba_TwoRows, Hash_TwoItems_ParentChild, Hash_ExtColumn, Hash_LegacyDefaultLayoutWord, Hash_Values_DecimalDateSpecialChars. Not measured, each keeps Part A: a Tenant Report Layout under a temporary selection (Hash_TenantGuid_WordRgba_SameAsOwnLayout is not a cell yet), the file target, SaveAsHtml, the statement form, a RecordRef or request page argument, a layout with a picture control, any other layout, dataset or caption, BC 29 with DocumentReportExperience composing header and theme layouts.",
+    awaiting: Awaiting {
+        issues: &[6924],
+        files: &["tests/al-language/reports/html-email-body/RxHtmlHashTests.al"],
+        since: "2026-11-15",
+    },
+}

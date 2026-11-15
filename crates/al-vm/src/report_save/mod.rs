@@ -48,6 +48,18 @@ impl Plan {
     pub(crate) fn format(&self) -> Format {
         self.facts.format
     }
+
+    /// The save facts every Html hash cell has (`crate::report_render`): Html of a report whose default layout is Word, into
+    /// a stream, its answer used, with no layout selection naming the report.
+    pub(crate) fn is_measured_html_stream_save(&self) -> bool {
+        let f = &self.facts;
+        f.format == Format::Html
+            && f.kind == facts::Kind::Word
+            && f.target == Target::Stream
+            && f.answer == AnswerForm::Used
+            && f.selection == Selection::None
+            && self.selected.is_none()
+    }
 }
 
 /// What a save does before the run.
