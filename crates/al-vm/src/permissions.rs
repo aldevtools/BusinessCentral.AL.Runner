@@ -924,7 +924,7 @@ impl Session {
         let grant = if flowfield {
             true
         } else if o.kind.extended().is_some() {
-            // The shapes corpus PR 1403 measured (`permission_extension_code.rs`).
+            // The shapes corpus PR 1403 measured (`permission_probed/extension_code.rs`).
             match self.extension_code_grant(access, caller) {
                 Some(g) => g,
                 None => {
@@ -945,7 +945,7 @@ impl Session {
                 }
             }
         };
-        // An indirect letter in the shape corpus PR 1403 measured gives the indirect level (`permission_inherent_letter.rs`).
+        // An indirect letter in the shape corpus PR 1403 measured gives the indirect level (`permission_probed/inherent_letter.rs`).
         let u_before = u;
         for (l, i) in letters {
             if self.inherent_letter_measured(access, l, i, caller, target, u_before, grant) {
@@ -1830,8 +1830,7 @@ impl Session {
             if method == R::FindFirst {
                 return Err(self.denial_error(access, "Read", "Read", by));
             }
-            use crate::permission_read_probed::NoMatchRead;
-            let total = total as usize;
+            use crate::permission_probed::reads::NoMatchRead;
             return match self.read_no_match_probed(method, rec, args, access, indirect, by, caller, total)? {
                 Some(NoMatchRead::Denied) => Err(self.denial_error(access, "Read", "Read", by)),
                 Some(NoMatchRead::Allowed) => Ok(()),
