@@ -1,5 +1,5 @@
-//! The fact vector, after the run, of every Html hash cell of corpus pull request 1415 (merged, not pinned;
-//! reports/html-email-body/RxHtmlHashTests.al:192 Hash_WordAlpha_TwoRows, :218 Hash_WordRgba_TwoRows, :395 Bound_OneRow,
+//! The fact vector, after the run, of every Html hash cell of the pinned corpus
+//! (reports/html-email-body/RxHtmlHashTests.al:192 Hash_WordAlpha_TwoRows, :218 Hash_WordRgba_TwoRows, :395 Bound_OneRow,
 //! :433 Bound_ThreeRows, :471 Bound_RowCountChangesHash). `crate::report_render` renders real Html only for a save whose
 //! whole vector equals [`HTML_HASH_CELL`]; every other save keeps Part A.
 

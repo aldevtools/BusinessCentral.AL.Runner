@@ -15,7 +15,6 @@ pub(crate) use call::{RenderInputs, SaveCall};
 use crate::report_save::Renders;
 use crate::reports::Schema;
 use crate::{Session, Signal};
-use al_builtins::assumptions::{Assumption, assume};
 use al_host::render::{RenderNeed, WordMerge};
 
 /// The facts of the save itself, each by equality with every probe cell (RxHtmlHashTests.al:192, :218, :395, :433 and :471,
@@ -98,7 +97,7 @@ impl Session {
         if !major.is_some_and(|m| shape::build_is_measured(shape::BUILDS, m, &html)) {
             return Ok(None);
         }
-        assume(Assumption::ReportHtmlRenderedByBcConverter);
+        // BC writes these bytes: RxHtmlHashTests.al:192, :218, :395, :433 and :471 assert their SHA-256 and length.
         Ok(Some(html))
     }
 }

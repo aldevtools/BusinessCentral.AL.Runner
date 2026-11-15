@@ -3,10 +3,9 @@
 //! runner feeds BC's merger and converter equals the probe cells' (owner decision of 2026-11-15, "gate inputs, layout
 //! free"): the report, its columns and the row count here, the call in `super::call`, the fact vector in
 //! `report_save::html_cell`. The cells are the evidence that BC's own merger and converter, run by the runner on the
-//! build's own assemblies, give BC's bytes. Until a corpus bump pins the probe, each pass runs through the assumption
-//! `report-html-rendered-by-bc-converter`.
+//! build's own assemblies, give BC's bytes; the pinned corpus holds them.
 //!
-//! The cells (corpus pull request 1415, merged, not pinned; reports/html-email-body/RxHtmlHashTests.al):
+//! The cells (pinned corpus, reports/html-email-body/RxHtmlHashTests.al):
 //! Hash_WordAlpha_TwoRows (:192, report `RX Word Alpha`, RxHtmlBodyFixtures.al:53) and Hash_WordRgba_TwoRows (:218, report
 //! `RX Word Rgba`, RxLayoutSelFixtures.al:73). Each report has one data item over `RX Row` (RxHtmlBodyFixtures.al:12) with
 //! the field columns RowId (Integer) and RowTxt (Text), and a hand-built layout named by DefaultRenderingLayout; each save
