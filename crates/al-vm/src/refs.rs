@@ -1342,6 +1342,12 @@ impl Session {
     fn rr_set_table(&mut self, rec: &Rec, lib: &Lib, args: &[Value]) -> Result<Value, Signal> {
         let done = self.rr_set_table_into(rec, lib, args);
         crate::blob_transfer::recordref_set_table_ran(rec);
+        // A key moved this way is no cell of TempBlobEmptyInsertShare.al (`temp_blob_share::measured_detach`).
+        if let Some(Value::Record(dst)) = args.first()
+            && let Some(id) = &dst.borrow().temp_id
+        {
+            id.forget_empty_blob_inserter();
+        }
         done
     }
 

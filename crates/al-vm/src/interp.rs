@@ -1652,7 +1652,7 @@ impl Session {
                                             unread_content: false,
                                             assigned_unsaved: false,
                                             utf16_binary: b.utf16_binary,
-                                            unicode_read: None,
+                                            ..Default::default()
                                         },
                                     )))
                                 }

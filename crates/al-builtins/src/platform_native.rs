@@ -324,7 +324,6 @@ fn encoding(encoding: &Value, codepage: &Value, windows_text: bool) -> Result<En
 /// [`encoding`]'s answer (the `ToBase64` cells, which also answer UTF8 with 0 or 65001, Windows and MSDos with 0, 1252,
 /// 28591 or 65001, and UTF16 with 0), and its refusal of every other code page.
 fn from_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<(Enc, bool), Signal> {
-    use crate::assumptions::{Assumption::BaseEncodeStreamLineBreaksCodePages as A, assume};
     let Value::Integer(cp) = codepage else {
         return unsupported("a code page that is not an Integer");
     };
@@ -334,27 +333,12 @@ fn from_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bo
         ("utf8", 1252) => Ok((Enc::Utf8, false)),
         ("utf16", 1252) => Ok((Enc::Utf16, false)),
         // UTF16 and UTF8 ignore the code page (Base64LineBreaks.al:456-471, :483-491).
-        ("utf16", 65001 | 1200 | 1201 | 28591 | 99999) => {
-            assume(A);
-            Ok((Enc::Utf16, true))
-        }
-        ("utf8", 28591 | 1200 | 99999) => {
-            assume(A);
-            Ok((Enc::Utf8, true))
-        }
+        ("utf16", 65001 | 1200 | 1201 | 28591 | 99999) => Ok((Enc::Utf16, true)),
+        ("utf8", 28591 | 1200 | 99999) => Ok((Enc::Utf8, true)),
         // Windows and MSDos decode as the code page says (Base64LineBreaks.al:504-505,515-516; :528-529,539-540).
-        ("windows", 1200) => {
-            assume(A);
-            Ok((Enc::Utf16, true))
-        }
-        ("windows" | "msdos", 850) => {
-            assume(A);
-            Ok((Enc::Ibm850, true))
-        }
-        ("msdos", 437) => {
-            assume(A);
-            Ok((Enc::Ibm437, true))
-        }
+        ("windows", 1200) => Ok((Enc::Utf16, true)),
+        ("windows" | "msdos", 850) => Ok((Enc::Ibm850, true)),
+        ("msdos", 437) => Ok((Enc::Ibm437, true)),
         // Held cells (Base64LineBreaks.al header, :19-22): BC 28 and 29 fail the test itself with an exception that
         // asserterror and TryFunction do not catch.
         ("windows" | "msdos", 99999 | 70000) => unsupported(format!(
@@ -538,17 +522,14 @@ fn to_base64_text_out(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: 
     Ok(Value::Null)
 }
 
-/// The bytes `ToBase64(InStream, true[, OutStream])` converts, in the shapes corpus PR 1394 measured on BC 28.5 and 29.0
-/// (assumption `base-encode-stream-line-breaks-code-pages`): a stream on a Blob buffer that is not a file (Temp Blob,
-/// Base64LineBreaks.al:53-61), every byte of it (10 bytes read before: the whole stream, :186-193; a second InStream-form call
-/// gives the same text, :195-198). The OutStream form is measured only at position 0 (:284-286, :364-367). Where the stream
-/// stands after the call is not measured: `stream::line_break_source` marks it. Every other stream is refused.
+/// The bytes `ToBase64(InStream, true[, OutStream])` converts on BC 28 and 29, in the shapes Base64LineBreaks.al measured: a
+/// stream `Blob.CreateInStream` made on a Temp Blob (:53-61), every byte of it (10 bytes read before: the whole stream,
+/// :186-193 BC28PLUS; a second InStream-form call gives the same text, :195-198). The OutStream form is measured only at
+/// position 0 (:284-286, :364-367). Where the stream stands after the call is not measured: `stream::line_break_source` marks
+/// it, and refuses every other stream.
 fn line_broken_source(stream: &mut Value, out_form: bool) -> Result<Vec<u8>, Signal> {
-    match crate::stream::line_break_source(stream, out_form)? {
-        Some(bytes) => {
-            crate::assumptions::assume(crate::assumptions::Assumption::BaseEncodeStreamLineBreaksCodePages);
-            Ok(bytes)
-        }
+    match crate::stream_line_breaks::line_break_source(stream, out_form)? {
+        Some(bytes) => Ok(bytes),
         None => unsupported(
             "Base64Convert.ToBase64 with line breaks of a stream that is not on a Blob buffer, or is on a file (not measured)",
         ),
@@ -575,6 +556,8 @@ fn to_base64_stream_out(_: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a
     let line_breaks = flag(&a[1])?;
     // Appended to what the target holds, CR LF as in the string form (Base64LineBreaks.al:303-348, :385-402).
     let bytes = if line_breaks {
+        let (source, rest) = a.split_at_mut(1);
+        crate::stream_line_breaks::refuse_unmeasured_line_break_target(&mut rest[1], &source[0])?;
         line_broken_source(&mut a[0], true)?
     } else {
         drain_in(&mut a[0])?
@@ -730,7 +713,7 @@ mod tests {
 
     // ---- ToBase64 of an InStream and FromBase64 code pages (corpus PR 1394, tests/al-language/streams/Base64LineBreaks.al)
 
-    use crate::assumptions::{Assumption, take_hits};
+    use crate::assumptions::take_hits;
     use crate::library_kind::LibraryKind;
     use crate::stream::{BlobRef, Encoding, InState, new_blob, write_bytes};
     use crate::value::LibraryValue;
@@ -748,7 +731,7 @@ mod tests {
     }
 
     fn in_stream_on(b: BlobRef) -> Value {
-        let s = InState::live(b, Encoding::default());
+        let s = InState::of_blob_field(b, Encoding::default());
         Value::Library(LibraryKind::InStream, Rc::new(RefCell::new(LibraryValue::InStream(s))))
     }
 
@@ -828,7 +811,7 @@ mod tests {
         // :221-252, the Text form with true gives the same string.
         assert_eq!(t, b64_encode(&digits(114), true));
         assert_eq!(stream_text(in_stream(&[]), true), "");
-        assert!(take_hits().contains(&Assumption::BaseEncodeStreamLineBreaksCodePages));
+        assert!(take_hits().is_empty());
     }
 
     // Base64LineBreaks.al:186-216 (BC28PLUS): 10 bytes read before the call, the whole stream is converted; a second call
@@ -849,8 +832,8 @@ mod tests {
         matches!(&r, Err(Signal::Unsupported(w)) if w.contains("not measured"))
     }
 
-    // MED-1: after ToBase64(InStream, true) where the stream stands is not measured: EOS, Position, ReadText, Read, the false
-    // form and the OutStream form on that stream are refused; ResetPosition and Position := n let it be used again.
+    // After ToBase64(InStream, true) where the stream stands is not measured (Base64LineBreaks.al uses no stream after the
+    // call but for the InStream form again, :195-198): the false form, the OutStream form and a read are refused.
     #[test]
     fn stream_after_a_line_break_call_refuses_every_other_use() {
         let call = |s: &Value| stream_text(s.clone(), true);
@@ -867,20 +850,12 @@ mod tests {
         };
         assert!(refused(out(&s)));
         assert!(refused(crate::stream::drain_in(&mut s.clone()).map(|_| Value::Null)));
-        // Same InStream form again: allowed.
-        call(&s);
-        // Reset or Position := lifts it.
-        let mut s2 = s.clone();
         assert!(matches!(
-            crate::stream::refuse_pending_in(&mut s2),
+            crate::stream::refuse_pending_in(&mut s.clone()),
             Err(Signal::Unsupported(_))
         ));
-        if let Value::Library(_, h) = &s {
-            if let LibraryValue::InStream(st) = &mut *h.borrow_mut() {
-                st.after_line_break_call = crate::stream::AfterLineBreakCall::No;
-            }
-        }
-        assert!(crate::stream::refuse_pending_in(&mut s2).is_ok());
+        // Same InStream form again: allowed.
+        call(&s);
     }
 
     // MED-1: the OutStream form, called twice on one stream (the second time the position is unknown), is refused.
@@ -916,7 +891,7 @@ mod tests {
         assert_eq!(pos_of(&s), 100);
         take_hits();
         assert_eq!(stream_text(in_stream(b"Hello"), false), "SGVsbG8=");
-        assert!(!take_hits().contains(&Assumption::BaseEncodeStreamLineBreaksCodePages));
+        assert!(take_hits().is_empty());
     }
 
     // A stream on a file, and a stream whose bytes are not a Blob buffer, were not measured with line breaks: refused.
@@ -985,6 +960,111 @@ mod tests {
         );
     }
 
+    fn in_stream_native(method: &str, argc: usize) -> crate::native::NativeFn {
+        let sigs = crate::catalog::Catalog::shared().overloads("InStream", method);
+        let sig = sigs.into_iter().find(|s| s.params.len() == argc).expect("signature");
+        crate::stream::native_for(sig).expect("native")
+    }
+
+    fn line_breaks_refused(s: Value) -> bool {
+        refused(run("Base64Convert.ToBase64#stream", &mut [s, Value::Boolean(true)]))
+    }
+
+    // Base64LineBreaks.al:53-61, :186-187 measured a Temp Blob stream of the default encoding, written before CreateInStream
+    // and moved only by ReadText. A stored row's Blob, a UTF16 stream, a stream moved by Position := and a buffer written
+    // after the stream was created are refused.
+    #[test]
+    fn line_breaks_of_an_unmeasured_stream_are_refused() {
+        let stored = blob_with(&digits(100));
+        stored.borrow_mut().db_row = true;
+        assert!(line_breaks_refused(in_stream_on(stored)));
+        let inserted = blob_with(&digits(100));
+        inserted.borrow_mut().inserted = true;
+        assert!(line_breaks_refused(in_stream_on(inserted)));
+        let utf16 = InState::of_blob_field(blob_with(&digits(100)), Encoding::Utf16);
+        let utf16 = Value::Library(
+            LibraryKind::InStream,
+            Rc::new(RefCell::new(LibraryValue::InStream(utf16))),
+        );
+        assert!(line_breaks_refused(utf16));
+        let moved = in_stream(&digits(100));
+        let mut ctx = crate::native::tests::TestCtx::default();
+        in_stream_native("Position", 1)(&mut ctx, Some(&mut moved.clone()), &mut [Value::Integer(11)])
+            .ok()
+            .unwrap();
+        assert!(line_breaks_refused(moved));
+        let b = blob_with(&digits(100));
+        let later = in_stream_on(b.clone());
+        write_bytes(&b, b"x");
+        assert!(line_breaks_refused(later));
+        assert!(take_hits().is_empty());
+    }
+
+    // Where the stream stands after the call is not measured, so ResetPosition and Position := on it are refused too.
+    #[test]
+    fn moving_a_stream_after_a_line_break_call_is_refused() {
+        let mut ctx = crate::native::tests::TestCtx::default();
+        let s = in_stream(&digits(100));
+        stream_text(s.clone(), true);
+        assert!(refused(in_stream_native("ResetPosition", 0)(
+            &mut ctx,
+            Some(&mut s.clone()),
+            &mut []
+        )));
+        let s = in_stream(&digits(100));
+        stream_text(s.clone(), true);
+        let r = in_stream_native("Position", 1)(&mut ctx, Some(&mut s.clone()), &mut [Value::Integer(1)]);
+        assert!(refused(r));
+    }
+
+    // Base64LineBreaks.al:351-403 measured an OutStream of the default encoding on another Temp Blob, empty or after 'AB'
+    // that stream wrote. A UTF16 target, a target on the source's own Blob and a stored row's Blob are refused.
+    #[test]
+    fn line_breaks_into_an_unmeasured_target_are_refused() {
+        let out = |s: Value, target: Value| {
+            run(
+                "Base64Convert.ToBase64#stream-out",
+                &mut [s, Value::Boolean(true), target],
+            )
+        };
+        let target = new_blob();
+        let utf16 = Value::Library(
+            LibraryKind::OutStream,
+            Rc::new(RefCell::new(LibraryValue::OutStream(target, Encoding::Utf16, None))),
+        );
+        assert!(refused(out(in_stream(&digits(100)), utf16)));
+        let own = blob_with(&digits(100));
+        assert!(refused(out(in_stream_on(own.clone()), out_stream_on(&own))));
+        let stored = new_blob();
+        stored.borrow_mut().db_row = true;
+        assert!(refused(out(in_stream(&digits(100)), out_stream_on(&stored))));
+        // The false form keeps main's result on such a target.
+        let target = new_blob();
+        let utf16 = Value::Library(
+            LibraryKind::OutStream,
+            Rc::new(RefCell::new(LibraryValue::OutStream(
+                target.clone(),
+                Encoding::Utf16,
+                None,
+            ))),
+        );
+        run(
+            "Base64Convert.ToBase64#stream-out",
+            &mut [in_stream(b"Hello"), Value::Boolean(false), utf16],
+        )
+        .ok()
+        .unwrap();
+        assert_eq!(target.borrow().bytes, b"SGVsbG8=");
+    }
+
+    // Without line breaks a UTF16 stream keeps main's result (the bytes from the read position on).
+    #[test]
+    fn utf16_stream_without_line_breaks_keeps_mains_result() {
+        let s = InState::of_blob_field(blob_with(b"Hello"), Encoding::Utf16);
+        let s = Value::Library(LibraryKind::InStream, Rc::new(RefCell::new(LibraryValue::InStream(s))));
+        assert_eq!(stream_text(s, false), "SGVsbG8=");
+    }
+
     fn from_cp(text: &str, name: &str, cp: i32) -> Result<String, Signal> {
         let members: std::sync::Arc<[String]> = ["MSDos", "UTF8", "UTF16", "Windows"].map(String::from).to_vec().into();
         let i = members.iter().position(|m| m == name).unwrap() as i32;
@@ -1032,7 +1112,7 @@ mod tests {
         take_hits();
         assert_eq!(from_cp("5Pb8", "Windows", 28591).ok().unwrap(), "äöü");
         assert_eq!(from_cp("5Pb8", "Windows", 1252).ok().unwrap(), "äöü");
-        assert!(!take_hits().contains(&Assumption::BaseEncodeStreamLineBreaksCodePages));
+        assert!(take_hits().is_empty());
         // Only FromBase64 gives code page 850 or 437; ToBase64 with them would be refused.
         assert!(matches!(encode_text("a", Enc::Ibm850), Err(Signal::Unsupported(_))));
         // Code page 0 on BC 28 and 29 is Windows-1252 (the context has every gate).

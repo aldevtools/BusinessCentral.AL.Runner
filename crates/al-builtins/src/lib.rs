@@ -12,6 +12,7 @@ pub mod signature;
 pub mod stream;
 mod stream_call_stack;
 pub mod stream_cleared;
+pub mod stream_line_breaks;
 mod stream_read_len;
 pub mod testcontexts;
 pub mod text;

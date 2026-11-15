@@ -2092,6 +2092,7 @@ impl Session {
             let mut b = buf.borrow_mut();
             b.inserted = inserted;
             b.bytes = bytes;
+            b.content_edits = b.content_edits.wrapping_add(1);
             b.written = false;
             b.written_base = None;
             b.assigned_unsaved = false;
