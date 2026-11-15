@@ -1,11 +1,10 @@
-//! A ModifyAll or DeleteAll whose filter matches no row of a table with rows, in the shapes corpus PR 1403 measured
-//! (record/Y19PermNoMatchShapes.al, record/Y19PermNoMatchTriggers.al; assumption `bulk-write-no-match-denied`): BC denies
+//! A ModifyAll or DeleteAll whose filter matches no row of a table with rows, in the shapes
+//! tests/al-language/record/Y19PermNoMatchShapes.al:139-269 and record/Y19PermNoMatchTriggers.al:180-303 pin: BC denies
 //! it as one that matches rows. The OnDelete trigger of the reporter's shape (al-runner issue 8068) on a target with an
-//! Integer primary key is denied, flagged; each neighbor below differs in one fact the probe did not measure and keeps
+//! Integer primary key is denied, unmarked; each neighbor below differs in one fact the probe did not measure and keeps
 //! main's refusal.
 
 use super::permission_writes::{BASE, run_main_on};
-use al_builtins::assumptions::Assumption;
 use al_testrun::Outcome;
 use al_testrun::runtime::{CorpusRuntime, RunOptions};
 
@@ -614,11 +613,11 @@ fn result(test: &str) -> &'static al_testrun::runtime::TestResult {
 }
 
 #[test]
-fn measured_no_match_shapes_are_denied_flagged() {
+fn measured_no_match_shapes_are_denied_unmarked() {
     for test in ["TriggerDenied", "DeleteAllInTheTestDenied"] {
         let r = result(test);
         assert_eq!(r.outcome, Outcome::Pass, "{test}");
-        assert_eq!(r.assumptions, vec![Assumption::BulkWriteNoMatchDenied], "{test}");
+        assert!(r.assumptions.is_empty(), "{test}: {:?}", r.assumptions);
     }
 }
 

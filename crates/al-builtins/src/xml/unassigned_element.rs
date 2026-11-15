@@ -1,10 +1,8 @@
 //! Members of an XmlElement nothing assigned (or cleared: a cleared one is an unassigned one, xml/xml/UlClearXmlRef.al:90-102)
-//! that corpus PR 1408 measured (tests/al-language/xml/UhUnassignedXmlElement.al, BC 27.5, 28.5 and 29.0; al-runner issue 7760).
-//! The probe is merged and not yet pinned: every raise here marks `xmlelement-unassigned-members`. Every other member, form
-//! and argument goes on to its native, which refuses an unassigned element (`dom.rs` `node_of`).
+//! that tests/al-language/xml/UhUnassignedXmlElement.al:94-221 measures (codeunit 66992; al-runner issue 7760). Every other
+//! member, form and argument goes on to its native, which refuses an unassigned element (`dom.rs` `node_of`).
 
 use super::*;
-use crate::assumptions::{Assumption, assume};
 
 /// A member of XmlElement the probe called on an unassigned variable.
 #[derive(Clone, Copy)]
@@ -50,10 +48,7 @@ pub(super) fn check(r: &Option<&mut Value>, member: Member, a: &[Value], used: b
         return Ok(());
     }
     match measured(member, a, used) {
-        Some(nav) => {
-            assume(Assumption::XmlElementUnassignedMembers);
-            Err(uninitialized(nav))
-        }
+        Some(nav) => Err(uninitialized(nav)),
         None => Ok(()),
     }
 }

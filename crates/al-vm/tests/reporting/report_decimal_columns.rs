@@ -1,5 +1,5 @@
 //! The text of a Decimal column in the report dataset (al-runner issues 7440 and 7958): the value with the decimals it holds,
-//! except zero, one and minus one, which are written without decimals (al-vm `decimal_column.rs`).
+//! except zero, one and minus one, which are written without decimals (al-builtins `decimal_scale.rs`).
 //! reports/dataset/DatasetDecimalPlacesValueOrigins.al pins one as `1` in every source shape (:241-247, :364, :397, :425-570),
 //! and an expression column with the scale of the calculation (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309
 //! `Dec * 1.5` is `18.5185170`).
@@ -298,8 +298,8 @@ fn a_temporary_data_item_writes_what_the_value_holds() {
 }
 
 /// A global Decimal variable by name writes the zeros the value holds, with or without the column's own DecimalPlaces, except
-/// zero, one and minus one; a one that keeps its decimals carries them into a product (al-runner issue 7958; measured on BC
-/// 27.5, 28.5 and 29.0 by corpus pull request 1377, reports/dataset/DatasetDecimalRoundScaleSources.al).
+/// zero, one and minus one; a one that keeps its decimals carries them into a product (al-runner issue 7958;
+/// tests/al-language/reports/dataset/DatasetDecimalRoundScaleSources.al:101-255).
 #[test]
 fn a_variable_writes_the_zeros_it_holds_except_zero_one_and_minus_one() {
     let lines = text(al_testkit::run_in(FIXTURE, "DC Tests", "Kept"));
@@ -316,13 +316,13 @@ fn a_variable_writes_the_zeros_it_holds_except_zero_one_and_minus_one() {
     }
 }
 
-/// An expression column holding one with zeros (`Half + Half`, Half 0.50) writes `1`: measured by corpus pull request 1377
-/// (`SumWholeExpr`), not pinned yet, so the run is flagged (maintainer's review of al-runner PR 7969).
+/// An expression column holding one with zeros (`Half + Half`, Half 0.50) writes `1`: tests/al-language/reports/dataset/
+/// DatasetDecimalRoundScaleSources.al:326 (`SumWholeExpr`).
 #[test]
-fn an_expression_holding_one_with_zeros_writes_1_flagged() {
-    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+fn an_expression_holding_one_with_zeros_writes_1_unmarked() {
+    use al_builtins::assumptions::{clear_hits, take_hits};
     clear_hits();
     let lines = text(al_testkit::run_in(FIXTURE, "DC Tests", "Sum"));
     assert_eq!(value(&lines, "SumOfHalves"), "1", "{lines}");
-    assert!(take_hits().contains(&Assumption::DatasetDecimalKeepsItsZeros));
+    assert!(take_hits().is_empty());
 }

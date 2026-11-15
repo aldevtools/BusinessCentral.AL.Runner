@@ -1,7 +1,6 @@
 //! al-runner issue 8051: Field."App Package ID" and "App Runtime Package ID" of a field a table extension adds are the ids of
-//! the extension's app, not the table's. Corpus PR 1402 (merged, not pinned yet) measures it:
-//! tests/al-language/metadata/platform-tables/PlatformMetadataColumnValues.al:360-376 and :388-405. Until it is pinned the rows
-//! run through the assumption `field-row-extension-package-ids`.
+//! the extension's app, not the table's: tests/al-language/metadata/platform-tables/PlatformMetadataColumnValues.al:360-376
+//! and :388-405 pin it.
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
@@ -207,16 +206,9 @@ codeunit 50120 T
     assert_eq!(o.len(), 4);
     let bad: Vec<_> = o.iter().filter(|(_, r, _)| *r != Outcome::Pass).collect();
     assert!(bad.is_empty(), "{bad:?}");
-    // The control reads no package column, but its rows include the extension field's.
-    let unflagged: Vec<_> = o
-        .iter()
-        .filter(|(_, _, h)| !h.contains(&Assumption::FieldRowExtensionPackageIds))
-        .map(|(n, ..)| n)
-        .collect();
-    assert!(unflagged.is_empty(), "not flagged: {unflagged:?}");
 }
 
-/// A table's own fields are not flagged: a read of Field rows that holds no extension field's row marks nothing.
+/// A table's own fields: a read of Field rows that holds no extension field's row marks nothing.
 #[test]
 fn issue_8051_own_fields_are_not_flagged() {
     let test = r#"
@@ -253,12 +245,12 @@ codeunit 50120 T
     ]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass);
-    assert!(!o[0].2.contains(&Assumption::FieldRowExtensionPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
 }
 
-/// A filter on the package that leaves the extension field's row out rests on its assumed value too: it is flagged.
+/// A filter on the package that leaves the extension field's row out (PlatformMetadataColumnValues.al:388-405) marks nothing.
 #[test]
-fn issue_8051_a_package_filter_that_drops_the_extension_field_is_flagged() {
+fn issue_8051_a_package_filter_that_drops_the_extension_field_is_unmarked() {
     let test = r#"
 tableextension 50110 "Repro Line Ext" extends "Repro Line"
 {
@@ -292,7 +284,7 @@ codeunit 50120 T
     ]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass);
-    assert!(o[0].2.contains(&Assumption::FieldRowExtensionPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
 }
 
 /// Not measured: the package ids of a field that a table extension of a dependency app (compiled from its package, as

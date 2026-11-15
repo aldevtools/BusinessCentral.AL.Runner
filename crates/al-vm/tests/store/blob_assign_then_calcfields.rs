@@ -1,8 +1,8 @@
 //! A Blob assigned from another record's Blob, then `CalcFields` on the target with no Modify in between (al-runner issue
 //! 7961, the reporter's repro, measured by the reporter on real BC): the target keeps the assigned value, as it keeps one a
-//! stream wrote. Assumption `blob-assign-counts-as-write`.
+//! stream wrote: tests/al-language/streams/BlobAssignThenCalcFields.al:244-256 (Assign_Ins_FromTmpIns).
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::{clear_hits, take_hits};
 
 const SRC: &str = r#"
 table 50300 "PX Blob Row"
@@ -161,14 +161,14 @@ codeunit 50301 C
 fn run(routine: &str) -> (String, bool) {
     clear_hits();
     let out = al_testkit::text(al_testkit::run_in(SRC, "C", routine));
-    (out, take_hits().contains(&Assumption::BlobAssignCountsAsWrite))
+    (out, !take_hits().is_empty())
 }
 
 #[test]
 fn calcfields_keeps_a_blob_assigned_from_a_saved_temporary_record() {
     assert_eq!(
         run("AssignFromTempThenCalcFields"),
-        ("before=Yes after=Yes".into(), true)
+        ("before=Yes after=Yes".into(), false)
     );
 }
 

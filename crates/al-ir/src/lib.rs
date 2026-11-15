@@ -722,8 +722,8 @@ pub struct ReportColumn {
     pub auto_format_type: Option<String>,
     #[serde(default)]
     pub auto_format_expression: Option<String>,
-    /// The syntax of the source expression; with the lowered routine it decides whether a Decimal is written without trailing
-    /// zeros (al-vm `decimal_column.rs`).
+    /// The syntax of the source expression. No runtime path reads it since every dataset Decimal shape is pinned
+    /// (reports/dataset/DatasetDecimalRoundScaleSources.al); kept until it is removed from the IR.
     #[serde(default)]
     pub source_syntax: SourceSyntax,
     /// The table (object index) and field position whose `DecimalPlaces` decide the `decimalformatter` when the column states

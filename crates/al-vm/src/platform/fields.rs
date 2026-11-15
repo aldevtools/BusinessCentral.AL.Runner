@@ -395,15 +395,9 @@ fn table_entries(
             r[col] = Value::Boolean(in_key);
         }
         let extension = extension_packages(c, o, f, t);
-        let row_packages = extension.as_ref().map_or(&packages[..], |(p, _)| &p[..]);
+        let row_packages = extension.as_deref().unwrap_or(&packages[..]);
         match field_row(c, o, f, t, blank, row_packages, &mut r) {
-            Ok(()) => out.push(match extension {
-                Some((p, true)) => Entry::ok(r).assuming_in(
-                    al_builtins::assumptions::Assumption::FieldRowExtensionPackageIds,
-                    p.iter().map(|(col, _)| *col).collect(),
-                ),
-                _ => Entry::ok(r),
-            }),
+            Ok(()) => out.push(Entry::ok(r)),
             Err(why) => {
                 let mut k = blank.row();
                 k[pos(t, 1)] = Value::Integer(tid as i32);
@@ -446,14 +440,13 @@ fn package_columns(c: &Catalog, table: &Object, t: &TableDef) -> Vec<(usize, Val
 
 /// App Package ID and App Runtime Package ID of the Field row of field `f` of `table` when a table extension adds it: the
 /// extension's AllObj ones, not the table's, after Get, FindFirst on the key and in a scan, and a filter on App Package ID <> the
-/// table's keeps only such fields (al-runner issue 8051; metadata/platform-tables/PlatformMetadataColumnValues.al:339-376 and
-/// :385-405, corpus PR 1402, merged, not pinned yet: assumption `field-row-extension-package-ids` until the bump). With `true`
-/// when the shape is the measured
-/// one: an extension of an app under test on a table of an app under test or of Base Application. Any other extension (of a
-/// dependency app, on another dependency app's table or on a platform table) leaves both columns unknown, with `false`. `None`
-/// for a field the table declares itself, and for a system field. An extension in the table's own app keeps the table's ids
-/// (not measured by corpus PR 1402).
-fn extension_packages(c: &Catalog, table: &Object, f: &Field, t: &TableDef) -> Option<(Vec<(usize, Value)>, bool)> {
+/// table's keeps only such fields (al-runner issue 8051; tests/al-language/metadata/platform-tables/
+/// PlatformMetadataColumnValues.al:360-376 FieldTable_AppPackageIds_OfTableExtensionField_AreTheExtensionApps and :388-405
+/// FieldTable_FilterAppPackageIdNotTheTables_KeepsOnlyExtensionFields), in the measured shape: an extension of an app under
+/// test on a table of an app under test or of Base Application. Any other extension (of a dependency app, on another
+/// dependency app's table or on a platform table) leaves both columns unknown. `None` for a field the table declares itself,
+/// and for a system field. An extension in the table's own app has the app's ids, which are the table's.
+fn extension_packages(c: &Catalog, table: &Object, f: &Field, t: &TableDef) -> Option<Vec<(usize, Value)>> {
     let ext = declaring_extension(c, table, f)?;
 
     let from_package = |o: &Object| c.apps.get(o.app as usize).is_some_and(|a| a.dependency);
@@ -481,7 +474,7 @@ fn extension_packages(c: &Catalog, table: &Object, f: &Field, t: &TableDef) -> O
             out.push((col, v));
         }
     }
-    Some((out, measured))
+    Some(out)
 }
 
 /// The Field row of the rowversion: No. 0, FieldName `timestamp`, Type BigInteger, Class Normal, Len 8, Enabled. Only a

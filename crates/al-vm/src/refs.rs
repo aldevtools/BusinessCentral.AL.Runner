@@ -1494,7 +1494,6 @@ impl Session {
                 return Err(fieldref_not_initialized());
             }
             LibraryValue::Empty if unassigned_filter_member_measured(method, args) => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldrefUnassignedFilters);
                 return Err(fieldref_not_initialized());
             }
             _ => {
@@ -1774,9 +1773,9 @@ pub(crate) fn fieldref_not_initialized() -> Signal {
     }))
 }
 
-/// The filter members corpus PR 1382 measured on a FieldRef that holds no field, both never assigned and after `Clear`, which
-/// the runtime cannot tell apart (recordref-fieldref/fieldref/FieldRefUnassignedFilters.al:88-127, not pinned yet, assumption
-/// `fieldref-unassigned-filters`): SetRange with no argument or one Text, SetFilter with one Text and no placeholder value,
+/// The filter members measured on a FieldRef that holds no field, both never assigned and after `Clear`, which the runtime
+/// cannot tell apart (tests/al-language/recordref-fieldref/fieldref/FieldRefUnassignedFilters.al:88 Unassigned_SetRange_Forms,
+/// :106 Unassigned_SetFilter_GetFilter_Range, :127 Cleared_Filter_Members): SetRange with no argument or one Text, SetFilter with one Text and no placeholder value,
 /// GetFilter and GetRangeMin. SetRange with an Integer or two values, SetFilter(''), GetRangeMax were measured only never
 /// assigned (:88, :106) and keep the refusal.
 fn unassigned_filter_member_measured(method: &str, args: &[Value]) -> bool {

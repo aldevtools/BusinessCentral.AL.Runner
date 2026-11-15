@@ -17,7 +17,7 @@
 
 use crate::{Engine, Session};
 
-// The permission cells corpus PR 1403 measured, a child of this module.
+// The permission cells Y19PermExtAndCompose.al and Y19InherentAttrIndirect.al pin, a child of this module.
 mod permission_probed;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::Signal;
@@ -300,9 +300,6 @@ pub(crate) struct EffectivePermissions {
     /// reader does not take, or is extended (`why_incomplete`).
     pub complete: bool,
     pub why_incomplete: Vec<String>,
-    /// The composition read an exclusion as taking only from its own set where corpus PR 1403 measured it (assumption
-    /// `permission-set-exclusion-stays-in-set`, [`SetModel::exclusion_stays_in_include`], [`SetModel::assigned_exclusion_measured`]).
-    pub assumed_exclusion: bool,
 }
 
 /// The permission set objects of the program, read once per engine, and the composed lists, shared by every session
@@ -347,8 +344,9 @@ impl SetModel {
         }
     }
 
-    /// Whether assigned set `i` that includes set `t`, which excludes sets, is in the shape corpus PR 1403 measured
-    /// (permissions/testpermissions/Y19PermExtAndCompose.al:40-62, PC_A_Composition ops 1-3, allowed, :269-287): `i` grants nothing
+    /// Whether assigned set `i` that includes set `t`, which excludes sets, is in the shape that
+    /// tests/al-language/permissions/testpermissions/Y19PermExtAndCompose.al:265-293 pins (sets :40-62, PC_A_Composition
+    /// ops 1-3, allowed, :269-287): `i` grants nothing
     /// itself, excludes nothing and includes exactly `t` and one more set `s`; `t` includes nothing and excludes exactly one
     /// set `e`, which includes and excludes nothing; `s` includes and excludes nothing and declares what `e` declares (`s` is
     /// `e`, or a set with the same grants); `t` and `e` grant no object in common (`LT PC Narrow` grants "LT PC B", `LT PC
@@ -385,8 +383,8 @@ impl SetModel {
             && grants_apart(&inc.declared, &self.sets[e].declared)
     }
 
-    /// Whether the assigned sets `found` (Role IDs `roles`) are in the shape corpus PR 1403 measured
-    /// (Y19PermExtAndCompose.al:65-71, PC_A_Composition ops 4-6, allowed, :269-287, after `Mock.Set(X)` and `Mock.Assign(Y)` in
+    /// Whether the assigned sets `found` (Role IDs `roles`) are in the shape Y19PermExtAndCompose.al:265-293 pins
+    /// (sets :65-71, PC_A_Composition ops 4-6, allowed, :269-287, after `Mock.Set(X)` and `Mock.Assign(Y)` in
     /// both orders, :504-517): 'All Objects' and two sets, one of them `y` excluding exactly the other `x`; `x` and `y`
     /// include nothing and `x` excludes nothing. Then `y`'s exclusion takes nothing from `x`.
     fn assigned_exclusion_measured(&self, roles: &[String], found: &[usize]) -> bool {
@@ -426,7 +424,6 @@ impl SetModel {
         exclude: bool,
         visiting: &mut Vec<usize>,
         why: &mut Vec<String>,
-        assumed: &mut bool,
     ) -> Result<Content, String> {
         let set = &self.sets[i];
         if visiting.contains(&i) {
@@ -444,18 +441,15 @@ impl SetModel {
         visiting.push(i);
         for inc in &set.includes {
             match self.one_set(inc) {
-                // An included set that excludes sets: whether its exclusion reaches beyond it is not pinned, so it adds
-                // nothing here.
+                // An included set that excludes sets: its exclusion takes only from its own content in the shape
+                // `exclusion_stays_in_include` reads (Y19PermExtAndCompose.al:265-293); in every other shape it adds nothing.
                 Some(t)
                     if !self.sets[t].excludes.is_empty()
                         && visiting.len() == 1
                         && self.exclusion_stays_in_include(i, t) =>
                 {
-                    match self.expanded(t, true, visiting, why, assumed) {
-                        Ok(c) => {
-                            all.union(&c);
-                            *assumed = true;
-                        }
+                    match self.expanded(t, true, visiting, why) {
+                        Ok(c) => all.union(&c),
                         Err(e) => why.push(e),
                     }
                 }
@@ -463,7 +457,7 @@ impl SetModel {
                     "permission set '{}' includes `{inc}`, which excludes sets (not pinned)",
                     set.role
                 )),
-                Some(t) => match self.expanded(t, true, visiting, why, assumed) {
+                Some(t) => match self.expanded(t, true, visiting, why) {
                     Ok(c) => all.union(&c),
                     Err(e) => why.push(e),
                 },
@@ -477,7 +471,7 @@ impl SetModel {
             for ex in &set.excludes {
                 let before = why.len();
                 let taken = match self.one_set(ex) {
-                    Some(t) if self.sets[t].excludes.is_empty() => self.expanded(t, true, visiting, why, assumed),
+                    Some(t) if self.sets[t].excludes.is_empty() => self.expanded(t, true, visiting, why),
                     Some(_) => Err(format!(
                         "permission set '{}' excludes `{ex}`, which excludes sets too (not pinned)",
                         set.role
@@ -531,12 +525,11 @@ impl SetModel {
         let mut content = Content::default();
         let mut why = Vec::new();
         let mut found = Vec::new();
-        let mut assumed = false;
         for role in &key {
             match self.by_role.get(role).map(Vec::as_slice) {
                 Some([i]) => {
                     found.push(*i);
-                    match self.expanded(*i, true, &mut Vec::new(), &mut why, &mut assumed) {
+                    match self.expanded(*i, true, &mut Vec::new(), &mut why) {
                         Ok(c) => content.union(&c),
                         Err(e) => why.push(e),
                     }
@@ -553,14 +546,14 @@ impl SetModel {
             let mut ignored = Vec::new();
             let mut exact_exclusions = true;
             for &i in &found {
-                if let Ok(c) = self.expanded(i, false, &mut Vec::new(), &mut ignored, &mut false) {
+                if let Ok(c) = self.expanded(i, false, &mut Vec::new(), &mut ignored) {
                     whole.union(&c);
                 }
                 for ex in &self.sets[i].excludes {
                     let mut partial = Vec::new();
                     match self
                         .one_set(ex)
-                        .map(|t| self.expanded(t, true, &mut Vec::new(), &mut partial, &mut false))
+                        .map(|t| self.expanded(t, true, &mut Vec::new(), &mut partial))
                     {
                         Some(Ok(c)) if partial.is_empty() => taken.union(&c),
                         // An exclusion known only in part would take away too little from the union.
@@ -572,10 +565,9 @@ impl SetModel {
             let whole = whole.normalized();
             if !exact_exclusions {
                 why.push("an assigned set excludes a set that is not composed in full (not read)".into());
-            } else if whole != content.clone().normalized() && self.assigned_exclusion_measured(&key, &found) {
-                // Corpus PR 1403 measured that the exclusion takes nothing from the other assigned set: the union stands.
-                assumed = true;
-            } else if whole != content.clone().normalized() {
+            } else if whole != content.clone().normalized() && !self.assigned_exclusion_measured(&key, &found) {
+                // In the shape `assigned_exclusion_measured` reads the exclusion takes nothing from the other assigned set and
+                // the union stands (Y19PermExtAndCompose.al:265-293); in every other shape the session holds the smaller.
                 why.push("an assigned set excludes what another assigned set grants (not pinned)".into());
                 content = whole;
             }
@@ -585,7 +577,6 @@ impl SetModel {
                 content,
                 complete: why.is_empty(),
                 why_incomplete: why,
-                assumed_exclusion: assumed,
             })
         });
         lock().insert(key, result.clone());
@@ -811,9 +802,6 @@ impl Session {
         }
         self.permissions = SetModel::of(&self.engine).compose(&self.permission_roles);
         al_builtins::value::set_born_restricted(self.permissions.is_some());
-        if self.permissions.as_ref().is_some_and(|e| e.assumed_exclusion) {
-            assume(Assumption::PermissionSetExclusionStaysInSet);
-        }
         if self.permissions.is_none() {
             assume(Assumption::PermissionSetsGrantingEverythingUnrestricted);
         } else if self.runner_permission_sets {
@@ -829,7 +817,6 @@ impl Session {
                 content: eff.content.clone(),
                 complete: false,
                 why_incomplete: why,
-                assumed_exclusion: eff.assumed_exclusion,
             }));
         }
     }
@@ -944,7 +931,7 @@ impl Session {
         let grant = if flowfield {
             true
         } else if o.kind.extended().is_some() {
-            // The shapes corpus PR 1403 measured (`permissions/permission_probed/extension_code.rs`).
+            // The shapes Y19PermExtAndCompose.al pins (`permissions/permission_probed/extension_code.rs`).
             match self.extension_code_grant(access, caller) {
                 Some(g) => g,
                 None => {
@@ -965,7 +952,7 @@ impl Session {
                 }
             }
         };
-        // An indirect letter in the shape corpus PR 1403 measured gives the indirect level (`permission_probed/inherent_letter.rs`).
+        // An indirect letter in the shape Y19InherentAttrIndirect.al pins gives the indirect level (`permission_probed/inherent_letter.rs`).
         let u_before = u;
         for (l, i) in letters {
             if self.inherent_letter_measured(access, l, i, caller, target, u_before, grant) {
@@ -1651,7 +1638,7 @@ impl Session {
                 if matching == 0 && !self.bulk_no_match_denied(method, rec, args, access, indirect, by, caller, rows)? {
                     return refuse(
                         "with a filter that matches no row of a table with rows, in a shape no probe measured \
-                         (record/Y19PermWrites.al:294-307 pins one; corpus PR 1403 measures more)",
+                         (record/Y19PermWrites.al:294-307 and record/Y19PermNoMatchShapes.al pin some)",
                     );
                 }
             }
@@ -2026,7 +2013,6 @@ mod tests {
             content,
             complete: true,
             why_incomplete: vec![],
-            assumed_exclusion: false,
         };
         let at = |id, op| e.level(Access { kind: 0, id, op });
         assert_eq!(at(50100, Op::Read), 1);

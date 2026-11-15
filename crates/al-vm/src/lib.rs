@@ -67,7 +67,6 @@ mod data_file_types;
 mod dataset;
 mod datatransfer;
 mod db_event_no_op;
-mod decimal_column;
 mod dev_endpoint_ui;
 mod dispatch;
 pub mod dotnet;
