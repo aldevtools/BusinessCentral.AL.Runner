@@ -441,7 +441,10 @@ fn run_codeunit_inner(
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
     // single instances of the codeunit before are moved in.
-    start_singles(&mut session, execute, moved, scratch.watch);
+    // The partner dependency apps' login subscribers changed SingleInstance globals: the notes tell which test read one
+    // first (`partner_login.rs` `PartnerLogin::test_read`); only `scratch.watch` hands them to the lane (`ended`).
+    let notes = scratch.watch || company_open.partner_login.notes_singles();
+    start_singles(&mut session, execute, moved, notes);
     if scratch.discovery.is_some() {
         return discover(
             &mut session,
@@ -502,6 +505,9 @@ fn run_codeunit_inner(
         // Under `OnRunRows::TestRunner`, the tests of a codeunit with a declared OnRun that did not raise: their rows rest on
         // the unprobed reporting of OnRun (ADR-055).
         let mut on_run_shape_assumed = false;
+        // The OnRun trigger read a SingleInstance global the partner login subscribers left (`PartnerLogin::test_read`):
+        // every test relies on the assumption.
+        let mut on_run_read_partner = false;
         if let Some(on_run) = (0..obj.routines.len())
             .find(|&r| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun"))
             .filter(|_| !execute)
@@ -534,6 +540,7 @@ fn run_codeunit_inner(
             }
             let timed_out = watchdog.is_some_and(Watchdog::finish);
             let ran = on_run_time_limit(session, ran, limit, timed_out);
+            on_run_read_partner = partner.test_read(session);
             let hits = session.store_mut().watch_hits();
             scratch.leak_hit |= !leak.is_disjoint(&hits);
             session.store_mut().watch(Default::default());
@@ -676,6 +683,8 @@ fn run_codeunit_inner(
             crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
             // The number of this test for the SingleInstance notes (ADR-066 amendment 7; 0 without notes).
             let test_no = session.single_test_begins();
+            // Notes the lane does not use (`notes` without `scratch.watch`) number no test for it.
+            let test_no = if scratch.watch { test_no } else { 0 };
             let test_started = std::time::Instant::now();
             let draws_before = session.inherited_random_draws();
             let carried_before = session.carried_random_draws();
@@ -742,7 +751,7 @@ fn run_codeunit_inner(
                         session.store_mut().watch(watched);
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        mark_test_start_assumptions(lowered, on_run_shape_assumed);
+                        mark_test_start_assumptions(lowered, on_run_shape_assumed, on_run_read_partner);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                         session.start_random_scope();
@@ -1042,6 +1051,9 @@ fn run_codeunit_inner(
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
             let hit = company_open.watch_hit(&touched, began);
+            if began {
+                company_open.partner_login.test_read(session);
+            }
             // A test that read or wrote a table install code that could not run touches, through a path its record
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
@@ -1487,7 +1499,9 @@ fn ended(
     if scratch.driver.watches_reads() {
         scratch.note_reads(session.take_impact_trace());
     }
-    singles_out(session, execute, scratch.refused_mid_run, scratch.hands_on_none())
+    let out = singles_out(session, execute, scratch.refused_mid_run, scratch.hands_on_none());
+    // Notes taken only for the partner login subscribers' SingleInstance globals (`run_codeunit_inner`) are not the lane's.
+    out.filter(|_| scratch.watch)
 }
 
 /// How the tests of a codeunit ended, from the tests that did not run to their end and whether one panicked.
@@ -1879,9 +1893,12 @@ fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: b
 
 /// The marks every test of the codeunit starts with: the program's own (`ir::Program::assumes`: it compiled only through
 /// them) and, when the codeunit's OnRun shape is assumed, `TestCodeunitOnRunRows`.
-fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool) {
+fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool, on_run_read_partner: bool) {
     if on_run_shape_assumed {
         al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
+    }
+    if on_run_read_partner {
+        crate::partner_login::mark();
     }
     for &a in &lowered.program.assumes {
         al_builtins::assumptions::assume(a);

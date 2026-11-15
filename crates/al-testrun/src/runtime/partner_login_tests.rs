@@ -135,14 +135,17 @@ fn a_test_that_touches_a_table_the_partner_subscriber_wrote_is_not_run() {
     assert!(!hit(&hits, "NoTable"), "{hits:?}");
 }
 
-// A SingleInstance global the subscriber sets: what BC leaves there is not measured, no test of the codeunit runs.
+// A SingleInstance global the subscriber sets is in the test session, as an own login subscriber's is
+// (LgnLoginChecklistTests.al:93, :132): the test that reads it sees it and relies on the assumption; the tests that do not
+// read it run clean.
 #[test]
-fn a_partner_subscriber_that_sets_a_single_instance_global_refuses_the_codeunit() {
-    let (o, _) = run("var C: Codeunit Cache; begin C.Put(); end;");
-    assert!(
-        o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Cache")),
-        "{o:?}"
-    );
+fn a_test_that_reads_a_single_instance_global_the_partner_subscriber_set_sees_it() {
+    let (o, hits) = run("var C: Codeunit Cache; begin C.Put(); end;");
+    assert!(matches!(&o[1].1, Outcome::Fail(m) if m.contains("cache on")), "{o:?}");
+    assert!(hit(&hits, "CacheIsOff"), "{hits:?}");
+    assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+    assert_eq!(o[3].1, Outcome::Pass, "{o:?}");
+    assert!(!hit(&hits, "OtherTable") && !hit(&hits, "NoTable"), "{hits:?}");
 }
 
 // A manual subscriber the subscriber binds through a SingleInstance codeunit: no test runs.
@@ -245,7 +248,8 @@ fn readers(early: &str) -> String {
             local procedure O() {early} }}
         codeunit 60912 T {{ Subtype = Test;
             [Test] procedure CacheIsOff() var C: Codeunit Cache; begin if C.Take() then Error('cache on'); end;
-            [Test] procedure Sequence() begin if NumberSequence.Exists('S') then if NumberSequence.Current('S') = 0 then; end; }}
+            [Test] procedure Sequence() begin if NumberSequence.Exists('S') then if NumberSequence.Current('S') = 0 then; end;
+            [Test] procedure PutFirst() var C: Codeunit Cache; begin C.Put(); if not C.Take() then Error('cache off'); end; }}
         codeunit 60915 U {{ Subtype = Test;
             [Test] procedure OtherTable() var M: Record Mine; begin M.K := 'X'; M.Insert(); end; }}"
     )
@@ -270,33 +274,44 @@ fn a_new_single_instance_with_declared_globals_is_no_change() {
     assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
 }
 
-// The subscriber makes the instance and sets a global: the test codeunit that reads it is not run, the one that does not
-// read it runs.
-#[test]
-fn a_new_single_instance_with_a_set_global_refuses_only_its_readers() {
+/// Readers of `T` after a login that sets the cache: the test that reads it first sees it (and relies on the assumption),
+/// the one that never reads it and the one that writes it before it reads it run clean; `U` runs clean.
+fn assert_only_the_first_reader_relies_on_it(early: &str) {
     let login = "var C: Codeunit Cache; begin C.Put(); end;";
-    let (o, _) = run_readers(login, NOTHING_EARLY, "T");
-    assert!(
-        o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Cache")),
-        "{o:?}"
-    );
-    let (o, _) = run_readers(login, NOTHING_EARLY, "U");
+    let (o, hits) = run_readers(login, early, "T");
+    assert!(matches!(&o[0].1, Outcome::Fail(m) if m.contains("cache on")), "{o:?}");
+    assert!(hit(&hits, "CacheIsOff"), "{hits:?}");
+    assert_eq!((&o[1].1, &o[2].1), (&Outcome::Pass, &Outcome::Pass), "{o:?}");
+    assert!(!hit(&hits, "Sequence") && !hit(&hits, "PutFirst"), "{hits:?}");
+    let (o, hits) = run_readers(login, early, "U");
     assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert!(hits.iter().all(|(_, h)| !h.contains(&ID)), "{hits:?}");
+}
+
+// The subscriber makes the instance and sets a global.
+#[test]
+fn a_new_single_instance_with_a_set_global_marks_only_the_test_that_reads_it_first() {
+    assert_only_the_first_reader_relies_on_it(NOTHING_EARLY);
 }
 
 // The instance was there before the login (an OnCompanyOpen subscriber of the app under test made it) and the subscriber
-// changes it: only its readers are refused.
+// changes it.
 #[test]
-fn a_changed_existing_single_instance_refuses_only_its_readers() {
-    let login = "var C: Codeunit Cache; begin C.Put(); end;";
-    let early = "var C: Codeunit Cache; begin if C.Take() then; end;";
-    let (o, _) = run_readers(login, early, "T");
-    assert!(
-        o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Cache")),
-        "{o:?}"
+fn a_changed_existing_single_instance_marks_only_the_test_that_reads_it_first() {
+    assert_only_the_first_reader_relies_on_it("var C: Codeunit Cache; begin if C.Take() then; end;");
+}
+
+// The OnRun trigger reads the global the subscriber set before the first test: what every test finds may rest on it.
+#[test]
+fn an_onrun_that_reads_the_set_global_marks_every_test() {
+    let tests = readers(NOTHING_EARLY).replace(
+        "codeunit 60915 U { Subtype = Test;",
+        "codeunit 60915 U { Subtype = Test; trigger OnRun() var C: Codeunit Cache; begin if C.Take() then; end;",
     );
-    let (o, _) = run_readers(login, early, "U");
+    let login = "var C: Codeunit Cache; begin C.Put(); end;";
+    let (o, hits) = run_codeunit("Probe", login, &tests, false, TestIsolation::Codeunit, "U");
     assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert!(hit(&hits, "OtherTable"), "{hits:?}");
 }
 
 // A number sequence the subscriber moves on: only the test codeunit whose reach uses number sequences is refused.
@@ -320,13 +335,11 @@ fn workdate_the_subscriber_moves_still_refuses_every_codeunit() {
     assert!(o.iter().all(|(_, x)| not_run_for(x, "WorkDate")), "{o:?}");
 }
 
-// A record global whose view the subscriber changes, with its fields as declared: the instance is not as declared, and
-// the test codeunit that reads the codeunit's globals is not run.
+// A record global whose view the subscriber changes, with its fields as declared: the instance is not as declared. The
+// mark goes by codeunit, not by global: the test that reads another global of it first relies on the assumption too.
 #[test]
-fn a_record_global_whose_key_the_subscriber_sets_refuses_its_readers() {
-    let (o, _) = run_readers("var C: Codeunit Cache; begin C.Sort(); end;", NOTHING_EARLY, "T");
-    assert!(
-        o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Cache")),
-        "{o:?}"
-    );
+fn a_record_global_whose_key_the_subscriber_sets_marks_the_first_reader_of_the_codeunit() {
+    let (o, hits) = run_readers("var C: Codeunit Cache; begin C.Sort(); end;", NOTHING_EARLY, "T");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert!(hit(&hits, "CacheIsOff") && !hit(&hits, "Sequence"), "{hits:?}");
 }

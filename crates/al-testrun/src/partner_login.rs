@@ -7,7 +7,12 @@
 //! runs them. Otherwise ([`subscribers`]) they run here, at the place "System Initialization Impl." raises the login,
 //! together with the apps under test's own (`install::own_login`, in the order the event reaches them, [`steps`]), and
 //! what they leave is watched ([`raise`]): the measured filter stays; rows and other session state, which the probe does
-//! not measure, refuse their readers. Not pinned yet: assumption `partner-login-subscriber-in-test-session`.
+//! not measure, refuse their readers. The globals of SingleInstance codeunits they set stay for the session, as an own login
+//! subscriber's do (LgnLoginChecklistTests.al:93 sets them, :132 the first test reads them): each test codeunit runs on a
+//! session of its own that raises the login once before it, the BC session in which it runs first (ADR-066 amendment 12),
+//! and in BC's order the single instances moved in from the codeunit before replace the ones this login made
+//! (`Session::adopt_single_instances`). A test that reads such a global before any code wrote it relies on them
+//! ([`PartnerLogin::test_read`]). Not pinned yet: assumption `partner-login-subscriber-in-test-session`.
 
 use crate::login::OwnEvent;
 use al_builtins::native::Signal;
@@ -22,6 +27,9 @@ pub(crate) struct PartnerLogin {
     pub tables: BTreeSet<u32>,
     /// The tables whose group 1 filters they changed: a test that reads or writes one relies on the assumption.
     pub group1: BTreeSet<u32>,
+    /// The SingleInstance codeunits (object index) whose globals they changed: a test that reads one of their globals
+    /// before any code wrote it relies on the assumption ([`PartnerLogin::test_read`]).
+    pub singles: BTreeSet<usize>,
 }
 
 impl PartnerLogin {
@@ -37,6 +45,22 @@ impl PartnerLogin {
             mark();
         }
         hits.iter().find(|t| self.tables.contains(t)).copied()
+    }
+
+    /// Whether the session notes the use of SingleInstance globals for [`PartnerLogin::test_read`].
+    pub fn notes_singles(&self) -> bool {
+        !self.singles.is_empty()
+    }
+
+    /// After a test that began, or after the OnRun trigger: marks the assumption when the code read a global of a
+    /// SingleInstance codeunit they changed while it still held what they left (no code wrote it before;
+    /// `Session::single_read_unwritten`). Returns whether it did.
+    pub fn test_read(&self, session: &Session) -> bool {
+        let read = self.notes_singles() && session.single_read_unwritten(&self.singles);
+        if read {
+            mark();
+        }
+        read
     }
 
     /// After the test codeunit's OnRun, of the tables it touched (`hits`), the first one they wrote or set a group 1
@@ -59,7 +83,8 @@ impl PartnerLogin {
     }
 }
 
-fn mark() {
+/// Marks the assumption for the running test.
+pub(crate) fn mark() {
     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartnerLoginSubscriberInTestSession);
 }
 
@@ -151,9 +176,10 @@ pub(crate) fn steps(
 }
 
 /// Raises step `step` of the partner subscribers and notes what they left in `left`: the tables they wrote, the tables whose
-/// group 1 filters they changed. `Err`: why the codeunit is not run (a subscriber that cannot run, an error, a change of
-/// the session state besides rows that the probe does not measure and the watch cannot follow: of the session language,
-/// WorkDate or the bindings, or of other state the test codeunit can see, [`seen_by_test`]).
+/// group 1 filters they changed, the SingleInstance codeunits whose globals they changed. `Err`: why the codeunit is not
+/// run (a subscriber that cannot run, an error, a change of the session state besides rows and SingleInstance globals that
+/// the probe does not measure and the watch cannot follow: of the session language, WorkDate or the bindings, or of other
+/// state the test codeunit can see, [`seen_by_test`]).
 pub(crate) fn raise(
     lowered: &Lowered,
     session: &mut Session,
@@ -203,14 +229,13 @@ pub(crate) fn raise(
         ));
     }
     left.group1.extend(before.group1_changed(&after));
+    left.singles.extend(change.singles.iter().copied());
     Ok(())
 }
 
 /// One kind of session state other than rows that the partner subscribers changed ([`seen_by_test`]).
 #[derive(Clone, Copy)]
 enum Left {
-    /// The globals of a SingleInstance codeunit (object index).
-    Single(usize),
     NumberSequences,
     IsolatedStorage,
     Random,
@@ -219,8 +244,7 @@ enum Left {
 impl Left {
     /// The kinds `change` holds.
     fn of(change: &al_vm::LeftChange) -> Vec<Left> {
-        (change.singles.iter().map(|&o| Left::Single(o)))
-            .chain(change.number_sequences.then_some(Left::NumberSequences))
+        (change.number_sequences.then_some(Left::NumberSequences).into_iter())
             .chain(change.isolated_storage.then_some(Left::IsolatedStorage))
             .chain(change.random.then_some(Left::Random))
             .collect()
@@ -230,7 +254,6 @@ impl Left {
     fn seen_by(self, mine: &crate::runtime::written::JoinedReach) -> bool {
         use crate::runtime::written::state;
         match self {
-            Left::Single(o) => mine.reads_a_global_of(o),
             Left::NumberSequences => mine.uses_state(state::NUMBER_SEQUENCE),
             Left::IsolatedStorage => mine.uses_state(state::ISOLATED_STORAGE),
             Left::Random => mine.random(),
@@ -238,12 +261,8 @@ impl Left {
     }
 
     /// For a reason text.
-    fn what(self, lowered: &Lowered) -> String {
+    fn what(self) -> String {
         match self {
-            Left::Single(o) => format!(
-                "the globals of SingleInstance codeunit {}",
-                lowered.program.objects.get(o).map_or("?", |x| x.name.as_str())
-            ),
             Left::NumberSequences => "a number sequence".into(),
             Left::IsolatedStorage => "isolated storage".into(),
             Left::Random => "the Random sequence".into(),
@@ -251,22 +270,19 @@ impl Left {
     }
 }
 
-/// What of `change` (which holds no state that every code reads without naming it) the static reach of the session's
+/// What of `change` other than SingleInstance globals (which holds no state that every code reads without naming it) the static reach of the session's
 /// test codeunit can see, for a reason text ([`Left::seen_by`]). When part of the reach is not known, or the session has
 /// no test codeunit, every change counts. Changed state no test of the codeunit can see stays as the subscribers left it.
 fn seen_by_test(lowered: &Lowered, session: &Session, change: &al_vm::LeftChange) -> Option<String> {
     let left = Left::of(change);
     let first = *left.first()?;
     let Some(test) = session.test_object else {
-        return Some(first.what(lowered));
+        return Some(first.what());
     };
     crate::login::ask_test_reach(&session.engine, lowered, test, |mine| {
         if let Some(why) = mine.unknown() {
-            return Some(format!(
-                "{} (part of its reach is not known: {why})",
-                first.what(lowered)
-            ));
+            return Some(format!("{} (part of its reach is not known: {why})", first.what()));
         }
-        (left.iter()).find(|l| l.seen_by(mine)).map(|l| l.what(lowered))
+        (left.iter()).find(|l| l.seen_by(mine)).map(|l| l.what())
     })
 }

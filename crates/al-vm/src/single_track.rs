@@ -107,6 +107,9 @@ pub(crate) struct Track {
     read_in: BTreeMap<GlobalKey, u32>,
     /// `SingleOut::fresh`: taken when an instance is made in this session.
     fresh: BTreeMap<GlobalKey, Fp>,
+    /// The globals the running test (or the code before the first test) read while they still held what they held when
+    /// the notes started: read first and not written since ([`Session::single_read_unwritten`]).
+    test_reads: BTreeSet<GlobalKey>,
 }
 
 /// Whether `a` and `b` are the same value: equal simple values, or the same handle.
@@ -273,6 +276,7 @@ impl Session {
     pub fn single_test_begins(&mut self) -> u32 {
         let Some(t) = self.si_track.as_mut() else { return 0 };
         t.test += 1;
+        t.test_reads.clear();
         t.test
     }
 
@@ -301,9 +305,15 @@ impl Session {
         let object = inst.borrow().object as usize;
         let Some(t) = self.si_track.as_mut() else { return };
         let key = (object, g);
-        if t.seen.contains_key(&key) {
-            return;
+        match t.seen.get(&key) {
+            Some(Seen::Read) if !t.refilled.contains(&key) => {
+                t.test_reads.insert(key);
+                return;
+            }
+            Some(_) => return,
+            None => {}
         }
+        t.test_reads.insert(key);
         t.seen.insert(key, Seen::Read);
         t.first_read_at.insert(key, t.writes);
         t.read_in.insert(key, t.test);
@@ -409,6 +419,15 @@ impl Session {
             Err(_) => Fp::Opaque("borrowed".into()),
         };
         t.refill.insert(key, f);
+    }
+
+    /// Whether the running test (since [`Session::single_test_begins`], or the code before the first test) read a global
+    /// of a single instance of `objects` that still held what it held when the notes started: no code of the session wrote
+    /// it before. False without notes.
+    pub fn single_read_unwritten(&self, objects: &BTreeSet<usize>) -> bool {
+        self.si_track
+            .as_ref()
+            .is_some_and(|t| t.test_reads.iter().any(|(o, _)| objects.contains(o)))
     }
 
     /// What the session did with the watched single instances; `None` when it tracked none.
