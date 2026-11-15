@@ -4,21 +4,30 @@
 //! assemblies, give BC's bytes for a layout of that shape. Until a corpus bump pins the probe, each pass runs through the
 //! assumption `report-html-rendered-by-bc-converter`.
 //!
-//! The cells (corpus pull request 1415, reports/html-email-body/RxHtmlHashTests.al): Hash_WordAlpha_TwoRows (:191, report
-//! `RX Word Alpha`, RxHtmlBodyFixtures.al:53) and Hash_WordRgba_TwoRows (:217, report `RX Word Rgba`,
-//! RxLayoutSelFixtures.al:73). Each report has one data item over `RX Row` (RxHtmlBodyFixtures.al:12) with the field
-//! columns RowId (Integer) and RowTxt (Text), no caption, no label, no report extension, and a hand-built layout named by
-//! DefaultRenderingLayout; each save has two rows.
+//! The cells (corpus pull request 1415, merged, not pinned; reports/html-email-body/RxHtmlHashTests.al):
+//! Hash_WordAlpha_TwoRows (:192, report `RX Word Alpha`, RxHtmlBodyFixtures.al:53) and Hash_WordRgba_TwoRows (:218, report
+//! `RX Word Rgba`, RxLayoutSelFixtures.al:73). Each report has one data item over `RX Row` (RxHtmlBodyFixtures.al:12) with
+//! the field columns RowId (Integer) and RowTxt (Text), no caption, no label, no report extension, and a hand-built layout
+//! named by DefaultRenderingLayout; each save has two rows. Bound_OneRow (:395), Bound_ThreeRows (:433) and
+//! Bound_RowCountChangesHash (:471) save report `RX Hash Bound` (:50), whose hand-built RxHashBound.docx binds all four of
+//! its columns: the two field columns and the expressions `Id * 1234.5` (`AutoFormatType = 1`) and `DMY2Date(1, 2, 2026)`;
+//! one and three rows.
 
 use super::layout_facts::LayoutFacts;
+use crate::dataset::ValueKind;
 use al_builtins::value::RtType;
 use al_ir as ir;
 
-/// A report column by its source: a table field of the data item, by the field's type. Any other source has no kind.
+/// A report column by its source: a table field of the data item, by the field's type, or an expression of the measured type
+/// and format properties (RxHtmlHashTests.al:62-63). Any other source has no kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ColumnKind {
     IntegerField,
     TextField,
+    /// An expression of static type Decimal with `AutoFormatType = 1`, no `AutoFormatExpression` and no `DecimalPlaces`.
+    DecimalExpression,
+    /// An expression of static type Date with no format property.
+    DateExpression,
 }
 
 /// A content control bound to the merger's data part.
@@ -49,12 +58,31 @@ pub(crate) struct MeasuredShape {
     pub(crate) rows: &'static [usize],
 }
 
-/// Hash_WordAlpha_TwoRows and Hash_WordRgba_TwoRows: RowId and RowTxt, a row section binding RowTxt, two rows.
-pub(crate) const SHAPES: &[MeasuredShape] = &[MeasuredShape {
-    columns: &[ColumnKind::IntegerField, ColumnKind::TextField],
-    bindings: &[BindingKind::RowSection, BindingKind::Column(ColumnKind::TextField)],
-    rows: &[2],
-}];
+pub(crate) const SHAPES: &[MeasuredShape] = &[
+    // Hash_WordAlpha_TwoRows and Hash_WordRgba_TwoRows: RowId and RowTxt, a row section binding RowTxt, two rows.
+    MeasuredShape {
+        columns: &[ColumnKind::IntegerField, ColumnKind::TextField],
+        bindings: &[BindingKind::RowSection, BindingKind::Column(ColumnKind::TextField)],
+        rows: &[2],
+    },
+    // Bound_OneRow and Bound_ThreeRows: RowId, RowTxt, Amount and Day, a row section binding all four, one or three rows.
+    MeasuredShape {
+        columns: &[
+            ColumnKind::IntegerField,
+            ColumnKind::TextField,
+            ColumnKind::DecimalExpression,
+            ColumnKind::DateExpression,
+        ],
+        bindings: &[
+            BindingKind::RowSection,
+            BindingKind::Column(ColumnKind::IntegerField),
+            BindingKind::Column(ColumnKind::TextField),
+            BindingKind::Column(ColumnKind::DecimalExpression),
+            BindingKind::Column(ColumnKind::DateExpression),
+        ],
+        rows: &[1, 3],
+    },
+];
 
 /// The BC major and the converter's generator text (`<meta name=\"generator\" content=..>`, which Aspose.Words writes with
 /// its version) of a run whose Html equals BC's. The probe's CI ran BC 27.5.46862.58057 and 28.5.54151.58194 (Aspose.Words
@@ -172,14 +200,15 @@ fn generator(html: &[u8]) -> Option<&str> {
 }
 
 /// The facts of a save of report `object` with layout facts `layout` and dataset `dataset`, or `None` when the report or
-/// the layout has a fact no measured shape has: more than one data item, a data item without a table, a column that is not
-/// an Integer or Text field, a caption, a label, a report extension, a layout not named by DefaultRenderingLayout, or a
+/// the layout has a fact no measured shape has: more than one data item, a data item without a table, a column without a
+/// [`ColumnKind`], a caption, a label, a report extension, a layout not named by DefaultRenderingLayout, or a
 /// binding other than a row section over the data item and its columns inside it.
 pub(crate) fn save_shape(
     program: &ir::Program,
     object: usize,
     layout: &LayoutFacts,
     dataset: &[u8],
+    kinds: &[(String, Option<ValueKind>)],
 ) -> Option<SaveShape> {
     let o = program.objects.get(object)?;
     let r = o.report.as_ref()?;
@@ -201,11 +230,7 @@ pub(crate) fn save_shape(
         if c.unsupported.is_some() || c.value_unsupported.is_some() || c.include_caption {
             return None;
         }
-        let kind = match table.fields.get(c.field?)?.ty {
-            RtType::Integer => ColumnKind::IntegerField,
-            RtType::Text(_) => ColumnKind::TextField,
-            _ => return None,
-        };
+        let kind = column_kind(table, c, kinds)?;
         columns.push(kind);
         tags.push((crate::reports::word_xml_part::xml_tag(&c.name).ok()?, kind));
     }
@@ -245,4 +270,27 @@ pub(crate) fn save_shape(
         bindings,
         rows,
     })
+}
+
+/// The [`ColumnKind`] of column `c` of a data item over `table`. An expression's kind is the kind of value it held on every
+/// row of the run (`kinds`, from the dataset writer): the expression's static type is not known to the gate.
+fn column_kind(table: &ir::Table, c: &ir::ReportColumn, kinds: &[(String, Option<ValueKind>)]) -> Option<ColumnKind> {
+    if let Some(field) = c.field {
+        let plain = c.decimal_places.is_none() && c.auto_format_type.is_none() && c.auto_format_expression.is_none();
+        return match table.fields.get(field)?.ty {
+            RtType::Integer if plain => Some(ColumnKind::IntegerField),
+            RtType::Text(_) if plain => Some(ColumnKind::TextField),
+            _ => None,
+        };
+    }
+    if c.item_field.is_some() || c.decimal_places.is_some() || c.auto_format_expression.is_some() {
+        return None;
+    }
+    let name = crate::dataset::dataset_name(&c.name).ok()?;
+    let (_, held) = kinds.iter().find(|(n, _)| *n == name)?;
+    match ((*held)?, c.auto_format_type.as_deref().map(str::trim)) {
+        (ValueKind::Decimal, Some("1")) => Some(ColumnKind::DecimalExpression),
+        (ValueKind::Date, None) => Some(ColumnKind::DateExpression),
+        _ => None,
+    }
 }

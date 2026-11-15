@@ -40,7 +40,8 @@ pub(crate) enum SaveOutput {
 
 impl Session {
     /// Puts the output of a rendering save that ran to its end where the caller asked for it, and gives the save's answer.
-    /// `rows` is the number of data item records the run wrote to its dataset.
+    /// `rows` is the number of data item records the run wrote to its dataset, `kinds` the kinds of value its top-level columns
+    /// held.
     pub(crate) fn write_save_output(
         &mut self,
         target: SaveTarget,
@@ -48,6 +49,7 @@ impl Session {
         schema: &Schema,
         dataset: &[u8],
         rows: usize,
+        kinds: &[(String, Option<crate::dataset::ValueKind>)],
     ) -> Result<bool, Signal> {
         use al_builtins::assumptions::{Assumption, assume};
         match (output, target) {
@@ -66,7 +68,7 @@ impl Session {
                 // ADR-040 amendment 2026-11-15: the measured Html cells are BC's own render, plain text without a mark.
                 if format == Format::Html
                     && let SaveTarget::Stream(blob) = &target
-                    && let Some(html) = self.rendered_html(&plan, schema, renders, dataset)?
+                    && let Some(html) = self.rendered_html(&plan, schema, renders, dataset, kinds)?
                 {
                     al_builtins::stream::write_bytes(blob, &html);
                     return Ok(true);

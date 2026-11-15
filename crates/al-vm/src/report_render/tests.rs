@@ -48,7 +48,7 @@ fn cell_shape() -> SaveShape {
 fn a_shape_that_differs_in_one_fact_is_not_measured() {
     assert!(shape_is_measured(SHAPES, &cell_shape()));
     for change in [
-        // One or three rows (corpus pull request 1415 Bound_OneRow / Bound_ThreeRows are not asserted yet).
+        // One or three rows: measured only for the layout that binds four columns.
         |s: &mut SaveShape| s.rows = 1,
         |s: &mut SaveShape| s.rows = 3,
         // An Integer column bound, no binding at all, a second Text binding, one column less.
@@ -86,5 +86,42 @@ fn a_part_or_element_no_measured_layout_has_is_not_measured() {
     setting.settings.insert("w:defaultTabStop".into());
     for f in [styles, tab, picture, header, setting] {
         assert!(!content_is_measured(&f), "{f:?}");
+    }
+}
+
+fn bound_shape(rows: usize) -> SaveShape {
+    use ColumnKind::*;
+    SaveShape {
+        columns: vec![IntegerField, TextField, DecimalExpression, DateExpression],
+        bindings: vec![
+            BindingKind::RowSection,
+            BindingKind::Column(IntegerField),
+            BindingKind::Column(TextField),
+            BindingKind::Column(DecimalExpression),
+            BindingKind::Column(DateExpression),
+        ],
+        rows,
+    }
+}
+
+#[test]
+fn the_four_bound_columns_are_measured_with_one_and_three_rows_only() {
+    assert!(shape_is_measured(SHAPES, &bound_shape(1)));
+    assert!(shape_is_measured(SHAPES, &bound_shape(3)));
+    for change in [
+        // Two rows: the cells of this layout have one and three.
+        |s: &mut SaveShape| s.rows = 2,
+        // The Date column not bound, or bound twice; a column less.
+        |s: &mut SaveShape| {
+            s.bindings.pop();
+        },
+        |s: &mut SaveShape| s.bindings.push(BindingKind::Column(ColumnKind::DateExpression)),
+        |s: &mut SaveShape| {
+            s.columns.pop();
+        },
+    ] {
+        let mut s = bound_shape(1);
+        change(&mut s);
+        assert!(!shape_is_measured(SHAPES, &s), "{s:?}");
     }
 }

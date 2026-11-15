@@ -42,6 +42,9 @@ The first HTML save that AL Runner renders (see [What works](what-works.md)) fet
 your build: Business Central's Word merger (about 7 MB) and its document converter (about 112 MB
 on disk). AL Runner uses only the assemblies in the BC artifact; it ships none.
 
+Without these files the HTML keeps its placeholder. Add `--require-report-renderer` to make such a save fail as not run
+instead, so a test that needs the real HTML cannot pass silently on a machine that cannot render.
+
 ## Can I use it in a build pipeline?
 
 Yes. It runs on an ordinary hosted runner. See [Continuous integration](ci.md).

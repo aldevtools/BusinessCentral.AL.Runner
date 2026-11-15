@@ -703,6 +703,7 @@ fn dotnet_config(
         &al_deps::cache::cache_root_from_env(args.cache_dir.as_deref()),
         !args.no_download,
     );
+    dotnet.require_renderer = args.require_report_renderer;
     dotnet
 }
 

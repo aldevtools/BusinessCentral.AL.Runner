@@ -40,6 +40,16 @@ pub fn sidecar_and_renderer(
     (cfg, renderer)
 }
 
+/// Gives the run's `dotnet` configuration its report renderer and `--require-report-renderer`.
+pub fn set_renderer(
+    dotnet: &mut al_vm::dotnet::DotNetConfig,
+    renderer: Arc<dyn al_host::render::ReportRenderer>,
+    a: &TestArgs,
+) {
+    dotnet.renderer = renderer;
+    dotnet.require_renderer = a.require_report_renderer;
+}
+
 /// A sidecar configuration with the probe folders and the fetch set, to fill in the rest of a run's configuration.
 pub fn dotnet_dirs(a: &TestArgs, build: Option<&ArtifactUse>, major: u32) -> SidecarConfig {
     let sandbox = al_deps::cache::bcartifacts_sandbox_from_env();

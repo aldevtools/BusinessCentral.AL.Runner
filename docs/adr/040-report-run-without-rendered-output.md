@@ -1205,3 +1205,21 @@ hash cell covers (Part A applies), and every save the save table does not answer
    cell by cell.
 2. The conversion set (about 65 MB per build) is fetched by default, not only when the PDF switch is on. The PDF switch and
    the mandatory "test output" watermark of every PDF stay as decision 9 of the amendment of 2026-11-13b says.
+
+### Notes, 2026-11-15
+
+- What the hash cells pin (decision 3). The probe hashes are the evidence that BC's own merger and converter, run by the
+  runner on a build's own assemblies, give BC's bytes for a layout of a measured shape. The gate admits any save whose facts
+  (report, columns, layout parts and elements, bindings, row count, major and converter version) equal a measured shape;
+  the bytes of that save's own layout file are not pinned. This is what the owner accepted ("only for report shapes a probe
+  hash matches"). The decision itself is unchanged.
+- Shapes (corpus pull request 1415, merged, not pinned): two field columns with a Text column bound and two rows
+  (Hash_WordAlpha_TwoRows, Hash_WordRgba_TwoRows); and two field columns, a Decimal expression with `AutoFormatType = 1` and
+  a Date expression, all four bound, one or three rows (Bound_*). An expression column's kind is the kind of value it held
+  on every row of the run; its static type is not known to the gate.
+- Converter version. The pinned builds of BC 27 and 28 carry Aspose.Words 26.8.0; the probe's CI builds carry 26.10.0 and the
+  Html names that version. Until `bc_build` of 27 and 28 moves to builds with 26.10.0 (decided at the bump that pins the
+  probe), the Html saves on those majors keep Part A.
+- `--require-report-renderer` is built (al-test-cli and al-runner): a save of a measured shape refuses when the renderer is
+  unavailable, instead of keeping Part A. CI does not pass it yet: CI's setup does not provide the render sets and the Linux
+  pieces.

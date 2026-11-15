@@ -15,8 +15,8 @@ use crate::{Session, Signal};
 use al_builtins::assumptions::{Assumption, assume};
 use al_host::render::{RenderNeed, WordMerge};
 
-/// The facts of the save itself, each by equality with every probe cell (RxHtmlHashTests.al:191 and :217, through
-/// `HashCell`): Html of a report whose default layout is Word, into a stream, its answer used, with no layout selection naming
+/// The facts of the save itself, each by equality with every probe cell (RxHtmlHashTests.al:192, :218, :395, :433 and :471,
+/// through `HashCell`): Html of a report whose default layout is Word, into a stream, its answer used, with no layout selection naming
 /// the report (`Plan::is_measured_html_stream_save`), rendered with the report's own default layout (`Renders::Default`), on a
 /// major of `shape::BUILDS`.
 pub(crate) fn save_is_measured(plan_is_measured: bool, renders: Renders, major: Option<u16>) -> bool {
@@ -32,6 +32,7 @@ impl Session {
         schema: &Schema,
         renders: Renders,
         dataset: &[u8],
+        kinds: &[(String, Option<crate::dataset::ValueKind>)],
     ) -> Result<Option<Vec<u8>>, Signal> {
         let major = self.engine.target.as_ref().map(|t| t.bc.major);
         if !save_is_measured(plan.is_measured_html_stream_save(), renders, major) {
@@ -44,13 +45,25 @@ impl Session {
         let Some(facts) = layout_facts::read(&layout).filter(shape::content_is_measured) else {
             return Ok(None);
         };
-        let measured = shape::save_shape(program, schema.object(), &facts, dataset)
+        let measured = shape::save_shape(program, schema.object(), &facts, dataset, kinds)
             .is_some_and(|s| shape::shape_is_measured(shape::SHAPES, &s));
-        let renderer = self.engine.dotnet.renderer.clone();
-        let available =
-            || renderer.availability(RenderNeed::Merge).is_ok() && renderer.availability(RenderNeed::Html).is_ok();
-        if !measured || !available() {
+        if !measured {
             return Ok(None);
+        }
+        let renderer = self.engine.dotnet.renderer.clone();
+        let available = renderer
+            .availability(RenderNeed::Merge)
+            .and(renderer.availability(RenderNeed::Html));
+        match available {
+            Ok(()) => {}
+            Err(why) if self.engine.dotnet.require_renderer => {
+                return Err(Signal::unsupported(format!(
+                    "--require-report-renderer: Report.SaveAs as Html of report \"{}\" needs BC's own merger and converter, \
+                     and the report renderer is unavailable ({why})",
+                    schema.name()
+                )));
+            }
+            Err(_) => return Ok(None),
         }
         let refuse = |step: &str, e: al_host::render::RenderFailure| {
             Signal::unsupported(format!(

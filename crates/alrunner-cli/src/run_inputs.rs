@@ -179,6 +179,7 @@ impl RunInputs {
             skip_after_timeout,
             // Without a usable .NET the run stops: no outcome is stored.
             require_dotnet: _,
+            require_report_renderer,
             files_dir,
             license,
             environment,
@@ -284,6 +285,9 @@ impl RunInputs {
         // A test over the limit is not run.
         r.outcome.push(("test_timeout_secs", text(test_timeout_secs)));
         r.outcome.push(("skip_after_timeout", text(skip_after_timeout)));
+        // A save that needs the renderer refuses without it.
+        r.outcome
+            .push(("require_report_renderer", text(require_report_renderer)));
         // `File` reads and writes a real folder.
         r.outcome.push(("files_dir", text(&file_name(files_dir))));
         // What License Permission answers (ADR-060).
@@ -426,7 +430,7 @@ mod tests {
     type Change = fn(&mut TestArgs, &Path);
 
     /// One change per outcome input, by the name `RunInputs::of` gives it. The path is a file that exists.
-    const CHANGES: [(&str, Change); 41] = [
+    const CHANGES: [(&str, Change); 42] = [
         ("country", |a, _| a.country = Some("de".into())),
         ("bc_version", |a, _| a.bc_version = Some("27.5".into())),
         ("isolation", |a, _| {
@@ -465,6 +469,7 @@ mod tests {
         ("dotnet_timeout_secs", |a, _| a.dotnet_timeout_secs = Some(5)),
         ("test_timeout_secs", |a, _| a.test_timeout_secs = Some(5)),
         ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
+        ("require_report_renderer", |a, _| a.require_report_renderer = true),
         ("files_dir", |a, f| a.files_dir = Some(f.to_path_buf())),
         ("license", |a, f| a.license = Some(f.to_path_buf())),
         ("environment", |a, _| a.environment = Some(al_host::Environment::OnPrem)),

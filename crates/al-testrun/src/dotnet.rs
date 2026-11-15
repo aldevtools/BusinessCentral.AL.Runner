@@ -179,6 +179,7 @@ pub fn sidecar_config(host: std::sync::Arc<dyn DotNetHost>) -> al_vm::dotnet::Do
         registry: std::sync::Arc::new(al_vm::dotnet::registry::Registry::builtin_for(windows)),
         policy: std::sync::Arc::new(al_vm::dotnet::policy::Policy::builtin_for(windows)),
         renderer: std::sync::Arc::new(al_host::render::NoRenderer),
+        require_renderer: false,
     }
 }
 

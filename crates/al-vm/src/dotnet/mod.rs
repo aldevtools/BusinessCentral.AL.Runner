@@ -67,6 +67,9 @@ pub struct DotNetConfig {
     /// BC's own Word merger and document converter (ADR-040 amendments 2026-11-13b and 2026-11-15), run by a front end;
     /// `NoRenderer` when the run has none. Which saves ask it is `crate::report_render`'s gate.
     pub renderer: Arc<dyn al_host::render::ReportRenderer>,
+    /// `--require-report-renderer`: a save whose real output needs `renderer` refuses when it is unavailable, instead of
+    /// keeping the output it has without one.
+    pub require_renderer: bool,
 }
 
 impl Default for DotNetConfig {
@@ -76,6 +79,7 @@ impl Default for DotNetConfig {
             registry: Arc::new(Registry::builtin()),
             policy: Arc::new(Policy::builtin()),
             renderer: Arc::new(al_host::render::NoRenderer),
+            require_renderer: false,
         }
     }
 }

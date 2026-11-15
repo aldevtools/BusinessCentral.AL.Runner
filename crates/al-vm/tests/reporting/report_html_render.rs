@@ -159,19 +159,29 @@ fn layout(extra: &str) -> Vec<u8> {
 
 /// Runs `routine` of `HR Tests` on BC `major` with `layout` as the app's layout file and `renderer`.
 fn run(src: &str, major: u16, layout: Vec<u8>, renderer: &Arc<Recording>, routine: &str) -> String {
-    let mut l = al_testkit::compile(src);
-    Arc::make_mut(&mut l.program).apps[0].layout_files = vec![("HrWord.docx".into(), layout)];
     let dotnet = DotNetConfig {
         renderer: renderer.clone(),
         ..DotNetConfig::default()
     };
+    al_testkit::text(run_with(src, major, layout, dotnet, routine))
+}
+
+fn run_with(
+    src: &str,
+    major: u16,
+    layout: Vec<u8>,
+    dotnet: DotNetConfig,
+    routine: &str,
+) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    let mut l = al_testkit::compile(src);
+    Arc::make_mut(&mut l.program).apps[0].layout_files = vec![("HrWord.docx".into(), layout)];
     let target = al_version::Target::for_bc(al_version::BcVersion::new(major, if major == 29 { 0 } else { 5 }));
     let engine = Engine::with_config(l.program.clone(), al_testkit::blocked(&l), Some(target), dotnet);
     let mut b = al_testkit::Built {
         session: Session::new(engine),
         lowered: l,
     };
-    al_testkit::text(b.run_in("HR Tests", routine))
+    b.run_in("HR Tests", routine)
 }
 
 const MEASURED: &str = "Aspose.Words for .NET 26.8.0";
@@ -237,4 +247,115 @@ fn a_save_that_differs_in_one_fact_keeps_the_opaque_value_and_asks_no_renderer()
             r.calls.lock().unwrap()
         );
     }
+}
+
+/// A layout for report `HR Word` whose row section over `T` binds each column of `columns` inside it.
+fn layout_binding(columns: &[&str]) -> Vec<u8> {
+    let ns = "xmlns:ns0='urn:microsoft-dynamics-nav/reports/HR_Word/50981/'";
+    let cells: String = columns
+        .iter()
+        .map(|c| {
+            format!(
+                "<w:sdt><w:sdtPr><w:dataBinding w:prefixMappings=\"{ns}\" \
+                 w:xpath=\"/ns0:NavWordReportXmlPart[1]/ns0:T[1]/ns0:{c}[1]\" /></w:sdtPr>\
+                 <w:sdtContent><w:p><w:r><w:t>{c}</w:t></w:r></w:p></w:sdtContent></w:sdt>"
+            )
+        })
+        .collect();
+    let doc = format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?><w:document><w:body>\
+         <w:sdt><w:sdtPr><w:dataBinding w:prefixMappings=\"{ns}\" w:xpath=\"/ns0:NavWordReportXmlPart[1]/ns0:T\" />\
+         <w15:repeatingSection /></w:sdtPr><w:sdtContent><w:sdt><w:sdtPr><w15:repeatingSectionItem /></w:sdtPr><w:sdtContent>\
+         {cells}</w:sdtContent></w:sdt></w:sdtContent></w:sdt></w:body></w:document>"
+    );
+    stored_zip(&[
+        ("[Content_Types].xml", "<Types/>"),
+        ("word/document.xml", &doc),
+        ("word/settings.xml", "<w:settings><w:compat /></w:settings>"),
+    ])
+}
+
+/// `SRC` with the columns of RX Hash Bound (corpus pull request 1415, RxHtmlHashTests.al:50): a Decimal expression with
+/// `AutoFormatType = 1` and a Date expression after the two field columns; `amount` replaces the Decimal column's text.
+fn bound_src(amount: &str) -> String {
+    SRC.replace(
+        "column(Txt; Txt) { } } }",
+        &format!("column(Txt; Txt) {{ }} {amount} column(Day; DMY2Date(1, 2, 2026)) {{ }} }} }}"),
+    )
+}
+
+const AMOUNT: &str = "column(Amount; Id * 1234.5) { AutoFormatType = 1; }";
+const BOUND: [&str; 4] = ["Id", "Txt", "Amount", "Day"];
+
+#[test]
+fn the_four_bound_columns_of_the_measured_layout_render_with_one_row() {
+    let r = Arc::new(Recording::writing(MEASURED));
+    let got = run(&bound_src(AMOUNT), 29, layout_binding(&BOUND), &r, "One");
+    assert!(
+        got.starts_with("Yes|<html>") && !got.contains(RENDERED_TEXT_MARK),
+        "{got:?}"
+    );
+    assert_eq!(*r.calls.lock().unwrap(), vec!["merge", "html"]);
+}
+
+#[test]
+fn a_bound_column_whose_source_or_format_differs_keeps_the_opaque_value() {
+    let cases: [(&str, String, &[&str]); 5] = [
+        // Another AutoFormatType, DecimalPlaces beside it, an AutoFormatExpression.
+        (
+            "type 2",
+            bound_src("column(Amount; Id * 1234.5) { AutoFormatType = 2; }"),
+            &BOUND,
+        ),
+        (
+            "places",
+            bound_src("column(Amount; Id * 1234.5) { AutoFormatType = 1; DecimalPlaces = 2 : 2; }"),
+            &BOUND,
+        ),
+        (
+            "expression",
+            bound_src("column(Amount; Id * 1234.5) { AutoFormatType = 1; AutoFormatExpression = 'EUR'; }"),
+            &BOUND,
+        ),
+        // An Integer expression in place of the Decimal one.
+        (
+            "integer",
+            bound_src("column(Amount; Id * 2) { AutoFormatType = 1; }"),
+            &BOUND,
+        ),
+        // The Date column not bound.
+        ("unbound date", bound_src(AMOUNT), &["Id", "Txt", "Amount"]),
+    ];
+    for (what, src, columns) in cases {
+        let r = Arc::new(Recording::writing(MEASURED));
+        let got = run(&src, 29, layout_binding(columns), &r, "One");
+        assert!(
+            got.starts_with("Yes|") && got.contains(RENDERED_TEXT_MARK),
+            "{what}: {got:?}"
+        );
+        assert!(r.calls.lock().unwrap().is_empty(), "{what}");
+    }
+}
+
+#[test]
+fn without_a_renderer_a_measured_save_keeps_the_opaque_value_unless_the_renderer_is_required() {
+    let got = al_testkit::text(run_with(SRC, 29, layout(""), DotNetConfig::default(), "Two"));
+    assert!(got.starts_with("Yes|") && got.contains(RENDERED_TEXT_MARK), "{got:?}");
+    let required = DotNetConfig {
+        require_renderer: true,
+        ..DotNetConfig::default()
+    };
+    match run_with(SRC, 29, layout(""), required.clone(), "Two") {
+        Err(s @ al_builtins::native::Signal::Unsupported(_)) => {
+            let why = format!("{s:?}");
+            assert!(
+                why.contains("--require-report-renderer") && why.contains("HR Word"),
+                "{why}"
+            )
+        }
+        other => panic!("{}", al_testkit::text(other)),
+    }
+    // A save that is not of a measured shape needs no renderer: the flag changes nothing there.
+    let got = al_testkit::text(run_with(SRC, 29, layout(""), required, "One"));
+    assert!(got.starts_with("Yes|") && got.contains(RENDERED_TEXT_MARK), "{got:?}");
 }

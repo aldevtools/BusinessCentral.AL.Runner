@@ -53,6 +53,9 @@ pub struct Args {
     pub dotnet_timeout_secs: Option<u64>,
     /// `--require-dotnet`: a machine without a usable .NET is an error, not a skip (CI).
     pub require_dotnet: bool,
+    /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
+    /// refuses when the report renderer is unavailable.
+    pub require_report_renderer: bool,
     /// `--files-dir DIR`: the `File` data type reads and writes real files under DIR. Without it
     /// files live in memory and are gone when the test ends.
     pub files_dir: Option<PathBuf>,
@@ -267,6 +270,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--dotnet-assembly-dir" => a.dotnet_assembly_dirs.push(text()?.into()),
             "--dotnet-allow-roll-forward" => a.dotnet_allow_roll_forward = true,
             "--require-dotnet" => a.require_dotnet = true,
+            "--require-report-renderer" => a.require_report_renderer = true,
             "--files-dir" => a.files_dir = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
             "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
@@ -477,6 +481,7 @@ DOTNET (ADR-014)
   --dotnet-allow-roll-forward when the .NET major the BC version needs is missing, run the sidecar on a newer one, with a warning
   --dotnet-timeout-secs N     the deadline of one DotNet call (default 60)
   --require-dotnet            a machine without .NET is an error, not a skip (CI)
+  --require-report-renderer   a save whose real Html needs BC's own merger and converter refuses when they are unavailable
 
 DEPENDENCY TOOLING
   --compile-cache             use the compile cache of the dependency apps (ADR-022), in

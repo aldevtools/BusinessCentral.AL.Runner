@@ -2916,7 +2916,7 @@ impl Session {
         match ran {
             Ok(true) => {
                 let header = self.dataset_header(&schema)?;
-                let (bytes, rows) = written.expect("a SaveAs run has a dataset").finish_counted(&header)?;
+                let (bytes, rows, kinds) = written.expect("a SaveAs run has a dataset").finish_counted(&header)?;
                 if let Some(layout) = custom {
                     let SaveTarget::Stream(blob) = target else {
                         return unsupported(format!(
@@ -2934,7 +2934,7 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                let saved = self.write_save_output(target, output, &schema, &bytes, rows)?;
+                let saved = self.write_save_output(target, output, &schema, &bytes, rows, &kinds)?;
                 Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
@@ -3981,15 +3981,7 @@ impl Session {
             // An undefined Time or DateTime is blank like an undefined Date (docs/probes-needed.md).
             Value::Time(0) | Value::DateTime(0) => String::new(),
             Value::Time(t) => dataset::time_text(t - 1)?,
-            Value::DateTime(t) => {
-                let ms = t - 1;
-                let day = ms.div_euclid(86_400_000) as i32 + 1;
-                format!(
-                    "{} {}",
-                    dataset::date_text(day),
-                    dataset::time_text(ms.rem_euclid(86_400_000))?
-                )
-            }
+            Value::DateTime(t) => dataset::datetime_text(*t)?,
             Value::Decimal(_) => {
                 // A DataSet column of type xs:decimal (dataset.rs `finish_data_set`; al-language-onprem/reports/
                 // AqSaveAsXml.al:257 `AmountC`).
@@ -4075,6 +4067,7 @@ impl Session {
             text,
             schema_type,
             data,
+            kind: dataset::ValueKind::of(&value),
         })
     }
 

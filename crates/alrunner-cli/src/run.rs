@@ -1597,7 +1597,7 @@ fn test_inner(
         }
     }
     let mut dotnet = al_testrun::dotnet::sidecar_config(host);
-    dotnet.renderer = renderer;
+    crate::service_tier::set_renderer(&mut dotnet, renderer, a);
     // `--affected` (ADR-050): the stored result of the last run, and the callback that narrows this one.
     let affected = if a.affected && collect.is_none() {
         Some(crate::affected::Affected::prepare(
