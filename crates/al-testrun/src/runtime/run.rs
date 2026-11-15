@@ -1116,16 +1116,9 @@ fn run_codeunit_inner(
             let ended = ended_of(&outcome, began, untrusted.is_some());
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
-                // An untrusted failure names its own error, not the reason it is not trusted: a chain does not nest.
-                let (how, why) = match (ended, &untrusted) {
-                    (Ended::RefusedBeforeStart, _) => ("not run", why),
-                    (Ended::RefusedMidRun, _) => ("did not run", why),
-                    (Ended::Untrusted, Some(error)) => ("failed, not trusted", error),
-                    (Ended::Failed | Ended::Untrusted, _) => ("failed", why),
-                };
                 unfinished.push(Unfinished {
                     routine: r,
-                    what: format!("{}: {how} ({why})", routine.name).chars().take(120).collect(),
+                    what: what_of(&routine.name, ended, why, untrusted.as_deref()),
                     left_bindings: left_bindings(session, &bound_before, ended),
                     ended,
                     facts: None,
@@ -1779,6 +1772,19 @@ struct Rest {
     written: BTreeSet<u32>,
 }
 
+/// The name of test `name` and how it ended, for a later reason text, cut at 120 characters. `why` is its outcome's
+/// text; `untrusted` the failure's own error when it was judged not trusted. An untrusted failure names that error, not
+/// the reason it is not trusted, so a chain of them does not nest.
+fn what_of(name: &str, ended: Ended, why: &str, untrusted: Option<&str>) -> String {
+    let (how, why) = match (ended, untrusted) {
+        (Ended::RefusedBeforeStart, _) => ("not run", why),
+        (Ended::RefusedMidRun, _) => ("did not run", why),
+        (Ended::Untrusted, Some(error)) => ("failed, not trusted", error),
+        (Ended::Failed | Ended::Untrusted, _) => ("failed", why),
+    };
+    format!("{name}: {how} ({why})").chars().take(120).collect()
+}
+
 /// How a test that did not pass ended (`None`: it passed or was skipped). `untrusted`: its failure was judged not trusted.
 fn ended_of(outcome: &Outcome, began: bool, untrusted: bool) -> Option<Ended> {
     match outcome {
@@ -1846,8 +1852,65 @@ fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool) {
 }
 
 #[cfg(test)]
-mod ends_tests {
-    use super::{Ended, Unfinished, ends_of};
+mod tests {
+    use super::{Ended, Unfinished, WATCHDOG_POLL, Watchdog, ends_of};
+    use std::sync::Arc;
+
+    /// The limit counts the CPU time of the test thread: a thread that waits is not stopped at the
+    /// limit (the machine's load must not decide an outcome), one that computes is.
+    #[cfg(unix)]
+    #[test]
+    fn the_time_limit_counts_cpu_time_not_wall_time() {
+        let limit = std::time::Duration::from_millis(200);
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let w = Watchdog::start(flag.clone(), limit);
+        std::thread::sleep(limit * 3);
+        assert!(!w.finish(), "a thread that waited was stopped");
+        assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
+
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let w = Watchdog::start(flag.clone(), limit);
+        let started = std::time::Instant::now();
+        let mut x = 0u64;
+        while !flag.load(std::sync::atomic::Ordering::Relaxed) && started.elapsed() < std::time::Duration::from_secs(10)
+        {
+            x = x.wrapping_add(std::hint::black_box(1));
+        }
+        assert!(w.finish() && x > 0, "a thread that computed was not stopped");
+    }
+
+    /// A limit so large that ten times it does not fit a `Duration` (a client may send any whole number of seconds,
+    /// al-runner issue 8125) is no limit in practice: the watchdog keeps watching and does not stop the test.
+    #[test]
+    fn a_huge_time_limit_does_not_stop_the_watchdog_or_the_test() {
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let w = Watchdog::start(flag.clone(), std::time::Duration::from_secs(u64::MAX));
+        std::thread::sleep(WATCHDOG_POLL * 4);
+        assert!(!w.thread.is_finished(), "the watchdog thread ended (it panicked)");
+        assert!(!w.finish(), "a huge limit stopped the test");
+        assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    /// The limit is per test: the CPU time a thread used before the test started does not count.
+    /// Three tests on one thread, each using 60 % of the limit, all stay under it.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn the_cpu_limit_is_measured_from_the_start_of_each_test() {
+        let limit = std::time::Duration::from_millis(500);
+        for n in 0..3 {
+            let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let w = Watchdog::start(flag.clone(), limit);
+            let clock = crate::cpuclock::ThreadClock::current().expect("a CPU clock");
+            let from = clock.read().expect("a reading");
+            let mut x = 0u64;
+            while clock.read().expect("a reading") - from < limit * 6 / 10 {
+                x = x.wrapping_add(std::hint::black_box(1));
+            }
+            // Let the watchdog poll once more after the work.
+            std::thread::sleep(WATCHDOG_POLL * 3);
+            assert!(!w.finish() && x > 0, "test {n} was stopped under 60 % of the limit");
+        }
+    }
 
     fn unfinished(ended: Ended) -> Unfinished {
         Unfinished {
