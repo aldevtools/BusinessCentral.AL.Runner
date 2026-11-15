@@ -1,10 +1,10 @@
 //! The code of the pages of the journal shape of a hidden part (`hidden_part_journal.rs`), compared statically with the code
-//! of the measured pages (open corpus PR 1367, testpage/parts/HiddenPartJournalShape.al at commit 32b29320; assumption
-//! `hidden-part-journal-shape`): the host's triggers and actions (pages 75315 to 75317) and the part page's one procedure
+//! of the measured pages (testpage/parts/HiddenPartJournalShape.al): the host's triggers and actions (pages 75315 to 75317) and
+//! the part page's one procedure
 //! (pages 75313, 75314). Each check lists the statements and expressions those pages have and requires that the page has no
 //! other.
 
-use super::pinned_shape::{code_stmts, codeunit_var_call};
+use super::pinned_shape::{code_stmts, codeunit_var_call, text_log_routine, unconverted};
 use super::*;
 use al_builtins::builtin_id::ids;
 
@@ -39,6 +39,12 @@ pub(super) fn visible_variable(program: &ir::Program, host: usize, control: &ir:
         }
         _ => None,
     }
+}
+
+/// `e` calls a procedure of a codeunit that only appends text to a Text global of its codeunit (`text_log_routine`): `Log.Add`
+/// of the measured pages (HiddenPartJournalShape.al:485-490).
+pub(super) fn log_call(program: &ir::Program, e: &ir::Expr) -> bool {
+    matches!(unconverted(e), ir::Expr::Call { object, routine, .. } if text_log_routine(program, *object, *routine))
 }
 
 /// `p` is Rec (global `rec`) or a field of it.
@@ -90,7 +96,7 @@ fn procedures(program: &ir::Program, object: usize, page: &ir::Page) -> Vec<usiz
 
 /// The one procedure of part page `object` (`page`), when the page has exactly one and its body holds only what the measured
 /// `Fill` procedures hold (HiddenPartJournalShape.al:118-134, :180-185): the methods of [`FILL_RECORD_METHODS`] on Rec or on a
-/// local record with value arguments, `Format`, calls of a procedure of a codeunit variable, constants, Rec, locals, their
+/// local record with value arguments, `Format`, calls of a log procedure of a codeunit variable (`log_call`), constants, Rec, locals, their
 /// fields and operations on them. Not in it: a method of `CurrPage`, a call of another procedure, any other builtin.
 pub(super) fn part_procedure_is(program: &ir::Program, object: usize, page: &ir::Page) -> Option<usize> {
     let &[fill] = procedures(program, object, page).as_slice() else {
@@ -139,7 +145,9 @@ pub(super) fn part_procedure_is(program: &ir::Program, object: usize, page: &ir:
                 args,
                 ..
             } => *id == ids::SYSTEM_FORMAT_1 && values(args),
-            ir::Expr::Call { args, .. } => codeunit_var_call(program, object, e) && values(args),
+            ir::Expr::Call { args, .. } => {
+                codeunit_var_call(program, object, e) && log_call(program, e) && values(args)
+            }
             _ => false,
         };
     });
@@ -151,7 +159,9 @@ pub(super) fn part_procedure_is(program: &ir::Program, object: usize, page: &ir:
 /// - the page has one procedure, whose body is `Variable := CurrPage.<part>.Page.<procedure>(Rec.<field>)` with the Visible
 ///   variable of the part control and the part page's one procedure (`RefreshStatus`, :250-253);
 /// - each page trigger and each control trigger holds only calls of that procedure and calls of a procedure of a codeunit
-///   variable, a global or a local of the trigger, whose arguments are constants, Rec and fields of Rec (:219-223, :255-270).
+///   variable, a global or a local of the trigger, whose arguments are constants, Rec and fields of Rec (:219-223, :255-270);
+///   each call in a page trigger is a log call (`log_call`, `Log.Add`); an action also calls other procedures
+///   (`Send.SendByValue(Rec)`, :226-231), whose effect `journal_turn` and `journal_part_after_action_refresh` check.
 pub(super) fn host_bodies_are(program: &ir::Program, host: usize, page: &ir::Page, part: usize) -> bool {
     let o = &program.objects[host];
     let control = &page.controls[part];
@@ -175,7 +185,8 @@ pub(super) fn host_bodies_are(program: &ir::Program, host: usize, page: &ir::Pag
                 && matches!(&**instance, ir::Expr::Control { page: p, control: c, runtime: true }
                     if *c == part && matches!(&**p, ir::Expr::Load(ir::Place::Global(g)) if *g == page.curr_page_slot))
                 && matches!(args.as_slice(), [ir::Arg::Value(a)] if rec_field(a, rec)));
-    let measured_stmt = |r: usize, s: &ir::Stmt| {
+    // `Some(true)` for a log call, `Some(false)` for another call of a codeunit variable, `None` for anything else.
+    let measured_stmt = |r: usize, s: &ir::Stmt| -> Option<bool> {
         let ir::Stmt::Expr(ir::Expr::Call {
             object,
             routine,
@@ -184,10 +195,10 @@ pub(super) fn host_bodies_are(program: &ir::Program, host: usize, page: &ir::Pag
             try_call: false,
         }) = s
         else {
-            return false;
+            return None;
         };
         let Some(instance) = instance else {
-            return (*object, *routine) == (host, refresh) && args.is_empty();
+            return ((*object, *routine) == (host, refresh) && args.is_empty()).then_some(true);
         };
         let codeunit = |s: Option<&ir::Slot>| s.is_some_and(|s| matches!(s.ty, RtType::Codeunit(_)));
         let variable = match &**instance {
@@ -195,18 +206,24 @@ pub(super) fn host_bodies_are(program: &ir::Program, host: usize, page: &ir::Pag
             ir::Expr::Load(ir::Place::Local(l)) => codeunit(o.routines[r].locals.get(*l)),
             _ => false,
         };
-        variable
+        let measured = variable
             && args.iter().all(|a| match a {
                 ir::Arg::Value(e) => host_value(e, rec),
                 ir::Arg::Ref(p) => matches!(p, ir::Place::Global(g) if *g == rec),
-            })
+            });
+        measured.then(|| text_log_routine(program, *object, *routine))
     };
-    let triggers = page
-        .triggers
+    // How many calls of trigger `r` are not log calls, `None` when a statement is not a measured one.
+    let others = |r: usize| {
+        code_stmts(program, host, r)
+            .iter()
+            .try_fold(0usize, |n, s| measured_stmt(r, s).map(|log| n + usize::from(!log)))
+    };
+    let page_triggers = page.triggers.iter().all(|(_, r)| others(*r) == Some(0));
+    let actions = page
+        .controls
         .iter()
-        .chain(page.controls.iter().flat_map(|c| &c.triggers));
-    sets_visible
-        && triggers
-            .into_iter()
-            .all(|(_, r)| code_stmts(program, host, *r).iter().all(|s| measured_stmt(*r, s)))
+        .flat_map(|c| &c.triggers)
+        .all(|(_, r)| others(*r).is_some());
+    sets_visible && page_triggers && actions
 }

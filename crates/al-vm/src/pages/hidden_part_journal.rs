@@ -1,8 +1,7 @@
 //! The journal shape of a hidden part (al-runner issue 7922; Base Application's journals show the Workflow Status FactBox so):
 //! a Worksheet or List host the test opened with OpenView shows one unlinked ListPart with a repeater, hidden by a Visible
-//! expression, whose rows the host's code refills through a procedure of the part page. Under the assumption
-//! `hidden-part-journal-shape` (open corpus PR 1367, testpage/parts/HiddenPartJournalShape.al, group G2) the runner reads it as
-//! that file measured, and only in the steps that file makes:
+//! expression, whose rows the host's code refills through a procedure of the part page. The runner reads it as
+//! testpage/parts/HiddenPartJournalShape.al measures it, and only in the steps that file makes:
 //! - a GoToRecord that stays on the host's row, as the test's first call after the open: the part reads nothing
 //!   (`journal_part_stays`; every test's `gotorecord`);
 //! - after that GoToRecord, an action's body that turns the part visible with one row: the part reads its rows before the host's
@@ -12,17 +11,14 @@
 //! - Next of the host that hides a part shown with one row, and Previous that shows a hidden temporary part with one row
 //!   (`journal_part_after_host_move`; `next` of :540 to :677, :716; `previous` of :677).
 //!
-//! The line numbers are those of the probe at corpus commit 32b29320.
-//!
 //! Every fact of the pages, their code, the opener, the BC major, the test's calls, the views of the host's and the part's Rec
 //! and the part's state before and after each step is required by equality (`journal_host_miss`, `journal_part_miss`,
 //! [`MEASURED_PAIRS`]); any other shape keeps the earlier path (a GoToRecord, a move of a page outside the shape or between
 //! two hidden states) or is refused (a turn by an action, a step after it, a move between other states of the part).
 
-use super::hidden_part_journal_code::{host_bodies_are, part_procedure_is, visible_variable};
+use super::hidden_part_journal_code::{host_bodies_are, log_call, part_procedure_is, visible_variable};
 use super::pinned_shape::{NextEnd, PinnedCode, PinnedEnd, TestCall, code_stmts, codeunit_var_call};
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
 
 /// The host's own triggers in the measured pages, lower case (HiddenPartJournalShape.al pages 75315, 75316, 75317).
@@ -266,7 +262,7 @@ impl Session {
     /// - the page is a ListPart, `Editable = false`, no other property but `SourceTableTemporary = true` (page 75313) or none
     ///   (page 75314);
     /// - its own triggers are exactly [`PART_TRIGGERS`], each one call of a procedure of a codeunit variable with value
-    ///   arguments (`Log.Add(..)`, :98-116); no page extension, no subscriber; its controls are one repeater of fields of Rec
+    ///   arguments that only appends text (`log_call`; `Log.Add(..)`, :98-116); no page extension, no subscriber; its controls are one repeater of fields of Rec
     ///   without a trigger and with no property but ApplicationArea; its source table has no code, no table extension and no
     ///   subscriber (`page_code_is`);
     /// - the page has exactly one procedure, of the measured kinds of code (`part_procedure_is`; `Fill`, :118-134, :180-185);
@@ -329,6 +325,7 @@ impl Session {
         let bodies = page.triggers.iter().all(|(_, r)| {
             matches!(code_stmts(&engine.program, object, *r).as_slice(), [ir::Stmt::Expr(e)]
                 if codeunit_var_call(&engine.program, object, e)
+                    && log_call(&engine.program, e)
                     && matches!(e, ir::Expr::Call { args, .. } if args.iter().all(|a| matches!(a, ir::Arg::Value(_)))))
         });
         let controls = one_repeater_of_fields(page) && controls_declare_only_application_area(page, None);
@@ -460,7 +457,6 @@ impl Session {
                 "an action that turns the hidden part of the journal shape visible with other than one row (not pinned)",
             );
         }
-        assume(Assumption::HiddenPartJournalShape);
         st.borrow_mut().pinned_end = Some(TURN_END);
         self.journal_read(st, i, child)?;
         child.borrow_mut().journal_turned = Some(self.store.change_counter());
@@ -545,7 +541,6 @@ impl Session {
         ) && self.store.change_counter() == before.writes
             && Self::journal_calls_are(st, j.i, &[TestCall::Page(PageMethod::GoToRecord)]);
         if measured {
-            assume(Assumption::HiddenPartJournalShape);
             st.borrow_mut().journal_stayed = true;
         }
         Ok(measured)
@@ -604,7 +599,6 @@ impl Session {
             return unsupported(unmeasured);
         }
         if let Some(reads) = step {
-            assume(Assumption::HiddenPartJournalShape);
             if reads {
                 self.journal_read(st, j.i, &j.child)?;
             }
