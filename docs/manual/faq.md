@@ -38,6 +38,10 @@ Your app depends on Microsoft's System app, and by default the run restores the
 CRONUS demo company (about 520 MB). Both are kept in the cache folder. If your tests
 need no CRONUS data, add `--no-test-data`. See [Getting started](getting-started.md#the-first-run).
 
+The first HTML save that AL Runner renders (see [What works](what-works.md)) fetches two sets of files from the BC artifact of
+your build: Business Central's Word merger (about 7 MB) and its document converter (about 112 MB
+on disk). AL Runner uses only the assemblies in the BC artifact; it ships none.
+
 ## Can I use it in a build pipeline?
 
 Yes. It runs on an ordinary hosted runner. See [Continuous integration](ci.md).

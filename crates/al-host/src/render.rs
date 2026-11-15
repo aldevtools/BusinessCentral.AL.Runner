@@ -4,13 +4,7 @@
 //! The renderer only makes bytes. Whether a save is answered, its error and its events stay with the save table of the
 //! VM; which saves ask the renderer at all is decided there too.
 
-use sha2::{Digest, Sha256};
 use std::fmt;
-
-/// The SHA-256 of `bytes` as lower-case hex, the digest the measured render cells are keyed by.
-pub fn digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
-}
 
 /// What a caller needs the renderer for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

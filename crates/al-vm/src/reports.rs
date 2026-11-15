@@ -4442,6 +4442,6 @@ mod html_record;
 mod request_caption;
 mod request_unshown;
 mod running;
-mod word_xml_part;
+pub(crate) mod word_xml_part;
 
 mod explicit_parent_link;
