@@ -57,7 +57,7 @@ pub(super) fn check(r: &Option<&mut Value>, member: Member, a: &[Value], used: b
 /// `N := E.AsXmlNode()` on an unassigned XmlElement `r` (the result used, no arguments): the XmlNode it returns, which holds
 /// [`LibraryValue::XmlNodeOfUnassignedElement`]. `None` for any other receiver or form, which goes on as before.
 ///
-/// Assumed (`xml-element-unassigned-as-xml-node`): the reporter measured that the call returns on BC 28 (al-runner issue 8157);
+/// Assumed (`xml-element-unassigned-as-xml-node`): the reporter measured that the call returns on real BC (al-runner issue 8157);
 /// corpus PR 1421 measures it with the node's uses. A cleared element is an unassigned one (xml/xml/UlClearXmlRef.al:90-102).
 pub(super) fn as_xml_node(r: &Option<&mut Value>, a: &[Value], used: bool) -> Option<Value> {
     if !(unassigned(r, "XmlElement") && used && a.is_empty()) {
