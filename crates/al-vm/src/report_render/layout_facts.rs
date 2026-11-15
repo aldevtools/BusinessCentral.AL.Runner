@@ -1,9 +1,9 @@
 //! The facts of a Word layout file that the Html gate compares (`super::shape`): the part names of the package, its
-//! relationships, the element names and namespace declarations of its document and settings parts, and the data bindings of
-//! its content controls. Read from the bytes alone; a file this reader does not fully understand gives no facts, so the save
-//! keeps Part A.
+//! relationships, the element names and namespace declarations of each XML part under `word/`, and the data bindings of the
+//! content controls of its document part. Read from the bytes alone; a file this reader does not fully understand gives no
+//! facts, so the save keeps Part A.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What [`read`] found in a layout file.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -12,14 +12,14 @@ pub(crate) struct LayoutFacts {
     pub(crate) parts: BTreeSet<String>,
     /// The relationships of every `.rels` part.
     pub(crate) relationships: Vec<Relationship>,
-    /// The qualified element names (`prefix:local`) of `word/document.xml`.
-    pub(crate) document: BTreeSet<String>,
-    /// The qualified element names of `word/settings.xml`.
-    pub(crate) settings: BTreeSet<String>,
-    /// The namespace declarations (prefix, the empty text for a default namespace; URI) of the document and settings parts:
-    /// the element names above are compared by prefix, so the prefixes' URIs are compared too.
+    /// The qualified element names (`prefix:local`) of each XML part under `word/` (`word/document.xml`,
+    /// `word/settings.xml`, `word/styles.xml`, `word/theme/theme1.xml`, ...), by part name; `.rels` parts are read as
+    /// [`Self::relationships`].
+    pub(crate) elements: BTreeMap<String, BTreeSet<String>>,
+    /// The namespace declarations (prefix, the empty text for a default namespace; URI) of those parts: the element names
+    /// above are compared by prefix, so the prefixes' URIs are compared too.
     pub(crate) namespaces: BTreeSet<(String, String)>,
-    /// The content controls with a `w:dataBinding`, in document order.
+    /// The content controls of `word/document.xml` with a `w:dataBinding`, in document order.
     pub(crate) bindings: Vec<Binding>,
 }
 
@@ -45,8 +45,8 @@ pub(crate) struct Binding {
     pub(crate) within: Vec<String>,
 }
 
-/// The facts of `layout`, or `None` when it is no zip archive, a part is compressed in a way the zip reader skips, or the
-/// document or settings part is not XML this reader understands.
+/// The facts of `layout`, or `None` when it is no zip archive, a part is compressed in a way the zip reader skips, or an XML
+/// part under `word/` or a `.rels` part is not XML this reader understands.
 pub(crate) fn read(layout: &[u8]) -> Option<LayoutFacts> {
     let entries = crate::report_layout_export::zip_entries(layout)?;
     if entries.len() != zip_entry_count(layout)? {
@@ -58,13 +58,17 @@ pub(crate) fn read(layout: &[u8]) -> Option<LayoutFacts> {
         let xml = || std::str::from_utf8(data.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(data)).ok();
         match name.as_str() {
             "word/document.xml" => document(xml()?, &mut facts)?,
-            "word/settings.xml" => {
-                for t in tags(xml()?)? {
-                    facts.settings.insert(t.name.to_string());
-                    facts.namespaces.extend(declarations(t.attrs)?);
-                }
-            }
             rels if rels.ends_with(".rels") => facts.relationships.extend(relationships(xml()?)?),
+            part if part.starts_with("word/") && part.ends_with(".xml") => {
+                let mut names = BTreeSet::new();
+                for t in tags(xml()?)? {
+                    if !t.close {
+                        names.insert(t.name.to_string());
+                        facts.namespaces.extend(declarations(t.attrs)?);
+                    }
+                }
+                facts.elements.insert(part.to_string(), names);
+            }
             _ => {}
         }
     }
@@ -131,9 +135,10 @@ struct Control {
 
 fn document(xml: &str, facts: &mut LayoutFacts) -> Option<()> {
     let mut open: Vec<Control> = Vec::new();
+    let mut names = BTreeSet::new();
     for t in tags(xml)? {
         if !t.close {
-            facts.document.insert(t.name.to_string());
+            names.insert(t.name.to_string());
             facts.namespaces.extend(declarations(t.attrs)?);
         }
         match (t.name, t.close) {
@@ -165,6 +170,7 @@ fn document(xml: &str, facts: &mut LayoutFacts) -> Option<()> {
             _ => {}
         }
     }
+    facts.elements.insert("word/document.xml".to_string(), names);
     open.is_empty().then_some(())
 }
 
@@ -282,7 +288,8 @@ mod tests {
                 },
             ]
         );
-        assert!(f.document.contains("w15:repeatingSectionItem") && f.document.contains("w:t"));
+        let names = &f.elements["word/document.xml"];
+        assert!(names.contains("w15:repeatingSectionItem") && names.contains("w:t"));
     }
 
     #[test]

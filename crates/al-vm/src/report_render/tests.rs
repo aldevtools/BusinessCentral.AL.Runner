@@ -96,8 +96,12 @@ fn a_part_or_element_no_measured_layout_has_is_not_measured() {
         parts: ["word/document.xml", "word/settings.xml", "[Content_Types].xml"]
             .map(String::from)
             .into(),
-        document: ["w:document", "w:body", "w:p", "w:r", "w:t"].map(String::from).into(),
-        settings: ["w:settings"].map(String::from).into(),
+        elements: [
+            ("word/document.xml", &["w:document", "w:body", "w:p", "w:r", "w:t"][..]),
+            ("word/settings.xml", &["w:settings"][..]),
+        ]
+        .map(|(p, e)| (p.to_string(), e.iter().map(|e| e.to_string()).collect()))
+        .into(),
         namespaces: [(
             "w".to_string(),
             "http://schemas.openxmlformats.org/wordprocessingml/2006/main".to_string(),
@@ -110,24 +114,33 @@ fn a_part_or_element_no_measured_layout_has_is_not_measured() {
         bindings: Vec::new(),
     };
     assert!(content_is_measured(&measured()));
+    let doc = |f: &mut LayoutFacts, e: &str| {
+        f.elements.get_mut("word/document.xml").unwrap().insert(e.into());
+    };
+    // The font table part (styles and header parts are measured since corpus pull request 1419).
     let mut styles = measured();
-    styles.parts.insert("word/styles.xml".into());
+    styles.parts.insert("word/fontTable.xml".into());
     let mut tab = measured();
-    tab.document.insert("w:tab".into());
+    doc(&mut tab, "w:tab");
     let mut picture = measured();
-    picture.document.insert("w:drawing".into());
+    doc(&mut picture, "w:drawing");
+    // A footer part (a header part `word/header1.xml` is measured since corpus pull request 1419).
     let mut header = measured();
-    header.parts.insert("word/header1.xml".into());
+    header.parts.insert("word/footer1.xml".into());
     let mut setting = measured();
-    setting.settings.insert("w:defaultTabStop".into());
+    setting
+        .elements
+        .get_mut("word/settings.xml")
+        .unwrap()
+        .insert("w:defaultTabStop".into());
     let mut external = measured();
     external.relationships[0].external = true;
     let mut image = measured();
     image.relationships[0].kind = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image".into();
     let mut field = measured();
-    field.document.insert("w:fldSimple".into());
+    doc(&mut field, "w:fldSimple");
     let mut footer = measured();
-    footer.document.insert("w:footerReference".into());
+    doc(&mut footer, "w:footerReference");
     // L6: the prefix `w` bound to another namespace, a default namespace.
     let mut rebound = measured();
     rebound.namespaces = [("w".to_string(), "urn:other".to_string())].into();
@@ -149,12 +162,14 @@ fn bound_shape(rows: usize) -> SaveShape {
 }
 
 #[test]
-fn the_four_columns_are_measured_with_one_and_three_rows_only() {
+fn the_four_columns_are_measured_with_one_to_three_rows_only() {
     assert!(shape_is_measured(SHAPES, &bound_shape(1)));
     assert!(shape_is_measured(SHAPES, &bound_shape(3)));
+    // Two rows: every cell of RxHtmlWidenTests.al but BlankZero_IntegerZero (corpus pull request 1419).
+    assert!(shape_is_measured(SHAPES, &bound_shape(2)));
     for change in [
-        // Two rows: the cells of this report have one and three.
-        |s: &mut SaveShape| s.rows = 2,
+        // Four rows: the cells of this dataset have one, two and three.
+        |s: &mut SaveShape| s.rows = 4,
         // A column less, a second Date column.
         |s: &mut SaveShape| {
             s.columns.pop();
@@ -165,4 +180,295 @@ fn the_four_columns_are_measured_with_one_and_three_rows_only() {
         change(&mut s);
         assert!(!shape_is_measured(SHAPES, &s), "{s:?}");
     }
+}
+
+/// The facts of the bound layout plus the part `part` with element names `names`, its relationship `rel`, the document
+/// elements `doc` and the namespace declarations `ns`, as RxWdStyles.docx, RxWdTheme.docx, RxWdNumbering.docx and
+/// RxWdHeader.docx add them to RxHashBound.docx (corpus pull request 1419, RxHtmlWidenTests.al).
+fn with_part(part: &str, names: &[&str], rel: &str, doc: &[&str], ns: (&str, &str)) -> LayoutFacts {
+    let mut f = LayoutFacts {
+        parts: [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "word/document.xml",
+            "word/settings.xml",
+        ]
+        .map(String::from)
+        .into(),
+        elements: [
+            ("word/document.xml", &["w:document", "w:body", "w:p", "w:r", "w:t"][..]),
+            ("word/settings.xml", &["w:settings"][..]),
+        ]
+        .map(|(p, e)| (p.to_string(), e.iter().map(|e| e.to_string()).collect()))
+        .into(),
+        namespaces: [(
+            "w".to_string(),
+            "http://schemas.openxmlformats.org/wordprocessingml/2006/main".to_string(),
+        )]
+        .into(),
+        relationships: vec![Relationship {
+            kind: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings".into(),
+            external: false,
+        }],
+        bindings: Vec::new(),
+    };
+    f.parts.insert(part.into());
+    f.elements
+        .insert(part.into(), names.iter().map(|e| e.to_string()).collect());
+    f.relationships.push(Relationship {
+        kind: format!("http://schemas.openxmlformats.org/officeDocument/2006/relationships/{rel}"),
+        external: false,
+    });
+    f.elements
+        .get_mut("word/document.xml")
+        .unwrap()
+        .extend(doc.iter().map(|e| e.to_string()));
+    f.namespaces.insert((ns.0.into(), ns.1.into()));
+    f
+}
+
+const W: (&str, &str) = ("w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main");
+const A: (&str, &str) = ("a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+
+fn styles() -> LayoutFacts {
+    let names = [
+        "w:styles",
+        "w:docDefaults",
+        "w:rPrDefault",
+        "w:rPr",
+        "w:sz",
+        "w:style",
+        "w:name",
+        "w:basedOn",
+    ];
+    let more = ["w:qFormat", "w:rFonts", "w:b"];
+    let all: Vec<&str> = names.into_iter().chain(more).collect();
+    with_part("word/styles.xml", &all, "styles", &["w:pPr", "w:pStyle"], W)
+}
+
+fn theme() -> LayoutFacts {
+    let names = [
+        "a:theme",
+        "a:themeElements",
+        "a:clrScheme",
+        "a:dk1",
+        "a:sysClr",
+        "a:srgbClr",
+        "a:fontScheme",
+        "a:majorFont",
+        "a:minorFont",
+        "a:latin",
+        "a:ea",
+        "a:cs",
+        "a:fmtScheme",
+        "a:fillStyleLst",
+        "a:solidFill",
+        "a:schemeClr",
+    ];
+    with_part("word/theme/theme1.xml", &names, "theme", &["w:rPr", "w:rFonts"], A)
+}
+
+fn numbering() -> LayoutFacts {
+    let names = [
+        "w:numbering",
+        "w:abstractNum",
+        "w:multiLevelType",
+        "w:lvl",
+        "w:start",
+        "w:numFmt",
+        "w:lvlText",
+        "w:lvlJc",
+        "w:pPr",
+        "w:ind",
+        "w:num",
+        "w:abstractNumId",
+    ];
+    with_part(
+        "word/numbering.xml",
+        &names,
+        "numbering",
+        &["w:pPr", "w:numPr", "w:ilvl", "w:numId"],
+        W,
+    )
+}
+
+fn header() -> LayoutFacts {
+    let names = ["w:hdr", "w:p", "w:r", "w:t"];
+    with_part(
+        "word/header1.xml",
+        &names,
+        "header",
+        &["w:sectPr", "w:headerReference"],
+        W,
+    )
+}
+
+#[test]
+fn each_part_corpus_pull_request_1419_adds_is_measured_with_its_elements() {
+    for f in [styles(), theme(), numbering(), header()] {
+        assert!(content_is_measured(&f), "{f:?}");
+    }
+}
+
+#[test]
+fn a_tab_a_footer_or_an_element_the_measured_part_does_not_have_keeps_part_a() {
+    let part = |mut f: LayoutFacts, name: &str, e: &str| {
+        f.elements.get_mut(name).unwrap().insert(e.into());
+        f
+    };
+    let neighbors = [
+        // Tabs: a label suffix, a tab stop of the level, a tab stop of a style, a tab character in the header.
+        part(numbering(), "word/numbering.xml", "w:suff"),
+        part(numbering(), "word/numbering.xml", "w:tabs"),
+        part(styles(), "word/styles.xml", "w:tabs"),
+        part(header(), "word/header1.xml", "w:tab"),
+        part(numbering(), "word/document.xml", "w:tab"),
+        // Run properties of the numbering label (its font gives the label's width).
+        part(numbering(), "word/numbering.xml", "w:rPr"),
+        // A picture or a content control in the header; an element of another kind of theme content.
+        part(header(), "word/header1.xml", "w:drawing"),
+        part(header(), "word/header1.xml", "w:sdt"),
+        part(theme(), "word/theme/theme1.xml", "a:extLst"),
+        // A footer reference beside the header.
+        part(header(), "word/document.xml", "w:footerReference"),
+    ];
+    for f in neighbors {
+        assert!(!content_is_measured(&f), "{f:?}");
+    }
+    // A second header part, a footer part with its relationship, the measured elements under another part name.
+    let mut second = header();
+    second.parts.insert("word/header2.xml".into());
+    let mut footer = header();
+    footer.relationships[1].kind = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer".into();
+    let mut renamed = header();
+    let names = renamed.elements.remove("word/header1.xml").unwrap();
+    renamed.elements.insert("word/footer1.xml".into(), names);
+    // The theme's prefix bound to another namespace.
+    let mut rebound = theme();
+    rebound.namespaces.remove(&(A.0.to_string(), A.1.to_string()));
+    rebound.namespaces.insert(("a".into(), "urn:other".into()));
+    for f in [second, footer, renamed, rebound] {
+        assert!(!content_is_measured(&f), "{f:?}");
+    }
+}
+
+const ZERO_ROW: &str = "table 50100 \"Z Row\" { fields { field(1; Id; Integer) { } field(2; Txt; Text[50]) { } \
+    field(3; Qty; Integer) { } field(4; QtyField; Integer) { BlankZero = true; } field(5; QtyNot; Integer) { BlankZero = false; } \
+    field(6; QtyCap; Integer) { Caption = 'Q'; } field(7; QtyTwo; Integer) { BlankZero = true; BlankNumbers = BlankNeg; } \
+    field(8; TxtZero; Text[50]) { BlankZero = true; } } keys { key(PK; Id) { Clustered = true; } } }";
+
+fn report_src(props: &str) -> String {
+    format!(
+        "{ZERO_ROW} report 50101 \"Z Rep\" {{ {props} UsageCategory = None; UseRequestPage = false; DefaultRenderingLayout = L; \
+         dataset {{ dataitem(Row; \"Z Row\") {{ column(RowTxt; Txt) {{ }} column(Qty; Qty) {{ }} column(QtyField; QtyField) {{ }} \
+         column(QtyNot; QtyNot) {{ }} column(QtyCap; QtyCap) {{ }} column(QtyTwo; QtyTwo) {{ }} column(TxtZero; TxtZero) {{ }} }} }} \
+         rendering {{ layout(L) {{ Type = Word; LayoutFile = 'L.docx'; }} }} }}"
+    )
+}
+
+fn title_of(props: &str) -> Option<super::shape::Title> {
+    let l = al_testkit::compile(&report_src(props));
+    let o = l.program.objects.iter().find(|o| o.name == "Z Rep").unwrap();
+    super::shape::report_title(&l.program, o, o.report.as_ref().unwrap())
+}
+
+#[test]
+fn the_title_is_the_plain_caption_or_the_name() {
+    use super::shape::Title;
+    // RX Wd Caption (RxHtmlWidenTests.al:190) and every report without a Caption.
+    assert_eq!(
+        title_of("Caption = 'Rx Cap';"),
+        Some(Title {
+            text: "Rx Cap".into(),
+            caption: true
+        })
+    );
+    assert_eq!(
+        title_of(""),
+        Some(Title {
+            text: "Z Rep".into(),
+            caption: false
+        })
+    );
+    // The lowered property holds no attribute of the label: `Locked` and `Comment` do not change the text.
+    for props in [
+        "Caption = 'Rx Cap', Locked = true;",
+        "Caption = 'Rx Cap', Comment = 'c';",
+    ] {
+        assert_eq!(title_of(props).map(|t| t.text), Some("Rx Cap".to_string()), "{props}");
+    }
+    // CaptionML, an empty Caption, another property.
+    for props in [
+        "CaptionML = ENU = 'Rx Cap';",
+        "Caption = '';",
+        "Caption = 'Rx Cap'; CaptionML = ENU = 'Rx Cap';",
+        "Caption = 'Rx Cap'; ProcessingOnly = false;",
+    ] {
+        assert_eq!(title_of(props), None, "{props}");
+    }
+}
+
+#[test]
+fn a_field_column_is_measured_with_no_field_property_or_only_blank_zero_on_an_integer() {
+    let l = al_testkit::compile(&report_src(""));
+    let o = l.program.objects.iter().find(|o| o.name == "Z Rep").unwrap();
+    let item = &o.report.as_ref().unwrap().items[0];
+    let table = l.program.objects[item.table.unwrap()].table.as_ref().unwrap();
+    let kinds: Vec<Option<ColumnKind>> = item
+        .columns
+        .iter()
+        .map(|c| super::shape::column_kind(table, c, &[]))
+        .collect();
+    use ColumnKind::*;
+    // RowTxt, Qty, QtyField (BlankZero_IntegerZero, RxHtmlWidenTests.al:664); then BlankZero = false, a Caption, BlankZero
+    // with BlankNumbers, BlankZero on a Text field.
+    assert_eq!(
+        kinds,
+        vec![
+            Some(TextField),
+            Some(IntegerField),
+            Some(BlankZeroIntegerField),
+            None,
+            None,
+            None,
+            None
+        ]
+    );
+}
+
+#[test]
+fn the_blank_zero_dataset_is_measured_with_one_row_only() {
+    use ColumnKind::*;
+    let s = |rows| SaveShape {
+        columns: vec![IntegerField, TextField, BlankZeroIntegerField],
+        rows,
+    };
+    assert!(shape_is_measured(SHAPES, &s(1)));
+    assert!(!shape_is_measured(SHAPES, &s(2)));
+    // Two field columns without the property and a BlankZero one in place of the Integer one.
+    for columns in [
+        vec![IntegerField, IntegerField, TextField],
+        vec![TextField, BlankZeroIntegerField],
+    ] {
+        assert!(!shape_is_measured(SHAPES, &SaveShape { columns, rows: 1 }));
+    }
+}
+
+#[test]
+fn an_app_with_a_translation_file_of_the_call_language_may_translate_the_caption() {
+    let src = report_src("Caption = 'Rx Cap';");
+    let l = al_testkit::compile(&src);
+    let object = l.program.objects.iter().position(|o| o.name == "Z Rep").unwrap();
+    let app = l.program.objects[object].app as usize;
+    let session = |l: al_sema::lower::Lowered| {
+        let blocked = al_testkit::blocked(&l);
+        crate::Session::new(crate::Engine::new(l.program, blocked))
+    };
+    let s = session(l);
+    assert!(!s.app_translates_into(object, 1033));
+    let mut l = al_testkit::compile(&src);
+    // A translation file whose language is not known (no head read) may be of 1033.
+    std::sync::Arc::make_mut(&mut l.program).apps[app].translations = true;
+    let s = session(l);
+    assert!(s.app_translates_into(object, 1033));
 }

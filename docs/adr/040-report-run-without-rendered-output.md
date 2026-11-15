@@ -1213,7 +1213,8 @@ hash cell covers (Part A applies), and every save the save table does not answer
   equality with the probe cells: the call (`Report.SaveAs(Number, '', ReportFormat::Html, OutStream)` with its answer used,
   no RecordRef, a UTF-8 stream whose buffer holds nothing and was never written by a stream, session language 1033); the
   save's whole fact vector after the run (`report_save/html_cell.rs`); the report (exactly the properties `UsageCategory =
-  None`, `UseRequestPage = false` and `DefaultRenderingLayout`, so the title, the report's caption, is its name; no request
+  None`, `UseRequestPage = false` and `DefaultRenderingLayout`, so the title, the report's caption, is its name; or those
+  and a plain `Caption`, which is then the title, see the widening below; no request
   page, label or reportextension; one layout with only `Type = Word` and `LayoutFile`; one data item without view, link,
   filter fields, `MaxIteration`, `PrintOnlyIfDetail`, `CalcFields` or trigger); the columns and the row count (the measured
   datasets); the company (empty) and no pictures; the major and the converter version. The dataset values are what the
@@ -1226,7 +1227,7 @@ hash cell covers (Part A applies), and every save the save table does not answer
   A layout feature that makes BC's server do more than merge and convert, or that the merger or converter resolves from
   outside the file, keeps Part A. The gate keeps the layout to the vocabulary of the measured layouts (their parts,
   relationship types with internal targets, element names of the document and settings parts, and namespace
-  declarations), which keeps on Part A at least: pictures (image parts, `w:drawing`, `w:pict`, `w:object`, picture controls
+  declarations), which keeps on Part A at least (before the widening below): pictures (image parts, `w:drawing`, `w:pict`, `w:object`, picture controls
   bound to data); header and footer parts and references (BC 29 composes header-footer and theme layouts for a body layout,
   context step 4; a layout that declares a `Subtype` keeps Part A too); external targets (`TargetMode="External"`: linked
   images, hyperlinks, attached templates); fields that pull in other content (`w:fldSimple`, `w:instrText`: INCLUDEPICTURE,
@@ -1254,3 +1255,18 @@ hash cell covers (Part A applies), and every save the save table does not answer
 - `--require-report-renderer` is built (al-test-cli and al-runner): a save of a measured shape refuses when the renderer is
   unavailable, instead of keeping Part A. CI does not pass it yet: CI's setup does not provide the render sets and the Linux
   pieces.
+
+- Widening (corpus pull request 1419, merged, not pinned; reports/html-email-body/RxHtmlWidenTests.al). Each layout is the
+  bound layout plus one part, and the runner's render equals BC's hashes on 27 and 28 (Aspose.Words 26.10.0, the CI builds'
+  render sets) and 29 (26.8.0): a styles part with a paragraph style naming a font (the font names go into the CSS), a theme
+  part whose font scheme the document's theme fonts name, a numbering part with a bullet level and no tab stop or label
+  suffix (BC writes the marker and nine `&#xa0;`), and a header part referenced from `w:sectPr` (written before the body, on
+  29 too: the layout declares no `Subtype`). The vocabulary takes exactly these parts, their relationship types and the
+  element names of each part; tabs, footers, other header parts, pictures and every other part still keep Part A. A report
+  `Caption` that is one text literal is the title (the merger's title argument), when the report's app ships no translation
+  file of language 1033; `CaptionML` keeps Part A. The four-column dataset is measured with two rows as well. A column over
+  an Integer field whose only property is `BlankZero = true` holding 0 renders `0`; the dataset writer writes the value. The
+  probe's BlankZero layout binds another namespace (`RX_Wd_BlankZero`) than the report's (`RX_Wd_Blank_Zero`), so that case
+  keeps Part A under the binding check; with that namespace admitted locally the render equals BC's on all three majors. A
+  field column over a field that states any other property keeps Part A (it rendered before this widening; no cell measured
+  such a field).
