@@ -179,10 +179,14 @@ fn open_company(
     engine: &Engine,
     lowered: &Lowered,
     session: &mut Session,
-    disabled: bool,
+    mode: Option<bool>,
     skipped_installs: &[(BTreeSet<u32>, String)],
     perturb: &crate::stability::Perturb,
 ) -> Result<crate::install::CompanyOpenWrites, String> {
+    // A scratch run is not a test session: it opens nothing.
+    let Some(disabled) = mode else {
+        return Ok(Default::default());
+    };
     // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
     // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
     // (docs/probes-needed.md, WorkDate row).
@@ -430,18 +434,19 @@ fn run_codeunit_inner(
     session.test_object = Some(object);
     // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
     // amendment 1, A4 item 10). A scratch run (`execute`) is not a test session.
-    let company_open = if execute {
-        crate::install::CompanyOpenWrites::default()
-    } else {
-        let disabled = isolation == TestIsolation::Disabled;
-        match open_company(engine, lowered, &mut session, disabled, &skipped_installs, &perturb) {
-            Ok(wrote) => wrote,
-            Err(why) => return all(Outcome::NotRun(why)),
-        }
+    // `None`: a scratch run (`execute`), not a test session; else whether the isolation is Disabled.
+    let mode = (!execute).then_some(isolation == TestIsolation::Disabled);
+    let opened = open_company(engine, lowered, &mut session, mode, &skipped_installs, &perturb);
+    let mut company_open = match opened {
+        Ok(wrote) => wrote,
+        Err(why) => return all(Outcome::NotRun(why)),
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
-    // single instances of the codeunit before are moved in.
-    start_singles(&mut session, execute, moved, scratch.watch);
+    // single instances of the codeunit before are moved in. The partner dependency apps' login subscribers changed
+    // SingleInstance globals: the notes tell from which test on code touched one (`partner_login.rs`
+    // `PartnerLogin::test_read`); only `scratch.watch` hands them to the lane (`ended`).
+    company_open.partner_login.read_in_open(&session);
+    start_singles(&mut session, execute, moved, scratch.watch, &company_open.partner_login);
     if scratch.discovery.is_some() {
         return discover(
             &mut session,
@@ -512,7 +517,10 @@ fn run_codeunit_inner(
             if let Some(reason) = company_open_refuses(on_run) {
                 return Err(on_run_refused(format!("OnRun: {reason}")));
             }
-            session.store_mut().watch(with_skipped(leak.iter(), &skipped_installs));
+            // What the partner dependency apps' login subscribers left is watched too (`partner_login.rs`).
+            let partner = &company_open.partner_login;
+            let watched = with_skipped(leak.iter().chain(partner.watched()), &skipped_installs);
+            session.store_mut().watch(watched);
             // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
             // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
             // AL code observes.
@@ -536,6 +544,7 @@ fn run_codeunit_inner(
             if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
+            (partner.after_on_run(&hits, lowered)).map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
             match ran {
                 // NavTestCodeunit.DoRunAsync commits after a declared OnRun
                 // (codeunits/TestTestCodeunitOnRun.al).
@@ -668,7 +677,7 @@ fn run_codeunit_inner(
             }
             crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
             // The number of this test for the SingleInstance notes (ADR-066 amendment 7; 0 without notes).
-            let test_no = session.single_test_begins();
+            let test_no = single_test_begins(session, scratch.watch);
             let test_started = std::time::Instant::now();
             let draws_before = session.inherited_random_draws();
             let carried_before = session.carried_random_draws();
@@ -1035,6 +1044,7 @@ fn run_codeunit_inner(
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
             let hit = company_open.watch_hit(&touched, began);
+            company_open.partner_login.test_read(session, began);
             // A test that read or wrote a table install code that could not run touches, through a path its record
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
@@ -1480,7 +1490,9 @@ fn ended(
     if scratch.driver.watches_reads() {
         scratch.note_reads(session.take_impact_trace());
     }
-    singles_out(session, execute, scratch.refused_mid_run, scratch.hands_on_none())
+    let out = singles_out(session, execute, scratch.refused_mid_run, scratch.hands_on_none());
+    // Notes taken only for the partner login subscribers' SingleInstance globals (`run_codeunit_inner`) are not the lane's.
+    out.filter(|_| scratch.watch)
 }
 
 /// How the tests of a codeunit ended, from the tests that did not run to their end and whether one panicked.
@@ -1522,17 +1534,32 @@ fn singles_moved_in(session: &mut Session, execute: bool) -> Option<al_vm::singl
 }
 
 /// Takes over the moved single instances and starts the notes (not for a codeunit the runner runs with
-/// Codeunit.Run: `execute`). Without a watch and without moved instances nothing is noted.
-fn start_singles(session: &mut Session, execute: bool, moved: Option<al_vm::single_track::MovedSingles>, watch: bool) {
+/// Codeunit.Run: `execute`). Without a watch, without SingleInstance globals the partner login subscribers changed
+/// (`PartnerLogin::test_read`) and without moved instances nothing is noted. Call `PartnerLogin::read_in_open` first: the
+/// notes start again here.
+fn start_singles(
+    session: &mut Session,
+    execute: bool,
+    moved: Option<al_vm::single_track::MovedSingles>,
+    watch: bool,
+    partner: &crate::partner_login::PartnerLogin,
+) {
     if execute {
         return;
     }
     if let Some(m) = moved {
         session.adopt_single_instances(m);
     }
-    if watch {
+    if watch || partner.notes_singles() {
         session.track_single_instances();
     }
+}
+
+/// A test method begins: its number for the SingleInstance notes (ADR-066 amendment 7). Notes the lane does not use
+/// (taken for the partner login subscribers alone, without `watch`, [`start_singles`]) number no test: 0.
+fn single_test_begins(session: &mut Session, watch: bool) -> u32 {
+    let n = session.single_test_begins();
+    if watch { n } else { 0 }
 }
 
 /// What the session did with the watched single instances; in the lane, hands the instances to the next codeunit.

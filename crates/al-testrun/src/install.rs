@@ -822,14 +822,15 @@ fn refuse(
 
 /// The tables [`refuse`] names for install code `(oi, ri)` from its static reach: in the session company or the
 /// per-database part (`at_home`) the tables it touches ([`touched`]), in another declared company the tables it and the
-/// subscribers it reaches write.
+/// subscribers it reaches write, through a RecordRef too (`baseline::tables_written_or_loaded`; probe n23 of the review
+/// of al-runner PR 8119).
 fn refused_tables(engine: &Engine, lowered: &Lowered, (oi, ri): (usize, usize), at_home: bool) -> BTreeSet<u32> {
     if at_home {
         return touched(engine, lowered, oi, ri);
     }
-    let mut written = crate::baseline::tables_written(lowered, oi, ri);
+    let mut written = crate::baseline::tables_written_or_loaded(lowered, oi, ri);
     for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
-        written.extend(crate::baseline::tables_written(lowered, so, sr));
+        written.extend(crate::baseline::tables_written_or_loaded(lowered, so, sr));
     }
     written
 }
@@ -1142,6 +1143,8 @@ pub(crate) struct CompanyOpenWrites {
     /// The tables the apps under test's own login subscribers wrote in the session the pin measured
     /// (`login::Login::Own`): a test that touches one relies on `login-own-registration-reads-alone`.
     pub own_login: BTreeSet<u32>,
+    /// What the partner dependency apps' login subscribers left where the session ran them (`partner_login.rs`).
+    pub partner_login: crate::partner_login::PartnerLogin,
 }
 
 impl CompanyOpenWrites {
@@ -1169,12 +1172,13 @@ impl CompanyOpenWrites {
         Some(self.reason(&format!("this test can read table {}", Self::table_name(lowered, *t))))
     }
 
-    /// The tables whose reads and writes a test is watched for: those a subscriber wrote, those of `watched_login`, and
-    /// `own_login`.
+    /// The tables whose reads and writes a test is watched for: those a subscriber wrote, those of `watched_login`,
+    /// `own_login`, and those of `partner_login`.
     pub fn watched(&self) -> BTreeSet<u32> {
         let mut out = self.tables.clone();
         out.extend(self.watched_login.iter().flat_map(|(t, _)| t.iter().copied()));
         out.extend(self.own_login.iter().copied());
+        out.extend(self.partner_login.watched());
         out
     }
 
@@ -1189,9 +1193,11 @@ impl CompanyOpenWrites {
         if !self.own_login.is_disjoint(hits) {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LoginOwnRegistrationReadsAlone);
         }
+        let partner = self.partner_login.test_hit(hits);
         (hits.iter())
             .find(|t| self.tables.contains(t) || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t)))
             .copied()
+            .or(partner)
     }
 
     /// Why a test that read or wrote table `t` while it ran is not run: `None` when `t` is not watched.
@@ -1200,7 +1206,9 @@ impl CompanyOpenWrites {
         if self.tables.contains(&t) {
             return Some(self.reason(&format!("this test read or wrote table {name} while it ran")));
         }
-        let (_, why) = self.watched_login.as_ref().filter(|(tables, _)| tables.contains(&t))?;
+        let Some((_, why)) = self.watched_login.as_ref().filter(|(tables, _)| tables.contains(&t)) else {
+            return self.partner_login.touched(t, lowered);
+        };
         Some(format!(
             "{why}: the login subscribers of the apps under test ran before the first test and wrote table {name}, which this test read or wrote"
         ))
@@ -1227,7 +1235,15 @@ pub(crate) fn test_session_company_open(
     skipped: &[(BTreeSet<u32>, String)],
 ) -> Result<CompanyOpenWrites, String> {
     match crate::runtime::watching_skipped_installs(lowered, session, skipped, |s| {
-        open_test_session_company(lowered, s, disabled)
+        let opened = open_test_session_company(lowered, s, disabled);
+        // The window the partner dependency apps' login subscribers opened (`partner_login::PartnerLogin::watch_after`)
+        // closes on every exit.
+        let end = s.store_mut().watch_window_end();
+        let wrote = opened?;
+        match wrote.partner_login.after_open(end, lowered) {
+            Some(why) => Err(why),
+            None => Ok(wrote),
+        }
     }) {
         (Ok(_), Some(why)) => Err(format!(
             "the code that runs when the test session opens the company (Company Triggers subscribers, the login) {why}"
@@ -1270,11 +1286,13 @@ fn open_test_session_company(
         }
     }
     let raise = matches!(decision, crate::login::Login::Raise);
+    let partner = crate::partner_login::subscribers(lowered, &engine.events, raise, watched);
     let (own, watched): (&[crate::login::OwnEvent], _) = match &decision {
         crate::login::Login::Own { events, watched } => (events, *watched),
         crate::login::Login::Refused(why) => return Err(why.clone()),
         _ => (&[], None),
     };
+    let steps = crate::partner_login::steps(lowered, &engine.events, own, &partner);
     // The subscribers to run, (object, routine); `None` for the login raised to the apps' own subscribers.
     let mut subs: Vec<Option<(usize, usize)>> = Vec::new();
     for event in ["oncompanyopen", "oncompanyopencompleted"] {
@@ -1287,7 +1305,7 @@ fn open_test_session_company(
             .filter(|s| !s.manual && (!lowered.dependency[s.object] || (raise && event == "oncompanyopencompleted")))
             .map(|s| (objs[s.object].id.unwrap_or(0), Some((s.object, s.routine))))
             .collect();
-        if event == "oncompanyopencompleted" && !own.is_empty() {
+        if event == "oncompanyopencompleted" && !steps.is_empty() {
             of_event.push((crate::login::LOGIN_RAISER, None));
         }
         of_event.sort_by_key(|&(id, _)| id);
@@ -1296,7 +1314,7 @@ fn open_test_session_company(
     let mut own_wrote = BTreeSet::new();
     for step in subs {
         let Some((o, r)) = step else {
-            own_wrote = own_login(lowered, session, own, watched)?;
+            (own_wrote, wrote.partner_login) = own_login(lowered, session, &steps, watched)?;
             continue;
         };
         let name = label(lowered, o, r);
@@ -1350,17 +1368,24 @@ fn open_test_session_company(
 /// (`Session::raise_to`), so `OnAfterLogin` stays an isolated event (codeunits/TestIsolatedEventSubscriberError.al). What
 /// they wrote is the login's, there for every test of the codeunit (LgnLoginChecklistTests.al:137-138, :161); the tables
 /// are answered. Where what BC's login does is not known (`watched`), a change of the session's state other than rows
-/// refuses the codeunit.
+/// refuses the codeunit. The steps of the partner dependency apps' subscribers run among them (`partner_login::raise`):
+/// returned is what each side left.
 fn own_login(
     lowered: &Lowered,
     session: &mut Session,
-    events: &[crate::login::OwnEvent],
+    steps: &[crate::partner_login::Step],
     watched: Option<&'static str>,
-) -> Result<BTreeSet<u32>, String> {
+) -> Result<(BTreeSet<u32>, crate::partner_login::PartnerLogin), String> {
     let before = watched.map(|_| session.state_stamp());
-    let since = session.store_mut().change_counter();
-    for e in events {
-        for &(o, r) in &e.subscribers {
+    let mut wrote = BTreeSet::new();
+    let mut partner = crate::partner_login::PartnerLogin::default();
+    for step in steps {
+        if step.partner {
+            crate::partner_login::raise(lowered, session, step, &mut partner)?;
+            continue;
+        }
+        let since = session.store_mut().change_counter();
+        for &(o, r) in &step.subscribers {
             if let Some(reason) = crate::runtime::blocked_reason(lowered, o, r) {
                 return Err(format!(
                     "login subscriber of an app under test {} before the first test: {reason}",
@@ -1368,12 +1393,12 @@ fn own_login(
                 ));
             }
         }
-        let (po, pr) = e.publisher;
+        let (po, pr) = step.publisher;
         let what = format!(
             "{} raised to the login subscribers of the apps under test",
             lowered.program.objects[po].routines[pr].name
         );
-        match session.raise_to(po, pr, &e.subscribers) {
+        match session.raise_to(po, pr, &step.subscribers) {
             Ok(()) => {}
             Err(Signal::Unsupported(why)) => return Err(format!("{what} before the first test: {why}")),
             Err(Signal::Error(err)) => {
@@ -1388,15 +1413,14 @@ fn own_login(
         // isolated OnAfterLogin, whose own transaction commits before the app's OnAfterLogin subscribers run; an isolated
         // event isolates a subscriber only when nothing is pending (codeunits/TestIsolatedEventSubscriberError.al:5-11,
         // :59-72, :74-88).
-        if e.event != "onafterlogin" {
+        if step.event != "onafterlogin" {
             session.commit_transaction();
         }
+        wrote.extend(session.store_mut().tables_changed_since(since));
     }
-    let store = session.store_mut();
-    if store.virtual_write_pending() {
+    if session.store_mut().virtual_write_pending() {
         return Err("the login subscribers of the apps under test changed a platform table in the test session before the first test: what the test runner does with the change is not pinned (ADR-046 amendment 1, A4 item 10)".into());
     }
-    let wrote = store.tables_changed_since(since);
     if let (Some(why), Some(b)) = (watched, &before) {
         if let Some(what) = b.changed(&session.state_stamp()) {
             return Err(format!(
@@ -1404,7 +1428,7 @@ fn own_login(
             ));
         }
     }
-    Ok(wrote)
+    Ok((wrote, partner))
 }
 
 /// What the login code does to WorkDate when the test session opens the company: Base Application's `LogInManagement`
@@ -1918,10 +1942,12 @@ fn touched(engine: &Engine, lowered: &Lowered, oi: usize, ri: usize) -> BTreeSet
     // PR 8119, probe n3_temp_only).
     let mut t = crate::runtime::tables_touched_not_temporary(lowered, oi, ri);
     // The tables it writes include those of a `NavApp.LoadPackageData` with a constant table id, which names no record
-    // variable (al-runner issue 7359: a test that reads the rows the refused load would have put there).
+    // variable (al-runner issue 7359: a test that reads the rows the refused load would have put there), and those it
+    // writes through a RecordRef (probe n19d of the review of al-runner PR 8119), its subscribers' too.
     t.extend(crate::baseline::tables_written_or_loaded(lowered, oi, ri));
     for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
         t.extend(crate::runtime::tables_touched_not_temporary(lowered, so, sr));
+        t.extend(crate::baseline::tables_written_or_loaded(lowered, so, sr));
     }
     // AllObj and AllObjWithCaption are listed from the compiled objects alone and cannot be written: nothing an install
     // routine does shows in them, so a test that reads them is not held back.

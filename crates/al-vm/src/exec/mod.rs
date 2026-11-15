@@ -436,8 +436,12 @@ pub(crate) struct CallSite {
 /// How `Op::SingleWrite` writes its global.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SingleWriteKind {
-    /// A builtin replaces the value without using it (`Get`, `Clear`, `Init`): after a guard, the refill.
+    /// A builtin replaces the value without using it (`Get`, `Init`, a `Find`; `Clear` and `G := x` on a global of a type
+    /// that is not simple, `Compiler::replace_kind`): after a guard, the refill.
     Replace,
+    /// As `Replace`, and no part of the value stays (`Clear`, `G := x` where `x` is made without `G`, on a global of a simple
+    /// type; `Compiler::replace_kind`): `Session::single_reset`.
+    Reset,
     /// As `Modify`, only when the global holds a temporary record (`Insert`, `Delete`).
     ModifyTemp,
     /// A write that may keep or use what the global held: a `var` argument, `List.Add`, `Dictionary.Set` (the other
@@ -641,7 +645,7 @@ impl ExecProgram {
     /// The captured form of routine `routine` of object `object` .
     pub(crate) fn captured_chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
         self.captured[object][routine]
-            .get_or_init(|| compile(&program.objects[object].routines[routine], true).map(Box::new))
+            .get_or_init(|| compile(&program.objects[object], routine, true).map(Box::new))
             .as_deref()
     }
 
@@ -649,7 +653,7 @@ impl ExecProgram {
     pub(crate) fn debug_chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
         let table = self.debug.get_or_init(|| chunk_table(program));
         table[object][routine]
-            .get_or_init(|| compile::compile_debug(&program.objects[object].routines[routine]).map(Box::new))
+            .get_or_init(|| compile::compile_debug(&program.objects[object], routine).map(Box::new))
             .as_deref()
     }
 
@@ -657,7 +661,7 @@ impl ExecProgram {
     pub(crate) fn chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
         self.chunks[object][routine]
             .get_or_init(|| {
-                let c = compile(&program.objects[object].routines[routine], false)?;
+                let c = compile(&program.objects[object], routine, false)?;
                 STATS.routines.fetch_add(1, Ordering::Relaxed);
                 Some(Box::new(c))
             })
@@ -698,7 +702,7 @@ pub fn report() -> String {
 
 /// The instructions the bytecode compiler emits for a routine, one `Debug` text each (tests of instruction selection).
 pub fn disassemble(program: &ir::Program, object: usize, routine: usize) -> Option<Vec<String>> {
-    let c = compile(&program.objects[object].routines[routine], false)?;
+    let c = compile(&program.objects[object], routine, false)?;
     Some(c.code.iter().map(|op| format!("{op:?}")).collect())
 }
 
