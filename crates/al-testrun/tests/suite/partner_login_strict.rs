@@ -1,6 +1,7 @@
 //! The partner dependency apps' login subscribers in the strict-order lane (al-runner issue 8115, scenario s09; review of
 //! al-runner PR 8138, probes p2/s_set, s_none, s_bumpfn). The login sets `Cnt` to 10 in every session; in BC's order the
-//! value an earlier test codeunit left wins (`Session::adopt_single_instances`), and the readers are flagged.
+//! value an earlier test codeunit left wins (`Session::adopt_single_instances`), and the readers are flagged. In the default
+//! order each test codeunit starts with fresh SingleInstance state and its own login (ADR-066 amendment 12).
 
 use al_builtins::assumptions::Assumption;
 use al_sema::workspace::AppSource;
@@ -14,7 +15,8 @@ const SYS: &str = "codeunit 150 \"System Initialization\" { procedure Raise() be
         local procedure InitCompany() var S: Codeunit \"System Initialization\"; begin S.Raise(); end; }";
 
 const PARTNER: &str = "codeunit 60904 Cache { SingleInstance = true; var Cnt: Integer;
-        procedure Set(N: Integer) begin Cnt := N; end; procedure GetCount(): Integer begin exit(Cnt); end; }
+        procedure Set(N: Integer) begin Cnt := N; end; procedure GetCount(): Integer begin exit(Cnt); end;
+        procedure Bump() begin Cnt += 1; end; }
     codeunit 60901 DepLogin {
         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
         local procedure L() var C: Codeunit Cache; begin C.Set(10); end; }";
@@ -32,6 +34,10 @@ fn tests(a: &str, b: u32) -> String {
 }
 
 fn run(src: &str) -> CorpusRuntime {
+    run_in(src, true)
+}
+
+fn run_in(src: &str, strict_order: bool) -> CorpusRuntime {
     CorpusRuntime::try_run_suites_with(
         vec![
             app("main", &["dep2"], src),
@@ -49,7 +55,7 @@ fn run(src: &str) -> CorpusRuntime {
         Default::default(),
         &[SuiteRun::everything()],
         &RunOptions {
-            strict_order: true,
+            strict_order,
             ..Default::default()
         },
     )
@@ -120,4 +126,27 @@ fn a_reader_after_an_untouched_codeunit_sees_the_login_value() {
 fn a_codeunit_that_reads_the_login_value_and_writes_hands_it_on() {
     let rt = run(&tests("if C.GetCount() = 10 then C.Set(11);", 11));
     assert!(assert_passes(&rt).0);
+}
+
+// Corpus PR 1416 (PlLoginSingleTests.al, codeunit 98484): BC runs the login once per session and keeps the single across
+// test codeunits, so B reads the 11 that A's `Cnt += 1` left. In BC's order B gets 11 and relies on the login.
+#[test]
+fn a_later_codeunit_reads_the_value_an_earlier_codeunit_bumped_in_bcs_order() {
+    let rt = run(&tests("C.Bump();", 11));
+    assert!(assert_passes(&rt).0);
+}
+
+// The same shape in the default order: B starts fresh and reads its own login's 10 (the deviation of ADR-066 amendment 12).
+// That pass is never clean: B relies on the login. A test that expects BC's 11 fails there.
+#[test]
+fn a_later_codeunit_after_a_bump_in_the_default_order_is_marked() {
+    let rt = run_in(&tests("C.Bump();", 10), false);
+    assert_eq!(assert_passes(&rt), (true, true));
+    let rt = run_in(&tests("C.Bump();", 11), false);
+    let b1 = rt.results().iter().find(|r| r.test.ends_with("B1")).expect("B1 ran");
+    assert!(
+        matches!(&b1.outcome, Outcome::Fail(m) if m.contains("count 10")),
+        "{:?}",
+        b1.outcome
+    );
 }

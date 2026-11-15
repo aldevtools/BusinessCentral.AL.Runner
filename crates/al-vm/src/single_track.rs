@@ -357,8 +357,9 @@ impl Session {
     }
 
     /// A [`Session::single_replaced`] that also drops every part of the value: `Clear(G)`, `G := x` where `x` is made
-    /// without `G`. As the first use of the global since the notes started, it ends what [`Session::single_touched`]
-    /// follows for it. A record operation that replaces the fields keeps the filters and the key: not a reset.
+    /// without `G`, on a global of a simple type (`Compiler::replace_kind`), noted after `x` is evaluated. As the first
+    /// use of the global since the notes started, it ends what [`Session::single_touched`] follows for it. A record keeps
+    /// its filters, its key or a temporary record's rows on `Clear`, an assignment and the record operations: not a reset.
     #[inline]
     pub(crate) fn single_reset(&mut self, inst: &Rc<RefCell<Instance>>, g: usize) {
         if self.si_track.is_none() || !inst.borrow().single {

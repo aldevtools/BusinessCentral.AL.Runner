@@ -461,3 +461,81 @@ fn own_session_open_code_after_the_login_that_reads_its_table_refuses_the_codeun
         "{o:?}"
     );
 }
+
+/// A partner app whose login sets `Cnt` to 10, a filter on the record global `R` and one row in the temporary record global
+/// `TempO` (probes p4, p5 and p6 of the second review of al-runner PR 8138). `Helper` reads `Cnt` back through a new
+/// instance of the single.
+const RESETS: &str = "table 60900 Other { fields { field(1; No; Code[20]) { } field(2; Blocked; Boolean) { } } }
+    codeunit 60904 Cache { SingleInstance = true; var Cnt: Integer; R: Record Other; TempO: Record Other temporary;
+        procedure Fill() begin Cnt := 10; R.SetRange(No, 'A'); TempO.No := 'L'; TempO.Insert(); end;
+        procedure GetCount(): Integer begin exit(Cnt); end;
+        procedure ClearCnt() begin Clear(Cnt); end;
+        procedure FromCallback() var H: Codeunit Helper; begin Cnt := H.Next(); end;
+        procedure FromCallbackArg() var H: Codeunit Helper; begin Cnt := H.Plus(0); end;
+        procedure ClearT() begin Clear(TempO); end;
+        procedure TempCount(): Integer begin exit(TempO.Count()); end;
+        procedure AssignFrom() var O: Record Other; begin O.No := 'Z'; R := O; end;
+        procedure Filters(): Text begin exit(R.GetFilters()); end; }
+    codeunit 60905 Helper {
+        procedure Next(): Integer var C: Codeunit Cache; begin exit(C.GetCount() + 1); end;
+        procedure Plus(N: Integer): Integer var C: Codeunit Cache; begin exit(C.GetCount() + N + 100); end; }
+    codeunit 60901 DepLogin {
+        [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
+        local procedure L() var C: Codeunit Cache; begin C.Fill(); end; }";
+
+/// Test codeunit `U` with the one test `body`, after the login of `RESETS`.
+fn run_reset(body: &str) -> OutcomesAndHits {
+    let tests = format!(
+        "codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
+        codeunit 60951 U {{ Subtype = Test; [Test] procedure U1() var C: Codeunit Cache; begin {body} end; }}"
+    );
+    outcomes_and_hits_with(
+        &[
+            ("dep", &[], &sys(false)),
+            ("dep2", &["dep"], RESETS),
+            ("main", &["dep2"], &tests),
+        ],
+        &[("dep", "Microsoft"), ("dep2", "Probe")],
+        "U",
+        TestIsolation::Codeunit,
+    )
+}
+
+fn assert_passes_flagged(body: &str) {
+    let (o, hits) = run_reset(body);
+    assert_eq!(o, vec![("U1".to_string(), Outcome::Pass)], "{o:?}");
+    assert!(hit(&hits, "U1"), "{hits:?}");
+}
+
+// Probe p6 T2: `Clear` of a temporary record global keeps its rows (run-onrun/RunCommitClear.al:386-405): the row the
+// login inserted is still there, so the test relies on the login.
+#[test]
+fn clear_of_a_temporary_record_global_relies_on_the_login() {
+    assert_passes_flagged("C.ClearT(); if C.TempCount() <> 1 then Error('count %1', C.TempCount());");
+}
+
+// Probe p5 R1: a record assignment keeps the target's filters: the filter the login set is still there.
+#[test]
+fn a_record_assignment_relies_on_the_login() {
+    assert_passes_flagged("C.AssignFrom(); if C.Filters() <> 'No: A' then Error('[%1]', C.Filters());");
+}
+
+// Probe p4 B1: the right side of `Cnt := H.Next()` reads `Cnt` through another instance before the store.
+#[test]
+fn an_assignment_whose_right_side_calls_back_into_the_global_relies_on_the_login() {
+    assert_passes_flagged("C.FromCallback(); if C.GetCount() <> 11 then Error('count %1', C.GetCount());");
+}
+
+// Probe p4 A1: the same with an argument.
+#[test]
+fn an_assignment_whose_right_side_calls_back_with_an_argument_relies_on_the_login() {
+    assert_passes_flagged("C.FromCallbackArg(); if C.GetCount() <> 110 then Error('count %1', C.GetCount());");
+}
+
+// A neighbor that keeps its clean pass: `Clear` of an Integer global drops all of it (probe p4 K1).
+#[test]
+fn clear_of_a_simple_global_before_any_read_runs_clean() {
+    let (o, hits) = run_reset("C.ClearCnt(); if C.GetCount() <> 0 then Error('count %1', C.GetCount());");
+    assert_eq!(o, vec![("U1".to_string(), Outcome::Pass)], "{o:?}");
+    assert!(!hit(&hits, "U1"), "{hits:?}");
+}

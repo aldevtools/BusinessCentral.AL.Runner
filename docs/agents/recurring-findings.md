@@ -319,4 +319,5 @@ use the static reach, RecordRef opens included (al-runner PR 8119, probe n19d).
 
 A value read once flows on: a later test reads it after a keeping write, through a copy in another global, or through a
 row. Mark the first reader and every test after it, and count a keeping write (`+=`, `List.Add`, a `var` argument) as a
-read. Code that runs before the first test (session-open subscribers, OnRun) is a reader too.
+read. Code that runs before the first test (session-open subscribers, OnRun) is a reader too. A write frees a value only when it drops every part of it (a simple type; not a record's filters or temporary rows)
+and only after its right side ran (a call on the right side may read the value).
