@@ -109,11 +109,16 @@ pub(crate) const XP_ROW_AFTER_ONCE: &str = "the row a MaxOccurs = Once table ele
 pub(crate) const XP_NESTED_ROW_AFTER_ONCE: &str =
     "the row a linked MaxOccurs = Once table element record holds after a pass of two or more rows is not pinned";
 
-/// Whether `rec` carries one of the marks of a table element record after an export under `SourceTableView`.
-pub(crate) fn xp_export_marked(rec: &Rec) -> Option<&'static str> {
-    rec.borrow()
-        .unpinned_buffer
-        .filter(|w| *w == XP_VIEW_AFTER_EXPORT || *w == XP_BUFFER_AFTER_EXPORT)
+/// Whether `rec` carries a mark whose unpinned view or buffer a copy from it (an assignment, Copy, TransferFields,
+/// `RecordRef.GetTable` in `refs.rs` `gettable_record_copy`) would carry over: one of the marks of a table element record after
+/// an export under `SourceTableView`, or the record of a media import from an InStream never created
+/// (`al_builtins::stream_cleared::UNCREATED_IMPORT_BUFFER`).
+pub(crate) fn copy_refused_mark(rec: &Rec) -> Option<&'static str> {
+    rec.borrow().unpinned_buffer.filter(|w| {
+        *w == XP_VIEW_AFTER_EXPORT
+            || *w == XP_BUFFER_AFTER_EXPORT
+            || *w == al_builtins::stream_cleared::UNCREATED_IMPORT_BUFFER
+    })
 }
 
 /// [`RUN_PAGE_LINK_OPEN`] in the shape the corpus pins (see `run_page_link_fill`, pages/runobject.rs): the linked fields are
@@ -153,6 +158,14 @@ pub(crate) const FLOWFIELD_KEY: &str = "after SetCurrentKey on a FlowField whose
 /// Whether `rec` carries [`MEDIA_KEY`] or [`FLOWFIELD_KEY`].
 pub(crate) fn media_key_marked(rec: &Rec) -> bool {
     matches!(rec.borrow().unpinned_buffer, Some(w) if w == MEDIA_KEY || w == FLOWFIELD_KEY)
+}
+
+/// The mark of `rec` that refuses a read of its buffer: a field read (`interp.rs` `read_record_field`) and `Format(Rec)`
+/// (`recmeta.rs` `format_composite_value`), which reads every field.
+pub(crate) fn buffer_read_refused(rec: &Rec) -> Option<&'static str> {
+    rec.borrow()
+        .unpinned_buffer
+        .filter(|w| !run_page_link_fields_read(w) && *w != HELD_PART_REC)
 }
 
 /// Whether field reads of a record whose buffer has the reason `why` run.

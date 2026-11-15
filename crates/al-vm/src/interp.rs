@@ -1415,11 +1415,7 @@ impl Session {
         match record {
             Value::Record(rc) => {
                 self.connection_check(&rc)?;
-                if let Some(why) = rc
-                    .borrow()
-                    .unpinned_buffer
-                    .filter(|w| !crate::records::run_page_link_fields_read(w) && *w != crate::records::HELD_PART_REC)
-                {
+                if let Some(why) = crate::records::buffer_read_refused(&rc) {
                     if why == crate::records::RUN_PAGE_LINK_OPEN {
                         return Err(Signal::unsupported(format!("a read of a field of Rec {why}")));
                     }
@@ -1591,9 +1587,8 @@ impl Session {
                         if let ir::Place::Global(i) = p {
                             self.single_replaced(&f.instance, *i);
                         }
-                        // The source's buffer after an export under SourceTableView is not pinned (records.rs
-                        // `XP_VIEW_AFTER_EXPORT`).
-                        if let Some(why) = crate::records::xp_export_marked(src) {
+                        // A source whose buffer is not pinned and must not be copied (records.rs `copy_refused_mark`).
+                        if let Some(why) = crate::records::copy_refused_mark(src) {
                             return Err(Signal::unsupported(format!("an assignment from a record: {why}")));
                         }
                         // A copied record holds copies of its Blobs (value semantics). The corpus
