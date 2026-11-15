@@ -1906,7 +1906,7 @@ impl Session {
                 group: 0,
             }];
             let cx = self.cx.clone();
-            self.store_for(rec)
+            self.store_for(rec)?
                 .next(
                     &cx,
                     t,

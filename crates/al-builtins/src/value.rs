@@ -385,6 +385,10 @@ struct TempToken {
     /// record's Blob buffer once the record moves on (al-vm `temp_blob_share.rs`). Where to look first, never more: the row is
     /// looked up, and the other rows are still searched while holders stay unaccounted for.
     empty_blob_insert_key: RefCell<Option<Vec<Value>>>,
+    /// The table is a Variant's by-value copy whose rows the corpus does not measure (al-vm `variant_copy.rs`, al-runner issue
+    /// 8070): every read of its rows and every write refuses (al-vm `Session::store_for`). Set once, never cleared: it ends with
+    /// the table.
+    rows_unmeasured: std::cell::Cell<bool>,
 }
 
 impl Drop for TempToken {
@@ -400,6 +404,7 @@ impl TempId {
             release,
             by_value_of: None,
             empty_blob_insert_key: RefCell::new(None),
+            rows_unmeasured: Default::default(),
         }))
     }
 
@@ -410,6 +415,7 @@ impl TempId {
             release,
             by_value_of: Some(Rc::downgrade(source)),
             empty_blob_insert_key: RefCell::new(None),
+            rows_unmeasured: Default::default(),
         }))
     }
 
@@ -420,6 +426,16 @@ impl TempId {
     /// How many record states share the table (`Copy(x, true)`, a record state clone), this one included.
     pub fn sharers(&self) -> usize {
         Rc::strong_count(&self.0)
+    }
+
+    /// Marks the rows of the table as not measured (al-vm `variant_copy.rs`), for every record that shares it.
+    pub fn mark_rows_unmeasured(&self) {
+        self.0.rows_unmeasured.set(true);
+    }
+
+    /// Whether [`TempId::mark_rows_unmeasured`] marked the table.
+    pub fn rows_unmeasured(&self) -> bool {
+        self.0.rows_unmeasured.get()
     }
 
     /// Whether the table was made for a record handed by value ([`TempId::new_by_value_copy`]).

@@ -127,6 +127,10 @@ refusal on a shape main ran is a regression, often in Base App code that partner
 - Add Rust tests that out-of-scope shapes keep main's outcome. Compare with a main binary.
 - Keep a refusal only as wide as its reason. Check its order: look the fact up first, refuse only when it
   matters.
+- A refusal at a move (an assignment, a store into a library's Variant array) for a value whose unmeasured part nobody may read
+  later. Microsoft's Library - Variable Storage moves every enqueued value Variant to Variant. Refuse at the read of the
+  unmeasured part, and run the Microsoft buckets with the head binary before hand-back when a new refusal sits on an assignment
+  (al-runner PR 8107).
 - Work moved to the open (a resolve, a fill) carries every refusal of the function it calls to tests that never read the
   value. Before the move, require in the gate every fact that function refuses on, and return to main's path when one fails
   (al-runner PR 8052).
@@ -286,3 +290,9 @@ not only count the arguments (round 2: `SetRange(<field>, 'P1')` passed).
 A session state that ends or carries because a routine set it: the pin measured a routine that ran to its end. A routine
 the runner stops (rows rolled back) leaves state the pin does not cover. Give the state its new rule only when the routine
 returns Ok.
+
+## 19. An outside report's shape differs from the probed shapes in several facts, and the gate reads only one (al-runner PR 8116)
+
+An outside report says BC allows shape S; a probe then measures denial in shapes that differ from S in several facts. The
+gate that now denies must require every measured value of every fact that differs from S (the sets and how they were
+assigned, the test codeunit's properties, the frames' attributes), not only one of them.

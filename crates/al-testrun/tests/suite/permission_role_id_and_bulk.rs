@@ -4,9 +4,11 @@
 //! is not assignable (corpus permissions/permission-sets/Y12PermSetNames.al:45). Sets whose names share their first 20
 //! characters are different sets.
 //!
-//! al-runner issue 8068: a ModifyAll or DeleteAll whose filter matches no row of a table that holds rows is denied only in
-//! the shape record/Y19PermWrites.al:294-307 pins (Y19_P2_SetR, Y19_P2_SetRI). The reporter's own repro and its neighbor
-//! shapes run in `permission_bulk_no_match_repro.rs`. The no-match shapes here, outside a trigger, are refused.
+//! al-runner issue 8068: a ModifyAll or DeleteAll whose filter matches no row of a table that holds rows is denied in the
+//! shape record/Y19PermWrites.al:294-307 pins (Y19_P2_SetR, Y19_P2_SetRI) and in the shapes corpus PR 1403 measured
+//! (`permission_bulk_no_match_probed.rs`). The reporter's own repro and its neighbor shapes run in
+//! `permission_bulk_no_match_repro.rs`. The no-match shapes here, on a target with a Code primary key or through a
+//! RecordRef, are refused.
 
 use super::permission_writes::{BASE, run_main_on};
 use al_testrun::Outcome;

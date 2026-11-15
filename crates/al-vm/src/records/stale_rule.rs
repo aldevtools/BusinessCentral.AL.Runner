@@ -75,7 +75,7 @@ impl Session {
             return Ok(StaleVerdict::Fresh);
         }
         let committed = self
-            .store_for(rec)
+            .store_for(rec)?
             .committed_get(cx, t, pk)
             .and_then(|row| match row.get(i) {
                 Some(Value::BigInteger(n)) => Some(*n),
@@ -93,7 +93,7 @@ impl Session {
                     || self.tx.rolled_back
                     || self.tx.lock_tx
                     || self.tx.lock_unpinned.is_some()
-                    || self.store_for(rec).written_since_commit(cx, t);
+                    || self.store_for(rec)?.written_since_commit(cx, t);
                 self.stale_lock_only_verdict(t, &company, pk, o.commits, touched, contact)
             }
             // Rule steps 2 to 5: the variable's own Insert, its own Modify or Rename after its Insert or Get in that transaction

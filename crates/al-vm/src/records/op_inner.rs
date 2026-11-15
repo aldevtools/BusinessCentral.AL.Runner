@@ -610,7 +610,7 @@ impl Session {
                 // The SQL counters' buffer before their first read (sqlcount.rs, `SqlCounters::pre_insert`).
                 let pre_ops = (!self.sql.active && !rec.borrow().temporary).then(al_data::memory::store_ops);
                 match self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .insert(&cx, &t, stored)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
@@ -668,7 +668,7 @@ impl Session {
                         // A duplicate key in Active Session: Insert with a return value answers false and leaves an error whose
                         // text is not pinned (metadata/platform-tables/RvActiveSessionWrites.al:136-171, "Error code:
                         // 85132273" on Linux, a suspect). Its statement form is not pinned.
-                        if self.store_for(rec).takes_inserts(&t) {
+                        if self.store_for(rec)?.takes_inserts(&t) {
                             Self::restore_row_version(rec, old_version);
                             Self::unstamp(rec, stamped);
                             if self.ret_used {
@@ -790,7 +790,7 @@ impl Session {
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
                 let pk = Self::sql_key(rec, &t, &rec.borrow().fields);
                 let stored = self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 self.feature_key_read_only_change(&t, rec, stored.as_deref())?;
@@ -924,7 +924,7 @@ impl Session {
                 Self::mark_blobs_inserted(rec, &stored, false);
                 let before = self.store.change_counter();
                 match self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .modify(&cx, &t, stored)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
@@ -1006,7 +1006,7 @@ impl Session {
                     let row = rec.borrow().fields.clone();
                     let pk = Self::sql_key(rec, &t, &row);
                     let exists = self
-                        .store_for(rec)
+                        .store_for(rec)?
                         .get(&cx, &t, &pk)
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                         .is_some();
@@ -1096,7 +1096,7 @@ impl Session {
                     pk = crate::sqltime::rounded_key(&pk);
                 }
                 match self
-                    .store_for(rec)
+                    .store_for(rec)?
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?
                 {
@@ -1176,7 +1176,7 @@ impl Session {
                         let fields = rec.borrow().fields.clone();
                         let pk = Self::exact_key(rec, &t, &fields, "Find('=')")?;
                         let row = self
-                            .store_for(rec)
+                            .store_for(rec)?
                             .get(&cx, &t, &pk)
                             .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         match row {
@@ -1213,7 +1213,7 @@ impl Session {
                                     let fields = rec.borrow().fields.clone();
                                     let pk = Self::exact_key(rec, &t, &fields, "Find")?;
                                     let exact = self
-                                        .store_for(rec)
+                                        .store_for(rec)?
                                         .get(&cx, &t, &pk)
                                         .map_err(|e| Signal::unsupported(format!("{e}")))?;
                                     match exact {
@@ -1287,7 +1287,7 @@ impl Session {
                         let empty_table = filters.is_empty()
                             && method == RecordOp::Find
                             && self
-                                .store_for(rec)
+                                .store_for(rec)?
                                 .count(&cx, &t, &[])
                                 .map_err(|e| Signal::unsupported(format!("{e}")))?
                                 == 0;
@@ -1423,7 +1423,7 @@ impl Session {
             RecordOp::Count | RecordOp::IsEmpty => {
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 let n = if flow_field_filters.is_empty() && !rec.borrow().marked_only {
-                    self.store_for(rec)
+                    self.store_for(rec)?
                         .count(&cx, &t, &filters)
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                 } else {
@@ -2041,7 +2041,7 @@ impl Session {
                     let ff = self.flow_filter_positions(&t);
                     if !ff.is_empty() {
                         let stored_old = self
-                            .store_for(rec)
+                            .store_for(rec)?
                             .get(&cx, &t, &old_pk)
                             .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         if let Some(o) = stored_old
@@ -2066,7 +2066,7 @@ impl Session {
                 let before_store = self.store.change_counter();
                 let outcome = if same_key {
                     match self
-                        .store_for(rec)
+                        .store_for(rec)?
                         .modify(&cx, &t, stored.clone())
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                     {
@@ -2074,7 +2074,7 @@ impl Session {
                         WriteOutcome::NotFound => RenameOutcome::NotFound,
                     }
                 } else {
-                    self.store_for(rec)
+                    self.store_for(rec)?
                         .rename(&cx, &t, &old_pk, stored.clone())
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                 };

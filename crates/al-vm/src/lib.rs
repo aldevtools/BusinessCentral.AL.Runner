@@ -167,6 +167,7 @@ mod user_account_keys;
 mod user_email;
 mod user_password;
 mod usertable;
+mod variant_copy;
 mod view_empty;
 mod view_unknown;
 mod views;

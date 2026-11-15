@@ -1499,6 +1499,25 @@ impl Session {
         self.write_as(p, v, f, false)
     }
 
+    /// Global `i` of the running instance takes `v` as it is: the end of [`Self::write_as`] (and of a Variant's shared record,
+    /// `variant_copy.rs`). `assign` is false for a builtin's write-back.
+    pub(crate) fn put_global(&mut self, i: usize, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
+        self.alias_access(i, f)?;
+        // A builtin's write-back of the value the global holds is no write (`D.ContainsKey(K)` on a global).
+        let noted = if assign {
+            self.single_wrote(&f.instance, i);
+            true
+        } else {
+            self.single_wrote_back(&f.instance, i, &v)
+        };
+        f.instance.borrow_mut().globals[i] = v;
+        if noted {
+            self.single_written(&f.instance, i);
+        }
+        self.alias_wrote(i, f);
+        Ok(())
+    }
+
     /// [`Self::write`]; `assign` is false for a builtin's write-back.
     fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
@@ -1690,6 +1709,7 @@ impl Session {
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
                 let copy = self.record_by_value_unmeasured(rc);
+                crate::variant_copy::keep_rows_mark(&rc.borrow(), &copy);
                 // An assignment to a Variant the probes measured moves the copy's Blobs as `Session::blobs_by_value` says.
                 if let (true, Some(taker)) = (assign, crate::blob_transfer::Taker::variant_at(p)) {
                     let (temporary, holder) = {
@@ -1729,21 +1749,7 @@ impl Session {
         };
         match p {
             ir::Place::Local(i) => f.locals[*i] = v,
-            ir::Place::Global(i) => {
-                self.alias_access(*i, f)?;
-                // A builtin's write-back of the value the global holds is no write (`D.ContainsKey(K)` on a global).
-                let noted = if assign {
-                    self.single_wrote(&f.instance, *i);
-                    true
-                } else {
-                    self.single_wrote_back(&f.instance, *i, &v)
-                };
-                f.instance.borrow_mut().globals[*i] = v;
-                if noted {
-                    self.single_written(&f.instance, *i);
-                }
-                self.alias_wrote(*i, f);
-            }
+            ir::Place::Global(i) => self.put_global(*i, v, f, assign)?,
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let mut b = base.borrow_mut();
