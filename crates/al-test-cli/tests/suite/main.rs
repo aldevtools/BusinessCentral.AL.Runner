@@ -44,6 +44,7 @@ mod corpus_bump_script;
 mod data_caption_expression;
 mod data_caption_get_open;
 mod data_caption_open;
+mod data_caption_kept_open;
 mod data_caption_pure;
 mod data_driven_tests;
 mod data_fixes;
