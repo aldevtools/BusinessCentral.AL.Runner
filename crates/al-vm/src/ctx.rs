@@ -399,6 +399,7 @@ impl al_builtins::native::Ctx for Session {
         self.engine
             .resources_read
             .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.read_resources.set(true);
         // The program's files, each replaced one with the run's content (`ResourceOverrides`).
         let overrides = self.engine.resource_overrides.read().ok();
         let replaced = overrides.as_ref().and_then(|o| o.get(&index));

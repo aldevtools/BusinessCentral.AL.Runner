@@ -439,6 +439,10 @@ pub struct Phases {
     pub decoded_on_touch: Option<usize>,
     /// Building the engine from the lowered program.
     pub engine: std::time::Duration,
+    /// How many times the install code of the apps under test ran for the test codeunits, when no install baseline ran it
+    /// (`install_once.rs`): once per test thread and resource texts it read, or once per codeunit in a run that notes the
+    /// code it runs.
+    pub install_runs: usize,
     /// The install baseline did not run because no selected test can observe it (`observe.rs`).
     pub baseline_skipped: bool,
     /// Why the baseline ran although the rule was tried: the first construct a selected test
@@ -1167,6 +1171,7 @@ mod discovery;
 mod group1_sessions_tests;
 mod grow;
 mod handlers;
+mod install_once;
 mod install_snapshot;
 #[cfg(test)]
 mod install_unknown_tests;

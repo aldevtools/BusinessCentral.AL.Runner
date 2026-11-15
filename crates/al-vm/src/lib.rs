@@ -219,6 +219,9 @@ pub struct Engine {
     pub resource_overrides: std::sync::RwLock<ResourceOverrides>,
     /// A session read the resource files of an app (`NavApp.GetResourceAsText` and the like).
     pub resources_read: std::sync::atomic::AtomicBool,
+    /// How many times the install code of the apps under test ran for a test codeunit of this run, outside the install
+    /// baseline (al-testrun `install_once.rs`, al-runner issue 8144).
+    pub install_runs: std::sync::atomic::AtomicUsize,
     /// A session made a `DotNet` call that may answer from more than its arguments (`dotnet::pure`): files,
     /// environment variables, the machine's clock, the assemblies of `--dotnet-assembly-dir`. That is outside the
     /// program, so an install baseline whose code made one is not kept on disk (al-testrun `baseline_cache`).
@@ -504,6 +507,7 @@ impl Engine {
             skipped_apps: Vec::new(),
             resource_overrides: Default::default(),
             resources_read: Default::default(),
+            install_runs: Default::default(),
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
@@ -556,6 +560,7 @@ impl Engine {
             skipped_apps: Vec::new(),
             resource_overrides: Default::default(),
             resources_read: Default::default(),
+            install_runs: Default::default(),
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
@@ -624,6 +629,7 @@ impl Engine {
             skipped_apps,
             resource_overrides,
             resources_read,
+            install_runs,
             dotnet_called,
             test_data,
             license,
@@ -674,6 +680,7 @@ impl Engine {
             Err(e) => e.into_inner().clear(),
         }
         *resources_read.get_mut() = false;
+        *install_runs.get_mut() = 0;
         *dotnet_called.get_mut() = false;
         *test_data = None;
         *license = None;
@@ -1154,6 +1161,8 @@ pub struct Session {
     pub(crate) package_load: bool,
     /// The time `Sleep` has waited, added to every clock reading.
     pub(crate) waited_ms: i64,
+    /// AL code of this session read the resource files of an app (`Engine::resources_read` says it for every session).
+    pub(crate) read_resources: std::cell::Cell<bool>,
     /// The running test's time limit in milliseconds, which its `Sleep` calls count toward (al-runner issue 5605), and
     /// the time they have asked for since the test started. `None` outside a test with a limit.
     pub(crate) sleep_budget: Option<i64>,
@@ -1319,6 +1328,7 @@ impl Session {
             through_recordref: false,
             host,
             waited_ms: 0,
+            read_resources: Default::default(),
             companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),

@@ -413,17 +413,13 @@ fn run_codeunit_inner(
     let skipped_installs = match baseline.and_then(|b| b.workspace_installs.clone()) {
         // Already run once for the whole run, with the baseline.
         Some(skipped) => skipped,
-        None => {
-            // As the baseline does (`baseline::run_traced`, ADR-046 amendment 4): the corpus CI database's session company
-            // is an evaluation company.
-            if session.engine.test_data.is_none() && session.companies().len() > 1 {
-                session.mark_evaluation_company();
-            }
-            session.set_install_scope(true);
-            let skipped = run_install_codeunits(lowered, &mut session);
-            session.set_install_scope(false);
-            skipped
-        }
+        // A session that starts from no baseline takes what the install code left from its run once per thread
+        // (`install_once.rs`); one that starts from a baseline the install code did not run on runs it on that baseline.
+        None => baseline
+            .is_none()
+            .then(|| super::install_once::start_installed(lowered, &mut session, scratch, execute, observe.is_some()))
+            .flatten()
+            .unwrap_or_else(|| super::install_once::run_installs_in(lowered, &mut session)),
     };
     // What install code wrote is known only in part (ADR-046): the tests read it through the facts of this engine.
     crate::install::ensure_facts(engine, lowered);

@@ -1385,6 +1385,7 @@ impl CorpusRuntime {
         // pass first runs on several threads.
         let snapshot_once =
             super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder());
+        super::install_once::forget();
         let passes = Pass::of_run(opts, &opts_only, &memory, order, in_program_order);
         let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
         let mut pass_times: Vec<PassTime> = Vec::new();
@@ -1830,9 +1831,7 @@ impl CorpusRuntime {
                 wall: pass_started.elapsed(),
             });
         }
-        if let Ok(mut o) = engine.resource_overrides.write() {
-            o.clear();
-        }
+        let install_runs = super::install_once::end_run(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -1892,6 +1891,7 @@ impl CorpusRuntime {
                 cache: cache_report.clone(),
                 engine: engine_time,
                 baseline_skipped,
+                install_runs,
                 baseline_why: baseline_note,
                 compile_cache_skipped,
                 source_index,

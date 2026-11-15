@@ -42,6 +42,17 @@ impl Session {
         self.host.clock.now_utc_millis() + self.waited_ms
     }
 
+    /// Moves the session's clock on by `ms`, as AL code that read the clock or slept for that long would have: a session
+    /// that starts from what another session's code left continues on that session's clock (al-testrun `install_once.rs`).
+    pub fn advance_clock_ms(&mut self, ms: i64) {
+        self.waited_ms += ms;
+    }
+
+    /// Whether AL code of this session read the resource files of an app.
+    pub fn read_resources(&self) -> bool {
+        self.read_resources.get()
+    }
+
     /// One reading of the clock by AL code (`Today`, `Time`, `CurrentDateTime`, the .NET clock
     /// members): the instant now, after which the clock moves on by the host's step (1 ms, the resolution of `DateTime`
     /// and `Time`; `Host::clock_step_ms`), so the next
