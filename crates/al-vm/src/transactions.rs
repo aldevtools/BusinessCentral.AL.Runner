@@ -427,14 +427,20 @@ impl Session {
 
     /// Whether routine `r` of object `o` is a `[Test]` method of a test codeunit.
     fn is_test_method(&self, o: usize, r: usize) -> bool {
-        let obj = &self.engine.program.objects[o];
-        obj.properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Test"))
-            && obj.routines[r]
+        self.declared_subtype(o).is_some_and(|s| s.eq_ignore_ascii_case("Test"))
+            && self.engine.program.objects[o].routines[r]
                 .attributes
                 .iter()
                 .any(|a| a.name.eq_ignore_ascii_case("Test"))
+    }
+
+    /// The `Subtype` object `o` declares, trimmed; `None` when it declares none.
+    pub(crate) fn declared_subtype(&self, o: usize) -> Option<&str> {
+        self.engine.program.objects[o]
+            .properties
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
+            .map(|(_, v)| v.trim())
     }
 
     pub(crate) fn leave_used_try(&mut self) {
