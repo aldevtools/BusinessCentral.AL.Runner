@@ -318,11 +318,14 @@ pub(crate) struct PageClients {
     pub(crate) shown_frames: Vec<(*const RefCell<crate::pages::PageState>, Vec<crate::pages::ShownNote>)>,
     /// Per page object, the expression controls whose value the page keeps between refreshes (`pages/shown.rs`).
     pub(crate) shown_controls: std::collections::HashMap<u32, Rc<Vec<usize>>>,
-    /// The page triggers running now, innermost last, with their page (`pages/code_close_veto.rs`).
-    pub(crate) trigger_kinds: Vec<(*const RefCell<crate::pages::PageState>, crate::pages::TriggerKind)>,
-    /// The page objects whose OnOpenPage runs now, innermost last, on a page the test opened with `TestPage.OpenView`
-    /// (`pages/code_close_veto.rs`, read by `permissions/permission_probed/extension_code.rs`).
-    pub(crate) test_view_open_pages: Vec<usize>,
+    /// The page triggers running now, innermost last, with their page and, for the OnOpenPage of a page the test opened with
+    /// `TestPage.OpenView`, its page object (`pages/code_close_veto.rs`, read by
+    /// `permissions/permission_probed/extension_code.rs`).
+    pub(crate) trigger_kinds: Vec<(
+        *const RefCell<crate::pages::PageState>,
+        crate::pages::TriggerKind,
+        Option<usize>,
+    )>,
     /// How many TestPage calls run now, nested (`pages/code_close_veto.rs`).
     pub(crate) client_depth: u32,
     /// Vetoed `CurrPage.Close()` calls waiting for the end of their TestPage call (`pages/code_close_veto.rs`).

@@ -185,6 +185,140 @@ codeunit 52422 "PQ IA No"
         Row.Insert();
     end;
 }
+// Round-1 neighbors: each differs from a measured shape in one fact.
+permissionset 52423 "PQ R T" { Assignable = true; Permissions = tabledata "PQ T" = R; }
+
+// A table with a trigger, written under the letter 'i' (the measured table runs no trigger).
+table 52404 "PQ Trig"
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+
+    trigger OnInsert()
+    begin
+    end;
+}
+
+codeunit 52424 "PQ IA Trig"
+{
+    Permissions = tabledata "PQ Trig" = rimd;
+
+    procedure InsertOnWriter() begin InsertI(5); end;
+
+    [InherentPermissions(PermissionObjectType::TableData, Database::"PQ Trig", 'i')]
+    local procedure InsertI(NewId: Integer)
+    var
+        Row: Record "PQ Trig";
+    begin
+        Row.Id := NewId;
+        Row.Insert();
+    end;
+}
+
+// The Permissions property grants the read, no attribute on the stack.
+codeunit 52425 "PQ Plain"
+{
+    Permissions = tabledata "PQ T" = r;
+
+    procedure NextOuter() begin NextInner(); end;
+    procedure NoMatchFirstOuter() begin NoMatchFirstInner(); end;
+    procedure FindEqOuter() begin FindEqInner(); end;
+    procedure SysIdOuter(Id: Guid) begin SysIdInner(Id); end;
+
+    local procedure NextInner()
+    var
+        Row: Record "PQ T";
+    begin
+        if Row.Next() = 0 then;
+    end;
+
+    local procedure NoMatchFirstInner()
+    var
+        Row: Record "PQ T";
+    begin
+        Row.SetRange(Id, 100);
+        Row.FindFirst();
+    end;
+
+    local procedure FindEqInner()
+    var
+        Row: Record "PQ T";
+    begin
+        Row.Id := 1;
+        Row.Find();
+    end;
+
+    local procedure SysIdInner(Id: Guid)
+    var
+        Row: Record "PQ T";
+    begin
+        Row.GetBySystemId(Id);
+    end;
+}
+
+// A base table and a base page that declare their own trigger (the measured ones declare no routine).
+table 52405 "PQ E Code"
+{
+    DataClassification = SystemMetadata;
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { Clustered = true; } }
+
+    trigger OnInsert()
+    begin
+    end;
+}
+
+tableextension 52402 "PQ X Code" extends "PQ E Code"
+{
+    trigger OnInsert()
+    var
+        B: Record "PQ B";
+    begin
+        B.Id := Rec.Id + 100;
+        B.Insert();
+    end;
+}
+
+page 52401 "PQ Page Code"
+{
+    PageType = Card;
+    SourceTable = "PQ E";
+    layout { area(Content) { field(Id; Rec.Id) { ApplicationArea = All; } } }
+
+    trigger OnOpenPage()
+    begin
+    end;
+}
+
+pageextension 52401 "PQ PX Code" extends "PQ Page Code"
+{
+    trigger OnOpenPage()
+    var
+        B: Record "PQ B";
+    begin
+        B.Id := 301;
+        B.Insert();
+    end;
+}
+
+permissionset 52426 "PQ Ext Code Imd B"
+{
+    Assignable = true;
+    Permissions = tabledata "PQ E" = RIMD, tabledata "PQ E Code" = RIMD, tabledata "PQ B" = imd;
+}
+
+// An excluding included set that grants what it excludes.
+permissionset 52427 "PQ Narrow Ov"
+{
+    Assignable = false;
+    Permissions = tabledata "PQ T" = RIMD;
+    ExcludedPermissionSets = "PQ Grant T";
+}
+permissionset 52428 "PQ Inc Ov"
+{
+    Assignable = true;
+    IncludedPermissionSets = "PQ Narrow Ov", "PQ Grant T Again";
+}
 "#;
 
 const MAIN: &str = r#"
@@ -221,57 +355,83 @@ codeunit 52430 "PQ Tests"
             Error('code: %1', GetLastErrorCode());
     end;
 
-    [Test]
-    procedure NoMatchFindSetDenied()
+    // The reads run in a procedure of the test codeunit, as the probe's Op (Y19PermExtAndCompose.al:561).
+    local procedure FindSetNoMatch()
     var
         T: Record "PQ T";
+    begin
+        T.SetRange(Id, 100);
+        T.FindSet();
+    end;
+
+    local procedure FindLastAt(Value: Integer)
+    var
+        T: Record "PQ T";
+    begin
+        T.SetRange(Id, Value);
+        T.FindLast();
+    end;
+
+    local procedure IsEmptyNoMatch(): Boolean
+    var
+        T: Record "PQ T";
+    begin
+        T.SetRange(Id, 100);
+        exit(T.IsEmpty());
+    end;
+
+    [Test]
+    procedure NoMatchFindSetDenied()
     begin
         Mock.Start();
         Seed(2);
         Mock.Set('PQ Only B');
-        T.SetRange(Id, 100);
-        asserterror T.FindSet();
+        asserterror FindSetNoMatch();
         Expect('Sorry, the current permissions prevented the action. (TableData 52400 PQ T Read: main)', 'DB:ClientReadDenied');
     end;
 
     [Test]
     procedure NoMatchIsEmptyAllowed()
+    begin
+        Mock.Start();
+        Seed(2);
+        Mock.Set('PQ Only B');
+        if not IsEmptyNoMatch() then
+            Error('not empty');
+        Mock.Stop();
+    end;
+
+    // The read in the test method itself (the probe read in a procedure below it).
+    [Test]
+    procedure NoMatchInTestMethod()
     var
         T: Record "PQ T";
     begin
         Mock.Start();
         Seed(2);
-        Mock.Set('PQ Only B');
-        T.SetRange(Id, 100);
-        if not T.IsEmpty() then
-            Error('not empty');
-        Mock.Stop();
-    end;
-
-    // Three rows (the probe seeded two).
-    [Test]
-    procedure NoMatchThreeRows()
-    var
-        T: Record "PQ T";
-    begin
-        Mock.Start();
-        Seed(3);
         Mock.Set('PQ Only B');
         T.SetRange(Id, 100);
         if T.FindSet() then;
     end;
 
+    // Three rows (the probe seeded two).
+    [Test]
+    procedure NoMatchThreeRows()
+    begin
+        Mock.Start();
+        Seed(3);
+        Mock.Set('PQ Only B');
+        FindSetNoMatch();
+    end;
+
     // Another filter value (the probe filtered on 100).
     [Test]
     procedure NoMatchOtherValue()
-    var
-        T: Record "PQ T";
     begin
         Mock.Start();
         Seed(2);
         Mock.Set('PQ Only B');
-        T.SetRange(Id, 99);
-        if T.FindLast() then;
+        FindLastAt(99);
     end;
 
     [Test]
@@ -423,6 +583,124 @@ codeunit 52430 "PQ Tests"
         Mock.Set('PQ Ext Imd B');
         P.OpenEdit();
     end;
+    // The set grants Read on the table (the measured set gives nothing on it).
+    [Test]
+    procedure LetterISetGrantsRead()
+    var
+        C: Codeunit "PQ IA With";
+    begin
+        Mock.Start();
+        Seed(1);
+        Mock.Set('PQ R T');
+        C.InsertOnWriter();
+    end;
+
+    [Test]
+    procedure LetterINoPermsSetGrantsRead()
+    var
+        C: Codeunit "PQ IA No";
+    begin
+        Mock.Start();
+        Seed(1);
+        Mock.Set('PQ R T');
+        C.InsertOnWriter();
+    end;
+
+    // The written table has a trigger.
+    [Test]
+    procedure LetterITableWithTrigger()
+    var
+        C: Codeunit "PQ IA Trig";
+    begin
+        Mock.Start();
+        Seed(1);
+        Mock.Set('PQ None');
+        C.InsertOnWriter();
+    end;
+
+    [Test]
+    procedure IndirectNext()
+    var
+        C: Codeunit "PQ Plain";
+    begin
+        Mock.Start();
+        Seed(1);
+        Mock.Set('PQ None');
+        C.NextOuter();
+    end;
+
+    [Test]
+    procedure IndirectNoMatchFindFirst()
+    var
+        C: Codeunit "PQ Plain";
+    begin
+        Mock.Start();
+        Seed(1);
+        Mock.Set('PQ None');
+        C.NoMatchFirstOuter();
+    end;
+
+    [Test]
+    procedure IndirectFindEq()
+    var
+        C: Codeunit "PQ Plain";
+    begin
+        Mock.Start();
+        Seed(1);
+        Mock.Set('PQ None');
+        C.FindEqOuter();
+    end;
+
+    [Test]
+    procedure IndirectGetBySystemId()
+    var
+        C: Codeunit "PQ Plain";
+        T: Record "PQ T";
+    begin
+        Mock.Start();
+        Seed(1);
+        T.Get(1);
+        Mock.Set('PQ None');
+        C.SysIdOuter(T.SystemId);
+    end;
+
+    // The excluding included set grants what it excludes: not measured, so that set adds nothing (main's lower bound).
+    [Test]
+    procedure ExcludingSetGrantsWhatItExcludes()
+    var
+        T: Record "PQ T";
+    begin
+        Mock.Start();
+        Seed(1);
+        Mock.Set('PQ Inc Ov');
+        T.Id := 5;
+        T.Insert();
+    end;
+
+    // The base table declares its own OnInsert.
+    [Test]
+    procedure TableExtensionBaseWithTrigger()
+    var
+        E: Record "PQ E Code";
+    begin
+        Mock.Start();
+        Seed(1);
+        Mock.Set('PQ Ext Code Imd B');
+        E.Id := 2;
+        E.Insert(true);
+    end;
+
+    // The base page declares its own OnOpenPage.
+    [Test]
+    procedure PageExtensionBaseWithTrigger()
+    var
+        P: TestPage "PQ Page Code";
+    begin
+        Mock.Start();
+        Seed(1);
+        Mock.Set('PQ Ext Code Imd B');
+        P.OpenView();
+    end;
 }
 
 // A failing test, apart from the refused neighbors above (a failure after a refusal in one codeunit is not trusted).
@@ -484,7 +762,7 @@ fn assert_refused(major: u16, test: &str, reason: &str) {
 fn measured_no_match_reads_are_flagged_and_neighbors_refuse() {
     assert_flagged(28, "NoMatchFindSetDenied", Assumption::ReadNoMatchDenied);
     assert_flagged(28, "NoMatchIsEmptyAllowed", Assumption::ReadNoMatchDenied);
-    for test in ["NoMatchThreeRows", "NoMatchOtherValue"] {
+    for test in ["NoMatchThreeRows", "NoMatchOtherValue", "NoMatchInTestMethod"] {
         assert_refused(28, test, "a read other than FindFirst that finds no row");
     }
 }
@@ -499,11 +777,22 @@ fn measured_indirect_letters_are_flagged_and_neighbors_refuse() {
         assert_flagged(28, test, Assumption::InherentAttributeIndirectLetter);
     }
     assert_refused(28, "TwoLetters", "an indirect [InherentPermissions] attribute");
-    assert_refused(
-        28,
+    for test in [
+        "LetterISetGrantsRead",
+        "LetterINoPermsSetGrantsRead",
+        "LetterITableWithTrigger",
+    ] {
+        assert_refused(28, test, "an indirect [InherentPermissions] attribute");
+    }
+    for test in [
         "IndirectReadWithoutAttribute",
-        "by code whose Permissions property grants it",
-    );
+        "IndirectNext",
+        "IndirectNoMatchFindFirst",
+        "IndirectFindEq",
+        "IndirectGetBySystemId",
+    ] {
+        assert_refused(28, test, "by code whose Permissions property grants it");
+    }
 }
 
 #[test]
@@ -512,6 +801,9 @@ fn measured_exclusions_stay_in_their_set_and_neighbors_refuse() {
         assert_flagged(28, test, Assumption::PermissionSetExclusionStaysInSet);
     }
     assert_refused(28, "IncludingSetWithOwnGrants", "not fully composed");
+    // The excluding included set adds nothing, as on main; the other included set grants the Insert, unflagged.
+    let r = result(28, "ExcludingSetGrantsWhatItExcludes");
+    assert_eq!((&r.outcome, r.assumptions.as_slice()), (&Outcome::Pass, &[][..]));
 }
 
 #[test]
@@ -529,6 +821,16 @@ fn extension_code_grants_follow_the_measured_majors() {
         );
         assert_refused(major, "TableExtensionModify", "which Permissions property covers");
         assert_refused(major, "PageExtensionOpenEdit", "which Permissions property covers");
+        assert_refused(
+            major,
+            "TableExtensionBaseWithTrigger",
+            "which Permissions property covers",
+        );
+        assert_refused(
+            major,
+            "PageExtensionBaseWithTrigger",
+            "which Permissions property covers",
+        );
     }
     // The base table's Permissions: IndirectInsert on 28 (the grant holds, the sets give nothing), Insert on 29.
     let text = |major| match &result(major, "TableExtensionTriggerInsertBasePermissions").outcome {

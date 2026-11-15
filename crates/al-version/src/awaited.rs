@@ -19,13 +19,23 @@ pub fn journal_temp_part_reads_after_refresh(target: Option<&Target>) -> Option<
 }
 
 /// Whether the `Permissions` property of a table is the object grant of the code of its table extensions (the OnInsert trigger,
-/// a procedure of the extension) (open corpus PR 1403, permissions/testpermissions/Y19PermExtAndCompose.al, the `#if BC29PLUS`
+/// a procedure of the extension) (corpus PR 1403, merged, not pinned; permissions/testpermissions/Y19PermExtAndCompose.al, the `#if BC29PLUS`
 /// guards of PC_B_ExtensionCode for b13, b14, b17, b18, b23, b24, b27 and b28, commit 100c39fa; observed on 27.5, 28.5 and 29.0 in
 /// its CI run 43637000726): `Some(true)` on 27 and 28, `Some(false)` on 29.
 pub fn base_table_permissions_cover_extension_code(target: Option<&Target>) -> Option<bool> {
     match target.map(|t| t.bc.major) {
         Some(27 | 28) => Some(true),
         Some(29) | None => Some(false),
+        Some(_) => None,
+    }
+}
+
+/// Whether the `Permissions` property of a page is the object grant of the OnOpenPage trigger of its page extensions (corpus
+/// PR 1403, merged, not pinned; permissions/testpermissions/Y19PermExtAndCompose.al:376-383, the same cells on 27.5, 28.5 and
+/// 29.0 in its CI run 43637000726): `Some(true)` on 27, 28 and 29.
+pub fn base_page_permissions_cover_page_extension_open_page(target: Option<&Target>) -> Option<bool> {
+    match target.map(|t| t.bc.major) {
+        Some(27..=29) | None => Some(true),
         Some(_) => None,
     }
 }
@@ -41,6 +51,17 @@ mod tests {
         assert_eq!(at("28.5"), Some(true));
         assert_eq!(at("29.0"), Some(false));
         assert_eq!(base_table_permissions_cover_extension_code(None), Some(false));
+        assert_eq!(at("30.0"), None);
+    }
+
+    #[test]
+    fn the_base_page_grant_of_page_extension_code_holds_on_the_measured_majors() {
+        let at = |v: &str| base_page_permissions_cover_page_extension_open_page(Some(&target(v)));
+        for v in ["27.5", "28.5", "29.0"] {
+            assert_eq!(at(v), Some(true), "{v}");
+        }
+        assert_eq!(base_page_permissions_cover_page_extension_open_page(None), Some(true));
+        assert_eq!(at("26.0"), None);
         assert_eq!(at("30.0"), None);
     }
 

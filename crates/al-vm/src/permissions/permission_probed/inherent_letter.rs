@@ -1,6 +1,6 @@
 //! A lower-case (indirect) letter of an `[InherentPermissions]` attribute (al-runner issue 8066).
 //!
-//! Upper-case letters are pinned (CpPermLeads.al:155-189, in `permissions.rs`). Corpus PR 1403 (open;
+//! Upper-case letters are pinned (CpPermLeads.al:155-189, in `permissions.rs`). Corpus PR 1403 (merged, not pinned;
 //! permissions/testpermissions/Y19InherentAttrIndirect.al, test IA_LowerCaseAttribute) measured on BC 27.5, 28.5 and 29.0 that
 //! `'i'` and `'r'` give the indirect level for the call and the calls it makes, which the code's `Permissions` property turns
 //! into an allowed access (ops 1, 4, 5) and which without it is denied as `Insert` (ops 11, 13) (assumption
@@ -33,13 +33,16 @@ impl Session {
             Op::Read => l == [2, 0, 0, 0, 0] && grant,
             _ => false,
         };
-        // The sets give nothing on the table (`LT IA None`, :28-32, by `Mock.Set`, :198).
+        // The sets give nothing on the table (`LT IA None`, :28-32, by `Mock.Set`, :198), a table that runs no trigger (`LT IA
+        // Row`, :14-23).
         let Some(table) = table else {
             return false;
         };
         let measured = access.kind == 0
             && letter
             && u == 0
+            && self.levels_are(access, &[[0, 0, 0, 0]])
+            && self.table_runs_no_trigger(table)
             && self.record_calls.is_empty()
             && self.probed_sets(table)
             && self.inherent_letter_frames(frame, caller, access);
@@ -53,7 +56,7 @@ impl Session {
     /// corpus PR 1403 measured with an attribute on the stack whose letter does not cover the read: `'m'` on the writer
     /// (`ModifyM`, Y19InherentAttrIndirect.al:59-66, op 2) or on its caller (`ModifyOnCaller`, :47-48, op 6) and `'d'` on the
     /// writer (`DeleteD`, :68-76, op 3), each denied as `IndirectRead` (:168-177); the frames as
-    /// [`Session::inherent_letter_frames`]; the sets give nothing on the table. Marks the assumption when it is.
+    /// [`Session::inherent_letter_frames`]; the sets give nothing on the table, which runs no trigger. Marks the assumption when it is.
     pub(crate) fn indirect_read_measured(&self, access: Access, table: usize, by: usize) -> bool {
         let n = self.frames.len();
         if access.kind != 0 || access.op != Op::Read || n < 2 || self.call_stack.len() != n {
@@ -74,6 +77,7 @@ impl Session {
         let measured = permissions_only
             && self.record_calls.is_empty()
             && self.levels_are(access, &[[0, 0, 0, 0]])
+            && self.table_runs_no_trigger(table)
             && self.probed_sets(table)
             && self.inherent_letter_frames(frame, by, access);
         if measured {

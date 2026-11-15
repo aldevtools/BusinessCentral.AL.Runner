@@ -10,8 +10,12 @@
 //! - an included set that does not exist adds nothing, and a cycle of includes gives each set the rights of all of them
 //!   (:191 Compose_IncludedSetMissing_And_Cycle).
 //!
+//! - corpus PR 1403 (merged, not pinned; Y19PermExtAndCompose.al PC_D_ExpandedPermissionOfTenantObjectGrants, assumption
+//!   `tenant-object-grants-expanded-as-stored`) lists own rows of other object types as stored, in the shape
+//!   [`measured_object_grant`] allows, for a set that includes and excludes nothing and that no other set names.
+//!
 //! Only the shapes the corpus measured are served; a set that uses another is refused when a read can reach it: a right of
-//! Indirect, a Security Filter, an object type other than Table Data, a row with no right, a relation to a System set, an
+//! Indirect, a Security Filter, any other row of an object type other than Table Data, a row with no right, a relation to a System set, an
 //! included set that excludes, an excluded set that is missing or composes itself, and Tenant Permission rows of a role
 //! without a set. A set composed again after its rows changed is refused: the platform keeps the last composed set
 //! (TestMetadataExpandedPermission.al:196-207), which is not modelled.
@@ -278,10 +282,17 @@ fn included(
     if !top && (!set.exclude.is_empty() || !set.excludes.is_empty()) {
         return Err("an included tenant set that excludes rights".into());
     }
-    // The measured set with grants of other object types has only its own rows (Y19PermExtAndCompose.al:455-477).
-    if set.object_grants && (!top || !set.includes.is_empty() || !set.excludes.is_empty() || !set.exclude.is_empty()) {
+    // The measured set with grants of other object types has only its own rows, and no other set names it
+    // (Y19PermExtAndCompose.al:455-477).
+    let named = || {
+        sets.values()
+            .any(|s| s.includes.contains(key) || s.excludes.contains(key))
+    };
+    if set.object_grants
+        && (!top || !set.includes.is_empty() || !set.excludes.is_empty() || !set.exclude.is_empty() || named())
+    {
         return Err(
-            "a tenant set with grants of an object type other than Table Data that includes, excludes or is included"
+            "a tenant set with grants of an object type other than Table Data that includes, excludes or is included or excluded"
                 .into(),
         );
     }
@@ -302,11 +313,15 @@ fn compose(sets: &HashMap<SetKey, TenantSet>, key: &SetKey) -> Result<Rights, St
             return Err("an excluded tenant set that does not exist".into());
         };
         if other.unpinned.is_some()
+            || other.object_grants
             || !other.includes.is_empty()
             || !other.excludes.is_empty()
             || !other.exclude.is_empty()
         {
-            return Err("an excluded tenant set that composes other sets or excludes rights".into());
+            return Err(
+                "an excluded tenant set that composes other sets, excludes rights or grants an object type other than Table Data"
+                    .into(),
+            );
         }
         remove(&mut rights, &other.include);
     }
@@ -390,7 +405,7 @@ pub(super) fn tenant_expanded_entries(
 }
 
 /// Whether a Tenant Permission row of object type `kind` (the "Object Type" ordinal) for object `id` with levels `level` is in
-/// the shape corpus PR 1403 measured (open; permissions/testpermissions/Y19PermExtAndCompose.al:466-490, test
+/// the shape corpus PR 1403 measured (merged, not pinned; permissions/testpermissions/Y19PermExtAndCompose.al:466-490, test
 /// PC_D_ExpandedPermissionOfTenantObjectGrants, assumption `tenant-object-grants-expanded-as-stored`): a row of Type Include,
 /// no Security Filter, every permission column Yes (its InitValue), for a Table, Report, Codeunit, XMLport, Page or Query object
 /// of the program, or System object 1350; "Expanded Permission" lists it as it is stored (:450-451).

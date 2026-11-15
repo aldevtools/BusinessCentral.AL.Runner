@@ -78,6 +78,21 @@ pub(crate) struct Content {
     pub cut: Vec<(i32, u32, Levels)>,
 }
 
+/// Whether two declared contents grant explicit objects only, none of them in both.
+fn grants_apart(a: &Result<Content, String>, b: &Result<Content, String>) -> bool {
+    let only_explicit = |c: &Content| c.wild == Wildcards::default() && c.unread_system.is_empty() && c.cut.is_empty();
+    match (a, b) {
+        (Ok(a), Ok(b)) => {
+            only_explicit(a)
+                && only_explicit(b)
+                && a.explicit
+                    .iter()
+                    .all(|(k, id, _)| !b.explicit.iter().any(|(k2, id2, _)| k == k2 && id == id2))
+        }
+        _ => false,
+    }
+}
+
 fn merge(a: u8, b: u8) -> u8 {
     if a == 1 || b == 1 { 1 } else { a.max(b) }
 }
@@ -336,7 +351,8 @@ impl SetModel {
     /// (permissions/testpermissions/Y19PermExtAndCompose.al:40-62, PC_A_Composition ops 1-3, allowed, :269-287): `i` grants nothing
     /// itself, excludes nothing and includes exactly `t` and one more set `s`; `t` includes nothing and excludes exactly one
     /// set `e`, which includes and excludes nothing; `s` includes and excludes nothing and declares what `e` declares (`s` is
-    /// `e`, or a set with the same grants). Then `t`'s exclusion takes only from `t`: `s` keeps its grants.
+    /// `e`, or a set with the same grants); `t` and `e` grant no object in common (`LT PC Narrow` grants "LT PC B", `LT PC
+    /// Grant T` "LT PC T", :41-50). Then `t`'s exclusion takes only from `t`: `s` keeps its grants.
     fn exclusion_stays_in_include(&self, i: usize, t: usize) -> bool {
         let plain = |x: usize| {
             let x = &self.sets[x];
@@ -366,11 +382,12 @@ impl SetModel {
             && plain(e)
             && plain(*s)
             && self.sets[*s].declared == self.sets[e].declared
+            && grants_apart(&inc.declared, &self.sets[e].declared)
     }
 
     /// Whether the assigned sets `found` (Role IDs `roles`) are in the shape corpus PR 1403 measured
     /// (Y19PermExtAndCompose.al:65-71, PC_A_Composition ops 4-6, allowed, :269-287, after `Mock.Set(X)` and `Mock.Assign(Y)` in
-    /// both orders, :476-487): 'All Objects' and two sets, one of them `y` excluding exactly the other `x`; `x` and `y`
+    /// both orders, :504-517): 'All Objects' and two sets, one of them `y` excluding exactly the other `x`; `x` and `y`
     /// include nothing and `x` excludes nothing. Then `y`'s exclusion takes nothing from `x`.
     fn assigned_exclusion_measured(&self, roles: &[String], found: &[usize]) -> bool {
         let [a, b, c] = found else {
@@ -923,7 +940,7 @@ impl Session {
             return Verdict::Allow;
         }
         // The object grant `G`: the caller's own `Permissions` property (pin 4: Y19PermComposition.al:45-58, the frame's
-        // object only). Code of an extension object: which property applies is not pinned.
+        // object only). Code of an extension object: below.
         let grant = if flowfield {
             true
         } else if o.kind.extended().is_some() {
@@ -1801,7 +1818,7 @@ impl Session {
             let found = al_data::Store::count(&*self.store_for(rec)?, &cx, &t, &filters)
                 .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             return if found > 0 && *g != [0; 16] {
-                Err(self.denial_error(access, "Read", "Read", by))
+                Err(self.read_denial(method, access, indirect, by))
             } else {
                 Ok(())
             };
@@ -1813,7 +1830,7 @@ impl Session {
         };
         if method == R::Find && exact {
             return if self.row_exists(rec)? {
-                Err(self.denial_error(access, "Read", "Read", by))
+                Err(self.read_denial(method, access, indirect, by))
             } else if self.key_is_blank(rec, &t)? {
                 // A blank key finds no row and raises nothing (AEDependencyTableReads.al `Customer_find_eq`).
                 Ok(())
@@ -1831,7 +1848,7 @@ impl Session {
             // FindFirst with a filter that matches no row is denied (AEDependencyTableReads.al `Customer_filter_no_match`); the
             // other methods are not pinned for it.
             if method == R::FindFirst {
-                return Err(self.denial_error(access, "Read", "Read", by));
+                return Err(self.read_denial_no_match(access, indirect, by));
             }
             use self::permission_probed::reads::NoMatchRead;
             return match self.read_no_match_probed(method, rec, args, access, indirect, by, caller, total)? {
@@ -1845,7 +1862,7 @@ impl Session {
             R::Next if !filters.is_empty() || !self.key_is_blank(rec, &t)? => {
                 refuse("Next on a record with a filter or a position")
             }
-            R::Next => Err(self.denial_error(access, "Read", "Read", by)),
+            R::Next => Err(self.read_denial(method, access, indirect, by)),
             R::Find | R::FindFirst | R::FindLast | R::FindSet | R::Count | R::CountApprox | R::IsEmpty => {
                 Err(self.read_denial(method, access, indirect, by))
             }

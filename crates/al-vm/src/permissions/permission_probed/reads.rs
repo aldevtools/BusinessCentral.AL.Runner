@@ -2,7 +2,7 @@
 //! and the text of a read denied to code whose Permissions property grants it (al-runner issue 8066).
 //!
 //! FindFirst is pinned for a dependency table (AEDependencyTableReads.al `Customer_filter_no_match`, in `permissions.rs`).
-//! Corpus PR 1403 (open; permissions/testpermissions/Y19PermExtAndCompose.al, test PC_C_NoMatchReadsAndDelete, ops 42-46)
+//! Corpus PR 1403 (merged, not pinned; permissions/testpermissions/Y19PermExtAndCompose.al, test PC_C_NoMatchReadsAndDelete, ops 42-46)
 //! measured FindSet, FindLast, Find('-') and Count denied with `Read`, and IsEmpty allowed, on BC 27.5, 28.5 and 29.0
 //! (assumption `read-no-match-denied`). The measured shape is an allowlist of its facts here; every other no-match read
 //! is refused.
@@ -25,10 +25,23 @@ pub(crate) enum NoMatchRead {
 
 impl Session {
     /// BC's error for a denied read `method` that finds a row, by the code of object `by`; `indirect` when its Permissions
-    /// property grants the read. Without that grant the text names `Read` (Y24PermReads.al Y24_P14_ReadShapesWithRows). With
-    /// it, corpus PR 1403 measured `IndirectRead` for Get and FindFirst in the shapes of
-    /// [`Session::indirect_read_measured`]; every other read with the grant is refused.
+    /// property grants the read. See [`Session::read_denial_of`].
     pub(crate) fn read_denial(&self, method: RecordOp, access: Access, indirect: bool, by: usize) -> Signal {
+        self.read_denial_of(method, true, access, indirect, by)
+    }
+
+    /// BC's error for a denied FindFirst whose filter matches no row of a table that holds rows (AEDependencyTableReads.al
+    /// `Customer_filter_no_match`), as [`Session::read_denial`].
+    pub(crate) fn read_denial_no_match(&self, access: Access, indirect: bool, by: usize) -> Signal {
+        self.read_denial_of(RecordOp::FindFirst, false, access, indirect, by)
+    }
+
+    /// BC's error for denied read `method`, which finds a row when `found`. Without the grant of the Permissions property the
+    /// text names `Read` (Y24PermReads.al Y24_P14_ReadShapesWithRows; AEDependencyTableReads.al for GetBySystemId,
+    /// Find('='), Next and a FindFirst that finds no row). With it, corpus PR 1403 measured `IndirectRead` for a Get and a
+    /// FindFirst that find a row (Y19InherentAttrIndirect.al:59-76) in the shapes of [`Session::indirect_read_measured`];
+    /// every other read with the grant is refused.
+    fn read_denial_of(&self, method: RecordOp, found: bool, access: Access, indirect: bool, by: usize) -> Signal {
         if !indirect {
             return self.denial_error(access, "Read", "Read", by);
         }
@@ -39,7 +52,8 @@ impl Session {
             .heads()
             .iter()
             .position(|o| o.kind == al_ir::ObjKind::Table && o.id == Some(access.id));
-        let measured = matches!(method, RecordOp::Get | RecordOp::FindFirst)
+        let measured = found
+            && matches!(method, RecordOp::Get | RecordOp::FindFirst)
             && table.is_some_and(|t| self.indirect_read_measured(access, t, by));
         if measured {
             return self.denial_error(access, "IndirectRead", "Read", by);
@@ -75,14 +89,16 @@ impl Session {
         };
         let table = rec.borrow().table as usize;
         let target = self.no_match_target(rec, rows)?;
-        // A Record variable of the test codeunit's procedure Op (:561), whose object grants nothing on the table; the
-        // sets give nothing on it (`LT PC Only B`, :230, assigned by `Mock.Set`, :522-523).
+        // A Record variable of the test codeunit's procedure Op (:561), not the test method, whose object grants nothing on
+        // the table; the sets give nothing on it (`LT PC Only B`, :230, assigned by `Mock.Set`, :522-523).
+        let below_test_method = self.frames.len() > self.test_frame_base() + 1;
         let measured = caller == RecordCaller::Record
             && !indirect
             && probed_read_target(&target)
             && self.levels_are(access, &[[0, 0, 0, 0]])
             && self.probed_sets(table)
-            && self.test_codeunit_code(by);
+            && self.test_codeunit_code(by)
+            && below_test_method;
         if !measured {
             return Ok(None);
         }

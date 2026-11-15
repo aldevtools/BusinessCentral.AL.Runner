@@ -49,24 +49,17 @@ impl Session {
             "onopenpage" => TriggerKind::OpenPage,
             _ => TriggerKind::Other,
         };
-        let view = kind == TriggerKind::OpenPage && st.borrow().test_open_view();
-        if view {
-            self.pages.test_view_open_pages.push(st.borrow().object as usize);
-        }
-        self.pages.trigger_kinds.push((Rc::as_ptr(st), kind));
+        let view = (kind == TriggerKind::OpenPage && st.borrow().test_open_view()).then(|| st.borrow().object as usize);
+        self.pages.trigger_kinds.push((Rc::as_ptr(st), kind, view));
         let r = f(self);
         self.pages.trigger_kinds.pop();
-        if view {
-            self.pages.test_view_open_pages.pop();
-        }
         r
     }
 
     /// Whether the innermost page trigger running now is the OnOpenPage of page object `page`, on a page the test opened with
     /// `TestPage.OpenView`.
     pub(crate) fn page_open_by_test_open_view(&self, page: usize) -> bool {
-        matches!(self.pages.trigger_kinds.last(), Some((_, TriggerKind::OpenPage)))
-            && self.pages.test_view_open_pages.last() == Some(&page)
+        matches!(self.pages.trigger_kinds.last(), Some((_, TriggerKind::OpenPage, Some(p))) if *p == page)
     }
 
     /// Runs one TestPage call on page `st`; a `CurrPage.Close()` its code vetoed is asked again when it returns.
@@ -200,7 +193,7 @@ impl Session {
             );
         }
         let kind = match self.pages.trigger_kinds.last() {
-            Some((p, k)) if *p == Rc::as_ptr(st) => *k,
+            Some((p, k, _)) if *p == Rc::as_ptr(st) => *k,
             _ => TriggerKind::Other,
         };
         if matches!(kind, TriggerKind::Other | TriggerKind::OpenPage)

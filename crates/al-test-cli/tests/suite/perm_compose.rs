@@ -131,9 +131,10 @@ const OBJECT_GRANT: &str = r#"
   end;
 "#;
 
-/// Corpus PR 1403 (open; permissions/testpermissions/Y19PermExtAndCompose.al PC_D_ExpandedPermissionOfTenantObjectGrants,
+/// Corpus PR 1403 (merged, not pinned; permissions/testpermissions/Y19PermExtAndCompose.al PC_D_ExpandedPermissionOfTenantObjectGrants,
 /// assumption `tenant-object-grants-expanded-as-stored`): object rows with every column Yes are listed as stored. A System id
-/// other than 1350, a column left blank and an object row of an included set are not measured and keep the refusal.
+/// other than 1350, a column left blank, an object row of an included or excluded set, and a set that another set includes or
+/// excludes are not measured and keep the refusal.
 #[test]
 fn tenant_object_grants_in_the_measured_shape_only() {
     let o = run(&format!(
@@ -150,13 +151,29 @@ fn tenant_object_grants_in_the_measured_shape_only() {
   [Test] procedure IncludedObjectSet() var P: Record "Tenant Permission"; begin
     AddSet('K LEAF'); AddSet('K TOP'); AddObject('K LEAF', P."Object Type"::System, 1350); AddRel('K TOP', 'K LEAF', 0);
     ObjectRows('K TOP'); end;
+  [Test] procedure ListedSetIncludedByAnother() var P: Record "Tenant Permission"; begin
+    AddSet('L LEAF'); AddSet('L TOP'); AddObject('L LEAF', P."Object Type"::System, 1350); AddRel('L TOP', 'L LEAF', 0);
+    ObjectRows('L LEAF'); end;
+  [Test] procedure ListedSetExcludedByAnother() var P: Record "Tenant Permission"; begin
+    AddSet('M LEAF'); AddSet('M TOP'); AddObject('M LEAF', P."Object Type"::System, 1350); AddRel('M TOP', 'M LEAF', 1);
+    ObjectRows('M LEAF'); end;
+  [Test] procedure ExcludedObjectSet() var P: Record "Tenant Permission"; begin
+    AddSet('N LEAF'); AddSet('N TOP'); AddObject('N LEAF', P."Object Type"::System, 1350); AddRel('N TOP', 'N LEAF', 1);
+    ObjectRows('N TOP'); end;
 "#
     ));
     assert_eq!(
         failed_with(&o, "Measured"),
         "[Codeunit 50000 YesYes][System 1350 YesYes]"
     );
-    for name in ["OtherSystemId", "BlankColumn", "IncludedObjectSet"] {
+    for name in [
+        "OtherSystemId",
+        "BlankColumn",
+        "IncludedObjectSet",
+        "ListedSetIncludedByAnother",
+        "ListedSetExcludedByAnother",
+        "ExcludedObjectSet",
+    ] {
         let (_, out) = o.iter().find(|(n, _)| n == name).expect("test");
         assert!(
             matches!(out, Outcome::NotRun(why) if why.contains("tenant set")),
