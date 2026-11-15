@@ -180,8 +180,8 @@ codeunit 50310 "Clock Tests"
 }
 "#;
 
-/// Two runs that start at different moments read the same time of day: the run clock starts at 12:00:00 UTC of the day
-/// (ADR-045 amendment), so an outcome that depends on `Time` does not depend on when the run, or the run that kept its
+/// Two runs that start at different moments read the same time of day: the run clock starts at 12:34:56.789 UTC of the
+/// day (ADR-045 amendments of 2026-10-19 and 2026-11-15), so an outcome that depends on `Time` does not depend on when the run, or the run that kept its
 /// install baseline, began. Before, the clock started at the wall time of the first read: `Job Posting.
 /// PurchaseOrderFCYWithJob` (Tests-Job, codeunit 136309) seeds `Random` from `Time` in an earlier test of its codeunit
 /// and passed or failed depending on which other codeunits were selected (ADR-043 condition 1).
@@ -211,8 +211,8 @@ fn the_run_clock_starts_at_the_same_time_of_day_in_every_run() {
         first, second,
         "the time of day a test reads depends on when its run began"
     );
-    // The first read of a session is the run clock's start: noon (12 h after midnight, in ms).
-    assert_eq!(first.replace(',', ""), "43200000");
+    // The first read of a session is the run clock's start: 12:34:56.789 (in ms after midnight).
+    assert_eq!(first.replace(',', ""), "45296789");
 }
 
 #[test]

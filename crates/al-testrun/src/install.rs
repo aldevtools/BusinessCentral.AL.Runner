@@ -1286,6 +1286,11 @@ fn open_test_session_company(
         }
     }
     let raise = matches!(decision, crate::login::Login::Raise);
+    // Under `--no-client` which login events a web-service session raises is not measured (assumption `no-client-session`):
+    // the raised login is refused, before any login code runs.
+    if raise && watched == Some(crate::login::NO_CLIENT) {
+        return Err(format!("the login: {}", crate::login::NO_CLIENT_RAISE));
+    }
     let partner = crate::partner_login::subscribers(lowered, &engine.events, raise, watched);
     let (own, watched): (&[crate::login::OwnEvent], _) = match &decision {
         crate::login::Login::Own { events, watched } => (events, *watched),

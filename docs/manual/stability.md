@@ -47,7 +47,7 @@ else is the next argument.
     "random.librarySeed": { "range": [2, 1000000], "samples": 3 },
     "workDate.offset": ["+0D", "+1Y"],
     "clock.date": ["+0D", "2028-02-29"],
-    "clock.timeOfDay": ["12:00:00.000", "23:59:59.500"]
+    "clock.timeOfDay": ["12:34:56.789", "23:59:59.500"]
   },
   "strategy": "oneAtATime",
   "masterSeed": 4711,
@@ -124,7 +124,7 @@ to run on. Every combination is a cell, and every cell runs all variants:
 | `guid.seed` | The seed of `CreateGuid` and new SystemIds |
 | `workDate.offset` | The work date each test codeunit starts with, such as `+1Y`, `-3M`, `+45D` |
 | `clock.date` | The date of the run clock: an offset or a fixed date such as `2028-02-29` |
-| `clock.timeOfDay` | The time of day the clock starts at. A normal run starts at noon. |
+| `clock.timeOfDay` | The time of day the clock starts at. A normal run starts at 12:34:56.789 UTC. |
 | `clock.stepMs` | Milliseconds the clock moves per read. It must be above 0. |
 | `identity.userId` | `UserId`. Letters and digits, up to 50 characters. |
 | `identity.userSecurityId`, `identity.sessionId`, `identity.serviceInstanceId`, `identity.tenantId` | The other identity values |
