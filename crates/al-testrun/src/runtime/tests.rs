@@ -698,59 +698,7 @@ fn company_triggers_run_in_the_install_session_before_the_per_company_routines()
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
-/// The outcomes, and per test the ids of the assumptions it hit.
-pub(super) type OutcomesAndHits = (Vec<(String, Outcome)>, Vec<(String, Vec<&'static str>)>);
-
-/// The outcomes and the assumption ids each test hit, of the test codeunit `codeunit` of a program of several apps (id,
-/// dependencies, source); the app with id `dep` is a dependency app (ADR-013), the others are under test.
-pub(super) fn outcomes_and_hits_of_apps(apps: &[(&str, &[&str], &str)], codeunit: &str) -> OutcomesAndHits {
-    let (ws, l) = al_sema::lower::compile_apps(
-        apps.iter()
-            .map(|(id, deps, src)| AppSource {
-                id: (*id).into(),
-                name: (*id).into(),
-                dependencies: deps.iter().map(|d| (*d).to_string()).collect(),
-                files: vec![(format!("{id}.al"), (*src).into())],
-            })
-            .collect(),
-        apps.iter()
-            .map(|(id, _, _)| {
-                if *id == "dep" {
-                    al_sema::AppKind::Dependency
-                } else {
-                    al_sema::AppKind::Workspace
-                }
-            })
-            .collect(),
-        &Default::default(),
-    );
-    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    let blocked = l
-        .unsupported
-        .iter()
-        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
-        .collect();
-    let engine = Engine::new(l.program.clone(), blocked);
-    let oi = l.program.objects.iter().position(|o| o.name == codeunit).unwrap();
-    let mut hits = Vec::new();
-    let done = run_codeunit_full(
-        &engine,
-        &l,
-        oi,
-        None,
-        TestIsolation::Codeunit,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut hits,
-        None,
-    );
-    let hits = hits
-        .into_iter()
-        .map(|(n, h)| (n, h.iter().map(|a| a.info().id).collect()))
-        .collect();
-    (done, hits)
-}
+pub(super) use super::app_outcomes_tests::{OutcomesAndHits, outcomes_and_hits_of_apps};
 
 // ADR-046 amendment 1, A4 item 4, owner decision 2026-10-19 (al-runner issue 6046): the install session of an app raises
 // Company Triggers OnCompanyOpen to the subscribers of every installed app, not only its own: an assumption until probe Q3.
@@ -810,7 +758,7 @@ fn when_another_apps_company_triggers_subscriber_cannot_run_the_per_company_inst
         "{o:?}"
     );
     assert!(
-        matches!(&o[1].1, Outcome::NotRun(r) if r.contains("Company Triggers")),
+        matches!(&o[1].1, Outcome::NotRun(r) if r.contains("Company Triggers") && r.contains("DepOpenLater.Open")),
         "{o:?}"
     );
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");

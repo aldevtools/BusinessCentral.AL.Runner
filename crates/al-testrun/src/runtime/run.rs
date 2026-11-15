@@ -171,6 +171,43 @@ pub fn run_codeunit_full(
     )
 }
 
+/// What the test session does when it opens the company, before the codeunit's OnRun and first test: the login code that
+/// sets WorkDate, then the Company Triggers subscribers and the login (`install::test_session_company_open`, under
+/// RequiredTestIsolation = Disabled when `disabled`), committed; then the `workDate.offset` of a stability run. `Err`: why
+/// the codeunit is not run.
+fn open_company(
+    engine: &Engine,
+    lowered: &Lowered,
+    session: &mut Session,
+    disabled: bool,
+    skipped_installs: &[(BTreeSet<u32>, String)],
+    perturb: &crate::stability::Perturb,
+) -> Result<crate::install::CompanyOpenWrites, String> {
+    // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
+    // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
+    // (docs/probes-needed.md, WorkDate row).
+    crate::install::login_work_date(engine, lowered, session)?;
+    let wrote = crate::install::test_session_company_open(lowered, session, disabled, skipped_installs)?;
+    session.commit_transaction();
+    // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
+    // a `WorkDate(d)` of the test still wins.
+    if let Some(shift) = perturb.work_date {
+        let day = session.work_date();
+        session.set_work_date(shift.apply_day(day));
+    }
+    Ok(wrote)
+}
+
+/// The tables `watched` and those of `skipped_installs` (`skipped_install_tables`), for the store's watch.
+fn with_skipped<'a>(
+    watched: impl Iterator<Item = &'a u32>,
+    skipped_installs: &[(BTreeSet<u32>, String)],
+) -> BTreeSet<u32> {
+    let mut out: BTreeSet<u32> = watched.copied().collect();
+    out.extend(skipped_install_tables(skipped_installs));
+    out
+}
+
 /// The reason of the first skipped install that wrote a table `routine` can reach. The tables the routine reaches are
 /// found once, and only when an install was skipped: the walk of its calls cost as much as the test for every skipped install.
 fn skipped_install_touching<'a>(
@@ -396,24 +433,10 @@ fn run_codeunit_inner(
     let company_open = if execute {
         crate::install::CompanyOpenWrites::default()
     } else {
-        // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
-        // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
-        // (docs/probes-needed.md, WorkDate row).
-        if let Err(why) = crate::install::login_work_date(engine, lowered, &mut session) {
-            return all(Outcome::NotRun(why));
-        }
-        match crate::install::test_session_company_open(lowered, &mut session, isolation == TestIsolation::Disabled) {
+        let disabled = isolation == TestIsolation::Disabled;
+        match open_company(engine, lowered, &mut session, disabled, &skipped_installs, &perturb) {
+            Ok(wrote) => wrote,
             Err(why) => return all(Outcome::NotRun(why)),
-            Ok(wrote) => {
-                session.commit_transaction();
-                // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the
-                // login code set it; a `WorkDate(d)` of the test still wins.
-                if let Some(shift) = perturb.work_date {
-                    let day = session.work_date();
-                    session.set_work_date(shift.apply_day(day));
-                }
-                wrote
-            }
         }
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
@@ -489,7 +512,7 @@ fn run_codeunit_inner(
             if let Some(reason) = company_open_refuses(on_run) {
                 return Err(on_run_refused(format!("OnRun: {reason}")));
             }
-            session.store_mut().watch(leak.clone());
+            session.store_mut().watch(with_skipped(leak.iter(), &skipped_installs));
             // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
             // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
             // AL code observes.
@@ -507,10 +530,12 @@ fn run_codeunit_inner(
             }
             let timed_out = watchdog.is_some_and(Watchdog::finish);
             let ran = on_run_time_limit(session, ran, limit, timed_out);
-            if session.store_mut().watch_hit().is_some() {
-                scratch.leak_hit = true;
-            }
+            let hits = session.store_mut().watch_hits();
+            scratch.leak_hit |= !leak.is_disjoint(&hits);
             session.store_mut().watch(Default::default());
+            if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits) {
+                return Err(on_run_refused(format!("OnRun: {why}")));
+            }
             match ran {
                 // NavTestCodeunit.DoRunAsync commits after a declared OnRun
                 // (codeunits/TestTestCodeunitOnRun.al).
@@ -706,9 +731,8 @@ fn run_codeunit_inner(
                     Err(reason) => Outcome::NotRun(reason),
                     Ok(()) => {
                         began = true;
-                        session
-                            .store_mut()
-                            .watch(company_open.watched().union(&leak).copied().collect());
+                        let watched = with_skipped(company_open.watched().union(&leak), &skipped_installs);
+                        session.store_mut().watch(watched);
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
                         mark_test_start_assumptions(lowered, on_run_shape_assumed);
@@ -1011,7 +1035,13 @@ fn run_codeunit_inner(
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
             let hit = company_open.watch_hit(&touched, began);
-            let outcome = match hit.and_then(|t| company_open.touched(t, lowered)) {
+            // A test that read or wrote a table install code that could not run touches, through a path its record
+            // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
+            // issue 8115, scenario s03b).
+            let skipped_hit = skipped_install_hit(&skipped_installs, &touched).filter(|_| began);
+            let outcome = match (hit.and_then(|t| company_open.touched(t, lowered)))
+                .or_else(|| skipped_hit.map(|(_, why)| why.clone()))
+            {
                 Some(why) => Outcome::NotRun(why),
                 None => {
                     if began && !leak.is_disjoint(&touched) {
