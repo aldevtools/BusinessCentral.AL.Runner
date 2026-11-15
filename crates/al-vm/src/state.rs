@@ -321,7 +321,7 @@ pub(crate) struct PageClients {
     /// The page triggers running now, innermost last, with their page (`pages/code_close_veto.rs`).
     pub(crate) trigger_kinds: Vec<(*const RefCell<crate::pages::PageState>, crate::pages::TriggerKind)>,
     /// The page objects whose OnOpenPage runs now, innermost last, on a page the test opened with `TestPage.OpenView`
-    /// (`pages/code_close_veto.rs`, read by `permission_probed/extension_code.rs`).
+    /// (`pages/code_close_veto.rs`, read by `permissions/permission_probed/extension_code.rs`).
     pub(crate) test_view_open_pages: Vec<usize>,
     /// How many TestPage calls run now, nested (`pages/code_close_veto.rs`).
     pub(crate) client_depth: u32,

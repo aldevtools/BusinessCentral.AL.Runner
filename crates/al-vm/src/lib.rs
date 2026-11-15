@@ -108,7 +108,6 @@ pub mod observer_tap;
 mod pages;
 mod partial;
 mod permission_bulk_no_match;
-mod permission_probed;
 mod permission_shadow;
 mod permission_system_flowfield;
 mod permission_triggers;

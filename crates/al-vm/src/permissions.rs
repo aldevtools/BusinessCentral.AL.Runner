@@ -16,6 +16,9 @@
 //! stages of ADR-062 section 5 turn the checks on once their probes land).
 
 use crate::{Engine, Session};
+
+// The permission cells corpus PR 1403 measured, a child of this module.
+mod permission_probed;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::Signal;
 use std::collections::HashMap;
@@ -924,7 +927,7 @@ impl Session {
         let grant = if flowfield {
             true
         } else if o.kind.extended().is_some() {
-            // The shapes corpus PR 1403 measured (`permission_probed/extension_code.rs`).
+            // The shapes corpus PR 1403 measured (`permissions/permission_probed/extension_code.rs`).
             match self.extension_code_grant(access, caller) {
                 Some(g) => g,
                 None => {
@@ -1830,7 +1833,7 @@ impl Session {
             if method == R::FindFirst {
                 return Err(self.denial_error(access, "Read", "Read", by));
             }
-            use crate::permission_probed::reads::NoMatchRead;
+            use self::permission_probed::reads::NoMatchRead;
             return match self.read_no_match_probed(method, rec, args, access, indirect, by, caller, total)? {
                 Some(NoMatchRead::Denied) => Err(self.denial_error(access, "Read", "Read", by)),
                 Some(NoMatchRead::Allowed) => Ok(()),

@@ -910,7 +910,14 @@ fn denied_reads_raise_the_read_error() {
 
 #[test]
 fn denials_in_unpinned_shapes_are_refused() {
-    refused("DeniedReadIsRefused", "not pinned");
+    // A no-match FindLast on a table with two rows: corpus PR 1403 measured the `Read` denial (Y19PermExtAndCompose.al
+    // PC_C_NoMatchReadsAndDelete op 43, assumption `read-no-match-denied`); the test has no asserterror, so it fails with it.
+    assert_eq!(
+        outcome(results(), "DeniedReadIsRefused"),
+        Outcome::Fail(
+            "Sorry, the current permissions prevented the action. (TableData 50990 PX Row Read: main)".into()
+        )
+    );
     refused("DenialUnderAnUnknownSetIsRefused", "not fully composed");
     refused("AssignOnTopOfTheRunnerSets", "P25");
 }
