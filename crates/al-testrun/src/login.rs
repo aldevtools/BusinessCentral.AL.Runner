@@ -392,15 +392,7 @@ fn own_events_of_microsoft(lowered: &Lowered, events: &Registry) -> Vec<(usize, 
 /// it can see what they leave besides rows ([`watched_state`]).
 pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: Option<&'static str>) -> Login {
     let events = &engine.events;
-    let login = engine.derived(|| {
-        let own_events = own_events(lowered, events);
-        let subs = own_events.iter().flat_map(|e| e.subscribers.iter().copied()).collect();
-        LoginSubscribers {
-            own_events,
-            subs,
-            database_events: OnceLock::new(),
-        }
-    });
+    let login = login_subscribers(engine, lowered);
     let subs = &login.subs;
     if subs.is_empty() {
         return Login::None;
@@ -429,17 +421,10 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
         return Login::Raise;
     }
     let writes = &left.facts.writes;
-    let roots: Vec<(usize, usize)> = (0..lowered.program.objects[test].routines.len())
-        .map(|r| (test, r))
-        .collect();
-    // The subscribers themselves are not followed: a raise of a login event in the test's reach reaches them, but what
-    // the test can see is what they left before it. The whole reach is put together from the reach without the
-    // subscribers of the `Global Triggers` database events (`own`, asked again below) and theirs, walked once per engine.
-    let own = union_reach_facts_without_database_events(events, lowered, &index, &roots, subs);
+    let roots = test_roots(lowered, test);
+    let own = own_reach(engine, lowered, &login, &index, test);
     // The questions below go through the few tables and codeunits the login subscribers leave, not through the reach.
-    let mine = JoinedReach::new(&own, || {
-        (login.database_events).get_or_init(|| global_triggers_reach_facts(events, lowered, &index, subs))
-    });
+    let mine = JoinedReach::new(&own, || database_events_reach(engine, lowered, &login, &index));
     // A table the test codeunit writes itself is not one whose rows it can only have from the login: an insert reaches
     // the database trigger subscribers of Microsoft's apps, which write the same tables in both reaches.
     if writes.iter().any(|&t| mine.touches(t) && !mine.writes_table(t))
@@ -488,6 +473,66 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
         events: login.own_events.clone(),
         watched,
     }
+}
+
+/// The apps under test's login subscribers and their events ([`LoginSubscribers`]), made once per engine.
+fn login_subscribers(engine: &Engine, lowered: &Lowered) -> std::sync::Arc<LoginSubscribers> {
+    engine.derived(|| {
+        let own_events = own_events(lowered, &engine.events);
+        let subs = own_events.iter().flat_map(|e| e.subscribers.iter().copied()).collect();
+        LoginSubscribers {
+            own_events,
+            subs,
+            database_events: OnceLock::new(),
+        }
+    })
+}
+
+/// Every routine of test codeunit `test`, the roots of its reach.
+fn test_roots(lowered: &Lowered, test: usize) -> Vec<(usize, usize)> {
+    (0..lowered.program.objects[test].routines.len())
+        .map(|r| (test, r))
+        .collect()
+}
+
+/// The reach of test codeunit `test` without the subscribers of the `Global Triggers` database events
+/// ([`database_events_reach`]). The apps under test's login subscribers themselves are not followed: a raise of a login
+/// event in the test's reach reaches them, but what the test can see is what they left before it.
+fn own_reach(
+    engine: &Engine,
+    lowered: &Lowered,
+    login: &LoginSubscribers,
+    index: &ReachIndex,
+    test: usize,
+) -> ReachFacts {
+    let roots = test_roots(lowered, test);
+    union_reach_facts_without_database_events(&engine.events, lowered, index, &roots, &login.subs)
+}
+
+/// The reach of the subscribers of the `Global Triggers` database events without the apps under test's login
+/// subscribers, walked once per engine ([`JoinedReach`]).
+fn database_events_reach<'a>(
+    engine: &Engine,
+    lowered: &Lowered,
+    login: &'a LoginSubscribers,
+    index: &ReachIndex,
+) -> &'a ReachFacts {
+    (login.database_events).get_or_init(|| global_triggers_reach_facts(&engine.events, lowered, index, &login.subs))
+}
+
+/// Asks `ask` of the whole static reach of test codeunit `test`, the reach [`decide`] asks.
+pub(crate) fn ask_test_reach<T>(
+    engine: &Engine,
+    lowered: &Lowered,
+    test: usize,
+    ask: impl FnOnce(&JoinedReach) -> T,
+) -> T {
+    let login = login_subscribers(engine, lowered);
+    let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
+    let own = own_reach(engine, lowered, &login, &index, test);
+    ask(&JoinedReach::new(&own, || {
+        database_events_reach(engine, lowered, &login, &index)
+    }))
 }
 
 /// What the login subscribers, whose reach is `left`, leave besides rows that a test codeunit whose whole reach is `mine`

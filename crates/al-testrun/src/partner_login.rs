@@ -152,7 +152,8 @@ pub(crate) fn steps(
 
 /// Raises step `step` of the partner subscribers and notes what they left in `left`: the tables they wrote, the tables whose
 /// group 1 filters they changed. `Err`: why the codeunit is not run (a subscriber that cannot run, an error, a change of
-/// the session state besides rows, which the probe does not measure and the watch cannot follow).
+/// the session state besides rows that the probe does not measure and the watch cannot follow: of the session language,
+/// WorkDate or the bindings, or of other state the test codeunit can see, [`seen_by_test`]).
 pub(crate) fn raise(
     lowered: &Lowered,
     session: &mut Session,
@@ -190,11 +191,82 @@ pub(crate) fn raise(
     }
     left.tables.extend(store.tables_changed_since(since));
     let after = session.left_stamp();
-    if let Some(what) = before.changed(&after) {
+    let change = before.changed(&after);
+    if let Some(what) = change.session {
         return Err(format!(
             "{who} ran before the first test and changed {what}, which is not a row the run can watch: what BC leaves there is not pinned"
         ));
     }
+    if let Some(what) = seen_by_test(lowered, session, &change) {
+        return Err(format!(
+            "{who} ran before the first test and changed {what}, which this test codeunit can read and which is not a row the run can watch: what BC leaves there is not pinned"
+        ));
+    }
     left.group1.extend(before.group1_changed(&after));
     Ok(())
+}
+
+/// One kind of session state other than rows that the partner subscribers changed ([`seen_by_test`]).
+#[derive(Clone, Copy)]
+enum Left {
+    /// The globals of a SingleInstance codeunit (object index).
+    Single(usize),
+    NumberSequences,
+    IsolatedStorage,
+    Random,
+}
+
+impl Left {
+    /// The kinds `change` holds.
+    fn of(change: &al_vm::LeftChange) -> Vec<Left> {
+        (change.singles.iter().map(|&o| Left::Single(o)))
+            .chain(change.number_sequences.then_some(Left::NumberSequences))
+            .chain(change.isolated_storage.then_some(Left::IsolatedStorage))
+            .chain(change.random.then_some(Left::Random))
+            .collect()
+    }
+
+    /// Whether a test codeunit whose whole static reach is `mine` can see this state.
+    fn seen_by(self, mine: &crate::runtime::written::JoinedReach) -> bool {
+        use crate::runtime::written::state;
+        match self {
+            Left::Single(o) => mine.reads_a_global_of(o),
+            Left::NumberSequences => mine.uses_state(state::NUMBER_SEQUENCE),
+            Left::IsolatedStorage => mine.uses_state(state::ISOLATED_STORAGE),
+            Left::Random => mine.random(),
+        }
+    }
+
+    /// For a reason text.
+    fn what(self, lowered: &Lowered) -> String {
+        match self {
+            Left::Single(o) => format!(
+                "the globals of SingleInstance codeunit {}",
+                lowered.program.objects.get(o).map_or("?", |x| x.name.as_str())
+            ),
+            Left::NumberSequences => "a number sequence".into(),
+            Left::IsolatedStorage => "isolated storage".into(),
+            Left::Random => "the Random sequence".into(),
+        }
+    }
+}
+
+/// What of `change` (which holds no state that every code reads without naming it) the static reach of the session's
+/// test codeunit can see, for a reason text ([`Left::seen_by`]). When part of the reach is not known, or the session has
+/// no test codeunit, every change counts. Changed state no test of the codeunit can see stays as the subscribers left it.
+fn seen_by_test(lowered: &Lowered, session: &Session, change: &al_vm::LeftChange) -> Option<String> {
+    let left = Left::of(change);
+    let first = *left.first()?;
+    let Some(test) = session.test_object else {
+        return Some(first.what(lowered));
+    };
+    crate::login::ask_test_reach(&session.engine, lowered, test, |mine| {
+        if let Some(why) = mine.unknown() {
+            return Some(format!(
+                "{} (part of its reach is not known: {why})",
+                first.what(lowered)
+            ));
+        }
+        (left.iter()).find(|l| l.seen_by(mine)).map(|l| l.what(lowered))
+    })
 }

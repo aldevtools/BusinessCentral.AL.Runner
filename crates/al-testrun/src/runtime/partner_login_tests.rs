@@ -18,13 +18,14 @@ fn sys(isolated: bool) -> String {
     )
 }
 
-/// A partner dependency app (`dep2`): table `Other`, a SingleInstance `Cache`, a manual subscriber `Hook`, and the
+/// A partner dependency app (`dep2`): table `Other`, a SingleInstance `Cache` (a Boolean and a record global), a manual subscriber `Hook`, and the
 /// OnAfterLogin subscriber with body `login`.
 fn partner(login: &str) -> String {
     format!(
         "table 60900 Other {{ fields {{ field(1; No; Code[20]) {{ }} field(2; Blocked; Boolean) {{ }} }} }}
-        codeunit 60904 Cache {{ SingleInstance = true; var On: Boolean;
-            procedure Put() begin On := true; end; procedure Take(): Boolean begin exit(On); end; }}
+        codeunit 60904 Cache {{ SingleInstance = true; var On: Boolean; Row: Record Other;
+            procedure Put() begin On := true; end; procedure Take(): Boolean begin exit(On); end;
+            procedure Sort() begin Row.SetCurrentKey(Blocked); end; }}
         codeunit 60906 Pub {{ procedure Ask(): Integer var N: Integer; begin N := 1; OnAsk(N); exit(N); end;
             [IntegrationEvent(false, false)] local procedure OnAsk(var N: Integer) begin end; }}
         codeunit 60907 Hook {{ SingleInstance = true; EventSubscriberInstance = Manual;
@@ -54,6 +55,17 @@ const TESTS: &str = "table 60910 Mine { fields { field(1; K; Code[10]) { } } }
         [Test] procedure NoTable() begin end; }";
 
 fn run_with(publisher: &str, login: &str, tests: &str, isolated: bool, isolation: TestIsolation) -> OutcomesAndHits {
+    run_codeunit(publisher, login, tests, isolated, isolation, "T")
+}
+
+fn run_codeunit(
+    publisher: &str,
+    login: &str,
+    tests: &str,
+    isolated: bool,
+    isolation: TestIsolation,
+    codeunit: &str,
+) -> OutcomesAndHits {
     outcomes_and_hits_with(
         &[
             ("dep", &[], &sys(isolated)),
@@ -61,7 +73,7 @@ fn run_with(publisher: &str, login: &str, tests: &str, isolated: bool, isolation
             ("main", &["dep2"], tests),
         ],
         &[("dep", "Microsoft"), ("dep2", publisher)],
-        "T",
+        codeunit,
         isolation,
     )
 }
@@ -128,7 +140,7 @@ fn a_test_that_touches_a_table_the_partner_subscriber_wrote_is_not_run() {
 fn a_partner_subscriber_that_sets_a_single_instance_global_refuses_the_codeunit() {
     let (o, _) = run("var C: Codeunit Cache; begin C.Put(); end;");
     assert!(
-        o.iter().all(|(_, x)| not_run_for(x, "a SingleInstance codeunit")),
+        o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Cache")),
         "{o:?}"
     );
 }
@@ -220,4 +232,101 @@ fn a_partner_login_subscriber_next_to_an_own_one() {
     assert!(not_run_for(&o[0].1, "filter group 1"), "{o:?}");
     assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+}
+
+/// Two test codeunits: `T` reads the SingleInstance `Cache` and the number sequence `S`, `U` reads neither. `early` is the
+/// body of an OnCompanyOpen subscriber of the app under test, which runs before the login.
+fn readers(early: &str) -> String {
+    format!(
+        "table 60910 Mine {{ fields {{ field(1; K; Code[10]) {{ }} }} }}
+        codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
+        codeunit 60914 Early {{
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
+            local procedure O() {early} }}
+        codeunit 60912 T {{ Subtype = Test;
+            [Test] procedure CacheIsOff() var C: Codeunit Cache; begin if C.Take() then Error('cache on'); end;
+            [Test] procedure Sequence() begin if NumberSequence.Exists('S') then if NumberSequence.Current('S') = 0 then; end; }}
+        codeunit 60915 U {{ Subtype = Test;
+            [Test] procedure OtherTable() var M: Record Mine; begin M.K := 'X'; M.Insert(); end; }}"
+    )
+}
+
+const NOTHING_EARLY: &str = "var N: Integer; begin N := 1; end;";
+
+fn run_readers(login: &str, early: &str, codeunit: &str) -> OutcomesAndHits {
+    let tests = readers(early);
+    run_codeunit("Probe", login, &tests, false, TestIsolation::Codeunit, codeunit)
+}
+
+// The subscriber makes the SingleInstance codeunit's instance and leaves its globals as declared: what a reader finds is
+// what a fresh instance holds, so the test codeunit that reads it runs as on main.
+#[test]
+fn a_new_single_instance_with_declared_globals_is_no_change() {
+    let (o, _) = run_readers(
+        "var C: Codeunit Cache; begin if C.Take() then; end;",
+        NOTHING_EARLY,
+        "T",
+    );
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+}
+
+// The subscriber makes the instance and sets a global: the test codeunit that reads it is not run, the one that does not
+// read it runs.
+#[test]
+fn a_new_single_instance_with_a_set_global_refuses_only_its_readers() {
+    let login = "var C: Codeunit Cache; begin C.Put(); end;";
+    let (o, _) = run_readers(login, NOTHING_EARLY, "T");
+    assert!(
+        o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Cache")),
+        "{o:?}"
+    );
+    let (o, _) = run_readers(login, NOTHING_EARLY, "U");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+}
+
+// The instance was there before the login (an OnCompanyOpen subscriber of the app under test made it) and the subscriber
+// changes it: only its readers are refused.
+#[test]
+fn a_changed_existing_single_instance_refuses_only_its_readers() {
+    let login = "var C: Codeunit Cache; begin C.Put(); end;";
+    let early = "var C: Codeunit Cache; begin if C.Take() then; end;";
+    let (o, _) = run_readers(login, early, "T");
+    assert!(
+        o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Cache")),
+        "{o:?}"
+    );
+    let (o, _) = run_readers(login, early, "U");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+}
+
+// A number sequence the subscriber moves on: only the test codeunit whose reach uses number sequences is refused.
+#[test]
+fn a_number_sequence_the_subscriber_moves_refuses_only_its_readers() {
+    let login = "begin if not NumberSequence.Exists('S') then NumberSequence.Insert('S'); if NumberSequence.Next('S') = 0 then; end;";
+    let (o, _) = run_readers(login, NOTHING_EARLY, "T");
+    assert!(o.iter().all(|(_, x)| not_run_for(x, "a number sequence")), "{o:?}");
+    let (o, _) = run_readers(login, NOTHING_EARLY, "U");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+}
+
+// WorkDate every code reads: it keeps refusing every test codeunit, also one that does not name it.
+#[test]
+fn workdate_the_subscriber_moves_still_refuses_every_codeunit() {
+    let (o, _) = run_readers(
+        "begin WorkDate(CalcDate('<+1D>', WorkDate())); end;",
+        NOTHING_EARLY,
+        "U",
+    );
+    assert!(o.iter().all(|(_, x)| not_run_for(x, "WorkDate")), "{o:?}");
+}
+
+// A record global whose view the subscriber changes, with its fields as declared: the instance is not as declared, and
+// the test codeunit that reads the codeunit's globals is not run.
+#[test]
+fn a_record_global_whose_key_the_subscriber_sets_refuses_its_readers() {
+    let (o, _) = run_readers("var C: Codeunit Cache; begin C.Sort(); end;", NOTHING_EARLY, "T");
+    assert!(
+        o.iter().all(|(_, x)| not_run_for(x, "SingleInstance codeunit Cache")),
+        "{o:?}"
+    );
 }
