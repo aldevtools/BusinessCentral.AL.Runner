@@ -52,23 +52,26 @@ impl PartnerLogin {
         !self.singles.is_empty()
     }
 
-    /// After a test that began, or after the OnRun trigger: marks the assumption when the code read a global of a
+    /// After a test (`ran`: it began) or after the OnRun trigger: marks the assumption when the code read a global of a
     /// SingleInstance codeunit they changed while it still held what they left (no code wrote it before;
     /// `Session::single_read_unwritten`). Returns whether it did.
-    pub fn test_read(&self, session: &Session) -> bool {
-        let read = self.notes_singles() && session.single_read_unwritten(&self.singles);
+    pub fn test_read(&self, session: &Session, ran: bool) -> bool {
+        let read = ran && self.notes_singles() && session.single_read_unwritten(&self.singles);
         if read {
             mark();
         }
         read
     }
 
-    /// After the test codeunit's OnRun, of the tables it touched (`hits`), the first one they wrote or set a group 1
-    /// filter on: what an OnRun finds there is not measured.
-    pub fn on_run_hit(&self, hits: &BTreeSet<u32>) -> Option<u32> {
-        hits.iter()
-            .find(|t| self.tables.contains(t) || self.group1.contains(t))
-            .copied()
+    /// After the test codeunit's OnRun, which touched the tables `hits`: `Err` why the codeunit is not run when one of
+    /// them is a table they wrote or set a group 1 filter on (what an OnRun finds there is not measured); else whether
+    /// it read a SingleInstance global they left ([`PartnerLogin::test_read`]), so that every test relies on them.
+    pub fn after_on_run(&self, session: &Session, hits: &BTreeSet<u32>, lowered: &Lowered) -> Result<bool, String> {
+        let hit = hits.iter().find(|t| self.tables.contains(t) || self.group1.contains(t));
+        match hit.and_then(|&t| self.touched(t, lowered)) {
+            Some(why) => Err(why),
+            None => Ok(self.test_read(session, true)),
+        }
     }
 
     /// Why code that read or wrote table `t` is not run: `None` when they did not write or filter `t`.
