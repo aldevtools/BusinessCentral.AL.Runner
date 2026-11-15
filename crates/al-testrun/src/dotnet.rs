@@ -888,12 +888,14 @@ fn find_sidecar(cfg: &SidecarConfig, dotnet: &Path) -> Result<PathBuf, String> {
 /// Whether `dotnet --list-sdks` lists an SDK that builds the sidecar: it targets net8.0, which SDK 8 and every newer major
 /// builds (`global.json` takes SDK 8 when it is installed and rolls forward to a newer major when not; al-runner issue 8081).
 fn can_build_sidecar(list_sdks: &str) -> bool {
+    /// The oldest .NET SDK that builds the net8.0 target.
+    const OLDEST_SDK: u32 = 8;
     list_sdks.lines().any(|l| {
         l.trim_start()
             .split('.')
             .next()
-            .and_then(|major| major.parse::<u32>().ok())
-            .is_some_and(|major| major >= 8)
+            .and_then(|first| first.parse::<u32>().ok())
+            .is_some_and(|sdk| sdk >= OLDEST_SDK)
     })
 }
 
