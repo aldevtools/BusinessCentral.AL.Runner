@@ -192,6 +192,15 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
             crate::http::request_handed_on(&cell);
             Value::Library(n, cell)
         }
+        // The XmlNode that AsXmlNode of an unassigned XmlElement returned (`xml::is_node_of_unassigned_element`), held by a
+        // Variant and assigned to an XmlElement: not measured, refused.
+        (v @ Value::Library(..), T::Library(crate::library_kind::LibraryKind::XmlElement))
+            if crate::xml::is_node_of_unassigned_element(&v) =>
+        {
+            return unsupported(
+                "a Variant holding the XmlNode that AsXmlNode of an unassigned XmlElement returned, into an XmlElement (not measured)",
+            );
+        }
         (v @ Value::Codeunit(_), T::Codeunit(_) | T::Interface(_)) | (v @ Value::Library(..), T::Library(_)) => v,
         (v @ Value::Record(_), T::Record(..)) => v,
         // A query handed on keeps its state: the callee works on the caller's query.

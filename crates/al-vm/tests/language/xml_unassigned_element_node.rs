@@ -161,3 +161,27 @@ fn neighbors_keep_mains_outcome() {
     let (out, _) = run("L: List of [Integer];", "L.Add(3); exit(Format(L.IndexOf(3)));");
     assert_eq!(out, "ok:1");
 }
+
+/// A Variant holding the node, assigned to an XmlElement, is refused: not measured (review of al-runner issue 8157). A Variant
+/// holding a real element node or an unassigned XmlNode keeps main's outcome.
+#[test]
+fn variant_holding_the_node_into_an_xml_element_is_refused() {
+    for tail in ["exit('assigned');", "E2.WriteTo(T); exit(T);"] {
+        let (out, _) = run(
+            "E: XmlElement; E2: XmlElement; N: XmlNode; V: Variant; T: Text;",
+            &format!("N := E.AsXmlNode(); V := N; E2 := V; {tail}"),
+        );
+        assert!(out.starts_with("refused:"), "{tail}: {out}");
+    }
+    let (out, hits) = run(
+        "E: XmlElement; E2: XmlElement; N: XmlNode; V: Variant; T: Text;",
+        "E := XmlElement.Create('a'); N := E.AsXmlNode(); V := N; E2 := V; E2.WriteTo(T); exit(T);",
+    );
+    assert_eq!(out, "ok:<a />");
+    assert!(!hits.contains(&ID), "{hits:?}");
+    let (out, _) = run(
+        "E2: XmlElement; N: XmlNode; V: Variant; T: Text;",
+        "V := N; E2 := V; E2.WriteTo(T); exit(T);",
+    );
+    assert_eq!(out, NOT_INIT);
+}
