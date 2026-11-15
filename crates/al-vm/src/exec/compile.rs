@@ -13,8 +13,9 @@ pub(crate) fn compile(o: &ir::Object, routine: usize, captured: bool) -> Option<
     compile_form(o, routine, captured, false)
 }
 
-/// The debug form of routine `routine` of object `o` (ADR-048): the plain form with an `Op::DbgHit` after each statement marker, where a debugger
-/// may stop. The ops between two markers are the plain form's, so a debugged test computes what it computes without one.
+/// The debug form of routine `routine` of object `o` (ADR-048): the plain form with an `Op::DbgHit` after each statement
+/// marker, where a debugger may stop. The ops between two markers are the plain form's, so a debugged test computes what
+/// it computes without one.
 pub(crate) fn compile_debug(o: &ir::Object, routine: usize) -> Option<Chunk> {
     compile_form(o, routine, false, true)
 }
