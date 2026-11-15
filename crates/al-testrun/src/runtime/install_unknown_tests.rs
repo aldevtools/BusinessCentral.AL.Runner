@@ -339,12 +339,13 @@ fn a_dependency_login_subscriber_that_binds_refuses_every_test() {
     );
 }
 
-// A dependency subscriber whose reach is not known (a codeunit run by an id known only at run time) may leave anything:
-// no test of the codeunit runs.
+// A dependency subscriber whose reach is not known (a codeunit run by an id known only at run time) keeps main's result
+// for what the analysis cannot follow: the tests that cannot see what it is known to leave run as on main.
 #[test]
-fn a_dependency_login_subscriber_whose_reach_is_not_known_refuses_every_test() {
+fn a_dependency_login_subscriber_whose_reach_is_not_known_keeps_mains_result() {
     let o = run_dep_cache("var Id: Integer; begin Id := 60904; Codeunit.Run(Id); end;");
-    assert!(o.iter().all(|(_, x)| not_run_for(x, "is not known")), "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+    assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
 }
 
 // A dependency subscriber that sets WorkDate: every test reads it (a posting date defaults to it), so none runs.

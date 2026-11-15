@@ -39,8 +39,8 @@
 //!   is there only on the Raise path. [`decide`] raises the login for a test codeunit whose static reach can see the
 //!   tables or the state the app's subscribers leave; another one that reads what only Microsoft's login code leaves runs
 //!   without it. The `OnAfterLogin` subscribers of partner dependency apps (a known publisher that is not Microsoft) do not
-//!   run off the Raise path either: a test that touches their tables, or can see what else they leave, is not run
-//!   ([`dependency_login`]).
+//!   run off the Raise path either: a test that touches their tables, or can see what else they are known to leave, is not
+//!   run ([`dependency_login`]); what their reach does that the analysis cannot follow is not modelled.
 //! - Own: the subscribers leave alone what they leave inside the login. Registered as the assumption
 //!   `login-own-registration-reads-alone`, marked when a test touches a table they wrote.
 //! - Own: whether the checklist is set up is asked before the app's own Company Triggers subscribers run; one that marks
@@ -223,12 +223,11 @@ impl DependencyLogin {
     /// subscriber they bind, a `Random` sequence they reseed, code the analysis does not follow, a global of a
     /// SingleInstance codeunit they write that the routine reads); session state they change that the routine reads
     /// (every routine reads WorkDate and the language, `state::READ_BY_ALL`; the draws of `Random` do not last past the
-    /// run seed's restart of each test, ADR-061); a write to a table not known before the run, when the routine touches a
-    /// table; and anything, when the reach of the subscribers or of the routine is not known.
+    /// run seed's restart of each test, ADR-061); and a write to a table not known before the run, when the routine
+    /// touches a table. A routine whose reach is not known can see each of them. What the subscribers reach that the
+    /// analysis cannot follow keeps main's result, as for the apps' own subscribers ([`decide`]).
     pub(crate) fn refuses(&self, lowered: &Lowered, test: &ReachFacts) -> Option<String> {
-        let what = if let Some(why) = &self.leaves.unknown {
-            format!("what it reaches is not known ({why})")
-        } else if let Some(what) = watched_state(lowered, &self.leaves, |g| {
+        let what = if let Some(what) = watched_state(lowered, &self.leaves, |g| {
             test.unknown.is_some() || test.globals_read.contains(&g)
         }) {
             format!("they {what}")
