@@ -1,16 +1,13 @@
-//! A Worksheet with its own DataCaptionExpression outside the measured cells of DataCaptionExprWorksheet.al
-//! (`data_caption_open.rs`): BC runs the expression at the open (:412, :439, :572, :586), main at a caption read. An expression
-//! that can neither raise an error nor leave anything behind (`Engine::caption_open_risk`) keeps main's open and refuses only at
-//! the first test read of the caption, the one thing the run at the open can change (the edge gate of 2026-11-14: Microsoft's
-//! Navigate, opened through a page variable and read through its page-variable controls, went from pass to not run). Any other
-//! expression refuses at the open. The kept open is not measured: it runs through the assumption
-//! `data-caption-pure-expression-open-skipped`, so its passes are flagged.
+//! A Worksheet with its own DataCaptionExpression outside the measured cells of DataCaptionExprWorksheet.al and
+//! DataCaptionGetOpen.al (`data_caption_open.rs`): BC runs the expression at the open (:412, :439, :572, :586), main at a caption
+//! read. No corpus test measures these shapes, so the open refuses, whatever the expression does; where it can raise an error or
+//! leave something behind (`Engine::caption_open_risk`) the refusal names it.
 
 use al_builtins::assumptions::Assumption;
 use al_testkit::{blocked, compile};
 use al_testrun::isolation::TestIsolation;
 
-/// Each test of codeunit `T` in `src`: its outcome (debug form) and whether it ran through the kept-open assumption. `block`
+/// Each test of codeunit `T` in `src`: its outcome (debug form) and whether it ran through an assumption. `block`
 /// names routines (object, routine) to mark as blocked by lowering before the run.
 fn run(src: &str, block: &[(&str, &str)]) -> Vec<(String, String, bool)> {
     let l = compile(src);
@@ -51,9 +48,9 @@ fn run(src: &str, block: &[(&str, &str)]) -> Vec<(String, String, bool)> {
     );
     o.into_iter()
         .map(|(name, outcome)| {
-            let flagged = hits.iter().any(|(n, h): &(String, Vec<Assumption>)| {
-                *n == name && h.contains(&Assumption::DataCaptionPureExpressionOpenSkipped)
-            });
+            let flagged = hits
+                .iter()
+                .any(|(n, h): &(String, Vec<Assumption>)| *n == name && !h.is_empty());
             (name, format!("{outcome:?}"), flagged)
         })
         .collect()
@@ -177,22 +174,25 @@ codeunit 69988 T
 "#;
 
 #[test]
-fn an_expression_that_cannot_raise_keeps_main_open_until_a_caption_read() {
+fn an_expression_that_cannot_raise_refuses_at_the_open() {
     let outcomes = run(SRC, &[]);
     let get = |name: &str| get(&outcomes, name);
     for t in [
         "N01_Var_Trap_Controls",
+        "N02_Var_Trap_Caption",
         "N03_Var_Handler_Controls",
         "N04_Static_Handler_Close",
         "N05_IfGet_Trap_Close",
     ] {
-        assert_eq!(get(t), ("Pass", true), "{t}");
+        let (o, flagged) = get(t);
+        assert!(!flagged, "{t}");
+        assert!(
+            o.contains("NotRun")
+                && o.contains("outside the measured cells")
+                && o.contains("BC runs the expression at the open"),
+            "{t}: {o}"
+        );
     }
-    let (caption, _) = get("N02_Var_Trap_Caption");
-    assert!(
-        caption.contains("NotRun") && caption.contains("outside the measured cells") && caption.contains("the caption"),
-        "{caption}"
-    );
     for (t, why) in [
         ("N06_Get_Trap", "Record.Get"),
         ("N07_Div_Trap", "divides"),
@@ -210,7 +210,7 @@ fn an_expression_that_cannot_raise_keeps_main_open_until_a_caption_read() {
 }
 
 /// The reviewer's neighbor shapes of round 1 (al-runner PR 8035): each one raises or leaves state when a test runs it
-/// directly, so the open refuses and names it. The K pages keep main's open, flagged.
+/// directly, so the open refuses and names it. The K pages refuse at the open too, without a risk to name.
 const NEIGHBORS: &str = r#"
 codeunit 56001 "ZR Log" { SingleInstance = true; var N: Integer; procedure Hit() begin N += 1; end; }
 table 56000 "ZR Row"
@@ -623,7 +623,14 @@ fn an_expression_that_can_raise_or_leave_state_refuses_at_the_open_and_names_why
         "KStrSubstNo",
         "KFindNext",
     ] {
-        assert_eq!(get(&outcomes, t), ("Pass", true), "{t}");
+        let (o, flagged) = get(&outcomes, t);
+        assert!(!flagged, "{t}");
+        assert!(
+            o.contains("NotRun")
+                && o.contains("BC runs the expression at the open")
+                && !o.contains("leave something behind"),
+            "{t}: {o}"
+        );
     }
     let mut wrong = Vec::new();
     for (t, why) in [

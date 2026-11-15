@@ -133,6 +133,15 @@ codeunit 50305 T
     begin Log.Add('H cap=' + P.Caption() + ' item=' + P.ItemNoFilterCtl.Value); end;
     [PageHandler] procedure WsNextHandler(var P: TestPage "DO Ws")
     begin P.Next(); end;
+    // After the measured open the probe's handlers read only controls of page variables (DataCaptionExprWorksheet.al:627).
+    [Test] [HandlerFunctions('WsRecControlHandler')]
+    procedure Ws_OneRow_RecControlRefused()
+    var Row: Record "DO Row";
+    begin
+        Seed(1); Row.SetRange("Item No.", 'I1'); Page.Run(Page::"DO Ws", Row);
+    end;
+    [PageHandler] procedure WsRecControlHandler(var P: TestPage "DO Ws")
+    begin Log.Add('H item=' + P.ItemNoCtl.Value); end;
 }
 "#;
 
@@ -157,6 +166,11 @@ fn the_data_caption_expression_at_a_handled_page_run() {
             "{t}: {o}"
         );
     }
+    let rec_control = get("Ws_OneRow_RecControlRefused");
+    assert!(
+        rec_control.contains("NotRun") && rec_control.contains("bound to a field of Rec"),
+        "{rec_control}"
+    );
     let next = get("Ws_OneRow_NextRefused");
     assert!(next.contains("NotRun") && next.contains("ran at the open"), "{next}");
     let empty = get("Ws_OneRow_EmptyValueRefused");
@@ -341,7 +355,7 @@ fn neighbors_of_the_measured_open_keep_main_outcome_or_refuse() {
             "{t}: {o}"
         );
     }
-    assert!(get("D13_FieldExpr").contains("the test read the caption"));
+    assert!(get("D13_FieldExpr").contains("BC runs the expression at the open"));
 }
 
 // The page of al-runner issue 6924 (the reporter's price page), as the reporter described it: filter controls with OnValidate and OnLookup, a third
@@ -483,12 +497,10 @@ fn the_reported_list_keeps_main_outcome_and_a_row_refuses() {
     );
 }
 
-// A Worksheet with its own DataCaptionExpression outside the measured cells (review of al-runner PR 8023: every run kind, and a
-// handler that reads none of what the open changes). BC ran the expression at the open in the measured cells
-// (DataCaptionExprWorksheet.al:412, :439, :572, :586); main runs it at a caption read. An expression that can neither raise an
-// error nor leave anything behind changes only the caption: main's open is kept and the first caption read refuses. Any other
-// expression (one that writes a page variable, or returns a Text of a fixed length, which can raise) refuses at the open, for
-// every run kind (more shapes: data_caption_pure.rs).
+// A Worksheet with its own DataCaptionExpression outside the measured cells (every run kind). BC ran the expression at the
+// open in the measured cells (DataCaptionExprWorksheet.al:412, :439, :572, :586); main runs it at a caption read. No corpus test
+// measures these shapes, so the open refuses, and names what the expression can do where it can raise or leave something behind.
+// A page variable's RunModal() with no SetRecord or SetTableView keeps main's caption (pages/properties/Y50ListCaptionExpr.al).
 const LAZY: &str = r#"
 table 69970 "DL Row" { fields { field(1; "Item No."; Code[20]) { } field(2; "Vendor No."; Code[20]) { } } keys { key(PK; "Item No.", "Vendor No.") { } } }
 page 69971 "DL Ws Field"
@@ -611,37 +623,35 @@ codeunit 69975 T
 "#;
 
 #[test]
-fn an_unmeasured_worksheet_open_refuses_at_the_read_it_changes() {
+fn an_unmeasured_worksheet_open_refuses_at_the_open() {
     let outcomes = outcomes_in(LAZY, "T");
     let get = |name: &str| {
         let o = outcomes.iter().find(|(n, _)| n == name).map(|(_, o)| o);
         format!("{o:?}")
     };
-    // Main's outcome where the test reads nothing the open changes.
+    for t in ["L16_VarModal_NoRecord_Caption", "L19_Proc_VarModal_NoRecord_Caption"] {
+        assert_eq!(get(t), "Some(Pass)", "{t}");
+    }
     for t in [
         "L01_Static_Close",
+        "L02_Static_Caption",
         "L03_Static_RecControl",
         "L04_Static_VarControl",
         "L05_Static_Literal_Close",
+        "L06_Var_Caption",
         "L07_VarModal_RecControl",
         "L08_Var_Close",
+        "L09_FieldNo_Caption",
         "L10_FieldNo_Close",
+        "L11_Trap_Caption",
         "L12_Trap_RecControl",
-        "L16_VarModal_NoRecord_Caption",
-        "L19_Proc_VarModal_NoRecord_Caption",
-    ] {
-        assert_eq!(get(t), "Some(Pass)", "{t}");
-    }
-    for (t, read) in [
-        ("L02_Static_Caption", "the caption"),
-        ("L06_Var_Caption", "the caption"),
-        ("L09_FieldNo_Caption", "the caption"),
-        ("L11_Trap_Caption", "the caption"),
-        ("L17_VarModal_SetTableView_Caption", "the caption"),
+        "L17_VarModal_SetTableView_Caption",
     ] {
         let o = get(t);
         assert!(
-            o.contains("NotRun") && o.contains("outside the measured cells") && o.contains(read),
+            o.contains("NotRun")
+                && o.contains("outside the measured cells")
+                && o.contains("BC runs the expression at the open"),
             "{t}: {o}"
         );
     }
