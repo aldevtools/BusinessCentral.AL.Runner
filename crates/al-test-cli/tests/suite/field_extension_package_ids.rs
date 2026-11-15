@@ -873,3 +873,145 @@ codeunit 50120 T
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
 }
+
+/// The Class filter is measured on a FindFirst only (PlatformMetadataColumnValues.al:662-737, ObserveReadForms, corpus PR 1410).
+/// With FindLast the read keeps the table's ids (main's result) and marks nothing.
+#[test]
+fn issue_8051_class_filter_with_findlast_keeps_the_tables_ids() {
+    let test = r#"
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FindLastForm()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetRange(Class, F.Class::Normal);
+        F.FindLast();
+        if F."App Package ID" <> Tbl."App Package ID" then
+            Error('findlast');
+    end;
+}"#;
+    let o = run(&[
+        (OWNER_ID, AppKind::Dependency, PLAIN_TABLE),
+        (TEST_ID, AppKind::Workspace, test),
+    ]);
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
+    assert!(!o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+}
+
+/// The filters in group 2 are measured on a FindFirst only (PlatformMetadataColumnValues.al:662-737, ObserveReadForms, corpus PR
+/// 1410). With FindLast the read keeps the table's ids (main's result) and marks nothing.
+#[test]
+fn issue_8051_group_2_with_findlast_keeps_the_tables_ids() {
+    let test = r#"
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FindLastForm()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.FilterGroup(2);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.FilterGroup(0);
+        F.FindLast();
+        if F."App Package ID" <> Tbl."App Package ID" then
+            Error('findlast');
+    end;
+}"#;
+    let o = run(&[
+        (OWNER_ID, AppKind::Dependency, PLAIN_TABLE),
+        (TEST_ID, AppKind::Workspace, test),
+    ]);
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
+    assert!(!o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+}
+
+/// A key read with a package filter is measured as a FindFirst or FindSet only (PlatformMetadataColumnValues.al:827-842,
+/// ObservePackageFilters, corpus PR 1410). Next from a blank record is refused, as on main.
+#[test]
+fn issue_8051_key_lookup_with_a_package_filter_and_next_from_blank_is_refused() {
+    let src = format!(
+        "{PLAIN_TABLE}{}",
+        r#"
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure NextFromBlank()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetRange("App Package ID", Tbl."App Package ID");
+        if F.Next() <> 0 then;
+    end;
+}"#
+    );
+    let o = run(&[(OWNER_ID, AppKind::Workspace, &src)]);
+    assert_eq!(o.len(), 1);
+    assert!(
+        matches!(o[0].1, Outcome::NotRun(ref why) if why.contains("package")),
+        "{:?}",
+        o[0].1
+    );
+}
+
+/// On a table that a modify-only extension of its own app extends, a key FindFirst with a package filter tests the filter
+/// against the table's ids. That rests on PlatformMetadataColumnValues.al:784-815 and :844-868 (corpus PR 1410, not pinned yet):
+/// flagged. Main answered it without a mark.
+#[test]
+fn issue_8051_package_filtered_key_read_on_a_modify_only_same_app_extension_is_flagged() {
+    let src = r#"
+table 50100 "Modify Line"
+{
+    fields { field(1; "No."; Code[20]) { } field(2; Description; Text[30]) { Caption = 'Description'; } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+tableextension 50110 "Modify Line Ext" extends "Modify Line"
+{
+    fields { modify(Description) { Caption = 'Extended Description'; } }
+}
+
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PackageFilter()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetRange("App Package ID", Tbl."App Package ID");
+        if not F.FindFirst() then
+            Error('= table');
+    end;
+}"#;
+    let o = run(&[(OWNER_ID, AppKind::Workspace, src)]);
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
+    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+}

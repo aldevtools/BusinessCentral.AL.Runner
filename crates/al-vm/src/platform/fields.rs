@@ -142,8 +142,9 @@ fn table_of<'a>(c: &'a Catalog, i: usize) -> Option<(&'a Object, &'a al_ir::Tabl
 /// :516-532 for System Application's and Base Application's tables; :569-605 for the rule and the key FindFirst and FindSet;
 /// :618-646 for the system fields; corpus PRs 1404 and 1407, merged, not pinned yet). Where the answer differs from the earlier
 /// rule (null exactly for a table of the app under test, whose two ids are equal, on a Get), assumption
-/// `field-key-lookup-package-ids` until the corpus bump pins them. A same-app extension that only modifies a field counts as one
-/// (:784-815, corpus PR 1410). A row the rule does not know (the user-name system rows) keeps the earlier rule on a Get and the
+/// `field-key-lookup-package-ids` until the corpus bump pins them. Every table extension of the table's own app counts, with or
+/// without a field (measured: one that declares a field and one that only modifies a field, :784-815, corpus PR 1410; not
+/// measured: one with neither). A row the rule does not know (the user-name system rows) keeps the earlier rule on a Get and the
 /// scan's ids on a key scan.
 pub(super) fn key_lookup(p: &Providers, t: &TableDef, mut r: al_data::Row, key_scan: bool) -> al_data::Row {
     let col = |name: &str| t.fields.iter().position(|x| x.name == name);
@@ -217,11 +218,13 @@ fn from_start(scan: &al_data::Scan) -> bool {
 
 /// Whether `scan` is a key read the probes measured, which BC answers as a `Get` ([`key_lookup`]): a read in primary key order,
 /// either direction, from the start (FindFirst, FindSet, FindLast, Find('-'), Find('+'), Next from a blank record,
-/// RecordRef.FindFirst), whose filters are one single-value filter each on TableNo and No., both in filter group 0, both in
-/// group 2, or TableNo in group 2 and No. in group 0; with both in group 0, also with a third single-value filter on Class in
-/// group 0 (metadata/platform-tables/PlatformMetadataColumnValues.al:569-605, corpus PR 1407, the ascending FindFirst and FindSet;
-/// :753-772, corpus PR 1410, the other forms). Another key, a Next from a position, a third filter on another column and the
-/// other filter groups are not measured and keep the scan's ids.
+/// RecordRef.FindFirst), whose filters are one single-value filter each on TableNo and No. in filter group 0, optionally with a
+/// single-value filter on Class in group 0; the Class filter and the group 2 filters (both in group 2, or TableNo in group 2 and
+/// No. in group 0) only on an ascending read without a position (FindFirst, FindSet, Find('-'))
+/// (metadata/platform-tables/PlatformMetadataColumnValues.al:569-605, corpus PR 1407, the ascending FindFirst and FindSet;
+/// :662-737, helper ObserveReadForms, corpus PR 1410, the other forms). Another key, a Next from a position, a third filter on
+/// another column, the other filter groups, and the Class filter or group 2 with FindLast, Find('+') or Next are not measured
+/// and keep the scan's ids.
 pub(super) fn measured_key_scan(t: &TableDef, scan: &al_data::Scan) -> bool {
     if scan.key != 0 || !from_start(scan) {
         return false;
@@ -230,18 +233,22 @@ pub(super) fn measured_key_scan(t: &TableDef, scan: &al_data::Scan) -> bool {
         single_value_group(t, scan.filters, 1),
         single_value_group(t, scan.filters, 2),
     );
+    // The Class filter and the filters in group 2 are measured on a FindFirst only (:662-737, ObserveReadForms): ascending, no
+    // position.
+    let find_first = scan.ascending && scan.after.is_none();
     match (groups, scan.filters.len()) {
         ((Some(0), Some(0)), 2) => true,
-        ((Some(0), Some(0)), 3) => single_value_group(t, scan.filters, 7) == Some(0),
-        ((Some(2), Some(2)) | (Some(2), Some(0)), 2) => true,
+        ((Some(0), Some(0)), 3) => find_first && single_value_group(t, scan.filters, 7) == Some(0),
+        ((Some(2), Some(2)) | (Some(2), Some(0)), 2) => find_first,
         _ => false,
     }
 }
 
-/// Whether `scan` is the key read with a package filter the probe measured: a FindFirst or FindSet (ascending, primary key, from
-/// the start) whose filters are one single-value filter each on TableNo and No. and one `=` or `<>` filter of one value on App
+/// Whether `scan` is the key read with a package filter the probe measured: a FindFirst or FindSet (ascending, primary key, no
+/// position) whose filters are one single-value filter each on TableNo and No. and one `=` or `<>` filter of one value on App
 /// Package ID, all in filter group 0. BC tests that filter against the ids the key lookup gives, while IsEmpty and Count test it
-/// against the table's (metadata/platform-tables/PlatformMetadataColumnValues.al:844-868, corpus PR 1410).
+/// against the table's (metadata/platform-tables/PlatformMetadataColumnValues.al:827-842, helper ObservePackageFilters, corpus
+/// PR 1410). A Next from a blank record is not measured.
 pub(super) fn measured_key_package_scan(t: &TableDef, scan: &al_data::Scan) -> bool {
     use al_builtins::filter::FilterExpr;
     let package = scan
@@ -251,7 +258,7 @@ pub(super) fn measured_key_package_scan(t: &TableDef, scan: &al_data::Scan) -> b
         .collect::<Vec<_>>();
     scan.key == 0
         && scan.ascending
-        && from_start(scan)
+        && scan.after.is_none()
         && scan.filters.len() == 3
         && single_value_group(t, scan.filters, 1) == Some(0)
         && single_value_group(t, scan.filters, 2) == Some(0)
