@@ -713,18 +713,32 @@ impl Providers {
         }
     }
 
-    /// A scan of the Field table whose filters set TableNo and No. to one value each: BC answers it as a `Get`
-    /// ([`fields::key_lookup`]). With a filter on a package column too, a row the lookup gives null ids is refused: BC finds no
-    /// row there for a filter its Count keeps (the probe behind corpus PR 1407), which is not measured further.
+    /// A scan of the Field table whose filters set TableNo and No. to one value each: in a shape the probes measured, BC answers it
+    /// as a `Get` ([`fields::measured_key_scan`], [`fields::key_lookup`]). With a filter on a package column too, of a row the lookup
+    /// gives null ids or ids the rule does not know: in the measured shape the filter is tested against the ids the lookup gives
+    /// ([`fields::measured_key_package_scan`]); a read after the one row the key filters leave finds nothing; every other shape is
+    /// refused.
     fn field_key_scan(&self, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
         let listed = self.listed(t, Virtual::Field)?;
         if fields::filters_package(t, scan.filters)
             && let Some((table_no, no)) = fields::key_scan(t, scan.filters)
-            && let Some(keyed) = listed.get(t, &[table_no, no])?
-            && fields::key_lookup_rule(self, t, &keyed).is_none_or(|(null, _)| null != Some(false))
+            && let Some(keyed) = listed.get(t, &[table_no.clone(), no.clone()])?
+            && let rule = fields::key_lookup_rule(self, t, &keyed)
+            && rule.is_none_or(|(null, _)| null != Some(false))
         {
+            if fields::measured_key_package_scan(t, scan) && rule.is_some_and(|(null, _)| null == Some(true)) {
+                let row = fields::key_lookup(self, t, keyed, true);
+                return Ok(al_builtins::filter::row_passes_checked(&row, scan.filters).then_some(row));
+            }
+            if scan.key == 0
+                && scan.after.is_some_and(|a| {
+                    al_builtins::filter::key_cmp(a.get(..2).unwrap_or(a), &[table_no, no]) == std::cmp::Ordering::Equal
+                })
+            {
+                return Ok(None);
+            }
             return Err(StoreError::Refused(
-                "Field: a FindFirst or FindSet that sets TableNo and No. to one value each and filters on App Package ID or App Runtime Package ID is not measured (docs/probes-needed.md, field-key-lookup-package-ids)".into(),
+                "Field: a read that sets TableNo and No. to one value each and filters on App Package ID or App Runtime Package ID is measured only as a FindFirst or FindSet with an = or <> filter on App Package ID, all in filter group 0 (docs/probes-needed.md, field-key-lookup-package-ids)".into(),
             ));
         }
         let row = listed.next(t, scan)?;
@@ -734,7 +748,6 @@ impl Providers {
             row
         })
     }
-
     /// The rows of the table of `kind`, worked out from the program and the host, with the
     /// columns nothing pins left unknown ([`mark_unpinned`]).
     fn list_rows(&self, t: &TableDef, kind: Virtual) -> Vec<mat::Entry> {

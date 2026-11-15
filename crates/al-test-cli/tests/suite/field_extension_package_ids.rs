@@ -525,10 +525,59 @@ codeunit 50120 T
     assert!(by("SystemId").2.contains(&Assumption::FieldKeyLookupPackageIds));
 }
 
-/// Not measured: a key lookup that also filters on a package column, of a row the key lookup gives null ids (BC answers its
-/// FindFirst with no row while its Count is 1). The FindFirst is refused; Count keeps main's answer.
+/// A key read with a filter on App Package ID too (TableNo, No. and the package filter in group 0; PlatformMetadataColumnValues.al
+/// :844-868, corpus PR 1410): on a table whose key lookup gives null ids, FindFirst and FindSet test the filter against the null
+/// ids, while IsEmpty and Count test it against the table's ids. Flagged until the corpus bump pins it.
 #[test]
-fn issue_8051_key_lookup_with_a_package_filter_is_refused() {
+fn issue_8051_key_lookup_with_a_package_filter_finds_by_the_null_ids() {
+    let src = format!(
+        "{PLAIN_TABLE}{}",
+        r#"
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    local procedure Reads(var F: Record Field): Text
+    begin
+        exit(Format(F.FindFirst()) + ' ' + Format(F.FindSet()) + ' ' + Format(F.IsEmpty()) + ' ' + Format(F.Count()));
+    end;
+
+    [Test]
+    procedure PackageFilters()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+        Empty: Guid;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetRange("App Package ID", Tbl."App Package ID");
+        if Reads(F) <> 'No No No 1' then
+            Error('= table %1', Reads(F));
+        F.SetFilter("App Package ID", '<>%1', Tbl."App Package ID");
+        if Reads(F) <> 'Yes Yes Yes 0' then
+            Error('<> table %1', Reads(F));
+        if not IsNullGuid(F."App Package ID") then
+            Error('found ids');
+        F.SetRange("App Package ID", Empty);
+        if Reads(F) <> 'Yes Yes Yes 0' then
+            Error('= empty %1', Reads(F));
+        if F.Next() <> 0 then
+            Error('next');
+    end;
+}"#
+    );
+    let o = run(&[(OWNER_ID, AppKind::Workspace, &src)]);
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
+    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+}
+
+/// Not measured: a key read with a filter on App Runtime Package ID, or with the package filter in another filter group. Refused,
+/// as before; Count keeps main's answer.
+#[test]
+fn issue_8051_key_lookup_with_an_unmeasured_package_filter_is_refused() {
     let src = format!(
         "{PLAIN_TABLE}{}",
         r#"
@@ -537,7 +586,7 @@ codeunit 50120 T
     Subtype = Test;
 
     [Test]
-    procedure Find()
+    procedure RuntimeFilter()
     var
         F: Record Field;
         Tbl: Record AllObj;
@@ -545,7 +594,22 @@ codeunit 50120 T
         Tbl.Get(Tbl."Object Type"::Table, 50100);
         F.SetRange(TableNo, 50100);
         F.SetRange("No.", 1);
+        F.SetRange("App Runtime Package ID", Tbl."App Runtime Package ID");
+        if F.FindFirst() then;
+    end;
+
+    [Test]
+    procedure OtherGroup()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.FilterGroup(2);
         F.SetRange("App Package ID", Tbl."App Package ID");
+        F.FilterGroup(0);
         if F.FindFirst() then;
     end;
 
@@ -558,7 +622,7 @@ codeunit 50120 T
         Tbl.Get(Tbl."Object Type"::Table, 50100);
         F.SetRange(TableNo, 50100);
         F.SetRange("No.", 1);
-        F.SetRange("App Package ID", Tbl."App Package ID");
+        F.SetRange("App Runtime Package ID", Tbl."App Runtime Package ID");
         if F.Count() <> 1 then
             Error('count %1', F.Count());
     end;
@@ -566,17 +630,114 @@ codeunit 50120 T
     );
     let o = run(&[(OWNER_ID, AppKind::Workspace, &src)]);
     let by = |n: &str| o.iter().find(|(x, ..)| x == n).unwrap().1.clone();
-    assert!(
-        matches!(by("Find"), Outcome::NotRun(ref why) if why.contains("package")),
-        "{:?}",
-        by("Find")
-    );
+    for n in ["RuntimeFilter", "OtherGroup"] {
+        assert!(
+            matches!(by(n), Outcome::NotRun(ref why) if why.contains("package")),
+            "{n}: {:?}",
+            by(n)
+        );
+    }
     assert_eq!(by("Count"), Outcome::Pass);
 }
 
-/// Only the measured key scan (a FindFirst or FindSet, key 0, ascending, exactly the TableNo and No. filters of one value each
-/// in group 0; PlatformMetadataColumnValues.al:569-605, corpus PR 1407) gets the key lookup rule. A FindLast and a third
-/// filter keep the table's ids (main's result) and mark nothing.
+/// Every other read of field 1 whose filters set TableNo and No. to one value each answers as a Get does (null here: a dependency
+/// table no extension of its own app extends): FindLast, Find('-'), Find('+'), Find('='), a descending FindFirst, Next from a
+/// blank record, a third filter on Class, both filters in FilterGroup 2, TableNo in group 2 and No. in 0, RecordRef.FindFirst and
+/// RecordRef.Find('=') (PlatformMetadataColumnValues.al:753-772, corpus PR 1410). Main gave the table's ids: flagged.
+#[test]
+fn issue_8051_other_key_read_forms_answer_as_get() {
+    let test = r#"
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    local procedure Null(var F: Record Field; What: Text)
+    begin
+        if not IsNullGuid(F."App Package ID") or not IsNullGuid(F."App Runtime Package ID") then
+            Error(What);
+    end;
+
+    [Test]
+    procedure Forms()
+    var
+        F: Record Field;
+        RecRef: RecordRef;
+        FldRef: FieldRef;
+    begin
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.FindLast();
+        Null(F, 'findlast');
+        F.Find('-');
+        Null(F, 'find-');
+        F.Find('+');
+        Null(F, 'find+');
+        Clear(F);
+        F.TableNo := 50100;
+        F."No." := 1;
+        F.Find('=');
+        Null(F, 'find=');
+        Clear(F);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetAscending("No.", false);
+        F.FindFirst();
+        Null(F, 'descending');
+        Clear(F);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.Next();
+        Null(F, 'next from blank');
+        Clear(F);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetRange(Class, F.Class::Normal);
+        F.FindFirst();
+        Null(F, 'class');
+        Clear(F);
+        F.FilterGroup(2);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.FilterGroup(0);
+        F.FindFirst();
+        Null(F, 'group 2');
+        Clear(F);
+        F.FilterGroup(2);
+        F.SetRange(TableNo, 50100);
+        F.FilterGroup(0);
+        F.SetRange("No.", 1);
+        F.FindFirst();
+        Null(F, 'groups 2 and 0');
+        RecRef.Open(Database::Field);
+        FldRef := RecRef.Field(1);
+        FldRef.SetRange(50100);
+        FldRef := RecRef.Field(2);
+        FldRef.SetRange(1);
+        RecRef.FindFirst();
+        RecRef.SetTable(F);
+        Null(F, 'recordref findfirst');
+        RecRef.Close();
+        RecRef.Open(Database::Field);
+        FldRef := RecRef.Field(1);
+        FldRef.Value := 50100;
+        FldRef := RecRef.Field(2);
+        FldRef.Value := 1;
+        RecRef.Find('=');
+        RecRef.SetTable(F);
+        Null(F, 'recordref find=');
+    end;
+}"#;
+    let o = run(&[
+        (OWNER_ID, AppKind::Dependency, PLAIN_TABLE),
+        (TEST_ID, AppKind::Workspace, test),
+    ]);
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
+    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+}
+
+/// A key read outside the measured shapes keeps the table's ids (main's result) and marks nothing: a third filter on FieldName
+/// (only Class is measured), and No. in FilterGroup 2 with TableNo in 0 (only the reverse is measured).
 #[test]
 fn issue_8051_key_scan_outside_the_measured_shape_keeps_the_tables_ids() {
     let test = r#"
@@ -593,16 +754,18 @@ codeunit 50120 T
         Tbl.Get(Tbl."Object Type"::Table, 50100);
         F.SetRange(TableNo, 50100);
         F.SetRange("No.", 2);
-        F.FindLast();
-        if F."App Package ID" <> Tbl."App Package ID" then
-            Error('findlast');
-        Clear(F);
-        F.SetRange(TableNo, 50100);
-        F.SetRange("No.", 2);
         F.SetFilter(FieldName, '<>%1', 'Nothing');
         F.FindFirst();
         if F."App Package ID" <> Tbl."App Package ID" then
             Error('third filter');
+        Clear(F);
+        F.SetRange(TableNo, 50100);
+        F.FilterGroup(2);
+        F.SetRange("No.", 2);
+        F.FilterGroup(0);
+        F.FindFirst();
+        if F."App Package ID" <> Tbl."App Package ID" then
+            Error('no in group 2');
     end;
 }"#;
     let o = run(&[
@@ -612,4 +775,101 @@ codeunit 50120 T
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
     assert!(!o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+}
+
+/// A table extension of the table's own app that declares no field, only a `modify`, makes a key lookup give the table's ids
+/// (PlatformMetadataColumnValues.al:784-815, corpus PR 1410). Main kept the earlier rule there (null for a table of the app under
+/// test): flagged.
+#[test]
+fn issue_8051_a_modify_only_same_app_extension_gives_the_tables_ids() {
+    let src = r#"
+table 50100 "Modify Line"
+{
+    fields { field(1; "No."; Code[20]) { } field(2; Description; Text[30]) { Caption = 'Description'; } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+tableextension 50110 "Modify Line Ext" extends "Modify Line"
+{
+    fields { modify(Description) { Caption = 'Extended Description'; } }
+}
+
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ModifyOnly()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.Get(50100, 1);
+        if F."App Package ID" <> Tbl."App Package ID" then
+            Error('field 1 %1', F."App Package ID");
+        F.Get(50100, 2);
+        if F."App Runtime Package ID" <> Tbl."App Runtime Package ID" then
+            Error('field 2 %1', F."App Runtime Package ID");
+    end;
+}"#;
+    let o = run(&[(OWNER_ID, AppKind::Workspace, src)]);
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
+    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+}
+
+/// Every kind of declared field, and a field of a TableType = Temporary table, gives null ids on a Get of a dependency table no
+/// extension of its own app extends (PlatformMetadataColumnValues.al:784-815, corpus PR 1410).
+#[test]
+fn issue_8051_get_of_every_field_kind_and_a_temporary_table_is_null() {
+    let tables = r#"
+table 50100 "Kinds"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Pending; Integer) { ObsoleteState = Pending; ObsoleteReason = 'p'; }
+        field(3; Removed; Integer) { ObsoleteState = Removed; ObsoleteReason = 'p'; }
+        field(4; Flow; Integer) { FieldClass = FlowField; CalcFormula = count("Kinds"); }
+        field(5; "Flow Filter"; Integer) { FieldClass = FlowFilter; }
+        field(6; Disabled; Integer) { Enabled = false; }
+        field(7; Picture; Blob) { }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+table 50101 "Temp Kinds"
+{
+    TableType = Temporary;
+    fields { field(1; "No."; Code[20]) { } field(2; Description; Text[30]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}"#;
+    let test = r#"
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Kinds()
+    var
+        F: Record Field;
+        No: Integer;
+    begin
+        for No := 1 to 7 do begin
+            F.Get(50100, No);
+            if not IsNullGuid(F."App Package ID") then
+                Error('field %1', No);
+        end;
+        F.Get(50101, 2);
+        if not IsNullGuid(F."App Package ID") then
+            Error('temporary');
+    end;
+}"#;
+    let o = run(&[
+        (OWNER_ID, AppKind::Dependency, tables),
+        (TEST_ID, AppKind::Workspace, test),
+    ]);
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
 }
