@@ -93,6 +93,177 @@ codeunit 50432 "Trusted Failure Then Row"
         R.Get(9);
     end;
 }
+
+codeunit 50433 "Untrusted Chain"
+{
+    Subtype = Test;
+    var
+        Ready: Boolean;
+        Done: Boolean;
+        Third: Boolean;
+    [Test]
+    procedure A_RefusedBeforeItSetsReady()
+    begin
+        Sleep(-1);
+        Ready := true;
+    end;
+    [Test]
+    procedure B_ChecksReadyThenSetsDone()
+    begin
+        if not Ready then Error('not ready');
+        Done := true;
+    end;
+    [Test]
+    procedure C_ReadsDoneThenSetsThird()
+    begin
+        if not Done then Error('done lost');
+        Third := true;
+    end;
+    [Test]
+    procedure D_ReadsThird()
+    begin
+        if not Third then Error('third lost');
+    end;
+}
+
+codeunit 50434 "Untrusted Then Random"
+{
+    Subtype = Test;
+    var
+        Ready: Boolean;
+    [Test]
+    procedure A_RefusedBeforeItSetsReady()
+    begin
+        Sleep(-1);
+        Ready := true;
+    end;
+    [Test]
+    procedure B_DrawsThenChecksReady()
+    var
+        I: Integer;
+    begin
+        Randomize(5);
+        I := Random(10);
+        if not Ready then Error('not ready');
+    end;
+    [Test]
+    procedure C_DrawsAndFails()
+    var
+        I: Integer;
+    begin
+        I := Random(10);
+        Error('real failure');
+    end;
+}
+
+codeunit 50438 "Untrusted Publisher"
+{
+    [IntegrationEvent(false, false)]
+    procedure OnThing()
+    begin
+    end;
+}
+
+codeunit 50439 "Untrusted Subscriber"
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Untrusted Publisher", 'OnThing', '', false, false)]
+    local procedure H()
+    begin
+    end;
+}
+
+codeunit 50435 "Untrusted Then Binding"
+{
+    Subtype = Test;
+    var
+        Ready: Boolean;
+        Sub: Codeunit "Untrusted Subscriber";
+    [Test]
+    procedure A_RefusedBeforeItSetsReady()
+    begin
+        Sleep(-1);
+        Ready := true;
+    end;
+    [Test]
+    procedure B_BindsThenChecksReady()
+    begin
+        BindSubscription(Sub);
+        if not Ready then Error('not ready');
+        UnbindSubscription(Sub);
+    end;
+    [Test]
+    procedure C_Fails()
+    begin
+        Error('real failure');
+    end;
+}
+
+codeunit 50445 "Untrusted Noop"
+{
+    trigger OnRun()
+    begin
+    end;
+}
+
+codeunit 50436 "Untrusted Unknown Reach"
+{
+    Subtype = Test;
+    var
+        Ready: Boolean;
+    [Test]
+    procedure A_RefusedBeforeItSetsReady()
+    begin
+        Sleep(-1);
+        Ready := true;
+    end;
+    [Test]
+    procedure B_ChecksReadyThenRunsById()
+    var
+        Id: Integer;
+    begin
+        if not Ready then Error('not ready');
+        Id := 50445;
+        Codeunit.Run(Id);
+    end;
+    [Test]
+    procedure C_Fails()
+    begin
+        Error('real failure');
+    end;
+}
+
+codeunit 50437 "Untrusted Then Timeout"
+{
+    Subtype = Test;
+    var
+        Ready: Boolean;
+        Done: Boolean;
+    [Test]
+    procedure A_RefusedBeforeItSetsReady()
+    begin
+        Sleep(-1);
+        Ready := true;
+    end;
+    [Test]
+    procedure B_ChecksReadyThenSetsDone()
+    begin
+        if not Ready then Error('not ready');
+        Done := true;
+    end;
+    [Test]
+    procedure C_WaitsForDone()
+    begin
+        if not Done then Sleep(5000);
+    end;
+    [Test]
+    procedure D_WaitsForNothing()
+    var
+        I: Integer;
+    begin
+        if I = 0 then Sleep(5000);
+    end;
+}
 "#;
 
 fn run() -> CorpusRuntime {
@@ -185,4 +356,88 @@ fn under_function_isolation_a_row_the_untrusted_failure_would_have_inserted_does
     assert!(not_trusted(&b), "{b:?}");
     let c = outcome(&rt, 50430, "C_ReadsTheRow");
     assert!(matches!(&c, Outcome::Fail(m) if m.contains("does not exist")), "{c:?}");
+}
+
+/// A chain of two failures judged not trusted: each reason names the test before it once, with that test's own error, and
+/// does not repeat that test's reason.
+#[test]
+fn a_chain_of_untrusted_failures_names_each_earlier_failure_once_with_its_own_error() {
+    let rt = run();
+    let c = outcome(&rt, 50433, "C_ReadsDoneThenSetsThird");
+    assert!(
+        matches!(&c, Outcome::NotRun(m) if m.starts_with(
+            "an earlier test of this codeunit failed and its failure is not trusted (B_ChecksReadyThenSetsDone: failed, not trusted (not ready)): "
+        ) && m.ends_with("; this failure is not trusted: done lost")),
+        "{c:?}"
+    );
+    let d = outcome(&rt, 50433, "D_ReadsThird");
+    assert!(
+        matches!(&d, Outcome::NotRun(m) if m.starts_with(
+            "an earlier test of this codeunit failed and its failure is not trusted (C_ReadsDoneThenSetsThird: failed, not trusted (done lost)): "
+        ) && m.contains("Third") && !m.contains("B_ChecksReadyThenSetsDone")),
+        "{d:?}"
+    );
+}
+
+/// A later test that draws from the `Random` sequence after an untrusted failure that could draw: its failure is not
+/// trusted (the untrusted test counts with its whole reach, which includes the draws).
+#[test]
+fn a_draw_after_an_untrusted_failure_that_draws_is_not_trusted() {
+    let rt = run();
+    let b = outcome(&rt, 50434, "B_DrawsThenChecksReady");
+    assert!(not_trusted(&b), "{b:?}");
+    let c = outcome(&rt, 50434, "C_DrawsAndFails");
+    assert!(
+        not_trusted(&c)
+            && matches!(&c, Outcome::NotRun(m) if m.contains("B_DrawsThenChecksReady") && m.contains("Random")),
+        "{c:?}"
+    );
+}
+
+/// An untrusted failure that left a manual binding the later test starts with: the later failure is not trusted, by the
+/// binding reason.
+#[test]
+fn a_binding_left_by_an_untrusted_failure_makes_a_later_failure_not_trusted() {
+    let rt = run();
+    let b = outcome(&rt, 50435, "B_BindsThenChecksReady");
+    assert!(not_trusted(&b), "{b:?}");
+    let c = outcome(&rt, 50435, "C_Fails");
+    assert!(
+        not_trusted(&c)
+            && matches!(&c, Outcome::NotRun(m) if m.contains("B_BindsThenChecksReady") && m.contains("manual event subscription")),
+        "{c:?}"
+    );
+}
+
+/// An untrusted failure whose reach is not fully known: every later failure of the codeunit is not trusted.
+#[test]
+fn an_untrusted_failure_with_an_unknown_reach_makes_every_later_failure_not_trusted() {
+    let rt = run();
+    let b = outcome(&rt, 50436, "B_ChecksReadyThenRunsById");
+    assert!(not_trusted(&b), "{b:?}");
+    let c = outcome(&rt, 50436, "C_Fails");
+    assert!(
+        not_trusted(&c) && matches!(&c, Outcome::NotRun(m) if m.contains("part of its reach is not known")),
+        "{c:?}"
+    );
+}
+
+const LIMIT: &str = "the test used more than the time limit of 1 s";
+
+/// A later timeout that reads what the untrusted failure would have set is not trusted; one that reads nothing it can
+/// change stays a plain timeout.
+#[test]
+fn a_timeout_reading_what_an_untrusted_failure_would_have_set_is_not_trusted() {
+    let rt = run_under(RunOptions {
+        test_time_limit: Some(std::time::Duration::from_secs(1)),
+        ..RunOptions::default()
+    });
+    let c = outcome(&rt, 50437, "C_WaitsForDone");
+    assert!(
+        matches!(&c, Outcome::NotRun(m) if m.contains("B_ChecksReadyThenSetsDone")
+            && m.contains(&format!("this timeout is not trusted: {LIMIT}"))),
+        "{c:?}"
+    );
+    let d = outcome(&rt, 50437, "D_WaitsForNothing");
+    assert!(matches!(&d, Outcome::NotRun(m) if m.starts_with(LIMIT)), "{d:?}");
 }

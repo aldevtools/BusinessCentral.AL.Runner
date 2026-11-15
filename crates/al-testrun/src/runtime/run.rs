@@ -1034,7 +1034,7 @@ fn run_codeunit_inner(
                 Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),
                 o => Err(o),
             };
-            // `untrusted`: this test's failure was judged not trusted just above.
+            // `untrusted`: this test's failure was judged not trusted just above; it holds the failure's own error.
             let (outcome, untrusted) = match judged {
                 Ok((kind, m)) => {
                     let engine = session.engine.clone();
@@ -1086,13 +1086,13 @@ fn run_codeunit_inner(
                                 None => mine.get_or_insert_with(|| reach_facts(&engine.events, lowered, index, object, r)),
                             };
                             facts.changes_read_by(later, checkpoint.is_none(), drew, &settled, lowered).map(|what| {
-                                let when = match u.ended {
-                                    Ended::RefusedMidRun => "refused while it ran",
-                                    Ended::Untrusted => "a failure judged not trusted",
-                                    _ => "refused before it started",
+                                let how = match u.ended {
+                                    Ended::RefusedMidRun => "was refused while it ran",
+                                    Ended::Untrusted => "failed and its failure is not trusted",
+                                    _ => "was refused before it started",
                                 };
                                 format!(
-                                    "an earlier test of this codeunit was {when} ({}): {what}, so the state it would have left is not BC's",
+                                    "an earlier test of this codeunit {how} ({}): {what}, so the state it would have left is not BC's",
                                     u.what
                                 )
                             })
@@ -1100,23 +1100,28 @@ fn run_codeunit_inner(
                     }
                 });
                     match found {
-                        Some(why) => (
-                            Outcome::NotRun(format!("{why}; this {kind} is not trusted: {m}")),
-                            kind == "failure",
-                        ),
-                        None if kind == "timeout" => (Outcome::NotRun(m), false),
-                        None => (Outcome::Fail(m), false),
+                        Some(why) => {
+                            let untrusted = (kind == "failure").then(|| m.clone());
+                            (
+                                Outcome::NotRun(format!("{why}; this {kind} is not trusted: {m}")),
+                                untrusted,
+                            )
+                        }
+                        None if kind == "timeout" => (Outcome::NotRun(m), None),
+                        None => (Outcome::Fail(m), None),
                     }
                 }
-                Err(o) => (o, false),
+                Err(o) => (o, None),
             };
-            let ended = ended_of(&outcome, began, untrusted);
+            let ended = ended_of(&outcome, began, untrusted.is_some());
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
-                let how = match ended {
-                    Ended::RefusedBeforeStart => "not run",
-                    Ended::RefusedMidRun => "did not run",
-                    Ended::Failed | Ended::Untrusted => "failed",
+                // An untrusted failure names its own error, not the reason it is not trusted: a chain does not nest.
+                let (how, why) = match (ended, &untrusted) {
+                    (Ended::RefusedBeforeStart, _) => ("not run", why),
+                    (Ended::RefusedMidRun, _) => ("did not run", why),
+                    (Ended::Untrusted, Some(error)) => ("failed, not trusted", error),
+                    (Ended::Failed | Ended::Untrusted, _) => ("failed", why),
                 };
                 unfinished.push(Unfinished {
                     routine: r,
@@ -1580,7 +1585,8 @@ impl Carried {
 
 /// Sets a session's stop flag when a test has used more than its limit of CPU time. The time the
 /// test thread computes is counted, not the wall time, so the load of the machine cannot stop a
-/// test (an outcome must not depend on it). A wall-clock backstop, `WALL_BACKSTOP` times the limit,
+/// test (an outcome must not depend on it). A wall-clock backstop, `WALL_BACKSTOP` times the limit (saturating: a
+/// limit too large for that has no backstop),
 /// still ends a test that hangs without computing. One thread per test that is run; it polls
 /// until the limit or until `finish`. Where the thread's CPU clock cannot be read, the wall clock
 /// counts.
@@ -1679,7 +1685,7 @@ impl Watchdog {
                     .map(|cpu| cpu.saturating_sub(base));
                 match used {
                     Some(cpu) => {
-                        if cpu >= limit || elapsed() >= limit * WALL_BACKSTOP {
+                        if cpu >= limit || elapsed() >= limit.saturating_mul(WALL_BACKSTOP) {
                             return stop(&flag);
                         }
                     }
@@ -1836,5 +1842,31 @@ fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool) {
     }
     for &a in &lowered.program.assumes {
         al_builtins::assumptions::assume(a);
+    }
+}
+
+#[cfg(test)]
+mod ends_tests {
+    use super::{Ended, Unfinished, ends_of};
+
+    fn unfinished(ended: Ended) -> Unfinished {
+        Unfinished {
+            routine: 0,
+            what: String::new(),
+            ended,
+            facts: None,
+            rest: None,
+            left_bindings: Vec::new(),
+        }
+    }
+
+    /// An untrusted failure counts as a test that started and did not run to its end, as a trusted failure does, but it
+    /// is not a test refused while it ran: the strict-order taint and the hand-on of single instances read only that.
+    #[test]
+    fn an_untrusted_failure_is_unfinished_after_start_but_not_refused_mid_run() {
+        let e = ends_of(&[unfinished(Ended::Untrusted)], false);
+        assert!(e.unfinished_after_start && !e.refused_mid_run);
+        let e = ends_of(&[unfinished(Ended::Untrusted), unfinished(Ended::RefusedMidRun)], false);
+        assert!(e.refused_mid_run);
     }
 }

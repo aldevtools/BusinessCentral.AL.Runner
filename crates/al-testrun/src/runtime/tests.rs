@@ -2468,6 +2468,18 @@ fn the_time_limit_counts_cpu_time_not_wall_time() {
     assert!(w.finish() && x > 0, "a thread that computed was not stopped");
 }
 
+/// A limit so large that ten times it does not fit a `Duration` (a client may send any whole number of seconds,
+/// al-runner issue 8125) is no limit in practice: the watchdog keeps watching and does not stop the test.
+#[test]
+fn a_huge_time_limit_does_not_stop_the_watchdog_or_the_test() {
+    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let w = Watchdog::start(flag.clone(), std::time::Duration::from_secs(u64::MAX));
+    std::thread::sleep(WATCHDOG_POLL * 4);
+    assert!(!w.thread.is_finished(), "the watchdog thread ended (it panicked)");
+    assert!(!w.finish(), "a huge limit stopped the test");
+    assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
+}
+
 /// The limit is per test: the CPU time a thread used before the test started does not count.
 /// Three tests on one thread, each using 60 % of the limit, all stay under it.
 #[cfg(any(unix, windows))]
