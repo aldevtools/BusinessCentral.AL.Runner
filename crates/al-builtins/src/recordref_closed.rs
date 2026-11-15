@@ -29,3 +29,11 @@ pub fn cleared(record_ref: bool, old: &LibraryValue) -> LibraryValue {
         (false, _) => EmptiedRef::OtherKeyRef,
     })
 }
+
+/// The handle a variable assigned from the KeyRef handle `h` gets: a KeyRef cleared after it held a key is the state corpus PR 1411
+/// measured only on the cleared variable itself (UhUntouchedStreamsAfter.al:285-299 `TryKeyRef`), so a copy gets a handle of its
+/// own that holds a KeyRef emptied by another sequence. `None`: any other handle is assigned as it is.
+pub fn keyref_assigned_copy(h: &LibraryValue) -> Option<LibraryValue> {
+    matches!(h, LibraryValue::EmptiedRef(EmptiedRef::ClearedAssignedKeyRef))
+        .then_some(LibraryValue::EmptiedRef(EmptiedRef::OtherKeyRef))
+}

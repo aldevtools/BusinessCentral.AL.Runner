@@ -1062,6 +1062,9 @@ pub struct Session {
     pub(crate) query_object: usize,
     /// The global variable (object index of the routine, slot) a query method is called on, from `run_native` to `query_op`.
     pub(crate) query_receiver: Option<(usize, usize)>,
+    /// The KeyRef method that runs was called on a declared local variable of a codeunit procedure, from `run_native` to
+    /// `unopened_refs.rs` `keyref_unassigned_measured`.
+    pub(crate) keyref_receiver_local: bool,
     /// The object index of the test codeunit being run (set by the test runner).
     pub test_object: Option<usize>,
     /// The `TestHttpRequestPolicy` of the running test codeunit (`None`: the property is absent).
@@ -1441,6 +1444,7 @@ impl Session {
             permission_run_object: None,
             query_object: 0,
             query_receiver: None,
+            keyref_receiver_local: false,
             permissions: None,
             test_object: None,
             http_policy: None,

@@ -387,6 +387,32 @@ fn keyref_members_not_measured_after_clear_refuse() {
     refused("procedure F(): Text var KR: KeyRef; B: Boolean; begin Clear(KR); B := KR.Active(); end;");
 }
 
+/// A KeyRef that held a key, after Clear: corpus PR 1411 measured Active only on the cleared local variable itself
+/// (UhUntouchedStreamsAfter.al:285-299 `TryKeyRef`, test :418). A copy by assignment, a by-value or `var` parameter, a global and
+/// an array element keep their answer before the probe (a refusal); the cleared local itself still runs flagged.
+#[test]
+fn keyref_active_after_clear_runs_only_on_the_cleared_local() {
+    let setup = "RR.Open(50100); KR := RR.KeyIndex(1); Clear(KR);";
+    for body in [
+        format!("procedure F(): Text var RR: RecordRef; KR: KeyRef; KR2: KeyRef; B: Boolean; begin {setup} KR2 := KR; B := KR2.Active(); end;"),
+        format!("procedure F(): Text var RR: RecordRef; KR: KeyRef; KR2: KeyRef; B: Boolean; begin {setup} KR2 := KR; KR := RR.KeyIndex(1); B := KR2.Active(); end;"),
+        format!("procedure F(): Text var RR: RecordRef; KR: KeyRef; V: Variant; KR2: KeyRef; B: Boolean; begin {setup} V := KR; KR2 := V; B := KR2.Active(); end;"),
+        format!("procedure F(): Text var RR: RecordRef; KR: KeyRef; B: Boolean; begin {setup} B := G(KR); end; procedure G(K: KeyRef): Boolean begin exit(K.Active()); end;"),
+        format!("procedure F(): Text var RR: RecordRef; KR: KeyRef; B: Boolean; begin {setup} B := H(KR); end; procedure H(var K: KeyRef): Boolean begin exit(K.Active()); end;"),
+        "var KR: KeyRef; procedure F(): Text var RR: RecordRef; B: Boolean; begin RR.Open(50100); KR := RR.KeyIndex(1); Clear(KR); B := KR.Active(); end;".to_string(),
+        "procedure F(): Text var RR: RecordRef; KR: array[2] of KeyRef; B: Boolean; begin RR.Open(50100); KR[1] := RR.KeyIndex(1); Clear(KR[1]); B := KR[1].Active(); end;".to_string(),
+    ] {
+        refused(&body);
+    }
+    take_hits();
+    let r = run(&format!(
+        "procedure F(): Text var RR: RecordRef; KR: KeyRef; KR2: KeyRef; B: Boolean;
+        begin {setup} KR2 := KR; asserterror B := KR.Active(); exit(GetLastErrorCode()); end;"
+    ));
+    assert_eq!(al_testkit::text(r), "NotInitialized");
+    assert!(take_hits().contains(&Assumption::KeyRefUnassignedMembers));
+}
+
 /// GetTable of a Variant that holds no record on a RecordRef after Clear or Open(0): no probe measured it, so every value keeps its
 /// answer before the probe (a refusal).
 #[test]

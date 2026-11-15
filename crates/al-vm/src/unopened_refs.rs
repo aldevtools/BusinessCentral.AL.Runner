@@ -177,7 +177,11 @@ impl Session {
         let measured = match (lib, method) {
             (LibraryValue::Empty, "FieldCount" | "Active" | "Record") => args.is_empty(),
             (LibraryValue::Empty, "FieldIndex") => matches!(args, [Value::Integer(1)]),
-            (LibraryValue::EmptiedRef(EmptiedRef::ClearedAssignedKeyRef), "Active") => args.is_empty(),
+            // Only on the cleared variable itself (`keyref_receiver_measured`); a copy by assignment holds another state
+            // (`recordref_closed::keyref_assigned_copy`).
+            (LibraryValue::EmptiedRef(EmptiedRef::ClearedAssignedKeyRef), "Active") => {
+                args.is_empty() && self.keyref_receiver_local
+            }
             _ => false,
         };
         if !measured {
@@ -188,6 +192,23 @@ impl Session {
             "Microsoft.Dynamics.Nav.Runtime.NavKeyRef variable not initialized.",
             "NotInitialized",
         ))
+    }
+}
+
+impl Session {
+    /// Whether the receiver of a KeyRef method is the variable shape corpus PR 1411 measured Active on after `Clear`: a declared
+    /// local variable of a procedure of a codeunit (UhUntouchedStreamsAfter.al:285-299 `TryKeyRef`, `KR: KeyRef`), named as such
+    /// (`blob_transfer::measured_local`). A parameter, a global, an array element and a returned value are not.
+    pub(crate) fn keyref_receiver_measured(&self, receiver: Option<&crate::ir::Arg>, f: &crate::Frame) -> bool {
+        let slot = match receiver {
+            Some(
+                crate::ir::Arg::Ref(crate::ir::Place::Local(l))
+                | crate::ir::Arg::Value(crate::ir::Expr::Load(crate::ir::Place::Local(l))),
+            ) => *l,
+            _ => return false,
+        };
+        let object = &self.engine.program.objects[f.object];
+        crate::blob_transfer::measured_local(object.kind, &object.routines[f.routine], slot)
     }
 }
 

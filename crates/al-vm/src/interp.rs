@@ -90,12 +90,23 @@ impl Session {
                 _ => None,
             };
         }
+        // The variable a KeyRef method is called on, for `keyref_unassigned_measured`; cleared once the native returns.
+        let keyref_call = matches!(
+            recv,
+            Some(Value::Library(al_builtins::library_kind::LibraryKind::KeyRef, _))
+        );
+        if keyref_call {
+            self.keyref_receiver_local = self.keyref_receiver_measured(receiver, f);
+        }
         // A background task this call enqueued runs once the call wrote its arguments back; one that a call further out
         // enqueued waits for that call.
         let drain_pending = self.pages.bg_drain_after_call.is_some();
         let ret = native(self, recv.as_mut(), &mut values);
         if query_call {
             self.query_receiver = None;
+        }
+        if keyref_call {
+            self.keyref_receiver_local = false;
         }
         let ret = ret?;
         // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
@@ -1544,6 +1555,15 @@ impl Session {
                 al_builtins::library_kind::LibraryKind::FilterPageBuilder,
                 filterpage::copy_for_assignment(&cell),
             ),
+            // `:=` from a KeyRef cleared after it held a key (`recordref_closed::keyref_assigned_copy`); a builtin's write-back
+            // (`Clear` itself) keeps the handle.
+            Value::Library(al_builtins::library_kind::LibraryKind::KeyRef, cell) if assign => {
+                let copy = al_builtins::recordref_closed::keyref_assigned_copy(&cell.borrow());
+                Value::Library(
+                    al_builtins::library_kind::LibraryKind::KeyRef,
+                    copy.map_or(cell, |c| Rc::new(std::cell::RefCell::new(c))),
+                )
+            }
             v => v,
         };
         // `:=` between records copies the fields into the target record (ADR-010); the target keeps its own SecurityFiltering
