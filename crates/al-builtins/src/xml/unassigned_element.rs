@@ -70,23 +70,74 @@ pub(super) fn as_xml_node(r: &Option<&mut Value>, a: &[Value], used: bool) -> Op
     ))
 }
 
-/// Whether `r` is an XmlNode that holds the node [`as_xml_node`] returned (any copy of it shares the handle).
-fn is_its_node(r: &Option<&mut Value>) -> bool {
-    matches!(r.as_deref(), Some(Value::Library(name, h))
+/// Whether `v` is an XmlNode that holds the node [`as_xml_node`] returned (any copy of it shares the handle). Generic readers
+/// that would answer a value on it (the Variant Is* checks, the List searches) refuse through this.
+pub fn is_node_of_unassigned_element(v: &Value) -> bool {
+    matches!(v, Value::Library(name, h)
         if name.as_str() == "XmlNode" && matches!(&*h.borrow(), LibraryValue::XmlNodeOfUnassignedElement))
+}
+
+fn is_its_node(r: &Option<&mut Value>) -> bool {
+    r.as_deref().is_some_and(is_node_of_unassigned_element)
+}
+
+/// `B := N.IsXmlElement()` on the node [`as_xml_node`] returned (the result used; the overload has no arguments): Yes,
+/// through the assumption (corpus PR 1421, xml/xml/UhAsXmlNodeUnassignedElement.al:33-37, test :95-101, the same on every
+/// major of its CI run). `None` for any other receiver or the statement form, which goes on as before (refused, `dom.rs`).
+pub(super) fn is_xml_element(r: &Option<&mut Value>, used: bool) -> Option<Value> {
+    if !(is_its_node(r) && used) {
+        return None;
+    }
+    crate::assumptions::assume(crate::assumptions::Assumption::XmlElementUnassignedAsXmlNode);
+    Some(Value::Boolean(true))
 }
 
 /// `N.WriteTo(T)` as a statement on the node [`as_xml_node`] returned: `NotInitialized` naming `XmlNode`. With the
 /// assumption that `AsXmlNode` returns, xml/UhUnassignedXmlElement.al:134 (step :45-50) pins this error on the `WriteTo`.
-/// `Ok` for every other receiver. The used form (`Ok := N.WriteTo(T)`) is refused: not measured.
+/// `Ok` for every other receiver. The used form (`Ok := N.WriteTo(T)`) is refused: not measured. Both pass through the
+/// assumption, also when an earlier test made the node (a codeunit global).
 pub(super) fn write_to_text(r: &Option<&mut Value>, used: bool) -> Result<(), Signal> {
     if !is_its_node(r) {
         return Ok(());
     }
+    crate::assumptions::assume(crate::assumptions::Assumption::XmlElementUnassignedAsXmlNode);
     if used {
         return unsupported(
             "the result of XmlNode.WriteTo(Text) on the XmlNode of an unassigned XmlElement (not measured)",
         );
     }
     Err(uninitialized("XmlNode"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assumptions::{Assumption, clear_hits, take_hits};
+
+    fn node() -> Value {
+        tagged(
+            "XmlNode",
+            Rc::new(RefCell::new(LibraryValue::XmlNodeOfUnassignedElement)),
+        )
+    }
+
+    fn marked() -> bool {
+        take_hits().contains(&Assumption::XmlElementUnassignedAsXmlNode)
+    }
+
+    /// A node made in an earlier test (a codeunit global) still marks the run that uses it: the WriteTo error and the refusal
+    /// of the used form both pass through the assumption.
+    #[test]
+    fn write_to_text_marks_the_assumption_on_every_run() {
+        let mut n = node();
+        clear_hits();
+        assert!(write_to_text(&Some(&mut n), false).is_err());
+        assert!(marked());
+        clear_hits();
+        assert!(matches!(
+            write_to_text(&Some(&mut n), true),
+            Err(Signal::Unsupported(_))
+        ));
+        assert!(marked());
+    }
 }

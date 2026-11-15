@@ -54,6 +54,9 @@ node_kind!(is_element_node, as_element_node, "XmlElement");
 /// An unassigned or cleared XmlNode is no element, and AsXmlElement of it raises a Conversion error (corpus branch
 /// al-runtime-rs-staging-ul b753d3fb7a, xml/xml/UlClearXmlRef.al:106-142 ClearXmlNode_SecondVariable).
 pub(super) fn is_element(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if let Some(yes) = unassigned_element::is_xml_element(&r, c.ret_used()) {
+        return Ok(yes);
+    }
     if unassigned(&r, "XmlNode") {
         // Pinned by xml/xml/UlClearXmlRef.al (was assumption `clear-xml-ref`).
         return Ok(Value::Boolean(false));

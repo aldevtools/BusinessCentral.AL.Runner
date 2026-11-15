@@ -1617,6 +1617,10 @@ mod tests {
     fn the_time_of_day_default_is_the_run_clocks() {
         let d = DIMENSIONS.iter().find(|d| d.name == "clock.timeOfDay").unwrap();
         assert_eq!(time_of_day(d.default), Some(crate::host::RUN_CLOCK_TIME_OF_DAY));
+        // The preset `all` starts its clock.timeOfDay values with the normal run's time of day.
+        let all: Json = serde_json::from_str(PRESET_ALL).unwrap();
+        let first = all["dimensions"]["clock.timeOfDay"][0].as_str().unwrap();
+        assert_eq!(time_of_day(first), Some(crate::host::RUN_CLOCK_TIME_OF_DAY));
     }
 
     #[test]
