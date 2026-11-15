@@ -608,6 +608,18 @@ impl Registry {
             || self.missing.keys().any(|(o, _)| *o == object)
     }
 
+    /// The events (publisher, lower-case event name) routine `routine` of object `object` is a compiled subscriber to.
+    pub fn subscriptions_of(&self, object: usize, routine: usize) -> Vec<(usize, &str)> {
+        let mut found: Vec<(usize, &str)> = self
+            .subscribers
+            .iter()
+            .filter(|(_, v)| v.iter().any(|s| s.object == object && s.routine == routine))
+            .map(|((p, e), _)| (*p, e.as_str()))
+            .collect();
+        found.sort_unstable();
+        found
+    }
+
     pub fn is_subscribed(&self, object: usize, event: &str) -> bool {
         self.subscribers
             .get(&(object, event.to_string()))

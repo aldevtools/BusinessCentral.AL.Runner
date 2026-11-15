@@ -1516,18 +1516,11 @@ impl Session {
                 let filters = rec.borrow().filters.clone();
                 let matching = al_data::Store::count(&*self.store_for(rec), &cx, &t, &filters)
                     .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
-                if matching == 0 {
-                    use crate::permission_bulk_no_match::NoMatch;
-                    match self.bulk_no_match_verdict(method, rec, args, access, indirect, by, caller, rows)? {
-                        NoMatch::Deny => {}
-                        NoMatch::Allow => return Ok(()),
-                        NoMatch::Refuse => {
-                            return refuse(
-                                "with a filter that matches no row of a table with rows, in a shape no probe measured \
-                                 (record/Y19PermWrites.al:294-307 pins one; al-runner issue 8068)",
-                            );
-                        }
-                    }
+                if matching == 0 && !self.bulk_no_match_denied(method, rec, args, access, indirect, by, caller, rows)? {
+                    return refuse(
+                        "with a filter that matches no row of a table with rows, in a shape no probe measured \
+                         (record/Y19PermWrites.al:294-307 pins one; corpus PR 1403 measures more)",
+                    );
                 }
             }
             _ => return refuse("ADR-062 section 2"),

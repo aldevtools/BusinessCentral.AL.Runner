@@ -713,6 +713,28 @@ impl Providers {
         }
     }
 
+    /// A scan of the Field table whose filters set TableNo and No. to one value each: BC answers it as a `Get`
+    /// ([`fields::key_lookup`]). With a filter on a package column too, a row the lookup gives null ids is refused: BC finds no
+    /// row there for a filter its Count keeps (the probe behind corpus PR 1407), which is not measured further.
+    fn field_key_scan(&self, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+        let listed = self.listed(t, Virtual::Field)?;
+        if fields::filters_package(t, scan.filters)
+            && let Some((table_no, no)) = fields::key_scan(t, scan.filters)
+            && let Some(keyed) = listed.get(t, &[table_no, no])?
+            && fields::key_lookup_rule(self, t, &keyed).is_none_or(|(null, _)| null != Some(false))
+        {
+            return Err(StoreError::Refused(
+                "Field: a FindFirst or FindSet that sets TableNo and No. to one value each and filters on App Package ID or App Runtime Package ID is not measured (docs/probes-needed.md, field-key-lookup-package-ids)".into(),
+            ));
+        }
+        let row = listed.next(t, scan)?;
+        Ok(if fields::measured_key_scan(t, scan) {
+            row.map(|row| fields::key_lookup(self, t, row, true))
+        } else {
+            row
+        })
+    }
+
     /// The rows of the table of `kind`, worked out from the program and the host, with the
     /// columns nothing pins left unknown ([`mark_unpinned`]).
     fn list_rows(&self, t: &TableDef, kind: Virtual) -> Vec<mat::Entry> {
@@ -971,7 +993,9 @@ impl VirtualTables for Providers {
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
             Virtual::TenantMedia => self.tenant_media_listing(store, cx, t)?.get(t, pk),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.get(t, pk),
-            Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(self, t, r))),
+            Virtual::Field => Ok(self
+                .field_get_by_key(t, pk)?
+                .map(|r| fields::key_lookup(self, t, r, false))),
             Virtual::Media => self.media_of_id(t, pk.first())?.get(t, pk),
             k => self.listed(t, k)?.get(t, pk),
         }
@@ -1040,6 +1064,7 @@ impl VirtualTables for Providers {
             Virtual::Media => self
                 .media_of_id(t, media_id_filter(t, scan.filters).as_ref())?
                 .next(t, scan),
+            Virtual::Field if fields::key_scan(t, scan.filters).is_some() => self.field_key_scan(t, scan),
             k => self.listed(t, k)?.next(t, scan),
         }
     }
@@ -1158,7 +1183,7 @@ pub fn field_get_by_key_pairs(engine: &Arc<Engine>, extra: &[(i32, i32)]) -> Opt
         i += 1;
     }
     keys.extend(extra.iter().map(|(a, b)| vec![Value::Integer(*a), Value::Integer(*b)]));
-    let field_get = |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| fields::field_get(&p, &t, r)));
+    let field_get = |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| fields::key_lookup(&p, &t, r, false)));
     keys.into_iter()
         .map(|pk| {
             let by_listing = field_get(listing.get(&t, &pk));
