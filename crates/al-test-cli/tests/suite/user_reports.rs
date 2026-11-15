@@ -3123,6 +3123,23 @@ fn report_extension_refuses_unmeasured_parent_references() {
             fixture.replacen("DataItemLink = ParentId = field(Id);", "", 1),
             "DataItemLinkReference",
         ),
+        // The pin adds the item with addbefore of a base sibling (TestReportExtensionParentLink.al:46-51): the other
+        // anchors that name the same parent are not measured.
+        (
+            "addlast",
+            fixture.replace("addbefore(Line)", "addlast(Header)"),
+            "DataItemLinkReference on an item added",
+        ),
+        (
+            "addfirst",
+            fixture.replace("addbefore(Line)", "addfirst(Header)"),
+            "DataItemLinkReference on an item added",
+        ),
+        (
+            "addafter",
+            fixture.replace("addbefore(Line)", "addafter(Line)"),
+            "DataItemLinkReference on an item added",
+        ),
     ] {
         let outcomes = run_with_deps(&[], &source);
         assert_eq!(outcomes.len(), 1, "{shape}: {outcomes:?}");

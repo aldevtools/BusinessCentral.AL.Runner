@@ -1233,7 +1233,6 @@ fn walk_report_ext<V: RefVisitor>(e: &mut ReportExt, v: &mut V) {
         let AddedItem {
             item,
             base_parent,
-            explicit_parent_link: _,
             place: _,
         } = a;
         // An added item is nested under another added item or under a base item.
