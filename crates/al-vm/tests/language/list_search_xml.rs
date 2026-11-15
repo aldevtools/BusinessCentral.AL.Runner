@@ -135,10 +135,20 @@ fn refused(routine: &str, member: i32) -> String {
 fn a_search_of_a_list_of_xml_values_refuses() {
     // An empty list too: main answered No / 0 there, but BC may refuse the call on a list of handles whatever it holds, as it
     // does for a list of interfaces (collections/ListComplex.al:Interface_List).
-    for routine in ["Node", "UnassignedNode", "EmptyList", "Element", "Document", "Attribute"] {
+    for routine in [
+        "Node",
+        "UnassignedNode",
+        "EmptyList",
+        "Element",
+        "Document",
+        "Attribute",
+    ] {
         for (member, name) in [(1, "Contains"), (2, "IndexOf"), (3, "LastIndexOf"), (4, "Remove")] {
             let why = refused(routine, member);
-            assert!(why.contains(&format!("List.{name}")) && why.contains("XML"), "{routine}: {why}");
+            assert!(
+                why.contains(&format!("List.{name}")) && why.contains("XML"),
+                "{routine}: {why}"
+            );
         }
     }
 }
