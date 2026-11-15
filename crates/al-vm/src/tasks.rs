@@ -38,6 +38,11 @@ pub(crate) struct Tasks {
 }
 
 impl Tasks {
+    /// No task created (`install_left.rs`).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.open.is_empty() && self.committed.is_empty()
+    }
+
     pub(crate) fn commit(&mut self) {
         let open = std::mem::take(&mut self.open);
         self.committed.extend(open);

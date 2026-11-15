@@ -29,11 +29,10 @@ struct Installed {
     overrides: al_vm::ResourceOverrides,
     read_resources: bool,
     /// The data it left, with the routines that could not run (`Baseline::workspace_installs`) and the install rows the
-    /// session had (`Baseline::install_rows`).
-    data: al_vm::Baseline,
-    /// The language and WorkDate it left (`Session::carried_state`), and how far it moved the session's clock.
-    state: al_vm::CarriedState,
-    clock_ms: i64,
+    /// session had (`Baseline::install_rows`), and the rest it left (`Session::install_left`). `None`: it left state a new
+    /// session does not start from, and each codeunit's session runs the install code itself, as on a run without this
+    /// path; the thread keeps that verdict for the run.
+    left: Option<(al_vm::Baseline, al_vm::InstallLeft)>,
 }
 
 /// Everything a codeunit's session is made from besides the program, the same for every codeunit of a run.
@@ -105,12 +104,9 @@ pub(super) fn start_installed(
         if !fits {
             *kept = Some(install(lowered, &engine, scratch, key, overrides));
         }
-        let i = kept.as_ref().expect("kept or made just now");
-        // The clock first: the restore keeps no row stamp ahead of the session's clock.
-        session.advance_clock_ms(i.clock_ms);
-        session.restore_baseline(&i.data);
-        session.restore_carried(i.state);
-        i.data.workspace_installs.clone()
+        let (data, left) = kept.as_ref().expect("kept or made just now").left.as_ref()?;
+        session.restore_install_left(data, left);
+        data.workspace_installs.clone()
     })
 }
 
@@ -127,15 +123,17 @@ fn install(
     let mut s = Session::with_host(engine.clone(), host);
     scratch.flags.apply(&mut s);
     let skipped = run_installs_in(lowered, &mut s);
-    let mut data = s.capture_baseline();
-    data.workspace_installs = Some(skipped);
-    data.install_rows = Some(s.install_rows());
+    // Before the capture, which commits and clears part of what the check reads.
+    let left = s.install_left().map(|left| {
+        let mut data = s.capture_baseline();
+        data.workspace_installs = Some(skipped);
+        data.install_rows = Some(s.install_rows());
+        (data, left)
+    });
     Installed {
         key,
         overrides,
         read_resources: s.read_resources(),
-        state: s.carried_state(),
-        clock_ms: s.clock_offset_ms(),
-        data,
+        left,
     }
 }

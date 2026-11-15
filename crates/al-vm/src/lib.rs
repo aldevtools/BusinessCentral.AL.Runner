@@ -94,6 +94,7 @@ mod geturl;
 mod globaltriggers;
 pub mod group1_sessions;
 mod hostvalues;
+mod install_left;
 mod http;
 pub mod impact;
 mod interfaces;
@@ -174,6 +175,7 @@ mod views;
 mod views_cross_enum;
 mod xmlports;
 mod xrec_blobs;
+pub use install_left::InstallLeft;
 pub use transactions::TxModel;
 pub use ui::{UiHandler, UiKind};
 

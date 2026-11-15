@@ -33,6 +33,13 @@ pub(crate) struct Unmeasured {
     sequences: HashMap<Key, String>,
 }
 
+impl Unmeasured {
+    /// Nothing marked (`install_left.rs`).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.isolated.is_empty() && self.sequences.is_empty()
+    }
+}
+
 /// The keys of `then` whose value `now` does not hold, sorted.
 fn unkept<V: PartialEq>(then: &HashMap<Key, V>, now: &HashMap<Key, V>) -> Vec<Key> {
     let mut keys: Vec<Key> = then
