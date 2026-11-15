@@ -83,11 +83,14 @@ impl Session {
                     };
                     self.type_call(DotNetTarget::Value(wire), clr_type)
                 }
-                // A Dictionary`2 variable that holds the dictionary its own constructor made answers the open definition, as
-                // when it holds nothing (onprem-dotnet dotnet/dotnet/N4GetDotNetTypeGeneric.al:100-108, :164-172).
-                DotNetKind::Internal { type_name, .. }
+                // A Dictionary`2 variable that holds the dictionary its parameterless constructor made, with nothing added and
+                // held by no other variable, answers the open definition, as when it holds nothing (onprem-dotnet dotnet/dotnet/
+                // N4GetDotNetTypeGeneric.al:100-108, :164-172). `o` is held by the variable and by the argument.
+                DotNetKind::Internal { type_name, state }
                     if type_name == al_builtins::dotnet_sigs::GENERIC_DICTIONARY
-                        && declared == al_builtins::dotnet_sigs::GENERIC_DICTIONARY =>
+                        && declared == al_builtins::dotnet_sigs::GENERIC_DICTIONARY
+                        && matches!(state.borrow().as_slice(), [Value::Boolean(false)])
+                        && Rc::strong_count(o) == 2 =>
                 {
                     self.type_named(declared)
                 }

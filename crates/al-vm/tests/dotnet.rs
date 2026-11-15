@@ -4313,6 +4313,31 @@ fn get_dotnet_type_of_the_measured_open_generics_is_their_definition() {
     assert!(unsupported(&r).contains("Queue`1"), "{}", unsupported(&r));
 }
 
+// The pin makes the dictionary with the parameterless constructor in the variable it reads, and adds nothing
+// (N4GetDotNetTypeGeneric.al:100-108). A dictionary copied from another variable, one made with a capacity and one that holds
+// entries are not measured: GetDotNetType refuses.
+#[test]
+fn get_dotnet_type_of_a_dictionary_outside_the_pin_is_refused() {
+    let host = Fake::new(|r| panic!("unexpected request {r:?}"));
+    for (vars, body) in [
+        (
+            "D: DotNet GenDict; E: DotNet GenDict; T: DotNet ClrType;",
+            "D := D.Dictionary(); E := D; T := GetDotNetType(E); exit('ok');",
+        ),
+        (
+            "D: DotNet GenDict; T: DotNet ClrType;",
+            "D := D.Dictionary(3); T := GetDotNetType(D); exit('ok');",
+        ),
+        (
+            "D: DotNet GenDict; T: DotNet ClrType;",
+            "D := D.Dictionary(); D.Add(1, 'a'); T := GetDotNetType(D); exit('ok');",
+        ),
+    ] {
+        let r = run(&host, vars, body, ": Text");
+        assert!(unsupported(&r).contains("Dictionary`2"), "{body}: {}", unsupported(&r));
+    }
+}
+
 // ---- [WithEvents] Timer, no trigger or an Elapsed trigger (al-runner issue 7832; pinned N4WithEventsNoRaise.al) ------------
 
 /// Runs `routine` of `object` in `src` (after the shared DotNet declarations) on `host`.
