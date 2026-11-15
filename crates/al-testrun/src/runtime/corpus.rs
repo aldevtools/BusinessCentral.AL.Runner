@@ -1397,9 +1397,7 @@ impl CorpusRuntime {
             let reset_ns = std::sync::atomic::AtomicU64::new(0);
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
-            if let Ok(mut o) = engine.resource_overrides.write() {
-                o.clone_from(&pass.resources);
-            }
+            super::install_once::begin_pass(&engine, &pass.resources);
             // The install code read resource files, and this entry has resource files of its own: its install baseline
             // would be another one, which is not made per entry.
             let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
@@ -1833,8 +1831,7 @@ impl CorpusRuntime {
                 wall: pass_started.elapsed(),
             });
         }
-        super::install_once::end_run(&engine);
-        let install_runs = installs.runs();
+        let install_runs = super::install_once::end_run(&engine, &installs);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (

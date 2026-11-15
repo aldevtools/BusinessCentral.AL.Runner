@@ -33,13 +33,6 @@ pub(crate) struct RunInstalls {
     runs: std::sync::atomic::AtomicUsize,
 }
 
-impl RunInstalls {
-    /// How many times the install code ran for the run's codeunits (`Phases::install_runs`).
-    pub(super) fn runs(&self) -> usize {
-        self.runs.load(std::sync::atomic::Ordering::Relaxed)
-    }
-}
-
 /// What the install code left the last time it ran for a run ([`start_installed`]).
 struct Installed {
     /// The engine it ran on (`Engine::uid`) and how the codeunit's session was set up.
@@ -74,11 +67,20 @@ struct Key {
     flags: super::session_flags::SessionFlags,
 }
 
-/// The end of a run's passes: the resource texts of its entries (`Engine::resource_overrides`) are not the next run's.
-pub(super) fn end_run(engine: &Engine) {
+/// The start of a pass: its entry's resource texts (`Engine::resource_overrides`), which [`start_installed`] compares.
+pub(super) fn begin_pass(engine: &Engine, resources: &al_vm::ResourceOverrides) {
+    if let Ok(mut o) = engine.resource_overrides.write() {
+        o.clone_from(resources);
+    }
+}
+
+/// The end of a run's passes: the resource texts of its entries are not the next run's. Returns how many times the
+/// install code ran for the run's codeunits (`Phases::install_runs`).
+pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> usize {
     if let Ok(mut o) = engine.resource_overrides.write() {
         o.clear();
     }
+    installs.runs.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The install code of the apps under test runs once per run, not once per test codeunit (al-runner issue 8144), in a
