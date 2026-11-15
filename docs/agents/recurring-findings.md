@@ -191,6 +191,10 @@ Every new refusal gets a Rust test that reaches it, unless a corpus case reaches
   only the calls the pin made (al-runner PR 7951, round 3).
 - A buffer written again after Insert, Modify or Init has the flags of one written in memory. A state the probe names (mem,
   ins) is a fact of the record's history: keep it on the record, set by the calls the probe made (al-runner PR 7981).
+- A mark that says "the record refuses every read and copy" is checked at the record's own methods, field reads and
+  Record-to-Record copies, but not at RecordRef.GetTable (Record or Variant), FieldRef reads of that copy, or Format(Rec).
+  Put the check in the one clone helper and in the whole-buffer readers, then probe the next test of the codeunit through a
+  global (al-runner PR 8120).
 
 ## 7. State that outlives its shape (6 of 34)
 

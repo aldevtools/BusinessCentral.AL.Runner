@@ -2157,7 +2157,7 @@ fn record_method(method: &str) -> RecordOp {
 /// Get of the current row and of a row outside the link (testpage/R7138RunPageLinkCopyGet.al:117-134, :218 `rr[Project Code: P2]
 /// n=2;rr.get own O3;rr.get O1 O1`). A by-value copy of that Rec put into a Variant some other way is not pinned.
 fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<Value, Signal> {
-    let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
+    let mut copy = gettable_record_copy(src)?;
     match copy.unpinned_buffer {
         Some(crate::records::RUN_PAGE_LINK_VARIANT) => copy.unpinned_buffer = None,
         Some(w @ (crate::records::RUN_PAGE_LINK_COPY | crate::records::RUN_PAGE_LINK_OPEN_COPY)) => {
@@ -2168,6 +2168,16 @@ fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<
     copy.company = None;
     *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
     Ok(Value::Null)
+}
+
+/// The record a RecordRef takes in `RecordRef.GetTable`, from a Record, a Variant that holds one or a RecordRef: every GetTable
+/// copy is made here. Refused while the source carries a mark whose buffer or view must not be copied
+/// (`records.rs` `copy_refused_mark`, the same rule as an assignment and `Copy`).
+pub(crate) fn gettable_record_copy(src: &Rc<RefCell<RecordState>>) -> Result<RecordState, Signal> {
+    if let Some(why) = crate::records::copy_refused_mark(src) {
+        return unsupported(format!("RecordRef.GetTable of a record: {why}"));
+    }
+    Ok(al_builtins::record_into_recordref::recordref_copy(&src.borrow()))
 }
 
 /// The copy `RecordRef.GetTable` takes holds its own buffer of each Blob the record read from the database without

@@ -74,7 +74,8 @@ pub(crate) fn copy_both_uncreated(used: bool) -> Result<Value, Signal> {
 
 /// The `RecordState::unpinned_buffer` reason of a record after [`import_from_uncreated`] answered: the probe did not read the
 /// record after the import, so its field, a write of it to the store and a copy of it refuse (al-vm `records.rs`
-/// `unpinned_buffer_op`, `interp.rs` `read_record_field`) until a read fills the buffer again. A `Clear` of the variable keeps it.
+/// `unpinned_buffer_op` and `copy_refused_mark`, `interp.rs` `read_record_field`, `refs.rs` `gettable_record_copy`, `recmeta.rs`
+/// `format_composite_value`) until a read fills the buffer again. A `Clear` of the variable keeps it.
 pub const UNCREATED_IMPORT_BUFFER: &str = "a record after Media or MediaSet ImportStream from an InStream never created: what its field holds afterwards is not measured (docs/probes-needed.md, stream-untouched-reset-copy-media)";
 
 /// `Media.ImportStream` and `MediaSet.ImportStream` with the result used, from an InStream never created into a field that holds

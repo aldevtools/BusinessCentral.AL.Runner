@@ -1008,13 +1008,10 @@ impl Session {
         src: &Rc<RefCell<RecordState>>,
         from_record: bool,
     ) -> Result<RecordState, Signal> {
-        let (mut copy, holder, measured) = {
+        let mut copy = crate::refs::gettable_record_copy(src)?;
+        let (holder, measured) = {
             let src = src.borrow();
-            (
-                al_builtins::record_into_recordref::recordref_copy(&src),
-                self.holder(&src),
-                measured_variable(&src, self.commits),
-            )
+            (self.holder(&src), measured_variable(&src, self.commits))
         };
         // The RecordRef's record is a measured source when the record is a measured variable with no Commit since it was
         // made: SetTable(Rec, true) moves its Blobs on (corpus PR 1375, streams/BlobCopyStates.al:1709; PR 1387,

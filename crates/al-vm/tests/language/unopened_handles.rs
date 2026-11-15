@@ -6,7 +6,7 @@
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
-const TABLE: &str = "table 50100 Row { fields { field(1; Id; Integer) { } field(2; Pic; Media) { } field(3; Pics; MediaSet) { } field(4; Data; Blob) { } }
+const TABLE: &str = "table 50100 Row { fields { field(1; Id; Integer) { } field(2; Pic; Media) { } field(3; Pics; MediaSet) { } field(4; Data; Blob) { } field(5; Name; Text[30]) { } }
     keys { key(PK; Id) { Clustered = true; } } }";
 
 fn run(body: &str) -> Result<Value, Signal> {
@@ -221,4 +221,95 @@ fn the_measured_shapes_run_in_this_harness() {
         "procedure F(): Text var R: Record Row; InS: InStream; begin exit(Format(R.Pic.ImportStream(InS, 'icon'))); end;",
     );
     assert_eq!(al_testkit::text(r), "{00000000-0000-0000-0000-000000000000}");
+}
+
+/// A copy or whole-buffer read of a record after a media import from an uncreated stream refuses, also when a later test of the
+/// codeunit reaches the copy through a global (the codeunit's globals outlive a test: `L1` and `L2` stand for two tests).
+#[test]
+fn the_buffer_of_an_uncreated_import_is_not_handed_on_through_a_recordref_or_format() {
+    for (l1, l2) in [
+        // GetTable of the record (Record and Variant argument), then a field read of the copy in the same and in a later test.
+        ("RR.GetTable(R); FR := RR.Field(2); G := FR.Value;", ""),
+        ("RR.GetTable(R); G := RR.FieldIndex(2).Value;", ""),
+        ("V := R; RR.GetTable(V); FR := RR.Field(2); G := FR.Value;", ""),
+        ("GRR.GetTable(R);", "FR := GRR.Field(2); G := FR.Value;"),
+        // GetTable, then SetTable into a record and Insert in a later test.
+        ("GRR.GetTable(R);", "GRR.SetTable(R2); R2.Insert();"),
+        // Format of the record, in the same and in a later test.
+        ("T := Format(R);", ""),
+        ("GR.Id := 7; G := GR.Pic.ImportStream(InS, 'icon');", "T := Format(GR);"),
+    ] {
+        refused(&format!(
+            "var GRR: RecordRef; GR: Record Row;
+            procedure F(): Text begin L1(); L2(); end;
+            local procedure L1() var R: Record Row; RR: RecordRef; FR: FieldRef; V: Variant; InS: InStream; G: Guid; T: Text;
+            begin R.Id := 5; G := R.Pic.ImportStream(InS, 'icon'); {l1} end;
+            local procedure L2() var R2: Record Row; FR: FieldRef; G: Guid; T: Text; begin {l2} end;"
+        ));
+    }
+}
+
+/// ModifyAll and DeleteAll on a record after a media import from an uncreated stream run: they write no value of its buffer.
+#[test]
+fn modifyall_and_deleteall_on_the_record_of_an_uncreated_import_run() {
+    for call in ["R.ModifyAll(Name, 'x');", "R.DeleteAll();"] {
+        let r = run(&format!(
+            "procedure F(): Text var R: Record Row; InS: InStream; G: Guid; begin R.Id := 1; G := R.Pic.ImportStream(InS, 'icon'); {call} exit('ran'); end;"
+        ));
+        assert_eq!(al_testkit::text(r), "ran", "{call}");
+    }
+}
+
+/// The control of the test above: Format of a record whose mark leaves its fields readable (SetCurrentKey on a Media field, whose
+/// GetTable refuses as before) keeps its answer, and GetTable of a record nobody imported into still copies it.
+#[test]
+fn format_and_gettable_of_records_without_a_refusing_mark_keep_their_answer() {
+    let r = run("procedure F(): Text var R: Record Row; begin R.Id := 3; R.SetCurrentKey(Pic); exit(Format(R)); end;");
+    assert!(al_testkit::text(r).starts_with('3'));
+    refused("procedure F(): Text var R: Record Row; RR: RecordRef; begin R.SetCurrentKey(Pic); RR.GetTable(R); end;");
+    let r = run(
+        "procedure F(): Text var R: Record Row; RR: RecordRef; begin R.Id := 4; RR.GetTable(R); exit(Format(RR.Field(1).Value)); end;",
+    );
+    assert_eq!(al_testkit::text(r), "4");
+}
+
+/// The states corpus PR 1411 measured (UhUntouchedStreamsAfter.al, codeunit 66996): a RecordRef after Open(0) and after Open then
+/// Clear raises "The record is not open." on the never-opened members, a KeyRef after Clear raises NotInitialized on FieldCount
+/// and Active.
+#[test]
+fn the_states_after_open_zero_and_clear_answer_as_measured() {
+    for (setup, call, text) in [
+        ("RR.Open(0);", "B := RR.FindLast();", "The record is not open."),
+        (
+            "RR.Open(50100); Clear(RR);",
+            "T := RR.GetFilters();",
+            "The record is not open.",
+        ),
+        (
+            "RR.Open(50100); Clear(RR);",
+            "KR := RR.KeyIndex(1);",
+            "The record is not open.",
+        ),
+        (
+            "RR.Open(50100); KR := RR.KeyIndex(1); Clear(KR);",
+            "N := KR.FieldCount();",
+            "Microsoft.Dynamics.Nav.Runtime.NavKeyRef variable not initialized.",
+        ),
+        (
+            "RR.Open(50100); KR := RR.KeyIndex(1); Clear(KR);",
+            "B := KR.Active();",
+            "Microsoft.Dynamics.Nav.Runtime.NavKeyRef variable not initialized.",
+        ),
+    ] {
+        let r = run(&format!(
+            "procedure F(): Text var RR: RecordRef; KR: KeyRef; B: Boolean; T: Text; N: Integer;
+            begin {setup} asserterror begin {call} end; exit(GetLastErrorText() + '|' + GetLastErrorCode()); end;"
+        ));
+        let code = if text.starts_with("The record") {
+            "RecordNotOpened"
+        } else {
+            "NotInitialized"
+        };
+        assert_eq!(al_testkit::text(r), format!("{text}|{code}"), "{setup} {call}");
+    }
 }
