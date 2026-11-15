@@ -236,6 +236,11 @@ impl al_builtins::native::Ctx for Session {
                 }
                 // Taken by the SetFilter of `record_op_inner` (`setfilter_empty_or_side`).
                 self.setfilter_from_al = method == al_builtins::record_op::RecordOp::SetFilter;
+                // A Record variable's `Insert()` under the test runner's permission sets (`runner_sets_insert.rs`).
+                if self.runner_permission_sets && method == al_builtins::record_op::RecordOp::Insert && args.is_empty()
+                {
+                    self.runner_sets_insert(&rc)?;
+                }
                 let before = self.begin_al_record_call(method, &rc);
                 let r = self.record_op_from_al(method, &rc, args);
                 self.end_al_record_call(before);
