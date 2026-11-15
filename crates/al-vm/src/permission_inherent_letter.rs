@@ -70,7 +70,8 @@ impl Session {
             (false, true) => n - 1,
             _ => return false,
         };
-        let measured = !engine.program.objects[by].properties.is_empty()
+        let permissions_only = matches!(engine.program.objects[by].properties.as_slice(), [(k, _)] if k.eq_ignore_ascii_case("Permissions"));
+        let measured = permissions_only
             && self.record_calls.is_empty()
             && self.levels_are(access, &[[0, 0, 0, 0]])
             && self.probed_sets(table)
@@ -95,7 +96,10 @@ impl Session {
         let o = &engine.program.objects[caller];
         let own = (n - 2..n).all(|i| {
             let f = &self.call_stack[i];
-            let attrs = o.routines.get(f.routine).map(|r| (r.is_trigger, r.attributes.as_slice()));
+            let attrs = o
+                .routines
+                .get(f.routine)
+                .map(|r| (r.is_trigger, r.attributes.as_slice()));
             let attributes_ok = match attrs {
                 Some((false, [a])) if i == frame => a.name.eq_ignore_ascii_case("InherentPermissions"),
                 Some((false, [])) => i != frame,

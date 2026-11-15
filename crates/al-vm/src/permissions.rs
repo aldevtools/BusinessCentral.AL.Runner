@@ -344,7 +344,12 @@ impl SetModel {
             [ex] => self.one_set(ex),
             _ => None,
         };
-        let others: Vec<Option<usize>> = set.includes.iter().map(|n| self.one_set(n)).filter(|x| *x != Some(t)).collect();
+        let others: Vec<Option<usize>> = set
+            .includes
+            .iter()
+            .map(|n| self.one_set(n))
+            .filter(|x| *x != Some(t))
+            .collect();
         let (Some(e), [Some(s)]) = (e, others.as_slice()) else {
             return false;
         };
@@ -384,7 +389,9 @@ impl SetModel {
             k.includes.is_empty() && k.incomplete.is_none() && k.declared.is_ok()
         };
         roles.len() == 3
-            && self.sets[found.iter().copied().find(|&k| all_objects(k)).unwrap_or(0)].excludes.is_empty()
+            && self.sets[found.iter().copied().find(|&k| all_objects(k)).unwrap_or(0)]
+                .excludes
+                .is_empty()
             && simple(pair.0)
             && simple(pair.1)
             && (excludes_other(pair.0, pair.1) || excludes_other(pair.1, pair.0))
@@ -419,7 +426,11 @@ impl SetModel {
             match self.one_set(inc) {
                 // An included set that excludes sets: whether its exclusion reaches beyond it is not pinned, so it adds
                 // nothing here.
-                Some(t) if !self.sets[t].excludes.is_empty() && visiting.len() == 1 && self.exclusion_stays_in_include(i, t) => {
+                Some(t)
+                    if !self.sets[t].excludes.is_empty()
+                        && visiting.len() == 1
+                        && self.exclusion_stays_in_include(i, t) =>
+                {
                     match self.expanded(t, true, visiting, why, assumed) {
                         Ok(c) => {
                             all.union(&c);
@@ -916,10 +927,12 @@ impl Session {
             // The shapes corpus PR 1403 measured (`permission_extension_code.rs`).
             match self.extension_code_grant(access, caller) {
                 Some(g) => g,
-                None => return Verdict::Refuse(format!(
-                    "the code of {} {} makes an access the assigned permission sets do not grant directly; which Permissions property covers an extension object's code is not pinned (ADR-062)",
-                    o.kind, o.name
-                )),
+                None => {
+                    return Verdict::Refuse(format!(
+                        "the code of {} {} makes an access the assigned permission sets do not grant directly; which Permissions property covers an extension object's code is not pinned (ADR-062)",
+                        o.kind, o.name
+                    ));
+                }
             }
         } else {
             match &*model.object_grants(&engine, caller) {

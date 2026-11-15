@@ -26,7 +26,13 @@ pub(crate) enum RecordCaller {
 
 impl RecordCall {
     /// A record call that is a statement (its return value not used).
-    pub(crate) fn statement(method: RecordOp, caller: RecordCaller, table: usize, temporary: bool, run_trigger: bool) -> Self {
+    pub(crate) fn statement(
+        method: RecordOp,
+        caller: RecordCaller,
+        table: usize,
+        temporary: bool,
+        run_trigger: bool,
+    ) -> Self {
         RecordCall {
             method,
             caller,

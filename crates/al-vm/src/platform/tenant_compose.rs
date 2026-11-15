@@ -280,7 +280,10 @@ fn included(
     }
     // The measured set with grants of other object types has only its own rows (Y19PermExtAndCompose.al:455-477).
     if set.object_grants && (!top || !set.includes.is_empty() || !set.excludes.is_empty() || !set.exclude.is_empty()) {
-        return Err("a tenant set with grants of an object type other than Table Data that includes, excludes or is included".into());
+        return Err(
+            "a tenant set with grants of an object type other than Table Data that includes, excludes or is included"
+                .into(),
+        );
     }
     let mut rights = set.include.clone();
     for inc in &set.includes {
@@ -362,7 +365,9 @@ pub(super) fn tenant_expanded_entries(
             )),
             Ok(rights) => {
                 if sets[key].object_grants {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::TenantObjectGrantsExpandedAsStored);
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::TenantObjectGrantsExpandedAsStored,
+                    );
                 }
                 for ((kind, id), level) in rights {
                     let mut r = key_only.clone();

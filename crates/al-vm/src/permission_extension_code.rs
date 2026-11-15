@@ -52,7 +52,7 @@ impl Session {
     }
 
     /// The base object of extension `caller` when its code makes `access` in a shape corpus PR 1403 measured: an Insert into a
-    /// table of the same app other than the base (`LT PC B`, Y19PermExtAndCompose.al:75), the sets giving `imd` or nothing on
+    /// table of the same app that runs no trigger (`LT PC B`, Y19PermExtAndCompose.al:75; the base table runs its extension's), the sets giving `imd` or nothing on
     /// it (:214-226) as `Permissions Mock.Set` assigns them (:518-521), from
     /// - the OnInsert trigger of a table extension (:94-101), started by the statement `Insert(true)` of a Record variable of
     ///   the base table (:580-583), the one record method that runs, or a procedure of it without attributes (:103-109),
@@ -86,7 +86,8 @@ impl Session {
         let base_grant_ok = match &*SetModel::of(&engine).object_grants(&engine, base) {
             Ok(c) => {
                 c.wild == crate::permissions::Wildcards::default()
-                    && (c.explicit.is_empty() || matches!(c.explicit.as_slice(), [(0, id, [0, 2, 2, 2, 0])] if *id == access.id))
+                    && (c.explicit.is_empty()
+                        || matches!(c.explicit.as_slice(), [(0, id, [0, 2, 2, 2, 0])] if *id == access.id))
             }
             Err(_) => false,
         };
@@ -115,7 +116,7 @@ impl Session {
         };
         let measured = access.kind == 0
             && access.op == Op::Insert
-            && table != base
+            && self.table_runs_no_trigger(table)
             && heads[table].app == heads[caller].app
             && heads[base].app == heads[caller].app
             && last == caller
