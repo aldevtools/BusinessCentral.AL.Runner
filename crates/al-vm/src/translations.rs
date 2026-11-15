@@ -88,7 +88,7 @@ impl Session {
 
     /// The measured shape of the table with object index `object` whose caption [`Self::translated_read_refusal`] refuses, for
     /// `Format` of a RecordId; `None` for any other table. Both shapes are a table that declares a `Caption`, no `CaptionML` and
-    /// no table extension's Caption over it, measured by open corpus PR 1413 under 1043 in
+    /// no table extension's Caption over it, measured by corpus PR 1413 under 1043 in
     /// localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al.
     fn record_id_caption_shape(&self, object: usize) -> Option<RecordIdCaptionShape> {
         let p = &self.engine.program;
@@ -127,7 +127,7 @@ impl Session {
     /// The caption `Format(RecordId, 0, 1)` names table `t` by: the caption as its source declares it, which no translation
     /// file changes (`TableCaption` reads the unit, `Self::caption_checked`). `None` where the format is refused. Where the
     /// language gate refuses the caption, assumed (`recordid-format-one-source-caption`) in the two measured shapes
-    /// ([`Self::record_id_caption_shape`]): open corpus PR 1413, R7184BaseAppCaption.al:305-336 R8123_RecordIdFormat1_Dutch_SourceCaptions,
+    /// ([`Self::record_id_caption_shape`]): corpus PR 1413 (al-runner issue 8135), R7184BaseAppCaption.al:305-336 R8123_RecordIdFormat1_Dutch_SourceCaptions,
     /// `LT TA Item: R8123` for the corpus app's own table whose unit gives `TableCaption` `LT TA Artikel`, and `Item: R8123` and
     /// `Sales Invoice Header: R8123` for the tables it extends. Any other refused caption, and an own table whose file could not be
     /// read for the language, keeps format 1 refused.

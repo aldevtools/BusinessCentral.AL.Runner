@@ -5,9 +5,9 @@
 //! when an app with a translation file for that language extends the table. Until the corpus pins it, the format runs
 //! through the assumption `recordid-format-nine-extended-table`.
 //!
-//! Format 1 names the table by its caption as the source declares it, never translated: the unit for the table's own
-//! caption gives `TableCaption` its text, not format 1, and an app that extends the table leaves format 1 as it is (open corpus
-//! PR 1413). Until the corpus pins it, format 1 runs in those two shapes through the assumption
+//! al-runner issue 8135: format 1 names the table by its caption as the source declares it, never translated: the unit for
+//! the table's own caption gives `TableCaption` its text, not format 1, and an app that extends the table leaves format 1 as
+//! it is (corpus PR 1413). Until the corpus pins it, format 1 runs in those two shapes through the assumption
 //! `recordid-format-one-source-caption`.
 
 use al_sema::workspace::AppSource;
