@@ -4,6 +4,7 @@
 //! failure, and a failure after a trusted failure keeps main's result.
 
 use al_sema::workspace::AppSource;
+use al_testrun::isolation::TestIsolation;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun};
 use al_testrun::{CaseId, Outcome};
 
@@ -95,6 +96,10 @@ codeunit 50432 "Trusted Failure Then Row"
 "#;
 
 fn run() -> CorpusRuntime {
+    run_under(RunOptions::default())
+}
+
+fn run_under(opts: RunOptions) -> CorpusRuntime {
     CorpusRuntime::run_suites_with(
         vec![AppSource {
             id: "main".into(),
@@ -108,7 +113,7 @@ fn run() -> CorpusRuntime {
         None,
         Default::default(),
         &[SuiteRun::everything()],
-        &RunOptions::default(),
+        &opts,
     )
 }
 
@@ -165,4 +170,19 @@ fn a_failure_after_a_trusted_failure_keeps_its_result() {
     assert_eq!(a, Outcome::Fail("real failure".into()));
     let b = outcome(&rt, 50432, "B_ReadsTheRow");
     assert!(matches!(&b, Outcome::Fail(m) if m.contains("does not exist")), "{b:?}");
+}
+
+/// Under Function isolation each test's rows are rolled back when it ends, also on BC, so a row the untrusted failure would
+/// have inserted is not read by a later test: that later failure keeps main's result (the table part of the reach check
+/// takes the isolation, as for a test refused while it ran).
+#[test]
+fn under_function_isolation_a_row_the_untrusted_failure_would_have_inserted_does_not_count() {
+    let rt = run_under(RunOptions {
+        isolation: Some(TestIsolation::Function),
+        ..RunOptions::default()
+    });
+    let b = outcome(&rt, 50430, "B_ChecksReadyThenInserts");
+    assert!(not_trusted(&b), "{b:?}");
+    let c = outcome(&rt, 50430, "C_ReadsTheRow");
+    assert!(matches!(&c, Outcome::Fail(m) if m.contains("does not exist")), "{c:?}");
 }
