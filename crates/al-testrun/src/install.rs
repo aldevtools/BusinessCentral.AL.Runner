@@ -696,7 +696,8 @@ fn install_app_under_test(
             }
             match open {
                 Err(stopped) => {
-                    unknown = stopped.roll_back(lowered, session, skipped, (&in_company, &company));
+                    let refused: Vec<_> = open_subscribers.iter().chain(routines).copied().collect();
+                    unknown = stopped.roll_back(lowered, session, skipped, (&in_company, &company), &refused);
                     let why = stopped.why;
                     // What the subscribers wrote before the one that could not run is rolled back, and BC would have
                     // kept it: a test that touches what any of them can write is not run either.
@@ -750,7 +751,8 @@ fn install_app_under_test(
                             run_routine(lowered, s, oi, ri)
                         }) {
                             session.end_group1_install_routine(false);
-                            unknown = stopped.roll_back(lowered, session, skipped, (&in_company, &company));
+                            unknown =
+                                stopped.roll_back(lowered, session, skipped, (&in_company, &company), &[(oi, ri)]);
                             refuse(
                                 lowered,
                                 session,
@@ -817,15 +819,27 @@ fn refuse(
     // A routine the compile for a selection left out: the run is redone on the full run's compile, whatever the tests
     // touch (al-runner issue 6924).
     crate::runtime::narrowing::note_install(&engine, &why);
-    if in_session_company(in_company, session_company) {
-        skipped.push((touched(&engine, lowered, oi, ri), why));
-        return;
+    let at_home = in_session_company(in_company, session_company);
+    let tables = refused_tables(&engine, lowered, (oi, ri), at_home);
+    if at_home {
+        skipped.push((tables, why));
+    } else {
+        refuse_in_other_company(lowered, session, skipped, in_company, tables, why);
+    }
+}
+
+/// The tables [`refuse`] names for install code `(oi, ri)` from its static reach: in the session company or the
+/// per-database part (`at_home`) the tables it touches ([`touched`]), in another declared company the tables it and the
+/// subscribers it reaches write.
+fn refused_tables(engine: &Engine, lowered: &Lowered, (oi, ri): (usize, usize), at_home: bool) -> BTreeSet<u32> {
+    if at_home {
+        return touched(engine, lowered, oi, ri);
     }
     let mut written = crate::baseline::tables_written(lowered, oi, ri);
-    for (so, sr) in crate::runtime::subscribers_reached(&engine, lowered, oi, ri) {
+    for (so, sr) in crate::runtime::subscribers_reached(engine, lowered, oi, ri) {
         written.extend(crate::baseline::tables_written(lowered, so, sr));
     }
-    refuse_in_other_company(lowered, session, skipped, in_company, written, why);
+    written
 }
 
 /// Whether install code that runs in `in_company` runs in the session company or in the per-database part (`""`).
@@ -1096,6 +1110,7 @@ fn company_open(
             ),
             root: (o, r),
             before: session.carried_state(),
+            mark: session.store_mut().change_counter(),
             by_runner: true,
             leaves: None,
         });
@@ -1759,6 +1774,9 @@ struct Stopped {
     root: (usize, usize),
     /// The session language and WorkDate right before `root` ran.
     before: al_vm::CarriedState,
+    /// The store's change counter when the install code the roll back takes back started: the first of the roots
+    /// [`watching_skipped`] ran.
+    mark: u64,
     /// The runner refused it (not an AL error).
     by_runner: bool,
     /// What it may have left outside the database, which rolling back its rows does not set back ([`watching_skipped`]).
@@ -1769,18 +1787,26 @@ impl Stopped {
     /// Rolls back what it wrote and settles the session state (`stopped_state`); `Some(why)`: the state after it is
     /// not known (`leaves` too). `(in_company, session_company)`: where it ran, as for [`refuse`].
     ///
-    /// The roll back takes the rows of every table written since the last commit, through any path, and on BC that code
-    /// ran to its end and kept them: those tables join `skipped` too, besides the ones the callers' [`refuse`] names from
-    /// the static reach, which misses a table written through a RecordRef (review of al-runner PR 8119, probes n19,
-    /// n19b and n19c).
+    /// The roll back takes the rows that code wrote since it started (`mark`), through any path, and on BC it ran to its
+    /// end and kept them: those tables join `skipped` too, besides the ones the callers' [`refuse`] names from the static
+    /// reach of the install code `refused`, which misses a table written through a RecordRef (review of al-runner PR
+    /// 8119, probes n19, n19b and n19c). A table [`refuse`] names keeps that refusal's reason, as on main.
     fn roll_back(
         &self,
         lowered: &Lowered,
         session: &mut Session,
         skipped: &mut Vec<(BTreeSet<u32>, String)>,
         (in_company, session_company): (&str, &str),
+        refused: &[(usize, usize)],
     ) -> Option<String> {
-        let mut written = session.store_mut().tables_written_since_commit();
+        let mut written = session.store_mut().tables_rolled_back_since(self.mark);
+        let engine = session.engine.clone();
+        let at_home = in_session_company(in_company, session_company);
+        for &code in refused {
+            for t in refused_tables(&engine, lowered, code, at_home) {
+                written.remove(&t);
+            }
+        }
         let unknown =
             crate::stopped_state::roll_back_stopped_install(lowered, session, self.root, self.before, self.by_runner)
                 .or_else(|| self.leaves.clone());
@@ -1789,7 +1815,7 @@ impl Stopped {
             label(lowered, self.root.0, self.root.1),
             self.why
         );
-        if in_session_company(in_company, session_company) {
+        if at_home {
             written.retain(|&x| !crate::runtime::listed_from_objects(lowered, x));
             if !written.is_empty() {
                 skipped.push((written, why));
@@ -1817,15 +1843,18 @@ fn watching_skipped(
     run: impl FnOnce(&mut Session) -> Result<(), Stopped>,
 ) -> Result<(), Stopped> {
     let before = session.carried_state();
+    let mark = session.store_mut().change_counter();
     match crate::runtime::watching_skipped_installs(lowered, session, skipped, run) {
         (Ok(()), Some(why)) => Err(Stopped {
             why,
             root: roots[0],
             before,
+            mark,
             by_runner: false,
             leaves: leaves_outside_rows(&session.engine.clone(), lowered, roots),
         }),
-        (ran, _) => ran,
+        // Every root it ran is rolled back, those before the one that stopped too.
+        (ran, _) => ran.map_err(|stopped| Stopped { mark, ..stopped }),
     }
 }
 
@@ -1864,10 +1893,12 @@ fn run_install_code(
     subscriber: bool,
 ) -> Result<bool, Stopped> {
     let before = session.carried_state();
+    let mark = session.store_mut().change_counter();
     let stopped = |why, by_runner| Stopped {
         why,
         root: (oi, ri),
         before,
+        mark,
         by_runner,
         leaves: None,
     };

@@ -352,6 +352,26 @@ fn a_table_written_through_a_recordref_by_code_that_ran_is_read() {
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
+// Two Company Triggers subscribers of B in its install session: the OnCompanyOpen one writes `Mark` through a RecordRef and
+// runs to its end, the OnCompanyOpenCompleted one then fails. The roll back takes the first one's row with it: the test
+// that reads `Mark` is not run.
+#[test]
+fn a_table_an_earlier_company_triggers_subscriber_wrote_before_a_later_one_failed_is_not_read() {
+    let b = app_b_recref("").replace(
+        "codeunit 60962 T {",
+        "codeunit 60966 Open {
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
+            local procedure O() var R: RecordRef;
+            begin if not GuiAllowed() then begin R.Open(Database::Mark); R.Init(); if R.Insert() then; end; end;
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
+            local procedure C() begin if not GuiAllowed() then Error('stop'); end; }
+        codeunit 60962 T {",
+    );
+    let o = run_ab(&app_a(""), &b);
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
+}
+
 // The Company Triggers path: B's subscriber in its install session (no GuiAllowed) reads A's stopped table and writes
 // `Mark` through a RecordRef. The roll back takes the row: the test that reads `Mark` is not run.
 #[test]
