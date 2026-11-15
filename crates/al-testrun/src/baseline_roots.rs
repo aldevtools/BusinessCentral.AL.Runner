@@ -7,6 +7,17 @@ use al_sema::lower::Lowered;
 use al_vm::Session;
 use std::collections::BTreeSet;
 
+/// A root that stopped, or was not run.
+pub(crate) struct StoppedRoot {
+    /// The tables it writes.
+    pub tables: BTreeSet<u32>,
+    /// Whether its rows before the stop are kept.
+    pub kept: bool,
+    /// The root and why it stopped, without the site of the stop (`Installer.OnInstallAppPerCompany stopped: <reason>`): the
+    /// refusal of a test that reads one of its tables names it (al-runner issue 8104).
+    pub cause: String,
+}
+
 /// What the roots of one baseline run share and count.
 pub(crate) struct RootRun<'a> {
     pub lowered: &'a Lowered,
@@ -19,8 +30,8 @@ pub(crate) struct RootRun<'a> {
     pub no_client: Option<(Option<usize>, Option<usize>)>,
     pub company_name: String,
     pub notes: &'a mut Vec<String>,
-    /// Per root that stopped: the tables it writes, and whether its rows before the stop are kept.
-    pub stopped: &'a mut Vec<(BTreeSet<u32>, bool)>,
+    /// The roots that stopped or were not run.
+    pub stopped: &'a mut Vec<StoppedRoot>,
     pub ran: usize,
     pub steps_built: usize,
     pub step_failed: bool,
@@ -65,8 +76,11 @@ impl RootRun<'_> {
             .filter(|(a, _)| install_session && *a == app)
         {
             self.notes.push(format!("{label} was not run: {why}"));
-            self.stopped
-                .push((crate::baseline::tables_written_or_loaded(self.lowered, oi, ri), false));
+            self.stopped.push(StoppedRoot {
+                tables: crate::baseline::tables_written_or_loaded(self.lowered, oi, ri),
+                kept: false,
+                cause: format!("{label} was not run: {why}"),
+            });
             return;
         }
         if install_session {
@@ -111,17 +125,23 @@ impl RootRun<'_> {
             }
         }
         let by_runner = matches!(called, Err(Signal::Unsupported(_)));
+        // Why it stopped, and the same with where: the innermost routine and its source position.
         let why = match called {
             Ok(_) => None,
-            // Where it stopped: the innermost routine and its source position.
-            Err(Signal::Unsupported(r)) => Some(match session.fault_site().last() {
-                Some(f) => {
-                    let at = crate::explain::describe(&self.lowered.program, f.object, f.routine, f.pos);
-                    format!("{r} [in {} at {}]", at.who, at.at)
-                }
-                None => r.into_reason(),
-            }),
-            Err(Signal::Error(e)) => Some(format!("failed with an error: {}", e.message)),
+            Err(Signal::Unsupported(r)) => {
+                let reason = r.into_reason();
+                Some(match session.fault_site().last() {
+                    Some(f) => {
+                        let at = crate::explain::describe(&self.lowered.program, f.object, f.routine, f.pos);
+                        (reason.clone(), format!("{reason} [in {} at {}]", at.who, at.at))
+                    }
+                    None => (reason.clone(), reason),
+                })
+            }
+            Err(Signal::Error(e)) => {
+                let text = format!("failed with an error: {}", e.message);
+                Some((text.clone(), text))
+            }
             Err(_) => None,
         };
         session.set_company(&self.company_name);
@@ -136,7 +156,7 @@ impl RootRun<'_> {
                 self.steps_built += usize::from(is_step);
                 session.commit_transaction();
             }
-            Some(why) => {
+            Some((reason, why)) => {
                 // The rows it wrote before the stop, through any path (a RecordRef too), are rolled back, and on BC it ran
                 // to its end and kept them (review of al-runner PR 8119, probe n19c; the same rule as `install.rs`
                 // `Stopped::roll_back`).
@@ -168,7 +188,11 @@ impl RootRun<'_> {
                         }
                     ));
                 }
-                self.stopped.push((tables, keep_prefix));
+                self.stopped.push(StoppedRoot {
+                    tables,
+                    kept: keep_prefix,
+                    cause: format!("{label} stopped: {reason}"),
+                });
             }
         }
     }

@@ -106,8 +106,7 @@ pub(super) fn outcomes_on_dependency_baseline(dep: &str, main: &str) -> Outcomes
     let back = al_vm::Baseline::from_bytes(&base.baseline.to_bytes().expect("plain rows")).expect("read back");
     // The tests run on an engine that knows the tables the baseline could not seed, as `corpus.rs` gives them.
     let mut engine = Engine::new(l.program.clone(), Vec::new());
-    std::sync::Arc::get_mut(&mut engine).expect("a fresh engine").unseeded =
-        base.unseeded.iter().map(|&t| t as usize).collect();
+    std::sync::Arc::get_mut(&mut engine).expect("a fresh engine").unseeded = base.engine_unseeded();
     let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
     let mut hits = Vec::new();
     let done = run_codeunit_full(

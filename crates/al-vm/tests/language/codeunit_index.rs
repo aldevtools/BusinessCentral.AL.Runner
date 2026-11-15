@@ -114,7 +114,7 @@ fn a_kept_engine_is_reset_to_what_a_new_engine_has() {
     let uid = engine.uid;
     {
         let e = Arc::get_mut(&mut engine).expect("not shared");
-        e.unseeded.insert(0);
+        e.unseeded.insert(0, "R.OnRun stopped: x".into());
         e.demo_tables.insert(0);
         e.company_refusal = Some("no company".into());
         e.skipped_apps.push("`App` by Publisher".into());
