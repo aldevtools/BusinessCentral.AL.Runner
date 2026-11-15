@@ -1,3 +1,4 @@
+use super::pinned_shape::TestCall;
 use super::*;
 use crate::records::ValidateSite;
 use al_builtins::page_op::{PageMethod, PageOp};
@@ -948,7 +949,10 @@ impl Session {
                     // globals, and leaves the page's record with fresh globals (ADR-021 decision 8;
                     // corpus probes TableGlobals_PageFieldValidate_*, TableGlobals_PageRec_ActionGlobalsAreLostAfterPageFieldValidation).
                     self.reset_table_globals(&rec);
-                    let validated = self.platform_validate(ValidateSite::TestPageControl, &rec, pos, parsed.clone());
+                    let site = ValidateSite::TestPageControl {
+                        new_line_of_trapped_static_card: self.new_line_of_trapped_static_card(st),
+                    };
+                    let validated = self.platform_validate(site, &rec, pos, parsed.clone());
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
@@ -1963,6 +1967,36 @@ fn unpinned_ext_validate(before: &[(usize, usize)], after: &[(usize, usize)], re
 }
 
 impl Session {
+    /// The control written is the second SetValue on the line `New()` started, the first one being the key, on a Card that AL code
+    /// opened with a static `Page.Run(Id, Rec)` and `TestPage.Trap()` caught, at the top level: the test's calls since the open
+    /// are exactly New, a SetValue of the one primary key field, then this one (record/filters/TestRecordEnumFlowFilterGroup.al:
+    /// 74-75, :88-89, :110-119). The page call form of `ValidateSite::TestPageControl` that `relations.rs` `group_two_enum_pinned`
+    /// takes.
+    pub(crate) fn new_line_of_trapped_static_card(&self, st: &St) -> bool {
+        let trapped_static = {
+            let s = st.borrow();
+            s.caught_by_trap && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord) && !s.modal
+        };
+        let Some(calls) = Self::test_calls_all_succeeded(st) else {
+            return false;
+        };
+        let [
+            TestCall::Page(PageMethod::New),
+            TestCall::Write(key_ctl),
+            TestCall::Write(_),
+        ] = calls.as_slice()
+        else {
+            return false;
+        };
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let table = self.page_rec(st).borrow().table as usize;
+        let key_field = engine.tables[table]
+            .as_ref()
+            .is_some_and(|t| matches!(page.controls[*key_ctl].binding, ir::Binding::Field(pos) if t.keys[0] == [pos]));
+        trapped_static && key_field && self.is_card(st)
+    }
+
     /// OnBeforeValidate and OnAfterValidate of `modify` blocks on a control bound to a page variable, on a Card opened as a
     /// TestPage: the extensions' OnBeforeValidate in extension order, the control's own OnValidate when it has one, then the
     /// extensions' OnAfterValidate (corpus pages/extensions/W2ExtModify.al:367-386 Validate_VariableControl `low.before.VarName(first);

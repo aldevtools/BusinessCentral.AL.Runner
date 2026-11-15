@@ -7,6 +7,7 @@
 //! related table lacks is refused with "... cannot be found in the related table".
 
 use crate::Session;
+use crate::records::ValidateSite;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
@@ -211,6 +212,7 @@ impl Session {
         t: &TableDef,
         pos: usize,
         value: Value,
+        site: Option<ValidateSite>,
     ) -> Result<(), Signal> {
         // Typed field facts, worked out once (a scan of the field's properties on each Validate showed in the Tests-ERM profile).
         if !self.engine.field_facts[t.object as usize][pos].validate_relation {
@@ -275,7 +277,7 @@ impl Session {
             };
             if let ir::RelationWhere::Field { own, .. } = w
                 && self.is_flow_filter(t.object, *own)
-                && let Some(exact) = self.source_relation_flowfilter(rec, t, *own)?
+                && let Some(exact) = self.source_relation_flowfilter(rec, t, *own, site)?
             {
                 used_source_flowfilter = true;
                 if let Some(value) = exact {
@@ -358,14 +360,14 @@ impl Session {
     /// (record/filters/RelationWhereFlowFilter.al:398-412), or one equality for an exact
     /// filter in group 0 (RelationWhereFlowFilter.al:426-441 accepts a match, :444-459
     /// rejects a mismatch; BC 27, 28, 29). The outer None preserves the existing
-    /// buffer-based comparison for a field assigned without a filter. One enum value set with SetRange in group 2 (a
-    /// Range of equal bounds, not the Eq of SetFilter) is one equality too (record/filters/TestRecordEnumFlowFilterGroup.al:
-    /// 68-108, filter :136-140).
+    /// buffer-based comparison for a field assigned without a filter. A filter in group 2 is one equality only in the shape
+    /// `group_two_enum_pinned` names.
     fn source_relation_flowfilter(
         &self,
         rec: &Rec,
         table: &TableDef,
         field: usize,
+        site: Option<ValidateSite>,
     ) -> Result<Option<Option<Value>>, Signal> {
         let default = Value::default_for(&table.fields[field].ty);
         let source = rec.borrow();
@@ -374,22 +376,26 @@ impl Session {
         let exact = match (filters.next(), filters.next()) {
             (None, _) if !default_buffer => return Ok(None),
             (None, _) if source.filter_group == 0 => None,
-            (Some(filter), None)
-                if default_buffer
-                    && source.filter_group == 0
-                    && (filter.group == 0
-                        || filter.group == 2 && matches!(table.fields[field].ty, RtType::Enum(_))) =>
-            {
+            (Some(filter), None) if default_buffer && source.filter_group == 0 && filter.group == 0 => {
                 match &filter.expr {
-                    FilterExpr::Eq(value) if filter.group == 0 => Some(value.clone()),
+                    FilterExpr::Eq(value) => Some(value.clone()),
                     FilterExpr::Range(Some(lower), Some(upper)) if ops::compare(lower, upper)?.is_eq() => {
                         Some(lower.clone())
                     }
-                    _ => {
-                        return unsupported(
-                            "TableRelation validation requires one exact source FlowFilter value (not pinned)",
-                        );
+                    _ => return unsupported(EXACT_VALUE_REFUSAL),
+                }
+            }
+            (Some(filter), None)
+                if default_buffer
+                    && source.filter_group == 0
+                    && filter.group == 2
+                    && self.group_two_enum_pinned(&source, &table.fields[field].ty, site) =>
+            {
+                match &filter.expr {
+                    FilterExpr::Range(Some(lower), Some(upper)) if ops::compare(lower, upper)?.is_eq() => {
+                        Some(lower.clone())
                     }
+                    _ => return unsupported(EXACT_VALUE_REFUSAL),
                 }
             }
             _ => {
@@ -399,6 +405,29 @@ impl Session {
             }
         };
         Ok(Some(exact))
+    }
+
+    /// The shape record/filters/TestRecordEnumFlowFilterGroup.al pins for a group 2 FlowFilter (SetRange of one value, :136-140):
+    /// an Enum FlowFilter whose ordinals are its positions (`REC Enum Group Kind`, :7-11) on a record that is not temporary,
+    /// validated by `Record.Validate` on a record never read or inserted (:96-108), or by a TestPage SetValue on the line `New()`
+    /// started on a Card a trapped static `Page.Run(Id, Rec)` opened (:67-93, :110-119).
+    fn group_two_enum_pinned(&self, source: &RecordState, ty: &RtType, site: Option<ValidateSite>) -> bool {
+        let RtType::Enum(id) = ty else {
+            return false;
+        };
+        let ordinals_are_positions = self.engine.program.objects[*id as usize]
+            .enum_values
+            .iter()
+            .enumerate()
+            .all(|(index, (ordinal, _))| usize::try_from(*ordinal) == Ok(index));
+        let pinned_site = match site {
+            Some(ValidateSite::AlRecordValidate) => source.row_origin.is_none() && source.position.is_none(),
+            Some(ValidateSite::TestPageControl {
+                new_line_of_trapped_static_card,
+            }) => new_line_of_trapped_static_card,
+            _ => false,
+        };
+        ordinals_are_positions && !source.temporary && pinned_site
     }
 
     /// The error code of a failed TableRelation check of field `pos` of `t` against `related` (the related field `rel_pos`, the
@@ -451,6 +480,9 @@ impl Session {
         code.map_or_else(|| al_builtins::native::UNPINNED_ERROR.into(), Into::into)
     }
 }
+
+/// The refusal of a source FlowFilter whose one filter is no single value.
+const EXACT_VALUE_REFUSAL: &str = "TableRelation validation requires one exact source FlowFilter value (not pinned)";
 
 /// Whether a `Field = const(x)` condition holds for `value` (`relation` names the field with the relation, for the
 /// refusal).

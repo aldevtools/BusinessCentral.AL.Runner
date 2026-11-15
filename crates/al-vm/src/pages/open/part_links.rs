@@ -195,7 +195,7 @@ impl Session {
             if Self::same_values(std::slice::from_ref(was), std::slice::from_ref(now)) {
                 continue;
             }
-            match self.validate_relation(&rec, &table, pos, now.clone()) {
+            match self.validate_relation(&rec, &table, pos, now.clone(), None) {
                 Err(Signal::Error(e)) => return Ok(Some(e)),
                 other => other?,
             }
@@ -323,7 +323,7 @@ impl Session {
                 // without its where() or not at all is not pinned.
                 if top_level
                     && matches!(
-                        self.validate_relation(&rec, &table, pos, v.clone()),
+                        self.validate_relation(&rec, &table, pos, v.clone(), None),
                         Err(Signal::Error(_))
                     )
                 {
