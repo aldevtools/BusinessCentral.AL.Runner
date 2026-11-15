@@ -23,6 +23,15 @@ page 50971 "No Client Card"
     PageType = Card;
 }
 
+table 50972 "No Client Row" { fields { field(1; "No."; Code[10]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+
+report 50973 "No Client Report"
+{
+    ProcessingOnly = true;
+    dataset { dataitem(Row; "No Client Row") { } }
+    requestpage { layout { area(Content) { } } }
+}
+
 codeunit 50970 "No Client"
 {
     Subtype = Test;
@@ -34,6 +43,98 @@ codeunit 50970 "No Client"
     begin
         Card.OpenView();
         Card.Close();
+    end;
+
+    [Test]
+    procedure OpensTestPageForEdit()
+    var
+        Card: TestPage "No Client Card";
+    begin
+        Card.OpenEdit();
+        Card.Close();
+    end;
+
+    [Test]
+    procedure OpensTestPageForNew()
+    var
+        Card: TestPage "No Client Card";
+    begin
+        Card.OpenNew();
+        Card.Close();
+    end;
+
+    [Test]
+    procedure OpensTestPageInAssertError()
+    var
+        Card: TestPage "No Client Card";
+    begin
+        asserterror Card.OpenView();
+    end;
+
+    [Test]
+    procedure TrapsAndRunsPage()
+    var
+        Card: TestPage "No Client Card";
+    begin
+        Card.Trap();
+        asserterror Page.Run(Page::"No Client Card");
+    end;
+
+    [Test]
+    [HandlerFunctions('CardHandler')]
+    procedure RunsPageWithTestPageHandler()
+    begin
+        asserterror Page.Run(Page::"No Client Card");
+    end;
+
+    [Test]
+    [HandlerFunctions('CardModalHandler')]
+    procedure RunsModalPageWithTestPageHandler()
+    begin
+        asserterror Page.RunModal(Page::"No Client Card");
+    end;
+
+    [Test]
+    [HandlerFunctions('TypedCardHandler')]
+    procedure RunsPageWithPageTypedHandler()
+    begin
+        asserterror Page.Run(Page::"No Client Card");
+    end;
+
+    // The reporter's repro of al-runner issue 8028, unchanged but for the names.
+    [HandlerFunctions('OnRequest')]
+    [Test]
+    procedure RunsRequestPage()
+    begin
+        if Report.RunRequestPage(Report::"No Client Report") = '' then
+            Error('no parameters');
+    end;
+
+    [Test]
+    procedure RunsRequestPageWithoutHandler()
+    begin
+        if Report.RunRequestPage(Report::"No Client Report") = '' then;
+    end;
+
+    [PageHandler]
+    procedure CardHandler(var Card: TestPage "No Client Card")
+    begin
+    end;
+
+    [ModalPageHandler]
+    procedure CardModalHandler(var Card: TestPage "No Client Card")
+    begin
+    end;
+
+    [PageHandler]
+    procedure TypedCardHandler(var Card: Page "No Client Card")
+    begin
+    end;
+
+    [RequestPageHandler]
+    procedure OnRequest(var R: TestRequestPage "No Client Report")
+    begin
+        R.OK().Invoke();
     end;
 
     [Test]
@@ -145,13 +246,73 @@ fn a_work_date_read_after_the_skipped_login_code_is_flagged() {
     assert!(!flagged(&rt, "Nothing"));
 }
 
-// Whether a session without a client can open a TestPage is not pinned: the test runs as in a session with a client
-// and is flagged.
+fn refused_as(rt: &CorpusRuntime, test: &str, text: &str) {
+    match &result(rt, test).outcome {
+        Outcome::NotRun(why) => assert!(why.contains(text), "{test}: {why}"),
+        other => panic!("{test}: {other:?}"),
+    }
+}
+
+fn refused_as_test_page(rt: &CorpusRuntime, test: &str) {
+    refused_as(
+        rt,
+        test,
+        "in a session without a client (--no-client): BC fails it there",
+    );
+}
+
+// BC fails a TestPage open in a web-service session (GuiAllowed false, ClientType ODataV4) with NotSupportedException at
+// NavSession.CreateNavTestService (al-runner issue 8028, the reporter's measurement on BC). The error is not measured by
+// the corpus, so each open is refused: OpenView, OpenEdit, OpenNew, Trap, also inside asserterror.
 #[test]
-fn a_test_page_opens_and_the_pass_is_flagged() {
+fn a_test_page_open_is_not_run() {
     let rt = run(true);
-    assert_eq!(result(&rt, "OpensTestPage").outcome, Outcome::Pass);
-    assert!(flagged(&rt, "OpensTestPage"));
+    for test in [
+        "OpensTestPage",
+        "OpensTestPageForEdit",
+        "OpensTestPageForNew",
+        "OpensTestPageInAssertError",
+        "TrapsAndRunsPage",
+    ] {
+        refused_as_test_page(&rt, test);
+    }
+}
+
+// A handler that takes a TestPage or a TestRequestPage is refused before the test starts (al-runner issue 8028): a
+// PageHandler, a ModalPageHandler, a RequestPageHandler (the reporter's repro).
+#[test]
+fn a_test_bound_to_a_handler_that_takes_a_test_page_is_not_run() {
+    let rt = run(true);
+    for test in [
+        "RunsPageWithTestPageHandler",
+        "RunsModalPageWithTestPageHandler",
+        "RunsRequestPage",
+    ] {
+        refused_as(
+            &rt,
+            test,
+            "TestRequestPage, in a session without a client (--no-client): BC fails a TestPage open there",
+        );
+    }
+}
+
+// Neighbors that keep main's outcome: Report.RunRequestPage without a handler stays refused as not probed; a PageHandler
+// that takes a Page (not a TestPage) is bound, Page.Run(Id) raises CallbackNotAllowed without reaching it, flagged.
+#[test]
+fn neighbors_of_the_test_page_refusal_keep_their_outcome() {
+    let rt = run(true);
+    match &result(&rt, "RunsRequestPageWithoutHandler").outcome {
+        Outcome::NotRun(why) => assert!(
+            why.contains("Report.RunRequestPage in a session without a client"),
+            "{why}"
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        result(&rt, "RunsPageWithPageTypedHandler").outcome,
+        Outcome::Fail("The following UI handlers were not executed: TypedCardHandler".into())
+    );
+    assert!(flagged(&rt, "RunsPageWithPageTypedHandler"));
 }
 
 #[test]
@@ -165,6 +326,9 @@ fn off_nothing_is_flagged_and_the_dialogs_end_as_before() {
         "ClientType",
         "ReadsWorkDate",
         "OpensTestPage",
+        "OpensTestPageForEdit",
+        "OpensTestPageForNew",
+        "RunsRequestPage",
         "Nothing",
     ] {
         assert!(!flagged(&rt, test), "{test}");
@@ -177,7 +341,34 @@ fn off_nothing_is_flagged_and_the_dialogs_end_as_before() {
             result(&rt, test).outcome
         );
     }
-    for test in ["ClientType", "ReadsWorkDate", "OpensTestPage"] {
+    for test in [
+        "ClientType",
+        "ReadsWorkDate",
+        "OpensTestPage",
+        "OpensTestPageForEdit",
+        "RunsRequestPage",
+    ] {
         assert_eq!(result(&rt, test).outcome, Outcome::Pass, "{test}");
     }
+    // With a client the TestPage shapes refused under --no-client end as before.
+    let expected = "An error was expected inside an ASSERTERROR statement.";
+    for test in [
+        "OpensTestPageInAssertError",
+        "TrapsAndRunsPage",
+        "RunsPageWithTestPageHandler",
+        "RunsModalPageWithTestPageHandler",
+        "RunsPageWithPageTypedHandler",
+    ] {
+        assert_eq!(result(&rt, test).outcome, Outcome::Fail(expected.into()), "{test}");
+    }
+    assert_eq!(
+        result(&rt, "OpensTestPageForNew").outcome,
+        Outcome::Fail(
+            "Sorry, the current permissions prevented the action. (Page 50971 No Client Card Insert: main)".into()
+        )
+    );
+    assert_eq!(
+        result(&rt, "RunsRequestPageWithoutHandler").outcome,
+        Outcome::Fail("Unhandled UI: RequestPage 50973".into())
+    );
 }
