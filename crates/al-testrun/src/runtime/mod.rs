@@ -1164,6 +1164,8 @@ mod group1_sessions_tests;
 mod grow;
 mod handlers;
 mod install_snapshot;
+#[cfg(test)]
+mod install_unknown_tests;
 mod internals_grant;
 mod lane_starts;
 #[cfg(test)]

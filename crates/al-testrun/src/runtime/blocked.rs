@@ -13,6 +13,27 @@ pub(crate) fn run_install_codeunits(lowered: &Lowered, session: &mut Session) ->
     crate::install::run_apps_under_test(lowered, session)
 }
 
+/// The tables of `skipped` (what [`run_install_codeunits`] returns): the install code that could not run touches them, so
+/// the rows they hold are not BC's. Code that reads or writes one, through any path, is not run: a test (`run.rs`, the
+/// store's watch next to the static check of its record variables) and the install code that runs after it
+/// (`install::watching_skipped`).
+pub(crate) fn skipped_install_tables(skipped: &[(BTreeSet<u32>, String)]) -> BTreeSet<u32> {
+    skipped.iter().flat_map(|(t, _)| t.iter().copied()).collect()
+}
+
+/// Of the tables `hits` that code read or wrote, the first of `skipped`: the table and why its rows are not known.
+pub(crate) fn skipped_install_hit<'a>(
+    skipped: &'a [(BTreeSet<u32>, String)],
+    hits: &BTreeSet<u32>,
+) -> Option<(u32, &'a String)> {
+    hits.iter().find_map(|t| {
+        skipped
+            .iter()
+            .find(|(tables, _)| tables.contains(t))
+            .map(|(_, why)| (*t, why))
+    })
+}
+
 /// Whether the table at object index `table` is a platform table whose rows are computed from the compiled objects
 /// only (AllObj, AllObjWithCaption): no database write, and so no install code, changes them.
 pub(crate) fn listed_from_objects(lowered: &Lowered, table: u32) -> bool {

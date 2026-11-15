@@ -202,6 +202,52 @@ pub(crate) fn after_login_subscribers(lowered: &Lowered, events: &Registry) -> s
         .collect()
 }
 
+/// What the "System Initialization".`OnAfterLogin` subscribers of partner dependency apps (a dependency app whose manifest
+/// publisher is known and is not Microsoft: `install_orders::is_microsoft`) leave in a test session where the runner does
+/// not raise the login through Microsoft's code ([`Login::None`], [`Login::Own`]). On BC they run in every session, the test
+/// session too (corpus PR 1405, open: G1sInstallSessionTests.al:100 with G1sXaInstall.al:88-96, a group 1 filter they
+/// set is there in the test session; al-runner issue 8115, scenario s09). `Ok(Some((tables, who)))`: the tables their
+/// reach touches, which a test may not read or write (`install::CompanyOpenWrites`), and why; `Err(why)`: their reach
+/// does something else a test can see (a global, the session state, a table not known before the run), and the codeunit
+/// is not run. Microsoft's own subscribers stay as the module header's "not modelled" list says. Made once per engine.
+pub(crate) fn dependency_login(engine: &Engine, lowered: &Lowered) -> Result<Option<(BTreeSet<u32>, String)>, String> {
+    struct DependencyLogin(Result<Option<(BTreeSet<u32>, String)>, String>);
+    let events = &engine.events;
+    let objects = &lowered.program.objects;
+    let subs: Vec<(usize, usize)> = after_login_subscribers(lowered, events)
+        .iter()
+        .copied()
+        .filter(|&(o, _)| lowered.dependency[o] && !crate::install_orders::is_microsoft(lowered, objects[o].app))
+        .collect();
+    if subs.is_empty() {
+        return Ok(None);
+    }
+    let index = engine.derived(|| ReachIndex::new(events, lowered));
+    let made = engine.derived(|| {
+        DependencyLogin((|| {
+            let mut tables = BTreeSet::new();
+            let mut first = None;
+            for &(o, r) in &subs {
+                let facts = crate::runtime::written::reach_facts(events, lowered, &index, o, r);
+                let who = format!(
+                    "dependency app subscriber {}.{} to \"System Initialization\".OnAfterLogin runs in the test session on BC (corpus PR 1405, open), and the runner does not raise the login for this test codeunit",
+                    objects[o].name, objects[o].routines[r].name
+                );
+                if let Some(what) = facts.unknown.as_ref() {
+                    return Err(format!("{who}: what it reaches is not known ({what})"));
+                }
+                if facts.writes_any || facts.reads_any || facts.state_writes != 0 || !facts.globals_written.is_empty() {
+                    return Err(format!("{who}: it leaves state besides the rows of known tables"));
+                }
+                tables.extend(facts.touched);
+                first.get_or_insert(who);
+            }
+            Ok(first.map(|who| (tables, who)))
+        })())
+    });
+    made.0.clone()
+}
+
 /// Why the apps under test's login subscribers `subs` read what the dependency apps' login code writes before they run,
 /// so that alone they would see other state than inside the login (review of al-runner issue 7717, rounds three and
 /// four: alone, a subscriber that asks `Checklist.ShouldInitializeChecklist`, `SystemInitialization.IsInProgress()` or

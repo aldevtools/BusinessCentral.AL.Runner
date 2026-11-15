@@ -679,16 +679,20 @@ fn install_app_under_test(
             } else {
                 Group1InstallShape::Off
             });
-            let open = if part == Part::Company {
-                company_open(lowered, session, with_dependencies)
-            } else {
-                Ok(())
+            // The Company Triggers subscribers of the installed apps (`company_open` runs them).
+            let open_subscribers = company_open_subscribers(lowered, &engine.events, |o| {
+                installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
+            });
+            let open = match open_subscribers.first() {
+                Some(&first) if part == Part::Company => watching_skipped(lowered, session, skipped, first, |s| {
+                    company_open(lowered, s, with_dependencies)
+                }),
+                _ if part == Part::Company => company_open(lowered, session, with_dependencies),
+                _ => Ok(()),
             };
             if session.end_group1_install_routine(open.is_ok()) {
                 // The Company Triggers relied on the group 1 assumption: what main refused for them is flagged.
-                for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
-                    installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
-                }) {
+                for &(so, sr) in &open_subscribers {
                     session.flag_group1_tables(touched(&engine, lowered, so, sr));
                 }
             }
@@ -698,9 +702,7 @@ fn install_app_under_test(
                     let why = stopped.why;
                     // What the subscribers wrote before the one that could not run is rolled back, and BC would have
                     // kept it: a test that touches what any of them can write is not run either.
-                    for (so, sr) in company_open_subscribers(lowered, &engine.events, |o| {
-                        installed(lowered, o, app.app) && (with_dependencies || !lowered.dependency[o])
-                    }) {
+                    for &(so, sr) in &open_subscribers {
                         refuse(
                             lowered,
                             session,
@@ -746,7 +748,9 @@ fn install_app_under_test(
                         if let Some(why) = &unknown {
                             let why = format!("install code {} was not run: {why}", label(lowered, oi, ri));
                             refuse(lowered, session, skipped, &in_company, &company, ((oi, ri), why));
-                        } else if let Err(stopped) = run_routine(lowered, session, oi, ri) {
+                        } else if let Err(stopped) =
+                            watching_skipped(lowered, session, skipped, (oi, ri), |s| run_routine(lowered, s, oi, ri))
+                        {
                             session.end_group1_install_routine(false);
                             unknown = stopped.roll_back(lowered, session);
                             refuse(
@@ -1104,6 +1108,9 @@ pub(crate) struct CompanyOpenWrites {
     /// The tables the apps under test's own login subscribers wrote in the session the pin measured
     /// (`login::Login::Own`): a test that touches one relies on `login-own-registration-reads-alone`.
     pub own_login: BTreeSet<u32>,
+    /// The login was not raised through Microsoft's code: the tables partner dependency apps' login subscribers touch,
+    /// and why (`login::dependency_login`).
+    pub dependency_login: Option<(BTreeSet<u32>, String)>,
 }
 
 impl CompanyOpenWrites {
@@ -1137,6 +1144,7 @@ impl CompanyOpenWrites {
         let mut out = self.tables.clone();
         out.extend(self.watched_login.iter().flat_map(|(t, _)| t.iter().copied()));
         out.extend(self.own_login.iter().copied());
+        out.extend(self.dependency_login.iter().flat_map(|(t, _)| t.iter().copied()));
         out
     }
 
@@ -1152,7 +1160,11 @@ impl CompanyOpenWrites {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LoginOwnRegistrationReadsAlone);
         }
         (hits.iter())
-            .find(|t| self.tables.contains(t) || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t)))
+            .find(|t| {
+                self.tables.contains(t)
+                    || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t))
+                    || self.dependency_login.as_ref().is_some_and(|(w, _)| w.contains(t))
+            })
             .copied()
     }
 
@@ -1161,6 +1173,9 @@ impl CompanyOpenWrites {
         let name = Self::table_name(lowered, t);
         if self.tables.contains(&t) {
             return Some(self.reason(&format!("this test read or wrote table {name} while it ran")));
+        }
+        if let Some((_, why)) = self.dependency_login.as_ref().filter(|(tables, _)| tables.contains(&t)) {
+            return Some(format!("{why}: it touches table {name}, which this test read or wrote"));
         }
         let (_, why) = self.watched_login.as_ref().filter(|(tables, _)| tables.contains(&t))?;
         Some(format!(
@@ -1212,6 +1227,10 @@ pub(crate) fn test_session_company_open(
         }
     }
     let raise = matches!(decision, crate::login::Login::Raise);
+    // Raised through Microsoft's code, the login reaches the partner dependency apps' subscribers too.
+    if !raise {
+        wrote.dependency_login = crate::login::dependency_login(&engine, lowered)?;
+    }
     let (own, watched): (&[crate::login::OwnEvent], _) = match &decision {
         crate::login::Login::Own { events, watched } => (events, *watched),
         crate::login::Login::Refused(why) => return Err(why.clone()),
@@ -1717,6 +1736,41 @@ impl Stopped {
     /// not known.
     fn roll_back(&self, lowered: &Lowered, session: &mut Session) -> Option<String> {
         crate::stopped_state::roll_back_stopped_install(lowered, session, self.root, self.before, self.by_runner)
+    }
+}
+
+/// Runs install code `run` (`root`: its first routine) with the tables of `skipped` watched (`runtime::skipped_install_tables`): the install code
+/// before it that could not run touches them, and on BC it ran to its end (scenario s15 of al-runner issue 8115: B counted
+/// 0 rows of A's rolled-back routine, BC 2). Install code that read or wrote one, through any path, did not run to its
+/// end either: it is rolled back and refused like a routine the runner stopped. No statement stopped it, so nothing of
+/// the session state is set back (`stopped_state`).
+fn watching_skipped(
+    lowered: &Lowered,
+    session: &mut Session,
+    skipped: &[(BTreeSet<u32>, String)],
+    root: (usize, usize),
+    run: impl FnOnce(&mut Session) -> Result<(), Stopped>,
+) -> Result<(), Stopped> {
+    let tables = crate::runtime::skipped_install_tables(skipped);
+    if tables.is_empty() {
+        return run(session);
+    }
+    let before = session.carried_state();
+    session.store_mut().watch(tables);
+    let ran = run(session);
+    let hits = session.store_mut().watch_hits();
+    session.store_mut().watch(Default::default());
+    match (ran, crate::runtime::skipped_install_hit(skipped, &hits)) {
+        (Ok(()), Some((t, why))) => Err(Stopped {
+            why: format!(
+                "it read or wrote table {}, whose rows install code that did not run to its end leaves unknown: {why}",
+                lowered.program.objects.get(t as usize).map_or("?", |o| o.name.as_str())
+            ),
+            root,
+            before,
+            by_runner: false,
+        }),
+        (ran, _) => ran,
     }
 }
 

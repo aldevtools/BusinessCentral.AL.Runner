@@ -704,7 +704,17 @@ pub(super) type OutcomesAndHits = (Vec<(String, Outcome)>, Vec<(String, Vec<&'st
 /// The outcomes and the assumption ids each test hit, of the test codeunit `codeunit` of a program of several apps (id,
 /// dependencies, source); the app with id `dep` is a dependency app (ADR-013), the others are under test.
 pub(super) fn outcomes_and_hits_of_apps(apps: &[(&str, &[&str], &str)], codeunit: &str) -> OutcomesAndHits {
-    let (ws, l) = al_sema::lower::compile_apps(
+    outcomes_and_hits_of_published_apps(apps, &[], codeunit)
+}
+
+/// [`outcomes_and_hits_of_apps`], with the manifest publisher of the apps named in `publishers` (app id, publisher); the
+/// others have none.
+pub(super) fn outcomes_and_hits_of_published_apps(
+    apps: &[(&str, &[&str], &str)],
+    publishers: &[(&str, &str)],
+    codeunit: &str,
+) -> OutcomesAndHits {
+    let (ws, mut l) = al_sema::lower::compile_apps(
         apps.iter()
             .map(|(id, deps, src)| AppSource {
                 id: (*id).into(),
@@ -725,6 +735,11 @@ pub(super) fn outcomes_and_hits_of_apps(apps: &[(&str, &[&str], &str)], codeunit
         &Default::default(),
     );
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    for app in &mut std::sync::Arc::make_mut(&mut l.program).apps {
+        if let Some((_, p)) = publishers.iter().find(|(id, _)| *id == app.id) {
+            app.publisher = (*p).into();
+        }
+    }
     let blocked = l
         .unsupported
         .iter()
