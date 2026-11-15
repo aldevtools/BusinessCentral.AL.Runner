@@ -23,8 +23,8 @@
 //! after each 76 characters; the whole stream, a second call gives the same text; where the stream stands after the call is
 //! not measured and the stream refuses other uses until ResetPosition or `Position :=`) and more `FromBase64` code pages (`from_base64_encoding`).
 //!
-//! A code page or a character the pins do not cover (for `ToBase64` a code page other than 0, 1252, 28591 and
-//! 65001; a character that Windows-1252 and Latin-1 encode differently) is refused.
+//! A code page or a character the pins do not cover (for `ToBase64` a pair of encoding and code page that
+//! `to_base64_encoding` does not list; a character that Windows-1252 and Latin-1 encode differently) is refused.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, raise, unsupported};
@@ -320,9 +320,54 @@ fn encoding(encoding: &Value, codepage: &Value, windows_text: bool) -> Result<En
     }
 }
 
+/// The encoding of `ToBase64(Text, Boolean, TextEncoding, Integer)`, which every ToBase64 of a Text with an encoding
+/// reaches, direct or through System Application's "Base64 Convert". It answers only the measured cells; every other pair
+/// of encoding and code page refuses (al-runner issue 8069).
+fn to_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<Enc, Signal> {
+    use crate::assumptions::{Assumption::BaseEncodeTextCodePages as A, assume};
+    let Value::Integer(cp) = codepage else {
+        return unsupported("a code page that is not an Integer");
+    };
+    let name = member_name(encoding_arg)?;
+    match (name.to_ascii_lowercase().as_str(), *cp) {
+        // types/PVBase64.al:72 (code page 0) and :78 (65001).
+        ("utf8", 0 | 65001) => Ok(Enc::Utf8),
+        // types/PVBase64.al:73.
+        ("utf16", 0) => Ok(Enc::Utf16),
+        // types/PVBase64.al:74-75: code page 1252 from BC 28 (:83, :88), UTF-8 before.
+        ("windows" | "msdos", 0) if windows_text => Ok(Enc::Windows1252),
+        ("windows" | "msdos", 0) => Ok(Enc::Utf8),
+        // types/PVBase64.al:76 and :77.
+        ("windows", 1252) => Ok(Enc::Windows1252),
+        ("windows", 28591) => Ok(Enc::Latin1),
+        // Corpus PR 1414, PVBase64ToCodePages.al:44-45, :51, :53: UTF8 ignores 1252 and 28591.
+        ("utf8", 1252 | 28591) => {
+            assume(A);
+            Ok(Enc::Utf8)
+        }
+        // PVBase64ToCodePages.al:46-47: MSDos uses the code page given.
+        ("msdos", 1252) => {
+            assume(A);
+            Ok(Enc::Windows1252)
+        }
+        ("msdos", 28591) => {
+            assume(A);
+            Ok(Enc::Latin1)
+        }
+        // PVBase64ToCodePages.al:48-49: Windows and MSDos with 65001 write UTF-8.
+        ("windows" | "msdos", 65001) => {
+            assume(A);
+            Ok(Enc::Utf8)
+        }
+        _ => unsupported(format!(
+            "ToBase64 with code page {cp} and TextEncoding::{name} (not pinned)"
+        )),
+    }
+}
+
 /// The encoding of `FromBase64(Text, TextEncoding, Integer)`. The cells listed here are measured; every other pair keeps
-/// [`encoding`]'s answer (the `ToBase64` cells, which also answer UTF8 with 0 or 65001, Windows and MSDos with 0, 1252,
-/// 28591 or 65001, and UTF16 with 0), and its refusal of every other code page.
+/// [`encoding`]'s answer (UTF8 with 0 or 65001; Windows and MSDos with 0, 1252, 28591 or 65001; UTF16 with 0), and its
+/// refusal of every other code page. Unlike [`to_base64_encoding`], not every one of those pairs is measured.
 fn from_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<(Enc, bool), Signal> {
     let Value::Integer(cp) = codepage else {
         return unsupported("a code page that is not an Integer");
@@ -507,7 +552,7 @@ fn flag(v: &Value) -> Result<bool, Signal> {
 fn to_base64_text(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let bytes = encode_text(
         &text_arg(&a[0])?,
-        encoding(&a[2], &a[3], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?,
+        to_base64_encoding(&a[2], &a[3], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?,
     )?;
     Ok(Value::Text(b64_encode(&bytes, flag(&a[1])?).into()))
 }
@@ -515,7 +560,7 @@ fn to_base64_text(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut
 fn to_base64_text_out(c: &mut dyn crate::native::Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let bytes = encode_text(
         &text_arg(&a[0])?,
-        encoding(&a[2], &a[3], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?,
+        to_base64_encoding(&a[2], &a[3], c.gate(al_version::Gate::Base64TextIsWindows1252From28))?,
     )?;
     let text = b64_encode(&bytes, flag(&a[1])?);
     write_raw_bytes(&mut a[4], text.as_bytes())?;
@@ -700,6 +745,89 @@ mod tests {
             }
         }
         assert_eq!(b64_decode("SGVs bG8=").ok().unwrap(), b"Hello");
+    }
+
+    /// The encoding `ToBase64(Text, InsertLineBreaks, TextEncoding, CodePage)` writes with.
+    fn to_enc(name: &str, cp: i32) -> Result<Enc, Signal> {
+        let members: std::sync::Arc<[String]> = ["MSDos", "UTF8", "UTF16", "Windows"].map(String::from).to_vec().into();
+        let i = members.iter().position(|m| m == name).unwrap() as i32;
+        to_base64_encoding(&Value::Option(i, members), &Value::Integer(cp), false)
+    }
+
+    /// `ToBase64(Value, false, Encoding, CodePage)` as Base64 text, and whether it ran through
+    /// `base-encode-text-code-pages`.
+    fn to_text(value: &str, name: &str, cp: i32) -> Result<(String, bool), Signal> {
+        let _ = take_hits();
+        let bytes = encode_text(value, to_enc(name, cp)?)?;
+        Ok((
+            b64_encode(&bytes, false),
+            take_hits().contains(&Assumption::BaseEncodeTextCodePages),
+        ))
+    }
+
+    // Corpus PR 1414 (merged, not pinned), tests/al-language/types/PVBase64ToCodePages.al:44-61, the same on every major
+    // of its CI run: UTF8 ignores the code page, MSDos uses 1252 and 28591, Windows and MSDos with 65001 give UTF-8. Every cell
+    // runs flagged.
+    #[test]
+    fn to_base64_runs_the_cells_of_the_code_page_probe_flagged() {
+        for (value, name, cp, want) in [
+            ("äöü", "UTF8", 1252, "w6TDtsO8"),
+            ("äöü", "UTF8", 28591, "w6TDtsO8"),
+            ("äöü", "MSDos", 1252, "5Pb8"),
+            ("äöü", "MSDos", 28591, "5Pb8"),
+            ("äöü", "Windows", 65001, "w6TDtsO8"),
+            ("äöü", "MSDos", 65001, "w6TDtsO8"),
+            ("ÿÿ", "UTF8", 1252, "w7/Dvw=="),
+            ("€", "UTF8", 1252, "4oKs"),
+        ] {
+            match to_text(value, name, cp) {
+                Ok((text, flagged)) => {
+                    assert_eq!(text, want, "{value} {name} {cp}");
+                    assert!(flagged, "{value} {name} {cp} runs flagged");
+                }
+                Err(_) => panic!("{value} {name} {cp} refused"),
+            }
+        }
+    }
+
+    // The pinned cells keep their answer, unflagged (types/PVBase64.al:72-78, :83, :88). Every pair neither corpus file
+    // measures keeps refusing: other code pages (437, 850, 1200), UTF16 with a code page.
+    #[test]
+    fn to_base64_keeps_the_pinned_cells_and_refuses_the_unmeasured_pairs() {
+        for (name, cp, want) in [
+            ("UTF8", 0, "w6TDtsO8"),
+            ("UTF8", 65001, "w6TDtsO8"),
+            ("UTF16", 0, "5AD2APwA"),
+            ("Windows", 0, "w6TDtsO8"),
+            ("MSDos", 0, "w6TDtsO8"),
+            ("Windows", 1252, "5Pb8"),
+            ("Windows", 28591, "5Pb8"),
+        ] {
+            assert!(
+                matches!(to_text("äöü", name, cp), Ok((ref t, false)) if t == want),
+                "{name} {cp}"
+            );
+        }
+        for (name, cp) in [
+            ("MSDos", 437),
+            ("MSDos", 850),
+            ("Windows", 437),
+            ("Windows", 850),
+            ("UTF8", 437),
+            ("UTF8", 850),
+            ("UTF8", 1200),
+            ("Windows", 1200),
+            ("UTF16", 1252),
+            ("UTF16", 28591),
+            ("UTF16", 65001),
+        ] {
+            assert!(matches!(to_enc(name, cp), Err(Signal::Unsupported(_))), "{name} {cp}");
+        }
+        let members: std::sync::Arc<[String]> = ["MSDos", "UTF8", "UTF16", "Windows"].map(String::from).to_vec().into();
+        for i in [0, 3] {
+            let got = to_base64_encoding(&Value::Option(i, members.clone()), &Value::Integer(0), true);
+            assert!(matches!(got, Ok(Enc::Windows1252)), "{i}");
+        }
     }
 
     #[test]
@@ -1207,14 +1335,6 @@ mod tests {
                 "{name} {cp}"
             );
         }
-    }
-
-    // ToBase64 of a Text keeps main's code page handling: UTF8 with 1252 still gives the Latin bytes (not measured by the
-    // probe, which measured FromBase64 only).
-    #[test]
-    fn to_base64_text_code_pages_keep_mains_result() {
-        assert_eq!(to("äöü", "UTF8", 1252), "5Pb8");
-        assert!(matches!(enc("UTF16", 1252), Err(Signal::Unsupported(_))));
     }
 
     #[test]
