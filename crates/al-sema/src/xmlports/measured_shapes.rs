@@ -1,6 +1,5 @@
-//! XmlPort layouts that run under an assumption of corpus PR 1366 (not pinned yet). Each predicate requires, by equality, the
-//! facts every port of its probe file has; the result is stored on the IR node and read by al-vm. Every other layout keeps
-//! main's result.
+//! XmlPort layouts that run only as their corpus file measures them. Each predicate requires, by equality, the facts every
+//! port of that file has; the result is stored on the IR node and read by al-vm. Every other layout keeps main's result.
 
 use super::{Context, INERT_OBJECT_PROPERTIES, Layout, bool_prop, split_source_at_dot, table_object};
 use crate::members::FieldClass;
@@ -79,7 +78,7 @@ fn of_table(layout: &Layout, f: usize, t: usize) -> bool {
         .is_some_and(|(table, _)| crate::scan::unquote_xmlport(table).eq_ignore_ascii_case(&layout.nodes[t].name))
 }
 
-/// The facts of the import layout of xmlports/import/XpAfterAssignTableRelation.al (corpus PR 1366, ports 77702-77740,
+/// The facts of the import layout of xmlports/import/XpAfterAssignTableRelation.al (ports 77702-77740,
 /// :138-1324) that field node `i` shares with every port there, each by equality:
 /// - the port declares `Direction = Import`, `Encoding = UTF8`, `FormatEvaluate = Xml` (:141-145);
 /// - its table element is right below the root text element and declares nothing or only `UseTemporary = true` (:151-153,
@@ -151,7 +150,7 @@ pub(super) fn plain_import_layout(layout: &Layout, i: usize) -> bool {
         && (node_properties(layout, i, &[]) || node_properties(layout, i, &[("FieldValidate", "Yes")]))
 }
 
-/// Text element `i` in the export shape of xmlports/shapes-properties/XpTextElemFieldAttrExport.al (corpus PR 1366, ports
+/// Text element `i` in the export shape of xmlports/shapes-properties/XpTextElemFieldAttrExport.al (ports
 /// 77721-77727, :43-361). Each fact by equality, as every port there with a field attribute has it:
 /// - the port declares `Direction = Export` and `FormatEvaluate = Xml` (:46-49), no Encoding and no namespace;
 /// - its table element is right below the root text element and declares exactly `MinOccurs = Zero`, `UseTemporary = true`

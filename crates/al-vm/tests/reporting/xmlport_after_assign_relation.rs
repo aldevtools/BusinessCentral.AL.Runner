@@ -1,7 +1,7 @@
 //! An Xml import of a field node with OnAfterAssignField into a Code field with a TableRelation (al-runner issue 7863): the
 //! trigger runs first, then the field is validated with the value the trigger left; a temporary table element validates
-//! nothing; a blank field attribute runs no trigger. Assumption `xmlport-after-assign-before-validate` (corpus PR 1366,
-//! xmlports/import/XpAfterAssignTableRelation.al). The shapes the probe did not measure keep main's result.
+//! nothing; a blank field attribute runs no trigger (xmlports/import/XpAfterAssignTableRelation.al). The shapes that file does
+//! not measure keep main's result. No path of this area takes an assumption.
 
 use al_builtins::native::Signal;
 use al_testkit::{Built, text};
@@ -220,11 +220,7 @@ fn ok_six(p: &Port) -> Vec<String> {
         .map(|r| r.unwrap_or_else(|e| panic!("port {}: {e:?}", p.id)))
         .collect();
     let hits = al_builtins::assumptions::take_hits();
-    assert!(
-        hits.contains(&al_builtins::assumptions::Assumption::XmlportAfterAssignBeforeValidate),
-        "port {}: {hits:?}",
-        p.id
-    );
+    assert!(hits.is_empty(), "port {}: {hits:?}", p.id);
     got
 }
 
@@ -457,16 +453,13 @@ codeunit 50150 "Repro After Assign Test"
 "#;
 
 /// The reporter's repro (al-runner issue 7863, XpAfterAssignTableRelation.al:1642): the trigger sees the imported partner
-/// code; the pass is flagged.
+/// code.
 #[test]
 fn the_reporters_repro_returns_the_imported_partner_code() {
     al_builtins::assumptions::take_hits();
     let got = al_testkit::run_in(REPRO, "Repro After Assign Test", "AfterAssignFieldSeesImportedValue");
     assert_eq!(text(got), "P1");
-    assert!(
-        al_builtins::assumptions::take_hits()
-            .contains(&al_builtins::assumptions::Assumption::XmlportAfterAssignBeforeValidate)
-    );
+    assert!(al_builtins::assumptions::take_hits().is_empty());
 }
 
 /// A subscriber to the field's validate event is not measured: main's refusal stays.
@@ -560,11 +553,7 @@ fn unmeasured_port_and_node_facts_keep_mains_refusal() {
             Err(Signal::Unsupported(why)) => assert!(why.contains("which runs first is not pinned"), "{what}: {why}"),
             other => panic!("{what}: {other:?}"),
         }
-        assert!(
-            !al_builtins::assumptions::take_hits()
-                .contains(&al_builtins::assumptions::Assumption::XmlportAfterAssignBeforeValidate),
-            "{what}"
-        );
+        assert!(al_builtins::assumptions::take_hits().is_empty(), "{what}");
     }
 }
 
@@ -668,38 +657,18 @@ const SIX: [(&str, i32); 6] = [("P1", 0), ("MISS", 0), ("", 0), ("MISS", 1), ("P
 const INT_SEVEN: [(&str, i32); 7] = [("1", 0), ("99", 0), ("", 0), ("0", 0), ("99", 1), ("1", 2), ("1", 1)];
 const PLAIN_THREE: [(&str, i32); 3] = [("P1", 0), ("MISS", 0), ("", 0)];
 
-/// Runs `cases` and checks that every case passes and that `flag` was marked (or, with `None`, that neither assumption of
-/// this area was).
-fn ok_cases(
-    src: &str,
-    p: &Port,
-    list: &[(&str, i32)],
-    flag: Option<al_builtins::assumptions::Assumption>,
-) -> Vec<String> {
-    use al_builtins::assumptions::{Assumption, take_hits};
+/// Runs `cases` and checks that every case passes and that no assumption was marked.
+fn ok_cases(src: &str, p: &Port, list: &[(&str, i32)]) -> Vec<String> {
+    use al_builtins::assumptions::take_hits;
     take_hits();
     let got: Vec<String> = cases(src, p.id, p.attr, list)
         .into_iter()
         .map(|r| r.unwrap_or_else(|e| panic!("port {} {}: {e:?}", p.id, p.field)))
         .collect();
     let hits = take_hits();
-    match flag {
-        Some(a) => assert!(hits.contains(&a), "port {} {}: {hits:?}", p.id, p.field),
-        None => assert!(
-            !hits.contains(&Assumption::XmlportAfterAssignBeforeValidate)
-                && !hits.contains(&Assumption::XmlportTemporaryImportNotValidated),
-            "port {} {}: {hits:?}",
-            p.id,
-            p.field
-        ),
-    }
+    assert!(hits.is_empty(), "port {} {}: {hits:?}", p.id, p.field);
     got
 }
-
-const AFTER: Option<al_builtins::assumptions::Assumption> =
-    Some(al_builtins::assumptions::Assumption::XmlportAfterAssignBeforeValidate);
-const NOT_VALIDATED: Option<al_builtins::assumptions::Assumption> =
-    Some(al_builtins::assumptions::Assumption::XmlportTemporaryImportNotValidated);
 
 fn missing(field: &str, value: &str, table: &str) -> String {
     format!(
@@ -713,7 +682,7 @@ fn missing(field: &str, value: &str, table: &str) -> String {
 fn the_reporters_shape_runs_the_trigger_and_validates_nothing() {
     let p = temp(true, "Rel Code Plain", "");
     assert_eq!(
-        ok_cases(&port(&p), &p, &SIX, AFTER),
+        ok_cases(&port(&p), &p, &SIX),
         [
             "Yes |  |  | after:P1;before insert:P1; | ",
             "Yes |  |  | after:MISS;before insert:MISS; | ",
@@ -732,7 +701,7 @@ fn a_field_without_on_validate_on_a_stored_table_element_is_checked_after_the_tr
     let p = db(true, "Rel Code Plain", "");
     let miss = missing("Rel Code Plain", "MISS", "AAR Rel");
     assert_eq!(
-        ok_cases(&port(&p), &p, &SIX, AFTER),
+        ok_cases(&port(&p), &p, &SIX),
         [
             "Yes |  |  | after:P1;before insert:P1; | 1:P1:0:,".to_string(),
             format!("{miss} | after:MISS; | "),
@@ -806,7 +775,7 @@ fn a_field_element_with_field_validate_no_runs_the_trigger_and_validates_nothing
 fn an_integer_field_follows_the_same_order() {
     let p = temp(true, "Rel No", "");
     assert_eq!(
-        ok_cases(&int_port(&p), &p, &INT_SEVEN, AFTER),
+        ok_cases(&int_port(&p), &p, &INT_SEVEN),
         [
             "Yes |  |  | after:1;before insert:1; | ",
             "Yes |  |  | after:99;before insert:99; | ",
@@ -820,7 +789,7 @@ fn an_integer_field_follows_the_same_order() {
     let p = db(true, "Rel No", "");
     let miss = missing("Rel No", "99", "AAR Int Rel");
     assert_eq!(
-        ok_cases(&int_port(&p), &p, &INT_SEVEN, AFTER),
+        ok_cases(&int_port(&p), &p, &INT_SEVEN),
         [
             "Yes |  |  | after:1;validate no:1;before insert:1; | 1::1:,".to_string(),
             format!("{miss} | after:99; | "),
@@ -842,7 +811,7 @@ fn a_code10_field_follows_the_same_order_and_a_long_value_fails_first() {
     let mut list = SIX.to_vec();
     list.push(("ABCDEFGHIJK", 0));
     assert_eq!(
-        ok_cases(&port(&p), &p, &list, AFTER),
+        ok_cases(&port(&p), &p, &list),
         [
             "Yes |  |  | after:P1;validate c10:P1;before insert:P1; | 1::0:P1,".to_string(),
             format!("{miss} | after:MISS; | "),
@@ -866,7 +835,7 @@ fn a_temporary_table_element_without_triggers_validates_nothing() {
         temp(true, "Rel Code Plain", ""),
     ] {
         assert_eq!(
-            ok_cases(&plain_port(&p), &p, &PLAIN_THREE, NOT_VALIDATED),
+            ok_cases(&plain_port(&p), &p, &PLAIN_THREE),
             [
                 "Yes |  |  | before insert:P1; | ",
                 "Yes |  |  | before insert:MISS; | ",
@@ -888,7 +857,7 @@ fn a_temporary_table_element_without_triggers_validates_nothing() {
 fn layouts_without_triggers_outside_the_measured_temporary_ones_keep_mains_answer() {
     let p = db(true, "Rel Code", "");
     assert_eq!(
-        ok_cases(&plain_port(&p), &p, &PLAIN_THREE, None),
+        ok_cases(&plain_port(&p), &p, &PLAIN_THREE),
         [
             "Yes |  |  | validate:P1;before insert:P1; | 1::0:,".to_string(),
             format!("{MISSING} |  | "),
@@ -897,17 +866,12 @@ fn layouts_without_triggers_outside_the_measured_temporary_ones_keep_mains_answe
     );
     let p = db(false, "Rel Code", "");
     assert_eq!(
-        ok_cases(&plain_port(&p), &p, &PLAIN_THREE, None)[2],
+        ok_cases(&plain_port(&p), &p, &PLAIN_THREE)[2],
         "Yes |  |  | validate:;before insert:; | 1::0:,"
     );
     let p = db(true, "Rel No", "");
     assert_eq!(
-        ok_cases(
-            &int_text(plain_port(&p)),
-            &p,
-            &[("1", 0), ("99", 0), ("", 0), ("0", 0)],
-            None
-        ),
+        ok_cases(&int_text(plain_port(&p)), &p, &[("1", 0), ("99", 0), ("", 0), ("0", 0)],),
         [
             "Yes |  |  | validate no:1;before insert:1; | 1::1:,".to_string(),
             format!("{} |  | ", missing("Rel No", "99", "AAR Int Rel")),
@@ -917,17 +881,17 @@ fn layouts_without_triggers_outside_the_measured_temporary_ones_keep_mains_answe
     );
     let p = temp(true, "Rel No", "");
     assert_eq!(
-        ok_cases(&int_text(plain_port(&p)), &p, &[("99", 0)], None),
+        ok_cases(&int_text(plain_port(&p)), &p, &[("99", 0)]),
         [format!("{} |  | ", missing("Rel No", "99", "AAR Int Rel"))]
     );
     let p = temp(false, "Rel Code", "FieldValidate = Yes;");
     assert_eq!(
-        ok_cases(&plain_port(&p), &p, &[("MISS", 0)], None),
+        ok_cases(&plain_port(&p), &p, &[("MISS", 0)]),
         [format!("{MISSING} |  | ")]
     );
     let p = temp(true, "Rel Code NV", "");
     assert_eq!(
-        ok_cases(&plain_port(&p), &p, &[("MISS", 0)], None),
+        ok_cases(&plain_port(&p), &p, &[("MISS", 0)]),
         ["Yes |  |  | validate nv:MISS;before insert:MISS; | "]
     );
     // The temporary layout with one fact the four measured ports (XpAfterAssignTableRelation.al:576, :694, :765, :935) do not
@@ -1034,7 +998,7 @@ fn layouts_without_triggers_outside_the_measured_temporary_ones_keep_mains_answe
             "{shape}: {got}"
         );
         let hits = al_builtins::assumptions::take_hits();
-        assert!(!hits.contains(&NOT_VALIDATED.unwrap()), "{shape}: {hits:?}");
+        assert!(hits.is_empty(), "{shape}: {hits:?}");
     }
 }
 
@@ -1070,10 +1034,10 @@ fn unmeasured_fields_with_the_trigger_keep_mains_refusal() {
 #[test]
 fn an_unmeasured_integer_attribute_keeps_mains_answer() {
     let p = db(true, "Rel No", "FieldValidate = No;");
-    let got = ok_cases(&int_port(&p), &p, &[("99", 0)], None);
+    let got = ok_cases(&int_port(&p), &p, &[("99", 0)]);
     assert_eq!(got[0], "Yes |  |  | after:99;before insert:99; | 1::99:,");
     let p = db(true, "Rel No", "");
-    let got = ok_cases(&int_port(&p), &p, &[("abc", 0)], None);
+    let got = ok_cases(&int_port(&p), &p, &[("abc", 0)]);
     assert!(got[0].starts_with("No | ") && got[0].ends_with(" |  | "), "{got:?}");
 }
 
