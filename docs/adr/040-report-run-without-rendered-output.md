@@ -1124,9 +1124,9 @@ AL Runner is a testing tool, not for production. Rendered output exists inside a
 - Outcomes of tests that read rendered content depend on whether the machine can render. CI requires the renderer.
 - A save that BC's merger rejects is no longer answered "saved".
 
-## Amendment 2026-11-15: the Html of a Word layout made by BC's own merger and converter (Proposed)
+## Amendment 2026-11-15: the Html of a Word layout made by BC's own merger and converter (Accepted, owner 2026-11-15)
 
-Status: Proposed. Makes decision 10 of the amendment of 2026-11-13b concrete for the e-mail body path, and changes what a
+Status: Accepted by the owner on 2026-11-15, with the answers recorded under "Owner decisions (2026-11-15)" below. Makes decision 10 of the amendment of 2026-11-13b concrete for the e-mail body path, and changes what a
 test may read from such a Html (Part A and the rgba column of the amendments of 2026-11-12 and 2026-11-13 no longer apply to
 it). Part 1 of the amendment of 2026-11-13 (the save table) still decides whether a save is answered, its error and its events.
 
@@ -1154,7 +1154,7 @@ platform artifact of BC 27.5, 28.1 and 29.1 (`Microsoft.Dynamics.Nav.Ncl.dll`: `
 
 The render process of the amendment of 2026-11-13b already calls the methods of steps 3 and 5 from the same artifact.
 
-### Decision (proposed)
+### Decision
 
 1. **Which saves.** A save renders real Html when all of these hold, each an equality on a measured fact:
    - its row answers Html written for a Word layout (`Renders::Default` or `Renders::Selected`);
@@ -1182,8 +1182,8 @@ The render process of the amendment of 2026-11-13b already calls the methods of 
    hash on 27, 28 and 29. If no cell matches, nothing of this amendment is built and Html stays on Part A.
 6. **Wiring.** The run's renderer reaches the VM as a field of `DotNetConfig` (`Arc<dyn ReportRenderer>`, `NoRenderer` by
    default): additive.
-7. **Fetching.** Html needs the conversion set (about 65 MB download per build, the same set as PDF). It is fetched on the
-   first Html save of a Word layout, not only behind the PDF switch (question 2).
+7. **Fetching.** Html needs the conversion set (about 65 MB download per build, the same set as PDF). It is fetched by
+   default, not only behind the PDF switch (owner decision 2).
 
 ### What stays refused
 
@@ -1199,9 +1199,9 @@ hash cell covers (Part A applies), and every save the save table does not answer
   (`--require-report-renderer` of the 2026-11-13b design is not built); the round that builds this adds it.
 - Cost per Html save: the merge (about 20 ms warm) and one conversion (not measured for Html; PDF is about 170 ms warm).
 
-### Questions for the owner
+### Owner decisions (2026-11-15)
 
-1. Accept real Html for the measured shapes, read as plain text (decision 3), instead of widening the rgba column of Part A
-   cell by cell?
-2. Fetch the conversion set (about 65 MB per build) on the first Html save of a Word layout by default, or only when the PDF
-   switch is on (then the 166 keep Part A unless the switch is passed)?
+1. Real Html for the measured shapes, read as plain text (decision 3): accepted. The rgba column of Part A is not widened
+   cell by cell.
+2. The conversion set (about 65 MB per build) is fetched by default, not only when the PDF switch is on. The PDF switch and
+   the mandatory "test output" watermark of every PDF stay as decision 9 of the amendment of 2026-11-13b says.
