@@ -506,6 +506,11 @@ fn test_timeout_secs(a: &TestArgs) -> Result<u64, String> {
     Ok(DEFAULT_TEST_TIMEOUT_SECS)
 }
 
+/// The time limit of a test from a number of seconds: `0` is no limit.
+fn time_limit(secs: u64) -> Option<std::time::Duration> {
+    (secs > 0).then(|| std::time::Duration::from_secs(secs))
+}
+
 pub fn test(a: &TestArgs) -> Result<u8, String> {
     if !a.impact_of.is_empty() {
         return crate::impact::run(a);
@@ -700,6 +705,8 @@ pub struct Entry {
     pub excludes: Vec<String>,
     /// Resource name (relative to the resource folder) -> the text the entry's run reads in place of the file's.
     pub resources: std::collections::BTreeMap<String, String>,
+    /// As `--test-timeout-secs`, for this entry (al-runner issue 8125). `None`: the request's limit.
+    pub test_timeout_secs: Option<u64>,
 }
 
 impl Entry {
@@ -1596,10 +1603,7 @@ fn test_inner(
             .chain(dependencies.lazy.iter().cloned())
             .collect(),
         trace: a.explain.is_some() || std::env::var_os("AL_STACK_OF").is_some(),
-        test_time_limit: match test_timeout {
-            0 => None,
-            n => Some(std::time::Duration::from_secs(n)),
-        },
+        test_time_limit: time_limit(test_timeout),
         // ADR-066 (owner decision 3): Microsoft's runner by default; `--test-runner builtin` keeps al-runner's own.
         test_runner: a.test_runner.unwrap_or(al_testrun::runtime::TestRunner::Microsoft),
         isolation: a.isolation,
@@ -1730,6 +1734,7 @@ fn test_inner(
                         ..opts.hooks.clone()
                     },
                     resources,
+                    test_time_limit: e.test_timeout_secs.map(time_limit),
                 }
             })
             .collect();

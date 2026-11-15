@@ -2153,3 +2153,81 @@ fn the_summary_lists_skipped_dependencies() {
     let summary = s.until_summary().pop().unwrap();
     assert_eq!(summary["skippedDependencies"], json!([]), "{summary}");
 }
+
+/// Al-runner issue 8125: `testTimeoutSecs` sets the time limit of a request and of an entry (the entry's wins, then the
+/// request's, then the server's `--test-timeout`), on the kept compile. The time `Sleep` asks for counts.
+#[test]
+fn a_request_and_an_entry_set_the_test_time_limit_on_the_kept_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(
+        d.path(),
+        "timelimit",
+        "codeunit 50414 \"Time Limit\" { Subtype = Test;
+            [Test] procedure SleepsFive() begin Sleep(5000); end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--test-timeout", "30"]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    let mut run = |request: Value| {
+        s.send(request);
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(summary["type"], "summary", "{lines:?}");
+        let rows: Vec<(String, String)> = lines
+            .iter()
+            .filter(|l| l["type"] == "test")
+            .map(|l| {
+                (
+                    l["entry"].as_str().unwrap_or("").to_string(),
+                    l["message"]
+                        .as_str()
+                        .unwrap_or(l["status"].as_str().unwrap())
+                        .to_string(),
+                )
+            })
+            .collect();
+        (rows, summary["cached"].as_bool())
+    };
+    let pass = |entry: &str| (entry.to_string(), "pass".to_string());
+    let stop = |entry: &str, n: u32| (entry.to_string(), format!("Test exceeded {n}s timeout."));
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a]}));
+    assert_eq!((rows, cached), (vec![pass("")], Some(false)), "the server's 30 s");
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a], "testTimeoutSecs": 2}));
+    assert_eq!(
+        (rows, cached),
+        (vec![stop("", 2)], Some(true)),
+        "the request's 2 s, no new compile"
+    );
+    let (rows, cached) = run(
+        json!({"command": "runTests", "sourcePaths": [a], "testTimeoutSecs": 2, "entries": [
+            {"id": "own", "test": "Codeunit50414.SleepsFive", "testTimeoutSecs": 4},
+            {"id": "none", "test": "Codeunit50414.SleepsFive", "testTimeoutSecs": 0},
+            {"id": "request", "test": "Codeunit50414.SleepsFive"},
+        ]}),
+    );
+    assert_eq!(
+        (rows, cached),
+        (vec![stop("own", 4), pass("none"), stop("request", 2)], Some(true)),
+        "an entry's own limit, 0 for none, else the request's"
+    );
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a], "entries": [
+        {"id": "server", "test": "Codeunit50414.SleepsFive"},
+        {"id": "own", "test": "Codeunit50414.SleepsFive", "testTimeoutSecs": 3},
+    ]}));
+    assert_eq!(
+        (rows, cached),
+        (vec![pass("server"), stop("own", 3)], Some(true)),
+        "an entry without a limit in a request without one: the server's"
+    );
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a]}));
+    assert_eq!(
+        (rows, cached),
+        (vec![pass("")], Some(true)),
+        "a request does not change the server's limit"
+    );
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "testTimeoutSecs": -1}));
+    let lines = s.until_summary();
+    assert!(
+        lines[0]["error"].as_str().unwrap().contains("`testTimeoutSecs`"),
+        "{lines:?}"
+    );
+}

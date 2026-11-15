@@ -134,3 +134,42 @@ fn an_entry_reads_the_files_it_does_not_replace_from_the_app() {
         assert!(matches!(&entry[..], [Outcome::Fail(m)] if m.contains(want)), "{got:?}");
     }
 }
+
+/// Al-runner issue 8125: an entry's own time limit wins over the run's; `Some(None)` is no limit, and an entry without
+/// one keeps the run's. The time `Sleep` asks for counts toward it.
+#[test]
+fn an_entry_runs_its_tests_under_its_own_time_limit_or_the_runs() {
+    let main = "codeunit 60104 T { Subtype = Test; [Test] procedure SleepsFive() begin Sleep(5000); end; }";
+    let secs = |n| Some(std::time::Duration::from_secs(n));
+    let entries = vec![
+        EntryRun {
+            test_time_limit: Some(secs(2)),
+            ..Default::default()
+        },
+        EntryRun {
+            test_time_limit: Some(None),
+            ..Default::default()
+        },
+        EntryRun::default(),
+    ];
+    let rt = CorpusRuntime::try_run_suites_with(
+        vec![app("main", &["base"], main), app("base", &[], BASE)],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &[manifest("Me", vec![]), manifest("Microsoft", vec![])],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions {
+            entries,
+            test_time_limit: secs(3),
+            ..Default::default()
+        },
+    )
+    .expect("the run starts");
+    let got = outcomes(&rt);
+    let stopped_at = |entry: &[Outcome], n: u32| matches!(entry, [Outcome::NotRun(why)] if why.contains(&format!("time limit of {n} s")));
+    assert!(stopped_at(&got[0], 2), "the entry's 2 s: {got:?}");
+    assert_eq!(got[1], [Outcome::Pass], "no limit: {got:?}");
+    assert!(stopped_at(&got[2], 3), "the run's 3 s: {got:?}");
+}
