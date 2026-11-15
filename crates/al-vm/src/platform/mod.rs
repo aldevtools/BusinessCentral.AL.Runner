@@ -86,9 +86,10 @@ pub(crate) struct EventStats {
     pub language: std::cell::Cell<i32>,
     /// What the install of an app lets the "NAV App Installed App" list show ([`InstallView`]).
     pub install_view: RefCell<InstallView>,
-    /// The test session runs under `--no-client` (al-vm `Session::set_clientless_session`): a read of the Session table is
-    /// refused ([`Providers::listed`]).
-    pub clientless_session: std::cell::Cell<bool>,
+    /// The value of `Session::no_client_test_session` (the test session under `--no-client`, not install code, not a page
+    /// background task worker); its one writer is `Session::sync_no_client_test_session`. A read of the Session or Active
+    /// Session table is refused while it holds ([`Providers::no_client_session_read`]).
+    pub no_client_test_session: std::cell::Cell<bool>,
 }
 
 /// The apps an install has not reached, and the app whose install runs: the "NAV App Installed App" list leaves them out
@@ -571,6 +572,7 @@ impl Providers {
     /// The session's own Active Session row and the rows an Insert added: a Get, Count and Count with a filter find them
     /// (RvActiveSessionWrites.al:42-70, :90-130, :173-204).
     fn active_session_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        self.no_client_session_read(Virtual::ActiveSession)?;
         let stored = store.stored_rows(cx, t);
         if stored.is_empty() {
             return self.listed(t, Virtual::ActiveSession);
@@ -638,16 +640,30 @@ impl Providers {
         Ok(Listed::Own(Rc::new(mat::Mat::new(t, entries))))
     }
 
+    /// A read of the Session or Active Session table in the test session under `--no-client` (`EventStats::no_client_test_session`).
+    /// BC fails every read of the Session table in a web-service session, with a text the corpus does not measure (al-runner
+    /// issue 8158, the reporter's measurement on BC 28.4: IsEmpty and FindFirst, with and without the Read grant). What a read
+    /// of the Active Session table does there is not measured (BC's error on the Session read says "The Active Session does not
+    /// exist"). Both are refused; install code and a page background task worker keep their own answers, and with a client the
+    /// session's own row is listed.
+    fn no_client_session_read(&self, kind: Virtual) -> Result<(), StoreError> {
+        if !self.events.no_client_test_session.get() {
+            return Ok(());
+        }
+        match kind {
+            Virtual::Session => Err(refused(
+                "a read of the Session table in a session without a client (--no-client): BC fails it there (al-runner issue 8158), and its error is not measured",
+            )),
+            Virtual::ActiveSession => Err(refused(
+                "a read of the Active Session table in a session without a client (--no-client): what BC does there is not measured (probe wanted, docs/probes-needed.md `no-client-session`)",
+            )),
+            _ => Ok(()),
+        }
+    }
+
     /// The rows of a table that is listed in full.
     fn listed(&self, t: &TableDef, kind: Virtual) -> Result<Listed, StoreError> {
-        // BC fails every read of the Session table in a web-service session, with a text the corpus does not measure (al-runner
-        // issue 8158, the reporter's measurement on BC 28.4: IsEmpty and FindFirst, with and without the Read grant): refused
-        // under `--no-client`. With a client the session's own row is listed below.
-        if kind == Virtual::Session && self.events.clientless_session.get() {
-            return Err(refused(
-                "a read of the Session table in a session without a client (--no-client): BC fails it there (al-runner issue 8158), and its error is not measured",
-            ));
-        }
+        self.no_client_session_read(kind)?;
         // In another language than 1033 the layouts' descriptions are that language's: listed per read, not kept.
         if kind == Virtual::ReportLayoutList && self.language() != 1033 {
             return Ok(Listed::Own(Rc::new(mat::Mat::new(

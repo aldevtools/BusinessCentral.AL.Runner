@@ -1286,8 +1286,8 @@ fn open_test_session_company(
         }
     }
     let raise = matches!(decision, crate::login::Login::Raise);
-    // Under `--no-client` which login events BC raises is not pinned. The dependency apps' login code read CurrentClientType
-    // and was refused there; now that it answers (al-vm `clientless.rs`), the raised login is refused here instead.
+    // Under `--no-client` which login events a web-service session raises is not measured (assumption `no-client-session`):
+    // the raised login is refused, before any login code runs.
     if raise && watched == Some(crate::login::NO_CLIENT) {
         return Err(format!("the login: {}", crate::login::NO_CLIENT_RAISE));
     }

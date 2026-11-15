@@ -8,12 +8,14 @@
 //! The test session under `--no-client` stands for a web-service session: Microsoft's test runner called over OData. Its
 //! answers are the reporter's measurements on BC 28.4 (al-runner issues 8154, 8158 and 8028), outside the pinned corpus: the
 //! assumption `no-client-session` (each answer marks it), with the written probe in the corpus (`docs/probes-needed.md`).
-//! GuiAllowed is false and CurrentClientType is ODataV4 (`hostvalues.rs`); the test framework calls the bound handlers of
-//! Confirm, StrMenu, Message, Notification.Send and Hyperlink, and an unhandled Message or Hyperlink fails with "Unhandled UI"
-//! (`ui.rs`, [`Session::no_client_test_session`]); a processing-only report skips its request page
-//! ([`Session::clientless_report`]). BC fails a TestPage open and a read of the Session table there, with errors the corpus
-//! does not measure: refused (`clientless_test_page_reason`, `platform` `Virtual::Session`). Every other dialog or call
-//! shape is refused in both sessions (hard rules 3 and 4); the worker's answers do not stand in for the web-service session.
+//! GuiAllowed is false (`hostvalues.rs`, on every major as before). On the measured major only
+//! ([`Session::no_client_measured`]): in a test method CurrentClientType is ODataV4 ([`Session::no_client_client_type`]); the
+//! test framework calls the bound handlers of Confirm, StrMenu, Message, Notification.Send and Hyperlink, and an unhandled
+//! Message or Hyperlink fails with "Unhandled UI" ([`Session::no_client_dialog`]); the measured report skips its request page
+//! ([`Session::clientless_report`]). On the other majors these are refused. BC fails a TestPage open and a read of the Session
+//! table there, with errors the corpus does not measure: refused (`clientless_test_page_reason`, `platform`
+//! `no_client_session_read`, which refuses a read of Active Session too). Every other dialog or call shape is refused in both
+//! sessions (hard rules 3 and 4); the worker's answers do not stand in for the web-service session.
 use crate::Session;
 use crate::reports::Schema;
 use crate::ui::UiKind;
@@ -24,12 +26,45 @@ use al_builtins::page_op::{PageOp, PageRecv};
 use al_builtins::value::Value;
 use al_ir::BuiltinId;
 
+/// A dialog that the test framework of a web-service session hands to the test's handler (al-runner issue 8154).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoClientDialog {
+    Message,
+    Hyperlink,
+    Confirm,
+    StrMenu,
+    SendNotification,
+}
+
+impl NoClientDialog {
+    fn kind(self) -> UiKind {
+        match self {
+            NoClientDialog::Message => UiKind::Message,
+            NoClientDialog::Hyperlink => UiKind::Hyperlink,
+            NoClientDialog::Confirm => UiKind::Confirm,
+            NoClientDialog::StrMenu => UiKind::StrMenu,
+            NoClientDialog::SendNotification => UiKind::SendNotification,
+        }
+    }
+
+    /// The call's name, for the refusal text.
+    fn call(self) -> &'static str {
+        match self {
+            NoClientDialog::Message => "Message",
+            NoClientDialog::Hyperlink => "Hyperlink",
+            NoClientDialog::Confirm => "Confirm",
+            NoClientDialog::StrMenu => "StrMenu",
+            NoClientDialog::SendNotification => "Notification.Send",
+        }
+    }
+}
+
 /// The builtins that ask a client for something and that no probe covers in a session without a client, and
 /// CurrentClientType: the name for the refusal text.
 fn refused_name(id: BuiltinId) -> Option<&'static str> {
     Some(match id {
         ids::NOTIFICATION_RECALL_1 => "Notification.Recall",
-        // Not a dialog: not measured in the worker. The test session under `--no-client` answers it (`clientless_guard`).
+        // Not a dialog: not measured in the worker. The test session under `--no-client` answers it (`no_client_client_type`).
         ids::SESSION_CURRENTCLIENTTYPE_1 => "CurrentClientType",
         ids::FILE_DOWNLOAD_1
         | ids::FILE_DOWNLOADFROMSTREAM_1
@@ -50,30 +85,72 @@ impl Session {
     }
 
     /// Whether the code runs in the test session under `--no-client` (the web-service session of al-runner issue 8154): not
-    /// in a page background task worker, and not in install code, which keeps the install session's pinned answers.
+    /// in a page background task worker, and not in install code, which keeps the install session's pinned answers. The one
+    /// predicate of that session; the platform providers read a copy ([`Session::sync_no_client_test_session`]).
     #[inline]
     pub(crate) fn no_client_test_session(&self) -> bool {
         self.ui_state.clientless && self.pages.bg_worker.is_none() && !self.install_without_client
     }
 
-    /// A dialog of `kind` (Message, Hyperlink, Confirm, StrMenu, Notification.Send) in the test session under `--no-client`.
-    /// In a web-service session the test framework hands it to the test's bound handler, and an unhandled Message or
-    /// Hyperlink fails with "Unhandled UI" (al-runner issue 8154, the reporter's cells on BC 28.4): `Ok`, the dialog goes on
-    /// as in a session with a client, and the answer marks `no-client-session`. What a Confirm, StrMenu or Notification.Send
-    /// that no handler takes does there is not measured: refused. Elsewhere `Ok` and nothing marked.
-    pub(crate) fn no_client_dialog(&self, kind: UiKind) -> Result<(), Signal> {
+    /// Puts [`Session::no_client_test_session`] where the platform providers read it (`EventStats::no_client_test_session`,
+    /// for the reads of the Session and Active Session tables). Called wherever one of its inputs changes: the session
+    /// flag (`set_clientless_session`), install code (`set_install_without_client`) and a page background task worker
+    /// (`pages/background.rs`).
+    pub(crate) fn sync_no_client_test_session(&self) {
+        let on = self.no_client_test_session();
+        self.events.event_stats.no_client_test_session.set(on);
+    }
+
+    /// Whether the web-service session is measured on the run's major: the reporter's cells ran on BC 28.4
+    /// (`al_version::web_service_session_measured`). On the other majors the answers of that session are refused.
+    fn no_client_measured(&self) -> bool {
+        al_version::web_service_session_measured(self.engine.target.as_ref())
+    }
+
+    /// The refusal of `what` in the test session under `--no-client` on a major the web-service session is not measured on.
+    fn no_client_unmeasured_major(what: &str) -> Signal {
+        Signal::unsupported(format!(
+            "{what} in a session without a client (--no-client) on this BC major: the web-service session is measured on one other major only (probe wanted, docs/probes-needed.md `no-client-session`)"
+        ))
+    }
+
+    /// `dialog` in the test session under `--no-client`. In a web-service session the test framework hands it to the test's
+    /// bound handler, and an unhandled Message or Hyperlink fails with "Unhandled UI" (al-runner issue 8154, the reporter's
+    /// cells on BC 28.4, each call in the test method's own body): `Ok`, the dialog goes on as in a session with a client, at
+    /// any depth of the test method, and the answer marks `no-client-session`. What a Confirm, StrMenu or Notification.Send
+    /// that no handler takes does there is not measured: refused. On a major the session is not measured on: refused.
+    /// Elsewhere `Ok` and nothing marked.
+    pub(crate) fn no_client_dialog(&self, dialog: NoClientDialog) -> Result<(), Signal> {
         if !self.no_client_test_session() {
             return Ok(());
         }
-        let call = match kind {
-            UiKind::Message | UiKind::Hyperlink => None,
-            UiKind::Confirm => Some("Confirm"),
-            UiKind::StrMenu => Some("StrMenu"),
-            UiKind::SendNotification => Some("Notification.Send"),
-            other => return Err(self.no_client_refusal(other.label())),
+        if !self.no_client_measured() {
+            return Err(Self::no_client_unmeasured_major(dialog.call()));
+        }
+        let kind = dialog.kind();
+        let goes_on = match dialog {
+            NoClientDialog::Message | NoClientDialog::Hyperlink => true,
+            NoClientDialog::Confirm | NoClientDialog::StrMenu | NoClientDialog::SendNotification => {
+                self.has_ui_handler(kind)
+            }
         };
-        if let Some(call) = call.filter(|_| !self.has_ui_handler(kind)) {
-            return Err(self.no_client_refusal(&format!("{call} without a {}Handler", kind.label())));
+        if !goes_on {
+            return Err(self.no_client_refusal(&format!("{} without a {}Handler", dialog.call(), kind.label())));
+        }
+        assume(Assumption::NoClientSession);
+        Ok(())
+    }
+
+    /// `CurrentClientType` in the test session under `--no-client`: ODataV4 in a test method on the measured major (al-runner
+    /// issue 8028, the reporter's measurement; where in the test the reporter read it is not stated), marking
+    /// `no-client-session`. Outside a test method (login code, a test codeunit's OnRun, before the first test) and on the other
+    /// majors it is not measured: refused.
+    pub(crate) fn no_client_client_type(&self) -> Result<(), Signal> {
+        if !self.no_client_measured() {
+            return Err(Self::no_client_unmeasured_major("CurrentClientType"));
+        }
+        if self.ui_state.scope.is_none() {
+            return Err(self.no_client_refusal("CurrentClientType outside a test method"));
         }
         assume(Assumption::NoClientSession);
         Ok(())
@@ -106,8 +183,22 @@ impl Session {
     /// with such a handler bound is not measured.
     pub(crate) fn clientless_test_page_handler_reason(handler: &str) -> String {
         format!(
-            "{handler}, which takes a TestPage, in a session without a client (--no-client): BC fails a TestPage open there (al-runner issue 8028), and what it does with this handler is not measured"
+            "{handler}, which takes a TestPage or TestRequestPage, in a session without a client (--no-client): BC fails a TestPage open there (al-runner issue 8028), and what it does with this handler is not measured"
         )
+    }
+
+    /// Whether a handler of `kind` whose only parameter is a TestPage or TestRequestPage is refused before the test starts
+    /// (`ui_handler`, [`Session::clientless_test_page_handler_reason`]): under `--no-client` a PageHandler or ModalPageHandler
+    /// always, as BC fails a TestPage open there; a RequestPageHandler on a major the web-service session is not measured on.
+    /// On the measured major a RequestPageHandler is bound: the request page is skipped and the handler ends in "not executed"
+    /// (al-runner issue 8154; `end_ui_scope`).
+    pub(crate) fn clientless_refuses_test_page_handler(&self, kind: UiKind) -> bool {
+        self.is_clientless_session()
+            && match kind {
+                UiKind::Page | UiKind::ModalPage => true,
+                UiKind::RequestPage => !self.no_client_measured(),
+                _ => false,
+            }
     }
 
     /// Whether the whole test session is a session without a client (`set_clientless_session`).
@@ -171,8 +262,8 @@ impl Session {
     }
 
     /// Builtin `id` in the test session under `--no-client` (and in install code there, which keeps the install session's
-    /// own answers: `None`). Hyperlink and Notification.Send go on to the test's handlers (`ui.rs`), CurrentClientType to its
-    /// answer (`hostvalues.rs`). The other dialogs the worker answers (Dialog.Open, Update and Close, FilterPageBuilder.RunModal,
+    /// own answers: `None`). Hyperlink and Notification.Send go on to the test's handlers (`ui.rs`, `no_client_dialog`),
+    /// CurrentClientType to `no_client_client_type` (`hostvalues.rs`). The other dialogs the worker answers (Dialog.Open, Update and Close, FilterPageBuilder.RunModal,
     /// UploadIntoStream, RequestSessionUpdate) are not measured in a web-service session, nor are the calls `refused_name`
     /// lists: refused.
     fn no_client_test_session_guard(&self, id: BuiltinId) -> Result<Option<Value>, Signal> {
@@ -302,8 +393,8 @@ impl Session {
         }
     }
 
-    /// The static `Report.Run(Id)` and `Report.RunModal(Id)` whose request page would open (the RequestWindow argument
-    /// `explicit`, else the report's UseRequestPage, as for a fresh instance in `report_builtin`), in a session without
+    /// The static `Report.Run(Id)` and `Report.RunModal(Id)` (`run_modal`) whose request page would open (the RequestWindow
+    /// argument `explicit`, else the report's UseRequestPage, as for a fresh instance in `report_builtin`), in a session without
     /// a client. `plain`: the call names the report and nothing else. A run that shows no page goes on: `explicit` as it is.
     ///
     /// In a page background task worker: CallbackNotAllowed, and no code of the report ran (BjNoClientDialogs.al `08
@@ -316,6 +407,7 @@ impl Session {
         schema: &Schema,
         explicit: Option<bool>,
         plain: bool,
+        run_modal: bool,
     ) -> Result<RequestWindow, Signal> {
         let r = schema.report();
         if !self.without_client() || !explicit.unwrap_or(r.use_request_page != Some(false)) {
@@ -326,7 +418,7 @@ impl Session {
             if self.install_without_client {
                 return Ok(RequestWindow::As(explicit));
             }
-            return self.no_client_test_session_report(schema, explicit, plain);
+            return self.no_client_test_session_report(schema, plain.then_some(run_modal));
         }
         let object = schema.object as u32;
         if self.has_page_handler(UiKind::RequestPage, object) || self.has_page_handler(UiKind::Report, object) {
@@ -345,31 +437,49 @@ impl Session {
         Err(self.callback_not_allowed(&format!("run page {id} RequestOptionsPage as modal"), false))
     }
 
-    /// The static `Report.Run(Id)` or `Report.RunModal(Id)` (`plain`, no RequestWindow) of the measured report, whose
-    /// request page would open, in the test session under `--no-client` (al-runner issue 8154, the reporter's cells on BC
-    /// 28.4 in a web-service session): the request page is skipped and the report runs, so a bound RequestPageHandler is
-    /// never called (the test then fails with "The following UI handlers were not executed"); a bound ReportHandler for the
-    /// report is called, as with a client (`report_handler_answers`). Marks `no-client-session`. The measured report
-    /// ([`measured_skip_report`]) is processing-only with an empty requestpage section and no trigger anywhere; every other
-    /// report or call shape is refused.
+    /// The static `Report.Run(Id)` or `Report.RunModal(Id)` of report `schema` whose request page would open, in the test
+    /// session under `--no-client`; `plain_run_modal` is `Some(run_modal)` when the call names the report and nothing else.
+    /// The reporter's cells (al-runner issue 8154, BC 28.4, a web-service session, each run in a test method with no write
+    /// transaction open) are [`measured_report_run`]: the request page is skipped and the report runs, so a bound
+    /// RequestPageHandler is never called (the test then fails with "The following UI handlers were not executed"); with a
+    /// bound ReportHandler for the report the handler is called, as with a client (`report_handler_answers`). Marks
+    /// `no-client-session`. Every other report, call or session state is refused (a run outside a test method too), and so is
+    /// every run on a major the session is not measured on.
     fn no_client_test_session_report(
         &self,
         schema: &Schema,
-        explicit: Option<bool>,
-        plain: bool,
+        plain_run_modal: Option<bool>,
     ) -> Result<RequestWindow, Signal> {
-        let o = &self.engine.program.objects[schema.object];
-        if !(plain && explicit.is_none() && measured_skip_report(o)) {
-            return Err(self.no_client_refusal(&format!(
-                "the request page of report \"{}\" (only a static Report.Run or RunModal of a processing-only report with an empty requestpage section and no trigger is measured)",
-                schema.name()
+        let name = schema.name();
+        if !self.no_client_measured() {
+            return Err(Self::no_client_unmeasured_major(&format!(
+                "the request page of report \"{name}\""
             )));
         }
-        assume(Assumption::NoClientSession);
-        if self.has_page_handler(UiKind::Report, schema.object as u32) {
-            return Ok(RequestWindow::As(explicit));
+        let o = &self.engine.program.objects[schema.object];
+        let object = schema.object as u32;
+        let handlers = (
+            self.has_page_handler(UiKind::RequestPage, object),
+            self.has_page_handler(UiKind::Report, object),
+        );
+        // Each measured run was in a test method (its body); at any depth of it as the dialogs (`no_client_dialog`).
+        let measured = plain_run_modal
+            .filter(|_| self.ui_state.scope.is_some() && measured_skip_report(o))
+            .and_then(|run_modal| measured_report_run(run_modal, handlers));
+        let Some(window) = measured else {
+            return Err(self.no_client_refusal(&format!(
+                "the request page of report \"{name}\" (only a static Report.Run or RunModal in a test method of a processing-only report with one empty data item and an empty request page, without a handler or Report.Run with one, is measured)"
+            )));
+        };
+        // Each measured run had no write transaction open; with a client a RunModal fails in one (the reporter's dev-endpoint
+        // table in al-runner issue 8154: "An error occurred and the transaction is stopped").
+        if self.in_write_transaction()? {
+            return Err(
+                self.no_client_refusal(&format!("the request page of report \"{name}\" in a write transaction"))
+            );
         }
-        Ok(RequestWindow::Skipped)
+        assume(Assumption::NoClientSession);
+        Ok(window)
     }
 
     /// A report run on a variable (`Run`, `RunModal`) whose request page would open (`shows`), in a session without a
@@ -402,27 +512,26 @@ pub(crate) enum RequestWindow {
     Skipped,
 }
 
-/// The report of the reporter's cells (al-runner issue 8154; its shape as report 51440 in al-runner issue 8028): `ProcessingOnly = true`, one data item
-/// without triggers, an empty `requestpage` section. Required by equality: processing-only with no output, a requestpage
-/// section with no trigger, no page extension and no control but the data items' own, no report trigger, no data item
-/// trigger or RequestFilterFields, no report extension.
+/// The report of the reporter's cells (al-runner issue 8154; its source as report 51440 in al-runner issue 8028):
+/// `ProcessingOnly = true`, one data item with nothing in it, `requestpage { layout { area(Content) { } } }`, nothing else.
+/// Required by equality: the source has that shape member for member (`ir::Report::bare_processing_only`, al-sema
+/// `reports::bare_processing_report`), and no report extension or request page extension changes it.
 fn measured_skip_report(o: &al_ir::Object) -> bool {
     let (Some(r), Some(page)) = (o.report.as_ref(), o.page.as_ref()) else {
         return false;
     };
-    r.processing_only
-        && r.output.is_empty()
-        && r.has_request_page
-        && r.on_init.is_none()
-        && r.on_pre.is_none()
-        && r.on_post.is_none()
-        && r.on_pre_rendering.is_none()
-        && r.extensions.is_empty()
-        && !r.request_page_ok_only
-        && r.items.iter().all(|i| {
-            i.on_pre.is_none() && i.on_after_get.is_none() && i.on_post.is_none() && i.request_filter_fields.is_none()
-        })
-        && page.triggers.is_empty()
-        && page.extensions.is_empty()
-        && page.controls.iter().all(|c| c.kind == al_ir::ControlKind::DataItem)
+    r.bare_processing_only && r.extensions.is_empty() && page.extensions.is_empty() && page.ext_triggers.is_empty()
+}
+
+/// What the measured report's run does with its request page in the test session under `--no-client`, by the call and the
+/// bound handlers for the report (RequestPageHandler, ReportHandler); `None` for a cell the reporter did not measure
+/// (al-runner issue 8154): Report.RunModal with either handler, and a run with both.
+fn measured_report_run(run_modal: bool, (request_page_handler, report_handler): (bool, bool)) -> Option<RequestWindow> {
+    match (run_modal, request_page_handler, report_handler) {
+        // Report.Run and Report.RunModal without a handler, and Report.Run with a RequestPageHandler: the page is skipped.
+        (_, false, false) | (false, true, false) => Some(RequestWindow::Skipped),
+        // Report.Run with a ReportHandler: the handler takes the run, as with a client.
+        (false, false, true) => Some(RequestWindow::As(None)),
+        _ => None,
+    }
 }

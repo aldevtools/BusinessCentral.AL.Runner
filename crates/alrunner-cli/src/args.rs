@@ -686,23 +686,28 @@ selects only the tests both match)
                          test is a flagged pass, `dev-endpoint-ui`.
     --no-client          Run the tests as a web-service session runs them (Microsoft's test
                          runner called over OData, as a mutation-testing tool does), measured
-                         by a user on Business Central 28.4: GuiAllowed() is false and
-                         CurrentClientType() is ODataV4; Confirm, StrMenu, Message, Hyperlink
-                         and Notification.Send go to the test's handlers, and a Message or
-                         Hyperlink that no handler takes fails with `Unhandled UI`; a static
-                         Report.Run or RunModal of a processing-only report with an empty
-                         request page and no triggers skips the request page, so a bound
-                         RequestPageHandler ends in `not executed`. A test that passes through
-                         one of these is a flagged pass, `no-client-session`; so is a read of
-                         the WorkDate that Base Application's login code would have set. Not
-                         run, as Business Central fails them there with an error that is not
-                         measured: a TestPage open and every other call on a TestPage,
-                         Report.RunRequestPage, a read of the Session table. Not run, as not
-                         measured: Confirm, StrMenu and Notification.Send without a handler,
-                         a page handler that takes a TestPage, Page.Run and Page.RunModal,
+                         by a user on Business Central 28.4. On every version GuiAllowed() is
+                         false. On version 28 only: in a test method Confirm, StrMenu, Message,
+                         Hyperlink and Notification.Send go to the test's handlers, a Message
+                         or Hyperlink that no handler takes fails with `Unhandled UI`, and
+                         CurrentClientType() is ODataV4; a static Report.Run or RunModal of a
+                         processing-only report with one empty data item and an empty request
+                         page, and nothing else, skips the request page, so a bound
+                         RequestPageHandler ends in `not executed`. On 27 and 29 these are not
+                         run. A test that passes through one of these is a flagged pass,
+                         `no-client-session`; so is a read of the WorkDate that Base
+                         Application's login code would have set. Not run, as Business Central
+                         fails them there with an error that is not measured: a TestPage open
+                         and every other call on a TestPage, Report.RunRequestPage, a read of
+                         the Session table. Not run, as not measured: a read of the Active
+                         Session table, CurrentClientType() outside a test method, a raised
+                         login, Confirm, StrMenu and Notification.Send without a handler, a
+                         page handler that takes a TestPage, Page.Run and Page.RunModal,
                          Dialog.Open, the file dialogs, FilterPageBuilder.RunModal,
-                         RequestSessionUpdate, any other report request page, Xmlport.Run with
-                         its request page. --dev-endpoint-ui has no effect with it.
+                         RequestSessionUpdate, Report.RunModal with a handler, a report run in
+                         a write transaction, any other report request page, Xmlport.Run with
+                         its request page. Install code keeps its own answers.
+                         --dev-endpoint-ui has no effect with it.
                          In `serve`: the runTests field `noClient`.
     --dependencies-published-global
                          Show Published As of NAV App Installed App as Global, not Dev, for a

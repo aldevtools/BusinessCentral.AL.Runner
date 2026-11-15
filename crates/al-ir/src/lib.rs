@@ -610,6 +610,11 @@ pub struct Report {
     /// everything else on it (al-vm `pages/request_ok_only.rs`).
     #[serde(default)]
     pub request_page_ok_only: bool,
+    /// The source is, member for member, `ProcessingOnly = true;`, a `dataset` of one `dataitem` with nothing in it, and
+    /// `requestpage { layout { area(Content) { } } }`, and nothing else (al-sema `reports::bare_processing_report`): the report
+    /// of the `--no-client` measurement (al-vm `clientless.rs`).
+    #[serde(default)]
+    pub bare_processing_only: bool,
     /// Why running the report would render output (it is not `ProcessingOnly`, or it declares a
     /// layout): the runtime renders nothing, so a run that gets that far is refused. Its request
     /// page still opens first.

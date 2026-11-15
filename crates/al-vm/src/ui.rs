@@ -9,6 +9,7 @@
 //! (ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:51).
 
 use crate::Session;
+use crate::clientless::NoClientDialog;
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
 use al_builtins::value::{Instance, RtType, Value};
@@ -257,13 +258,9 @@ impl Session {
                 kind.label()
             ));
         }
-        // Under `--no-client` a PageHandler or ModalPageHandler whose only parameter is a TestPage is refused before the test
-        // starts (`clientless.rs`). A RequestPageHandler is bound: in a web-service session the request page is skipped and a
-        // bound one ends in "not executed" (al-runner issue 8154; `end_ui_scope`).
-        if self.is_clientless_session()
-            && matches!(kind, UiKind::Page | UiKind::ModalPage)
-            && page_handler_of_test_page(kind, r.params, ty(0))
-        {
+        // Under `--no-client` a handler whose only parameter is a TestPage or TestRequestPage may be refused before the test
+        // starts (`clientless_refuses_test_page_handler`).
+        if self.clientless_refuses_test_page_handler(kind) && page_handler_of_test_page(kind, r.params, ty(0)) {
             let handler = format!("the {}Handler {}", kind.label(), r.name);
             return Err(Self::clientless_test_page_handler_reason(&handler));
         }
@@ -561,7 +558,7 @@ impl Session {
     /// (ui-handlers/TestNotificationSendRecallContracts.al:59-93, BC 27.5). Returns the notification
     /// as the handler left it.
     pub(crate) fn ui_send_notification(&mut self, notification: Value, id: [u8; 16]) -> Result<Option<Value>, Signal> {
-        self.no_client_dialog(UiKind::SendNotification)?;
+        self.no_client_dialog(NoClientDialog::SendNotification)?;
         if !self.ui_state.sent_notifications.contains(&id) {
             self.ui_state.sent_notifications.push(id);
         }
@@ -807,7 +804,7 @@ impl Session {
         }
         // `--no-client`: a web-service session hands it to the test's MessageHandler, and without one the test fails with
         // "Unhandled UI", as with a client (al-runner issue 8154, the reporter's measurement; `no_client_dialog`).
-        self.no_client_dialog(UiKind::Message)?;
+        self.no_client_dialog(NoClientDialog::Message)?;
         if self.ui_state.scope.is_none() && self.scratch_messages.is_some() {
             self.cap_message(&text);
             if let Some(log) = self.scratch_messages.as_mut() {
@@ -822,7 +819,7 @@ impl Session {
     /// `Hyperlink(url)`: a bound `[HyperlinkHandler]` gets the URL (ui-handlers/W3Hyperlink.al:24-63). False when no such
     /// handler is bound, for the caller's `Unhandled UI` error.
     pub(crate) fn ui_hyperlink(&mut self, url: String) -> Result<bool, Signal> {
-        self.no_client_dialog(UiKind::Hyperlink)?;
+        self.no_client_dialog(NoClientDialog::Hyperlink)?;
         let bound = self
             .ui_state
             .scope
@@ -841,7 +838,7 @@ impl Session {
         if (self.ui_state.scope.is_none() && self.install_without_client) || self.pages.bg_worker.is_some() {
             return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
         }
-        self.no_client_dialog(UiKind::Confirm)?;
+        self.no_client_dialog(NoClientDialog::Confirm)?;
         let finals = self.dispatch_ui(
             UiKind::Confirm,
             &question.clone(),
@@ -863,7 +860,7 @@ impl Session {
         if self.pages.bg_worker.is_some() {
             return Err(self.callback_not_allowed(&format!("show a selection menu: {instruction}"), true));
         }
-        self.no_client_dialog(UiKind::StrMenu)?;
+        self.no_client_dialog(NoClientDialog::StrMenu)?;
         if self.ui_state.scope.is_none() && self.install_without_client {
             // Pinned with an instruction (RlInstallUi.al:219); what the text shows without one is not.
             if instruction.is_empty() {

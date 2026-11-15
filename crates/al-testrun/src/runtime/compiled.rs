@@ -198,8 +198,9 @@ pub struct RunOptions {
     /// `TestResult::ui_answered`. Default `false`: the TestRunner codeunit mode, as the corpus runs.
     pub dev_endpoint_ui: bool,
     /// `al-runner test --no-client` (al-runner issues 7564, 8154): the test session is a web-service session, as a user
-    /// measured it on BC (`al_vm` `clientless.rs`): the handlers answer the dialogs; a call not measured there is refused. Each
-    /// pass through such an answer is flagged (`no-client-session`). Default `false`.
+    /// measured it on BC 28.4 (`al_vm` `clientless.rs`): on that major the handlers answer the dialogs; a call not measured there,
+    /// and the new answers on the other majors, are refused. Each pass through such an answer is flagged (`no-client-session`).
+    /// Default `false`.
     pub no_client: bool,
     /// `al-runner test --allow-write-in-try-functions` (al-runner issue 7143): the service-tier setting
     /// DisableWriteInsideTryFunctions is off, as on Business Central online (`al_vm::Engine::write_in_try_allowed`). Default

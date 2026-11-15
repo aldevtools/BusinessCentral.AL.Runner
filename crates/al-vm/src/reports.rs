@@ -592,11 +592,8 @@ impl Session {
                 let quit = self.report_init(&inst)?;
                 // Without a client a request page that would open raises here (a page background task worker) or is skipped
                 // (the test session under `--no-client`); the report has no OnInitReport (`clientless.rs`).
-                let window = self.clientless_report(&schema, explicit, args.len() == 1)?;
-                let (explicit, flag) = request_flag::static_run(window, id == ids::REPORT_RUNMODAL_3);
-                if let Some(flag) = flag {
-                    inst.borrow_mut().globals[schema.report().request_flag_slot] = Value::Integer(flag);
-                }
+                let modal = id == ids::REPORT_RUNMODAL_3;
+                let explicit = self.static_request_window(&inst, &schema, explicit, args.len() == 1, modal)?;
                 let window = match explicit {
                     Some(b) => b,
                     None => Self::report_shows_page(&inst, &schema)?,

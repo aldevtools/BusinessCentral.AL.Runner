@@ -257,11 +257,11 @@ impl Session {
             // Install code runs in a SOAP session on the corpus CI's publish path, the same on BC 27.5, 28.5 and 29.0
             // (errors/RlInstallUi.al:211).
             ids::SESSION_CURRENTCLIENTTYPE_1 if self.install_without_client => Ok(client_type_named("SOAP")),
-            // `--no-client`: a web-service session called over OData answers ODataV4 (al-runner issue 8028, the reporter's
-            // measurement on BC; `clientless.rs`). A page background task worker refuses it before here (`clientless_guard`).
+            // `--no-client`: a web-service session called over OData answers ODataV4 in a test method on the measured major, else
+            // refused (al-runner issue 8028, the reporter's measurement on BC; `clientless.rs`). A page background task worker
+            // refuses it before here (`clientless_guard`).
             ids::SESSION_CURRENTCLIENTTYPE_1 if self.no_client_test_session() => {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
-                Ok(client_type_named("ODataV4"))
+                self.no_client_client_type().map(|()| client_type_named("ODataV4"))
             }
             ids::SESSION_CURRENTCLIENTTYPE_1 => Ok(client_type(self.host.identity.current_client_type())),
             ids::SESSION_DEFAULTCLIENTTYPE_1 => Ok(client_type(self.host.identity.default_client_type())),

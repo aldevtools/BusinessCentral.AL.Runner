@@ -1,9 +1,9 @@
-//! `--no-client` (al-runner issue 7564, `RunOptions::no_client`): the test session is a session without a client.
-//! Pins: corpus pages/background-tasks/BjNoGuiDialogs.al:8-10 (GuiAllowed false, Message returns and reaches no
-//! MessageHandler, Confirm raises CallbackNotAllowed whatever its default), measured in a page background task worker.
-//! StrMenu raises it too (BjNoClientDialogs.al `01 StrMenu with instruction`, corpus pull request 1286; the other dialogs of
-//! that probe are tested in al-vm `tests/host/no_client_session.rs`). That a web-service session answers the same is the
-//! assumption `no-client-session`: each such pass is flagged. A call the probes do not cover is not run. Off, nothing changes.
+//! `--no-client` (al-runner issue 7564, `RunOptions::no_client`): the test session is a web-service session, as the reporter
+//! of al-runner issues 8154, 8158 and 8028 measured it on BC 28.4 (assumption `no-client-session`, each pass flagged; al-vm
+//! `clientless.rs`). On that major the bound handlers take the dialogs, an unhandled Message or Hyperlink fails with
+//! "Unhandled UI", the measured report skips its request page and CurrentClientType answers ODataV4 in a test method. On the
+//! other majors those answers are not run; GuiAllowed answers false on every major. A call the measurement does not cover is
+//! not run, and install code keeps its own answers. Off, nothing changes.
 
 use al_builtins::assumptions::Assumption;
 use al_sema::workspace::AppSource;
@@ -156,6 +156,30 @@ codeunit 50978 "No Client Web Service"
     end;
 
     [Test]
+    [HandlerFunctions('OnRequest')]
+    procedure ReportRunModalWithRequestPageHandler()
+    begin
+        Report.RunModal(Report::"No Client Report");
+    end;
+
+    [Test]
+    [HandlerFunctions('OnReport')]
+    procedure ReportRunModalWithReportHandler()
+    begin
+        Report.RunModal(Report::"No Client Report");
+    end;
+
+    [Test]
+    procedure ReportRunInWriteTransaction()
+    var
+        Row: Record "No Client Row";
+    begin
+        Row."No." := 'A';
+        Row.Insert();
+        Report.Run(Report::"No Client Report");
+    end;
+
+    [Test]
     procedure ReportWithTriggerRun()
     begin
         Report.Run(Report::"No Client Trigger Report");
@@ -225,6 +249,131 @@ codeunit 50978 "No Client Web Service"
     [ReportHandler]
     procedure OnReport(var R: Report "No Client Report")
     begin
+    end;
+}
+
+// Neighbors of the measured report (al-runner issue 8028, report 51440), one fact each (the review's rows of al-runner PR 8163).
+report 50982 "No Client No Items" { ProcessingOnly = true; requestpage { layout { area(Content) { } } } }
+report 50983 "No Client Two Items" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { } dataitem(Row2; "No Client Row") { } } requestpage { layout { area(Content) { } } } }
+report 50984 "No Client Nested" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { dataitem(Row2; "No Client Row") { DataItemLink = "No." = field("No."); } } } requestpage { layout { area(Content) { } } } }
+report 50985 "No Client TableView" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { DataItemTableView = sorting("No.") where("No." = filter('A*')); } } requestpage { layout { area(Content) { } } } }
+report 50986 "No Client SaveValues" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { } } requestpage { SaveValues = true; layout { area(Content) { } } } }
+report 50987 "No Client Bare RequestPage" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { } } requestpage { } }
+report 50988 "No Client UseRequestPage True" { ProcessingOnly = true; UseRequestPage = true; dataset { dataitem(Row; "No Client Row") { } } requestpage { layout { area(Content) { } } } }
+report 50989 "No Client Caption" { ProcessingOnly = true; Caption = 'A report'; UsageCategory = Tasks; ApplicationArea = All; dataset { dataitem(Row; "No Client Row") { } } requestpage { layout { area(Content) { } } } }
+report 50990 "No Client Procedure" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { } } requestpage { layout { area(Content) { } } } var G: Integer; procedure SetG(V: Integer) begin G := V; end; }
+report 50991 "No Client Column" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { column(No; "No.") { } } } requestpage { layout { area(Content) { } } } }
+report 50992 "No Client MaxIteration" { ProcessingOnly = true; TransactionType = Update; dataset { dataitem(Row; "No Client Row") { MaxIteration = 1; PrintOnlyIfDetail = true; } } requestpage { layout { area(Content) { } } } }
+report 50993 "No Client Permissions" { ProcessingOnly = true; Permissions = tabledata "No Client Row" = rimd; dataset { dataitem(Row; "No Client Row") { } } requestpage { layout { area(Content) { } } } }
+report 50994 "No Client Labels" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { } } requestpage { layout { area(Content) { } } } labels { L1 = 'Label'; } }
+report 50995 "No Client Temp Item" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { UseTemporary = true; } } requestpage { layout { area(Content) { } } } }
+report 50996 "No Client ReqPage Props" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { } } requestpage { Caption = 'Ask'; SourceTable = "No Client Row"; layout { area(Content) { } } } }
+report 50997 "No Client Two Areas" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { } } requestpage { layout { area(Content) { } area(Content) { } } } }
+report 50998 "No Client Global Only" { ProcessingOnly = true; dataset { dataitem(Row; "No Client Row") { } } requestpage { layout { area(Content) { } } } var G: Integer; }
+codeunit 50999 "No Client Report Neighbors"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure NeighborNoItems()
+    begin
+        Report.Run(Report::"No Client No Items");
+    end;
+
+    [Test]
+    procedure NeighborTwoItems()
+    begin
+        Report.Run(Report::"No Client Two Items");
+    end;
+
+    [Test]
+    procedure NeighborNested()
+    begin
+        Report.Run(Report::"No Client Nested");
+    end;
+
+    [Test]
+    procedure NeighborTableView()
+    begin
+        Report.Run(Report::"No Client TableView");
+    end;
+
+    [Test]
+    procedure NeighborSaveValues()
+    begin
+        Report.Run(Report::"No Client SaveValues");
+    end;
+
+    [Test]
+    procedure NeighborBareRequestPage()
+    begin
+        Report.Run(Report::"No Client Bare RequestPage");
+    end;
+
+    [Test]
+    procedure NeighborUseRequestPageTrue()
+    begin
+        Report.Run(Report::"No Client UseRequestPage True");
+    end;
+
+    [Test]
+    procedure NeighborCaption()
+    begin
+        Report.Run(Report::"No Client Caption");
+    end;
+
+    [Test]
+    procedure NeighborProcedure()
+    begin
+        Report.Run(Report::"No Client Procedure");
+    end;
+
+    [Test]
+    procedure NeighborColumn()
+    begin
+        Report.Run(Report::"No Client Column");
+    end;
+
+    [Test]
+    procedure NeighborMaxIteration()
+    begin
+        Report.Run(Report::"No Client MaxIteration");
+    end;
+
+    [Test]
+    procedure NeighborPermissions()
+    begin
+        Report.Run(Report::"No Client Permissions");
+    end;
+
+    [Test]
+    procedure NeighborLabels()
+    begin
+        Report.Run(Report::"No Client Labels");
+    end;
+
+    [Test]
+    procedure NeighborTempItem()
+    begin
+        Report.Run(Report::"No Client Temp Item");
+    end;
+
+    [Test]
+    procedure NeighborReqPageProps()
+    begin
+        Report.Run(Report::"No Client ReqPage Props");
+    end;
+
+    [Test]
+    procedure NeighborTwoAreas()
+    begin
+        Report.Run(Report::"No Client Two Areas");
+    end;
+
+    [Test]
+    procedure NeighborGlobalOnly()
+    begin
+        Report.Run(Report::"No Client Global Only");
     end;
 }
 
@@ -418,6 +567,13 @@ codeunit 50970 "No Client"
 "#;
 
 fn run(no_client: bool) -> CorpusRuntime {
+    run_major(no_client, "28.4")
+}
+
+/// The suite on BC `bc`: the reporter measured the web-service session on BC 28.4 only (al-version
+/// `web_service_session_measured`).
+fn run_major(no_client: bool, bc: &str) -> CorpusRuntime {
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
     CorpusRuntime::run_suites_with(
         vec![AppSource {
             id: "main".into(),
@@ -428,7 +584,7 @@ fn run(no_client: bool) -> CorpusRuntime {
         vec![al_sema::AppKind::Workspace],
         &[],
         &Default::default(),
-        None,
+        Some(&target),
         Default::default(),
         &[SuiteRun::everything()],
         &RunOptions {
@@ -551,6 +707,87 @@ fn a_report_other_than_the_measured_one_is_not_run() {
     }
 }
 
+// Report 51440 of al-runner issue 8028 is the measured report: the one property ProcessingOnly = true, one data item with
+// nothing in it, a requestpage with one empty Content area, nothing else. Each neighbor that differs in one fact (the review's
+// rows of al-runner PR 8163), run in a test method, is refused.
+#[test]
+fn a_report_that_differs_from_the_measured_one_in_one_fact_is_not_run() {
+    let rt = run(true);
+    for test in [
+        "NeighborNoItems",
+        "NeighborTwoItems",
+        "NeighborNested",
+        "NeighborTableView",
+        "NeighborSaveValues",
+        "NeighborBareRequestPage",
+        "NeighborUseRequestPageTrue",
+        "NeighborCaption",
+        "NeighborProcedure",
+        "NeighborColumn",
+        "NeighborMaxIteration",
+        "NeighborPermissions",
+        "NeighborLabels",
+        "NeighborTempItem",
+        "NeighborReqPageProps",
+        "NeighborTwoAreas",
+        "NeighborGlobalOnly",
+    ] {
+        refused_as(&rt, test, "in a session without a client (--no-client)");
+    }
+}
+
+// Al-runner issue 8154 measured Report.RunModal without a handler and Report.Run with a RequestPageHandler or a ReportHandler,
+// each with no write transaction open. Report.RunModal with either handler bound, and a run in a write transaction (with a
+// client RunModal fails there: "An error occurred and the transaction is stopped", the reporter's dev-endpoint table), are not
+// measured: refused.
+#[test]
+fn a_report_run_the_reporter_did_not_measure_is_not_run() {
+    let rt = run(true);
+    for test in [
+        "ReportRunModalWithRequestPageHandler",
+        "ReportRunModalWithReportHandler",
+        "ReportRunInWriteTransaction",
+    ] {
+        refused_as(&rt, test, "in a session without a client (--no-client)");
+    }
+}
+
+// The reporter measured the web-service session on BC 28.4 only. On 27 and 29 every new answer is refused under --no-client:
+// the dialogs (with or without a handler), the skipped request page and CurrentClientType; a RequestPageHandler that takes a
+// TestRequestPage is refused before the test starts, as before. GuiAllowed keeps its earlier answer, false and flagged (the
+// page background task worker's pin on every major, pages/background-tasks/BjNoGuiDialogs.al:8), and so does WorkDate.
+#[test]
+fn on_the_majors_not_measured_the_new_answers_are_not_run() {
+    for bc in ["27.5", "29.0"] {
+        let rt = run_major(true, bc);
+        for test in [
+            "ConfirmHandled",
+            "StrMenuHandled",
+            "MessageHandled",
+            "MessageUnhandled",
+            "HyperlinkHandled",
+            "HyperlinkUnhandled",
+            "NotificationHandled",
+            "ReportRunSkipsRequestPage",
+            "ReportRunModalSkipsRequestPage",
+            "ReportRunWithReportHandler",
+            "ClientTypeIsODataV4",
+        ] {
+            refused_as(&rt, test, "in a session without a client (--no-client)");
+            assert!(!flagged(&rt, test), "{bc} {test}");
+        }
+        refused_as(
+            &rt,
+            "ReportRunWithRequestPageHandler",
+            "which takes a TestPage or TestRequestPage, in a session without a client (--no-client): BC fails a TestPage open there",
+        );
+        for test in ["Gui", "ReadsWorkDate"] {
+            assert_eq!(result(&rt, test).outcome, Outcome::Pass, "{bc} {test}");
+            assert!(flagged(&rt, test), "{bc} {test}");
+        }
+    }
+}
+
 // Al-runner issue 8028: CurrentClientType answers ODataV4 in a web-service session (the reporter's measurement), flagged.
 #[test]
 fn current_client_type_answers_odata_v4_and_is_flagged() {
@@ -590,6 +827,71 @@ codeunit 50979 "No Client Session Read"
         R: Record "Session";
     begin
         if R.Count() <> 1 then Error('%1 rows', R.Count());
+    end;
+
+    [Test]
+    procedure ActiveSessionGet()
+    var
+        A: Record "Active Session";
+    begin
+        if not A.Get(ServiceInstanceId(), SessionId()) then Error('no row');
+    end;
+
+    [Test]
+    procedure ActiveSessionFindFirst()
+    var
+        A: Record "Active Session";
+    begin
+        A.SetRange("Session ID", SessionId());
+        if not A.FindFirst() then Error('no row');
+    end;
+
+    [Test]
+    procedure ActiveSessionCount()
+    var
+        A: Record "Active Session";
+    begin
+        if A.Count() = 0 then Error('no row');
+    end;
+
+    [Test]
+    procedure InstallReadTheSessionTables()
+    var
+        Log: Record "No Client Install Log";
+    begin
+        Log.Get(1);
+        if not Log.SessionRows then Error('no Session row');
+        if not Log.ActiveRow then Error('no Active Session row');
+    end;
+}
+
+table 50980 "No Client Install Log"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; SessionRows; Boolean) { }
+        field(3; ActiveRow; Boolean) { }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
+// Install code runs in a session of its own without a client (errors/RlInstallUi.al:210-241): under --no-client it keeps the
+// install session's answers, a read of the Session and Active Session tables included.
+codeunit 50981 "No Client Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        S: Record "Session";
+        A: Record "Active Session";
+        Log: Record "No Client Install Log";
+    begin
+        Log.Id := 1;
+        Log.SessionRows := not S.IsEmpty();
+        Log.ActiveRow := not A.IsEmpty();
+        Log.Insert();
     end;
 }
 "#;
@@ -645,6 +947,40 @@ fn a_read_of_the_session_table_is_not_run() {
         assert_eq!(result(&rt, test).outcome, Outcome::Fail(expected.into()), "{test}");
     }
     assert_eq!(result(&rt, "SessionCount").outcome, Outcome::Pass);
+}
+
+// A read of the Active Session table in a web-service session is not measured (BC fails a read of the Session table there with
+// an error that says "The Active Session does not exist", al-runner issue 8158): refused under --no-client. With a client the
+// session's own row is found, as before.
+#[test]
+fn a_read_of_the_active_session_table_is_not_run() {
+    let tests = ["ActiveSessionGet", "ActiveSessionFindFirst", "ActiveSessionCount"];
+    let rt = run_session_reads(true);
+    for test in tests {
+        refused_as(
+            &rt,
+            test,
+            "a read of the Active Session table in a session without a client (--no-client)",
+        );
+    }
+    let rt = run_session_reads(false);
+    for test in tests {
+        assert_eq!(result(&rt, test).outcome, Outcome::Pass, "{test}");
+    }
+}
+
+// Install code under --no-client keeps the install session's answers: its reads of the Session and Active Session tables find
+// the session's rows, as without the option.
+#[test]
+fn install_code_reads_the_session_tables_as_without_the_option() {
+    for no_client in [true, false] {
+        let rt = run_session_reads(no_client);
+        assert_eq!(
+            result(&rt, "InstallReadTheSessionTables").outcome,
+            Outcome::Pass,
+            "--no-client {no_client}"
+        );
+    }
 }
 
 // The login code that sets WorkDate runs only in a session with a client (Base Application `LogInManagement.CompanyOpen`
@@ -720,7 +1056,7 @@ fn a_test_bound_to_a_handler_that_takes_a_test_page_is_not_run() {
         refused_as(
             &rt,
             test,
-            "which takes a TestPage, in a session without a client (--no-client): BC fails a TestPage open there",
+            "which takes a TestPage or TestRequestPage, in a session without a client (--no-client): BC fails a TestPage open there",
         );
     }
 }

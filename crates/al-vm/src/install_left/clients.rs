@@ -124,6 +124,9 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         active,
         language: _,
         install_view,
+        // `Session::no_client_test_session`, kept in step by `Session::sync_no_client_test_session`: once install code ended it
+        // is what the run's session flags make it in a new session.
+        no_client_test_session: _,
     } = &**event_stats;
     let crate::order_trial::TrialState {
         allowed,

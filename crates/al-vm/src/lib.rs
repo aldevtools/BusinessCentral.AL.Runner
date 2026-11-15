@@ -1920,7 +1920,7 @@ impl Session {
     /// reporter of al-runner issues 8154, 8158 and 8028 measured it: what each call does there is in `clientless.rs`.
     pub fn set_clientless_session(&mut self, on: bool) {
         self.ui_state.clientless = on;
-        self.events.event_stats.clientless_session.set(on);
+        self.sync_no_client_test_session();
     }
 
     /// An install routine of an app runs (or no longer runs): BC runs it in a session without a client. `GuiAllowed()` is
@@ -1929,6 +1929,7 @@ impl Session {
     /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
     pub fn set_install_without_client(&mut self, on: bool) {
         self.install_without_client = on;
+        self.sync_no_client_test_session();
     }
 
     /// The session state a test method can change for the next test besides the database and the globals: the language

@@ -1,9 +1,10 @@
 //! `--no-client` (`Session::set_clientless_session`, al-runner issue 7564): the test session is a session without a client, a
 //! web-service session as the reporter of al-runner issues 8154 and 8028 measured it on BC 28.4 (assumption
-//! `no-client-session`). The routines below run outside a test method (no handler can be bound): GuiAllowed answers false and
-//! CurrentClientType ODataV4, flagged; a processing-only report with a requestpage section and no trigger skips its request
-//! page and runs, flagged; the dialogs a page background task worker answers (BjNoGuiDialogs.al, BjNoClientDialogs.al) are
-//! refused, since those answers are not measured in a web-service session. The handler paths are tested in al-testrun
+//! `no-client-session`). The routines below run outside a test method (no handler can be bound): GuiAllowed answers false,
+//! flagged, on every major; CurrentClientType and the measured report (report 51440 of issue 8028) are refused there, and every
+//! neighbor of that report is refused; on 27 and 29 the new answers are refused;
+//! the dialogs a page background task worker answers (BjNoGuiDialogs.al, BjNoClientDialogs.al) are refused, since those
+//! answers are not measured in a web-service session. The handler paths are tested in al-testrun
 //! `tests/suite/no_client_session.rs`.
 use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;
@@ -74,31 +75,43 @@ codeunit 50100 "NC Probe"
     procedure Download() var S: InStream; Name: Text; begin DownloadFromStream(S, '', '', '', Name); end;
     procedure SessionUpdate(): Text var S: SessionSettings; begin S.Init(); S.RequestSessionUpdate(false); exit('ran'); end;
     procedure Kind(): Text begin exit(Format(CurrentClientType())); end;
+    procedure ReportInWriteTransaction(): Text var R: Record "NC Row"; begin R."No." := 'A'; R.Insert(); Report.Run(Report::"NC Plain"); exit('ran'); end;
 }
 "#;
 
-fn on() -> Built {
-    let mut b = Built::from_source(SRC);
+/// A session without a client on BC `bc` (the reporter measured the web-service session on BC 28.4 only, al-version
+/// `web_service_session_measured`).
+fn on_major(bc: &str) -> Built {
+    let lowered = al_testkit::compile(SRC);
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
+    let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
+    let mut b = Built {
+        session: al_vm::Session::new(engine),
+        lowered,
+    };
     b.session.set_clientless_session(true);
     b
 }
 
-/// Runs `routine` without a client; true when the run marked `no-client-session`.
-fn run_on(routine: &str) -> (Result<Value, Signal>, bool) {
-    let mut b = on();
+/// Runs `routine` without a client on BC `bc`; true when the run marked `no-client-session`.
+fn run_on_major(bc: &str, routine: &str) -> (Result<Value, Signal>, bool) {
+    let mut b = on_major(bc);
     clear_hits();
     let r = b.run(routine);
     (r, take_hits().contains(&Assumption::NoClientSession))
 }
 
-fn returned_text(routine: &str, want: &str) {
-    let (r, flagged) = run_on(routine);
-    assert!(matches!(&r, Ok(Value::Text(t)) if &**t == want), "{routine}: {r:?}");
-    assert!(flagged, "{routine} is not flagged");
+/// [`run_on_major`] on the measured major.
+fn run_on(routine: &str) -> (Result<Value, Signal>, bool) {
+    run_on_major("28.4", routine)
 }
 
 fn refused(routine: &str) {
-    let (r, flagged) = run_on(routine);
+    refused_on("28.4", routine);
+}
+
+fn refused_on(bc: &str, routine: &str) {
+    let (r, flagged) = run_on_major(bc, routine);
     match r {
         Err(Signal::Unsupported(m)) => assert!(m.contains("session without a client"), "{routine}: {m}"),
         other => panic!("{routine}: {other:?}"),
@@ -113,18 +126,41 @@ fn gui_allowed_answers_false_without_a_client() {
     assert!(flagged);
 }
 
-// Al-runner issue 8028: CurrentClientType answers ODataV4 in a web-service session.
+// Al-runner issue 8028: CurrentClientType answers ODataV4 in a web-service session; where the reporter read it is not known.
+// Outside a test method (the routines here, as login code or a test codeunit's OnRun) it is refused (al-runner PR 8163, review
+// round 1).
 #[test]
-fn current_client_type_answers_odata_v4() {
-    returned_text("Kind", "ODataV4");
+fn current_client_type_outside_a_test_method_is_refused() {
+    refused("Kind");
 }
 
-// Al-runner issue 8154: a processing-only report with an empty request page skips it in a web-service session and runs. A
-// report whose request page has a control, or a call with a RequestWindow argument, is refused.
+// The measured report run in a write transaction is refused (outside a test method it is refused anyway; the neighbors of the
+// measured report are tested in a test method in al-testrun `tests/suite/no_client_session.rs`).
 #[test]
-fn a_processing_only_report_skips_its_request_page() {
-    returned_text("ReportRun", "ran");
-    returned_text("ReportModal", "ran");
+fn the_measured_report_in_a_write_transaction_is_refused() {
+    refused("ReportInWriteTransaction");
+}
+
+// The reporter measured the web-service session on BC 28.4 only: on 27 and 29 the skipped request page and the Hyperlink
+// answer are refused; GuiAllowed keeps its earlier answer (false, flagged; pages/background-tasks/BjNoGuiDialogs.al:8).
+#[test]
+fn on_the_majors_not_measured_the_new_answers_are_refused() {
+    for bc in ["27.5", "29.0"] {
+        for routine in ["ReportRun", "ReportModal", "Link", "Say", "Kind"] {
+            refused_on(bc, routine);
+        }
+        let (r, flagged) = run_on_major(bc, "Gui");
+        assert!(matches!(r, Ok(Value::Boolean(false))), "{bc}: {r:?}");
+        assert!(flagged, "{bc}");
+    }
+}
+
+// Al-runner issue 8154: the measured report skips its request page in a web-service session and runs, measured in a test method
+// (al-testrun `tests/suite/no_client_session.rs`). Outside a test method (the routines here) it is not measured: refused.
+#[test]
+fn the_measured_report_outside_a_test_method_is_refused() {
+    refused("ReportRun");
+    refused("ReportModal");
 }
 
 #[test]
