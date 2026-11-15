@@ -3,12 +3,13 @@
 
 use crate::native::unsupported;
 use crate::native::{Ctx, Signal};
-use crate::stream::{AfterLineBreakCall, BlobBuf, Encoding, InState, out_buf, with_in_unknown_ok};
+use crate::stream::{BlobBuf, Encoding, InState, out_buf, with_in_unknown_ok};
 use crate::value::{LibraryValue, Value};
 
 /// The bytes `ToBase64(InStream, true[, OutStream])` converts: every byte of the Blob buffer the stream reads, whatever its
 /// read position (`out_form` false: the InStream form, true: the OutStream form, which is measured only at position 0). The
-/// stream is then marked: where it stands is not measured, and only the same InStream form may run on it again. `Ok(None)`
+/// stream is then marked: where it stands is not measured, so every later use of it refuses (a second call too: the stream
+/// was used since, :195-198 is not reached). `Ok(None)`
 /// when the stream does not read a Blob buffer, or reads a file's; `Err` for a stream or a use of it the pin does not cover
 /// (see [`measured_line_break_stream`]). Its one caller cites what it pins.
 pub fn line_break_source(ctx: &dyn Ctx, v: &mut Value, out_form: bool) -> Result<Option<Vec<u8>>, Signal> {
@@ -21,35 +22,29 @@ pub fn line_break_source(ctx: &dyn Ctx, v: &mut Value, out_form: bool) -> Result
         }
         if !measured_line_break_stream(ctx, s) {
             return unsupported(
-                "Base64Convert.ToBase64(InStream, true ...) of a stream other than one Blob.CreateInStream made with the default encoding on the Blob a Temp Blob holds, written before, moved only by ReadText with a length, never assigned (not measured)",
+                "Base64Convert.ToBase64(InStream, true ...) of a stream other than the one Blob.CreateInStream made with the default encoding on the Blob a Temp Blob holds, after one WriteText of the default encoding, used only by ReadText with a length, never assigned (not measured)",
             );
         }
-        match (s.after_line_break_call, out_form) {
-            (AfterLineBreakCall::No, false) | (AfterLineBreakCall::InStreamForm, false) => {}
-            (AfterLineBreakCall::No, true) if s.pos == 0 => {}
-            (AfterLineBreakCall::No, true) => {
-                return unsupported(
-                    "Base64Convert.ToBase64(InStream, true, OutStream) on a stream not at position 0 (not measured)",
-                );
-            }
-            _ => {
-                return unsupported(
-                    "Base64Convert.ToBase64(InStream, true ...) on a stream a ToBase64(InStream, true ...) call ran on, other than the InStream form again (not measured)",
-                );
-            }
+        if out_form && s.pos != 0 {
+            return unsupported(
+                "Base64Convert.ToBase64(InStream, true, OutStream) on a stream not at position 0 (not measured)",
+            );
         }
-        s.after_line_break_call = if out_form {
-            AfterLineBreakCall::OutStreamForm
-        } else {
-            AfterLineBreakCall::InStreamForm
-        };
+        s.after_line_break_call = true;
         Ok(Some(s.with_data(<[u8]>::to_vec)))
     })
 }
 
-/// The stream Base64LineBreaks.al measured (`FillStream`, :53-61): `Blob.CreateInStream` without an encoding on the Blob the
-/// temporary record of a live "Temp Blob Impl." holds now, written before the stream was created and not opened for writing
-/// since, moved only by `ReadText(Text, 10)` (:186-187), never given to another variable by `:=`.
+/// The uses of the stream "Base64 Convert Impl." makes before it calls the native converter: `Length`, `EOS` and `Length`
+/// (System Application 28 and 29, Base64ConvertImpl.Codeunit.al:75-78), and the converter's own.
+const IMPL_USES: u32 = 4;
+
+/// The stream Base64LineBreaks.al measured (`FillStream`, :53-61): `Blob.CreateInStream` without an encoding, the one InStream
+/// created on the Blob the temporary record of a live "Temp Blob Impl." holds now, after one `WriteText(Text)` through the one
+/// OutStream of the default encoding opened on that Blob since it was made or cleared, and not opened for writing since; used
+/// by nothing but `ReadText(Text, Length)` calls (:188 reads 10 bytes; the file states that BC 28 and 29 convert the whole
+/// stream whatever was read before, :13-14) before "Base64 Convert Impl." takes it ([`IMPL_USES`]), never given to another
+/// variable by `:=`.
 fn measured_line_break_stream(ctx: &dyn Ctx, s: &InState) -> bool {
     let Some(b) = s.live_blob() else {
         return false;
@@ -58,14 +53,76 @@ fn measured_line_break_stream(ctx: &dyn Ctx, s: &InState) -> bool {
     let stream = (
         s.on_blob_field,
         s.enc,
-        s.position_set,
         s.created_edits,
         s.pos,
+        s.uses,
         s.shared_by_assign,
     );
-    stream == (true, Encoding::MsDos, false, buf.content_edits, s.text_len_pos, false)
+    let measured = (
+        true,
+        Encoding::MsDos,
+        buf.content_edits,
+        s.text_len_pos,
+        s.text_len_reads + IMPL_USES,
+        false,
+    );
+    stream == measured
+        && (
+            buf.line_breaks.text_writes(buf.content_edits),
+            buf.line_breaks.in_creates,
+        ) == (Some(1), 1)
         && temp_blob_buffer(&buf)
         && ctx.held_by_temp_blob_impl(b)
+}
+
+/// What happened to a Blob buffer since it was made or cleared, as far as `ToBase64(InStream, true[, OutStream])` asks
+/// (Base64LineBreaks.al:53-61, :284-286, :364-367, :385-389). A copy of the buffer starts again ([`LineBreakHistory::cleared`]),
+/// so it is not the measured buffer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LineBreakHistory {
+    /// [`BlobBuf::content_edits`] when the buffer was made or cleared.
+    base_edits: u32,
+    /// `CreateOutStream` calls on the buffer.
+    out_opens: u32,
+    /// Those of them without an encoding (or `TextEncoding::MSDos`) on an empty buffer.
+    empty_default_opens: u32,
+    /// `WriteText(Text)` calls through an OutStream of the default encoding on the buffer.
+    default_text_writes: u32,
+    /// `Blob.CreateInStream` calls on the buffer.
+    pub in_creates: u32,
+    /// Uses of an InStream that reads the buffer (`stream::with_in_core`).
+    pub in_uses: u32,
+}
+
+impl LineBreakHistory {
+    /// The history of a buffer cleared, or copied, when its edit count is `edits`.
+    pub fn cleared(edits: u32) -> LineBreakHistory {
+        LineBreakHistory {
+            base_edits: edits,
+            ..LineBreakHistory::default()
+        }
+    }
+
+    pub(crate) fn note_out_open(&mut self, enc: Encoding, empty: bool) {
+        self.out_opens += 1;
+        if (enc, empty) == (Encoding::MsDos, true) {
+            self.empty_default_opens += 1;
+        }
+    }
+
+    pub(crate) fn note_text_write(&mut self, enc: Encoding) {
+        if enc == Encoding::MsDos {
+            self.default_text_writes += 1;
+        }
+    }
+
+    /// How many `WriteText(Text)` calls (0 or 1) wrote the buffer when every edit of it since it was made or cleared is the one
+    /// `CreateOutStream` of the default encoding on it empty and those writes; `None` otherwise.
+    fn text_writes(&self, content_edits: u32) -> Option<u32> {
+        let edits = content_edits.wrapping_sub(self.base_edits);
+        let w = self.default_text_writes;
+        ((edits, self.out_opens, self.empty_default_opens) == (1 + w, 1, 1) && w <= 1).then_some(w)
+    }
 }
 
 /// The state of the Blob of a Temp Blob: the field of the temporary record inside "Temp Blob Impl.", which that codeunit never
@@ -95,8 +152,9 @@ fn temp_blob_buffer(b: &BlobBuf) -> bool {
         )
 }
 
-/// The target of `ToBase64(InStream, true, OutStream)` as Base64LineBreaks.al:351-403 measured it: an OutStream of the default
-/// encoding on the Blob another live Temp Blob holds, empty or after what that stream wrote (`AB`), so it writes at the end.
+/// The target of `ToBase64(InStream, true, OutStream)` as Base64LineBreaks.al:275-403 measured it: the one OutStream of the
+/// default encoding on the Blob another live Temp Blob holds, empty or after one `WriteText` of it (`AB`), so it writes at the
+/// end; an InStream created on it before is measured only on the empty Blob and unused (:364-367).
 pub fn refuse_unmeasured_line_break_target(ctx: &dyn Ctx, target: &mut Value, source: &Value) -> Result<(), Signal> {
     let (b, enc) = out_buf(Some(target))?;
     let source_blob = match source {
@@ -108,23 +166,30 @@ pub fn refuse_unmeasured_line_break_target(ctx: &dyn Ctx, target: &mut Value, so
     };
     let other_blob = source_blob.is_some_and(|s| !std::sync::Arc::ptr_eq(&s, &b));
     let buf = b.borrow();
+    let h = &buf.line_breaks;
+    // Empty (:284-286, :380-382), holding `AB` (:385-389), or empty with an InStream created and not used (:364-367).
+    let measured_history = matches!(
+        (h.text_writes(buf.content_edits), h.in_creates, h.in_uses),
+        (Some(0 | 1), 0, 0) | (Some(0), 1, 0)
+    );
     if (enc, other_blob, buf.write_pos) == (Encoding::MsDos, true, buf.bytes.len())
+        && measured_history
         && temp_blob_buffer(&buf)
         && ctx.held_by_temp_blob_impl(&b)
     {
         return Ok(());
     }
     unsupported(
-        "Base64Convert.ToBase64(InStream, true, OutStream) into an OutStream other than one of the default encoding at the end of another Temp Blob (not measured)",
+        "Base64Convert.ToBase64(InStream, true, OutStream) into an OutStream other than the one OutStream of the default encoding at the end of another Temp Blob, empty or after one WriteText, no InStream on it used (not measured)",
     )
 }
 
 /// Where a `ToBase64(InStream, true ...)` call leaves the stream is not measured (Base64LineBreaks.al moves no stream after it).
 pub(crate) fn refuse_move_after_call(s: &InState, what: &str) -> Result<(), Signal> {
-    match s.after_line_break_call {
-        AfterLineBreakCall::No => Ok(()),
-        _ => unsupported(format!(
-            "InStream.{what} after Base64Convert.ToBase64(InStream, true ...) (where it stands is not measured)"
-        )),
+    if !s.after_line_break_call {
+        return Ok(());
     }
+    unsupported(format!(
+        "InStream.{what} after Base64Convert.ToBase64(InStream, true ...) (where it stands is not measured)"
+    ))
 }

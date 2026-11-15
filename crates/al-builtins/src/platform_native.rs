@@ -725,15 +725,41 @@ mod tests {
         (0..n).map(|i| b'0' + (i % 10) as u8).collect()
     }
 
+    /// The Blob of a Temp Blob as Base64LineBreaks.al:53-61 fills it: one `CreateOutStream` of the default encoding on the empty
+    /// buffer, then one `WriteText` of `bytes` unless they are empty.
     fn blob_with(bytes: &[u8]) -> BlobRef {
         let b = new_blob();
-        write_bytes(&b, bytes);
+        {
+            let mut buf = b.borrow_mut();
+            buf.content_edits += 1;
+            buf.line_breaks.note_out_open(Encoding::MsDos, true);
+        }
+        if !bytes.is_empty() {
+            write_bytes(&b, bytes);
+            b.borrow_mut().line_breaks.note_text_write(Encoding::MsDos);
+        }
         b
     }
 
+    /// The InStream `Blob.CreateInStream` makes on `b`, after the three uses "Base64 Convert Impl." makes of it (Length, EOS,
+    /// Length, Base64ConvertImpl.Codeunit.al:75-78) before it calls the native.
     fn in_stream_on(b: BlobRef) -> Value {
-        let s = InState::of_blob_field(b, Encoding::default());
+        b.borrow_mut().line_breaks.in_creates += 1;
+        let mut s = InState::of_blob_field(b, Encoding::default());
+        s.uses = 3;
         Value::Library(LibraryKind::InStream, Rc::new(RefCell::new(LibraryValue::InStream(s))))
+    }
+
+    /// `ReadText(Text, n)` of `n` one-byte characters on the stream, as `stream::in_read_text` counts it.
+    fn read_text_len(v: &Value, n: usize) {
+        if let Value::Library(_, h) = v
+            && let LibraryValue::InStream(s) = &mut *h.borrow_mut()
+        {
+            s.pos += n;
+            s.text_len_pos = s.pos;
+            s.text_len_reads += 1;
+            s.uses += 1;
+        }
     }
 
     fn in_stream(bytes: &[u8]) -> Value {
@@ -772,6 +798,7 @@ mod tests {
     fn run(id: &str, args: &mut [Value]) -> Out {
         let f = TABLE.iter().find(|e| e.id == id).expect("entry").run;
         let mut ctx = crate::native::tests::TestCtx::default();
+        ctx.temp_blob_impl = true;
         f(&mut ctx, None, args)
     }
 
@@ -811,22 +838,24 @@ mod tests {
         assert_eq!(codes(&t, 153, 5), [73, 122]);
         // :221-252, the Text form with true gives the same string.
         assert_eq!(t, b64_encode(&digits(114), true));
-        assert_eq!(stream_text(in_stream(&[]), true), "");
         assert!(take_hits().is_empty());
     }
 
-    // Base64LineBreaks.al:186-216 (BC28PLUS): 10 bytes read before the call, the whole stream is converted; a second call
-    // on the same stream gives the same text. Where the stream stands after the call is not measured.
+    // Base64LineBreaks.al:186-193 (BC28PLUS): 10 bytes read before the call, the whole stream is converted. The second call of
+    // :195-198 is not reached ("Base64 Convert Impl." uses the stream before it), so a second call refuses.
     #[test]
-    fn instream_with_line_breaks_converts_the_whole_stream_and_a_second_call_gives_the_same_text() {
+    fn instream_with_line_breaks_converts_the_whole_stream_and_a_second_call_refuses() {
         let s = in_stream(&digits(100));
-        set_pos(&s, 10);
+        read_text_len(&s, 10);
         let r = stream_text(s.clone(), true);
         assert_eq!(r, b64_encode(&digits(100), true));
         assert_eq!(&r[..8], "MDEyMzQ1");
         let s = in_stream(&digits(100));
-        let first = stream_text(s.clone(), true);
-        assert_eq!(stream_text(s, true), first);
+        stream_text(s.clone(), true);
+        assert!(refused(run(
+            "Base64Convert.ToBase64#stream",
+            &mut [s, Value::Boolean(true)]
+        )));
     }
 
     fn refused(r: Out) -> bool {
@@ -834,7 +863,7 @@ mod tests {
     }
 
     // After ToBase64(InStream, true) where the stream stands is not measured (Base64LineBreaks.al uses no stream after the
-    // call but for the InStream form again, :195-198): the false form, the OutStream form and a read are refused.
+    // call): the false form, the OutStream form, a read and the InStream form again are refused.
     #[test]
     fn stream_after_a_line_break_call_refuses_every_other_use() {
         let call = |s: &Value| stream_text(s.clone(), true);
@@ -842,7 +871,7 @@ mod tests {
         call(&s);
         let plain = |s: &Value| run("Base64Convert.ToBase64#stream", &mut [s.clone(), Value::Boolean(false)]);
         assert!(refused(plain(&s)));
-        let target = new_blob();
+        let target = blob_with(b"");
         let out = |s: &Value| {
             run(
                 "Base64Convert.ToBase64#stream-out",
@@ -855,15 +884,14 @@ mod tests {
             crate::stream::refuse_pending_in(&mut s.clone()),
             Err(Signal::Unsupported(_))
         ));
-        // Same InStream form again: allowed.
-        call(&s);
+        assert!(line_breaks_refused(s));
     }
 
     // MED-1: the OutStream form, called twice on one stream (the second time the position is unknown), is refused.
     #[test]
     fn outstream_form_twice_on_one_stream_is_refused() {
         let s = in_stream(&digits(100));
-        let target = new_blob();
+        let target = blob_with(b"");
         run(
             "Base64Convert.ToBase64#stream-out",
             &mut [s.clone(), Value::Boolean(true), out_stream_on(&target)],
@@ -928,7 +956,7 @@ mod tests {
     fn outstream_overload_writes_the_line_broken_text() {
         for (n, with, without) in [(57, 76, 76), (100, 138, 136), (120, 164, 160)] {
             for (flag, len) in [(true, with), (false, without)] {
-                let target = new_blob();
+                let target = blob_with(b"");
                 let mut args = [in_stream(&digits(n)), Value::Boolean(flag), out_stream_on(&target)];
                 run("Base64Convert.ToBase64#stream-out", &mut args).ok().unwrap();
                 let bytes = target.borrow().bytes.clone();

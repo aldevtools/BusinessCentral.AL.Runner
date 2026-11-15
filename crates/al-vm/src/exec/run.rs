@@ -69,6 +69,12 @@ fn release(f: &mut Frame, r: u16, nl: u16) {
 }
 
 impl Session {
+    /// `Op::StorePlace`: `v` written to place `p`.
+    fn store_place(&mut self, chunk: &Chunk, p: u32, v: Value, f: &mut Frame) -> Result<(), Signal> {
+        mark_assigned_stream(&v);
+        self.write(&chunk.places[p as usize], v, f)
+    }
+
     /// The record, RecordRef or Blob `Op::StoreLocal` stores into local place `p`: a record goes to
     /// `Session::store_variant_copy` when the assignment is a `variant_copy.rs` site, every value else to `write`.
     #[inline(never)]
@@ -195,11 +201,7 @@ impl Session {
                         set(&mut f.locals[i as usize], v);
                     }
                 }
-                Op::StorePlace { p, a } => {
-                    let v = take(f, a, nl);
-                    mark_assigned_stream(&v);
-                    self.write(&chunk.places[p as usize], v, f)?
-                }
+                Op::StorePlace { p, a } => self.store_place(chunk, p, take(f, a, nl), f)?,
                 Op::StoreVariantCopy { s, a } => self.variant_copy_op(chunk, s, a, f)?,
                 Op::Bin { op, d, a, b } => {
                     let v = Self::binary_op(op, &f.locals[a as usize], &f.locals[b as usize])?;

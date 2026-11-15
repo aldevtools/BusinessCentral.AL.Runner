@@ -173,6 +173,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         Value::Blob(b) if blob_clears_in_place(&*ctx, b) => {
             let mut fresh = crate::stream::new_blob().borrow().clone();
             fresh.content_edits = b.borrow().content_edits.wrapping_add(1);
+            fresh.line_breaks = crate::stream_line_breaks::LineBreakHistory::cleared(fresh.content_edits);
             *b.borrow_mut() = fresh;
             Value::Blob(b.clone())
         }

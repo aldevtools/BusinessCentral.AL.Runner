@@ -85,6 +85,7 @@ mod xmlport_empty_leaf_import;
 mod xmlport_empty_separator_token;
 mod xmlport_enum_caption_import;
 mod xmlport_export_again;
+mod xmlport_failed_rename_held;
 mod xmlport_field_max_unbounded;
 mod xmlport_field_validation;
 mod xmlport_field_wrap_more;

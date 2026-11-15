@@ -99,6 +99,8 @@ pub struct BlobBuf {
     /// and each `CreateOutStream` on it: an `InStream` remembers it at its creation, so `line_break_source` sees a buffer
     /// written or opened for writing after the stream was created.
     pub content_edits: u32,
+    /// The streams opened and used on this buffer since it was made or cleared (`stream_line_breaks`).
+    pub line_breaks: crate::stream_line_breaks::LineBreakHistory,
 }
 
 thread_local! {
@@ -385,6 +387,7 @@ pub fn new_blob() -> BlobRef {
         utf16_binary: false,
         unicode_read: None,
         content_edits: 0,
+        line_breaks: Default::default(),
     }))
 }
 
@@ -429,6 +432,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         utf16_binary: b.utf16_binary,
         unicode_read: None,
         content_edits: 0,
+        line_breaks: Default::default(),
     }))
 }
 
@@ -442,6 +446,7 @@ pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
     copy.dotnet_view = 0;
     copy.temp_inserted = false;
     copy.assigned_unsaved = false;
+    copy.line_breaks = crate::stream_line_breaks::LineBreakHistory::cleared(copy.content_edits);
     std::sync::Arc::new(BlobCell::new(copy))
 }
 
@@ -821,27 +826,21 @@ pub struct InState {
     /// (`stream_call_stack::position_unknown`). Moving the position clears it.
     pub past_call_stack_mark: bool,
     /// `Base64Convert.ToBase64(InStream, true[, OutStream])` ran on the stream: where it stands now is not measured, so every
-    /// use but the same InStream form again is refused, `ResetPosition` and `Position := n` too (see `stream_line_breaks`).
-    pub after_line_break_call: AfterLineBreakCall,
+    /// use is refused, `ResetPosition` and `Position := n` too (see `stream_line_breaks`).
+    pub after_line_break_call: bool,
     /// `Blob.CreateInStream` made the stream, on a record's Blob field (see [`InState::of_blob_field`]).
     pub on_blob_field: bool,
     /// The buffer's [`BlobBuf::content_edits`] when the stream was created.
     pub created_edits: u32,
-    /// `Position := n` or `ResetPosition` moved the stream.
-    pub position_set: bool,
     /// Where `ReadText(Text, Length)` calls alone moved the stream from 0: equal to `pos` while no other read moved it
     /// (`in_read_text`).
     pub text_len_pos: usize,
+    /// The `ReadText(Text, Length)` calls on the stream.
+    pub text_len_reads: u32,
+    /// The uses of the stream: every call that reaches it through `with_in_core`.
+    pub uses: u32,
     /// A `:=` gave the stream to another variable, which shares it (al-vm `exec/run.rs` `mark_assigned_stream`).
     pub shared_by_assign: bool,
-}
-
-/// Which `ToBase64(InStream, true ...)` form last ran on a stream (see [`InState::after_line_break_call`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AfterLineBreakCall {
-    No,
-    InStreamForm,
-    OutStreamForm,
 }
 
 impl InState {
@@ -856,11 +855,12 @@ impl InState {
             not_initialized: false,
             len0_over_mark: false,
             past_call_stack_mark: false,
-            after_line_break_call: AfterLineBreakCall::No,
+            after_line_break_call: false,
             on_blob_field: false,
             created_edits: 0,
-            position_set: false,
             text_len_pos: 0,
+            text_len_reads: 0,
+            uses: 0,
             shared_by_assign: false,
         }
     }
@@ -886,11 +886,12 @@ impl InState {
             not_initialized: false,
             len0_over_mark: false,
             past_call_stack_mark: false,
-            after_line_break_call: AfterLineBreakCall::No,
+            after_line_break_call: false,
             on_blob_field: false,
             created_edits: 0,
-            position_set: false,
             text_len_pos: 0,
+            text_len_reads: 0,
+            uses: 0,
             shared_by_assign: false,
         }
     }
@@ -1078,6 +1079,8 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.dotnet_view = 0;
         // An InStream created before reads a buffer a new OutStream may write over (`stream_line_breaks`).
         buf.content_edits = buf.content_edits.wrapping_add(1);
+        let empty = buf.bytes.is_empty();
+        buf.line_breaks.note_out_open(enc, empty);
         if !buf.loaded && buf.db_row {
             // A record read from the database without CalcFields: the stream replaces the stored content at its first
             // write, and leaves it while nothing is written (BlobCalcFieldsLength.al:222, :350). The Blob stays unloaded
@@ -1126,6 +1129,7 @@ fn blob_create_in(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> 
     if pending.as_deref() != Some(QUERY_METADATA) && !carried && !placeholder {
         b.borrow().observe()?;
     }
+    b.borrow_mut().line_breaks.in_creates += 1;
     set_stream(&a[0], LibraryValue::InStream(InState::of_blob_field(b, enc)))?;
     Ok(Value::Null)
 }
@@ -1156,6 +1160,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         utf16_binary: false,
         unicode_read: None,
         content_edits: 0,
+        line_breaks: Default::default(),
     });
     set_stream(
         &a[0],
@@ -1497,13 +1502,17 @@ fn with_in_core<T>(
             if let Some(report) = s.render_pending() {
                 return Err(render_pending_error(&report));
             }
+            s.uses += 1;
+            if let Some(b) = s.live_blob() {
+                b.borrow_mut().line_breaks.in_uses += 1;
+            }
             if s.handed_to_content && !handed_ok {
                 return unsupported("use of an InStream after HttpContent.WriteFrom took it (only EOS is pinned)");
             }
             if s.not_initialized {
                 return unsupported("use of an InStream a Report layout call left uncreated (only EOS is pinned)");
             }
-            if !unknown_ok && s.after_line_break_call != AfterLineBreakCall::No {
+            if !unknown_ok && s.after_line_break_call {
                 return unsupported(
                     "use of an InStream after Base64Convert.ToBase64(InStream, true ...) (where it stands is not measured)",
                 );
@@ -1593,7 +1602,6 @@ fn in_reset(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult 
         crate::stream_line_breaks::refuse_move_after_call(s, "ResetPosition")?;
         s.pos = 0;
         s.past_call_stack_mark = false;
-        s.position_set = true;
         Ok(Value::Boolean(true))
     })
 }
@@ -1652,7 +1660,6 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             }
             s.pos = (p - 1) as usize;
             s.past_call_stack_mark = false;
-            s.position_set = true;
             Ok(Value::Null)
         });
     }
@@ -1798,8 +1805,11 @@ fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
             })));
         }
         s.pos = pos + consumed;
-        if max_chars != usize::MAX && s.text_len_pos == pos {
-            s.text_len_pos = s.pos;
+        if max_chars != usize::MAX {
+            s.text_len_reads += 1;
+            if s.text_len_pos == pos {
+                s.text_len_pos = s.pos;
+            }
         }
         // The line holds the mark of untracked call stack frames, which may hold line breaks: where the line ends in BC is not
         // known (a JSON text of a call stack has none and reads back equal, WdCallStackWriteText.al:530).
@@ -2317,6 +2327,9 @@ fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     };
     let bytes = enc.encode(&text);
     write_text_bytes(&b, &bytes, &text);
+    if a.len() == 1 {
+        b.borrow_mut().line_breaks.note_text_write(enc);
+    }
     Ok(Value::Integer(bytes.len() as i32))
 }
 

@@ -37,6 +37,8 @@ pub(crate) struct TestCtx {
     install: bool,
     in_test: bool,
     pub(crate) result_ignored: bool,
+    /// What `held_by_temp_blob_impl` answers for every buffer.
+    pub(crate) temp_blob_impl: bool,
 }
 impl FormatCtx for TestCtx {
     fn enum_name(&self, _id: u32, o: i32) -> String {
@@ -44,6 +46,9 @@ impl FormatCtx for TestCtx {
     }
 }
 impl Ctx for TestCtx {
+    fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
+        self.temp_blob_impl
+    }
     fn last_error(&self) -> AlError {
         self.err.clone()
     }
