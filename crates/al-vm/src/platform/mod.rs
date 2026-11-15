@@ -19,6 +19,7 @@ use crate::tenant_layouts::TENANT_REPORT_LAYOUT;
 const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
 pub(crate) mod coverage;
 mod date;
+mod ext_event_row;
 mod feature_key;
 mod field_key_lookup;
 pub(crate) use field_key_lookup::{unmeasured_find, unmeasured_key_read};
@@ -337,8 +338,6 @@ impl Providers {
         }
     }
 
-    /// An Event Subscription row with "Number of Calls" (8) and "Active Manual Instances" (13) as
-    /// the session has them now.
     /// What the install in progress lets the list of installed apps show.
     pub(super) fn install_view(&self) -> InstallView {
         self.events.install_view.borrow().clone()
@@ -352,9 +351,17 @@ impl Providers {
         }
     }
 
+    /// An Event Subscription row with "Number of Calls" (8) and "Active Manual Instances" (13) as
+    /// the session has them now. A column the listing leaves unknown stays unknown, but for "Active Manual Instances",
+    /// which the listing leaves unknown only on a row whose 0 is measured with no instance of the subscriber codeunit bound
+    /// (`metadata::subscription_row`): it reads 0 while none is bound.
     fn with_event_stats(&self, t: &TableDef, row: Option<Row>) -> Option<Row> {
         let mut row = row?;
+        let unbound_only = row[pos(t, 13)].unknown().is_some();
         if self.events.calls.borrow().is_empty() && self.events.active.borrow().is_empty() {
+            if unbound_only {
+                row[pos(t, 13)] = Value::Integer(0);
+            }
             return Some(row);
         }
         let (Value::Integer(cu), Value::Text(f)) = (&row[pos(t, 1)], &row[pos(t, 2)]) else {
@@ -383,8 +390,13 @@ impl Providers {
                 })
         });
         if let Some((oi, ri)) = found {
-            row[pos(t, 8)] = Value::BigInteger(self.events.calls.borrow().get(&(oi, ri)).copied().unwrap_or(0));
-            row[pos(t, 13)] = Value::Integer(self.events.active.borrow().get(&oi).copied().unwrap_or(0) as i32);
+            if row[pos(t, 8)].unknown().is_none() {
+                row[pos(t, 8)] = Value::BigInteger(self.events.calls.borrow().get(&(oi, ri)).copied().unwrap_or(0));
+            }
+            let bound = self.events.active.borrow().get(&oi).copied().unwrap_or(0);
+            if !unbound_only || bound == 0 {
+                row[pos(t, 13)] = Value::Integer(bound as i32);
+            }
         }
         Some(row)
     }

@@ -1575,6 +1575,7 @@ mod tests {
             begin_pos: al_ir::NO_POS,
             expr_tys: Vec::new(),
             reads_var_max_len: false,
+            local: false,
         }
     }
 
