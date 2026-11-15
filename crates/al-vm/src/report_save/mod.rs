@@ -19,6 +19,7 @@ mod fact_report;
 mod fact_run;
 mod fact_selection;
 mod facts;
+mod html_cell;
 mod lookup;
 
 #[cfg(test)]
@@ -64,11 +65,13 @@ pub(crate) enum BeforeRun {
 
 /// What a save that ran writes or answers.
 pub(crate) enum AfterRun {
-    /// Write the placeholder of the format, rendered by this layout; `rgba` the row's rgba column.
+    /// Write the placeholder of the format, rendered by this layout; `rgba` the row's rgba column; `html_cell` whether the
+    /// whole fact vector after the run is the one of the Html hash cells (`html_cell::HTML_HASH_CELL`), with no layout named.
     Write {
         renders: Renders,
         selected: Option<Arc<str>>,
         rgba: al_builtins::rendered_text::RgbaReplace,
+        html_cell: bool,
     },
     /// The answer, with nothing written (the last error is set).
     Answer(bool),
@@ -244,6 +247,7 @@ impl Session {
                 } else {
                     al_builtins::rendered_text::RgbaReplace::NotMeasured(lookup::rgba_reason(&cells::CELLS, &facts))
                 },
+                html_cell: facts == html_cell::HTML_HASH_CELL && plan.selected.is_none(),
             }),
             Answer::Empty if used => {
                 self.last_error = empty();

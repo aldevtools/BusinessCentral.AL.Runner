@@ -196,6 +196,9 @@ pub struct TestArgs {
     /// not run and ends as not run, naming that test.
     pub skip_after_timeout: bool,
     pub require_dotnet: bool,
+    /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
+    /// refuses when the report renderer is unavailable, instead of keeping the opaque Html.
+    pub require_report_renderer: bool,
     pub files_dir: Option<PathBuf>,
     /// `--license FILE` (serve: `license`): the BC license the run uses instead of the BC artifacts' (ADR-060).
     pub license: Option<PathBuf>,
@@ -1226,6 +1229,8 @@ OTHER
                          document has it as `notRunSeconds`.
     --dotnet-sidecar PATH, --dotnet-assembly-dir DIR, --dotnet-allow-roll-forward,
     --dotnet-timeout-secs N, --require-dotnet     The optional .NET helper (ADR-014).
+    --require-report-renderer  A save whose real Html needs BC's own Word merger and converter refuses
+                         when they are unavailable, instead of keeping the opaque Html (CI).
 
 ENVIRONMENT
     ALRUNNER_CACHE       The cache folder when --cache-dir is not given.
@@ -1241,6 +1246,21 @@ ENVIRONMENT
     AL_CHECK_THREADS, AL_LOWER_THREADS, AL_TEST_THREADS  Worker threads of the check, the
     lowering and the test codeunits (default: one per core).
 ";
+
+/// The optional count after `flag` (`--top-refusals` or `--top-refusals 5`): at least 1, [`DEFAULT_TOP`] without one.
+fn optional_count(flag: &str, it: &mut std::iter::Peekable<impl Iterator<Item = String>>) -> Result<usize, String> {
+    match it.peek() {
+        Some(v) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
+            let v = it.next().unwrap_or_default();
+            let n = number(flag, &v)?;
+            if n == 0 {
+                return Err(format!("{flag} needs a count of at least 1"));
+            }
+            Ok(n)
+        }
+        _ => Ok(DEFAULT_TOP),
+    }
+}
 
 fn number(flag: &str, v: &str) -> Result<usize, String> {
     v.parse().map_err(|_| format!("{flag} needs a number, got `{v}`"))
@@ -1487,19 +1507,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             return Ok(Command::Help);
         }
         if flag == "--top-refusals" {
-            // The count is optional: `--top-refusals` or `--top-refusals 5`.
-            let n = match it.peek() {
-                Some(v) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
-                    let v = it.next().unwrap_or_default();
-                    let n = number("--top-refusals", &v)?;
-                    if n == 0 {
-                        return Err("--top-refusals needs a count of at least 1".into());
-                    }
-                    n
-                }
-                _ => DEFAULT_TOP,
-            };
-            a.top_refusals = Some(n);
+            a.top_refusals = Some(optional_count("--top-refusals", &mut it)?);
             continue;
         }
         if flag == "--list-assumptions" {
@@ -1523,33 +1531,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             continue;
         }
         if flag == "--top-assumptions" {
-            let n = match it.peek() {
-                Some(v) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
-                    let v = it.next().unwrap_or_default();
-                    let n = number("--top-assumptions", &v)?;
-                    if n == 0 {
-                        return Err("--top-assumptions needs a count of at least 1".into());
-                    }
-                    n
-                }
-                _ => DEFAULT_TOP,
-            };
-            a.top_assumptions = Some(n);
+            a.top_assumptions = Some(optional_count("--top-assumptions", &mut it)?);
             continue;
         }
         if flag == "--top-failures" {
-            let n = match it.peek() {
-                Some(v) if !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()) => {
-                    let v = it.next().unwrap_or_default();
-                    let n = number("--top-failures", &v)?;
-                    if n == 0 {
-                        return Err("--top-failures needs a count of at least 1".into());
-                    }
-                    n
-                }
-                _ => DEFAULT_TOP,
-            };
-            a.top_failures = Some(n);
+            a.top_failures = Some(optional_count("--top-failures", &mut it)?);
             continue;
         }
         if flag == "--output-json" {
@@ -1686,6 +1672,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--dotnet-assembly-dir" => a.dotnet_assembly_dirs.push(text()?.into()),
             "--dotnet-allow-roll-forward" => a.dotnet_allow_roll_forward = true,
             "--require-dotnet" => a.require_dotnet = true,
+            "--require-report-renderer" => a.require_report_renderer = true,
             "--dotnet-timeout-secs" => {
                 let v = text()?;
                 a.dotnet_timeout_secs = Some(number(&flag, &v)? as u64);
