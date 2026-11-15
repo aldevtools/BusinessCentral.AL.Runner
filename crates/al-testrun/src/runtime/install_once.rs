@@ -119,12 +119,12 @@ pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> usize {
 /// It runs again for a codeunit whose texts (an entry's, ADR-028 decision 11) of the resource files its last run read
 /// differ from those that run read. `None` (the caller runs it in `session`): a scratch run (`execute`), a run that
 /// follows the code it runs per codeunit (coverage, the impact trace, `--explain`, the profiler), and install code that left
-/// more than `Session::install_left` carries.
+/// more than `Session::install_left` carries, but for the codeunit whose call ran it:
 ///
-/// When the install code left more than that, the session it ran in is the codeunit's session, as the caller would have
-/// made it and run the install code in it, if `as_made_here`: the caller made `session` as [`install`] makes its own
-/// (`Session::with_host` on the same host, the session flags, no code run). So a run in which no codeunit can start from
-/// what the install code left runs it once per codeunit, as a run without this path does.
+/// for that codeunit, the session the install code ran in becomes its session, if `as_made_here`: the caller made
+/// `session` as [`install`] makes its own (`Session::with_host` on the same host, the session flags, no code run), so it
+/// is the session the caller would have run the install code in. A run in which no codeunit can start from what the
+/// install code left thus runs it once per codeunit, as a run without this path does.
 fn start_installed(
     lowered: &Lowered,
     session: &mut Session,

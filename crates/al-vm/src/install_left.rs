@@ -30,8 +30,8 @@ pub struct InstallLeft {
     caption_context_revision: u64,
     /// The language the Event Subscription and Report Layout lists follow (`EventStats::language`, 0 for 1033 until set).
     stats_language: i32,
-    /// How many events each subscriber handled (`EventStats::calls`, counted in al-vm dispatch.rs). Its one reader is the
-    /// Event Subscription row's "Number of Calls" and the active-instances column next to it (platform/mod.rs
+    /// How many events each subscriber handled (`EventStats::calls`, counted at dispatch.rs:322). Its one reader is the
+    /// Event Subscription row's "Number of Calls" and the active-instances column next to it (platform/mod.rs:358
     /// `with_event_stats`); nothing clears it, so a session in which the install code ran reads these counts.
     subscriber_calls: std::collections::HashMap<(usize, usize), i64>,
 }
@@ -232,6 +232,7 @@ impl Session {
             waited_ms: _,
             // Read by the caller (`Session::resource_reads`).
             resource_reads: _,
+            // Checked (`holds_as_new`).
             sleep_budget: _,
             slept_in_test: _,
             encrypted: _,

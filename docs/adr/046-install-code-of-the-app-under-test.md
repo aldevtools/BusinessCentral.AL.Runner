@@ -1404,5 +1404,9 @@ result is the session the codeunit would have had: al-vm `Session::install_left`
 GlobalLanguage, the clock, the counters a later read compares with) only when every other field still holds a new
 session's value. Otherwise, and for a run that follows the code it runs (coverage, the impact trace, `--explain`, the
 profiler), a scratch run, files on a real folder (`--files-dir`) and data `Baseline::freeze` cannot share, step 4 runs
-per test codeunit as before. The decision 7 argument above holds for both paths.
+per test codeunit as before. When `install_left` refuses, the session the install code ran in becomes the session of the
+codeunit that started the run (it was made as that codeunit's session is), so such a run still runs the install code once
+per codeunit. The calls of event subscribers are carried (their one reader is the Event Subscription row). With several
+entries (ADR-028 decision 11) the install code runs again only for an entry whose texts of the resource files it read
+(al-vm `resource_reads.rs`) differ. The decision 7 argument above holds for both paths.
 
