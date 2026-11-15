@@ -66,7 +66,7 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
         } else {
             Decl::Legacy
         },
-        // reports/html-email-body/RxdDeclFixtures.al, report 80040 (corpus pull request 1381).
+        // reports/html-email-body/RxdDeclFixtures.al:31, report 80040.
         declares: if report.rendering_layouts.is_empty() && report.layout_properties == ["rdlc", "word"] {
             Declares::WordAndRdlcProperties
         } else {
@@ -82,4 +82,13 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
         extensions,
         triggers,
     }
+}
+
+/// Whether a data item of the report declares OnPreDataItem, OnAfterGetRecord or OnPostDataItem.
+pub(super) fn data_items_declare_triggers(schema: &Schema) -> bool {
+    schema
+        .report()
+        .items
+        .iter()
+        .any(|i| i.on_pre.is_some() || i.on_after_get.is_some() || i.on_post.is_some())
 }

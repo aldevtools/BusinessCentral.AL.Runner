@@ -170,6 +170,7 @@ impl Session {
                 for row in &all {
                     self.check_events(schema, &facts, row.events)?;
                 }
+                refuse_data_item_triggers_before_false(&all, &facts, schema)?;
                 // When every row the run can end in marks the same assumption (a stored selection, a temporary
                 // selection), it is marked now, as main did; otherwise the row the run ends in marks it.
                 if let Some(a) = lookup::one_mark_after_any_run(table, &facts) {
@@ -251,6 +252,14 @@ impl Session {
             Answer::Empty => Err(Signal::Error(Box::new(empty()))),
             Answer::FalseKeepError => Ok(AfterRun::Answer(false)),
             Answer::TrueNothing => Ok(AfterRun::Answer(true)),
+            Answer::FalseAfterRun(e) => {
+                let error = errors::error_of(e, self.object_id_of(schema.object as u32), facts.format);
+                if !used {
+                    return Err(Signal::Error(Box::new(error)));
+                }
+                self.last_error = error;
+                Ok(AfterRun::Answer(false))
+            }
             Answer::Refuse(why) => Err(Signal::unsupported(format!("{}, {why}", what(&facts, schema)))),
             Answer::False(_) | Answer::Dataset | Answer::Discard => unreachable!("rows read no run fact"),
         }
@@ -304,6 +313,23 @@ impl Session {
             facts::Describe::describe(&selection)
         )))
     }
+}
+
+/// Refuses a run that can end in a false answer after the run while a data item declares a trigger: the cells of those rows
+/// ran a data item without one (reports/html-email-body/RxdDeclFixtures.al:39), so whether BC runs it before it answers false
+/// is not measured.
+fn refuse_data_item_triggers_before_false(rows: &[&Cell], facts: &Facts, schema: &Schema) -> Result<(), Signal> {
+    let Some(row) = rows.iter().find(|c| matches!(c.answer, Answer::FalseAfterRun(_))) else {
+        return Ok(());
+    };
+    if !fact_report::data_items_declare_triggers(schema) {
+        return Ok(());
+    }
+    Err(Signal::unsupported(format!(
+        "{} while a data item declares a trigger: not measured on BC (the cells of {} ran a data item without one)",
+        what(facts, schema),
+        row.evidence.cite()
+    )))
 }
 
 fn mark(row: &Cell) {
