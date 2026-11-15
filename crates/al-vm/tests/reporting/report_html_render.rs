@@ -18,8 +18,10 @@ impl Recording {
     fn writing(generator: &str) -> Recording {
         Recording {
             calls: Mutex::new(Vec::new()),
-            html: format!("<html><head><meta name=\"generator\" content=\"{generator}\" /></head><body>BC</body></html>")
-                .into_bytes(),
+            html: format!(
+                "<html><head><meta name=\"generator\" content=\"{generator}\" /></head><body>BC</body></html>"
+            )
+            .into_bytes(),
         }
     }
 }
@@ -178,7 +180,10 @@ const MEASURED: &str = "Aspose.Words for .NET 26.8.0";
 fn a_measured_shape_on_a_measured_major_writes_the_renderers_html_as_plain_text() {
     let r = Arc::new(Recording::writing(MEASURED));
     let got = run(SRC, 29, layout(""), &r, "Two");
-    assert!(got.starts_with("Yes|<html>") && got.contains("<body>BC</body>"), "{got:?}");
+    assert!(
+        got.starts_with("Yes|<html>") && got.contains("<body>BC</body>"),
+        "{got:?}"
+    );
     assert!(!got.contains(RENDERED_TEXT_MARK), "{got:?}");
     assert_eq!(*r.calls.lock().unwrap(), vec!["merge", "html"]);
 }
@@ -194,7 +199,10 @@ fn a_converter_version_no_cell_measured_on_the_major_keeps_the_opaque_value() {
 
 #[test]
 fn a_save_that_differs_in_one_fact_keeps_the_opaque_value_and_asks_no_renderer() {
-    let caption = SRC.replace("    UsageCategory = None;", "    UsageCategory = None;\n    Caption = 'HR Caption';");
+    let caption = SRC.replace(
+        "    UsageCategory = None;",
+        "    UsageCategory = None;\n    Caption = 'HR Caption';",
+    );
     let cases: [(&str, u16, Vec<u8>, &str); 6] = [
         // A major no cell measured.
         ("major 26", 26, layout(""), "Two"),
@@ -206,13 +214,27 @@ fn a_save_that_differs_in_one_fact_keeps_the_opaque_value_and_asks_no_renderer()
         // A report caption: no measured report has one.
         ("caption", 29, layout(""), "Two"),
         // The column binding outside the row section.
-        ("unbound section", 29, layout("<w:sdt><w:sdtPr><w:dataBinding w:prefixMappings=\"xmlns:ns0='urn:microsoft-dynamics-nav/reports/HR_Word/50981/'\" w:xpath=\"/ns0:NavWordReportXmlPart[1]/ns0:T[1]/ns0:Txt[1]\" /></w:sdtPr></w:sdt>"), "Two"),
+        (
+            "unbound section",
+            29,
+            layout(
+                "<w:sdt><w:sdtPr><w:dataBinding w:prefixMappings=\"xmlns:ns0='urn:microsoft-dynamics-nav/reports/HR_Word/50981/'\" w:xpath=\"/ns0:NavWordReportXmlPart[1]/ns0:T[1]/ns0:Txt[1]\" /></w:sdtPr></w:sdt>",
+            ),
+            "Two",
+        ),
     ];
     for (what, major, bytes, routine) in cases {
         let r = Arc::new(Recording::writing(MEASURED));
         let src = if what == "caption" { caption.as_str() } else { SRC };
         let got = run(src, major, bytes, &r, routine);
-        assert!(got.starts_with("Yes|") && got.contains(RENDERED_TEXT_MARK), "{what}: {got:?}");
-        assert!(r.calls.lock().unwrap().is_empty(), "{what}: {:?}", r.calls.lock().unwrap());
+        assert!(
+            got.starts_with("Yes|") && got.contains(RENDERED_TEXT_MARK),
+            "{what}: {got:?}"
+        );
+        assert!(
+            r.calls.lock().unwrap().is_empty(),
+            "{what}: {:?}",
+            r.calls.lock().unwrap()
+        );
     }
 }
