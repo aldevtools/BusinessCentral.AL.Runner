@@ -1634,6 +1634,20 @@ fn run_over_system(
     dep: Option<&str>,
     main: &str,
 ) -> Vec<(String, Outcome)> {
+    run_over_system_as(None, main_id, logo, dep, main)
+        .into_iter()
+        .map(|(n, o, _)| (n, o))
+        .collect()
+}
+
+/// [`run_over_system`] as BC `target` (none: the newest), with the assumptions each test passed through.
+fn run_over_system_as(
+    target: Option<&str>,
+    main_id: &str,
+    logo: Option<al_ir::AppLogo>,
+    dep: Option<&str>,
+    main: &str,
+) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
     use al_deps::package::read_package;
     let system = read_package(&std::fs::read(al_testfiles::system_app()).unwrap())
         .expect("System.app reads")
@@ -1671,9 +1685,32 @@ fn run_over_system(
             a.logo = logo.clone();
         }
     }
-    let engine = Engine::new(std::sync::Arc::new(program), blocked);
+    let target = target.map(|v| al_version::Target::for_bc(al_version::BcVersion::parse(v).unwrap()));
+    let engine = Engine::with_target(std::sync::Arc::new(program), blocked, target);
     let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
-    run_codeunit(&engine, &l, oi)
+    let mut hits = Vec::new();
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Disabled,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    out.into_iter()
+        .map(|(n, o)| {
+            let marks = hits
+                .iter()
+                .filter(|(h, _)| *h == n)
+                .flat_map(|(_, m)| m.clone())
+                .collect();
+            (n, o, marks)
+        })
+        .collect()
 }
 
 const DEP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
@@ -1782,6 +1819,90 @@ codeunit 50000 T {{ Subtype = Test;
     ));
     // A logo that is no PNG: its MIME type and size are not pinned.
     let o = run_over_system(MAIN_ID, Some(al_ir::AppLogo::File(b"GIF89a".to_vec())), None, &main);
+    assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+}
+
+/// The 307-byte 8 x 8 baseline JPEG of cross-app fixture E (corpus PR 1412: tests/al-language-xapp-e/logo.jpg, SHA-256
+/// fe4b2404...8f7d20, onprem session-system/UsAppLogoJpeg.al:18).
+const XAPP_E_JPEG: [u8; 307] = [
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x03, 0x02, 0x02, 0x03, 0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x04, 0x03, 0x03,
+    0x04, 0x05, 0x08, 0x05, 0x05, 0x04, 0x04, 0x05, 0x0a, 0x07, 0x07, 0x06, 0x08, 0x0c, 0x0a, 0x0c, 0x0c, 0x0b, 0x0a,
+    0x0b, 0x0b, 0x0d, 0x0e, 0x12, 0x10, 0x0d, 0x0e, 0x11, 0x0e, 0x0b, 0x0b, 0x10, 0x16, 0x10, 0x11, 0x13, 0x14, 0x15,
+    0x15, 0x15, 0x0c, 0x0f, 0x17, 0x18, 0x16, 0x14, 0x18, 0x12, 0x14, 0x15, 0x14, 0xff, 0xdb, 0x00, 0x43, 0x01, 0x03,
+    0x04, 0x04, 0x05, 0x04, 0x05, 0x09, 0x05, 0x05, 0x09, 0x14, 0x0d, 0x0b, 0x0d, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x08, 0x00, 0x08, 0x03, 0x01, 0x22, 0x00,
+    0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xc4, 0x00, 0x15, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0xff, 0xc4, 0x00, 0x18, 0x10, 0x01, 0x00, 0x03, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x17, 0x53, 0xa1, 0xff, 0xc4,
+    0x00, 0x15, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x06, 0x07, 0xff, 0xc4, 0x00, 0x1a, 0x11, 0x00, 0x02, 0x02, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x16, 0x52, 0x53, 0x91, 0xf0, 0xff, 0xda, 0x00, 0x0c, 0x03, 0x01, 0x00, 0x02,
+    0x11, 0x03, 0x11, 0x00, 0x3f, 0x00, 0x9a, 0xab, 0x9c, 0x78, 0x02, 0x4f, 0x31, 0x71, 0x97, 0xb6, 0x2a, 0x8e, 0xaf,
+    0xa1, 0xff, 0xd9,
+];
+
+/// al-runner issue 8061: the Published Application Logo of an app whose manifest declares a baseline JPEG logo is a media with a
+/// value and the same id on every read; its Media row holds the file's bytes unchanged, the picture's size, every other column
+/// empty, and Mime Type image/png on BC 27.5 and 28.5, image/jpeg on BC 29.0 (corpus PR 1412, merged, not pinned:
+/// onprem session-system/UsAppLogoJpeg.al:82-120). A flagged pass (assumption published-application-jpeg-logo). A progressive
+/// JPEG stays refused.
+#[test]
+fn issue_8061_extension_logo_of_an_app_with_a_jpeg_logo() {
+    let main = |mime: &str| {
+        format!(
+            r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure JpegLogo() var App: Record "Published Application"; Media: Record Media; First: Guid; InS: InStream; B: Byte; N: Integer; begin
+    App.SetRange(ID, '{MAIN_ID}');
+    App.SetRange("Tenant Visible", true);
+    if not App.FindFirst() then Error('no row');
+    if not App.Logo.HasValue() then Error('no logo');
+    if IsNullGuid(App.Logo.MediaId()) then Error('null media id');
+    First := App.Logo.MediaId();
+    App.FindFirst();
+    if App.Logo.MediaId() <> First then Error('other media id');
+    Media.SetRange(ID, App.Logo.MediaId());
+    if not Media.FindFirst() then Error('no media row');
+    if Media.Description <> '' then Error('description');
+    if Media."Mime Type" <> '{mime}' then Error('mime %1', Media."Mime Type");
+    if (Media.Height <> 8) or (Media.Width <> 8) then Error('size %1 x %2', Media.Height, Media.Width);
+    if (Media."Company Name" <> '') or (Media."Expiration Date" <> 0DT) or Media."Prohibit Cache" then Error('columns');
+    if (Media."File Name" <> '') or (Media."Security Token" <> '') or (Media."Creating User" <> '') then Error('columns');
+    if not Media.Content.HasValue() then Error('content');
+    Media.CalcFields(Content);
+    Media.Content.CreateInStream(InS);
+    while not InS.EOS() do begin InS.Read(B); N += 1; if N = 307 then if B <> 217 then Error('last byte %1', B); end;
+    if N <> 307 then Error('length %1', N); end; }}"#
+        )
+    };
+    let jpeg = || Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
+    for (target, mime) in [
+        (Some("27.5"), "image/png"),
+        (Some("28.5"), "image/png"),
+        (Some("29.0"), "image/jpeg"),
+    ] {
+        let o = run_over_system_as(target, MAIN_ID, jpeg(), None, &main(mime));
+        assert_eq!(o[0].1, Outcome::Pass, "{target:?}: {o:?}");
+        assert!(
+            o[0].2
+                .contains(&al_builtins::assumptions::Assumption::PublishedApplicationJpegLogo),
+            "{target:?}: a flagged pass"
+        );
+    }
+    // A progressive JPEG (start-of-frame FF C2): not measured.
+    let mut progressive = XAPP_E_JPEG.to_vec();
+    let sof = progressive.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+    progressive[sof + 1] = 0xC2;
+    let o = run_over_system_as(
+        None,
+        MAIN_ID,
+        Some(al_ir::AppLogo::File(progressive)),
+        None,
+        &main("image/jpeg"),
+    );
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
 }
 

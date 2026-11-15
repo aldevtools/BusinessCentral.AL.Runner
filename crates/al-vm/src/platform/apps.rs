@@ -175,16 +175,25 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             // Logo (20): blank (null MediaId, no Media row) for an app whose app.json declares no logo (onprem
             // session-system/PZPublishedApplicationColumns.al:162-163). An app whose manifest declares a PNG logo has a media with a
             // value and the same id on every read, whose Media row holds the file's bytes ([`logo_media_rows`]; onprem
-            // session-system/UsAppLogo.al:108-117 UsLogo_TinyPng_AppD, :140-146 UsLogo_BigPng_AppC). A logo that is no PNG and an
-            // app whose manifest was not read are not pinned: unknown.
+            // session-system/UsAppLogo.al:108-117 UsLogo_TinyPng_AppD, :140-146 UsLogo_BigPng_AppC). A baseline JPEG logo is the
+            // same on assumption `published-application-jpeg-logo` (corpus PR 1412, merged, not pinned: UsAppLogoJpeg.al:94-99, :106-109),
+            // unless the row rests on another assumption already. Another logo and an app whose manifest was not read are not
+            // pinned: unknown.
+            let mut assumed = assumed;
             match &a.logo {
                 Some(al_ir::AppLogo::None) => {}
                 Some(al_ir::AppLogo::File(bytes)) if al_builtins::media::png_size(bytes).is_some() => {
                     r[pos(t, 20)] = Value::Guid(ids::logo_media_id(id));
                 }
+                Some(al_ir::AppLogo::File(bytes))
+                    if al_builtins::media::baseline_jpeg_size(bytes).is_some() && assumed.is_none() =>
+                {
+                    r[pos(t, 20)] = Value::Guid(ids::logo_media_id(id));
+                    assumed = Some(al_builtins::assumptions::Assumption::PublishedApplicationJpegLogo);
+                }
                 Some(al_ir::AppLogo::File(_)) => {
                     let whose = format!(
-                        "app '{}', whose logo is no PNG (the Media row of another picture format is not pinned)",
+                        "app '{}', whose logo is neither a PNG nor a baseline JPEG on a row that rests on no other assumption (the Media row of another picture is not pinned)",
                         a.name
                     );
                     r[pos(t, 20)] = super::unknown(t, 20, &whose);
@@ -252,9 +261,18 @@ pub(super) fn published_application_listing(
 /// holds. The row holds the logo file's bytes unchanged, `image/png`, the picture's height and width, and every other
 /// column empty (Description, Company Name, Expiration Date, File Name, Security Token, Creating User; Prohibit Cache No):
 /// onprem session-system/UsAppLogo.al:110-116 (a 1 x 1 PNG of 67 bytes) and :140-145 (a 300 x 300 PNG of 90393 bytes, same SHA-256).
+/// A baseline JPEG logo's row is the same on assumption `published-application-jpeg-logo`, its Mime Type `image/png` before BC 29
+/// and `image/jpeg` from BC 29 (corpus PR 1412, merged, not pinned: al-language-onprem/session-system/UsAppLogoJpeg.al:100-118,
+/// an 8 x 8 JPEG of 307 bytes).
 pub(super) fn logo_media_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let field = |name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
-    p.engine()
+    let engine = p.engine();
+    let jpeg_mime = if al_version::gate_on(engine.target.as_ref(), al_version::Gate::ProbedValuesDifferFrom29) {
+        "image/jpeg"
+    } else {
+        "image/png"
+    };
+    engine
         .program
         .apps
         .iter()
@@ -263,16 +281,26 @@ pub(super) fn logo_media_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             let Some(al_ir::AppLogo::File(bytes)) = &a.logo else {
                 return None;
             };
-            let (width, height) = al_builtins::media::png_size(bytes)?;
+            let (mime, (width, height), assumed) = match al_builtins::media::png_size(bytes) {
+                Some(size) => ("image/png", size, None),
+                None => (
+                    jpeg_mime,
+                    al_builtins::media::baseline_jpeg_size(bytes)?,
+                    Some(al_builtins::assumptions::Assumption::PublishedApplicationJpegLogo),
+                ),
+            };
             let mut r = blank(t);
             r[pos(t, 1)] = Value::Guid(ids::logo_media_id(id));
             let blob = al_builtins::stream::new_blob();
             al_builtins::stream::write_bytes(&blob, bytes);
             r[field("Content")?] = Value::Blob(blob);
-            r[field("Mime Type")?] = Value::Text("image/png".into());
+            r[field("Mime Type")?] = Value::Text(mime.into());
             r[field("Height")?] = Value::Integer(height);
             r[field("Width")?] = Value::Integer(width);
-            Some(Entry::ok(r))
+            Some(match assumed {
+                Some(x) => Entry::ok(r).assuming(x),
+                None => Entry::ok(r),
+            })
         })
         .collect()
 }

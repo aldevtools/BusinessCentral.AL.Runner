@@ -177,7 +177,10 @@ pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
             key[pos(t, 2)] = Value::Text(truncate(&r.name, 250).into());
             let mut row = key.clone();
             match subscription_row(&c, o, &r.name, a, t, &mut row) {
-                Ok(()) => out.push(Entry::ok(row)),
+                Ok(None) => out.push(Entry::ok(row)),
+                Ok(Some((a, cols))) => {
+                    out.push(Entry::ok(row).assuming_in(a, cols.iter().map(|c| pos(t, *c)).collect()))
+                }
                 // The columns worked out before the refusal are real: a filter on the publisher's
                 // object type rules the row out without reading the part that is not pinned.
                 Err(Unworked { why, known, assumed }) => {
@@ -200,7 +203,7 @@ fn subscription_row(
     a: &al_ir::Attribute,
     t: &TableDef,
     r: &mut al_data::Row,
-) -> Result<(), Unworked> {
+) -> Result<Option<Assumed>, Unworked> {
     let what = || format!("subscriber '{}' of codeunit '{}'", routine, o.name);
     let manual = al_ir::ObjectFacts::of_properties(&o.properties).manual_subscriber;
     // "Subscriber Instance" reads Static-Automatic or Manual, "Error Information" is blank (record/
@@ -270,6 +273,7 @@ fn subscription_row(
     // (xmlports/TestPlatformMetadataDefaultsContracts.al:113-124, `OnBeforeValidateEvent` with `'Txt'`).
     // For another trigger event the element is not pinned.
     let element = args.get(3).map(|e| crate::events::unquote(e)).unwrap_or_default();
+    let mut rests_on = None;
     let (published, event_type) = match declared {
         Some(d) => d,
         None if kind == al_ir::ObjKind::Table && is_trigger_event(&event) && element.is_empty() => (event.clone(), 0),
@@ -308,7 +312,7 @@ fn subscription_row(
                 ),
             };
             r[pos(t, 7)] = Value::Boolean(true);
-            return Ok(());
+            return Ok(None);
         }
         // A page trigger event's row has Event Type = Trigger and Active = Yes. A field's validate event publishes as
         // `<event> - <number>`, the number the id of the field's control as for an action (`pages::control_id` of the declaring
@@ -334,33 +338,39 @@ fn subscription_row(
                 Value::Text(truncate(&event, 250).into())
             };
             r[pos(t, 7)] = Value::Boolean(true);
-            return Ok(());
+            return Ok(None);
         }
-        // An event an extension of the publisher declares, in the cell Microsoft's tests measure (`ext_event_row`): Active
-        // Yes and the blank Error Information worked out above are known, on an assumption; the rest of the row is not.
+        // An event an extension of the publisher declares, in a measured cell (`ext_event_row`), on an assumption: the whole
+        // row (Event Type and Published Function as declared, Active Yes and the blank Error Information worked out above), or
+        // in the cell only Microsoft's tests measure Active and Error Information alone.
         None => {
-            let extension = publisher
-                .and_then(|p| super::ext_event_row::measured_extension(c.objects, o, manual, p, &event, &args));
-            if let Some(ext) = extension {
-                r[pos(t, 7)] = Value::Boolean(true);
-                known.extend([7, 9]);
-                return Err(Unworked {
-                    why: format!(
-                        "{}: the Event Type and Published Function of `{event}`, which extension '{}' declares, are not pinned",
-                        what(),
-                        ext.name
-                    ),
-                    known,
-                    assumed: Some((
-                        al_builtins::assumptions::Assumption::ExtensionEventSubscriberActive,
-                        vec![7, 9],
-                    )),
-                });
+            use super::ext_event_row::Measured;
+            let assumption = al_builtins::assumptions::Assumption::ExtensionEventSubscriberActive;
+            match publisher.and_then(|p| super::ext_event_row::measured(c.objects, o, manual, p, &event, &args)) {
+                Some(Measured::Row { published, event_type }) => {
+                    rests_on = Some((assumption, vec![3, 6, 7, 9]));
+                    (published, event_type)
+                }
+                Some(Measured::ActiveOnly { extension }) => {
+                    r[pos(t, 7)] = Value::Boolean(true);
+                    known.extend([7, 9]);
+                    return Err(Unworked {
+                        why: format!(
+                            "{}: the Event Type and Published Function of `{event}`, which extension '{}' declares, are not pinned",
+                            what(),
+                            extension.name
+                        ),
+                        known,
+                        assumed: Some((assumption, vec![7, 9])),
+                    });
+                }
+                None => {
+                    return Err(Unworked::new(
+                        format!("{}: the kind of event `{event}` is not known", what()),
+                        known,
+                    ));
+                }
             }
-            return Err(Unworked::new(
-                format!("{}: the kind of event `{event}` is not known", what()),
-                known,
-            ));
         }
     };
     r[pos(t, 3)] = option(t, 3, event_type);
@@ -369,15 +379,18 @@ fn subscription_row(
     r[pos(t, 6)] = Value::Text(truncate(&published, 250).into());
     // A statically bound subscriber that resolved is active (TestEventSubscriptionVirtualTable.al:`_Row_DescribesTheSubscription`).
     r[pos(t, 7)] = Value::Boolean(true);
-    Ok(())
+    Ok(rests_on)
 }
+
+/// The assumption a row rests on and the field ids whose values rest on it (a filter on one of them marks it).
+type Assumed = (al_builtins::assumptions::Assumption, Vec<u32>);
 
 /// A subscriber row whose columns could not all be worked out: why, the field ids whose values are real, and the field ids
 /// whose values rest on an assumption (a filter on one of them marks it).
 struct Unworked {
     why: String,
     known: Vec<u32>,
-    assumed: Option<(al_builtins::assumptions::Assumption, Vec<u32>)>,
+    assumed: Option<Assumed>,
 }
 
 impl Unworked {

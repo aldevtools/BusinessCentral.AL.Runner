@@ -1959,19 +1959,19 @@ fn an_assumption_the_company_open_step_relied_on_flags_every_test_of_the_session
 codeunit 51990 \"Open Subs\"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
-    local procedure Completed() var D: Decimal; begin D := Round(1, 0.01); end;
+    local procedure Completed() var V: Variant; I: Integer; begin V := '55'; I := V; end;
 }
 codeunit 51991 \"Open Flag Tests\"
 {
     Subtype = Test;
     [Test] procedure First() begin end;
-    [Test] procedure Second() var D: Decimal; begin D := Round(1, 0.001); end;
+    [Test] procedure Second() var V: Variant; I: Integer; begin V := '66'; I := V; end;
     [Test] procedure Third() begin end;
 }
 ";
     let (o, hits) = super::tests::outcomes_and_hits_of_apps(&[("main", &[], SRC)], "Open Flag Tests");
     assert_all_pass(&o);
-    let id = "round-keeps-the-precision-decimals";
+    let id = "text-digits-to-integer";
     for n in ["First", "Second", "Third"] {
         assert!(hits.iter().any(|(t, h)| t == n && h == &vec![id]), "{n}: {hits:?}");
     }
@@ -1990,7 +1990,7 @@ codeunit 51992 \"Open Subs Clean\"
 codeunit 51993 \"Open Clean Tests\"
 {
     Subtype = Test;
-    [Test] procedure Marks() var D: Decimal; begin D := Round(1, 0.001); end;
+    [Test] procedure Marks() var V: Variant; I: Integer; begin V := '66'; I := V; end;
     [Test] procedure After() begin end;
 }
 ";
@@ -1998,7 +1998,7 @@ codeunit 51993 \"Open Clean Tests\"
     assert_all_pass(&o);
     assert_eq!(
         hits,
-        vec![("Marks".to_string(), vec!["round-keeps-the-precision-decimals"])],
+        vec![("Marks".to_string(), vec!["text-digits-to-integer"])],
         "{hits:?}"
     );
 }
