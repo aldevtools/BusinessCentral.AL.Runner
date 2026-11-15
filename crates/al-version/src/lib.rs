@@ -6,7 +6,7 @@
 mod awaited;
 mod choose;
 mod gates;
-pub use awaited::journal_temp_part_reads_after_refresh;
+pub use awaited::{base_table_permissions_cover_extension_code, journal_temp_part_reads_after_refresh};
 pub use choose::{AppVersions, Chosen, TargetError, choose_target};
 pub use gates::{
     Evidence, FeatureKeyRows, Gate, dev_endpoint_answers_unhandled_ui, feature_key_rows, has as gate_on,
