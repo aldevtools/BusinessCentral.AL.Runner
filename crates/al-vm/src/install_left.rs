@@ -5,6 +5,8 @@
 
 use crate::Session;
 
+mod clients;
+
 /// The state besides the data that a session starting from the install code's session takes over
 /// ([`Session::install_left`], [`Session::restore_install_left`]).
 #[derive(Clone)]
@@ -19,6 +21,15 @@ pub struct InstallLeft {
     isolated_written: std::collections::HashSet<(String, String)>,
     /// Its last Commit made writes durable (`TxState::last_commit_wrote`, min_row_version.rs).
     last_commit_wrote: bool,
+    /// `Database.CurrentTransactionType` after its last Commit (`TxState::transaction_type`; an AL `Commit` sets it).
+    transaction_type: i32,
+    /// What the SQL counters it never read noted (`SqlCounters::left_inactive`).
+    sql: crate::sqlcount::SqlLeft,
+    /// `EventState::caption_context_revision`: moved by a GlobalLanguage change and a binding; compared only with the value a
+    /// page noted when it opened, so it is carried as it is.
+    caption_context_revision: u64,
+    /// The language the Event Subscription and Report Layout lists follow (`EventStats::language`, 0 for 1033 until set).
+    stats_language: i32,
 }
 
 impl Session {
@@ -99,9 +110,7 @@ impl Session {
             random_draws,
             // Counts read only as a difference around one call (isdirty.rs, globaltriggers.rs, records.rs).
             calls_made: _,
-            // TODO(8153 hand-off): SessionInformation.SqlStatementsExecuted / SqlRowsRead state (found_nothing,
-            // ops_at_commit, buffer_outside): carry or check, see the hand-off file. Until then: not taken.
-            sql: _,
+            sql,
             dirty_ops_open,
             dirty_frames,
             live_xrecs,
@@ -142,11 +151,9 @@ impl Session {
             in_test_codeunit,
             isolation_from_hub,
             hub_disabled,
-            // TODO(8153 hand-off): IsoMin has no check yet. Until then: not taken.
-            iso_min: _,
+            iso_min,
             runner_permission_step,
-            // TODO(8153 hand-off): RunnerHost (runners list) has no check yet.
-            runner_host: _,
+            runner_host,
             // Set from the run's session flags before any code runs.
             ignore_permission_mock: _,
             permissions_off: _,
@@ -187,29 +194,25 @@ impl Session {
             stop: _,
             // Counts read only as a difference around one test method (al-testrun isolation.rs).
             commits: _,
-            // TODO(8153 hand-off): Sources has no check yet.
-            blob_sources: _,
-            // TODO(8153 hand-off): errorcollect::Scopes has no check yet.
-            error_scopes: _,
+            blob_sources,
+            error_scopes,
             // Caches of what the program defines: the same values in every session.
             initial_cache: _,
             adhoc_tables: _,
             media,
             media_removed,
             bulk_modify,
-            // TODO(8153 hand-off): VariantRefs has no check yet.
-            variant_refs: _,
+            variant_refs,
             set_value_from_variant,
             host_new_running,
             part_open_running,
             host_move_running,
             part_sync_keeps_same_link,
-            // TODO(8153 hand-off): DotNetState has no check yet.
-            dotnet: _,
+            dotnet,
             application_areas,
-            // TODO(8153 hand-off): `host.files` needs a "changed" answer (al-host FileSystem); clock and identity are
-            // made from the same scratch settings in every session of the run.
-            host: _,
+            // Its files are checked below (`FileSystem::changed`); its clock, identity and seeds are made from the same
+            // scratch settings in every session of the run (al-testrun `install_once.rs` `Key`).
+            host,
             // Made from the host's identity, the same in every session of the run.
             companies: _,
             // Carried: the Baseline.
@@ -227,9 +230,8 @@ impl Session {
             encryption_key,
             temp_files,
             render_pending_files,
-            // TODO(8153 hand-off): PlaceholderFiles and TempBlobImplFields have no check yet.
-            placeholder_files: _,
-            temp_blob_impl_fields: _,
+            placeholder_files,
+            temp_blob_impl_fields,
             // Carried: the Baseline.
             last_stamp: _,
             clock_key,
@@ -245,14 +247,12 @@ impl Session {
             find_through_recordref,
             through_recordref,
             tx,
-            // TODO(8153 hand-off): UiState, PageClients, EventState, CoverageState, ReportState: field by field.
-            ui_state: _,
-            pages: _,
-            events: _,
-            coverage: _,
-            report: _,
+            ui_state,
+            pages,
+            events,
+            coverage,
+            report,
         } = self;
-        let host = &self.host;
         let fresh_guid_key = al_host::seed::fixed_guid_key(host.guid_seed.unwrap_or(host.random_seed));
         let at_rest = *depth == 0
             && frames.is_empty()
@@ -311,8 +311,8 @@ impl Session {
         let as_new = *last_error == al_builtins::native::AlError::default()
             && isolated_committed == isolated_storage
             && isolated_set_in_test.is_empty()
-            && unmeasured.is_empty()
-            && tasks.is_empty()
+            && unmeasured.as_new()
+            && tasks.as_new()
             && *sessions_started == 0
             && demo_written.is_empty()
             && !gl_setup_written
@@ -374,9 +374,24 @@ impl Session {
             && caption_translations.is_empty()
             && ui_caption_translated.is_empty()
             && self.tx_left_as_after_commit();
-        // TODO(8153 hand-off): the fields marked above; until each has its check or carry, the path is not taken.
-        let decided = false;
-        (at_rest && as_new && decided).then(|| InstallLeft {
+        let owners_as_new = iso_min.as_new()
+            && runner_host.as_new()
+            && blob_sources.as_new()
+            && error_scopes.as_new()
+            && variant_refs.as_new()
+            && dotnet.as_new()
+            && !host.files.changed()
+            && placeholder_files.as_new()
+            && temp_blob_impl_fields.as_new()
+            && clients::ui_as_new(ui_state)
+            && clients::pages_as_new(pages)
+            && clients::events_as_new(events)
+            && clients::coverage_as_new(coverage)
+            && clients::report_as_new(report);
+        if !(at_rest && as_new && owners_as_new) {
+            return None;
+        }
+        Some(InstallLeft {
             carried: crate::CarriedState {
                 language: *global_language,
                 work_date: *work_date,
@@ -385,18 +400,23 @@ impl Session {
             clock_draws: *clock_draws,
             isolated_written: isolated_written_in_codeunit.clone(),
             last_commit_wrote: tx.last_commit_wrote,
+            transaction_type: tx.transaction_type,
+            sql: sql.left_inactive()?,
+            caption_context_revision: events.caption_context_revision,
+            stats_language: events.event_stats.language.get(),
         })
     }
 
     /// The transaction state after the install's last Commit, field by field: what a new session holds, except what the
     /// Commit sets (`committed_row_version`, carried in the Baseline; `commit_counter`, the store's change counter, which
-    /// [`Session::restore_install_left`] sets again; `last_commit_wrote`, carried).
+    /// [`Session::restore_install_left`] sets again; `last_commit_wrote` and `transaction_type`, carried).
     fn tx_left_as_after_commit(&self) -> bool {
         let crate::state::TxState {
             tx_world,
             commit_behavior,
             tx_phase,
-            transaction_type,
+            // Carried in InstallLeft.
+            transaction_type: _,
             lock_timeout,
             lock_timeout_duration,
             committed_row_version: _,
@@ -439,7 +459,6 @@ impl Session {
         *tx_world == fresh.tx_world
             && *commit_behavior == fresh.commit_behavior
             && *tx_phase == fresh.tx_phase
-            && *transaction_type == fresh.transaction_type
             && *lock_timeout == fresh.lock_timeout
             && *lock_timeout_duration == fresh.lock_timeout_duration
             && rows_touched.is_empty()
@@ -493,6 +512,10 @@ impl Session {
         self.clock_draws = left.clock_draws;
         self.isolated_written_in_codeunit = left.isolated_written.clone();
         self.tx.last_commit_wrote = left.last_commit_wrote;
+        self.tx.transaction_type = left.transaction_type;
         self.tx.commit_counter = self.store.change_counter();
+        self.sql.restore_left(&left.sql);
+        self.events.caption_context_revision = left.caption_context_revision;
+        self.events.event_stats.language.set(left.stats_language);
     }
 }

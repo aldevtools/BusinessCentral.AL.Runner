@@ -94,9 +94,9 @@ mod geturl;
 mod globaltriggers;
 pub mod group1_sessions;
 mod hostvalues;
-mod install_left;
 mod http;
 pub mod impact;
+mod install_left;
 mod interfaces;
 mod isdirty;
 mod license_ceiling;
@@ -222,9 +222,6 @@ pub struct Engine {
     pub resource_overrides: std::sync::RwLock<ResourceOverrides>,
     /// A session read the resource files of an app (`NavApp.GetResourceAsText` and the like).
     pub resources_read: std::sync::atomic::AtomicBool,
-    /// How many times the install code of the apps under test ran for a test codeunit of this run, outside the install
-    /// baseline (al-testrun `install_once.rs`, al-runner issue 8144).
-    pub install_runs: std::sync::atomic::AtomicUsize,
     /// A session made a `DotNet` call that may answer from more than its arguments (`dotnet::pure`): files,
     /// environment variables, the machine's clock, the assemblies of `--dotnet-assembly-dir`. That is outside the
     /// program, so an install baseline whose code made one is not kept on disk (al-testrun `baseline_cache`).
@@ -510,7 +507,6 @@ impl Engine {
             skipped_apps: Vec::new(),
             resource_overrides: Default::default(),
             resources_read: Default::default(),
-            install_runs: Default::default(),
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
@@ -563,7 +559,6 @@ impl Engine {
             skipped_apps: Vec::new(),
             resource_overrides: Default::default(),
             resources_read: Default::default(),
-            install_runs: Default::default(),
             dotnet_called: Default::default(),
             test_data: None,
             license: None,
@@ -632,7 +627,6 @@ impl Engine {
             skipped_apps,
             resource_overrides,
             resources_read,
-            install_runs,
             dotnet_called,
             test_data,
             license,
@@ -683,7 +677,6 @@ impl Engine {
             Err(e) => e.into_inner().clear(),
         }
         *resources_read.get_mut() = false;
-        *install_runs.get_mut() = 0;
         *dotnet_called.get_mut() = false;
         *test_data = None;
         *license = None;

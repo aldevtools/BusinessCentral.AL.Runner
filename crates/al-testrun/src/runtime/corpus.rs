@@ -1385,7 +1385,8 @@ impl CorpusRuntime {
         // pass first runs on several threads.
         let snapshot_once =
             super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder());
-        super::install_once::forget();
+        // What the install code left for the codeunits that start from no install baseline: one for the run (`install_once.rs`).
+        let installs = Arc::new(super::install_once::RunInstalls::default());
         let passes = Pass::of_run(opts, &opts_only, &memory, order, in_program_order);
         let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
         let mut pass_times: Vec<PassTime> = Vec::new();
@@ -1463,6 +1464,7 @@ impl CorpusRuntime {
                             singles_past_stop: false,
                             driver,
                             discovery: None,
+                            installs: installs.clone(),
                         }),
                         Err(why) => {
                             if hub_path && requires_disabled(&lowered.program.objects[oi]) {
@@ -1831,7 +1833,8 @@ impl CorpusRuntime {
                 wall: pass_started.elapsed(),
             });
         }
-        let install_runs = super::install_once::end_run(&engine);
+        super::install_once::end_run(&engine);
+        let install_runs = installs.runs();
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (

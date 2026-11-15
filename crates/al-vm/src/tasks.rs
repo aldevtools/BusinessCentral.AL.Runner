@@ -38,9 +38,11 @@ pub(crate) struct Tasks {
 }
 
 impl Tasks {
-    /// No task created (`install_left.rs`).
-    pub(crate) fn is_empty(&self) -> bool {
-        self.open.is_empty() && self.committed.is_empty()
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let Tasks { open, committed } = self;
+        open.is_empty() && committed.is_empty()
     }
 
     pub(crate) fn commit(&mut self) {

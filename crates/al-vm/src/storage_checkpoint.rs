@@ -34,9 +34,11 @@ pub(crate) struct Unmeasured {
 }
 
 impl Unmeasured {
-    /// Nothing marked (`install_left.rs`).
-    pub(crate) fn is_empty(&self) -> bool {
-        self.isolated.is_empty() && self.sequences.is_empty()
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let Unmeasured { isolated, sequences } = self;
+        isolated.is_empty() && sequences.is_empty()
     }
 }
 

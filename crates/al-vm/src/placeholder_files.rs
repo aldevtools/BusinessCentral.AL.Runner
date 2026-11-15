@@ -93,6 +93,17 @@ pub(crate) struct PlaceholderFiles {
 }
 
 impl PlaceholderFiles {
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until
+    /// it is decided.
+    pub(crate) fn as_new(&self) -> bool {
+        let PlaceholderFiles {
+            chain,
+            open,
+            word_layout,
+        } = self;
+        chain.is_empty() && open.is_empty() && word_layout.is_empty()
+    }
+
     /// A rendering save wrote a placeholder with `mark` for a report whose default layout is of `layout_kind`.
     pub(crate) fn saved(&mut self, mark: &Arc<str>, layout_kind: &str) {
         let word = layout_kind == "word";
