@@ -1406,7 +1406,11 @@ session's value. Otherwise, and for a run that follows the code it runs (coverag
 profiler), a scratch run, files on a real folder (`--files-dir`) and data `Baseline::freeze` cannot share, step 4 runs
 per test codeunit as before. When `install_left` refuses, the session the install code ran in becomes the session of the
 codeunit that started the run (it was made as that codeunit's session is), so such a run still runs the install code once
-per codeunit. The calls of event subscribers are carried (their one reader is the Event Subscription row). With several
+per codeunit; once more when single instances of an earlier codeunit moved into that codeunit (the strict-order lane),
+whose session then runs it itself. Otherwise such a run keeps main's install count and CPU, not its wall time: the
+other test threads wait for the first run and then run the install code, so with as many threads as codeunits it can
+take two install times where main takes one. The calls of event subscribers are carried (their one reader is the Event
+Subscription row) when `install_left` accepts the run; a subscriber that writes a row is not accepted. With several
 entries (ADR-028 decision 11) the install code runs again only for an entry whose texts of the resource files it read
 (al-vm `resource_reads.rs`) differ. The decision 7 argument above holds for both paths.
 

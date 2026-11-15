@@ -124,7 +124,11 @@ pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> usize {
 /// for that codeunit, the session the install code ran in becomes its session, if `as_made_here`: the caller made
 /// `session` as [`install`] makes its own (`Session::with_host` on the same host, the session flags, no code run), so it
 /// is the session the caller would have run the install code in. A run in which no codeunit can start from what the
-/// install code left thus runs it once per codeunit, as a run without this path does.
+/// install code left thus runs it once per codeunit, as a run without this path does, unless single instances of an
+/// earlier codeunit moved into the codeunit whose call ran it (`as_made_here` false, the strict-order lane): that
+/// codeunit then runs it once more in its own session. Otherwise install count and CPU stay as on such a run; wall time
+/// does not: this call holds `kept` while the install code runs, so with as many test threads as codeunits the others
+/// wait and then each runs it, two install times in a row where a run without this path takes one.
 fn start_installed(
     lowered: &Lowered,
     session: &mut Session,
