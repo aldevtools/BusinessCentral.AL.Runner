@@ -590,16 +590,10 @@ impl Session {
                     ));
                 }
                 let quit = self.report_init(&inst)?;
-                // `--no-client`: a request page that would open raises here; the report has no OnInitReport (`clientless.rs`).
-                if let Some(b) = self.clientless_report(&schema, explicit)? {
-                    let slot = schema.report().request_flag_slot;
-                    let flag = match (b, id == ids::REPORT_RUNMODAL_3) {
-                        (true, _) => REQUEST_PAGE_ON,
-                        (false, false) => REQUEST_PAGE_OFF,
-                        (false, true) => REQUEST_PAGE_OFF_UNPINNED_GETTER,
-                    };
-                    inst.borrow_mut().globals[slot] = Value::Integer(flag);
-                }
+                // Without a client a request page that would open raises here (a page background task worker) or is skipped
+                // (the test session under `--no-client`); the report has no OnInitReport (`clientless.rs`).
+                let modal = id == ids::REPORT_RUNMODAL_3;
+                let explicit = self.static_request_window(&inst, &schema, explicit, args.len() == 1, modal)?;
                 let window = match explicit {
                     Some(b) => b,
                     None => Self::report_shows_page(&inst, &schema)?,
@@ -4372,16 +4366,6 @@ impl Session {
 #[cfg(test)]
 mod ignored_output_tests;
 
-/// Values of a report's request-page flag slot (`UseRequestPage`); any other value means "never set": the report's own
-/// property decides.
-const REQUEST_PAGE_ON: i32 = 1;
-const REQUEST_PAGE_OFF: i32 = 2;
-/// The page is hidden by a static `RunModal(id, false)`: the getter is pinned in OnPreReport only, and refused elsewhere.
-const REQUEST_PAGE_OFF_UNPINNED_GETTER: i32 = 3;
-/// After an `Execute` of a variable whose `UseRequestPage` was set: what the getter answers is not pinned
-/// (reports/PnH2UseRp.al:389 pins only the variable never set), so it is refused.
-const REQUEST_PAGE_UNPINNED_GETTER: i32 = 4;
-
 /// The ExtensionName of the dataset header: the app's name, " by " and its publisher (reports/dataset/
 /// ReportDatasetHeaderRaw.al:174, text/PnBReportSaveAs.al:162). An app without a publisher (only the
 /// runtime's own tests build one) keeps the bare name.
@@ -4401,6 +4385,8 @@ pub(crate) mod format_region;
 mod header_tests;
 mod html_record;
 mod request_caption;
+mod request_flag;
+use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_PAGE_ON, REQUEST_PAGE_UNPINNED_GETTER};
 mod request_unshown;
 mod running;
 mod save_processing_only;

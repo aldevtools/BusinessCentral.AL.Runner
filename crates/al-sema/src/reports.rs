@@ -326,6 +326,63 @@ fn rendering_layouts(obj: &ast::Object) -> Vec<(String, String, String, String)>
     out
 }
 
+/// The members of the body of `node` (an object or a section): its properties, sections, triggers, procedures and `var`
+/// sections, in source order.
+fn body_members(node: &al_syntax::SyntaxNode) -> Vec<al_syntax::SyntaxNode> {
+    node.children()
+        .filter(|n| n.kind() == SyntaxKind::ObjectBody)
+        .flat_map(|b| b.children())
+        .collect()
+}
+
+/// The one member of the body of `node` when it is a section named `name` (any case); `None` for any other body.
+fn only_section(node: &al_syntax::SyntaxNode, name: &str) -> Option<ast::Section> {
+    match body_members(node).as_slice() {
+        [one] => ast::Section::cast(one.clone()).filter(|s| s.name().eq_ignore_ascii_case(name)),
+        _ => None,
+    }
+}
+
+/// Whether report `obj` is, member for member, the report of the reporter's `--no-client` measurement (al-runner issue 8028,
+/// report 51440; al-vm `clientless.rs`): the one property `ProcessingOnly = true`, a `dataset` whose one member is a
+/// `dataitem` with an empty body, and a `requestpage` whose one member is a `layout` whose one member is an `area(Content)`
+/// with an empty body. Any other member anywhere (a property, a trigger, a procedure, a `var` section, a column, a nested data
+/// item, `labels`, `actions`, `rendering`) makes it another report.
+pub(crate) fn bare_processing_report(obj: &ast::Object) -> bool {
+    let members = body_members(obj.syntax());
+    let mut seen = (false, false, false);
+    for m in &members {
+        if let Some(p) = ast::Property::cast(m.clone()) {
+            if seen.0 || !p.name().eq_ignore_ascii_case("ProcessingOnly") || bool_prop(&p.value_text()) != Some(true) {
+                return false;
+            }
+            seen.0 = true;
+            continue;
+        }
+        let Some(s) = ast::Section::cast(m.clone()) else {
+            return false;
+        };
+        let bare = if s.name().eq_ignore_ascii_case("dataset") && !seen.1 {
+            seen.1 = true;
+            only_section(s.syntax(), "dataitem").is_some_and(|item| body_members(item.syntax()).is_empty())
+        } else if s.name().eq_ignore_ascii_case("requestpage") && !seen.2 {
+            seen.2 = true;
+            only_section(s.syntax(), "layout")
+                .and_then(|layout| only_section(layout.syntax(), "area"))
+                .is_some_and(|area| {
+                    matches!(area.args().as_slice(), [a] if a.eq_ignore_ascii_case("Content"))
+                        && body_members(area.syntax()).is_empty()
+                })
+        } else {
+            false
+        };
+        if !bare {
+            return false;
+        }
+    }
+    seen == (true, true, true)
+}
+
 fn bool_prop(value: &str) -> Option<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "true" | "yes" => Some(true),
@@ -1408,6 +1465,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         request_flag_slot: cx.request_flag_slot,
         request_rec_routines: request_rec_routines(&o, obj),
         request_page_ok_only: cx.request_page_ok_only,
+        bare_processing_only: bare_processing_report(obj),
         output: layout.output.clone(),
         unsupported: reasons,
         caption: layout.caption.clone(),
