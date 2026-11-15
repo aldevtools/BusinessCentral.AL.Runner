@@ -19,6 +19,7 @@ use crate::tenant_layouts::TENANT_REPORT_LAYOUT;
 const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
 pub(crate) mod coverage;
 mod date;
+mod ext_event_row;
 mod feature_key;
 mod fields;
 pub(crate) use fields::user_name_system_field;
