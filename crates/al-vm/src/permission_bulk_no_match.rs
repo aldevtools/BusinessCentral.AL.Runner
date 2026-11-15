@@ -24,6 +24,26 @@ pub(crate) enum RecordCaller {
     RecordRef,
 }
 
+impl RecordCall {
+    /// A record call that is a statement (its return value not used).
+    pub(crate) fn statement(
+        method: RecordOp,
+        caller: RecordCaller,
+        table: usize,
+        temporary: bool,
+        run_trigger: bool,
+    ) -> Self {
+        RecordCall {
+            method,
+            caller,
+            table,
+            temporary,
+            run_trigger,
+            statement: true,
+        }
+    }
+}
+
 impl RecordCaller {
     /// AL code calls the method (a Record or RecordRef method).
     pub(crate) fn al(self) -> bool {
@@ -46,23 +66,23 @@ pub(crate) struct RecordCall {
 }
 
 /// The rows of the target table and the facts of the record that the measured shapes compare.
-struct Target {
-    rows: usize,
+pub(crate) struct Target {
+    pub(crate) rows: usize,
     /// The one filter: (field position, value), a range of one value in filter group 0, whatever call set it (SetRange
     /// with one or two equal values, SetRecFilter, CopyFilters).
-    filter: Option<(usize, Value)>,
+    pub(crate) filter: Option<(usize, Value)>,
     /// The field positions of each key, the primary key first.
-    keys: Vec<Vec<usize>>,
-    types: Vec<RtType>,
+    pub(crate) keys: Vec<Vec<usize>>,
+    pub(crate) types: Vec<RtType>,
     /// The FieldClass of each field.
-    classes: Vec<al_ir::FieldClass>,
+    pub(crate) classes: Vec<al_ir::FieldClass>,
     /// The table is per company (`DataPerCompany` is not false).
-    per_company: bool,
+    pub(crate) per_company: bool,
 }
 
 impl Target {
     /// The primary key's field positions.
-    fn key(&self) -> &[usize] {
+    pub(crate) fn key(&self) -> &[usize] {
         &self.keys[0]
     }
 }
@@ -130,32 +150,7 @@ impl Session {
         caller: RecordCaller,
         rows: usize,
     ) -> Result<bool, Signal> {
-        let t = self.table(rec)?;
-        let target = {
-            let r = rec.borrow();
-            let filter = match r.filters.as_slice() {
-                [f] if f.group == 0 && !r.marked_only => match &f.expr {
-                    FilterExpr::Range(Some(a), Some(b))
-                        if matches!(al_builtins::ops::compare_key_value(a, b), Ok(std::cmp::Ordering::Equal)) =>
-                    {
-                        Some((f.field, a.clone()))
-                    }
-                    _ => None,
-                },
-                _ => None,
-            };
-            Target {
-                rows,
-                filter,
-                keys: t.keys.clone(),
-                types: t.fields.iter().map(|f| f.ty.clone()).collect(),
-                classes: self.engine.field_facts[t.object as usize]
-                    .iter()
-                    .map(|f| f.class)
-                    .collect(),
-                per_company: t.per_company,
-            }
-        };
+        let target = self.no_match_target(rec, rows)?;
         // Facts every measured shape shares: a Record variable (not a RecordRef), code whose object grants nothing on the
         // table, a table that runs no trigger (Y19PermObjects.al:9-27 "LT Y19 Row"; Y19PermNoMatchShapes.al:15-26 "LT NM
         // Target", Y19PermNoMatchTriggers.al:19-34 "LT NT Target", corpus PR 1403).
@@ -175,6 +170,34 @@ impl Session {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    /// The facts of `rec` and its table that the measured no-match shapes compare, the table holding `rows` rows.
+    pub(crate) fn no_match_target(&mut self, rec: &crate::records::Rec, rows: usize) -> Result<Target, Signal> {
+        let t = self.table(rec)?;
+        let r = rec.borrow();
+        let filter = match r.filters.as_slice() {
+            [f] if f.group == 0 && !r.marked_only => match &f.expr {
+                FilterExpr::Range(Some(a), Some(b))
+                    if matches!(al_builtins::ops::compare_key_value(a, b), Ok(std::cmp::Ordering::Equal)) =>
+                {
+                    Some((f.field, a.clone()))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        Ok(Target {
+            rows,
+            filter,
+            keys: t.keys.clone(),
+            types: t.fields.iter().map(|f| f.ty.clone()).collect(),
+            classes: self.engine.field_facts[t.object as usize]
+                .iter()
+                .map(|f| f.class)
+                .collect(),
+            per_company: t.per_company,
+        })
     }
 
     /// record/Y19PermWrites.al:294-307 (Y19_P2_SetR, Y19_P2_SetRI; BC 27, 28, 29): `Row.SetRange(Id, 100)` then
@@ -209,7 +232,7 @@ impl Session {
     /// The sets corpus PR 1403 measured: `Permissions Mock.Set(X)` assigned 'All Objects' and then one set X, declared by
     /// the app that declares table `table` (Y19PermNoMatchShapes.al:112-126, :296; Y19PermNoMatchTriggers.al:158-167, :314),
     /// in a test codeunit with `TestPermissions = Disabled` (Y19PermNoMatchShapes.al:131, Y19PermNoMatchTriggers.al:172).
-    fn probed_sets(&self, table: usize) -> bool {
+    pub(crate) fn probed_sets(&self, table: usize) -> bool {
         let [all, set] = self.permission_roles.as_slice() else {
             return false;
         };
@@ -273,7 +296,7 @@ impl Session {
     }
 
     /// Whether the session's levels Read, Insert, Modify and Delete on the accessed table are one of `allowed`.
-    fn levels_are(&self, access: Access, allowed: &[[u8; 4]]) -> bool {
+    pub(crate) fn levels_are(&self, access: Access, allowed: &[[u8; 4]]) -> bool {
         let Some(eff) = &self.permissions else {
             return false;
         };
@@ -297,7 +320,7 @@ impl Session {
 
     /// The access is made by a procedure of test codeunit `by` with only its procedures below, while no record method runs
     /// (record/Y19PermWrites.al:257-265, :294-307; Y19PermNoMatchShapes.al:274-371).
-    fn test_codeunit_code(&self, by: usize) -> bool {
+    pub(crate) fn test_codeunit_code(&self, by: usize) -> bool {
         self.record_calls.is_empty() && self.only_test_codeunit_frames(by, 0)
     }
 
@@ -305,7 +328,7 @@ impl Session {
     /// is 0: the first frame the test method, with the one attribute `[Test]`, and each frame above it a procedure without
     /// attributes (no subscriber, handler or try function), as the measured RunCase and Op (record/Y19PermWrites.al:257-265;
     /// Y19PermNoMatchShapes.al:274-398; Y19PermNoMatchTriggers.al:180-330).
-    fn only_test_codeunit_frames(&self, by: usize, skip: usize) -> bool {
+    pub(crate) fn only_test_codeunit_frames(&self, by: usize, skip: usize) -> bool {
         let base = self.test_frame_base();
         let end = self.frames.len().saturating_sub(skip);
         if end <= base || self.call_stack.len() != self.frames.len() {

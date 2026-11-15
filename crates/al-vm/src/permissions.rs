@@ -16,6 +16,9 @@
 //! stages of ADR-062 section 5 turn the checks on once their probes land).
 
 use crate::{Engine, Session};
+
+// The permission cells corpus PR 1403 measured, a child of this module.
+mod permission_probed;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::Signal;
 use std::collections::HashMap;
@@ -73,6 +76,21 @@ pub(crate) struct Content {
     /// permissions of that object out of it (Y93WildScope.al:142-162, `LT Y93 W Excl`), sorted by type and id. An object not
     /// listed gets the kind's wildcard.
     pub cut: Vec<(i32, u32, Levels)>,
+}
+
+/// Whether two declared contents grant explicit objects only, none of them in both.
+fn grants_apart(a: &Result<Content, String>, b: &Result<Content, String>) -> bool {
+    let only_explicit = |c: &Content| c.wild == Wildcards::default() && c.unread_system.is_empty() && c.cut.is_empty();
+    match (a, b) {
+        (Ok(a), Ok(b)) => {
+            only_explicit(a)
+                && only_explicit(b)
+                && a.explicit
+                    .iter()
+                    .all(|(k, id, _)| !b.explicit.iter().any(|(k2, id2, _)| k == k2 && id == id2))
+        }
+        _ => false,
+    }
 }
 
 fn merge(a: u8, b: u8) -> u8 {
@@ -282,6 +300,9 @@ pub(crate) struct EffectivePermissions {
     /// reader does not take, or is extended (`why_incomplete`).
     pub complete: bool,
     pub why_incomplete: Vec<String>,
+    /// The composition read an exclusion as taking only from its own set where corpus PR 1403 measured it (assumption
+    /// `permission-set-exclusion-stays-in-set`, [`SetModel::exclusion_stays_in_include`], [`SetModel::assigned_exclusion_measured`]).
+    pub assumed_exclusion: bool,
 }
 
 /// The permission set objects of the program, read once per engine, and the composed lists, shared by every session
@@ -326,6 +347,76 @@ impl SetModel {
         }
     }
 
+    /// Whether assigned set `i` that includes set `t`, which excludes sets, is in the shape corpus PR 1403 measured
+    /// (permissions/testpermissions/Y19PermExtAndCompose.al:40-62, PC_A_Composition ops 1-3, allowed, :269-287): `i` grants nothing
+    /// itself, excludes nothing and includes exactly `t` and one more set `s`; `t` includes nothing and excludes exactly one
+    /// set `e`, which includes and excludes nothing; `s` includes and excludes nothing and declares what `e` declares (`s` is
+    /// `e`, or a set with the same grants); `t` and `e` grant no object in common (`LT PC Narrow` grants "LT PC B", `LT PC
+    /// Grant T` "LT PC T", :41-50). Then `t`'s exclusion takes only from `t`: `s` keeps its grants.
+    fn exclusion_stays_in_include(&self, i: usize, t: usize) -> bool {
+        let plain = |x: usize| {
+            let x = &self.sets[x];
+            x.includes.is_empty() && x.excludes.is_empty() && x.incomplete.is_none() && x.declared.is_ok()
+        };
+        let (set, inc) = (&self.sets[i], &self.sets[t]);
+        let e = match inc.excludes.as_slice() {
+            [ex] => self.one_set(ex),
+            _ => None,
+        };
+        let others: Vec<Option<usize>> = set
+            .includes
+            .iter()
+            .map(|n| self.one_set(n))
+            .filter(|x| *x != Some(t))
+            .collect();
+        let (Some(e), [Some(s)]) = (e, others.as_slice()) else {
+            return false;
+        };
+        set.declared == Ok(Content::default())
+            && set.excludes.is_empty()
+            && set.incomplete.is_none()
+            && set.includes.len() == 2
+            && inc.includes.is_empty()
+            && inc.incomplete.is_none()
+            && inc.declared.is_ok()
+            && plain(e)
+            && plain(*s)
+            && self.sets[*s].declared == self.sets[e].declared
+            && grants_apart(&inc.declared, &self.sets[e].declared)
+    }
+
+    /// Whether the assigned sets `found` (Role IDs `roles`) are in the shape corpus PR 1403 measured
+    /// (Y19PermExtAndCompose.al:65-71, PC_A_Composition ops 4-6, allowed, :269-287, after `Mock.Set(X)` and `Mock.Assign(Y)` in
+    /// both orders, :504-517): 'All Objects' and two sets, one of them `y` excluding exactly the other `x`; `x` and `y`
+    /// include nothing and `x` excludes nothing. Then `y`'s exclusion takes nothing from `x`.
+    fn assigned_exclusion_measured(&self, roles: &[String], found: &[usize]) -> bool {
+        let [a, b, c] = found else {
+            return false;
+        };
+        let all_objects = |k: usize| self.sets[k].role == "ALL OBJECTS";
+        let pair = match (all_objects(*a), all_objects(*b), all_objects(*c)) {
+            (true, false, false) => (*b, *c),
+            (false, true, false) => (*a, *c),
+            (false, false, true) => (*a, *b),
+            _ => return false,
+        };
+        let excludes_other = |y: usize, x: usize| {
+            matches!(self.sets[y].excludes.as_slice(), [ex] if self.one_set(ex) == Some(x))
+                && self.sets[x].excludes.is_empty()
+        };
+        let simple = |k: usize| {
+            let k = &self.sets[k];
+            k.includes.is_empty() && k.incomplete.is_none() && k.declared.is_ok()
+        };
+        roles.len() == 3
+            && self.sets[found.iter().copied().find(|&k| all_objects(k)).unwrap_or(0)]
+                .excludes
+                .is_empty()
+            && simple(pair.0)
+            && simple(pair.1)
+            && (excludes_other(pair.0, pair.1) || excludes_other(pair.1, pair.0))
+    }
+
     /// Set `i` with its included sets merged in and, with `exclude`, its excluded sets taken away (P11: an excluded set's
     /// own includes are excluded too, Y19PermComposition.al:126-127, :151-156). A reason goes to `why` wherever the
     /// result is only a lower bound of what BC grants.
@@ -335,6 +426,7 @@ impl SetModel {
         exclude: bool,
         visiting: &mut Vec<usize>,
         why: &mut Vec<String>,
+        assumed: &mut bool,
     ) -> Result<Content, String> {
         let set = &self.sets[i];
         if visiting.contains(&i) {
@@ -354,11 +446,24 @@ impl SetModel {
             match self.one_set(inc) {
                 // An included set that excludes sets: whether its exclusion reaches beyond it is not pinned, so it adds
                 // nothing here.
+                Some(t)
+                    if !self.sets[t].excludes.is_empty()
+                        && visiting.len() == 1
+                        && self.exclusion_stays_in_include(i, t) =>
+                {
+                    match self.expanded(t, true, visiting, why, assumed) {
+                        Ok(c) => {
+                            all.union(&c);
+                            *assumed = true;
+                        }
+                        Err(e) => why.push(e),
+                    }
+                }
                 Some(t) if !self.sets[t].excludes.is_empty() => why.push(format!(
                     "permission set '{}' includes `{inc}`, which excludes sets (not pinned)",
                     set.role
                 )),
-                Some(t) => match self.expanded(t, true, visiting, why) {
+                Some(t) => match self.expanded(t, true, visiting, why, assumed) {
                     Ok(c) => all.union(&c),
                     Err(e) => why.push(e),
                 },
@@ -372,7 +477,7 @@ impl SetModel {
             for ex in &set.excludes {
                 let before = why.len();
                 let taken = match self.one_set(ex) {
-                    Some(t) if self.sets[t].excludes.is_empty() => self.expanded(t, true, visiting, why),
+                    Some(t) if self.sets[t].excludes.is_empty() => self.expanded(t, true, visiting, why, assumed),
                     Some(_) => Err(format!(
                         "permission set '{}' excludes `{ex}`, which excludes sets too (not pinned)",
                         set.role
@@ -426,11 +531,12 @@ impl SetModel {
         let mut content = Content::default();
         let mut why = Vec::new();
         let mut found = Vec::new();
+        let mut assumed = false;
         for role in &key {
             match self.by_role.get(role).map(Vec::as_slice) {
                 Some([i]) => {
                     found.push(*i);
-                    match self.expanded(*i, true, &mut Vec::new(), &mut why) {
+                    match self.expanded(*i, true, &mut Vec::new(), &mut why, &mut assumed) {
                         Ok(c) => content.union(&c),
                         Err(e) => why.push(e),
                     }
@@ -447,14 +553,14 @@ impl SetModel {
             let mut ignored = Vec::new();
             let mut exact_exclusions = true;
             for &i in &found {
-                if let Ok(c) = self.expanded(i, false, &mut Vec::new(), &mut ignored) {
+                if let Ok(c) = self.expanded(i, false, &mut Vec::new(), &mut ignored, &mut false) {
                     whole.union(&c);
                 }
                 for ex in &self.sets[i].excludes {
                     let mut partial = Vec::new();
                     match self
                         .one_set(ex)
-                        .map(|t| self.expanded(t, true, &mut Vec::new(), &mut partial))
+                        .map(|t| self.expanded(t, true, &mut Vec::new(), &mut partial, &mut false))
                     {
                         Some(Ok(c)) if partial.is_empty() => taken.union(&c),
                         // An exclusion known only in part would take away too little from the union.
@@ -466,6 +572,9 @@ impl SetModel {
             let whole = whole.normalized();
             if !exact_exclusions {
                 why.push("an assigned set excludes a set that is not composed in full (not read)".into());
+            } else if whole != content.clone().normalized() && self.assigned_exclusion_measured(&key, &found) {
+                // Corpus PR 1403 measured that the exclusion takes nothing from the other assigned set: the union stands.
+                assumed = true;
             } else if whole != content.clone().normalized() {
                 why.push("an assigned set excludes what another assigned set grants (not pinned)".into());
                 content = whole;
@@ -476,6 +585,7 @@ impl SetModel {
                 content,
                 complete: why.is_empty(),
                 why_incomplete: why,
+                assumed_exclusion: assumed,
             })
         });
         lock().insert(key, result.clone());
@@ -701,6 +811,9 @@ impl Session {
         }
         self.permissions = SetModel::of(&self.engine).compose(&self.permission_roles);
         al_builtins::value::set_born_restricted(self.permissions.is_some());
+        if self.permissions.as_ref().is_some_and(|e| e.assumed_exclusion) {
+            assume(Assumption::PermissionSetExclusionStaysInSet);
+        }
         if self.permissions.is_none() {
             assume(Assumption::PermissionSetsGrantingEverythingUnrestricted);
         } else if self.runner_permission_sets {
@@ -716,6 +829,7 @@ impl Session {
                 content: eff.content.clone(),
                 complete: false,
                 why_incomplete: why,
+                assumed_exclusion: eff.assumed_exclusion,
             }));
         }
     }
@@ -805,12 +919,14 @@ impl Session {
                 None => {}
             }
         }
-        for (&object, frame) in self.frames.iter().zip(&self.call_stack) {
+        // The indirect letters of attributes on the stack: (levels, frame index), read once the object grant is known.
+        let mut letters: Vec<(Levels, usize)> = Vec::new();
+        for (i, (&object, frame)) in self.frames.iter().zip(&self.call_stack).enumerate() {
             for g in model.inherent_of(&engine, object, frame.routine).iter() {
                 match g {
                     Ok(Some((k, id, l))) if *k == access.kind && *id == access.id => {
                         if l[p] == 2 {
-                            unpinned = Some("an indirect [InherentPermissions] attribute".into());
+                            letters.push((*l, i));
                         } else {
                             u = merge(u, l[p]);
                         }
@@ -824,14 +940,20 @@ impl Session {
             return Verdict::Allow;
         }
         // The object grant `G`: the caller's own `Permissions` property (pin 4: Y19PermComposition.al:45-58, the frame's
-        // object only). Code of an extension object: which property applies is not pinned.
+        // object only). Code of an extension object: below.
         let grant = if flowfield {
             true
         } else if o.kind.extended().is_some() {
-            return Verdict::Refuse(format!(
-                "the code of {} {} makes an access the assigned permission sets do not grant directly; which Permissions property covers an extension object's code is not pinned (ADR-062)",
-                o.kind, o.name
-            ));
+            // The shapes corpus PR 1403 measured (`permissions/permission_probed/extension_code.rs`).
+            match self.extension_code_grant(access, caller) {
+                Some(g) => g,
+                None => {
+                    return Verdict::Refuse(format!(
+                        "the code of {} {} makes an access the assigned permission sets do not grant directly; which Permissions property covers an extension object's code is not pinned (ADR-062)",
+                        o.kind, o.name
+                    ));
+                }
+            }
         } else {
             match &*model.object_grants(&engine, caller) {
                 Ok(c) => c.level_of(access.kind, access.id, p) != 0,
@@ -843,6 +965,15 @@ impl Session {
                 }
             }
         };
+        // An indirect letter in the shape corpus PR 1403 measured gives the indirect level (`permission_probed/inherent_letter.rs`).
+        let u_before = u;
+        for (l, i) in letters {
+            if self.inherent_letter_measured(access, l, i, caller, target, u_before, grant) {
+                u = merge(u, 2);
+            } else {
+                unpinned = Some("an indirect [InherentPermissions] attribute".into());
+            }
+        }
         let decision = match decide(u, grant) {
             Decision::Deny { .. } if assumed != 0 && decide(merge(u, assumed), grant) == Decision::Allow => {
                 assume(Assumption::InherentPermissionsIndirectAndObjects);
@@ -1435,6 +1566,7 @@ impl Session {
         match verdict {
             Verdict::Allow => Ok(()),
             Verdict::Refuse(why) => Err(Signal::unsupported(why)),
+            Verdict::Deny { by, .. } if let Some(close) = self.extension_page_denial(access, by) => Err(close),
             Verdict::Deny { indirect, by } => self.write_denied(method, rec, args, access, indirect, by, caller),
         }
     }
@@ -1481,7 +1613,7 @@ impl Session {
             if access.id >= 2_000_000_000 {
                 return refuse("on a system table; probe P13 pins Tenant Media writes only");
             }
-            return self.read_denied(method, rec, args, access, indirect, by);
+            return self.read_denied(method, rec, args, access, indirect, by, caller);
         }
         let word = match access.op {
             Op::Insert => "Insert",
@@ -1550,7 +1682,7 @@ impl Session {
 
     /// BC's permission error: `text_word` in the message (`Read`, `IndirectRead`, `Insert`, ...), `code_word` in the code
     /// (`DB:Client<code_word>Denied`); `by` is the object whose code makes the access (its app names the error).
-    fn denial_error(&self, access: Access, text_word: &str, code_word: &str, by: usize) -> Signal {
+    pub(crate) fn denial_error(&self, access: Access, text_word: &str, code_word: &str, by: usize) -> Signal {
         // A test that reaches a report the runtime cannot run is refused at its first denied read: its report would
         // refuse it later, after the code between had changed what a later test of the codeunit observes
         // (reports/runtime/UPropertyTests.al Report_RequestPagePermissions_AndInherentPermissions and the test
@@ -1612,6 +1744,7 @@ impl Session {
         Ok(total == 0)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn read_denied(
         &mut self,
         method: al_builtins::record_op::RecordOp,
@@ -1620,6 +1753,7 @@ impl Session {
         access: Access,
         indirect: bool,
         by: usize,
+        caller: crate::permission_bulk_no_match::RecordCaller,
     ) -> Result<(), Signal> {
         use al_builtins::record_op::RecordOp as R;
         let refuse = |why: &str| Err(Signal::unsupported(unpinned_denial(access, why)));
@@ -1660,7 +1794,7 @@ impl Session {
             let found = al_data::Store::get(&*self.store_for(rec)?, &cx, &t, &pk)
                 .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             return if found.is_some() {
-                Err(self.denial_error(access, "Read", "Read", by))
+                Err(self.read_denial(method, access, indirect, by))
             } else {
                 Ok(())
             };
@@ -1684,7 +1818,7 @@ impl Session {
             let found = al_data::Store::count(&*self.store_for(rec)?, &cx, &t, &filters)
                 .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
             return if found > 0 && *g != [0; 16] {
-                Err(self.denial_error(access, "Read", "Read", by))
+                Err(self.read_denial(method, access, indirect, by))
             } else {
                 Ok(())
             };
@@ -1696,7 +1830,7 @@ impl Session {
         };
         if method == R::Find && exact {
             return if self.row_exists(rec)? {
-                Err(self.denial_error(access, "Read", "Read", by))
+                Err(self.read_denial(method, access, indirect, by))
             } else if self.key_is_blank(rec, &t)? {
                 // A blank key finds no row and raises nothing (AEDependencyTableReads.al `Customer_find_eq`).
                 Ok(())
@@ -1714,18 +1848,23 @@ impl Session {
             // FindFirst with a filter that matches no row is denied (AEDependencyTableReads.al `Customer_filter_no_match`); the
             // other methods are not pinned for it.
             if method == R::FindFirst {
-                return Err(self.denial_error(access, "Read", "Read", by));
+                return Err(self.read_denial_no_match(access, indirect, by));
             }
-            return refuse("a read other than FindFirst that finds no row on a table that has rows");
+            use self::permission_probed::reads::NoMatchRead;
+            return match self.read_no_match_probed(method, rec, args, access, indirect, by, caller, total)? {
+                Some(NoMatchRead::Denied) => Err(self.denial_error(access, "Read", "Read", by)),
+                Some(NoMatchRead::Allowed) => Ok(()),
+                None => refuse("a read other than FindFirst that finds no row on a table that has rows"),
+            };
         }
         match method {
             // Next on a fresh record: no filter and a blank key (`Customer_next`).
             R::Next if !filters.is_empty() || !self.key_is_blank(rec, &t)? => {
                 refuse("Next on a record with a filter or a position")
             }
-            R::Next => Err(self.denial_error(access, "Read", "Read", by)),
+            R::Next => Err(self.read_denial(method, access, indirect, by)),
             R::Find | R::FindFirst | R::FindLast | R::FindSet | R::Count | R::CountApprox | R::IsEmpty => {
-                Err(self.denial_error(access, "Read", "Read", by))
+                Err(self.read_denial(method, access, indirect, by))
             }
             R::CalcSums if !indirect && self.session_read_level(access) == 0 => {
                 Err(self.denial_error(access, "IndirectRead", "Read", by))
@@ -1887,6 +2026,7 @@ mod tests {
             content,
             complete: true,
             why_incomplete: vec![],
+            assumed_exclusion: false,
         };
         let at = |id, op| e.level(Access { kind: 0, id, op });
         assert_eq!(at(50100, Op::Read), 1);
