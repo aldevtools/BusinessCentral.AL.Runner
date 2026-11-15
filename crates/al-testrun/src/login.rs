@@ -35,12 +35,10 @@
 //!     static reach binds a manual subscriber, reseeds `Random`, or writes a codeunit global the test codeunit reads.
 //!
 //! What is still not modelled, in one list:
-//! - What Microsoft's login code adds around the app's subscribers (its subscribers to the events, the checklist setup)
-//!   is there only on the Raise path. [`decide`] raises the login for a test codeunit whose static reach can see the
-//!   tables or the state the app's subscribers leave; another one that reads what only Microsoft's login code leaves runs
-//!   without it. The `OnAfterLogin` subscribers of partner dependency apps (a known publisher that is not Microsoft) do not
-//!   run off the Raise path either: a test that touches their tables, or can see what else they are known to leave, is not
-//!   run ([`dependency_login`]); what their reach does that the analysis cannot follow is not modelled.
+//! - What the dependency apps' login code adds around the app's subscribers (Microsoft's and any other dependency app's
+//!   subscribers to the events, the checklist setup) is there only on the Raise path. [`decide`] raises the login for a
+//!   test codeunit whose static reach can see the tables or the state the app's subscribers leave; another one that
+//!   reads what only the dependency apps' login code leaves runs without it.
 //! - Own: the subscribers leave alone what they leave inside the login. Registered as the assumption
 //!   `login-own-registration-reads-alone`, marked when a test touches a table they wrote.
 //! - Own: whether the checklist is set up is asked before the app's own Company Triggers subscribers run; one that marks
@@ -202,88 +200,6 @@ pub(crate) fn after_login_subscribers(lowered: &Lowered, events: &Registry) -> s
         .filter(|s| !s.manual)
         .map(|s| (s.object, s.routine))
         .collect()
-}
-
-/// What the "System Initialization".`OnAfterLogin` subscribers of partner dependency apps leave in a test session where the
-/// runner does not raise the login through Microsoft's code ([`dependency_login`]).
-#[derive(Debug)]
-pub(crate) struct DependencyLogin {
-    /// The tables their reach touches: a test that reads or writes one is not run (the store's watch,
-    /// `install::CompanyOpenWrites`).
-    pub tables: BTreeSet<u32>,
-    /// Who they are and why they count, for the reason texts.
-    pub who: String,
-    /// Their reach, taken together.
-    leaves: ReachFacts,
-}
-
-impl DependencyLogin {
-    /// Why a routine of the test codeunit whose static reach is `test` is not run: it can see what the subscribers leave
-    /// besides the rows of known tables. That is what [`watched_state`] names for the apps' own subscribers (a manual
-    /// subscriber they bind, a `Random` sequence they reseed, code the analysis does not follow, a global of a
-    /// SingleInstance codeunit they write that the routine reads); session state they change that the routine reads
-    /// (every routine reads WorkDate and the language, `state::READ_BY_ALL`; the draws of `Random` do not last past the
-    /// run seed's restart of each test, ADR-061); and a write to a table not known before the run, when the routine
-    /// touches a table. A routine whose reach is not known can see each of them. What the subscribers reach that the
-    /// analysis cannot follow keeps main's result, as for the apps' own subscribers ([`decide`]).
-    pub(crate) fn refuses(&self, lowered: &Lowered, test: &ReachFacts) -> Option<String> {
-        let what = if let Some(what) = watched_state(lowered, &self.leaves, |g| {
-            test.unknown.is_some() || test.globals_read.contains(&g)
-        }) {
-            format!("they {what}")
-        } else if let Some(bit) = {
-            let read = if test.unknown.is_some() {
-                !0
-            } else {
-                test.state_reads | state::READ_BY_ALL
-            };
-            let bits = self.leaves.state_writes & !state::RANDOM & read;
-            (bits != 0).then(|| 1 << bits.trailing_zeros())
-        } {
-            format!("they change {}, which this test reads", state::name(bit))
-        } else if self.leaves.writes_any && (test.unknown.is_some() || test.reads_any || !test.touched.is_empty()) {
-            "they write a table not known before the run, and this test reads or writes tables".to_string()
-        } else {
-            return None;
-        };
-        Some(format!("{}: {what}", self.who))
-    }
-}
-
-/// What the "System Initialization".`OnAfterLogin` subscribers of partner dependency apps (a dependency app whose manifest
-/// publisher is known and is not Microsoft: `install_orders::is_microsoft`) leave in a test session where the runner does
-/// not raise the login through Microsoft's code ([`Login::None`], [`Login::Own`]). On BC they run in every session, the test
-/// session too (corpus PR 1405, open: G1sInstallSessionTests.al:100 with G1sXaInstall.al:88-96, a group 1 filter they
-/// set is there in the test session; al-runner issue 8115, scenario s09). Their tables are watched for every test, and
-/// [`DependencyLogin::refuses`] judges, per routine of the test codeunit, what else they leave. A partner dependency app
-/// whose manifest names Microsoft as its publisher, or no publisher, counts as Microsoft's: its subscribers stay as the
-/// module header's "not modelled" list says (review of al-runner PR 8119, probe n13). Made once per engine.
-pub(crate) fn dependency_login(engine: &Engine, lowered: &Lowered) -> Option<std::sync::Arc<DependencyLogin>> {
-    struct Made(Option<std::sync::Arc<DependencyLogin>>);
-    let events = &engine.events;
-    let objects = &lowered.program.objects;
-    let subs: Vec<(usize, usize)> = after_login_subscribers(lowered, events)
-        .iter()
-        .copied()
-        .filter(|&(o, _)| lowered.dependency[o] && !crate::install_orders::is_microsoft(lowered, objects[o].app))
-        .collect();
-    let &(o, r) = subs.first()?;
-    let index = engine.derived(|| ReachIndex::new(events, lowered));
-    let made = engine.derived(|| {
-        let mut leaves = ReachFacts::default();
-        for &(so, sr) in &subs {
-            leaves.absorb(&crate::runtime::written::reach_facts(events, lowered, &index, so, sr));
-        }
-        Made(Some(std::sync::Arc::new(DependencyLogin {
-            tables: leaves.touched.clone(),
-            who: format!(
-                "dependency app subscriber {}.{} to \"System Initialization\".OnAfterLogin runs in the test session on BC (corpus PR 1405, open), and the runner does not raise the login for this test codeunit",
-                objects[o].name, objects[o].routines[r].name
-            ),
-            leaves,
-        })))
-    });
-    made.0.clone()
 }
 
 /// Why the apps under test's login subscribers `subs` read what the dependency apps' login code writes before they run,
@@ -542,7 +458,7 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
         return Login::Raise;
     }
     if let Some(why) = watched {
-        if let Some(what) = watched_state(lowered, &left.facts, |g| mine.reads_global(g)) {
+        if let Some(what) = watched_state(lowered, &left.facts, &mine) {
             return Login::Refused(format!(
                 "{why}: the login subscribers of the apps under test {what}, which is not a row the watch can follow"
             ));
@@ -559,11 +475,7 @@ pub(crate) fn decide(engine: &Engine, lowered: &Lowered, test: usize, watched: O
 /// (any event can reach it), a `Random` sequence they reseed (it goes on past the run seed's restart of each test,
 /// ADR-061), code the analysis does not follow (`state::OTHER`), or a global of a SingleInstance codeunit they write that
 /// the test codeunit reads (also through a helper codeunit).
-fn watched_state(
-    lowered: &Lowered,
-    left: &ReachFacts,
-    reads_global: impl Fn((usize, usize)) -> bool,
-) -> Option<&'static str> {
+fn watched_state(lowered: &Lowered, left: &ReachFacts, mine: &JoinedReach) -> Option<&'static str> {
     if left.state_writes & state::BINDING != 0 {
         Some("bind a manual event subscriber")
     } else if left.state_writes & state::RANDOM_SEED != 0 {
@@ -572,7 +484,7 @@ fn watched_state(
         Some(
             "run code the analysis does not follow (a .NET object, a background session or task, an unclassified builtin)",
         )
-    } else if (left.globals_written.iter()).any(|&g| reads_global(g) && single_instance(lowered, g.0)) {
+    } else if (left.globals_written.iter()).any(|&g| mine.reads_global(g) && single_instance(lowered, g.0)) {
         Some("write a codeunit global this test codeunit reads")
     } else {
         None

@@ -1116,9 +1116,6 @@ pub(crate) struct CompanyOpenWrites {
     /// The tables the apps under test's own login subscribers wrote in the session the pin measured
     /// (`login::Login::Own`): a test that touches one relies on `login-own-registration-reads-alone`.
     pub own_login: BTreeSet<u32>,
-    /// The login was not raised through Microsoft's code: what the partner dependency apps' login subscribers leave
-    /// (`login::dependency_login`).
-    pub dependency_login: Option<std::sync::Arc<crate::login::DependencyLogin>>,
 }
 
 impl CompanyOpenWrites {
@@ -1137,13 +1134,7 @@ impl CompanyOpenWrites {
     /// no subscriber wrote, the routine cannot see the writes, or its reach is not known: then the routine runs with the
     /// written tables watched, and [`CompanyOpenWrites::touched`] decides after it ran. The tables of `watched_login` are
     /// only watched: in Microsoft's apps the static reach of nearly every write reaches them (`login.rs`).
-    ///
-    /// Asked first, for any routine: what the partner dependency apps' login subscribers leave besides rows
-    /// ([`crate::login::DependencyLogin::refuses`]).
     pub fn refuses(&self, facts: &crate::runtime::written::ReachFacts, lowered: &Lowered) -> Option<String> {
-        if let Some(why) = self.dependency_login.as_ref().and_then(|d| d.refuses(lowered, facts)) {
-            return Some(why);
-        }
         self.who.as_ref()?;
         if facts.unknown.is_some() {
             return None;
@@ -1158,7 +1149,6 @@ impl CompanyOpenWrites {
         let mut out = self.tables.clone();
         out.extend(self.watched_login.iter().flat_map(|(t, _)| t.iter().copied()));
         out.extend(self.own_login.iter().copied());
-        out.extend(self.dependency_login.iter().flat_map(|d| d.tables.iter().copied()));
         out
     }
 
@@ -1174,11 +1164,7 @@ impl CompanyOpenWrites {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LoginOwnRegistrationReadsAlone);
         }
         (hits.iter())
-            .find(|t| {
-                self.tables.contains(t)
-                    || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t))
-                    || self.dependency_login.as_ref().is_some_and(|d| d.tables.contains(t))
-            })
+            .find(|t| self.tables.contains(t) || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t)))
             .copied()
     }
 
@@ -1187,12 +1173,6 @@ impl CompanyOpenWrites {
         let name = Self::table_name(lowered, t);
         if self.tables.contains(&t) {
             return Some(self.reason(&format!("this test read or wrote table {name} while it ran")));
-        }
-        if let Some(d) = self.dependency_login.as_ref().filter(|d| d.tables.contains(&t)) {
-            return Some(format!(
-                "{}: it touches table {name}, which this test read or wrote",
-                d.who
-            ));
         }
         let (_, why) = self.watched_login.as_ref().filter(|(tables, _)| tables.contains(&t))?;
         Some(format!(
@@ -1264,10 +1244,6 @@ fn open_test_session_company(
         }
     }
     let raise = matches!(decision, crate::login::Login::Raise);
-    // Raised through Microsoft's code, the login reaches the partner dependency apps' subscribers too.
-    if !raise {
-        wrote.dependency_login = crate::login::dependency_login(&engine, lowered);
-    }
     let (own, watched): (&[crate::login::OwnEvent], _) = match &decision {
         crate::login::Login::Own { events, watched } => (events, *watched),
         crate::login::Login::Refused(why) => return Err(why.clone()),

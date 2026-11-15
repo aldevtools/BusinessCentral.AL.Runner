@@ -31,7 +31,7 @@ const SHOWN_DIFFERENCES: usize = 3;
 
 /// Whether app `app` (index in `Program::apps`) counts as Microsoft's: its manifest's publisher is `Microsoft`, or no
 /// manifest gave a publisher (then the app keeps the rules of amendment 6: no partner rule without the fact).
-pub(crate) fn is_microsoft(lowered: &Lowered, app: u32) -> bool {
+fn is_microsoft(lowered: &Lowered, app: u32) -> bool {
     lowered.program.apps.get(app as usize).is_none_or(|a| {
         let p = a.publisher.trim();
         p.is_empty() || p.eq_ignore_ascii_case("Microsoft")

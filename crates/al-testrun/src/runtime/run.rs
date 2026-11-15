@@ -475,9 +475,7 @@ fn run_codeunit_inner(
     let leak: BTreeSet<u32> = scratch.leak.as_deref().cloned().unwrap_or_default();
     // The reach facts of a routine of this codeunit, for the writes of the Company Triggers subscribers.
     let company_open_refuses = |r: usize| -> Option<String> {
-        if company_open.who.is_none() && company_open.dependency_login.is_none() {
-            return None;
-        }
+        company_open.who.as_ref()?;
         let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
         company_open.refuses(&reach_facts(&engine.events, lowered, &index, object, r), lowered)
     };
