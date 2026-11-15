@@ -1211,7 +1211,8 @@ OTHER
                          no test); past it, every test of the codeunit gets the timeout row. 0: no limit.
                          Sleep does not wait, but the time it asks for, summed over the test,
                          counts toward N: a test whose Sleep calls go past N is stopped and
-                         reported the same way.
+                         reported the same way. In `serve`: a start option; the runTests field
+                         `testTimeoutSecs`, on the request or on an entry, sets it for that one.
     --skip-after-timeout  Once a test is stopped at the time limit, do not run the rest of its codeunit:
                          the tests after it end as not run, with a reason that names the stopped test.
                          Default: they run, since a later pass is still a result. Also for --affected,

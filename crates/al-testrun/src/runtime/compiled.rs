@@ -279,6 +279,9 @@ pub struct EntryRun {
     /// The resource files this entry replaces in some apps: (app as the caller numbered it, the replaced files only).
     /// The app's other files are read from the program, which every entry shares (al-runner issue 8026).
     pub resources: Vec<(usize, ResourceFiles)>,
+    /// The time limit of this entry's tests (al-runner issue 8125): `None`: `RunOptions::test_time_limit`;
+    /// `Some(None)`: no limit.
+    pub test_time_limit: Option<Option<std::time::Duration>>,
 }
 
 /// One pass of `CorpusRuntime::run_compiled` (an entry, or the whole run), in program order.
@@ -287,6 +290,53 @@ pub(crate) struct Pass {
     pub(crate) run_only: Option<Arc<std::collections::BTreeSet<(u32, String)>>>,
     pub(crate) hooks: crate::events::Hooks,
     pub(crate) resources: al_vm::ResourceOverrides,
+    /// The time limit of the pass's tests (`RunOptions::test_time_limit`, or the entry's own).
+    pub(crate) limit: Option<std::time::Duration>,
+}
+
+impl Pass {
+    /// The passes of a run: one, or one per entry (issue 5635), each over the same compile and install baseline. `only`:
+    /// the run's selection in program order; `in_program_order` puts an entry's selection in program order; `order`:
+    /// per app of the program, its index as the caller gave it.
+    pub(crate) fn of_run<F>(
+        opts: &RunOptions,
+        only: &Option<Vec<(usize, u32)>>,
+        memory: &super::memory::Plan,
+        order: &[usize],
+        in_program_order: F,
+    ) -> Vec<Pass>
+    where
+        F: Fn(&[(usize, u32)]) -> Vec<(usize, u32)>,
+    {
+        if opts.entries.is_empty() {
+            return vec![Pass {
+                only: only.clone(),
+                run_only: opts.run_only.clone(),
+                hooks: memory.hooks(&opts.hooks),
+                resources: Default::default(),
+                limit: opts.test_time_limit,
+            }];
+        }
+        let resources = |e: &EntryRun| {
+            e.resources
+                .iter()
+                .filter_map(|(caller, r)| {
+                    let p = order.iter().position(|o| o == caller)?;
+                    Some((p, Arc::new(r.clone())))
+                })
+                .collect()
+        };
+        opts.entries
+            .iter()
+            .map(|e| Pass {
+                only: e.only.as_deref().map(&in_program_order).or_else(|| only.clone()),
+                run_only: e.run_only.clone(),
+                hooks: memory.hooks(&e.hooks),
+                resources: resources(e),
+                limit: e.test_time_limit.unwrap_or(opts.test_time_limit),
+            })
+            .collect()
+    }
 }
 
 /// What [`RunOptions::debug_ready`] sees of the compile.
