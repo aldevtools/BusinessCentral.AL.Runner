@@ -1,13 +1,12 @@
 //! A denied ModifyAll or DeleteAll whose filter matches no row of a table that holds rows (ADR-062 probe P2).
 //!
-//! BC denies it as it denies one that matches rows: record/Y19PermWrites.al:294-307 pins one shape, and corpus PR 1403
-//! (open; record/Y19PermNoMatchShapes.al, record/Y19PermNoMatchTriggers.al) measured the denial in each shape it changed,
-//! on each major its CI runs (assumption `bulk-write-no-match-denied`). The measured shapes are allowlists of their facts
-//! here; every other no-match shape is refused.
+//! BC denies it as it denies one that matches rows: record/Y19PermWrites.al:294-307 pins one shape, and
+//! tests/al-language/record/Y19PermNoMatchShapes.al:139-269 and tests/al-language/record/Y19PermNoMatchTriggers.al:180-303
+//! pin the denial in each shape they change. The measured shapes are allowlists of their facts here; every other no-match
+//! shape is refused.
 
 use crate::Session;
 use crate::permissions::{Access, Op};
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::FilterExpr;
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
@@ -153,7 +152,7 @@ impl Session {
         let target = self.no_match_target(rec, rows)?;
         // Facts every measured shape shares: a Record variable (not a RecordRef), code whose object grants nothing on the
         // table, a table that runs no trigger (Y19PermObjects.al:9-27 "LT Y19 Row"; Y19PermNoMatchShapes.al:15-26 "LT NM
-        // Target", Y19PermNoMatchTriggers.al:19-34 "LT NT Target", corpus PR 1403).
+        // Target", Y19PermNoMatchTriggers.al:19-34 "LT NT Target").
         let table = rec.borrow().table as usize;
         if caller != RecordCaller::Record || indirect || !self.table_runs_no_trigger(table) {
             return Ok(false);
@@ -166,7 +165,6 @@ impl Session {
             && self.probed_sets(table)
             && self.probed_no_match_caller(by)
         {
-            assume(Assumption::BulkWriteNoMatchDenied);
             return Ok(true);
         }
         Ok(false)
@@ -229,7 +227,7 @@ impl Session {
             && self.test_codeunit_code(by)
     }
 
-    /// The sets corpus PR 1403 measured: `Permissions Mock.Set(X)` assigned 'All Objects' and then one set X, declared by
+    /// The sets the no-match probes measured: `Permissions Mock.Set(X)` assigned 'All Objects' and then one set X, declared by
     /// the app that declares table `table` (Y19PermNoMatchShapes.al:112-126, :296; Y19PermNoMatchTriggers.al:158-167, :314),
     /// in a test codeunit with `TestPermissions = Disabled` (Y19PermNoMatchShapes.al:131, Y19PermNoMatchTriggers.al:172).
     pub(crate) fn probed_sets(&self, table: usize) -> bool {
@@ -253,7 +251,7 @@ impl Session {
         all == "ALL OBJECTS" && set_app == Some(heads[table].app) && disabled
     }
 
-    /// The code that makes the access in a shape corpus PR 1403 measured (assumption `bulk-write-no-match-denied`):
+    /// The code that makes the access in a shape the no-match probes measured:
     /// - a procedure of the test codeunit, with only procedures of it below, while no record method runs
     ///   (Y19PermNoMatchShapes.al:342-371, ops 1-6);
     /// - a procedure of a codeunit of the app without properties, called by procedures of the test codeunit while no record
@@ -359,7 +357,7 @@ impl Session {
     }
 }
 
-/// The record calls corpus PR 1403 measured as the start of the OnDelete trigger of table `table`, each a statement on that
+/// The record calls the no-match probes measured as the start of the OnDelete trigger of table `table`, each a statement on that
 /// table with RunTrigger true: `Delete(true)` of a Record variable (Y19PermNoMatchShapes.al:372-391,
 /// Y19PermNoMatchTriggers.al:407-458), also of a temporary one (Y19PermNoMatchTriggers.al:401-406, op 34); `DeleteAll(true)`
 /// of a Record variable, filtered or not (Y19PermNoMatchTriggers.al:387-393, ops 31 and 32); `Delete(true)` of a RecordRef
@@ -382,7 +380,7 @@ fn probed_delete_start(c: &RecordCall, table: usize) -> bool {
     .contains(c)
 }
 
-/// The record call corpus PR 1403 measured as the start of an OnBeforeDeleteEvent subscriber: the statement `Delete(true)`
+/// The record call the no-match probes measured as the start of an OnBeforeDeleteEvent subscriber: the statement `Delete(true)`
 /// of a Record variable, not temporary, of table `table` (Y19PermNoMatchTriggers.al:447-451, op 122).
 fn probed_subscriber_start(table: usize) -> RecordCall {
     RecordCall {
@@ -395,7 +393,7 @@ fn probed_subscriber_start(table: usize) -> RecordCall {
     }
 }
 
-/// The written shape of a no-match bulk write corpus PR 1403 measured (Y19PermNoMatchShapes.al:15-26 "LT NM Target", one
+/// The written shape of a no-match bulk write the probes measured (Y19PermNoMatchShapes.al:15-26 "LT NM Target", one
 /// key; Y19PermNoMatchTriggers.al:19-34 "LT NT Target", a second key on the Code[10] field "Parent Code"; both an Integer
 /// primary key Id as first field; per company), one or two rows, none matching (Seed, Y19PermNoMatchShapes.al:302-330),
 /// and one filter, a range of one value in filter group 0, on a field of FieldClass Normal:

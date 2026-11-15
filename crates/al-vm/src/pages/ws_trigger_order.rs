@@ -1,7 +1,7 @@
 //! The row triggers and the DataCaptionExpression runs of a Worksheet the test opens itself with `TestPage.OpenEdit` or
-//! `OpenView` (al-runner issue 8109). Measured by corpus PR 1401, pages/properties/WorksheetTriggersOpen.al (codeunit 78924
-//! "TRG Tests"; merged, not yet in the pinned corpus): the cells run under the assumption
-//! `worksheet-open-trigger-caption-order`.
+//! `OpenView` (al-runner issue 8109). Pinned by tests/al-language/pages/properties/WorksheetTriggersOpen.al (codeunit 78924
+//! "TRG Tests"): Cap_Three_Edit :292, Cap_Three_View :322, Cap_Three_EditNew :352, Cap_Empty_Edit :438, Cap_Empty_View :468,
+//! Cap_Empty_EditNew :498, NoCap_Empty_View :739.
 //! - The expression runs right after the OnAfterGetRecord of each row the window reads, once after the two reads of the current
 //!   row, and right after OnNewRecord and OnAfterGetCurrRecord (Cap_Three_Edit `AGR A | DC=Cap RowA | AGR B | DC=Cap RowB |
 //!   AGR C | DC=Cap RowC | AGR A | AGR A | DC=Cap RowA | AGC A | DC=Cap RowA`, Next `AGR B | AGR B | DC=Cap RowB | AGC B |
@@ -17,7 +17,6 @@
 use super::pinned_body::{Callees, callees_are, page_is, routine_text, table_is};
 use super::pinned_shape::TestCall;
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
 
 /// What a page in a measured cell carries from its open (`PageState::ws_trigger_order`).
@@ -148,7 +147,7 @@ enum Rows {
 }
 
 const STEP_REFUSAL: &str = "a call of the test on a Worksheet that ran its row triggers and DataCaptionExpression in the order \
-                            WorksheetTriggersOpen.al of corpus PR 1401 measured, other than the probe's calls (not pinned; \
+                            WorksheetTriggersOpen.al measured, other than the probe's calls (not pinned; \
                             al-runner issue 8109)";
 
 impl Session {
@@ -158,9 +157,6 @@ impl Session {
         let offered = self.offers_new_line(st)?;
         let cell = self.ws_open_cell(st)?;
         let view_empty = cell.as_ref().is_some_and(|c| c.view_empty);
-        if cell.is_some() {
-            assume(Assumption::WorksheetOpenTriggerCaptionOrder);
-        }
         st.borrow_mut().ws_trigger_order = cell;
         Ok(offered || view_empty)
     }
@@ -341,7 +337,6 @@ impl Session {
 
     /// Runs the expression of a page in a measured cell and keeps what it returned.
     fn run_ws_caption(&mut self, st: &St) -> Result<(), Signal> {
-        assume(Assumption::WorksheetOpenTriggerCaptionOrder);
         if let Some(o) = st.borrow_mut().ws_trigger_order.as_mut() {
             o.due = false;
         }

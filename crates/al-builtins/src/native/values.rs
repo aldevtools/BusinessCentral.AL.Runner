@@ -171,7 +171,9 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
         // Clear in OnModify or in a table event): nothing pins what xRec shows after the Clear, so Rec gets a new buffer and xRec
         // keeps its content, as before issue 6791 (crates/al-vm/tests/store/blob_clear_shared_xrec.rs).
         Value::Blob(b) if blob_clears_in_place(&*ctx, b) => {
-            let fresh = crate::stream::new_blob().borrow().clone();
+            let mut fresh = crate::stream::new_blob().borrow().clone();
+            fresh.content_edits = b.borrow().content_edits.wrapping_add(1);
+            fresh.line_breaks = crate::stream_line_breaks::LineBreakHistory::cleared(fresh.content_edits);
             *b.borrow_mut() = fresh;
             Value::Blob(b.clone())
         }

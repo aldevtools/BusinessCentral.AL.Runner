@@ -687,7 +687,7 @@ fn dates_out_of_the_sql_range_fail_at_the_next_access() {
 fn unpinned_sql_range_cases_are_refused() {
     let r = dates("ModifyTo", vec![date(1600, 6, 1, false)]);
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
-    // Modify_Date_ClosingAndOutside_1 and _2 (SqlDateFloor1753.al, assumption `sql-date-first-year`): the Modify() of a closing
+    // Modify_Date_ClosingAndOutside_1 and _2 (SqlDateFloor1753.al): the Modify() of a closing
     // date in 1753 raises; it was refused here before corpus PR 1398 measured it.
     let r = dates("ModifyTo", vec![date(1753, 1, 1, true)]);
     assert!(
@@ -700,7 +700,7 @@ fn unpinned_sql_range_cases_are_refused() {
     );
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
     // An Insert of 1753-06-15 into a table with a Blob field raises at the Insert since corpus PR 1398 measured it
-    // (SqlDateFloor1753.al Blob_Date_1, assumption `sql-date-first-year`); main refused it. 1753-01-01 is pinned only into a
+    // (SqlDateFloor1753.al Blob_Date_1); main refused it. 1753-01-01 is pinned only into a
     // table without a Blob field (P130DateFilters.al:255-293): into this table it stays refused, as on main.
     let r = dates("StoreBlobTable", vec![date(1753, 6, 15, false)]);
     assert!(

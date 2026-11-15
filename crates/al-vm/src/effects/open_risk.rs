@@ -1,14 +1,13 @@
 //! Whether a page's DataCaptionExpression can raise an error or leave something behind when it runs (al-runner issue 6924).
 //!
 //! BC runs the expression of a Worksheet at the open (corpus pages/properties/DataCaptionExprWorksheet.al:412, :439, :572,
-//! :586); main's path runs it only at a caption read. An expression that can neither raise nor write anything but its own
-//! locals changes nothing AL code or a test can see except the caption, so the page keeps main's open (assumption
-//! `data-caption-pure-expression-open-skipped`) and refuses at the caption read (`pages/data_caption_open.rs`). Everything else
-//! refuses at the open.
+//! :586); main's path runs it only at a caption read. A page outside the measured cells refuses at the open and names what its
+//! expression can do (`pages/data_caption_open.rs`); the cells of DataCaptionGetOpen.al take only an expression that can do
+//! something (`pages/data_caption_get_open.rs`); a Worksheet the test opened refuses where it can (`pages/ws_trigger_order.rs`).
 //!
 //! The walk is [`Walk`] with `strict` set. It is an allowlist: each construct below is let through only in the form whose
 //! argument kinds, operand types and constant values cannot raise; every other construct counts, with the reason the open
-//! names. The entry text of the assumption lists the same forms; a change here changes it too.
+//! names.
 
 use super::{Found, Inst, Walk};
 use crate::Engine;

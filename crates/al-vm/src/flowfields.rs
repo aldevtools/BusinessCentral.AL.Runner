@@ -35,7 +35,7 @@ pub(crate) struct CalcFrame {
 /// Who asked for the value of a FlowField.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Asked {
-    /// The AL call `Record.CalcFields` on a Record variable (`Session::asked_by_calc_fields`). Other callers of `Session::calc_fields` (SetAutoCalcFields, pages,
+    /// The AL call `Record.CalcFields` of one field on a Record variable, by codeunit code (`Session::flow_op`). Other callers of `Session::calc_fields` (SetAutoCalcFields, pages,
     /// reports, xmlports, table relations) pass `Other`.
     CalcFields,
     /// A source row's condition on a FlowField of its own table.

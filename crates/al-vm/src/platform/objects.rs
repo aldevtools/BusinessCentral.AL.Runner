@@ -175,8 +175,8 @@ pub(crate) struct Maps {
     tables: HashMap<u32, usize>,
     /// Page id to the page extensions that extend it, in program order.
     page_extensions: HashMap<u32, Vec<usize>>,
-    /// Ids of the tables that a table extension of the table's own app extends ([`Catalog::extended_in_own_app`]).
-    extended_in_own_app: std::collections::HashSet<u32>,
+    /// The table extensions of a table's own app, by table id, as object indexes ([`Catalog::own_app_extensions`]).
+    own_app_extensions: std::collections::HashMap<u32, Vec<usize>>,
 }
 
 impl<'a> Catalog<'a> {
@@ -216,12 +216,16 @@ impl<'a> Catalog<'a> {
                     }
                 }
             }
-            // A modify-only extension counts too (metadata/platform-tables/PlatformMetadataColumnValues.al:784-815, corpus PR 1410).
-            for o in self.objects.iter().filter(|o| o.kind == al_ir::ObjKind::TableExtension) {
+            for (i, o) in self
+                .objects
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.kind == al_ir::ObjKind::TableExtension)
+            {
                 if let Some(base) = o.extends_id
                     && m.tables.get(&base).is_some_and(|&t| self.objects[t].app == o.app)
                 {
-                    m.extended_in_own_app.insert(base);
+                    m.own_app_extensions.entry(base).or_default().push(i);
                 }
             }
             m.sees = sees(self.apps);
@@ -235,9 +239,10 @@ impl<'a> Catalog<'a> {
             .map_or_else(Vec::new, |v| v.iter().map(|&i| &self.full[i]).collect())
     }
 
-    /// Whether a table extension of the app of table `id` (the one [`table_by_id`](Self::table_by_id) finds) extends it.
-    pub(super) fn extended_in_own_app(&self, id: u32) -> bool {
-        self.maps().extended_in_own_app.contains(&id)
+    /// The table extensions of the app of table `id` (the one [`table_by_id`](Self::table_by_id) finds) that extend it, as object
+    /// indexes.
+    pub(super) fn own_app_extensions(&self, id: u32) -> &[usize] {
+        self.maps().own_app_extensions.get(&id).map_or(&[], Vec::as_slice)
     }
 
     /// The first table object with this id.

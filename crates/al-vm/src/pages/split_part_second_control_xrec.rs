@@ -1,9 +1,10 @@
 //! The xRec a new line of an AutoSplitKey ListPart hands to OnInsertRecord when SetValue moves the focus to a second control
-//! and the line is inserted there: the row the line was started below, also when that row is the last row of the view (open
-//! corpus PR 1399, pages/parts/PartSplitKeyInsertTiming.al:552 Timing_Card_Two_DescrSeq `INS 35000 x=20000`, :582, :612,
-//! :644; :921 Timing_CardPK_Two `INS 50000 x=40000`, :953; :1197, :1227, :1286 TableTrig_Card_* with table code; the same on
-//! all three majors). Only the measured shape takes it, under the assumption `part-split-key-second-control-xrec`; every
-//! other shape keeps the earlier path (the blank xRec after the last row, `insert_draft`).
+//! and the line is inserted there: the row the line was started below, also when that row is the last row of the view
+//! (tests/al-language/pages/parts/PartSplitKeyInsertTiming.al:530 Timing_Card_Two_DescrSeq, `INS 35000 x=20000` :552; :560
+//! Timing_Card_Two_SeqDescr, :590 Timing_Card_Two_QtyDescr, :620 Timing_Card_Three; :899 Timing_CardPK_Two, `INS 50000
+//! x=40000`, :929 Timing_CardPK_Three; :1175 TableTrig_Card_DescrSeq, :1205 TableTrig_Card_SeqDescr, :1262
+//! TableTrig_Card_Three with table code). Only the measured shape takes it; every other shape keeps the earlier path (the
+//! blank xRec after the last row, `insert_draft`).
 
 use super::pinned_shape::{PartStep, PinnedPart, TestCall, code_stmts, table_code, text_log_routine, unconverted};
 use super::*;
@@ -22,7 +23,6 @@ impl Session {
             None
         };
         let before = anchor.map(|anchor| {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PartSplitKeySecondControlXrec);
             let before = self.page_xrec_fields(st);
             self.set_xrec_fields(st, anchor);
             before

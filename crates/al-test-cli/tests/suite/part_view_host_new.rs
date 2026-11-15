@@ -1,5 +1,5 @@
-//! `New()` on a ListPart of a host the test opened with OpenView (al-vm `pages/part_view_host_new.rs`, assumption
-//! `part-new-on-view-host-denied`, open corpus PR 1399): the measured shape raises BC's error, another part refuses.
+//! `New()` on a ListPart of a host the test opened with OpenView (al-vm `pages/part_view_host_new.rs`,
+//! pages/parts/PartSplitKeyInsertTiming.al:1353, :1383): the measured shape raises BC's error, another part refuses.
 
 use al_testrun::Outcome;
 
@@ -70,7 +70,7 @@ codeunit 69986 C
         Line."Line No." := 20000; Line."Seq No." := 1; Line.Insert();
     end;
 
-    // The measured shape (PartSplitKeyInsertTiming.al:1385 Card_OpenView_New).
+    // The measured shape (PartSplitKeyInsertTiming.al:1383 Card_OpenView_New).
     [Test]
     procedure T_ViewSeq()
     var P: TestPage "XS Card Seq"; Line: Record "XS Line";

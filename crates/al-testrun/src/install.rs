@@ -572,7 +572,7 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     crate::install_orders::install_partner_apps(lowered, session, &group, &mut inst);
     session.set_install_session_id(None);
     // The test session follows: the group 1 filters of the last install session are gone (al-vm `group1_sessions.rs`).
-    session.end_group1_install_sessions();
+    session.end_group1_install_session();
     session.set_apps_not_installed(None);
     session.set_apps_install_order_unknown(None);
     session.set_install_written_tables(None);
@@ -688,12 +688,7 @@ fn install_app_under_test(
             } else {
                 Ok(())
             };
-            if session.end_group1_install_routine(open.is_ok()) {
-                // The Company Triggers relied on the group 1 assumption: what main refused for them is flagged.
-                for &(so, sr) in &open_subscribers {
-                    session.flag_group1_tables(touched(&engine, lowered, so, sr));
-                }
-            }
+            session.end_group1_install_routine(open.is_ok());
             match open {
                 Err(stopped) => {
                     let refused: Vec<_> = open_subscribers.iter().chain(routines).copied().collect();
@@ -769,10 +764,7 @@ fn install_app_under_test(
                                 ),
                             );
                         } else {
-                            if session.end_group1_install_routine(true) {
-                                // It relied on the group 1 assumption: what main refused for it is flagged.
-                                session.flag_group1_tables(touched(&engine, lowered, oi, ri));
-                            }
+                            session.end_group1_install_routine(true);
                             // A routine that ran is durable before the next one starts: a later one that cannot run
                             // must not take its writes with it.
                             al_builtins::native::Ctx::commit(session).expect("commit");
