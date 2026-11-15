@@ -31,7 +31,7 @@ Every value that differs between real BC environments or runs is fixed to a stat
 
 | Value | Today | Where |
 |---|---|---|
-| Clock | Noon UTC of today's UTC date at the first read, then 1 ms later on every read; `Sleep(n)` adds n ms; `ALRUNNER_REAL_CLOCK=1` uses the wall clock | ADR-045, `al-testrun/src/host.rs` `run_clock_start`, `al-vm/src/hostvalues.rs` |
+| Clock | 12:34:56.789 UTC of today's UTC date at the first read (ADR-045 amendment, 2026-11-15; noon before), then 1 ms later on every read; `Sleep(n)` adds n ms; `ALRUNNER_REAL_CLOCK=1` uses the wall clock | ADR-045, `al-testrun/src/host.rs` `run_clock_start`, `al-vm/src/hostvalues.rs` |
 | Work date | Today, or what `LogInManagement.GetDefaultWorkDate()` answers in a test session with a client; reset for each test codeunit | `docs/probes-needed.md` row "WorkDate", `al-testrun` `install::login_work_date` |
 | Random | .NET's `System.Random` with host seed 1 (`al_host::DEFAULT_RANDOM_SEED`) per test codeunit session; before every test method the runner runs codeunit 130301, which calls `LibraryRandom.SetSeed(1)` | `al-host/src/random.rs`, `docs/probes-needed.md` row "Random numbers", `docs/owner-review.md` 2026-10-19 per-test reset |
 | Guids | `CreateGuid` and new SystemIds from a counter and a seed; the seed is the host's random seed | `al-vm/src/ctx.rs` `fresh_guid`, `fresh_system_id` |
@@ -125,7 +125,7 @@ the perturbation axes, the strategy and the selection.
     "isolation.alone": [false, true],
     "random.librarySeed": { "range": [1, 1000000], "samples": 3 },
     "workDate.offset": ["+0D", "+1Y"],
-    "clock.timeOfDay": ["12:00:00.000", "23:59:59.500"]
+    "clock.timeOfDay": ["12:34:56.789", "23:59:59.500"]
   },
   "strategy": "oneAtATime",
   "masterSeed": 4711,

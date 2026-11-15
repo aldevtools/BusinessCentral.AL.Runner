@@ -35,7 +35,7 @@ pub const PRESET_ALL: &str = r#"{
     "random.hostSeed": { "range": [2, 2147483647], "samples": 1 },
     "guid.seed": { "range": [2, 2147483647], "samples": 1 },
     "clock.date": ["+0D", "+1Y"],
-    "clock.timeOfDay": ["12:00:00.000", "23:59:59.500"],
+    "clock.timeOfDay": ["12:34:56.789", "23:59:59.500"],
     "clock.stepMs": [1, 250],
     "identity.userId": ["TESTUSER", "STABILITYUSER"],
     "identity.userSecurityId": ["{5A7B1C3D-2E4F-4A6B-8C9D-0E1F2A3B4C5D}"],
@@ -103,7 +103,8 @@ pub const DIMENSIONS: &[Dimension] = &[
     dim("random.hostSeed", Class::Safe, true, "1"),
     dim("guid.seed", Class::Safe, true, "1"),
     dim("clock.date", Class::Safe, true, "+0D"),
-    dim("clock.timeOfDay", Class::Safe, true, "12:00:00.000"),
+    // The normal run's time of day: `host::RUN_CLOCK_TIME_OF_DAY` (ADR-045 amendment, 2026-11-15).
+    dim("clock.timeOfDay", Class::Safe, true, "12:34:56.789"),
     dim("clock.stepMs", Class::Safe, true, "1"),
     dim("identity.userId", Class::Safe, true, "TESTUSER"),
     dim("identity.userSecurityId", Class::Safe, true, ""),
@@ -974,8 +975,8 @@ pub fn apply(p: &mut Perturb, name: &str, v: &Json) -> Result<String, String> {
                 .as_str()
                 .ok_or_else(|| bad("a time of day such as \"23:59:59.500\""))?;
             let t = time_of_day(s).ok_or_else(|| bad("a time of day such as \"23:59:59.500\""))?;
-            // Noon is the run clock's time of day in a normal run (ADR-045).
-            p.time_of_day = (t != MS_PER_DAY / 2).then_some(t);
+            // The run clock's time of day in a normal run (ADR-045) forms no variant.
+            p.time_of_day = (t != crate::host::RUN_CLOCK_TIME_OF_DAY).then_some(t);
             Ok(s.to_string())
         }
         "identity.userId" => {
@@ -1608,8 +1609,14 @@ mod tests {
         );
         assert!(refused(r#"{"format":1,"dimensions":{"company.name":{"range":[1,2]}}}"#).contains("list"));
         // Values equal to a normal run's form no variant.
-        let c = cfg(r#"{"format":1,"dimensions":{"clock.timeOfDay":["12:00:00.000"],"identity.userId":["TESTUSER"]}}"#);
+        let c = cfg(r#"{"format":1,"dimensions":{"clock.timeOfDay":["12:34:56.789"],"identity.userId":["TESTUSER"]}}"#);
         assert_eq!(variants(&c, 0, 1000).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_time_of_day_default_is_the_run_clocks() {
+        let d = DIMENSIONS.iter().find(|d| d.name == "clock.timeOfDay").unwrap();
+        assert_eq!(time_of_day(d.default), Some(crate::host::RUN_CLOCK_TIME_OF_DAY));
     }
 
     #[test]
