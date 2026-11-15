@@ -427,9 +427,10 @@ impl Session {
     }
 
     /// The action's body on host `st` turned the journal part `child` (control `i`) visible, and `first_turn_as_pinned` found
-    /// host and part as measured. `commits` and `writes`: the session's commits and the store's change counter before the
-    /// body. The turn is the measured one only when the body did not commit, changed rows of exactly one stored table and
-    /// left the host's source table as it was (`AddRequest` inserts one request and nothing else, :457-470), and the part
+    /// host and part as measured. `commits` and `before`: the session's commits and the store before the body. The turn is
+    /// the measured one only when the body did not commit, changed rows of exactly one stored table, not the host's source
+    /// table, and that table holds exactly one row more than before and every earlier row as it was (`AddRequest` inserts one
+    /// request and nothing else, :457-470; a modify or a delete is not measured), and the part
     /// shows one row (`send` `st-fill(H1,1)`, :540): then the part reads its row before the host's refresh, and the host lets
     /// through only [`TURN_END`].
     pub(super) fn journal_turn(
@@ -438,7 +439,7 @@ impl Session {
         i: usize,
         child: &St,
         commits: u64,
-        writes: u64,
+        before: &al_data::memory::MemStore,
     ) -> Result<(), Signal> {
         if self.commits != commits {
             return unsupported(
@@ -446,10 +447,15 @@ impl Session {
             );
         }
         let host_table = self.table(&self.page_rec(st))?.object;
-        let changed = self.store.tables_changed_since(writes);
+        let changed = self.store.tables_changed_since(before.change_counter());
         if !(changed.len() == 1 && !changed.contains(&host_table)) {
             return unsupported(
                 "an action that writes to the host's table or to other than one table and turns the hidden part of the journal shape visible (not pinned)",
+            );
+        }
+        if !changed.iter().all(|&t| self.one_row_inserted(before, t)) {
+            return unsupported(
+                "an action whose codeunit does other than insert one row and turns the hidden part of the journal shape visible (not pinned)",
             );
         }
         if self.view_row_count(child)? != 1 {
@@ -461,6 +467,20 @@ impl Session {
         self.journal_read(st, i, child)?;
         child.borrow_mut().journal_turned = Some(self.store.change_counter());
         Ok(())
+    }
+
+    /// Table object `t` holds, in the session's company, exactly one row more than in `before` and every row of `before` as it
+    /// was there: the effect of the measured `AddRequest` (HiddenPartJournalShape.al:457-470).
+    fn one_row_inserted(&self, before: &al_data::memory::MemStore, t: u32) -> bool {
+        let Some(def) = self.engine.tables.get(t as usize).and_then(|d| d.clone()) else {
+            return false;
+        };
+        let (old, new) = (
+            before.stored_rows(&self.cx, &def),
+            self.store.stored_rows(&self.cx, &def),
+        );
+        let mut new_rows = new.iter();
+        new.len() == old.len() + 1 && old.iter().all(|row| new_rows.any(|n| Self::same_values(n, row)))
     }
 
     /// After the refresh that followed an action (`r`, its result) whose body turned the journal part visible

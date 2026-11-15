@@ -1804,7 +1804,8 @@ fn other_stays_keep_mains_path() {
 fn other_turns_are_refused() {
     let calls =
         "the test's calls since the open are not one GoToRecord that stayed on the host's row, then this action";
-    let rows = "turns the hidden part of the journal shape visible with other than one row";
+    // Two sends insert two rows: refused before the part's rows are counted.
+    let rows = "an action whose codeunit does other than insert one row and turns the hidden part of the journal shape visible";
     const WRITES: &str = "an action that writes to the host's table or to other than one table and turns the hidden part of the journal shape visible (not pinned)";
     for (routine, reason) in [
         ("TurnWithoutGoToRecord", calls),
@@ -1814,10 +1815,8 @@ fn other_turns_are_refused() {
             "TurnWithCommit",
             "an action that commits and turns the hidden part of the journal shape visible",
         ),
-        (
-            "TurnThenRefreshHides",
-            "the page left the journal shape of its hidden part during an action",
-        ),
+        // The body deletes the request it inserted: refused as a body that does other than insert one row.
+        ("TurnThenRefreshHides", rows),
         // The codeunit the action calls also changes the host's table (review of al-runner PR 7939, round 3, X00 and X01),
         // or a third table.
         ("TurnCuModifiesHostRow", WRITES),
@@ -1827,6 +1826,48 @@ fn other_turns_are_refused() {
         for bc in ["28.5", "29.0"] {
             let (out, _) = run_on(bc, routine);
             assert!(refused(&out, reason), "{routine} on {bc}: {out:?}");
+        }
+    }
+}
+
+/// The probe measured an action whose codeunit inserts one row in one table that is not the host's (`AddRequest`,
+/// HiddenPartJournalShape.al:457-470). With a request stored before the open, a codeunit that also modifies or deletes that
+/// row refuses; the same codeunit that leaves it alone keeps the measured turn.
+#[test]
+fn a_turn_whose_codeunit_changes_a_stored_row_is_refused() {
+    let seeded = |find: &str| {
+        variant(
+            "        Request.DeleteAll();\n        Doc.DeleteAll();",
+            "        Request.DeleteAll();\n        Request.Init();\n        Request.\"Entry No.\" := 1;\n        Request.\"Doc No.\" := 'H9';\n        Request.Insert();\n        Doc.DeleteAll();",
+        )
+        .replacen(
+            "        if Request.FindLast() then\n            NextNo := Request.\"Entry No.\";",
+            find,
+            1,
+        )
+    };
+    let (out, _) = run_src(
+        &seeded("        if Request.FindLast() then\n            NextNo := Request.\"Entry No.\";"),
+        "29.0",
+        "WorksheetSendVal",
+    );
+    assert!(out.is_ok(), "{out:?}");
+    const ONE_INSERT: &str = "an action whose codeunit does other than insert one row and turns the hidden part of the journal shape visible";
+    for (name, find) in [
+        (
+            "modify",
+            "        if Request.FindLast() then begin\n            NextNo := Request.\"Entry No.\";\n            Request.\"Doc No.\" := 'H8';\n            Request.Modify();\n        end;",
+        ),
+        (
+            "delete",
+            "        if Request.FindLast() then begin\n            NextNo := Request.\"Entry No.\";\n            Request.Delete();\n        end;",
+        ),
+    ] {
+        let src = seeded(find);
+        assert_ne!(src, seeded(""), "{name}");
+        for bc in ["28.5", "29.0"] {
+            let (out, _) = run_src(&src, bc, "WorksheetSendVal");
+            assert!(refused(&out, ONE_INSERT), "{name} on {bc}: {out:?}");
         }
     }
 }
