@@ -13,8 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// The sidecar configuration of a run and its report renderer (ADR-040 amendment 2026-11-15): BC's Word merger and Html
-/// converter of the build in use, started on the first measured Html save. The renderer's sets are fetched only when no
-/// extracted artifact serves the build, as the assemblies of [`dotnet_dirs`].
+/// converter of the build in use, started on the first measured Html save. The renderer loads them from the user's folders,
+/// the extracted artifact of that build itself, or else the sets it fetches of that build; never from another extracted build
+/// of the major, which the sidecar's assemblies may come from (`al_testrun::dotnet::renderer_probe_dirs`).
 pub fn sidecar_and_renderer(
     a: &TestArgs,
     build: Option<&ArtifactUse>,
@@ -31,9 +32,16 @@ pub fn sidecar_and_renderer(
         // ADR-014 section 3, step 2 and issue 6924: the user's folders, an extracted artifact, then fetched assemblies.
         ..dotnet_dirs(a, build, major)
     };
+    let name = build.map(|u| u.build.to_string());
+    let sandbox = al_deps::cache::bcartifacts_sandbox_from_env();
+    let (assembly_dirs, fetch) =
+        al_testrun::dotnet::renderer_probe_dirs(&a.dotnet_assembly_dirs, sandbox.as_deref(), name.as_deref());
     let renderer = al_testrun::report_render_pieces::run_renderer(
-        cfg.clone(),
-        build.filter(|_| cfg.fetch_assembly.is_some()).map(|u| u.build.clone()),
+        SidecarConfig {
+            assembly_dirs,
+            ..cfg.clone()
+        },
+        build.filter(|_| fetch).map(|u| u.build.clone()),
         &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
         !a.no_download,
     );

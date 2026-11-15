@@ -1,6 +1,7 @@
-//! The facts of a Word layout file that the Html gate compares (`super::shape`): the part names of the package, the element
-//! names of its document and settings parts, and the data bindings of its content controls. Read from the bytes alone; a
-//! file this reader does not fully understand gives no facts, so the save keeps Part A.
+//! The facts of a Word layout file that the Html gate compares (`super::shape`): the part names of the package, its
+//! relationships, the element names and namespace declarations of its document and settings parts, and the data bindings of
+//! its content controls. Read from the bytes alone; a file this reader does not fully understand gives no facts, so the save
+//! keeps Part A.
 
 use std::collections::BTreeSet;
 
@@ -9,12 +10,26 @@ use std::collections::BTreeSet;
 pub(crate) struct LayoutFacts {
     /// Every part name of the package.
     pub(crate) parts: BTreeSet<String>,
+    /// The relationships of every `.rels` part.
+    pub(crate) relationships: Vec<Relationship>,
     /// The qualified element names (`prefix:local`) of `word/document.xml`.
     pub(crate) document: BTreeSet<String>,
     /// The qualified element names of `word/settings.xml`.
     pub(crate) settings: BTreeSet<String>,
+    /// The namespace declarations (prefix, the empty text for a default namespace; URI) of the document and settings parts:
+    /// the element names above are compared by prefix, so the prefixes' URIs are compared too.
+    pub(crate) namespaces: BTreeSet<(String, String)>,
     /// The content controls with a `w:dataBinding`, in document order.
     pub(crate) bindings: Vec<Binding>,
+}
+
+/// One `Relationship` of a `.rels` part.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Relationship {
+    /// Its `Type`.
+    pub(crate) kind: String,
+    /// It states a `TargetMode` (`External`, or `Internal` written out).
+    pub(crate) external: bool,
 }
 
 /// One content control bound to the merger's data part.
@@ -46,8 +61,10 @@ pub(crate) fn read(layout: &[u8]) -> Option<LayoutFacts> {
             "word/settings.xml" => {
                 for t in tags(xml()?)? {
                     facts.settings.insert(t.name.to_string());
+                    facts.namespaces.extend(declarations(t.attrs)?);
                 }
             }
+            rels if rels.ends_with(".rels") => facts.relationships.extend(relationships(xml()?)?),
             _ => {}
         }
     }
@@ -63,6 +80,48 @@ fn zip_entry_count(bytes: &[u8]) -> Option<usize> {
     Some(usize::from(u16::from_le_bytes([b[0], b[1]])))
 }
 
+/// The namespace declarations of a tag's attribute text: `xmlns:p="uri"` as (`p`, uri), `xmlns="uri"` as (``, uri); `None`
+/// when one has no quoted value.
+fn declarations(attrs: &str) -> Option<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    let mut rest = attrs;
+    while let Some(at) = rest.find("xmlns") {
+        let before_ok = rest[..at].ends_with(|c: char| c.is_ascii_whitespace());
+        let name_end = rest[at..]
+            .find(|c: char| c == '=' || c.is_ascii_whitespace())
+            .map_or(rest.len(), |e| at + e);
+        let name = &rest[at..name_end];
+        rest = &rest[name_end..];
+        let prefix = match name.strip_prefix("xmlns") {
+            Some("") => "",
+            Some(p) => match p.strip_prefix(':') {
+                Some(p) => p,
+                None => continue,
+            },
+            None => continue,
+        };
+        if !before_ok {
+            continue;
+        }
+        out.push((prefix.to_string(), attr(&format!(" {name}{rest}"), name)?));
+    }
+    Some(out)
+}
+
+/// The `Relationship` elements of a `.rels` part.
+fn relationships(xml: &str) -> Option<Vec<Relationship>> {
+    tags(xml)?
+        .iter()
+        .filter(|t| t.name == "Relationship" && !t.close)
+        .map(|t| {
+            Some(Relationship {
+                kind: attr(t.attrs, "Type")?,
+                external: attr(t.attrs, "TargetMode").is_some(),
+            })
+        })
+        .collect()
+}
+
 /// One content control being read: whether it repeats and its binding.
 #[derive(Default)]
 struct Control {
@@ -75,6 +134,7 @@ fn document(xml: &str, facts: &mut LayoutFacts) -> Option<()> {
     for t in tags(xml)? {
         if !t.close {
             facts.document.insert(t.name.to_string());
+            facts.namespaces.extend(declarations(t.attrs)?);
         }
         match (t.name, t.close) {
             ("w:sdt", false) if !t.self_close => open.push(Control::default()),
@@ -240,5 +300,37 @@ mod tests {
         );
         assert!(tags("<a><![CDATA[x]]></a>").is_none());
         assert_eq!(read(b"not a zip"), None);
+    }
+
+    #[test]
+    fn namespace_declarations_are_read_with_their_prefix() {
+        assert_eq!(
+            declarations(" xmlns:w=\"urn:w\" w:val=\"xmlns\" xmlns='urn:d' a:xmlns=\"no\"").unwrap(),
+            vec![
+                ("w".to_string(), "urn:w".to_string()),
+                (String::new(), "urn:d".to_string())
+            ]
+        );
+        assert_eq!(declarations(" xmlns:w=urn"), None);
+    }
+
+    #[test]
+    fn a_relationship_names_its_type_and_whether_it_states_a_target_mode() {
+        let rels = "<?xml version=\"1.0\"?><Relationships xmlns=\"x\"><Relationship Type=\"t/settings\" Target=\"/word/settings.xml\" \
+                    Id=\"R1\" /><Relationship Id=\"R2\" Type=\"t/image\" TargetMode=\"External\" Target=\"http://a/b.png\" />\
+                    </Relationships>";
+        assert_eq!(
+            relationships(rels).unwrap(),
+            vec![
+                Relationship {
+                    kind: "t/settings".into(),
+                    external: false
+                },
+                Relationship {
+                    kind: "t/image".into(),
+                    external: true
+                },
+            ]
+        );
     }
 }

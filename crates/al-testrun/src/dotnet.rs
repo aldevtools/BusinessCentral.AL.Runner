@@ -259,24 +259,7 @@ impl Shared {
 /// where `<NNN>` is derived from what is on disk (270, 280, 290), never fixed. `None` when the
 /// artifact is not extracted locally. Only the top level is searched, as BC does.
 pub fn default_probe_dir(sandbox: &Path, build: Option<&str>, major: u32) -> Option<PathBuf> {
-    let service_of = |build_dir: &Path| -> Option<PathBuf> {
-        let nav = build_dir.join("platform/ServiceTier/PFiles64/Microsoft Dynamics NAV");
-        let mut found: Vec<(u32, PathBuf)> = std::fs::read_dir(nav)
-            .ok()?
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let n: u32 = e.file_name().to_string_lossy().parse().ok()?;
-                let svc = e.path().join("Service");
-                svc.is_dir().then_some((n, svc))
-            })
-            .collect();
-        found.sort();
-        found.pop().map(|(_, p)| p)
-    };
-    if let Some(dir) = build
-        .filter(|b| !b.contains(['/', '\\']))
-        .and_then(|b| service_of(&sandbox.join(b)))
-    {
+    if let Some(dir) = build.and_then(|b| own_build_probe_dir(sandbox, b)) {
         return Some(dir);
     }
     let mut builds: Vec<(Vec<u64>, PathBuf)> = std::fs::read_dir(sandbox)
@@ -289,7 +272,47 @@ pub fn default_probe_dir(sandbox: &Path, build: Option<&str>, major: u32) -> Opt
         })
         .collect();
     builds.sort();
-    builds.iter().rev().find_map(|(_, p)| service_of(p))
+    builds.iter().rev().find_map(|(_, p)| service_folder(p))
+}
+
+/// The service-tier folder of build `build` itself in `sandbox`, when that build is extracted there (the first step of
+/// [`default_probe_dir`], without its fall back to another build of the major).
+pub fn own_build_probe_dir(sandbox: &Path, build: &str) -> Option<PathBuf> {
+    if build.contains(['/', '\\']) {
+        return None;
+    }
+    service_folder(&sandbox.join(build))
+}
+
+/// The service folder of the extracted build in `build_dir`, `<NNN>` taken from what is on disk.
+fn service_folder(build_dir: &Path) -> Option<PathBuf> {
+    let nav = build_dir.join("platform/ServiceTier/PFiles64/Microsoft Dynamics NAV");
+    let mut found: Vec<(u32, PathBuf)> = std::fs::read_dir(nav)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let n: u32 = e.file_name().to_string_lossy().parse().ok()?;
+            let svc = e.path().join("Service");
+            svc.is_dir().then_some((n, svc))
+        })
+        .collect();
+    found.sort();
+    found.pop().map(|(_, p)| p)
+}
+
+/// The folders the report renderer loads BC's merger and converter from (ADR-040 amendment 2026-11-15): the user's
+/// folders, then the extracted folder of the chosen `build` itself, never another build of the major. The flag says whether
+/// the renderer must fetch the sets of `build` (no extracted folder of it).
+pub fn renderer_probe_dirs(user: &[PathBuf], sandbox: Option<&Path>, build: Option<&str>) -> (Vec<PathBuf>, bool) {
+    let own = sandbox.zip(build).and_then(|(s, b)| own_build_probe_dir(s, b));
+    let fetch = own.is_none();
+    let mut dirs = user.to_vec();
+    if let Some(d) = own
+        && !dirs.contains(&d)
+    {
+        dirs.push(d);
+    }
+    (dirs, fetch)
 }
 
 /// The probe folders as the sidecar takes them. A service-tier folder is followed by its `Add-ins` folder, searched
@@ -1699,6 +1722,26 @@ mod tests {
             probe_dirs(std::slice::from_ref(&fetched), None, None, 27, Some(&fetched)),
             vec![fetched]
         );
+    }
+
+    /// M5 of the review of draft PR 8140: the renderer never loads the merger and converter of another build of the major,
+    /// while the .NET sidecar's default folder falls back to the newest extracted build of that major.
+    #[test]
+    fn the_renderer_takes_only_the_chosen_builds_own_extracted_folder() {
+        let t = tempfile::tempdir().unwrap();
+        let other = fake_artifact(t.path(), "27.5.1.1", "270");
+        let mine = PathBuf::from("/my/dlls");
+        assert_eq!(default_probe_dir(t.path(), Some("27.5.2.2"), 27), Some(other.clone()));
+        assert_eq!(
+            renderer_probe_dirs(std::slice::from_ref(&mine), Some(t.path()), Some("27.5.2.2")),
+            (vec![mine.clone()], true)
+        );
+        let own = fake_artifact(t.path(), "27.5.2.2", "270");
+        assert_eq!(
+            renderer_probe_dirs(std::slice::from_ref(&mine), Some(t.path()), Some("27.5.2.2")),
+            (vec![mine.clone(), own], false)
+        );
+        assert_eq!(renderer_probe_dirs(&[], Some(t.path()), None), (vec![], true));
     }
 
     #[test]

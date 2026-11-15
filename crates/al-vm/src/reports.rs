@@ -2471,6 +2471,7 @@ impl<'a> ItemTree<'a> {
 // ---------------------------------------------------------------------- Report.SaveAs
 
 use crate::report_placeholder::SaveOutput;
+use crate::report_render::{RenderInputs, SaveCall};
 
 /// Where a rendering save puts its output.
 pub(crate) enum SaveTarget {
@@ -2542,14 +2543,16 @@ impl Session {
             Some(Value::Option(n, names)) => names.get(*n as usize).cloned().unwrap_or_default(),
             other => return unsupported(format!("{id} with the format {}", other.describe())),
         };
-        let blob = match args.get(at + 2) {
+        let (blob, encoding) = match args.get(at + 2) {
             Some(Value::Library(_, h)) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::OutStream(blob, ..) => blob.clone(),
+                al_builtins::value::LibraryValue::OutStream(blob, encoding, ..) => (blob.clone(), *encoding),
                 other => return unsupported(format!("{id} to {}, which is not an OutStream", other.describe())),
             },
             other => return unsupported(format!("{id} to {}", other.describe())),
         };
         let record_ref = args.get(at + 3);
+        let call = self.save_call(at == 1, !parameters.is_empty(), record_ref.is_some(), &blob, encoding);
+        let target = SaveTarget::Stream(blob);
         self.report_save_core(
             id,
             receiver,
@@ -2557,8 +2560,9 @@ impl Session {
             at,
             parameters,
             &format,
-            SaveTarget::Stream(blob),
+            target,
             record_ref,
+            Some(call),
         )
     }
 
@@ -2582,7 +2586,7 @@ impl Session {
             return unsupported(format!("{id} with a record argument (what it filters is not pinned)"));
         }
         let target = SaveTarget::File(name);
-        self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None)
+        self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None, None)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2596,6 +2600,7 @@ impl Session {
         format: &str,
         target: SaveTarget,
         record_ref: Option<&Value>,
+        save_call: Option<SaveCall>,
     ) -> Result<Value, Signal> {
         let result_used = self.ret_used;
         let format = format.to_string();
@@ -2726,46 +2731,8 @@ impl Session {
                 }
             }
         }
-        // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388: false with the text and the code
-        // `ReportProcessingOnly`, no trigger runs and nothing is written. With the answer dropped
-        // BC's behaviour is not pinned.
         if schema.report().processing_only {
-            // The Xml SaveAs of a processing-only report runs OnInitReport before it answers false
-            // (reports/request-page/RptTriggerOrder.al:308,:324 SaveAs_NestedItems_Order, SaveAs_Siblings_Order;
-            // reports/PnH5aExt.al:380). For the other formats that is not pinned and no trigger runs.
-            if format == "Xml" && at != 0 && self.report_init(&inst)? {
-                return unsupported(
-                    "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
-                );
-            }
-            // The request page's OnInit follows, as in a run without the page (reports/reporthandler/AeReportHandler.al:
-            // 133-145 SaveAs_WithReportHandler `OnInitReport;RP OnInit ...;` with an empty parameters string; with parameters the
-            // same error follows and OnPreReport does not run, Y68SelfClosingParams.al:407-418).
-            if format == "Xml" && at != 0 {
-                self.request_page_init_unshown(&inst, &schema)?;
-            }
-            if format == "Xml" && at == 0 && quit {
-                return unsupported(
-                    "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
-                );
-            }
-            let error = al_builtins::native::AlError {
-                message: format!(
-                    "Report {} is a processing-only report. Output cannot be rendered and saved to a file.",
-                    self.object_id_of(schema.object as u32)
-                ),
-                code: "ReportProcessingOnly".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            };
-            // The statement form raises the same error (streams/TestReportSaveAsColumnDetailsContracts.al:
-            // ProcessingOnlyReport_StatementFormRaises, streams/PWReportSaveAsColumns.al:
-            // ProcessingOnly_AnswerDropped_AsserterrorForm); with the answer used it is returned as false.
-            if !result_used {
-                return Err(Signal::Error(Box::new(error)));
-            }
-            self.last_error = error;
-            return Ok(Value::Boolean(false));
+            return self.save_of_processing_only(&inst, &schema, &format, at, quit, result_used);
         }
         if let Some(why) = schema.report().dataset_unsupported.first() {
             return unsupported(format!("Report.SaveAs of \"{}\": {why}", schema.name()));
@@ -2934,7 +2901,8 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                let saved = self.write_save_output(target, output, &schema, &bytes, rows, &kinds)?;
+                let render = save_call.map(|call| RenderInputs { call, kinds: &kinds });
+                let saved = self.write_save_output(target, output, &schema, &bytes, rows, render)?;
                 Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
@@ -4435,6 +4403,7 @@ mod html_record;
 mod request_caption;
 mod request_unshown;
 mod running;
+mod save_processing_only;
 pub(crate) mod word_xml_part;
 
 mod explicit_parent_link;

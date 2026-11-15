@@ -1208,18 +1208,47 @@ hash cell covers (Part A applies), and every save the save table does not answer
 
 ### Notes, 2026-11-15
 
-- What the hash cells pin (decision 3). The probe hashes are the evidence that BC's own merger and converter, run by the
-  runner on a build's own assemblies, give BC's bytes for a layout of a measured shape. The gate admits any save whose facts
-  (report, columns, layout parts and elements, bindings, row count, major and converter version) equal a measured shape;
-  the bytes of that save's own layout file are not pinned. This is what the owner accepted ("only for report shapes a probe
-  hash matches"). The decision itself is unchanged.
-- Shapes (corpus pull request 1415, merged, not pinned): two field columns with a Text column bound and two rows
-  (Hash_WordAlpha_TwoRows, Hash_WordRgba_TwoRows); and two field columns, a Decimal expression with `AutoFormatType = 1` and
-  a Date expression, all four bound, one or three rows (Bound_*). An expression column's kind is the kind of value it held
-  on every row of the run; its static type is not known to the gate.
+- What must equal BC (owner decision of 2026-11-15, "gate inputs, layout free"). The runner hands the layout bytes unchanged
+  to BC's own merger and converter. What must equal BC is every input the runner feeds them, and each input is gated by
+  equality with the probe cells: the call (`Report.SaveAs(Number, '', ReportFormat::Html, OutStream)` with its answer used,
+  no RecordRef, a UTF-8 stream whose buffer holds nothing and was never written by a stream, session language 1033); the
+  save's whole fact vector after the run (`report_save/html_cell.rs`); the report (exactly the properties `UsageCategory =
+  None`, `UseRequestPage = false` and `DefaultRenderingLayout`, so the title, the report's caption, is its name; no request
+  page, label or reportextension; one layout with only `Type = Word` and `LayoutFile`; one data item without view, link,
+  filter fields, `MaxIteration`, `PrintOnlyIfDetail`, `CalcFields` or trigger); the columns and the row count (the measured
+  datasets); the company (empty) and no pictures; the major and the converter version. The dataset values are what the
+  dataset writer writes; its Xml output is pinned also for negative and zero decimals, empty texts and dates and texts with
+  characters Xml escapes (reports/W3ReportObjectIdPreviewLanguage.al:863, reports/dataset/QwTernaryColumns.al:420 and
+  :501, reports/dataset/ReportSaveAsDataItems.al:201), and BC hands that same Xml to the merger (context, steps 1 to 3).
+  Probe cells for these values in the Bound report are still to add.
+- The layout's structure is free: any number, order and nesting of the elements the measured layouts use, any text and
+  attribute values, content controls with or without a binding (a binding must be the row section or one of its columns).
+  A layout feature that makes BC's server do more than merge and convert, or that the merger or converter resolves from
+  outside the file, keeps Part A. The gate keeps the layout to the vocabulary of the measured layouts (their parts,
+  relationship types with internal targets, element names of the document and settings parts, and namespace
+  declarations), which keeps on Part A at least: pictures (image parts, `w:drawing`, `w:pict`, `w:object`, picture controls
+  bound to data); header and footer parts and references (BC 29 composes header-footer and theme layouts for a body layout,
+  context step 4; a layout that declares a `Subtype` keeps Part A too); external targets (`TargetMode="External"`: linked
+  images, hyperlinks, attached templates); fields that pull in other content (`w:fldSimple`, `w:instrText`: INCLUDEPICTURE,
+  INCLUDETEXT, LINK); `w:altChunk` and `w:subDoc`; font, style, numbering and theme parts and embedded fonts, and tabs
+  (the converter reads the machine's fonts and computes tab widths from their metrics). A vocabulary is used rather than a
+  list of these features because the features that read the machine's fonts cannot be listed with certainty; a probe cell
+  widens the vocabulary.
+- BC 29 composition (decision 1, "on BC 29: the session does not compose"). The feature `DocumentReportExperience` is on in
+  a BC 29 test tenant (record/PFFeatureKeyColumns.al:179, `Enabled=All Users`), and BC composes only a layout of subtype
+  Body (context step 4). The gate requires a layout that declares no `Subtype` (subtype Default, as every probe layout), so
+  the feature state is not read (by context step 4 it matters only for a layout of subtype Body).
+- Shapes (corpus pull request 1415, merged, not pinned): two field columns and two rows (Hash_WordAlpha_TwoRows,
+  Hash_WordRgba_TwoRows); and two field columns, a Decimal expression with `AutoFormatType = 1` and a Date expression, one
+  or three rows (Bound_*). An expression column's kind is the kind of value it held on every row of the run; its static
+  type is not known to the gate. It must be an expression of operators or a call with arguments that names no field whose
+  `DecimalPlaces` or caption the dataset reads.
 - Converter version. The pinned builds of BC 27 and 28 carry Aspose.Words 26.8.0; the probe's CI builds carry 26.10.0 and the
   Html names that version. Until `bc_build` of 27 and 28 moves to builds with 26.10.0 (decided at the bump that pins the
-  probe), the Html saves on those majors keep Part A.
+  probe), the Html saves on those majors keep Part A. The renderer reads the converter assembly's version before it renders,
+  so such a save does not merge and convert only to drop the Html; the version the Html names still decides. al-runner
+  loads the merger and converter only from the user's folders, the extracted artifact of the chosen build itself, or the
+  sets it fetches of that build, never from another extracted build of the major.
 - `--require-report-renderer` is built (al-test-cli and al-runner): a save of a measured shape refuses when the renderer is
   unavailable, instead of keeping Part A. CI does not pass it yet: CI's setup does not provide the render sets and the Linux
   pieces.

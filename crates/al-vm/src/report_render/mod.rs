@@ -6,21 +6,27 @@
 //! 2026-11-12, Part A (`report_placeholder`), so no shape main answered changes. The Html written here carries no mark: it is
 //! plain text, every read answers (decision 3).
 
+mod call;
 mod layout_facts;
 mod shape;
 
-use crate::report_save::{Plan, Renders};
+pub(crate) use call::{RenderInputs, SaveCall};
+
+use crate::report_save::Renders;
 use crate::reports::Schema;
 use crate::{Session, Signal};
 use al_builtins::assumptions::{Assumption, assume};
 use al_host::render::{RenderNeed, WordMerge};
 
 /// The facts of the save itself, each by equality with every probe cell (RxHtmlHashTests.al:192, :218, :395, :433 and :471,
-/// through `HashCell`): Html of a report whose default layout is Word, into a stream, its answer used, with no layout selection naming
-/// the report (`Plan::is_measured_html_stream_save`), rendered with the report's own default layout (`Renders::Default`), on a
-/// major of `shape::BUILDS`.
-pub(crate) fn save_is_measured(plan_is_measured: bool, renders: Renders, major: Option<u16>) -> bool {
-    plan_is_measured && renders == Renders::Default && major.is_some_and(|m| shape::BUILDS.iter().any(|b| b.major == m))
+/// through `HashCell`): its whole fact vector after the run is the cells' (`html_cell`, from `report_save`), its call is the
+/// cells' (`call::MEASURED_CALL`), it renders with the report's own default layout (`Renders::Default`), on a major of
+/// `shape::BUILDS`.
+pub(crate) fn save_is_measured(html_cell: bool, call: SaveCall, renders: Renders, major: Option<u16>) -> bool {
+    html_cell
+        && call == call::MEASURED_CALL
+        && renders == Renders::Default
+        && major.is_some_and(|m| shape::BUILDS.iter().any(|b| b.major == m))
 }
 
 impl Session {
@@ -28,14 +34,14 @@ impl Session {
     /// merger or converter failure refuses the save (no error text is pinned; decision 2).
     pub(crate) fn rendered_html(
         &mut self,
-        plan: &Plan,
+        html_cell: bool,
         schema: &Schema,
         renders: Renders,
         dataset: &[u8],
-        kinds: &[(String, Option<crate::dataset::ValueKind>)],
+        inputs: &RenderInputs,
     ) -> Result<Option<Vec<u8>>, Signal> {
         let major = self.engine.target.as_ref().map(|t| t.bc.major);
-        if !save_is_measured(plan.is_measured_html_stream_save(), renders, major) {
+        if !save_is_measured(html_cell, inputs.call, renders, major) {
             return Ok(None);
         }
         let program = &self.engine.program;
@@ -45,12 +51,18 @@ impl Session {
         let Some(facts) = layout_facts::read(&layout).filter(shape::content_is_measured) else {
             return Ok(None);
         };
-        let measured = shape::save_shape(program, schema.object(), &facts, dataset, kinds)
+        let measured = shape::save_shape(program, schema.object(), &facts, dataset, inputs.kinds)
             .is_some_and(|s| shape::shape_is_measured(shape::SHAPES, &s));
         if !measured {
             return Ok(None);
         }
         let renderer = self.engine.dotnet.renderer.clone();
+        // A converter whose version no cell measured on this major gives Html that keeps Part A: do not render it.
+        if let Some(version) = renderer.converter_version()
+            && !major.is_some_and(|m| shape::converter_is_measured(shape::BUILDS, m, version))
+        {
+            return Ok(None);
+        }
         let available = renderer
             .availability(RenderNeed::Merge)
             .and(renderer.availability(RenderNeed::Html));
@@ -71,7 +83,7 @@ impl Session {
                 schema.name()
             ))
         };
-        // The title is the report's name: no measured report has a caption (`shape::save_shape` requires none).
+        // The title is the report's name: the report states neither Caption nor CaptionML (`shape::save_shape`).
         let docx = renderer
             .merge_word(&WordMerge {
                 layout,
