@@ -1,19 +1,16 @@
 //! A lower-case (indirect) letter of an `[InherentPermissions]` attribute (al-runner issue 8066).
 //!
-//! Upper-case letters are pinned (CpPermLeads.al:155-189, in `permissions.rs`). Corpus PR 1403 (merged, not pinned;
-//! permissions/testpermissions/Y19InherentAttrIndirect.al, test IA_LowerCaseAttribute) measured on BC 27.5, 28.5 and 29.0 that
-//! `'i'` and `'r'` give the indirect level for the call and the calls it makes, which the code's `Permissions` property turns
-//! into an allowed access (ops 1, 4, 5) and which without it is denied as `Insert` (ops 11, 13) (assumption
-//! `inherent-attribute-indirect-letter`). The measured shape is an allowlist of its facts here; every other indirect letter
+//! Upper-case letters are pinned (CpPermLeads.al:155-189, in `permissions.rs`). tests/al-language/permissions/testpermissions/
+//! Y19InherentAttrIndirect.al:153-185 (IA_LowerCaseAttribute) pins that `'i'` and `'r'` give the indirect level for the call and the calls it makes, which the code's `Permissions` property turns
+//! into an allowed access (ops 1, 4, 5) and which without it is denied as `Insert` (ops 11, 13). The measured shape is an allowlist of its facts here; every other indirect letter
 //! stays refused.
 use crate::Session;
 use crate::permissions::{Access, Levels, Op, SetModel};
-use al_builtins::assumptions::{Assumption, assume};
 
 impl Session {
     /// Whether the indirect letter of attribute levels `l`, on the routine of frame `frame` (an index into `frames`), is in
-    /// the shape corpus PR 1403 measured for `access` of table object `table`, made by the code of object `caller` while the
-    /// session level is `u` and the caller's `Permissions` property gives `grant`. Marks the assumption when it is.
+    /// the shape Y19InherentAttrIndirect.al measures for `access` of table object `table`, made by the code of object `caller`
+    /// while the session level is `u` and the caller's `Permissions` property gives `grant`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn inherent_letter_measured(
         &self,
@@ -38,25 +35,21 @@ impl Session {
         let Some(table) = table else {
             return false;
         };
-        let measured = access.kind == 0
+        access.kind == 0
             && letter
             && u == 0
             && self.levels_are(access, &[[0, 0, 0, 0]])
             && self.table_runs_no_trigger(table)
             && self.record_calls.is_empty()
             && self.probed_sets(table)
-            && self.inherent_letter_frames(frame, caller, access);
-        if measured {
-            assume(Assumption::InherentAttributeIndirectLetter);
-        }
-        measured
+            && self.inherent_letter_frames(frame, caller, access)
     }
 
     /// Whether a denied Read of table object `table` by codeunit `by`, whose Permissions property grants it, is in the shape
-    /// corpus PR 1403 measured with an attribute on the stack whose letter does not cover the read: `'m'` on the writer
+    /// Y19InherentAttrIndirect.al measures with an attribute on the stack whose letter does not cover the read: `'m'` on the writer
     /// (`ModifyM`, Y19InherentAttrIndirect.al:59-66, op 2) or on its caller (`ModifyOnCaller`, :47-48, op 6) and `'d'` on the
     /// writer (`DeleteD`, :68-76, op 3), each denied as `IndirectRead` (:168-177); the frames as
-    /// [`Session::inherent_letter_frames`]; the sets give nothing on the table, which runs no trigger. Marks the assumption when it is.
+    /// [`Session::inherent_letter_frames`]; the sets give nothing on the table, which runs no trigger.
     pub(crate) fn indirect_read_measured(&self, access: Access, table: usize, by: usize) -> bool {
         let n = self.frames.len();
         if access.kind != 0 || access.op != Op::Read || n < 2 || self.call_stack.len() != n {
@@ -74,16 +67,12 @@ impl Session {
             _ => return false,
         };
         let permissions_only = matches!(engine.program.objects[by].properties.as_slice(), [(k, _)] if k.eq_ignore_ascii_case("Permissions"));
-        let measured = permissions_only
+        permissions_only
             && self.record_calls.is_empty()
             && self.levels_are(access, &[[0, 0, 0, 0]])
             && self.table_runs_no_trigger(table)
             && self.probed_sets(table)
-            && self.inherent_letter_frames(frame, by, access);
-        if measured {
-            assume(Assumption::InherentAttributeIndirectLetter);
-        }
-        measured
+            && self.inherent_letter_frames(frame, by, access)
     }
 
     /// The measured frames: the test method, RunCase and Op of the test codeunit (:150-230), then exactly two procedures of

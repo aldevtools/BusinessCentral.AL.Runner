@@ -1,9 +1,9 @@
-//! Neighbors of the cells corpus PR 1408 measured on handles nobody opened or assigned (recordref-fieldref/UhUnopenedRecordRef.al,
+//! Neighbors of the cells the corpus measures on handles nobody opened or assigned (recordref-fieldref/UhUnopenedRecordRef.al,
 //! xml/UhUnassignedXmlElement.al, streams/instream-outstream/UhUntouchedStreams.al): a shape the probe did not measure keeps the
 //! answer it had before (a refusal), and a RecordRef closed after it was open keeps the answers main gave a RecordRef not open.
 //! The measured cells themselves are the corpus cases.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 
@@ -274,9 +274,9 @@ fn format_and_gettable_of_records_without_a_refusing_mark_keep_their_answer() {
     assert_eq!(al_testkit::text(r), "4");
 }
 
-/// The states corpus PR 1411 measured (UhUntouchedStreamsAfter.al, codeunit 66996): a RecordRef after Open(0) and after Open then
+/// The states UhUntouchedStreamsAfter.al (codeunit 66996) measures: a RecordRef after Open(0) and after Open then
 /// Clear raises "The record is not open." on the never-opened members, a KeyRef that held a key raises NotInitialized on Active
-/// after Clear. Each runs flagged.
+/// after Clear. Each runs clean (no assumption).
 #[test]
 fn the_states_after_open_zero_and_clear_answer_as_measured() {
     for (setup, call, text) in [
@@ -303,10 +303,7 @@ fn the_states_after_open_zero_and_clear_answer_as_measured() {
             begin {setup} asserterror begin {call} end; exit(GetLastErrorText() + '|' + GetLastErrorCode()); end;"
         ));
         let hits = take_hits();
-        assert!(
-            hits.contains(&Assumption::RecordRefNotOpenMembers) || hits.contains(&Assumption::KeyRefUnassignedMembers),
-            "{setup} {call}: {hits:?}"
-        );
+        assert!(hits.is_empty(), "{setup} {call}: {hits:?}");
         let code = if text.starts_with("The record") {
             "RecordNotOpened"
         } else {
@@ -316,7 +313,7 @@ fn the_states_after_open_zero_and_clear_answer_as_measured() {
     }
 }
 
-/// Members corpus PR 1411 did not measure after Clear and after Open(0), and the sequences around them it did not use, keep their
+/// Members UhUntouchedStreamsAfter.al does not measure after Clear and after Open(0), and the sequences around them it did not use, keep their
 /// answer before the probe (a refusal): the members UhUnopenedRecordRef.al measured on a RecordRef never opened and closed, FieldCount
 /// after Clear, Clear of a RecordRef never opened, Open(0) after Clear, and a failed Open after Clear.
 #[test]
@@ -354,7 +351,7 @@ fn recordref_members_not_measured_after_clear_or_open_zero_refuse() {
 }
 
 /// After Clear and after Open(0) a RecordRef keeps the answers main gave a RecordRef not open: Number, Format and the members of
-/// RfTOpen.al Closed_Errors. FieldCount after Open(0) is pinned (RfTOpen.al:630) and runs unflagged.
+/// RfTOpen.al Closed_Errors. FieldCount after Open(0) is pinned (RfTOpen.al:630) and runs clean.
 #[test]
 fn recordref_after_clear_or_open_zero_keeps_the_answers_of_one_not_open() {
     for setup in ["RR.Open(0);", "RR.Open(50100); Clear(RR);"] {
@@ -371,10 +368,10 @@ fn recordref_after_clear_or_open_zero_keeps_the_answers_of_one_not_open() {
         "procedure F(): Text var RR: RecordRef; N: Integer; begin RR.Open(0); asserterror N := RR.FieldCount(); exit(GetLastErrorCode()); end;",
     );
     assert_eq!(al_testkit::text(r), "RecordNotOpened");
-    assert!(!take_hits().contains(&Assumption::RecordRefNotOpenMembers));
+    assert!(take_hits().is_empty());
 }
 
-/// A KeyRef after Clear: only Active was asserted by corpus PR 1411 (FieldCount was observed, not asserted). FieldIndex(1), Record
+/// A KeyRef after Clear: only Active is asserted by UhUntouchedStreamsAfter.al (FieldCount was observed, not asserted). FieldIndex(1), Record
 /// and FieldCount refuse, and so does Active on a KeyRef cleared while it held nothing.
 #[test]
 fn keyref_members_not_measured_after_clear_refuse() {
@@ -387,9 +384,9 @@ fn keyref_members_not_measured_after_clear_refuse() {
     refused("procedure F(): Text var KR: KeyRef; B: Boolean; begin Clear(KR); B := KR.Active(); end;");
 }
 
-/// A KeyRef that held a key, after Clear: corpus PR 1411 measured Active only on the cleared local variable itself
+/// A KeyRef that held a key, after Clear: UhUntouchedStreamsAfter.al measures Active only on the cleared local variable itself
 /// (UhUntouchedStreamsAfter.al:285-299 `TryKeyRef`, test :418). A copy by assignment, a by-value or `var` parameter, a global and
-/// an array element keep their answer before the probe (a refusal); the cleared local itself still runs flagged.
+/// an array element keep their answer before the probe (a refusal); the cleared local itself runs clean.
 #[test]
 fn keyref_active_after_clear_runs_only_on_the_cleared_local() {
     let setup = "RR.Open(50100); KR := RR.KeyIndex(1); Clear(KR);";
@@ -410,7 +407,7 @@ fn keyref_active_after_clear_runs_only_on_the_cleared_local() {
         begin {setup} KR2 := KR; asserterror B := KR.Active(); exit(GetLastErrorCode()); end;"
     ));
     assert_eq!(al_testkit::text(r), "NotInitialized");
-    assert!(take_hits().contains(&Assumption::KeyRefUnassignedMembers));
+    assert!(take_hits().is_empty());
 }
 
 /// GetTable of a Variant that holds no record on a RecordRef after Clear or Open(0): no probe measured it, so every value keeps its

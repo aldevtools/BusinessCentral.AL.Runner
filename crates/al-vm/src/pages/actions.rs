@@ -866,7 +866,7 @@ impl Session {
                     e.code = own.to_string();
                 }
                 self.error_finals = None;
-                self.last_error = *e;
+                self.hold_error(*e)?;
                 Ok(Value::Null)
             }
             other => other,

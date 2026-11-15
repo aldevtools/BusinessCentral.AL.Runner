@@ -26,6 +26,43 @@ const MEDIA_FIELDREF_FILTER_ARGUMENT_EVIDENCE: &[Evidence] = &[Evidence {
     lines: "258,296,336,397,434",
 }];
 
+/// Evidence of [`Gate::ThreeLineLeavesKeyOnceFrom28`] and [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`]: two journal lines
+/// posted from a worksheet opened with Page.Run log one OnNewRecord and OnAfterGetCurrRecord pair less on BC 28
+/// (testpage/R7821JournalPostVariants.al:421 TPV7821_TwoLines_PageRun).
+const THREE_LINE_LEAVES_KEY_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "pages/RtFilteredGoneRow.al",
+        lines: "662,685",
+    },
+    Evidence {
+        file: "testpage/Y1WorksheetPostLog.al",
+        lines: "165,181",
+    },
+    Evidence {
+        file: "testpage/R7821JournalPostVariants.al",
+        lines: "421",
+    },
+];
+
+/// Evidence of [`Gate::Base64TextIsWindows1252From28`]: also `Base64Convert.FromBase64` with `TextEncoding::Windows` and code
+/// page 0 (streams/Base64LineBreaks.al:506 FromBase64_Windows_CodePages).
+const BASE64_TEXT_IS_WINDOWS_1252_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "types/PVBase64.al",
+        lines: "83,88,231",
+    },
+    Evidence {
+        file: "streams/Base64LineBreaks.al",
+        lines: "506",
+    },
+];
+
+/// Evidence of [`Gate::ExtensionCodeWithoutBaseTableGrantFrom29`].
+const EXTENSION_CODE_WITHOUT_BASE_TABLE_GRANT_EVIDENCE: &[Evidence] = &[Evidence {
+    file: "permissions/testpermissions/Y19PermExtAndCompose.al",
+    lines: "318,333,339,349,364,370",
+}];
+
 /// Evidence of [`Gate::RecordRefIsDirtyFrom28`].
 const RECORD_REF_IS_DIRTY_EVIDENCE: &[Evidence] = &[
     Evidence {
@@ -501,6 +538,11 @@ pub enum Gate {
     /// field 1 (metadata/platform-tables/FieldRowSystemId.al:56-169, guarded `#if BC28PLUS`). Consumed by `al-vm`
     /// platform/fields.rs.
     FieldRowSystemIdFrom28,
+    /// From BC 29 the `Permissions` property of a table is no object grant of the code of its table extensions (the OnInsert
+    /// trigger, a procedure of the extension); on BC 27 and 28 it is (permissions/testpermissions/Y19PermExtAndCompose.al:318,
+    /// 333, 339, 349, 364, 370, the `#if BC29PLUS` guards of PC_B_ExtensionCode for b13, b14, b17, b18, b23, b24, b27 and b28). Consumed by `al-vm`
+    /// permissions/permission_probed/extension_code.rs.
+    ExtensionCodeWithoutBaseTableGrantFrom29,
 }
 
 impl Gate {
@@ -585,6 +627,7 @@ impl Gate {
         Gate::DotNetRuntime10From29,
         Gate::LegacyStatisticsActionGoneFrom29,
         Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29,
+        Gate::ExtensionCodeWithoutBaseTableGrantFrom29,
     ];
 
     /// The first BC major with the new behaviour.
@@ -628,7 +671,8 @@ impl Gate {
             | Gate::ExceptionTraceValueTaskFrameFrom29
             | Gate::DotNetRuntime10From29
             | Gate::LegacyStatisticsActionGoneFrom29
-            | Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29 => 29,
+            | Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29
+            | Gate::ExtensionCodeWithoutBaseTableGrantFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -830,16 +874,9 @@ impl Gate {
                 file: "testpage/Y15ReapplyMarksSecondaryKey.al",
                 lines: "336",
             }],
-            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[
-                Evidence {
-                    file: "pages/RtFilteredGoneRow.al",
-                    lines: "662,685",
-                },
-                Evidence {
-                    file: "testpage/Y1WorksheetPostLog.al",
-                    lines: "165,181",
-                },
-            ],
+            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => {
+                THREE_LINE_LEAVES_KEY_EVIDENCE
+            }
             Gate::BracketedRecordIdNameWithoutNamespaceFrom28 => BRACKETED_RECORD_ID_NAME_EVIDENCE,
             Gate::MediaFieldRefFilterArgumentEvaluateErrorFrom28 => MEDIA_FIELDREF_FILTER_ARGUMENT_EVIDENCE,
             Gate::RecordRefIsDirtyFrom28 => RECORD_REF_IS_DIRTY_EVIDENCE,
@@ -906,6 +943,7 @@ impl Gate {
             Gate::ReportSaveAsInherentPermissionsFrom29 => REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE,
             Gate::LegacyStatisticsActionGoneFrom29 => LEGACY_STATISTICS_EVIDENCE,
             Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29 => NO_CODEUNIT_AFTER_TEST_RUN_EVIDENCE,
+            Gate::ExtensionCodeWithoutBaseTableGrantFrom29 => EXTENSION_CODE_WITHOUT_BASE_TABLE_GRANT_EVIDENCE,
             Gate::ObsoleteRequiredPendingAttributeFrom29 => &[Evidence {
                 file: "reports/runtime/ACAttributes.al",
                 lines: "146",
@@ -1018,10 +1056,7 @@ impl Gate {
             }],
             Gate::ProbedValuesDifferFrom28 => PROBED_VALUES_DIFFER_FROM_28,
             Gate::ProbedValuesDifferFrom29 => PROBED_VALUES_DIFFER_FROM_29,
-            Gate::Base64TextIsWindows1252From28 => &[Evidence {
-                file: "types/PVBase64.al",
-                lines: "83,88,231",
-            }],
+            Gate::Base64TextIsWindows1252From28 => BASE64_TEXT_IS_WINDOWS_1252_EVIDENCE,
             Gate::TestFieldTypedValueTexts => &[
                 Evidence {
                     file: "record/testfield/AsTestFieldTexts.al",
@@ -1538,6 +1573,13 @@ const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
 ];
 
 const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    // `Base64Convert.ToBase64(InStream, true)` after a part of the stream was read, and a second call on the same InStream
+    // (streams/Base64LineBreaks.al:200,212 ToBase64_InStream_EmptyPartReadAndSecondCall); the OutStream line-break tests
+    // exist from BC 28 only (:255-405).
+    Evidence {
+        file: "streams/Base64LineBreaks.al",
+        lines: "200,212,255",
+    },
     Evidence {
         file: "format-evaluate/format-matrix/FMOptionBlankField.al",
         lines: "254,519,784",

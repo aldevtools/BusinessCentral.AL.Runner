@@ -1,9 +1,8 @@
 //! A Provider chain whose Provider part shows no row (al-runner issue 7392, the reporter's smaller shape): a Card with a
 //! ListPart `Lines`, a page extension that adds a ListPart `Details` outside FactBoxes with `Provider = Lines`, on a header
-//! with no lines. The cells of corpus pull request 1384 (testpage/parts/ProviderNoRowFirst.al) run as flagged passes
-//! (`provider-no-row-ext-chain`); one fact changed keeps main's refusal.
+//! with no lines. The cells of testpage/parts/ProviderNoRowFirst.al run as clean passes; one fact changed keeps main's
+//! refusal.
 
-use al_builtins::assumptions::Assumption::ProviderNoRowExtChain;
 use al_testrun::Outcome;
 
 use super::reporter_repros_7820_7821::outcome_and_marks;
@@ -214,15 +213,15 @@ const MEASURED: [&str; 5] = [
 ];
 
 #[test]
-fn r7392_measured_cells_are_flagged_passes() {
+fn r7392_measured_cells_are_clean_passes() {
     for test in MEASURED {
         let (o, marks) = outcome_and_marks(SRC, "PN Tests", test);
         assert_eq!(o, Outcome::Pass, "{test}");
-        assert!(marks.contains(&ProviderNoRowExtChain), "{test}: {marks:?}");
+        assert!(marks.is_empty(), "{test}: {marks:?}");
     }
     let (o, marks) = outcome_and_marks(SRC, "PN Tests", "WithLinesFirst");
     assert_eq!(o, Outcome::Pass);
-    assert!(!marks.contains(&ProviderNoRowExtChain), "{marks:?}");
+    assert!(marks.is_empty(), "{marks:?}");
 }
 
 fn variant(from: &str, to: &str) -> String {
@@ -238,7 +237,7 @@ const DETAIL_FIELD: &str = "field(Seq; Rec.Seq) { ApplicationArea = All; }";
 const EXT_HEAD: &str = "pageextension 69815 \"PN Card Ext\" extends \"PN Card\"\n{\n";
 const EXT_LINK: &str = "SubPageLink = \"Header No.\" = field(\"Header No.\"), \"Line No.\" = field(\"Line No.\");";
 
-/// One fact of a measured cell changed: the chain keeps main's refusal and takes no assumption.
+/// One fact of a measured cell changed: the chain keeps main's refusal.
 #[test]
 fn r7392_neighbors_keep_mains_refusal() {
     let cases: Vec<(&str, String, &str)> = vec![
@@ -381,14 +380,14 @@ fn r7392_neighbors_keep_mains_refusal() {
         .filter_map(|(what, src, test)| {
             let (o, marks) = outcome_and_marks(&src, "PN Tests", test);
             let refused = matches!(&o, Outcome::NotRun(r) if r.contains("Provider part that shows no row"));
-            (!refused || marks.contains(&ProviderNoRowExtChain)).then(|| format!("{what}: {o:?} {marks:?}"))
+            (!refused).then(|| format!("{what}: {o:?} {marks:?}"))
         })
         .collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
-/// A call after the landing that the probe does not make is refused by the end the landing set (the landing itself took the
-/// assumption): a host move, a read other than a part control's value, and any call after the test wrote to the store.
+/// A call after the landing that the probe does not make is refused by the end the landing set (the landing itself is a
+/// measured cell): a host move, a read other than a part control's value, and any call after the test wrote to the store.
 #[test]
 fn r7392_calls_after_the_landing_keep_to_the_probe() {
     let after_first_only =

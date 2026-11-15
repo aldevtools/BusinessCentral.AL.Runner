@@ -885,7 +885,7 @@ impl Session {
             }
             (Err(Signal::Error(mut e)), true) => {
                 self.add_top_frame(&mut e);
-                self.catch_error(*e);
+                self.catch_error(*e)?;
                 return Ok(Value::Boolean(false));
             }
             (Ok((_, finals)), true) => (Value::Boolean(true), finals),
@@ -1652,7 +1652,7 @@ impl Session {
                                             unread_content: false,
                                             assigned_unsaved: false,
                                             utf16_binary: b.utf16_binary,
-                                            unicode_read: None,
+                                            ..Default::default()
                                         },
                                     )))
                                 }

@@ -1,15 +1,13 @@
-//! Denied reads that corpus PR 1403 measured: a filter that matches no row of a table that holds rows (al-runner issue 7854),
+//! Denied reads that the pinned corpus measures: a filter that matches no row of a table that holds rows (al-runner issue 7854),
 //! and the text of a read denied to code whose Permissions property grants it (al-runner issue 8066).
 //!
 //! FindFirst is pinned for a dependency table (AEDependencyTableReads.al `Customer_filter_no_match`, in `permissions.rs`).
-//! Corpus PR 1403 (merged, not pinned; permissions/testpermissions/Y19PermExtAndCompose.al, test PC_C_NoMatchReadsAndDelete, ops 42-46)
-//! measured FindSet, FindLast, Find('-') and Count denied with `Read`, and IsEmpty allowed, on BC 27.5, 28.5 and 29.0
-//! (assumption `read-no-match-denied`). The measured shape is an allowlist of its facts here; every other no-match read
+//! tests/al-language/permissions/testpermissions/Y19PermExtAndCompose.al:396-424 (PC_C_NoMatchReadsAndDelete, ops 42-46)
+//! pins FindSet, FindLast, Find('-') and Count denied with `Read`, and IsEmpty allowed. The measured shape is an allowlist of its facts here; every other no-match read
 //! is refused.
 use crate::Session;
 use crate::permission_bulk_no_match::{RecordCaller, Target};
 use crate::permissions::Access;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::Signal;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RtType, Value};
@@ -38,8 +36,8 @@ impl Session {
 
     /// BC's error for denied read `method`, which finds a row when `found`. Without the grant of the Permissions property the
     /// text names `Read` (Y24PermReads.al Y24_P14_ReadShapesWithRows; AEDependencyTableReads.al for GetBySystemId,
-    /// Find('='), Next and a FindFirst that finds no row). With it, corpus PR 1403 measured `IndirectRead` for a Get and a
-    /// FindFirst that find a row (Y19InherentAttrIndirect.al:59-76) in the shapes of [`Session::indirect_read_measured`];
+    /// Find('='), Next and a FindFirst that finds no row). With it, `IndirectRead` for a Get and a FindFirst that find a
+    /// row (tests/al-language/permissions/testpermissions/Y19InherentAttrIndirect.al:59-76, :153-185) in the shapes of [`Session::indirect_read_measured`];
     /// every other read with the grant is refused.
     fn read_denial_of(&self, method: RecordOp, found: bool, access: Access, indirect: bool, by: usize) -> Signal {
         if !indirect {
@@ -59,13 +57,13 @@ impl Session {
             return self.denial_error(access, "IndirectRead", "Read", by);
         }
         Signal::unsupported(format!(
-            "a denied read ({}) by code whose Permissions property grants it: corpus PR 1403 measures `IndirectRead` for Get and FindFirst in one shape only",
+            "a denied read ({}) by code whose Permissions property grants it: Y19InherentAttrIndirect.al measures `IndirectRead` for Get and FindFirst in one shape only",
             access.describe()
         ))
     }
 
     /// What BC does with read `method` of `rec`, whose filter matches no row while the table holds `rows` rows, in the
-    /// shape corpus PR 1403 measured; `None` (the caller refuses) in every other shape. `by` is the object whose code
+    /// shape Y19PermExtAndCompose.al:396-424 measures; `None` (the caller refuses) in every other shape. `by` is the object whose code
     /// makes the access; `indirect` whether its Permissions property grants it.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn read_no_match_probed(
@@ -102,7 +100,6 @@ impl Session {
         if !measured {
             return Ok(None);
         }
-        assume(Assumption::ReadNoMatchDenied);
         Ok(Some(answer))
     }
 }

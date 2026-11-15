@@ -766,8 +766,8 @@ impl BlobMove {
 }
 
 /// The copy `Target.Field := Source` stores when another holder has the source Blob `b` too (`copy_for_assignment`); `cur`
-/// is what the target holds now. The copy is marked `BlobBuf::assigned_unsaved` only in the shape of assumption
-/// `blob-assign-counts-as-write` (al-runner issue 7961, the reporter's repro): the source is the Blob a temporary record's
+/// is what the target holds now. The copy is marked `BlobBuf::assigned_unsaved` only in the shape
+/// tests/al-language/streams/BlobAssignThenCalcFields.al:244-256 (Assign_Ins_FromTmpIns) pins (al-runner issue 7961): the source is the Blob a temporary record's
 /// Insert stored while it held content, with no stream created on it and no unsaved write since (`temp_inserted`; in the
 /// repro a stream wrote the content), and the target is a loaded Blob without content and without an unsaved write.
 /// `Session::load_blobs` reads the mark. Every other copy is as before.
@@ -799,7 +799,7 @@ struct Source {
     in_memory: bool,
     /// No mark of another rule: not the content of a `File`, not handed to a .NET stream, no rendered report pending, not
     /// the empty Blob `FieldRef.Value` hands out for unread content, no first write that truncates, no unsaved assignment
-    /// (assumption `blob-assign-counts-as-write`). The buffers the probes measured carry none of them.
+    /// (`BlobBuf::assigned_unsaved`). The buffers the probes measured carry none of them.
     plain_buffer: bool,
 }
 

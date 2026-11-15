@@ -397,3 +397,13 @@
 27 3109-calcformula-option-value-not-defined
 28 3109-calcformula-option-value-not-defined
 29 3109-calcformula-option-value-not-defined
+# corpus bump to 56ca92b3 (corpus run 43671109504): new cases the front end does not decide yet (an unquoted Option or Enum member)
+27 3158-option-field-unquoted-in-member
+27 3159-option-variable-unquoted-in-member
+27 3160-enum-type-unquoted-in-value
+28 3158-option-field-unquoted-in-member
+28 3159-option-variable-unquoted-in-member
+28 3160-enum-type-unquoted-in-value
+29 3158-option-field-unquoted-in-member
+29 3159-option-variable-unquoted-in-member
+29 3160-enum-type-unquoted-in-value

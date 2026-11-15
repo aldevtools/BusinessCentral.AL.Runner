@@ -1,10 +1,9 @@
 //! CalcDate at the ends of the date range (0001-01-01 to 9999-12-31): which formulas raise "The date is not valid." (code
 //! DateInvalid), and which results from the closing date C9999-12-31 stay closing dates. Each cell is pinned by
-//! types/date-time/CalcDate.al:458-480 or measured by corpus PR 1374 (types/date-time/CalcDateOverflow.al, the same on all
-//! three majors; assumption `calcdate-past-date-range`). Every other shape at the ends is refused.
+//! tests/al-language/types/date-time/CalcDate.al:458-480 or by tests/al-language/types/date-time/CalcDateOverflow.al:250-534
+//! (cited per cell as CalcDateOverflow.al:LINE). Every other shape at the ends is refused.
 
 use super::{LAST_DAY, Term, Unit};
-use crate::assumptions::{self, Assumption};
 use crate::native::{Signal, raise, unsupported};
 
 /// The overload of CalcDate a call went through: a text formula (with or without a date) or a DateFormula.
@@ -25,10 +24,7 @@ pub(super) struct Base {
 const FIRST_DAY: i32 = 1;
 const SECOND_DAY: i32 = 2;
 
-fn date_invalid<T>(assumed: bool) -> Result<T, Signal> {
-    if assumed {
-        assumptions::assume(Assumption::CalcDatePastDateRange);
-    }
+fn date_invalid<T>() -> Result<T, Signal> {
     crate::native::date_invalid()
 }
 
@@ -40,7 +36,6 @@ fn date_invalid<T>(assumed: bool) -> Result<T, Signal> {
 pub(super) fn year_step_too_large(formula: &str, base: Base, overload: Overload) -> Result<(), Signal> {
     let measured = matches!((formula, overload, base.closing), ("<+10000Y>", Overload::Text, false));
     if measured && base.day > SECOND_DAY {
-        assumptions::assume(Assumption::CalcDatePastDateRange);
         return raise(super::numbers::message("+10000Y"), "Evaluate");
     }
     Ok(())
@@ -57,13 +52,13 @@ pub(super) fn low_base(terms: &[Term], base: Base, overload: Overload) -> Result
     }
     match (base.closing, overload, base.day, terms) {
         // CalcDate.al:466-467 (`<-1D>` from 0001-01-01).
-        (false, Overload::Text, FIRST_DAY, [Step(Day, -1)]) => date_invalid(false),
+        (false, Overload::Text, FIRST_DAY, [Step(Day, -1)]) => date_invalid(),
         // CalcDateOverflow.al:285, :421 (`<+0D>`, `<+1D>`, `<-CY>`) and :250, :394 (`<-1Y>`).
         (false, Overload::Text, FIRST_DAY, [Step(Day, 0 | 1) | Edge { unit: Year, end: false } | Step(Year, -1)]) => {
-            date_invalid(true)
+            date_invalid()
         }
         // CalcDateOverflow.al:313, :483 (`<+0D>`, `<-1D>`, `<-2D>` from 0001-01-02).
-        (false, Overload::Text, SECOND_DAY, [Step(Day, -2..=0)]) => date_invalid(true),
+        (false, Overload::Text, SECOND_DAY, [Step(Day, -2..=0)]) => date_invalid(),
         _ => unsupported(
             "CalcDate on the base 0001-01-01 or 0001-01-02 with this formula, overload or a closing date (not measured)",
         ),
@@ -77,17 +72,17 @@ pub(super) fn past_edge<T>(terms: &[Term], base: Base, overload: Overload) -> Re
     use Unit::{Day, Month, Week, Year};
     match (base.closing, overload, terms) {
         // CalcDate.al:470 (`<1D>`), :474 (`<1Y>` from 9999-01-01), :478 (`<1M>`), :480 (`<1W>`) from 9999-12-31.
-        (false, Overload::Text, [Step(Day | Week | Month | Year, 1)]) => date_invalid(false),
+        (false, Overload::Text, [Step(Day | Week | Month | Year, 1)]) => date_invalid(),
         // CalcDate.al:476 (`<-1Y>` from 0001-06-01).
-        (false, Overload::Text, [Step(Year, -1)]) => date_invalid(false),
-        // CalcDateOverflow.al:313, :483 (`<+9999Y>` from Today). Other step sizes are not measured (docs/probes-needed.md).
-        (false, Overload::Text, [Step(Year, 9999)]) => date_invalid(true),
+        (false, Overload::Text, [Step(Year, -1)]) => date_invalid(),
+        // CalcDateOverflow.al:313, :483 (`<+9999Y>` from Today). Other step sizes are not measured.
+        (false, Overload::Text, [Step(Year, 9999)]) => date_invalid(),
         // CalcDateOverflow.al:250, :367 (`<CM+1D>` from 9999-12-31).
-        (false, Overload::Text, [Edge { unit: Month, end: true }, Step(Day, 1)]) => date_invalid(true),
+        (false, Overload::Text, [Edge { unit: Month, end: true }, Step(Day, 1)]) => date_invalid(),
         // CalcDateOverflow.al:250, :394 (the DateFormula `<+1Y>` from 9999-12-31).
-        (false, Overload::Formula, [Step(Year, 1)]) => date_invalid(true),
+        (false, Overload::Formula, [Step(Year, 1)]) => date_invalid(),
         // CalcDateOverflow.al:250, :394 (`<+1D>` from C9999-12-31).
-        (true, Overload::Text, [Step(Day, 1)]) if base.day == LAST_DAY => date_invalid(true),
+        (true, Overload::Text, [Step(Day, 1)]) if base.day == LAST_DAY => date_invalid(),
         _ => unsupported("CalcDate result outside 0001-9999 (error text not pinned)"),
     }
 }
@@ -105,7 +100,7 @@ pub(super) fn first_day_result(day: i32) -> Result<(), Signal> {
 /// (CalcDateOverflow.al:512). Every other result is a plain date, as before (not measured for other closing dates).
 pub(super) fn closing_result(terms: &[Term], base: Base, overload: Overload) -> bool {
     use Term::{Edge, Step};
-    let measured = base.closing
+    base.closing
         && base.day == LAST_DAY
         && overload == Overload::Text
         && matches!(
@@ -115,13 +110,12 @@ pub(super) fn closing_result(terms: &[Term], base: Base, overload: Overload) -> 
                     unit: Unit::Year,
                     end: true
                 }]
-        );
-    measured && assumptions::hit(Assumption::CalcDatePastDateRange)
+        )
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::assumptions::{self, Assumption};
+    use crate::assumptions;
     use crate::format::day_from_civil;
     use crate::native::Signal;
     use crate::native::tests::{call, t};
@@ -133,11 +127,11 @@ mod tests {
     fn closing(y: i32, m: u32, d: u32) -> Value {
         Value::Date(day_from_civil(y, m, d), true)
     }
-    /// CalcDate with a text formula, and whether it went through the assumption.
+    /// CalcDate with a text formula, and whether it marked any assumption.
     fn calc(formula: &str, base: Value) -> (Result<Value, Signal>, bool) {
         assumptions::clear_hits();
         let r = call("System.CalcDate#2", vec![t(formula), base]);
-        (r, assumptions::take_hits().contains(&Assumption::CalcDatePastDateRange))
+        (r, !assumptions::take_hits().is_empty())
     }
     #[track_caller]
     fn date_invalid(r: (Result<Value, Signal>, bool), assumed: bool) {
@@ -147,7 +141,7 @@ mod tests {
                     (e.message.as_str(), e.code.as_str()),
                     ("The date is not valid.", "DateInvalid")
                 );
-                assert_eq!(flag, assumed, "assumption flag");
+                assert_eq!(flag, assumed, "assumption mark");
             }
             other => panic!("{other:?}"),
         }
@@ -161,7 +155,7 @@ mod tests {
     }
 
     #[test]
-    fn the_pinned_cells_raise_without_the_assumption() {
+    fn the_calcdate_al_cells_raise() {
         // types/date-time/CalcDate.al:466-480.
         date_invalid(calc("<1D>", date(9999, 12, 31)), false);
         date_invalid(calc("<1W>", date(9999, 12, 31)), false);
@@ -172,35 +166,32 @@ mod tests {
     }
 
     #[test]
-    fn the_measured_cells_raise_through_the_assumption() {
+    fn the_calcdate_overflow_cells_raise_unmarked() {
         // CalcDateOverflow.al:250, :285, :313.
-        date_invalid(calc("<CM+1D>", date(9999, 12, 31)), true);
-        date_invalid(calc("<+9999Y>", date(2026, 11, 13)), true);
-        date_invalid(calc("<+1D>", closing(9999, 12, 31)), true);
-        date_invalid(calc("<+0D>", date(1, 1, 1)), true);
-        date_invalid(calc("<-CY>", date(1, 1, 1)), true);
-        date_invalid(calc("<-2D>", date(1, 1, 2)), true);
+        date_invalid(calc("<CM+1D>", date(9999, 12, 31)), false);
+        date_invalid(calc("<+9999Y>", date(2026, 11, 13)), false);
+        date_invalid(calc("<+1D>", closing(9999, 12, 31)), false);
+        date_invalid(calc("<+0D>", date(1, 1, 1)), false);
+        date_invalid(calc("<-CY>", date(1, 1, 1)), false);
+        date_invalid(calc("<-2D>", date(1, 1, 2)), false);
         assumptions::clear_hits();
         let r = call(
             "System.CalcDate#1",
             vec![Value::DateFormula("<+1Y>".into()), date(9999, 12, 31)],
         );
-        date_invalid(
-            (r, assumptions::take_hits().contains(&Assumption::CalcDatePastDateRange)),
-            true,
-        );
+        date_invalid((r, !assumptions::take_hits().is_empty()), false);
         let (r, flag) = calc("<+10000Y>", date(2026, 11, 13));
         let Err(Signal::Error(e)) = r else { panic!("{r:?}") };
-        assert!(flag && e.code == "Evaluate" && e.message.starts_with("The date formula '+10000Y' contains"));
+        assert!(!flag && e.code == "Evaluate" && e.message.starts_with("The date formula '+10000Y' contains"));
     }
 
     #[test]
     fn closing_results_from_c9999_12_31_stay_closing_only_for_the_measured_formulas() {
         // CalcDateOverflow.al:512.
         let last = day_from_civil(9999, 12, 31);
-        assert!(matches!(calc("<-1D>", closing(9999, 12, 31)), (Ok(Value::Date(d, true)), true) if d == last - 1));
-        assert!(matches!(calc("<CY>", closing(9999, 12, 31)), (Ok(Value::Date(d, true)), true) if d == last));
-        // Not measured: the earlier answer, a plain date, without the assumption.
+        assert!(matches!(calc("<-1D>", closing(9999, 12, 31)), (Ok(Value::Date(d, true)), false) if d == last - 1));
+        assert!(matches!(calc("<CY>", closing(9999, 12, 31)), (Ok(Value::Date(d, true)), false) if d == last));
+        // Not measured: the earlier answer, a plain date.
         assert!(matches!(
             calc("<-1M>", closing(9999, 12, 31)),
             (Ok(Value::Date(_, false)), false)

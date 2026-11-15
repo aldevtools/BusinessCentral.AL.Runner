@@ -1144,15 +1144,7 @@ impl Session {
                 // else, the empty text included, raises (record/PZFindDirections.al:Find_InvalidDirections and
                 // Find_InvalidDirection_ErrorText, Record and RecordRef alike; the text carries the backslashes as BC
                 // writes them).
-                let valid = match which.as_str() {
-                    "-" | "+" => true,
-                    w => {
-                        !w.is_empty()
-                            && w.chars().all(|c| matches!(c, '=' | '<' | '>'))
-                            && w.char_indices().all(|(i, c)| !w[i + 1..].contains(c))
-                    }
-                };
-                if !valid {
+                if !valid_find_direction(&which) {
                     return Err(Signal::Error(Box::new(AlError {
                         message: format!(
                             "There is an invalid character in the Find expression '{which}'.\\\\In Find expressions, you can use =, >, and < in combinations, where each sign can only appear once, or you can use - or +."
@@ -1162,7 +1154,7 @@ impl Session {
                         ..Default::default()
                     })));
                 }
-                let found = match which.as_str() {
+                let mut found = match which.as_str() {
                     "-" => self.as_find_first(method, rec, |s| s.scan(rec, &t, asc, None))?,
                     "+" => self.scan(rec, &t, !asc, None)?,
                     // Every form honours the active filters
@@ -1238,6 +1230,7 @@ impl Session {
                     }
                     other => return unsupported(format!("Find('{other}')")),
                 };
+                crate::platform::unmeasured_find(&self.engine, &t, &mut found, method, &which, args);
                 match found {
                     Some(row) => {
                         // Every form of Find gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:256-480,
@@ -2288,5 +2281,17 @@ impl Session {
             }
         }
         Ok(())
+    }
+}
+
+/// Whether `which` is a direction of Find: `-` or `+` alone, or one to three of `=`, `<` and `>` with none repeated.
+fn valid_find_direction(which: &str) -> bool {
+    match which {
+        "-" | "+" => true,
+        w => {
+            !w.is_empty()
+                && w.chars().all(|c| matches!(c, '=' | '<' | '>'))
+                && w.char_indices().all(|(i, c)| !w[i + 1..].contains(c))
+        }
     }
 }

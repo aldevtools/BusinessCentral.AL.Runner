@@ -44,7 +44,7 @@ impl Session {
         match method.method() {
             PageMethod::GoToKey => Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound")),
             m => {
-                self.last_error = *e;
+                self.hold_error(*e)?;
                 Ok(match m {
                     PageMethod::Next | PageMethod::Previous | PageMethod::First | PageMethod::Last => {
                         Value::Unknown(std::sync::Arc::from(

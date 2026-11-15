@@ -557,6 +557,9 @@ pub struct Object {
     /// For a report: the layouts its `rendering` section declares.
     #[serde(default)]
     pub layouts: Vec<LayoutDecl>,
+    /// For a table extension: its `modify` blocks, each as the field name and the names of the properties it sets, as written.
+    #[serde(default)]
+    pub modified_fields: Vec<(String, Vec<String>)>,
 }
 
 /// `layout(Name) { Type = Word; ... }` of a report.
@@ -722,8 +725,8 @@ pub struct ReportColumn {
     pub auto_format_type: Option<String>,
     #[serde(default)]
     pub auto_format_expression: Option<String>,
-    /// The syntax of the source expression; with the lowered routine it decides whether a Decimal is written without trailing
-    /// zeros (al-vm `decimal_column.rs`).
+    /// The syntax of the source expression. No runtime path reads it since every dataset Decimal shape is pinned
+    /// (reports/dataset/DatasetDecimalRoundScaleSources.al); kept until it is removed from the IR.
     #[serde(default)]
     pub source_syntax: SourceSyntax,
     /// The table (object index) and field position whose `DecimalPlaces` decide the `decimalformatter` when the column states
@@ -2307,6 +2310,7 @@ mod tests {
                 namespace: None,
                 extends_id: None,
                 layouts: Vec::new(),
+                modified_fields: Vec::new(),
                 routines: vec![Routine {
                     name: "P".into(),
                     field: None,

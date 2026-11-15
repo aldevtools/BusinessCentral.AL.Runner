@@ -1,7 +1,6 @@
 //! al-runner issue 8051: Field."App Package ID" and "App Runtime Package ID" of a field a table extension adds are the ids of
-//! the extension's app, not the table's. Corpus PR 1402 (merged, not pinned yet) measures it:
-//! tests/al-language/metadata/platform-tables/PlatformMetadataColumnValues.al:360-376 and :388-405. Until it is pinned the rows
-//! run through the assumption `field-row-extension-package-ids`.
+//! the extension's app, not the table's: tests/al-language/metadata/platform-tables/PlatformMetadataColumnValues.al:360-376
+//! and :388-405 pin it.
 //!
 //! Needs `System.app` of the pinned build in the artifact cache (`al_testfiles`).
 
@@ -207,16 +206,9 @@ codeunit 50120 T
     assert_eq!(o.len(), 4);
     let bad: Vec<_> = o.iter().filter(|(_, r, _)| *r != Outcome::Pass).collect();
     assert!(bad.is_empty(), "{bad:?}");
-    // The control reads no package column, but its rows include the extension field's.
-    let unflagged: Vec<_> = o
-        .iter()
-        .filter(|(_, _, h)| !h.contains(&Assumption::FieldRowExtensionPackageIds))
-        .map(|(n, ..)| n)
-        .collect();
-    assert!(unflagged.is_empty(), "not flagged: {unflagged:?}");
 }
 
-/// A table's own fields are not flagged: a read of Field rows that holds no extension field's row marks nothing.
+/// A table's own fields: a read of Field rows that holds no extension field's row marks nothing.
 #[test]
 fn issue_8051_own_fields_are_not_flagged() {
     let test = r#"
@@ -253,12 +245,12 @@ codeunit 50120 T
     ]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass);
-    assert!(!o[0].2.contains(&Assumption::FieldRowExtensionPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
 }
 
-/// A filter on the package that leaves the extension field's row out rests on its assumed value too: it is flagged.
+/// A filter on the package that leaves the extension field's row out (PlatformMetadataColumnValues.al:388-405) marks nothing.
 #[test]
-fn issue_8051_a_package_filter_that_drops_the_extension_field_is_flagged() {
+fn issue_8051_a_package_filter_that_drops_the_extension_field_is_unmarked() {
     let test = r#"
 tableextension 50110 "Repro Line Ext" extends "Repro Line"
 {
@@ -292,7 +284,7 @@ codeunit 50120 T
     ]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass);
-    assert!(o[0].2.contains(&Assumption::FieldRowExtensionPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
 }
 
 /// Not measured: the package ids of a field that a table extension of a dependency app (compiled from its package, as
@@ -377,7 +369,7 @@ codeunit 50120 T
 }
 
 /// A table extension in the table's own app makes a key lookup of the table's Field rows give the table's ids
-/// (PlatformMetadataColumnValues.al:569-605, corpus PR 1407; :516-532 for an extension field of the table's own app on Base
+/// (PlatformMetadataColumnValues.al:569-605; :516-532 for an extension field of the table's own app on Base
 /// Application's 6502). The field's row gets no extension ids
 /// (`extension_packages` takes only another app's extension), and a `<>` filter on the table's id finds no row.
 #[test]
@@ -422,7 +414,7 @@ codeunit 50120 T
     let o = run(&[(OWNER_ID, AppKind::Workspace, src)]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
-    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
 }
 
 const PLAIN_TABLE: &str = r#"
@@ -434,8 +426,7 @@ table 50100 "Plain Line"
 
 /// A key lookup (Get, or a FindFirst or FindSet with TableNo and No. set to one value each) of a declared field of a table no
 /// extension of its own app extends gives null ids, whichever app owns the table; a range of No. and a system field give the
-/// table's ids (PlatformMetadataColumnValues.al:569-605 and :618-646, corpus PR 1407; :516-532 for System Application's tables).
-/// Here the table is a dependency app's, where main gave the table's ids: flagged.
+/// table's ids (PlatformMetadataColumnValues.al:569-605 and :618-646; :516-532 for System Application's tables).
 #[test]
 fn issue_8051_key_lookup_of_a_dependency_table_without_same_app_extension_is_null() {
     let test = r#"
@@ -477,10 +468,10 @@ codeunit 50120 T
     ]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
-    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
 }
 
-/// A system field of a table of the app under test gives the table's ids on a Get (main gave null): flagged. A Get of its
+/// A system field of a table of the app under test gives the table's ids on a Get (:618-646). A Get of its
 /// declared field keeps the pinned null (PlatformMetadataColumnValues.al:287-311) and marks nothing.
 #[test]
 fn issue_8051_get_of_a_system_field_gives_the_tables_ids() {
@@ -520,14 +511,14 @@ codeunit 50120 T
     let o = run(&[(OWNER_ID, AppKind::Workspace, &src)]);
     let by = |n: &str| o.iter().find(|(x, ..)| x == n).unwrap();
     assert_eq!(by("Declared").1, Outcome::Pass, "{:?}", by("Declared").1);
-    assert!(!by("Declared").2.contains(&Assumption::FieldKeyLookupPackageIds));
+    assert!(by("Declared").2.is_empty(), "{:?}", by("Declared").2);
     assert_eq!(by("SystemId").1, Outcome::Pass, "{:?}", by("SystemId").1);
-    assert!(by("SystemId").2.contains(&Assumption::FieldKeyLookupPackageIds));
+    assert!(by("SystemId").2.is_empty(), "{:?}", by("SystemId").2);
 }
 
 /// A key read with a filter on App Package ID too (TableNo, No. and the package filter in group 0; PlatformMetadataColumnValues.al
-/// :844-868, corpus PR 1410): on a table whose key lookup gives null ids, FindFirst and FindSet test the filter against the null
-/// ids, while IsEmpty and Count test it against the table's ids. Flagged until the corpus bump pins it.
+/// :844-868): on a table whose key lookup gives null ids, FindFirst and FindSet test the filter against the null
+/// ids, while IsEmpty and Count test it against the table's ids.
 #[test]
 fn issue_8051_key_lookup_with_a_package_filter_finds_by_the_null_ids() {
     let src = format!(
@@ -571,7 +562,7 @@ codeunit 50120 T
     let o = run(&[(OWNER_ID, AppKind::Workspace, &src)]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
-    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
 }
 
 /// Not measured: a key read with a filter on App Runtime Package ID, or with the package filter in another filter group. Refused,
@@ -632,7 +623,7 @@ codeunit 50120 T
     let by = |n: &str| o.iter().find(|(x, ..)| x == n).unwrap().1.clone();
     for n in ["RuntimeFilter", "OtherGroup"] {
         assert!(
-            matches!(by(n), Outcome::NotRun(ref why) if why.contains("package")),
+            matches!(by(n), Outcome::NotRun(ref why) if why.contains("App Package ID")),
             "{n}: {:?}",
             by(n)
         );
@@ -643,7 +634,7 @@ codeunit 50120 T
 /// Every other read of field 1 whose filters set TableNo and No. to one value each answers as a Get does (null here: a dependency
 /// table no extension of its own app extends): FindLast, Find('-'), Find('+'), Find('='), a descending FindFirst, Next from a
 /// blank record, a third filter on Class, both filters in FilterGroup 2, TableNo in group 2 and No. in 0, RecordRef.FindFirst and
-/// RecordRef.Find('=') (PlatformMetadataColumnValues.al:753-772, corpus PR 1410). Main gave the table's ids: flagged.
+/// RecordRef.Find('=') (PlatformMetadataColumnValues.al:753-772).
 #[test]
 fn issue_8051_other_key_read_forms_answer_as_get() {
     let test = r#"
@@ -733,53 +724,11 @@ codeunit 50120 T
     ]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
-    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
-}
-
-/// A key read outside the measured shapes keeps the table's ids (main's result) and marks nothing: a third filter on FieldName
-/// (only Class is measured), and No. in FilterGroup 2 with TableNo in 0 (only the reverse is measured).
-#[test]
-fn issue_8051_key_scan_outside_the_measured_shape_keeps_the_tables_ids() {
-    let test = r#"
-codeunit 50120 T
-{
-    Subtype = Test;
-
-    [Test]
-    procedure Unmeasured()
-    var
-        F: Record Field;
-        Tbl: Record AllObj;
-    begin
-        Tbl.Get(Tbl."Object Type"::Table, 50100);
-        F.SetRange(TableNo, 50100);
-        F.SetRange("No.", 2);
-        F.SetFilter(FieldName, '<>%1', 'Nothing');
-        F.FindFirst();
-        if F."App Package ID" <> Tbl."App Package ID" then
-            Error('third filter');
-        Clear(F);
-        F.SetRange(TableNo, 50100);
-        F.FilterGroup(2);
-        F.SetRange("No.", 2);
-        F.FilterGroup(0);
-        F.FindFirst();
-        if F."App Package ID" <> Tbl."App Package ID" then
-            Error('no in group 2');
-    end;
-}"#;
-    let o = run(&[
-        (OWNER_ID, AppKind::Dependency, PLAIN_TABLE),
-        (TEST_ID, AppKind::Workspace, test),
-    ]);
-    assert_eq!(o.len(), 1);
-    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
-    assert!(!o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
 }
 
 /// A table extension of the table's own app that declares no field, only a `modify`, makes a key lookup give the table's ids
-/// (PlatformMetadataColumnValues.al:784-815, corpus PR 1410). Main kept the earlier rule there (null for a table of the app under
-/// test): flagged.
+/// (PlatformMetadataColumnValues.al:784-815).
 #[test]
 fn issue_8051_a_modify_only_same_app_extension_gives_the_tables_ids() {
     let src = r#"
@@ -816,11 +765,11 @@ codeunit 50120 T
     let o = run(&[(OWNER_ID, AppKind::Workspace, src)]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
-    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
 }
 
 /// Every kind of declared field, and a field of a TableType = Temporary table, gives null ids on a Get of a dependency table no
-/// extension of its own app extends (PlatformMetadataColumnValues.al:784-815, corpus PR 1410).
+/// extension of its own app extends (PlatformMetadataColumnValues.al:784-815).
 #[test]
 fn issue_8051_get_of_every_field_kind_and_a_temporary_table_is_null() {
     let tables = r#"
@@ -874,75 +823,8 @@ codeunit 50120 T
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
 }
 
-/// The Class filter is measured on a FindFirst only (PlatformMetadataColumnValues.al:662-737, ObserveReadForms, corpus PR 1410).
-/// With FindLast the read keeps the table's ids (main's result) and marks nothing.
-#[test]
-fn issue_8051_class_filter_with_findlast_keeps_the_tables_ids() {
-    let test = r#"
-codeunit 50120 T
-{
-    Subtype = Test;
-
-    [Test]
-    procedure FindLastForm()
-    var
-        F: Record Field;
-        Tbl: Record AllObj;
-    begin
-        Tbl.Get(Tbl."Object Type"::Table, 50100);
-        F.SetRange(TableNo, 50100);
-        F.SetRange("No.", 1);
-        F.SetRange(Class, F.Class::Normal);
-        F.FindLast();
-        if F."App Package ID" <> Tbl."App Package ID" then
-            Error('findlast');
-    end;
-}"#;
-    let o = run(&[
-        (OWNER_ID, AppKind::Dependency, PLAIN_TABLE),
-        (TEST_ID, AppKind::Workspace, test),
-    ]);
-    assert_eq!(o.len(), 1);
-    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
-    assert!(!o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
-}
-
-/// The filters in group 2 are measured on a FindFirst only (PlatformMetadataColumnValues.al:662-737, ObserveReadForms, corpus PR
-/// 1410). With FindLast the read keeps the table's ids (main's result) and marks nothing.
-#[test]
-fn issue_8051_group_2_with_findlast_keeps_the_tables_ids() {
-    let test = r#"
-codeunit 50120 T
-{
-    Subtype = Test;
-
-    [Test]
-    procedure FindLastForm()
-    var
-        F: Record Field;
-        Tbl: Record AllObj;
-    begin
-        Tbl.Get(Tbl."Object Type"::Table, 50100);
-        F.FilterGroup(2);
-        F.SetRange(TableNo, 50100);
-        F.SetRange("No.", 1);
-        F.FilterGroup(0);
-        F.FindLast();
-        if F."App Package ID" <> Tbl."App Package ID" then
-            Error('findlast');
-    end;
-}"#;
-    let o = run(&[
-        (OWNER_ID, AppKind::Dependency, PLAIN_TABLE),
-        (TEST_ID, AppKind::Workspace, test),
-    ]);
-    assert_eq!(o.len(), 1);
-    assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
-    assert!(!o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
-}
-
 /// A key read with a package filter is measured as a FindFirst or FindSet only (PlatformMetadataColumnValues.al:827-842,
-/// ObservePackageFilters, corpus PR 1410). Next from a blank record is refused, as on main.
+/// ObservePackageFilters). Next from a blank record is refused, as on main.
 #[test]
 fn issue_8051_key_lookup_with_a_package_filter_and_next_from_blank_is_refused() {
     let src = format!(
@@ -969,17 +851,16 @@ codeunit 50120 T
     let o = run(&[(OWNER_ID, AppKind::Workspace, &src)]);
     assert_eq!(o.len(), 1);
     assert!(
-        matches!(o[0].1, Outcome::NotRun(ref why) if why.contains("package")),
+        matches!(o[0].1, Outcome::NotRun(ref why) if why.contains("App Package ID")),
         "{:?}",
         o[0].1
     );
 }
 
 /// On a table that a modify-only extension of its own app extends, a key FindFirst with a package filter tests the filter
-/// against the table's ids. That rests on PlatformMetadataColumnValues.al:784-815 and :844-868 (corpus PR 1410, not pinned yet):
-/// flagged. Main answered it without a mark.
+/// against the table's ids (PlatformMetadataColumnValues.al:784-815 and :844-868).
 #[test]
-fn issue_8051_package_filtered_key_read_on_a_modify_only_same_app_extension_is_flagged() {
+fn issue_8051_package_filtered_key_read_on_a_modify_only_same_app_extension_tests_the_tables_ids() {
     let src = r#"
 table 50100 "Modify Line"
 {
@@ -1013,5 +894,318 @@ codeunit 50120 T
     let o = run(&[(OWNER_ID, AppKind::Workspace, src)]);
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass, "{:?}", o[0].1);
-    assert!(o[0].2.contains(&Assumption::FieldKeyLookupPackageIds));
+    assert!(o[0].2.is_empty(), "{:?}", o[0].2);
+}
+
+/// The outcome of test `n` among `o`.
+fn outcome<'a>(o: &'a [(String, Outcome, Vec<Assumption>)], n: &str) -> &'a (String, Outcome, Vec<Assumption>) {
+    o.iter()
+        .find(|(x, ..)| x == n)
+        .unwrap_or_else(|| panic!("no test {n}: {o:?}"))
+}
+
+/// Asserts that each test of `names` is refused with a reason that contains `needle`.
+fn assert_refused(o: &[(String, Outcome, Vec<Assumption>)], names: &[&str], needle: &str) {
+    for n in names {
+        let r = &outcome(o, n).1;
+        assert!(matches!(r, Outcome::NotRun(why) if why.contains(needle)), "{n}: {r:?}");
+    }
+}
+
+/// A read of one key in a form no probe measured, of a row a Get gives null ids and a scan the table's (a dependency table no
+/// extension of its own app extends): a read of the package ids is refused. Measured are the forms of
+/// PlatformMetadataColumnValues.al:569-605 and :753-772; here a third filter on another column than Class, No. in filter group 2
+/// with TableNo in 0, the Class filter and group 2 with FindLast, Find(), Find('=<') and RecordRef.Get(RecordId) on an open and a
+/// never opened ref. A filter on a range of No. keeps the table's ids (:569-605, main's result).
+#[test]
+fn issue_8051_unmeasured_key_read_forms_of_a_null_row_are_refused() {
+    let test = r#"
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ThirdFilter()
+    var
+        F: Record Field;
+    begin
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 2);
+        F.SetFilter(FieldName, '<>%1', 'Nothing');
+        F.FindFirst();
+        if IsNullGuid(F."App Package ID") then;
+    end;
+
+    [Test]
+    procedure NoInGroup2()
+    var
+        F: Record Field;
+    begin
+        F.SetRange(TableNo, 50100);
+        F.FilterGroup(2);
+        F.SetRange("No.", 2);
+        F.FilterGroup(0);
+        F.FindFirst();
+        if IsNullGuid(F."App Package ID") then;
+    end;
+
+    [Test]
+    procedure ClassFindLast()
+    var
+        F: Record Field;
+    begin
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetRange(Class, F.Class::Normal);
+        F.FindLast();
+        if IsNullGuid(F."App Package ID") then;
+    end;
+
+    [Test]
+    procedure Group2FindLast()
+    var
+        F: Record Field;
+    begin
+        F.FilterGroup(2);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.FilterGroup(0);
+        F.FindLast();
+        if IsNullGuid(F."App Runtime Package ID") then;
+    end;
+
+    [Test]
+    procedure FindNoArgument()
+    var
+        F: Record Field;
+    begin
+        F.TableNo := 50100;
+        F."No." := 1;
+        F.Find();
+        if IsNullGuid(F."App Package ID") then;
+    end;
+
+    [Test]
+    procedure FindEqualsOrLess()
+    var
+        F: Record Field;
+    begin
+        F.TableNo := 50100;
+        F."No." := 1;
+        F.Find('=<');
+        if IsNullGuid(F."App Package ID") then;
+    end;
+
+    [Test]
+    procedure RecordRefGetOpen()
+    var
+        F: Record Field;
+        RecRef: RecordRef;
+    begin
+        F.Get(50100, 1);
+        RecRef.Open(Database::Field);
+        RecRef.Get(F.RecordId);
+        RecRef.SetTable(F);
+        if IsNullGuid(F."App Package ID") then;
+    end;
+
+    [Test]
+    procedure RecordRefGetUnopened()
+    var
+        F: Record Field;
+        RecRef: RecordRef;
+    begin
+        F.Get(50100, 1);
+        RecRef.Get(F.RecordId);
+        RecRef.SetTable(F);
+        if IsNullGuid(F."App Package ID") then;
+    end;
+
+    [Test]
+    procedure RangeOfNo()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1, 2);
+        F.FindFirst();
+        if F."App Package ID" <> Tbl."App Package ID" then
+            Error('range');
+    end;
+}"#;
+    let o = run(&[
+        (OWNER_ID, AppKind::Dependency, PLAIN_TABLE),
+        (TEST_ID, AppKind::Workspace, test),
+    ]);
+    assert_refused(
+        &o,
+        &[
+            "ThirdFilter",
+            "NoInGroup2",
+            "ClassFindLast",
+            "Group2FindLast",
+            "FindNoArgument",
+            "FindEqualsOrLess",
+            "RecordRefGetOpen",
+            "RecordRefGetUnopened",
+        ],
+        "package ids of a Field row",
+    );
+    let range = outcome(&o, "RangeOfNo");
+    assert_eq!(range.1, Outcome::Pass, "{:?}", range.1);
+    assert!(range.2.is_empty(), "{:?}", range.2);
+}
+
+/// A table extension of the table's own app of a kind no probe measured: the measured kinds declare a field without an
+/// ObsoleteState (PlatformMetadataColumnValues.al:934) or declare no field and only modify a Caption (:1011). Here one whose only
+/// field is Removed, one with neither a field nor a modify, and one whose modify sets ToolTip: a Get's package ids are refused.
+#[test]
+fn issue_8051_unmeasured_same_app_extension_kinds_are_refused() {
+    let src = r#"
+table 50100 "Removed Line"
+{
+    fields { field(1; "No."; Code[20]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+tableextension 50110 "Removed Line Ext" extends "Removed Line"
+{
+    fields { field(50110; Gone; Integer) { ObsoleteState = Removed; ObsoleteReason = 'r'; } }
+}
+
+table 50101 "Empty Line"
+{
+    fields { field(1; "No."; Code[20]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+tableextension 50111 "Empty Line Ext" extends "Empty Line"
+{
+    procedure Nothing()
+    begin
+    end;
+}
+
+table 50102 "Tip Line"
+{
+    fields { field(1; "No."; Code[20]) { } field(2; Description; Text[30]) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+tableextension 50112 "Tip Line Ext" extends "Tip Line"
+{
+    fields { modify(Description) { ToolTip = 'A description.'; } }
+}
+
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    local procedure ReadIds(TableNo: Integer)
+    var
+        F: Record Field;
+    begin
+        F.Get(TableNo, 1);
+        if IsNullGuid(F."App Package ID") then;
+    end;
+
+    [Test]
+    procedure RemovedOnly()
+    begin
+        ReadIds(50100);
+    end;
+
+    [Test]
+    procedure NeitherFieldNorModify()
+    begin
+        ReadIds(50101);
+    end;
+
+    [Test]
+    procedure ModifyToolTip()
+    begin
+        ReadIds(50102);
+    end;
+}"#;
+    let o = run(&[(OWNER_ID, AppKind::Workspace, src)]);
+    assert_refused(
+        &o,
+        &["RemovedOnly", "NeitherFieldNorModify", "ModifyToolTip"],
+        "extension of its own app",
+    );
+}
+
+/// A key read with a package filter outside the measured shape (PlatformMetadataColumnValues.al:827-842, ObservePackageFilters:
+/// FindFirst or FindSet, an = or <> filter on App Package ID of the table's id or the empty id, all in group 0) is refused: on a
+/// null row a filter of another id; on a table a modify-only extension of its own app extends, FindLast, and a filter of two ids.
+#[test]
+fn issue_8051_unmeasured_package_filtered_key_reads_are_refused() {
+    let null_row = format!(
+        "{PLAIN_TABLE}{}",
+        r#"
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure OtherId()
+    var
+        F: Record Field;
+    begin
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetRange("App Package ID", CreateGuid());
+        if F.FindFirst() then;
+    end;
+}"#
+    );
+    let o = run(&[(OWNER_ID, AppKind::Workspace, &null_row)]);
+    assert_refused(&o, &["OtherId"], "App Package ID");
+    let modify_only = r#"
+table 50100 "Modify Line"
+{
+    fields { field(1; "No."; Code[20]) { } field(2; Description; Text[30]) { Caption = 'Description'; } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+tableextension 50110 "Modify Line Ext" extends "Modify Line"
+{
+    fields { modify(Description) { Caption = 'Extended Description'; } }
+}
+
+codeunit 50120 T
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FindLastForm()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetRange("App Package ID", Tbl."App Package ID");
+        if F.FindLast() then;
+    end;
+
+    [Test]
+    procedure TwoIds()
+    var
+        F: Record Field;
+        Tbl: Record AllObj;
+        EmptyId: Guid;
+    begin
+        Tbl.Get(Tbl."Object Type"::Table, 50100);
+        F.SetRange(TableNo, 50100);
+        F.SetRange("No.", 1);
+        F.SetFilter("App Package ID", '%1|%2', Tbl."App Package ID", EmptyId);
+        if F.FindFirst() then;
+    end;
+}"#;
+    let o = run(&[(OWNER_ID, AppKind::Workspace, modify_only)]);
+    assert_refused(&o, &["FindLastForm", "TwoIds"], "App Package ID");
 }

@@ -66,7 +66,7 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
         } else {
             Decl::Legacy
         },
-        // reports/html-email-body/RxdDeclFixtures.al, report 80040 (corpus pull request 1381).
+        // reports/html-email-body/RxdDeclFixtures.al:31, report 80040.
         declares: if report.rendering_layouts.is_empty() && report.layout_properties == ["rdlc", "word"] {
             Declares::WordAndRdlcProperties
         } else {
@@ -82,4 +82,24 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
         extensions,
         triggers,
     }
+}
+
+/// Whether every data item is as the false answers measured it (reports/html-email-body/RxdDeclFixtures.al:39-43): it declares
+/// no OnPreDataItem, OnAfterGetRecord or OnPostDataItem, and every column's source is a stored field of the item's own table
+/// (`column(RowId; Id)`, `column(RowTxt; Txt)`), so a run before the false answer runs no AL code.
+pub(super) fn data_items_as_measured_for_false(
+    schema: &Schema,
+    tables: &[Option<std::sync::Arc<al_data::TableDef>>],
+) -> bool {
+    schema.report().items.iter().all(|i| {
+        let table = i.table.and_then(|t| tables.get(t)?.as_deref());
+        i.on_pre.is_none()
+            && i.on_after_get.is_none()
+            && i.on_post.is_none()
+            && i.columns.iter().all(|c| {
+                c.unsupported.is_none()
+                    && c.value_unsupported.is_none()
+                    && c.field.and_then(|p| table?.fields.get(p)).is_some_and(|f| f.stored)
+            })
+    })
 }
