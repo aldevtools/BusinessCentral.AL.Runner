@@ -359,7 +359,7 @@ impl<'a> Compiler<'a> {
         };
         let (g, kind) = match id {
             ids::SYSTEM_CLEAR_1 | ids::SYSTEM_CLEAR_2 | ids::SYSTEM_CLEAR_3 => {
-                (global(args.first())?, SingleWriteKind::Replace)
+                (global(args.first())?, SingleWriteKind::Reset)
             }
             ids::RECORD_GET_1
             | ids::RECORD_GETBYSYSTEMID_1
@@ -1326,7 +1326,7 @@ impl<'a> Compiler<'a> {
             if free_of_global(e, *g, 0) {
                 self.emit(Op::SingleWrite {
                     i: *g as u32,
-                    kind: SingleWriteKind::Replace,
+                    kind: SingleWriteKind::Reset,
                 });
             }
         }

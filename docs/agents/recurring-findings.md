@@ -314,3 +314,9 @@ the tables its record variables name (al-runner PR 8119, probe n19).
 
 Code that stopped did not write what came after the stop. A write set from the run covers only what ran. For the rest,
 use the static reach, RecordRef opens included (al-runner PR 8119, probe n19d).
+
+## 21. A mark set on the first read only (al-runner PR 8138, and the SingleInstance lane reviews)
+
+A value read once flows on: a later test reads it after a keeping write, through a copy in another global, or through a
+row. Mark the first reader and every test after it, and count a keeping write (`+=`, `List.Add`, a `var` argument) as a
+read. Code that runs before the first test (session-open subscribers, OnRun) is a reader too.

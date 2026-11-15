@@ -107,9 +107,21 @@ pub(crate) struct Track {
     read_in: BTreeMap<GlobalKey, u32>,
     /// `SingleOut::fresh`: taken when an instance is made in this session.
     fresh: BTreeMap<GlobalKey, Fp>,
-    /// The globals the running test (or the code before the first test) read while they still held what they held when
-    /// the notes started: read first and not written since ([`Session::single_read_unwritten`]).
-    test_reads: BTreeSet<GlobalKey>,
+    /// The globals code of the session touched since the notes started while they still held what they held then: a read,
+    /// or a write that may keep or use the value ([`Session::single_touched`]).
+    touched: HashSet<GlobalKey>,
+    /// The globals whose first use since the notes started was a write that resets them without using the value
+    /// ([`Session::single_reset`]): what they hold no longer comes from before the notes.
+    reset: HashSet<GlobalKey>,
+}
+
+impl Track {
+    /// Notes a touch of `key` ([`Track::touched`]) unless a reset came first.
+    fn touch(&mut self, key: GlobalKey) {
+        if !self.reset.contains(&key) {
+            self.touched.insert(key);
+        }
+    }
 }
 
 /// Whether `a` and `b` are the same value: equal simple values, or the same handle.
@@ -271,12 +283,16 @@ impl Session {
         self.si_track = Some(Box::new(t));
     }
 
+    /// Whether the session notes the use of SingleInstance globals ([`Session::track_single_instances`]).
+    pub fn tracks_single_instances(&self) -> bool {
+        self.si_track.is_some()
+    }
+
     /// A test method of the codeunit begins: the first reads from now on count for it (`SingleOut::read_in`). Returns
     /// its number (from 1); without notes it does nothing and returns 0.
     pub fn single_test_begins(&mut self) -> u32 {
         let Some(t) = self.si_track.as_mut() else { return 0 };
         t.test += 1;
-        t.test_reads.clear();
         t.test
     }
 
@@ -305,15 +321,10 @@ impl Session {
         let object = inst.borrow().object as usize;
         let Some(t) = self.si_track.as_mut() else { return };
         let key = (object, g);
-        match t.seen.get(&key) {
-            Some(Seen::Read) if !t.refilled.contains(&key) => {
-                t.test_reads.insert(key);
-                return;
-            }
-            Some(_) => return,
-            None => {}
+        t.touch(key);
+        if t.seen.contains_key(&key) {
+            return;
         }
-        t.test_reads.insert(key);
         t.seen.insert(key, Seen::Read);
         t.first_read_at.insert(key, t.writes);
         t.read_in.insert(key, t.test);
@@ -345,12 +356,31 @@ impl Session {
         self.single_wrote_slow(inst, g, true);
     }
 
+    /// A [`Session::single_replaced`] that also drops every part of the value: `Clear(G)`, `G := x` where `x` is made
+    /// without `G`. As the first use of the global since the notes started, it ends what [`Session::single_touched`]
+    /// follows for it. A record operation that replaces the fields keeps the filters and the key: not a reset.
+    #[inline]
+    pub(crate) fn single_reset(&mut self, inst: &Rc<RefCell<Instance>>, g: usize) {
+        if self.si_track.is_none() || !inst.borrow().single {
+            return;
+        }
+        let object = inst.borrow().object as usize;
+        if let Some(t) = self.si_track.as_mut() {
+            let key = (object, g);
+            if !t.touched.contains(&key) {
+                t.reset.insert(key);
+            }
+        }
+        self.single_wrote_slow(inst, g, true);
+    }
+
     #[cold]
     #[inline(never)]
     fn single_wrote_slow(&mut self, inst: &Rc<RefCell<Instance>>, g: usize, replaces: bool) {
         let object = inst.borrow().object as usize;
         let Some(t) = self.si_track.as_mut() else { return };
         let key = (object, g);
+        t.touch(key);
         match t.seen.get(&key) {
             None => {
                 t.seen.insert(key, Seen::Written);
@@ -398,6 +428,12 @@ impl Session {
             matches!(inst.borrow().globals.get(g), Some(Value::Record(r)) if r.try_borrow().is_ok_and(|r| r.temporary));
         if temp {
             self.single_wrote_slow(inst, g, false);
+        } else {
+            // It writes the fields the global holds to the database: a use of its value.
+            let object = inst.borrow().object as usize;
+            if let Some(t) = self.si_track.as_mut() {
+                t.touch((object, g));
+            }
         }
     }
 
@@ -421,13 +457,14 @@ impl Session {
         t.refill.insert(key, f);
     }
 
-    /// Whether the running test (since [`Session::single_test_begins`], or the code before the first test) read a global
-    /// of a single instance of `objects` that still held what it held when the notes started: no code of the session wrote
-    /// it before. False without notes.
-    pub fn single_read_unwritten(&self, objects: &BTreeSet<usize>) -> bool {
+    /// Whether code of the session touched, since the notes started, a global of a single instance of `objects` while it
+    /// still held what it held then: a read, or a write that keeps or uses the value (`+=`, `List.Add`, `Dictionary.Set`, a
+    /// `var` argument, a record's `Insert`, `Get` or `Find`), before any reset of it ([`Session::single_reset`]). False
+    /// without notes.
+    pub fn single_touched(&self, objects: &BTreeSet<usize>) -> bool {
         self.si_track
             .as_ref()
-            .is_some_and(|t| t.test_reads.iter().any(|(o, _)| objects.contains(o)))
+            .is_some_and(|t| t.touched.iter().any(|(o, _)| objects.contains(o)))
     }
 
     /// What the session did with the watched single instances; `None` when it tracked none.

@@ -552,9 +552,12 @@ fn unseeded_tables(
 struct RecRefWrites {
     /// The tables a `RecordRef.Open` with a constant id or a `RecordRef.GetTable` of a stored record opens.
     opens: BTreeSet<u32>,
-    /// A `RecordRef.Open` whose table id is known only at run time.
+    /// A RecordRef whose table `opens` may not hold: every source other than those two (an `Open` with a table id known
+    /// only at run time, `GetTable` of a Variant or of a place that is not a stored record variable, `Get(RecordId)`, an
+    /// assignment to a RecordRef variable such as `R := RecId.GetRecord()` or `R := FieldRef.Record()`), and every write
+    /// whose RecordRef is not a local variable of the reach (a parameter of the root, a global, a returned value).
     any_table: bool,
-    /// An Insert, Modify, Rename or ModifyAll on a RecordRef.
+    /// An Insert, Modify, Rename, ModifyAll, Delete or DeleteAll on a RecordRef.
     writes: bool,
 }
 
@@ -579,227 +582,260 @@ pub(crate) fn tables_written_or_loaded(lowered: &Lowered, object: usize, routine
     tables_written_in(lowered, object, routine, true)
 }
 
-fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bool) -> BTreeSet<u32> {
-    use al_builtins::value::RtType;
-    use al_ir::{Arg, Expr, Place, Stmt};
+use al_builtins::value::RtType;
+use al_ir::{Arg, Expr, Place, Stmt};
 
-    struct W<'a> {
-        locals: &'a [al_ir::Slot],
-        globals: &'a [al_ir::Slot],
-        heads: &'a [al_ir::ObjectHead],
-        loads: bool,
-        out: &'a mut BTreeSet<u32>,
-        recref: &'a mut RecRefWrites,
+/// The walk of [`tables_written_in`] over one routine body.
+struct WriteWalk<'a> {
+    locals: &'a [al_ir::Slot],
+    /// The parameters of the routine when it is the root of the walk (they come from outside the reach), else 0.
+    root_params: usize,
+    globals: &'a [al_ir::Slot],
+    heads: &'a [al_ir::ObjectHead],
+    loads: bool,
+    out: &'a mut BTreeSet<u32>,
+    recref: &'a mut RecRefWrites,
+}
+impl WriteWalk<'_> {
+    /// `NavApp.LoadPackageData(Database::X)` with a constant table id writes the rows of table X (al-runner issue 7359:
+    /// a refused load leaves the table without the rows the app ships, as a stopped root's Insert does).
+    fn package_data_table(&mut self, args: &[Arg]) {
+        let Some(Arg::Value(Expr::Const(al_ir::Const::Integer(n)))) = args.first() else {
+            return;
+        };
+        let found = self
+            .heads
+            .iter()
+            .position(|o| o.kind == al_ir::ObjKind::Table && o.id.is_some_and(|id| i64::from(id) == i64::from(*n)));
+        if let Some(t) = found {
+            self.out.insert(t as u32);
+        }
     }
-    impl W<'_> {
-        /// `NavApp.LoadPackageData(Database::X)` with a constant table id writes the rows of table X (al-runner issue 7359:
-        /// a refused load leaves the table without the rows the app ships, as a stopped root's Insert does).
-        fn package_data_table(&mut self, args: &[Arg]) {
-            let Some(Arg::Value(Expr::Const(al_ir::Const::Integer(n)))) = args.first() else {
-                return;
-            };
-            let found = self
-                .heads
-                .iter()
-                .position(|o| o.kind == al_ir::ObjKind::Table && o.id.is_some_and(|id| i64::from(id) == i64::from(*n)));
-            if let Some(t) = found {
-                self.out.insert(t as u32);
-            }
-        }
-        /// `RecordRef.Open`, `RecordRef.GetTable` and the RecordRef writes, for [`RecRefWrites`].
-        fn recordref(&mut self, method: &str, args: &[Arg]) {
-            match method {
-                "Open" => match args.first() {
-                    Some(Arg::Value(Expr::Const(al_ir::Const::Integer(n)))) => {
-                        let found = self.heads.iter().position(|o| {
-                            o.kind == al_ir::ObjKind::Table && o.id.is_some_and(|id| i64::from(id) == i64::from(*n))
-                        });
-                        self.recref.opens.extend(found.map(|t| t as u32));
+    /// `RecordRef.Open`, `RecordRef.GetTable`, `RecordRef.Get` and the RecordRef writes on `receiver`, for
+    /// [`RecRefWrites`].
+    fn recordref(&mut self, method: &str, receiver: &Arg, args: &[Arg]) {
+        match method {
+            "Open" => match args.first() {
+                Some(Arg::Value(Expr::Const(al_ir::Const::Integer(n)))) => {
+                    let found = self.heads.iter().position(|o| {
+                        o.kind == al_ir::ObjKind::Table && o.id.is_some_and(|id| i64::from(id) == i64::from(*n))
+                    });
+                    self.recref.opens.extend(found.map(|t| t as u32));
+                }
+                _ => self.recref.any_table = true,
+            },
+            "GetTable" => {
+                let place = match args.first() {
+                    Some(Arg::Ref(p) | Arg::Value(Expr::Load(p))) => Some(p),
+                    _ => None,
+                };
+                match place.and_then(|p| self.record_of(p)) {
+                    Some(t) => {
+                        self.recref.opens.insert(t);
                     }
-                    _ => self.recref.any_table = true,
-                },
-                "GetTable" => {
-                    let place = match args.first() {
-                        Some(Arg::Ref(p) | Arg::Value(Expr::Load(p))) => Some(p),
-                        _ => None,
-                    };
-                    self.recref.opens.extend(place.and_then(|p| self.record_of(p)));
+                    None => self.recref.any_table = true,
                 }
-                "Insert" | "Modify" | "Rename" | "ModifyAll" => self.recref.writes = true,
-                _ => {}
             }
-        }
-        fn root(p: &Place) -> Option<&Place> {
-            match p {
-                Place::Local(_) | Place::Global(_) => Some(p),
-                Place::Index(inner, _) => Self::root(inner),
-                // The base object's variable (ADR-023): page and report extension code, which no
-                // install routine runs.
-                Place::Field(..) | Place::BaseGlobal(_) | Place::ExtGlobal(..) | Place::RecGlobal(..) => None,
-            }
-        }
-        fn record_of(&self, p: &Place) -> Option<u32> {
-            let ty = match Self::root(p)? {
-                Place::Local(i) => &self.locals.get(*i)?.ty,
-                Place::Global(i) => &self.globals.get(*i)?.ty,
-                _ => return None,
-            };
-            match ty {
-                RtType::Record(t, false) => Some(*t),
-                _ => None,
-            }
-        }
-        fn arg(&mut self, a: &Arg) {
-            match a {
-                Arg::Value(e) => self.expr(e),
-                Arg::Ref(p) => self.place(p),
-            }
-        }
-        fn place(&mut self, p: &Place) {
-            match p {
-                Place::Index(inner, idx) => {
-                    self.place(inner);
-                    idx.iter().for_each(|e| self.expr(e));
+            "Get" | "GetTableVariant" => self.recref.any_table = true,
+            "Insert" | "Modify" | "Rename" | "ModifyAll" | "Delete" | "DeleteAll" => {
+                self.recref.writes = true;
+                let local = match receiver {
+                    Arg::Ref(Place::Local(i)) | Arg::Value(Expr::Load(Place::Local(i))) => *i >= self.root_params,
+                    _ => false,
+                };
+                if !local {
+                    self.recref.any_table = true;
                 }
-                Place::Field(inner, _) => self.place(inner),
-                _ => {}
             }
+            _ => {}
         }
-        fn expr(&mut self, e: &Expr) {
-            match e {
-                Expr::Const(_)
-                | Expr::BaseInstance
-                | Expr::ThisInstance
-                | Expr::Refused(_)
-                | Expr::Fail { .. }
-                | Expr::ControlAddInCall { .. } => {}
-                Expr::TddStub { args, .. } => args.iter().for_each(|a| self.expr(a)),
-                Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => self.expr(inner),
-                Expr::Load(p) => self.place(p),
-                Expr::Unary(_, a) | Expr::Convert(_, a) | Expr::DotNetCoerce(_, a) | Expr::DotNetOperand(a, _) => {
-                    self.expr(a)
-                }
-                Expr::Binary(_, a, b) | Expr::CharAt(a, b) => {
-                    self.expr(a);
-                    self.expr(b);
-                }
-                Expr::In(a, set) => {
-                    self.expr(a);
-                    for s in set {
-                        match s {
-                            al_ir::SetElem::One(e) => self.expr(e),
-                            al_ir::SetElem::Range(a, b) => {
-                                a.iter().chain(b).for_each(|e| self.expr(e));
-                            }
+    }
+    /// Whether place `p` is a RecordRef variable.
+    fn is_recordref(&self, p: &Place) -> bool {
+        let ty = match p {
+            Place::Local(i) => self.locals.get(*i).map(|s| &s.ty),
+            Place::Global(i) => self.globals.get(*i).map(|s| &s.ty),
+            _ => None,
+        };
+        matches!(
+            ty,
+            Some(RtType::Library(al_builtins::library_kind::LibraryKind::RecordRef))
+        )
+    }
+    fn root(p: &Place) -> Option<&Place> {
+        match p {
+            Place::Local(_) | Place::Global(_) => Some(p),
+            Place::Index(inner, _) => Self::root(inner),
+            // The base object's variable (ADR-023): page and report extension code, which no
+            // install routine runs.
+            Place::Field(..) | Place::BaseGlobal(_) | Place::ExtGlobal(..) | Place::RecGlobal(..) => None,
+        }
+    }
+    fn record_of(&self, p: &Place) -> Option<u32> {
+        let ty = match Self::root(p)? {
+            Place::Local(i) => &self.locals.get(*i)?.ty,
+            Place::Global(i) => &self.globals.get(*i)?.ty,
+            _ => return None,
+        };
+        match ty {
+            RtType::Record(t, false) => Some(*t),
+            _ => None,
+        }
+    }
+    fn arg(&mut self, a: &Arg) {
+        match a {
+            Arg::Value(e) => self.expr(e),
+            Arg::Ref(p) => self.place(p),
+        }
+    }
+    fn place(&mut self, p: &Place) {
+        match p {
+            Place::Index(inner, idx) => {
+                self.place(inner);
+                idx.iter().for_each(|e| self.expr(e));
+            }
+            Place::Field(inner, _) => self.place(inner),
+            _ => {}
+        }
+    }
+    fn expr(&mut self, e: &Expr) {
+        match e {
+            Expr::Const(_)
+            | Expr::BaseInstance
+            | Expr::ThisInstance
+            | Expr::Refused(_)
+            | Expr::Fail { .. }
+            | Expr::ControlAddInCall { .. } => {}
+            Expr::TddStub { args, .. } => args.iter().for_each(|a| self.expr(a)),
+            Expr::TddFit { inner, .. } | Expr::FitOrRefuse { inner, .. } => self.expr(inner),
+            Expr::Load(p) => self.place(p),
+            Expr::Unary(_, a) | Expr::Convert(_, a) | Expr::DotNetCoerce(_, a) | Expr::DotNetOperand(a, _) => {
+                self.expr(a)
+            }
+            Expr::Binary(_, a, b) | Expr::CharAt(a, b) => {
+                self.expr(a);
+                self.expr(b);
+            }
+            Expr::In(a, set) => {
+                self.expr(a);
+                for s in set {
+                    match s {
+                        al_ir::SetElem::One(e) => self.expr(e),
+                        al_ir::SetElem::Range(a, b) => {
+                            a.iter().chain(b).for_each(|e| self.expr(e));
                         }
                     }
                 }
-                Expr::Ternary(a, b, c) => {
-                    self.expr(a);
-                    self.expr(b);
+            }
+            Expr::Ternary(a, b, c) => {
+                self.expr(a);
+                self.expr(b);
+                self.expr(c);
+            }
+            Expr::Call { instance, args, .. } => {
+                instance.iter().for_each(|e| self.expr(e));
+                args.iter().for_each(|a| self.arg(a));
+            }
+            Expr::InterfaceCall { receiver, args, .. } => {
+                self.expr(receiver);
+                args.iter().for_each(|a| self.arg(a));
+            }
+            Expr::InterfaceTest { value, .. } | Expr::EnumImpl { value, .. } => self.expr(value),
+            Expr::Control { page, .. } => self.expr(page),
+            Expr::QueryColumn { query, .. } => self.expr(query),
+            Expr::FieldOf(base, _) => self.expr(base),
+            Expr::DotNet { receiver, args, .. } => {
+                receiver.iter().for_each(|e| self.expr(e));
+                args.iter().for_each(|a| self.arg(a));
+            }
+            Expr::Builtin { id, receiver, args, .. } => {
+                if self.loads && id.name() == "NavApp.LoadPackageData#1" {
+                    self.package_data_table(args);
+                }
+                if let (true, Some(r), Some(rest)) = (self.loads, receiver, id.name().strip_prefix("RecordRef.")) {
+                    self.recordref(rest.split('#').next().unwrap_or(""), r, args);
+                }
+                if let Some(r) = receiver {
+                    if let Some(rest) = id.name().strip_prefix("Record.") {
+                        let method = rest.split('#').next().unwrap_or("");
+                        if matches!(method, "Insert" | "Modify" | "Rename" | "ModifyAll") {
+                            let place = match &**r {
+                                Arg::Ref(p) => Some(p),
+                                Arg::Value(Expr::Load(p)) => Some(p),
+                                Arg::Value(_) => None,
+                            };
+                            if let Some(t) = place.and_then(|p| self.record_of(p)) {
+                                self.out.insert(t);
+                            }
+                        }
+                    }
+                    self.arg(r);
+                }
+                args.iter().for_each(|a| self.arg(a));
+            }
+        }
+    }
+    fn stmts(&mut self, body: &[Stmt]) {
+        for s in body {
+            match s {
+                Stmt::Assign(p, e) => {
+                    if self.loads && self.is_recordref(p) {
+                        self.recref.any_table = true;
+                    }
+                    self.place(p);
+                    self.expr(e);
+                }
+                Stmt::Expr(e) => self.expr(e),
+                Stmt::If(c, a, b) => {
                     self.expr(c);
+                    self.stmts(a);
+                    self.stmts(b);
                 }
-                Expr::Call { instance, args, .. } => {
-                    instance.iter().for_each(|e| self.expr(e));
-                    args.iter().for_each(|a| self.arg(a));
+                Stmt::While(c, b) | Stmt::Repeat(b, c) => {
+                    self.expr(c);
+                    self.stmts(b);
                 }
-                Expr::InterfaceCall { receiver, args, .. } => {
-                    self.expr(receiver);
-                    args.iter().for_each(|a| self.arg(a));
+                Stmt::For {
+                    var, from, to, body, ..
+                } => {
+                    self.place(var);
+                    self.expr(from);
+                    self.expr(to);
+                    self.stmts(body);
                 }
-                Expr::InterfaceTest { value, .. } | Expr::EnumImpl { value, .. } => self.expr(value),
-                Expr::Control { page, .. } => self.expr(page),
-                Expr::QueryColumn { query, .. } => self.expr(query),
-                Expr::FieldOf(base, _) => self.expr(base),
-                Expr::DotNet { receiver, args, .. } => {
-                    receiver.iter().for_each(|e| self.expr(e));
-                    args.iter().for_each(|a| self.arg(a));
+                Stmt::Foreach { var, collection, body } => {
+                    self.place(var);
+                    self.expr(collection);
+                    self.stmts(body);
                 }
-                Expr::Builtin { id, receiver, args, .. } => {
-                    if self.loads && id.name() == "NavApp.LoadPackageData#1" {
-                        self.package_data_table(args);
-                    }
-                    if let (true, Some(rest)) = (self.loads && receiver.is_some(), id.name().strip_prefix("RecordRef."))
-                    {
-                        self.recordref(rest.split('#').next().unwrap_or(""), args);
-                    }
-                    if let Some(r) = receiver {
-                        if let Some(rest) = id.name().strip_prefix("Record.") {
-                            let method = rest.split('#').next().unwrap_or("");
-                            if matches!(method, "Insert" | "Modify" | "Rename" | "ModifyAll") {
-                                let place = match &**r {
-                                    Arg::Ref(p) => Some(p),
-                                    Arg::Value(Expr::Load(p)) => Some(p),
-                                    Arg::Value(_) => None,
-                                };
-                                if let Some(t) = place.and_then(|p| self.record_of(p)) {
-                                    self.out.insert(t);
+                Stmt::Case {
+                    scrutinee,
+                    branches,
+                    otherwise,
+                } => {
+                    self.expr(scrutinee);
+                    for (labels, b) in branches {
+                        for l in labels {
+                            match l {
+                                al_ir::SetElem::One(e) => self.expr(e),
+                                al_ir::SetElem::Range(a, b) => {
+                                    a.iter().chain(b).for_each(|e| self.expr(e));
                                 }
                             }
                         }
-                        self.arg(r);
-                    }
-                    args.iter().for_each(|a| self.arg(a));
-                }
-            }
-        }
-        fn stmts(&mut self, body: &[Stmt]) {
-            for s in body {
-                match s {
-                    Stmt::Assign(p, e) => {
-                        self.place(p);
-                        self.expr(e);
-                    }
-                    Stmt::Expr(e) => self.expr(e),
-                    Stmt::If(c, a, b) => {
-                        self.expr(c);
-                        self.stmts(a);
                         self.stmts(b);
                     }
-                    Stmt::While(c, b) | Stmt::Repeat(b, c) => {
-                        self.expr(c);
-                        self.stmts(b);
-                    }
-                    Stmt::For {
-                        var, from, to, body, ..
-                    } => {
-                        self.place(var);
-                        self.expr(from);
-                        self.expr(to);
-                        self.stmts(body);
-                    }
-                    Stmt::Foreach { var, collection, body } => {
-                        self.place(var);
-                        self.expr(collection);
-                        self.stmts(body);
-                    }
-                    Stmt::Case {
-                        scrutinee,
-                        branches,
-                        otherwise,
-                    } => {
-                        self.expr(scrutinee);
-                        for (labels, b) in branches {
-                            for l in labels {
-                                match l {
-                                    al_ir::SetElem::One(e) => self.expr(e),
-                                    al_ir::SetElem::Range(a, b) => {
-                                        a.iter().chain(b).for_each(|e| self.expr(e));
-                                    }
-                                }
-                            }
-                            self.stmts(b);
-                        }
-                        self.stmts(otherwise);
-                    }
-                    Stmt::Exit(e) => e.iter().for_each(|e| self.expr(e)),
-                    Stmt::AssertError(b) => self.stmts(b),
-                    Stmt::Break | Stmt::Continue | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::TddMark(_) => {}
+                    self.stmts(otherwise);
                 }
+                Stmt::Exit(e) => e.iter().for_each(|e| self.expr(e)),
+                Stmt::AssertError(b) => self.stmts(b),
+                Stmt::Break | Stmt::Continue | Stmt::Pos(_) | Stmt::Assume(_) | Stmt::TddMark(_) => {}
             }
         }
     }
+}
 
+fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bool) -> BTreeSet<u32> {
     let mut out = BTreeSet::new();
     let mut recref = RecRefWrites::default();
     let mut seen = BTreeSet::new();
@@ -810,8 +846,9 @@ fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bo
         }
         let obj = &lowered.program.objects[o];
         let rt = &obj.routines[r];
-        W {
+        WriteWalk {
             locals: &rt.locals,
+            root_params: if (o, r) == (object, routine) { rt.params } else { 0 },
             globals: &obj.globals,
             heads: lowered.program.objects.heads(),
             loads,

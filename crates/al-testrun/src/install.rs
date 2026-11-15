@@ -1243,7 +1243,15 @@ pub(crate) fn test_session_company_open(
     skipped: &[(BTreeSet<u32>, String)],
 ) -> Result<CompanyOpenWrites, String> {
     match crate::runtime::watching_skipped_installs(lowered, session, skipped, |s| {
-        open_test_session_company(lowered, s, disabled)
+        let opened = open_test_session_company(lowered, s, disabled);
+        // The window the partner dependency apps' login subscribers opened (`partner_login::PartnerLogin::watch_after`)
+        // closes on every exit.
+        let end = s.store_mut().watch_window_end();
+        let wrote = opened?;
+        match wrote.partner_login.after_open(end, lowered) {
+            Some(why) => Err(why),
+            None => Ok(wrote),
+        }
     }) {
         (Ok(_), Some(why)) => Err(format!(
             "the code that runs when the test session opens the company (Company Triggers subscribers, the login) {why}"

@@ -58,6 +58,7 @@ mod order_default;
 mod page_insert_by_code;
 mod page_run_view;
 mod page_variable_control_no_insert;
+mod partner_login_strict;
 mod permission_abp;
 mod permission_abp_actionref;
 mod permission_abp_shapes;

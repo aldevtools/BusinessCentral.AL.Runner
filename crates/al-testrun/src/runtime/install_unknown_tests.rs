@@ -416,7 +416,8 @@ fn a_stopped_routines_recordref_write_after_the_stop_refuses_its_readers() {
 }
 
 // The same with a table id known only at run time: every table may hold a row BC keeps, so every reader is refused; the
-// test that touches no table runs.
+// test that touches no table runs here, without Microsoft's apps (with them, the tables the test runner's code touches are
+// among every table, and no test of the app runs: probe p3/runtimeid of the review of al-runner PR 8138).
 #[test]
 fn a_stopped_routines_recordref_write_of_a_run_time_table_refuses_every_reader() {
     let b = app_b_stops_before("Id := 60964; R.Open(Id); R.Init(); if R.Insert() then;");
@@ -424,6 +425,45 @@ fn a_stopped_routines_recordref_write_of_a_run_time_table_refuses_every_reader()
     assert!(not_run(&o[0].1), "{o:?}");
     assert!(not_run(&o[1].1), "{o:?}");
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+}
+
+// Probe p3/recid2 of the review of al-runner PR 8138: the RecordRef gets its table from a RecordId. Its table is not known
+// statically: every reader is refused; the test that touches no table runs (without Microsoft's apps, as above).
+#[test]
+fn a_stopped_routines_recordref_write_through_a_record_id_refuses_every_reader() {
+    let b = app_b_stops_before("R := Rid.GetRecord(); if R.Insert() then;")
+        .replace("Id: Integer;", "Id: Integer; Rid: RecordId;");
+    let o = run_ab(&app_a(""), &b);
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert!(not_run(&o[1].1), "{o:?}");
+    assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+}
+
+// The same through `RecordRef.Get(RecordId)` and through `GetTable` of a Variant.
+#[test]
+fn a_stopped_routines_recordref_write_after_get_or_a_variant_refuses_every_reader() {
+    for tail in [
+        "if R.Get(Rid) then; if R.Insert() then;",
+        "V := M; R.GetTable(V); if R.Insert() then;",
+    ] {
+        let b = app_b_stops_before(tail).replace(
+            "Id: Integer;",
+            "Id: Integer; Rid: RecordId; V: Variant; M: Record Mark;",
+        );
+        let o = run_ab(&app_a(""), &b);
+        assert!(not_run(&o[0].1) && not_run(&o[1].1), "{tail}: {o:?}");
+        assert_eq!(o[2].1, Outcome::Pass, "{tail}: {o:?}");
+    }
+}
+
+// A `DeleteAll` through a RecordRef after the stop is a write: on BC the rows are gone, so the readers of its table are
+// refused (probe p3/delete).
+#[test]
+fn a_stopped_routines_recordref_delete_after_the_stop_refuses_its_readers() {
+    let b = app_b_stops_before("R.Open(Database::Mark); R.DeleteAll();");
+    let o = run_ab(&app_a(""), &b);
+    assert!(not_run(&o[0].1), "{o:?}");
+    assert_eq!(o[1].1, Outcome::Pass, "{o:?}");
 }
 
 // A neighbor that keeps main's result: a RecordRef that only reads after the stop adds no table.

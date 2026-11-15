@@ -437,14 +437,15 @@ fn run_codeunit_inner(
     // `None`: a scratch run (`execute`), not a test session; else whether the isolation is Disabled.
     let mode = (!execute).then_some(isolation == TestIsolation::Disabled);
     let opened = open_company(engine, lowered, &mut session, mode, &skipped_installs, &perturb);
-    let company_open = match opened {
+    let mut company_open = match opened {
         Ok(wrote) => wrote,
         Err(why) => return all(Outcome::NotRun(why)),
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
     // single instances of the codeunit before are moved in. The partner dependency apps' login subscribers changed
-    // SingleInstance globals: the notes tell which test read one first (`partner_login.rs` `PartnerLogin::test_read`);
-    // only `scratch.watch` hands them to the lane (`ended`).
+    // SingleInstance globals: the notes tell from which test on code touched one (`partner_login.rs`
+    // `PartnerLogin::test_read`); only `scratch.watch` hands them to the lane (`ended`).
+    company_open.partner_login.read_in_open(&session);
     start_singles(&mut session, execute, moved, scratch.watch, &company_open.partner_login);
     if scratch.discovery.is_some() {
         return discover(
@@ -506,9 +507,6 @@ fn run_codeunit_inner(
         // Under `OnRunRows::TestRunner`, the tests of a codeunit with a declared OnRun that did not raise: their rows rest on
         // the unprobed reporting of OnRun (ADR-055).
         let mut on_run_shape_assumed = false;
-        // The OnRun trigger read a SingleInstance global the partner login subscribers left (`PartnerLogin::test_read`):
-        // every test relies on the assumption.
-        let mut on_run_read_partner = false;
         if let Some(on_run) = (0..obj.routines.len())
             .find(|&r| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun"))
             .filter(|_| !execute)
@@ -546,8 +544,7 @@ fn run_codeunit_inner(
             if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
-            on_run_read_partner = (partner.after_on_run(session, &hits, lowered))
-                .map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
+            (partner.after_on_run(&hits, lowered)).map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
             match ran {
                 // NavTestCodeunit.DoRunAsync commits after a declared OnRun
                 // (codeunits/TestTestCodeunitOnRun.al).
@@ -747,7 +744,7 @@ fn run_codeunit_inner(
                         session.store_mut().watch(watched);
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        mark_test_start_assumptions(lowered, on_run_shape_assumed, on_run_read_partner);
+                        mark_test_start_assumptions(lowered, on_run_shape_assumed);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
                         session.start_random_scope();
@@ -1538,7 +1535,8 @@ fn singles_moved_in(session: &mut Session, execute: bool) -> Option<al_vm::singl
 
 /// Takes over the moved single instances and starts the notes (not for a codeunit the runner runs with
 /// Codeunit.Run: `execute`). Without a watch, without SingleInstance globals the partner login subscribers changed
-/// (`PartnerLogin::test_read`) and without moved instances nothing is noted.
+/// (`PartnerLogin::test_read`) and without moved instances nothing is noted. Call `PartnerLogin::read_in_open` first: the
+/// notes start again here.
 fn start_singles(
     session: &mut Session,
     execute: bool,
@@ -1901,12 +1899,9 @@ fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: b
 
 /// The marks every test of the codeunit starts with: the program's own (`ir::Program::assumes`: it compiled only through
 /// them) and, when the codeunit's OnRun shape is assumed, `TestCodeunitOnRunRows`.
-fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool, on_run_read_partner: bool) {
+fn mark_test_start_assumptions(lowered: &Lowered, on_run_shape_assumed: bool) {
     if on_run_shape_assumed {
         al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
-    }
-    if on_run_read_partner {
-        crate::partner_login::mark();
     }
     for &a in &lowered.program.assumes {
         al_builtins::assumptions::assume(a);

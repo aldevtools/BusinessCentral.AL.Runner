@@ -11,8 +11,10 @@
 //! subscriber's do (LgnLoginChecklistTests.al:93 sets them, :132 the first test reads them): each test codeunit runs on a
 //! session of its own that raises the login once before it, the BC session in which it runs first (ADR-066 amendment 12),
 //! and in BC's order the single instances moved in from the codeunit before replace the ones this login made
-//! (`Session::adopt_single_instances`). A test that reads such a global before any code wrote it relies on them
-//! ([`PartnerLogin::test_read`]). Not pinned yet: assumption `partner-login-subscriber-in-test-session`.
+//! (`Session::adopt_single_instances`). From the first touch of such a global on, by the session-open code after them, the
+//! OnRun trigger or a test, every test relies on them ([`PartnerLogin::test_read`]); session-open code after them that
+//! touches a table they wrote or filtered refuses the codeunit ([`PartnerLogin::after_open`]). Not pinned yet: assumption
+//! `partner-login-subscriber-in-test-session`.
 
 use crate::login::OwnEvent;
 use al_builtins::native::Signal;
@@ -27,9 +29,15 @@ pub(crate) struct PartnerLogin {
     pub tables: BTreeSet<u32>,
     /// The tables whose group 1 filters they changed: a test that reads or writes one relies on the assumption.
     pub group1: BTreeSet<u32>,
-    /// The SingleInstance codeunits (object index) whose globals they changed: a test that reads one of their globals
-    /// before any code wrote it relies on the assumption ([`PartnerLogin::test_read`]).
+    /// The SingleInstance codeunits (object index) whose globals they changed: from the first touch of one of their
+    /// globals on, every test relies on the assumption ([`PartnerLogin::test_read`]).
     pub singles: BTreeSet<usize>,
+    /// The session-open code that ran after them (a later login step, a Company Triggers subscriber) touched a global of
+    /// `singles` ([`PartnerLogin::read_in_open`]): every test relies on the assumption.
+    pub open_read: bool,
+    /// The first of `tables` and `group1` that code after them in the session open read or wrote, while the window
+    /// ([`PartnerLogin::watch_after`]) was open on fewer tables than now.
+    window_hit: Option<u32>,
 }
 
 impl PartnerLogin {
@@ -52,25 +60,55 @@ impl PartnerLogin {
         !self.singles.is_empty()
     }
 
-    /// After a test (`ran`: it began) or after the OnRun trigger: marks the assumption when the code read a global of a
-    /// SingleInstance codeunit they changed while it still held what they left (no code wrote it before;
-    /// `Session::single_read_unwritten`). Returns whether it did.
-    pub fn test_read(&self, session: &Session, ran: bool) -> bool {
-        let read = ran && self.notes_singles() && session.single_read_unwritten(&self.singles);
-        if read {
+    /// After a test (`ran`: it began): marks the assumption when the session-open code after them, the OnRun trigger, this
+    /// test or an earlier one touched a global of a SingleInstance codeunit they changed while it still held what they
+    /// left (`Session::single_touched`: a read, or a write that keeps the value). What a test found may rest on the value
+    /// through a copy, a row or a later write, so the mark stays for every later test.
+    pub fn test_read(&self, session: &Session, ran: bool) {
+        if ran && self.notes_singles() && (self.open_read || session.single_touched(&self.singles)) {
             mark();
         }
-        read
+    }
+
+    /// Before the notes of the test codeunit start (they start again from the values the session holds): sets
+    /// [`PartnerLogin::open_read`] from the notes [`PartnerLogin::watch_after`] began.
+    pub fn read_in_open(&mut self, session: &Session) {
+        self.open_read = self.notes_singles() && session.single_touched(&self.singles);
+    }
+
+    /// After a step of theirs: the code that runs after it in the session open reads what they left. Opens the store's
+    /// window on the tables they wrote or filtered ([`PartnerLogin::close_window`] refuses on a hit), and starts the notes
+    /// of SingleInstance globals when they changed one.
+    fn watch_after(&mut self, session: &mut Session) {
+        let store = session.store_mut();
+        if let Some(t) = store.watch_window_end() {
+            self.window_hit.get_or_insert(t);
+        }
+        let tables: BTreeSet<u32> = self.watched().copied().collect();
+        if !tables.is_empty() {
+            store.watch_window(tables);
+        }
+        if self.notes_singles() && !session.tracks_single_instances() {
+            session.track_single_instances();
+        }
+    }
+
+    /// At the end of the session open (`install::test_session_company_open`), with `end` what closing the store's window
+    /// of [`PartnerLogin::watch_after`] gave: why the codeunit is not run when code after them read or wrote a table they
+    /// wrote or filtered (what it found there is not measured).
+    pub fn after_open(&self, end: Option<u32>, lowered: &Lowered) -> Option<String> {
+        let why = self.window_hit.or(end).and_then(|t| self.touched(t, lowered))?;
+        Some(format!("session open, code after the partner login subscribers: {why}"))
     }
 
     /// After the test codeunit's OnRun, which touched the tables `hits`: `Err` why the codeunit is not run when one of
-    /// them is a table they wrote or set a group 1 filter on (what an OnRun finds there is not measured); else whether
-    /// it read a SingleInstance global they left ([`PartnerLogin::test_read`]), so that every test relies on them.
-    pub fn after_on_run(&self, session: &Session, hits: &BTreeSet<u32>, lowered: &Lowered) -> Result<bool, String> {
+    /// them is a table they wrote or set a group 1 filter on (what an OnRun finds there is not measured). A
+    /// SingleInstance global the OnRun touched marks every test ([`PartnerLogin::test_read`]).
+    pub fn after_on_run(&self, hits: &BTreeSet<u32>, lowered: &Lowered) -> Result<(), String> {
         let hit = hits.iter().find(|t| self.tables.contains(t) || self.group1.contains(t));
         match hit.and_then(|&t| self.touched(t, lowered)) {
             Some(why) => Err(why),
-            None => Ok(self.test_read(session, true)),
+            None => Ok(()),
         }
     }
 
@@ -233,6 +271,7 @@ pub(crate) fn raise(
     }
     left.group1.extend(before.group1_changed(&after));
     left.singles.extend(change.singles.iter().copied());
+    left.watch_after(session);
     Ok(())
 }
 

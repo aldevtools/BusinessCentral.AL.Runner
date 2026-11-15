@@ -18,14 +18,17 @@ fn sys(isolated: bool) -> String {
     )
 }
 
-/// A partner dependency app (`dep2`): table `Other`, a SingleInstance `Cache` (a Boolean and a record global), a manual subscriber `Hook`, and the
-/// OnAfterLogin subscriber with body `login`.
+/// A partner dependency app (`dep2`): table `Other`, a SingleInstance `Cache` (a Boolean, a record global, an Integer and
+/// a list), a manual subscriber `Hook`, and the OnAfterLogin subscriber with body `login`.
 fn partner(login: &str) -> String {
     format!(
         "table 60900 Other {{ fields {{ field(1; No; Code[20]) {{ }} field(2; Blocked; Boolean) {{ }} }} }}
-        codeunit 60904 Cache {{ SingleInstance = true; var On: Boolean; Row: Record Other;
+        codeunit 60904 Cache {{ SingleInstance = true; var On: Boolean; Row: Record Other; Cnt: Integer; Log: List of [Text];
             procedure Put() begin On := true; end; procedure Take(): Boolean begin exit(On); end;
-            procedure Sort() begin Row.SetCurrentKey(Blocked); end; }}
+            procedure Sort() begin Row.SetCurrentKey(Blocked); end;
+            procedure Set(N: Integer) begin Cnt := N; end; procedure Bump() begin Cnt += 1; end;
+            procedure GetCount(): Integer begin exit(Cnt); end;
+            procedure AddLog(T: Text) begin Log.Add(T); end; procedure LogCount(): Integer begin exit(Log.Count()); end; }}
         codeunit 60906 Pub {{ procedure Ask(): Integer var N: Integer; begin N := 1; OnAsk(N); exit(N); end;
             [IntegrationEvent(false, false)] local procedure OnAsk(var N: Integer) begin end; }}
         codeunit 60907 Hook {{ SingleInstance = true; EventSubscriberInstance = Manual;
@@ -136,16 +139,17 @@ fn a_test_that_touches_a_table_the_partner_subscriber_wrote_is_not_run() {
 }
 
 // A SingleInstance global the subscriber sets is in the test session, as an own login subscriber's is
-// (LgnLoginChecklistTests.al:93, :132): the test that reads it sees it and relies on the assumption; the tests that do not
-// read it run clean.
+// (LgnLoginChecklistTests.al:93, :132): the test that reads it sees it and relies on the assumption, the test before it
+// runs clean, and the tests after it rely on it too (what the reader did may reach them).
 #[test]
 fn a_test_that_reads_a_single_instance_global_the_partner_subscriber_set_sees_it() {
     let (o, hits) = run("var C: Codeunit Cache; begin C.Put(); end;");
+    assert!(!hit(&hits, "CountOther"), "{hits:?}");
     assert!(matches!(&o[1].1, Outcome::Fail(m) if m.contains("cache on")), "{o:?}");
     assert!(hit(&hits, "CacheIsOff"), "{hits:?}");
     assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
     assert_eq!(o[3].1, Outcome::Pass, "{o:?}");
-    assert!(!hit(&hits, "OtherTable") && !hit(&hits, "NoTable"), "{hits:?}");
+    assert!(hit(&hits, "OtherTable") && hit(&hits, "NoTable"), "{hits:?}");
 }
 
 // A manual subscriber the subscriber binds through a SingleInstance codeunit: no test runs.
@@ -247,8 +251,8 @@ fn readers(early: &str) -> String {
             [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpen', '', false, false)]
             local procedure O() {early} }}
         codeunit 60912 T {{ Subtype = Test;
-            [Test] procedure CacheIsOff() var C: Codeunit Cache; begin if C.Take() then Error('cache on'); end;
             [Test] procedure Sequence() begin if NumberSequence.Exists('S') then if NumberSequence.Current('S') = 0 then; end;
+            [Test] procedure CacheIsOff() var C: Codeunit Cache; begin if C.Take() then Error('cache on'); end;
             [Test] procedure PutFirst() var C: Codeunit Cache; begin C.Put(); if not C.Take() then Error('cache off'); end; }}
         codeunit 60915 U {{ Subtype = Test;
             [Test] procedure OtherTable() var M: Record Mine; begin M.K := 'X'; M.Insert(); end; }}"
@@ -274,15 +278,18 @@ fn a_new_single_instance_with_declared_globals_is_no_change() {
     assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
 }
 
-/// Readers of `T` after a login that sets the cache: the test that reads it first sees it (and relies on the assumption),
-/// the one that never reads it and the one that writes it before it reads it run clean; `U` runs clean.
-fn assert_only_the_first_reader_relies_on_it(early: &str) {
+/// Readers of `T` after a login that sets the cache: the test before the first reader runs clean; the test that reads it
+/// first sees it and relies on the assumption, and so does every test after it (PutFirst writes it before it reads it, but
+/// what the reader did may rest on it); `U` runs clean.
+fn assert_the_first_reader_and_every_later_test_rely_on_it(early: &str) {
     let login = "var C: Codeunit Cache; begin C.Put(); end;";
     let (o, hits) = run_readers(login, early, "T");
-    assert!(matches!(&o[0].1, Outcome::Fail(m) if m.contains("cache on")), "{o:?}");
+    assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+    assert!(!hit(&hits, "Sequence"), "{hits:?}");
+    assert!(matches!(&o[1].1, Outcome::Fail(m) if m.contains("cache on")), "{o:?}");
     assert!(hit(&hits, "CacheIsOff"), "{hits:?}");
-    assert_eq!((&o[1].1, &o[2].1), (&Outcome::Pass, &Outcome::Pass), "{o:?}");
-    assert!(!hit(&hits, "Sequence") && !hit(&hits, "PutFirst"), "{hits:?}");
+    assert_eq!(o[2].1, Outcome::Pass, "{o:?}");
+    assert!(hit(&hits, "PutFirst"), "{hits:?}");
     let (o, hits) = run_readers(login, early, "U");
     assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
     assert!(hits.iter().all(|(_, h)| !h.contains(&ID)), "{hits:?}");
@@ -290,15 +297,15 @@ fn assert_only_the_first_reader_relies_on_it(early: &str) {
 
 // The subscriber makes the instance and sets a global.
 #[test]
-fn a_new_single_instance_with_a_set_global_marks_only_the_test_that_reads_it_first() {
-    assert_only_the_first_reader_relies_on_it(NOTHING_EARLY);
+fn a_new_single_instance_with_a_set_global_marks_the_first_reader_and_every_later_test() {
+    assert_the_first_reader_and_every_later_test_rely_on_it(NOTHING_EARLY);
 }
 
 // The instance was there before the login (an OnCompanyOpen subscriber of the app under test made it) and the subscriber
 // changes it.
 #[test]
-fn a_changed_existing_single_instance_marks_only_the_test_that_reads_it_first() {
-    assert_only_the_first_reader_relies_on_it("var C: Codeunit Cache; begin if C.Take() then; end;");
+fn a_changed_existing_single_instance_marks_the_first_reader_and_every_later_test() {
+    assert_the_first_reader_and_every_later_test_rely_on_it("var C: Codeunit Cache; begin if C.Take() then; end;");
 }
 
 // The OnRun trigger reads the global the subscriber set before the first test: what every test finds may rest on it.
@@ -342,4 +349,115 @@ fn a_record_global_whose_key_the_subscriber_sets_marks_the_first_reader_of_the_c
     let (o, hits) = run_readers("var C: Codeunit Cache; begin C.Sort(); end;", NOTHING_EARLY, "T");
     assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
     assert!(hit(&hits, "CacheIsOff") && !hit(&hits, "Sequence"), "{hits:?}");
+}
+
+/// The login sets `Cnt` to 10 and adds one entry to `Log` (probe p1 of the review of al-runner PR 8138).
+const COUNTS: &str = "var C: Codeunit Cache; begin C.Set(10); C.AddLog('login'); end;";
+
+/// Test codeunits after a login that leaves `COUNTS`: `body` is their objects (`Mine` is a SingleInstance codeunit of the
+/// app under test).
+fn run_counts(tests: &str, codeunit: &str) -> OutcomesAndHits {
+    let tests = format!(
+        "codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
+        codeunit 60950 Mine {{ SingleInstance = true; var V: Integer;
+            procedure Put(N: Integer) begin V := N; end; procedure Take(): Integer begin exit(V); end; }}
+        {tests}"
+    );
+    run_codeunit("Probe", COUNTS, &tests, false, TestIsolation::Codeunit, codeunit)
+}
+
+// A write that keeps the value (`Cnt += 1`) is a read: both tests see what the login left, both rely on it.
+#[test]
+fn a_keeping_write_relies_on_the_login_in_that_test_and_every_later_one() {
+    let tests = "codeunit 60951 A { Subtype = Test;
+        [Test] procedure A1() var C: Codeunit Cache; begin C.Bump(); if C.GetCount() <> 11 then Error('count %1', C.GetCount()); end;
+        [Test] procedure A2() var C: Codeunit Cache; begin C.Bump(); if C.GetCount() <> 12 then Error('count %1', C.GetCount()); end; }";
+    let (o, hits) = run_counts(tests, "A");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert!(hit(&hits, "A1") && hit(&hits, "A2"), "{hits:?}");
+}
+
+// `List.Add` as the first touch keeps the login's entry: the test relies on it; the test before it touched nothing.
+#[test]
+fn a_list_add_relies_on_the_login() {
+    let tests = "codeunit 60952 B { Subtype = Test;
+        [Test] procedure B0() begin end;
+        [Test] procedure B1() var C: Codeunit Cache; begin C.AddLog('x'); if C.LogCount() <> 2 then Error('log %1', C.LogCount()); end; }";
+    let (o, hits) = run_counts(tests, "B");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert!(!hit(&hits, "B0") && hit(&hits, "B1"), "{hits:?}");
+}
+
+// A test copies the login's value into a SingleInstance codeunit of its own; a later test reads only the copy: it relies on
+// the login too.
+#[test]
+fn a_later_test_that_reads_a_copy_relies_on_the_login() {
+    let tests = "codeunit 60954 D { Subtype = Test;
+        [Test] procedure D1() var C: Codeunit Cache; M: Codeunit Mine; begin M.Put(C.GetCount()); end;
+        [Test] procedure D2() var M: Codeunit Mine; begin if M.Take() <> 10 then Error('mine %1', M.Take()); end; }";
+    let (o, hits) = run_counts(tests, "D");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert!(hit(&hits, "D1") && hit(&hits, "D2"), "{hits:?}");
+}
+
+// A write that replaces the value before any read frees that global: the tests that set it and read it back run clean.
+#[test]
+fn a_replacing_write_before_any_read_runs_clean() {
+    let tests = "codeunit 60955 E { Subtype = Test;
+        [Test] procedure E1() var C: Codeunit Cache; begin C.Set(5); if C.GetCount() <> 5 then Error('count %1', C.GetCount()); end;
+        [Test] procedure E2() var C: Codeunit Cache; begin if C.GetCount() <> 5 then Error('count %1', C.GetCount()); end; }";
+    let (o, hits) = run_counts(tests, "E");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert!(hits.iter().all(|(_, h)| !h.contains(&ID)), "{hits:?}");
+}
+
+/// An OnCompanyOpenCompleted subscriber of the app under test (it runs after the login) with body `body`, and the test
+/// codeunit `C`.
+fn company_open_completed(body: &str) -> String {
+    format!(
+        "codeunit 60960 Cot {{
+            [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
+            local procedure L() {body} }}
+        codeunit 60953 C {{ Subtype = Test;
+            [Test] procedure MineIs10() var M: Codeunit Mine; begin if M.Take() <> 10 then Error('mine %1', M.Take()); end;
+            [Test] procedure Nothing() begin end; }}"
+    )
+}
+
+// Probe p2/cot of the review of al-runner PR 8138: the app's own session-open code after the login copies the login's value
+// into its own SingleInstance codeunit. Every test of the codeunit relies on the login.
+#[test]
+fn own_session_open_code_after_the_login_that_reads_its_global_marks_every_test() {
+    let tests = company_open_completed("var C: Codeunit Cache; M: Codeunit Mine; begin M.Put(C.GetCount()); end;");
+    let (o, hits) = run_counts(&tests, "C");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert!(hit(&hits, "MineIs10") && hit(&hits, "Nothing"), "{hits:?}");
+}
+
+// A neighbor that keeps main's result: own session-open code after the login that does not touch what the login left.
+#[test]
+fn own_session_open_code_after_the_login_that_touches_nothing_of_it_keeps_mains_result() {
+    let tests = company_open_completed("var M: Codeunit Mine; begin M.Put(10); end;");
+    let (o, hits) = run_counts(&tests, "C");
+    assert!(o.iter().all(|(_, x)| *x == Outcome::Pass), "{o:?}");
+    assert!(hits.iter().all(|(_, h)| !h.contains(&ID)), "{hits:?}");
+}
+
+// Probe p2/cotrows: the app's own session-open code after the login counts the table the login wrote: what it finds there
+// is not measured, the codeunit is not run.
+#[test]
+fn own_session_open_code_after_the_login_that_reads_its_table_refuses_the_codeunit() {
+    let tests = format!(
+        "codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
+        codeunit 60950 Mine {{ SingleInstance = true; var V: Integer;
+            procedure Put(N: Integer) begin V := N; end; procedure Take(): Integer begin exit(V); end; }}
+        {}",
+        company_open_completed("var O: Record Other; M: Codeunit Mine; begin M.Put(O.Count()); end;")
+    );
+    let (o, _) = run_codeunit("Probe", INSERTS, &tests, false, TestIsolation::Codeunit, "C");
+    assert!(
+        o.iter()
+            .all(|(_, x)| not_run_for(x, "partner dependency apps ran before the first test and wrote")),
+        "{o:?}"
+    );
 }
