@@ -61,6 +61,9 @@ impl Lowerer<'_> {
             });
             self.with_events_timer_member(&var, &op, ctor, args.len())?;
         }
+        if let Some(var) = self.with_events_no_trigger(&recv) {
+            self.with_events_no_trigger_member(&var, &op)?;
+        }
         // A `[RunOnClient]` variable: BC runs its calls on the client and a test session has none, so the constructor, a
         // client feature's `Create` and a static call raise DotNetFromAlNotSupported
         // (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:122-150 for a constructor and Environment.MachineName,

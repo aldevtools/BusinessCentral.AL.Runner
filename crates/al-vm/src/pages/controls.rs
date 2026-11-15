@@ -949,10 +949,7 @@ impl Session {
                     // globals, and leaves the page's record with fresh globals (ADR-021 decision 8;
                     // corpus probes TableGlobals_PageFieldValidate_*, TableGlobals_PageRec_ActionGlobalsAreLostAfterPageFieldValidation).
                     self.reset_table_globals(&rec);
-                    let site = ValidateSite::TestPageControl {
-                        new_line_of_trapped_static_card: self.new_line_of_trapped_static_card(st),
-                    };
-                    let validated = self.platform_validate(site, &rec, pos, parsed.clone());
+                    let validated = self.platform_validate(self.test_page_control_site(st), &rec, pos, parsed.clone());
                     self.reset_table_globals(&rec);
                     self.pages.curr_field_no.pop();
                     validated?;
@@ -1967,12 +1964,19 @@ fn unpinned_ext_validate(before: &[(usize, usize)], after: &[(usize, usize)], re
 }
 
 impl Session {
+    /// The validate site of a control written on the TestPage `st`.
+    fn test_page_control_site(&self, st: &St) -> ValidateSite {
+        ValidateSite::TestPageControl {
+            new_line_of_trapped_static_card: self.new_line_of_trapped_static_card(st),
+        }
+    }
+
     /// The control written is the second SetValue on the line `New()` started, the first one being the key, on a Card that AL code
     /// opened with a static `Page.Run(Id, Rec)` and `TestPage.Trap()` caught, at the top level: the test's calls since the open
     /// are exactly New, a SetValue of the one primary key field, then this one (record/filters/TestRecordEnumFlowFilterGroup.al:
     /// 74-75, :88-89, :110-119). The page call form of `ValidateSite::TestPageControl` that `relations.rs` `group_two_enum_pinned`
     /// takes.
-    pub(crate) fn new_line_of_trapped_static_card(&self, st: &St) -> bool {
+    fn new_line_of_trapped_static_card(&self, st: &St) -> bool {
         let trapped_static = {
             let s = st.borrow();
             s.caught_by_trap && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord) && !s.modal

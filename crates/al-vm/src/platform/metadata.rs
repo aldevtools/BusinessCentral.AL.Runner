@@ -180,8 +180,12 @@ pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
                 Ok(()) => out.push(Entry::ok(row)),
                 // The columns worked out before the refusal are real: a filter on the publisher's
                 // object type rules the row out without reading the part that is not pinned.
-                Err(Unworked { why, known }) => {
-                    out.push(Entry::poisoned(row, why).with_known_cols(known.iter().map(|c| pos(t, *c)).collect()));
+                Err(Unworked { why, known, assumed }) => {
+                    let entry = Entry::poisoned(row, why).with_known_cols(known.iter().map(|c| pos(t, *c)).collect());
+                    out.push(match assumed {
+                        Some((a, cols)) => entry.assuming_in(a, cols.iter().map(|c| pos(t, *c)).collect()),
+                        None => entry,
+                    });
                 }
             }
         }
@@ -334,17 +338,35 @@ fn subscription_row(
         }
         // An event an extension of the publisher declares, in a measured cell (`ext_event_row`; events/extension-events/
         // ExtensionEventSubscriptionRows.al:178-281): Event Type and Published Function as declared, Active Yes and the blank
-        // Error Information worked out above.
+        // Error Information worked out above. In a cell only Microsoft's tests measure, Active and Error Information alone, on
+        // assumption `extension-event-subscriber-active`.
         None => {
+            use super::ext_event_row::Measured;
             match publisher.and_then(|p| super::ext_event_row::measured(c.objects, o, manual, p, &event, &args)) {
                 // ExtensionEventSubscriptionRows.al never reads "Number of Calls" (8), and reads "Active Manual Instances" (13)
                 // only with no instance of the subscriber codeunit bound (:159-168, :244-252): both stay unknown here, and
                 // `Providers::with_event_stats` gives 13 its 0 only while no instance is bound.
-                Some(super::ext_event_row::Measured { published, event_type }) => {
+                Some(Measured::Row { published, event_type }) => {
                     r[pos(t, 8)] = super::unknown(t, 8, &format!("{}, whose event an extension declares", what()));
                     r[pos(t, 13)] =
                         super::unknown(t, 13, &format!("{} while an instance of its codeunit is bound", what()));
                     (published, event_type)
+                }
+                Some(Measured::ActiveOnly { extension }) => {
+                    r[pos(t, 7)] = Value::Boolean(true);
+                    known.extend([7, 9]);
+                    return Err(Unworked {
+                        why: format!(
+                            "{}: the Event Type and Published Function of `{event}`, which extension '{}' declares, are not pinned",
+                            what(),
+                            extension.name
+                        ),
+                        known,
+                        assumed: Some((
+                            al_builtins::assumptions::Assumption::ExtensionEventSubscriberActive,
+                            vec![7, 9],
+                        )),
+                    });
                 }
                 None => {
                     return Err(Unworked::new(
@@ -364,15 +386,21 @@ fn subscription_row(
     Ok(())
 }
 
-/// A subscriber row whose columns could not all be worked out: why, and the field ids whose values are real.
+/// A subscriber row whose columns could not all be worked out: why, the field ids whose values are real, and the assumption
+/// with the field ids whose values rest on it (a filter on one of them marks it).
 struct Unworked {
     why: String,
     known: Vec<u32>,
+    assumed: Option<(al_builtins::assumptions::Assumption, Vec<u32>)>,
 }
 
 impl Unworked {
     fn new(why: String, known: Vec<u32>) -> Unworked {
-        Unworked { why, known }
+        Unworked {
+            why,
+            known,
+            assumed: None,
+        }
     }
 }
 

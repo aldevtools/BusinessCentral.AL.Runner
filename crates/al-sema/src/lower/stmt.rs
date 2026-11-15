@@ -1941,8 +1941,8 @@ impl Lowerer<'_> {
     /// Why a use of the variable `name` is refused for an attribute of its declaration: `[RunOnClient]` (BC raises
     /// DotNetFromAlNotSupported, al-language-onprem-dotnet/dotnet/ac/AcDnAttributes.al:145-146) and `[WithEvents]` (the
     /// `trigger Variable::Event` handlers run when the object raises the event, AcDnAttributes.al:50, :86) are not
-    /// implemented, and running the variable without them would be silently wrong. A codeunit's WithEvents variable that no
-    /// trigger handles, and a Timer whose one trigger is Elapsed, are not refused here (`with_events::marker`).
+    /// implemented, and running the variable without them would be silently wrong. The WithEvents variables `with_events::marker`
+    /// accepts (a Timer, an AzureML variable of a codeunit with no trigger for it) are not refused here.
     pub(crate) fn var_attr_refusal(&self, name: &str, local: bool) -> Option<String> {
         let attrs = if local {
             self.local_var_attrs.get(name)
@@ -2003,6 +2003,21 @@ impl Lowerer<'_> {
                 {
                     let name = name.clone();
                     self.with_events_timer_use(n, &name)?;
+                    self.globals
+                        .get(&name)
+                        .map(|i| ir::Place::Global(*i))
+                        .ok_or_else(|| format!("implicit variable `{name}` is not lowered yet"))
+                }
+                // An AzureML WithEvents variable with no trigger (`with_events::marker`): only the uses codeunit 2001 makes.
+                Some(Res::Global(name))
+                    if !self.in_request_page
+                        && self
+                            .global_var_attrs
+                            .get(name)
+                            .is_some_and(|a| a.iter().any(|a| a == super::with_events::WITH_EVENTS_NO_TRIGGER)) =>
+                {
+                    let name = name.clone();
+                    self.with_events_no_trigger_use(n, &name)?;
                     self.globals
                         .get(&name)
                         .map(|i| ir::Place::Global(*i))

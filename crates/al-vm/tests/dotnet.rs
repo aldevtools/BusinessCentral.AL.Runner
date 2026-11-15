@@ -4455,8 +4455,7 @@ fn a_report_with_a_with_events_timer_runs_as_the_probe_runs_it() {
 }
 
 // ClearAll nulls the WithEvents Timer, which the probe does not measure (it measures Clear): refused in the object that holds
-// the Timer and in an extension of it, and in a codeunit whose WithEvents Timer has no trigger (main ran that one through the
-// deleted assumption with-events-no-trigger).
+// the Timer and in an extension of it, and in a codeunit whose WithEvents Timer has no trigger.
 #[test]
 fn clear_all_where_it_reaches_a_with_events_timer_is_refused() {
     let host = Fake::new(|r| match r {
@@ -4525,4 +4524,79 @@ fn a_with_events_timer_outside_the_measured_uses_stays_refused() {
     );
     let r = run_src(&host, &src, "W", "F");
     assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
+}
+
+// ---- [WithEvents] AzureML variable, no trigger: the shape of Microsoft's test 139540 (al-runner issue 7832) -------------------
+
+/// A host that takes no request: the AzureML types are server classes the DotNet policy refuses before a request.
+fn azure_ml_shape_host() -> Fake {
+    Fake::new(|r| panic!("unexpected request {r:?}"))
+}
+
+/// The uses codeunit 2001 "Azure ML Connector" makes of its WithEvents variables (Base Application
+/// System/AI/AzureMLConnector.Codeunit.al:17-22, :42-61), which Microsoft's test 139540 reaches: IsNull, the assignment from
+/// the variable's own constructor with and without arguments, a method call, and the variable as the argument of a method call
+/// of another such variable; then the neighbors that stay refused.
+const AZURE_ML_SHAPE: &str = "dotnet { assembly(\"Microsoft.Dynamics.Nav.AzureMLWrapper\") { \
+    type(\"Microsoft.Dynamics.Nav.AzureMLWrapper.AzureMLRequest\"; AzureMLRequest) { } \
+    type(\"Microsoft.Dynamics.Nav.AzureMLWrapper.AzureMLInputBuilder\"; AzureMLInputBuilder) { } } } \
+    codeunit 50100 W { var [WithEvents] Req: DotNet AzureMLRequest; [WithEvents] Inp: DotNet AzureMLInputBuilder; \
+    Other: DotNet AzureMLRequest; \
+    procedure IsInit(): Boolean begin exit(not IsNull(Req) and not IsNull(Inp)); end; \
+    procedure Init(): Integer begin Req := Req.AzureMLRequest('k', 'u', 0); Inp := Inp.AzureMLInputBuilder(); \
+      Req.SetInput('input1', Inp); exit(Req.GetOutputLength('Output1')); end; \
+    procedure Cleared() begin Clear(Req); end; \
+    procedure Copied() begin Other := Req; end; \
+    procedure FromOther() begin Req := Other; end; \
+    procedure Passed() begin Keep(Req); end; \
+    procedure ArgOfPlain() begin Other.SetInput('input1', Inp); end; \
+    procedure PropRead(): Integer begin exit(Req.Timeout); end; \
+    procedure All() begin ClearAll(); end; \
+    procedure Keep(X: DotNet AzureMLRequest) begin end; }";
+
+// An AzureML WithEvents variable in a codeunit that declares no trigger for it: the uses codeunit 2001 makes run as a plain
+// DotNet variable's, a flagged pass (assumption with-events-no-trigger-azure-ml-shape; no probe measures it, Microsoft's 139540
+// passes on real BC through these uses). Every other use, a trigger for the variable, another object type and another DotNet
+// type keep the refusal.
+#[test]
+fn an_azure_ml_with_events_variable_runs_flagged_in_the_shape_of_codeunit_2001() {
+    let ids = || hits().iter().map(|a| a.info().id).collect::<Vec<_>>();
+    let host = azure_ml_shape_host();
+    hits();
+    let r = run_src(&host, AZURE_ML_SHAPE, "W", "IsInit");
+    assert!(matches!(r.result, Ok(Value::Boolean(false))), "{:?}", r.result);
+    assert_eq!(ids(), ["with-events-no-trigger-azure-ml-shape"]);
+    // The constructor lowers as a plain DotNet variable's; the DotNet policy then refuses the AzureML server class, as for any
+    // variable of it.
+    let r = run_src(&host, AZURE_ML_SHAPE, "W", "Init");
+    assert!(unsupported(&r).contains("refused by policy"), "{}", unsupported(&r));
+    for routine in [
+        "Cleared",
+        "Copied",
+        "FromOther",
+        "Passed",
+        "ArgOfPlain",
+        "PropRead",
+        "All",
+    ] {
+        let r = run_src(&host, AZURE_ML_SHAPE, "W", routine);
+        assert!(unsupported(&r).contains("WithEvents"), "{routine}: {}", unsupported(&r));
+    }
+    let with_trigger = AZURE_ML_SHAPE.replace(
+        "Other: DotNet AzureMLRequest;",
+        "Other: DotNet AzureMLRequest; trigger Req::Disposed(sender: Variant; e: DotNet ClrObject) begin end;",
+    );
+    let r = run_src(&host, &with_trigger, "W", "IsInit");
+    assert!(unsupported(&r).contains("WithEvents"), "{}", unsupported(&r));
+    let page = AZURE_ML_SHAPE.replace("codeunit 50100 W {", "page 50100 W {");
+    let r = run_src(&host, &page, "W", "IsInit");
+    assert!(unsupported(&r).contains("WithEvents"), "page: {}", unsupported(&r));
+    let other_type = "codeunit 50100 W { var [WithEvents] Sb: DotNet StringBuilder; \
+        procedure IsInit(): Boolean begin exit(IsNull(Sb)); end; }";
+    let r = run_src(&host, other_type, "W", "IsInit");
+    assert!(
+        unsupported(&r).contains("WithEvents"),
+        "StringBuilder: {}",
+        unsupported(&r)
+    );
 }
