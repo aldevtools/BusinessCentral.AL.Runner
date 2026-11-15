@@ -42,7 +42,9 @@ impl Session {
 
     /// The error of a denied `access` by the code of `by`, when `by` is a page extension in the measured shape: the page
     /// closes (Y19PermExtAndCompose.al:376-383, `Page LT PC Page Plain has to close.`, `FormAbort:Permission`, the base page
-    /// named, with or without its Permissions).
+    /// named, with or without its Permissions). It does not ask the version function itself: a `Deny` of a page extension's
+    /// code reaches it only after [`Self::extension_code_grant`] answered for the same shape (`measured_extension_base`), and that
+    /// asks `al_version::base_page_permissions_cover_page_extension_open_page` first and refuses on a major it does not know.
     pub(crate) fn extension_page_denial(&self, access: Access, by: usize) -> Option<Signal> {
         let heads = self.engine.program.objects.heads();
         if heads[by].kind != al_ir::ObjKind::PageExtension {
