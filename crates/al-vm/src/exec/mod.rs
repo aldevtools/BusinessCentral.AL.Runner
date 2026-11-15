@@ -57,6 +57,12 @@ pub(crate) enum Op {
         p: u32,
         a: u16,
     },
+    /// `place := a` where `a` may be a Variant and the place is no local: site `s` of `variant_copies` (`variant_copy.rs`). A
+    /// local takes `Op::StoreLocal`, whose record goes to the site of its place.
+    StoreVariantCopy {
+        s: u32,
+        a: u16,
+    },
     Bin {
         op: ir::BinOp,
         d: u16,
@@ -593,6 +599,7 @@ pub(crate) struct Chunk {
     pub specials: Vec<SpecialSite>,
     pub faults: Vec<FaultKind>,
     pub ifaces: Vec<IfaceSite>,
+    pub variant_copies: Vec<crate::variant_copy::VariantCopySite>,
     /// Registers `0..nlocals` are the routine's locals.
     pub nlocals: u16,
     /// Temporaries after the locals.

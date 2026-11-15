@@ -92,12 +92,9 @@ impl Session {
                     );
                 }
                 if let Value::Record(c) = &copy
-                    && let (Some(from), Some(to)) = (
-                        rc.borrow().temp_id.as_ref().map(|t| t.id()),
-                        c.borrow().temp_id.as_ref().map(|t| t.id()),
-                    )
+                    && let Some(to) = c.borrow().temp_id.as_ref().map(|t| t.id())
                 {
-                    let rows = self.temps.get(&from).cloned().unwrap_or_default();
+                    let rows = self.store_for(&rc)?.clone();
                     self.temps.insert(to, rows);
                 }
                 Some(copy)
