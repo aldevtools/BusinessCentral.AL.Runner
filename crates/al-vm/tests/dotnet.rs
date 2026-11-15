@@ -4032,6 +4032,35 @@ fn a_static_method_a_property_get_and_a_constructor_raise_the_measured_texts() {
     );
 }
 
+// The inner exception's Message of a message with more than one line is measured only for the StringBuilder constructor
+// (DotNetExceptionOutcome.al:369-385, the probe reads its first line, :184). The same multi-line message from another measured
+// call refuses its inner Message; the error text itself is kept.
+#[test]
+fn a_multi_line_inner_message_runs_only_for_the_measured_constructor() {
+    const CTOR_MSG: &str = "capacity ('-1') must be a non-negative value. (Parameter 'capacity')\nActual value was -1.";
+    let host = throwing("System.ArgumentOutOfRangeException", CTOR_MSG, "constructor", false);
+    let r = run(
+        &host,
+        "B: DotNet StringBuilder; Exc: DotNet ClrObject; Inner: DotNet ClrObject;",
+        "asserterror B := B.StringBuilder(-1); Exc := GetLastErrorObject(); Inner := Exc.InnerException; exit(Inner.Message);",
+        ": Text",
+    );
+    assert_eq!(text(r), CTOR_MSG);
+    let host = throwing(
+        "System.FormatException",
+        "The input string 'abc' was not in a correct format.\nSecond line.",
+        "method",
+        false,
+    );
+    let r = run(
+        &host,
+        "C: DotNet Convert; N: Integer; Exc: DotNet ClrObject; Inner: DotNet ClrObject;",
+        "asserterror N := C.ToInt32('abc'); Exc := GetLastErrorObject(); Inner := Exc.InnerException; exit(Inner.Message);",
+        ": Text",
+    );
+    assert!(unsupported(&r).contains("more than one line"), "{}", unsupported(&r));
+}
+
 // System.ArgumentException of the X509Certificate2 constructor is an AL error a TryFunction catches (System Application's
 // TryInitializeCertificate answers false, Y58AzureKeyVault.al:317-325); its text and code are not pinned, so a read of them, or of
 // its object, refuses. No assumption: the oracle case pins it.

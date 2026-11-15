@@ -169,11 +169,29 @@ fn inner_exception(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]
             "InnerException of a NavNCLDotNetInvokeException of code '{code}' (not measured)"
         ));
     };
+    if msg.contains('\n') && !multi_line_inner_measured(text.as_str(), code.as_str()) {
+        return unsupported(format!(
+            "Message of the inner exception of code '{code}' whose .NET message has more than one line (measured only for the \
+             StringBuilder constructor, DotNetExceptionOutcome.al:369-385)"
+        ));
+    }
     Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
         type_name: DOTNET_INVOKE_INNER_EXCEPTION.into(),
         // The slots `message` and `get_type` read: the message, then the class `GetType().FullName` answers.
         state: RefCell::new(vec![Value::Text(msg.into()), Value::Text(class.into())]),
     }))))
+}
+
+/// The one call whose inner exception has a message of more than one line in the corpus: the StringBuilder constructor's
+/// ArgumentOutOfRange, whose error text holds both lines (DotNetExceptionOutcome.al:373) and whose inner Message the probe reads
+/// (its first line, :184, :382). The constructor names the type only, so its text starts with `A call to <type> failed`.
+fn multi_line_inner_measured(text: &str, code: &str) -> bool {
+    const CONSTRUCTOR: (&str, &str) = ("System.Text.StringBuilder", "DotNetInvoke:ArgumentOutOfRange");
+    code == CONSTRUCTOR.1
+        && text
+            .strip_prefix("A call to ")
+            .and_then(|t| t.strip_prefix(CONSTRUCTOR.0))
+            .is_some_and(|t| t.starts_with(BEFORE_MESSAGE))
 }
 
 /// `GetType()` of the inner exception: its .NET class (DotNetExceptionOutcome.al:321, `inner_type`).
