@@ -75,6 +75,32 @@ impl Session {
         hit.then(|| refusal(&what(), language))
     }
 
+    /// Whether `Format(RecordId, 0, 9)` of the table with object index `object` runs although [`Self::translated_read_refusal`]
+    /// refuses the table's caption. Format 9 names the table and never shows its caption (al-runner issue 8123). Assumed
+    /// (`recordid-format-nine-extended-table`) only in the shape measured: a table that declares a `Caption`, no `CaptionML` and no
+    /// table extension's Caption over it, whose own app ships no translation file of the language in force, and which an app
+    /// that ships one extends. Any other refused caption keeps format 9 refused. Measured by open corpus PR 1413,
+    /// localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al:235-256 (Item and Sales Invoice Header under 1043,
+    /// without and with a cross-app unit for the table caption).
+    pub(crate) fn record_id_name_assumed(&self, object: usize) -> bool {
+        let p = &self.engine.program;
+        let Some(o) = p.objects.get(object) else {
+            return false;
+        };
+        let language = al_builtins::format::FormatCtx::language(self);
+        let declares = |k: &str| o.properties.iter().any(|(p, _)| p.eq_ignore_ascii_case(k));
+        let measured = o.kind == al_ir::ObjKind::Table
+            && declares("Caption")
+            && !declares("CaptionML")
+            && !o
+                .properties
+                .iter()
+                .any(|(k, _)| k == al_ir::CAPTION_REFUSED || k == al_ir::EXT_CAPTION_OVER_OWN)
+            && !p.apps.get(o.app as usize).is_some_and(|a| translates_into(a, language))
+            && self.translated_read_refusal(object, String::new).is_some();
+        measured && al_builtins::assumptions::hit(al_builtins::assumptions::Assumption::RecordIdFormatNineExtendedTable)
+    }
+
     /// The refusal of a read of the caption of field `pos` of table `t` that declares a `Caption` or `CaptionML`.
     pub(crate) fn field_caption_translated(&self, t: &al_data::TableDef, pos: usize) -> Option<String> {
         if al_builtins::format::FormatCtx::language(self) == 1033
