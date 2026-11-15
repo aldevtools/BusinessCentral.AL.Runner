@@ -320,24 +320,34 @@ fn encoding(encoding: &Value, codepage: &Value, windows_text: bool) -> Result<En
     }
 }
 
-/// The encoding of `ToBase64(Text, Boolean, TextEncoding, Integer)`: [`encoding`]'s answer, but UTF8 with code page 1252 or
-/// 28591 refuses. The corpus measures only Windows with those code pages and UTF8 with 0 and 65001 (types/PVBase64.al:72,
-/// :76-78); System Application's `ToBase64(Text, TextEncoding)` passes 0, so only a direct call reaches it (al-runner issue
-/// 8069).
+/// The encoding of `ToBase64(Text, Boolean, TextEncoding, Integer)`, which every ToBase64 of a Text with an encoding
+/// reaches, direct or through System Application's "Base64 Convert". It answers only the measured cells; every other pair
+/// of encoding and code page refuses (al-runner issue 8069).
 fn to_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<Enc, Signal> {
-    if let (Value::Integer(cp @ (1252 | 28591)), true) =
-        (codepage, member_name(encoding_arg)?.eq_ignore_ascii_case("utf8"))
-    {
-        return unsupported(format!(
-            "ToBase64 with code page {cp} and TextEncoding::UTF8 (not pinned)"
-        ));
+    let Value::Integer(cp) = codepage else {
+        return unsupported("a code page that is not an Integer");
+    };
+    let name = member_name(encoding_arg)?;
+    match (name.to_ascii_lowercase().as_str(), *cp) {
+        // types/PVBase64.al:72 (code page 0) and :78 (65001).
+        ("utf8", 0 | 65001) => Ok(Enc::Utf8),
+        // types/PVBase64.al:73.
+        ("utf16", 0) => Ok(Enc::Utf16),
+        // types/PVBase64.al:74-75: code page 1252 from BC 28 (:83, :88), UTF-8 before.
+        ("windows" | "msdos", 0) if windows_text => Ok(Enc::Windows1252),
+        ("windows" | "msdos", 0) => Ok(Enc::Utf8),
+        // types/PVBase64.al:76 and :77.
+        ("windows", 1252) => Ok(Enc::Windows1252),
+        ("windows", 28591) => Ok(Enc::Latin1),
+        _ => unsupported(format!(
+            "ToBase64 with code page {cp} and TextEncoding::{name} (not pinned)"
+        )),
     }
-    encoding(encoding_arg, codepage, windows_text)
 }
 
 /// The encoding of `FromBase64(Text, TextEncoding, Integer)`. The cells listed here are measured; every other pair keeps
-/// [`encoding`]'s answer (the `ToBase64` cells, which also answer UTF8 with 0 or 65001, Windows and MSDos with 0, 1252,
-/// 28591 or 65001, and UTF16 with 0), and its refusal of every other code page.
+/// [`encoding`]'s answer (UTF8 with 0 or 65001; Windows and MSDos with 0, 1252, 28591 or 65001; UTF16 with 0), and its
+/// refusal of every other code page. Unlike [`to_base64_encoding`], not every one of those pairs is measured.
 fn from_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<(Enc, bool), Signal> {
     use crate::assumptions::{Assumption::BaseEncodeStreamLineBreaksCodePages as A, assume};
     let Value::Integer(cp) = codepage else {
@@ -751,6 +761,29 @@ mod tests {
         assert!(matches!(to_enc("UTF8", 0), Ok(Enc::Utf8)));
         assert!(matches!(to_enc("Windows", 1252), Ok(Enc::Windows1252)));
         assert!(matches!(to_enc("Windows", 28591), Ok(Enc::Latin1)));
+    }
+
+    // The ToBase64 cells the corpus does not measure refuse (probe written, pull request not open): MSDos with 1252 or
+    // 28591, and Windows or MSDos with 65001. The measured cells keep their answer (types/PVBase64.al:72-78, :83, :88).
+    #[test]
+    fn to_base64_answers_only_the_measured_cells() {
+        for (name, cp) in [
+            ("MSDos", 1252),
+            ("MSDos", 28591),
+            ("Windows", 65001),
+            ("MSDos", 65001),
+            ("UTF16", 65001),
+        ] {
+            assert!(matches!(to_enc(name, cp), Err(Signal::Unsupported(_))), "{name} {cp}");
+        }
+        assert!(matches!(to_enc("UTF16", 0), Ok(Enc::Utf16)));
+        assert!(matches!(to_enc("Windows", 0), Ok(Enc::Utf8)));
+        assert!(matches!(to_enc("MSDos", 0), Ok(Enc::Utf8)));
+        let members: std::sync::Arc<[String]> = ["MSDos", "UTF8", "UTF16", "Windows"].map(String::from).to_vec().into();
+        for i in [0, 3] {
+            let got = to_base64_encoding(&Value::Option(i, members.clone()), &Value::Integer(0), true);
+            assert!(matches!(got, Ok(Enc::Windows1252)), "{i}");
+        }
     }
 
     #[test]

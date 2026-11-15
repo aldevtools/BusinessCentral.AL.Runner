@@ -1319,7 +1319,7 @@ impl Workspace {
 
     /// Whether Microsoft's Base Application is among the apps `app` sees. Then no app is absent that
     /// could shadow a name, and the tiers resolve as the compiler resolves them.
-    fn sees_base_application(&self, app: usize) -> bool {
+    pub(crate) fn sees_base_application(&self, app: usize) -> bool {
         self.visible[app].iter().any(|&a| {
             self.kinds[a] == AppKind::Dependency && self.apps[a].name.eq_ignore_ascii_case("Base Application")
         })

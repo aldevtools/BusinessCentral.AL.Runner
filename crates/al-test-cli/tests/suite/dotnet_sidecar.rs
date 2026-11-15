@@ -437,6 +437,15 @@ fn an_instance_overload_on_a_variable_holding_no_object_says_so_when_no_static_o
         .invoke(DotNetTarget::Instance(rx), "Replace", vec![s("xaay"), s("b")])
         .unwrap();
     assert_eq!(text_of(&r), "xby");
+    // A static overload that takes the argument count but not the argument types keeps the overload refusal: static
+    // IsMatch(String, String) takes two arguments, so the call may have meant it.
+    let why = refused(sess.invoke(
+        DotNetTarget::Static(regex()),
+        "IsMatch",
+        vec![arg(DotNetValue::Int32(1)), arg(DotNetValue::Int32(2))],
+    ));
+    assert!(why.contains("no overload taking 2 argument"), "{why}");
+    assert!(!why.contains("holds no object"), "{why}");
     // A name no instance member carries keeps the overload refusal.
     let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![]));
     assert!(why.contains("no overload taking 0 argument"), "{why}");

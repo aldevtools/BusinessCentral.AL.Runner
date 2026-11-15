@@ -8,6 +8,10 @@ use super::*;
 pub(crate) fn resolve_handlers(lowered: &Lowered, object: usize, test: usize) -> Result<Vec<(UiKind, usize)>, String> {
     let obj = &lowered.program.objects[object];
     let mut out: Vec<(UiKind, usize)> = Vec::new();
+    // Why handler routine `r` cannot run: code reachable from it is refused.
+    let handler_blocked = |r: usize| {
+        blocked_reason(lowered, object, r).map(|reason| format!("handler {}: {reason}", obj.routines[r].name))
+    };
     for attr in obj.routines[test]
         .attributes
         .iter()
@@ -62,9 +66,9 @@ pub(crate) fn resolve_handlers(lowered: &Lowered, object: usize, test: usize) ->
                 if is_page {
                     for r in [*other, hr] {
                         if page_of(&obj.routines[r]).is_none()
-                            && let Some(reason) = blocked_reason(lowered, object, r)
+                            && let Some(why) = handler_blocked(r)
                         {
-                            return Err(format!("handler {}: {reason}", obj.routines[r].name));
+                            return Err(why);
                         }
                     }
                 }
@@ -78,8 +82,8 @@ pub(crate) fn resolve_handlers(lowered: &Lowered, object: usize, test: usize) ->
     }
     // Code reachable from a handler must be runnable too (decided before running).
     for (_, hr) in &out {
-        if let Some(reason) = blocked_reason(lowered, object, *hr) {
-            return Err(format!("handler {}: {reason}", obj.routines[*hr].name));
+        if let Some(why) = handler_blocked(*hr) {
+            return Err(why);
         }
     }
     Ok(out)

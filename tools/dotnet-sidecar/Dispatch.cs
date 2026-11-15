@@ -225,13 +225,15 @@ public sealed class Server
                 }
                 if (cands.Length == 0)
                     throw new Refusal(NoObjectOrMissing(target, type, name, $"member '{name}' not found on '{type.FullName}'"));
-                // With no object only the static overloads are candidates. When none of them takes the arguments and an
-                // instance overload does (`Regex.IsMatch('a')`, `Regex.Replace('a', 'b')` on a variable never assigned;
-                // al-runner issue 8036), the call meant the instance member: say the variable holds no object.
+                // With no object only the static overloads are candidates. When none of them takes the argument count and
+                // an instance overload does (`Regex.IsMatch('a')`, `Regex.Replace('a', 'b')` on a variable never assigned;
+                // al-runner issue 8036), the call meant the instance member: say the variable holds no object. A static
+                // overload with that count keeps the overload refusal.
                 (MethodBase Best, object?[] Coerced, int Score) picked;
                 try { picked = Pick(cands, args, $"{type.FullName}.{name}", textAsGuidFallback: true); }
-                catch (Refusal) when (target == null && type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                    .Any(m => m.Name == name && !m.IsGenericMethodDefinition && TakesArgCount(m, args.Length)))
+                catch (Refusal) when (target == null && !cands.Any(m => TakesArgCount(m, args.Length))
+                    && type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                        .Any(m => m.Name == name && !m.IsGenericMethodDefinition && TakesArgCount(m, args.Length)))
                 {
                     throw new Refusal(NoObject(type, name));
                 }

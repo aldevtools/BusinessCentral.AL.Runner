@@ -367,8 +367,8 @@ impl Lowerer<'_> {
     }
 
     /// Whether the routine being lowered was made from a property expression (a control's source).
-    /// The kind of object `Kw::Name` names when it is an object literal (`Database::"X"`, `Report::"X"`, ...) and no
-    /// loaded app declares that object (al-runner issues 8101, 8099).
+    /// The kind of object `Kw::Name` names when it is an object literal (`Database::"X"`, `Report::"X"`, ...) and
+    /// neither the file's app nor an app it sees declares that object (al-runner issues 8101, 8099).
     fn names_no_loaded_object(&self, kw: &str, name: &str) -> Option<ObjKind> {
         let kind = match kw.trim().to_ascii_lowercase().as_str() {
             "database" => ObjKind::Table,
@@ -385,6 +385,24 @@ impl Lowerer<'_> {
             crate::workspace::Resolution::Missing
         )
         .then_some(kind)
+    }
+
+    /// Why `text`, an object literal of `kind` that [`Self::names_no_loaded_object`] found, is refused. It names a cause
+    /// only when the workspace shows it: a dependency of the app or of an app it sees that is not loaded, or, when the
+    /// app sees Base Application, another country's Base Application.
+    fn no_declared_object_reason(&self, text: &str, kind: ObjKind) -> String {
+        let app = self.ws.files[self.file].app;
+        let mut reason = format!(
+            "`{text}` names no {} that this app or its dependencies declare",
+            kind.label()
+        );
+        if self.ws.has_unloaded_dependency(app) {
+            reason.push_str("; a dependency was skipped as not found");
+        }
+        if self.ws.sees_base_application(app) {
+            reason.push_str("; an object of another country's Base Application needs --country");
+        }
+        reason
     }
 
     pub(crate) fn in_synthetic_routine(&self) -> bool {
@@ -1053,11 +1071,7 @@ impl Lowerer<'_> {
                             e.trim()
                         )),
                         Some((kw, name)) => match self.names_no_loaded_object(kw, name) {
-                            Some(kind) => Err(format!(
-                                "`{text}` names no {} of the loaded apps: an object of a dependency that was skipped as \
-                                 not found, or of another country's Base Application (which needs --country), is not loaded",
-                                kind.label()
-                            )),
+                            Some(kind) => Err(self.no_declared_object_reason(&text, kind)),
                             None => Err(format!("`{text}` is not lowered yet")),
                         },
                         None => Err(format!("`{text}` is not lowered yet")),
