@@ -1449,6 +1449,19 @@ fn without_a_client_what_the_login_would_leave_is_refused() {
     ));
 }
 
+// A test codeunit for which the login is raised (its test reads the row an own login subscriber left): under --no-client which
+// login events a web-service session raises is not measured, so the raise itself is refused (`login::NO_CLIENT_RAISE`).
+#[test]
+fn without_a_client_a_raised_login_is_refused() {
+    let rows_only = LOGIN_LEAVES.replace("        GlobalLanguage(1055);\n", "");
+    let o = outcomes_in(&rows_only, DEP, "Q Own Event", TestIsolation::Codeunit, true);
+    assert_eq!(o.len(), 1, "{o:?}");
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(w) if w.contains(crate::login::NO_CLIENT_RAISE)),
+        "{o:?}"
+    );
+}
+
 // RequiredTestIsolation = Disabled: what the login writes would meet what an earlier codeunit left, which is not pinned
 // (the same reason a codeunit whose session raised the login is not run there, `run.rs`). The subscribers run, watched:
 // a test that touches a table they wrote is not run, one that touches none passes.
