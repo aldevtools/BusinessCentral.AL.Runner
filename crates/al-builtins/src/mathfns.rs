@@ -97,24 +97,14 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         return unsupported("Round outside the Decimal range");
     };
     let whole = steps.round_dp_with_strategy(0, strategy);
+    // The result (the rounded steps times the precision as written) keeps the decimals of the precision, zeros included:
+    // `Round(2.5, 0.01)` is `2.50`, `Round(3, 0.25)` is `3.00`, `Round(1, 0.01)` is `1.00` (shown as `1` in the dataset,
+    // `decimal_scale.rs`, but `Round(1, 0.01) * 2.50` is `2.5000`): tests/al-language/reports/dataset/
+    // DatasetDecimalRoundScale.al:29-183 and DatasetDecimalRoundScaleSources.al:35-90, :470-615.
     match whole.checked_mul(precision) {
-        Some(r) => Ok(Value::Decimal(round_scale(r))),
+        Some(r) => Ok(Value::Decimal(r)),
         None => unsupported("Round outside the Decimal range"),
     }
-}
-
-/// The result `r` (the rounded steps times the precision as written) keeps the decimals of the precision, zeros included:
-/// `Round(2.5, 0.01)` is `2.50`, `Round(3, 0.25)` is `3.00`, `Round(2, 0.01)` is `2.00`, `Round(1.200001, 0.00001)` is
-/// `1.20000`, `Round(1.4, 0.50)` is `1.50`. Measured on BC 27.5, 28.5 and 29.0 by corpus pull requests 1380
-/// (reports/dataset/DatasetDecimalRoundScale.al, open) and 1377 (reports/dataset/DatasetDecimalRoundScaleSources.al) and by al-runner
-/// issue 7958, and not pinned yet (assumption `round-keeps-the-precision-decimals`). Every trailing zero the result holds is
-/// marked, those of zero, one and minus one too: the dataset shows none of them (`decimal_scale.rs`), but a calculation and a
-/// JSON value see them (`Round(1, 0.01) * 2.50` is `2.5000`).
-fn round_scale(r: Decimal) -> Decimal {
-    if r.scale() > r.normalize().scale() {
-        crate::assumptions::assume(crate::assumptions::Assumption::RoundKeepsThePrecisionDecimals);
-    }
-    r
 }
 
 /// A result that no Decimal holds: a too large result, zero to a negative power, a negative base to a fractional power
@@ -315,25 +305,27 @@ mod tests {
     }
 
     #[test]
-    fn round_marks_the_scale_shapes_no_pin_measured() {
-        use crate::assumptions::{Assumption, clear_hits, take_hits};
+    fn round_marks_no_assumption() {
+        use crate::assumptions::{clear_hits, take_hits};
         let marked = |n: &str, p: &str| {
             clear_hits();
             let _ = call("System.Round#1", vec![d(n), d(p)]);
-            take_hits().contains(&Assumption::RoundKeepsThePrecisionDecimals)
+            !take_hits().is_empty()
         };
-        // Pinned: a result that needs every digit.
-        assert!(!marked("1.234567", "0.00001"));
-        // Every trailing zero the result holds is marked, also for zero, one and minus one: a calculation or a JSON value sees
-        // them (Round(1, 0.01) * 2.50 is 2.5000; maintainer's review of al-runner PR 7969).
-        assert!(marked("1", "0.00001"));
-        assert!(marked("-1", "0.01"));
-        // Zeros of the precision kept, measured by corpus pull requests 1380 and 1377, not pinned yet.
-        assert!(marked("2.5", "0.01"));
-        assert!(marked("2.50", "0.01"));
-        assert!(marked("3", "0.25"));
-        assert!(marked("2", "0.01"));
-        assert!(marked("2.5", "0.10"));
+        // A result that needs every digit, and the zeros of the precision kept, those of one and minus one too
+        // (reports/dataset/DatasetDecimalRoundScale.al, DatasetDecimalRoundScaleSources.al).
+        for (n, p) in [
+            ("1.234567", "0.00001"),
+            ("1", "0.00001"),
+            ("-1", "0.01"),
+            ("2.5", "0.01"),
+            ("2.50", "0.01"),
+            ("3", "0.25"),
+            ("2", "0.01"),
+            ("2.5", "0.10"),
+        ] {
+            assert!(!marked(n, p), "Round({n}, {p})");
+        }
     }
 
     #[test]
@@ -359,7 +351,7 @@ mod tests {
         assert_eq!(text("3.0", d("0.25")), "3.00");
         assert_eq!(text("1.4", d("0.50")), "1.50");
         assert_eq!(text("2.5", d("0.10")), "2.50");
-        // One keeps the precision's zeros in the value; the dataset writes it as `1` (al-vm `decimal_column.rs`).
+        // One keeps the precision's zeros in the value; the dataset writes it as `1` (`decimal_scale.rs`).
         assert_eq!(text("1", d("0.00001")), "1.00000");
     }
 

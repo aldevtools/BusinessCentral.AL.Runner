@@ -1,11 +1,11 @@
-//! Every Variant.IsXxx method asked of a Variant that holds a value of each kind (al-runner issue 7963; corpus PR 1382,
-//! types/variant/VariantIsMatrix.al:135-493, the probe's codeunit with its Observer calls turned into a returned text). The
+//! Every Variant.IsXxx method asked of a Variant that holds a value of each kind (al-runner issue 7963;
+//! tests/al-language/types/variant/VariantIsMatrix.al:135-493, the probe's codeunit with its Observer calls turned into a returned text). The
 //! methods the registry did not have (IsTransactionType, IsDataClassificationType, IsSecurityFiltering) and IsOption of a
-//! TransactionType mark `variant-is-matrix`; kinds outside the probe refuse in the three new methods. The probe's Label
+//! TransactionType run unmarked; kinds outside the probe refuse in the three new methods. The probe's Label
 //! and TextConst cells (:186, both IsTextConstant only) are left out: a TextConst into a Variant stays refused, and a Label in a
 //! Variant is still a Text (not changed here).
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 
 const SRC: &str = r#"
 enum 69971 "LT VaM Color"
@@ -481,13 +481,8 @@ const EXPECTED: &[(&str, &str)] = &[
 fn each_held_kind_answers_the_measured_is_methods() {
     let mut b = al_testkit::Built::from_source(SRC);
     for (routine, expected) in EXPECTED {
-        take_hits();
         let got = al_testkit::text(b.run_in("LT VaM Is Matrix", routine));
         assert_eq!(&got, expected, "{routine}");
-        assert!(
-            take_hits().contains(&Assumption::VariantIsMatrix),
-            "{routine} must mark its assumption"
-        );
     }
 }
 
@@ -598,14 +593,14 @@ table 69975 "LT VaM Tt Row"
 "#;
 
 #[test]
-fn the_reporters_repro_answers_true_flagged() {
+fn the_reporters_repro_answers_true() {
     take_hits();
     assert!(al_testkit::boolean(al_testkit::run_in(
         NEIGHBORS,
         "LT VaM Neighbors",
         "Reporter"
     )));
-    assert!(take_hits().contains(&Assumption::VariantIsMatrix));
+    assert!(take_hits().is_empty());
 }
 
 #[test]
@@ -627,7 +622,7 @@ fn is_option_of_an_app_option_keeps_mains_answer_unflagged() {
         "LT VaM Neighbors",
         "AppOptionIsOption"
     )));
-    assert!(!take_hits().contains(&Assumption::VariantIsMatrix));
+    assert!(take_hits().is_empty());
 }
 
 /// An Option whose members are the five TransactionType members is an Option, not a TransactionType: an app Option and an Option
@@ -641,7 +636,7 @@ fn an_option_with_the_transaction_type_members_keeps_is_option_unflagged() {
             al_testkit::boolean(al_testkit::run_in(NEIGHBORS, "LT VaM Neighbors", routine)),
             "{routine}"
         );
-        assert!(!take_hits().contains(&Assumption::VariantIsMatrix), "{routine}");
+        assert!(take_hits().is_empty(), "{routine}");
     }
 }
 
@@ -670,5 +665,5 @@ fn a_transaction_type_literal_is_no_option() {
         "LT VaM Neighbors",
         "TransactionTypeLiteralIsOption"
     )));
-    assert!(take_hits().contains(&Assumption::VariantIsMatrix));
+    assert!(take_hits().is_empty());
 }

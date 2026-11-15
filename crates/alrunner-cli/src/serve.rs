@@ -1256,7 +1256,7 @@ mod tests {
     /// as in the `--output-json` document.
     #[test]
     fn a_flagged_pass_is_flagged_on_the_serve_line_and_in_the_summary_as_in_output_json() {
-        let marks = vec![al_builtins::assumptions::Assumption::CalcDatePastDateRange];
+        let marks = vec![al_builtins::assumptions::Assumption::NoClientSession];
         let mut result = crate::output::tests::r(50120, "Flag Tests", "D_TestPage", al_testrun::Outcome::Pass);
         result.assumptions = marks.clone();
         let clean = crate::output::tests::r(50120, "Flag Tests", "Clean", al_testrun::Outcome::Pass);

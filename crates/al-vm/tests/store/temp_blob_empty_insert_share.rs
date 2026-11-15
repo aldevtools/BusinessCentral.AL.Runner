@@ -1,6 +1,6 @@
 //! A temporary row inserted while its Blob is empty, then the same record variable moves to another key, writes its Blob and
-//! inserts again (al-runner issue 6924, Excel Buffer.ReadSheet). The cells of corpus PR 1391
-//! (tests/al-language/streams/TempBlobEmptyInsertShare.al, not pinned yet; assumption `temp-blob-empty-insert-key-change`):
+//! inserts again (al-runner issue 6924, Excel Buffer.ReadSheet). The cells of
+//! (tests/al-language/streams/TempBlobEmptyInsertShare.al):
 //! the earlier rows keep their empty Blob. The neighbors the probe did not measure refuse where main shared the buffer, and
 //! keep main's result where it did not.
 
@@ -391,8 +391,8 @@ codeunit 50994 C
         R.Insert();
     end;
 
-    // Not measured and not told apart from :426 (the entry says so): a second variable takes the buffer with Copy(R, true)
-    // after the Insert, moves on and writes; it takes the assumed path.
+    // Outside the cells (:426 and :447 write through the variable that inserted): a second variable that shares the table
+    // with Copy(R, true) after the Insert holds a buffer of its own, which no row holds, and keeps main's path.
     procedure SecondVariableWrites(): Text
     var R: Record "Tbs Row" temporary; R2: Record "Tbs Row" temporary;
     begin
@@ -402,8 +402,35 @@ codeunit 50994 C
         exit(Lib.ReadGet(R, 1));
     end;
 
+    // Not measured (the cells write 'X', 'Y' or a long text with WriteText(T) or Write(T)): an empty text, and WriteText
+    // with a length.
+    procedure KeyChangeWriteEmptyText(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2; R.Data.CreateOutStream(O); O.WriteText(''); R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+    procedure KeyChangeWriteTextWithLength(): Text
+    var R: Record "Tbs Row" temporary; O: OutStream;
+    begin
+        R.Key1 := 1; R.Insert();
+        R.Key1 := 2; R.Data.CreateOutStream(O); O.WriteText('XY', 1); R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
+    // Not measured (the cells move the key with := or Validate): RecordRef.SetTable moves it.
+    procedure SetTableKeyMove(): Text
+    var R: Record "Tbs Row" temporary; RR: RecordRef;
+    begin
+        R.Key1 := 1; R.Insert();
+        RR.GetTable(R); RR.Field(1).Value := 2; RR.SetTable(R);
+        Lib.Write(R, 'X'); R.Insert();
+        exit(Lib.ReadGet(R, 1));
+    end;
+
     // Not told apart (the entry says so): a Variant holds a copy of the record whose Blob buffer is its own (assumption
-    // `blob-transfer-copies`) while the record moves on and writes; it takes the assumed path (main: 'hv:X').
+    // `blob-transfer-copies`) while the record moves on and writes; it takes the measured path (main: 'hv:X').
     procedure VariantHolds(): Text
     var R: Record "Tbs Row" temporary; V: Variant;
     begin
@@ -763,9 +790,25 @@ fn unmeasured_holders_and_places_refuse() {
 }
 
 #[test]
-fn a_second_variable_sharing_the_table_is_not_told_apart() {
-    assert_eq!(run("SecondVariableWrites"), "nohv");
+fn a_key_moved_by_set_table_or_an_unmeasured_write_refuses() {
+    let ran: Vec<String> = [
+        "SetTableKeyMove",
+        "KeyChangeWriteEmptyText",
+        "KeyChangeWriteTextWithLength",
+    ]
+    .iter()
+    .filter_map(|p| match al_testkit::run_in(SRC, "C", p) {
+        Err(al_builtins::native::Signal::Unsupported(why)) if why.starts_with(REFUSED) => None,
+        other => Some(format!("{p}: {other:?}")),
+    })
+    .collect();
+    assert!(ran.is_empty(), "{}", ran.join("\n"));
+}
+
+#[test]
+fn a_variant_copy_or_a_second_variable_with_its_own_buffer_keeps_mains_result() {
     assert_eq!(run("VariantHolds"), "nohv");
+    assert_eq!(run("SecondVariableWrites"), "nohv");
 }
 
 #[test]

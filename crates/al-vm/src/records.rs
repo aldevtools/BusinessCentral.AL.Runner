@@ -639,8 +639,17 @@ impl Session {
     /// PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip, corpus master 97c29f86).
     pub(crate) fn is_unseeded(&self, t: &TableDef) -> bool {
         let o = t.object as usize;
-        self.engine.unseeded.contains(&o)
+        self.engine.unseeded.contains_key(&o)
             || (!self.install_scope && self.engine.platform_unseeded.contains(&o) && !self.store.emptied(&self.cx, t))
+    }
+
+    /// The end of the refusal of a read of an unseeded table: the install root that should have written its rows and why
+    /// it stopped (al-runner issue 8104). Empty for a platform table, whose rows no root writes.
+    pub(crate) fn unseeded_cause(&self, t: &TableDef) -> String {
+        match self.engine.unseeded.get(&(t.object as usize)) {
+            Some(cause) => format!(", because {cause}"),
+            None => String::new(),
+        }
     }
 
     /// Why the rows install code left in table `object` are not known (ADR-046: `InstallFacts::unknown`). Install code
@@ -653,13 +662,11 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`, al-vm
-    /// `group1_sessions.rs`), outside install code.
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
     pub(crate) fn install_assumed(&self, object: u32) {
         if self.install_scope {
             return;
         }
-        self.group1_flagged_touch(object);
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };
@@ -750,8 +757,9 @@ impl Session {
         }
         if !temporary && self.is_unseeded(t) {
             return unsupported(format!(
-                "{what} on {}: BC holds rows here that an install trigger or Company-Initialize creates, and the install baseline could not create them (ADR-013 decision 5)",
-                t.name
+                "{what} on {}: BC holds rows here that an install trigger or Company-Initialize creates, and the install baseline could not create them (ADR-013 decision 5){}",
+                t.name,
+                self.unseeded_cause(t)
             ));
         }
         Ok(())
@@ -771,8 +779,9 @@ impl Session {
         }
         if !exists && self.is_unseeded(t) {
             return unsupported(format!(
-                "{} row not found: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5)",
-                t.name
+                "{} row not found: the rows a dependency app's install and Company-Initialize create could not be created (ADR-013 decision 5){}",
+                t.name,
+                self.unseeded_cause(t)
             ));
         }
         if self.ret_used {
@@ -2065,11 +2074,10 @@ impl Session {
                     _ => false,
                 };
             // An assigned Blob that nothing saved or wrote since is kept, as an unsaved stream write is, when the stored row's
-            // Blob is empty (assumption `blob-assign-counts-as-write`: al-runner issue 7961, the reporter's repro on real BC).
+            // Blob is empty (al-runner issue 7961; tests/al-language/streams/BlobAssignThenCalcFields.al:244-256 (Assign_Ins_FromTmpIns)).
             let stored_empty =
                 matches!(stored.as_ref().map(|row| &row[pos]), Some(Value::Blob(src)) if src.borrow().bytes.is_empty());
             if keeps_content && stored_empty && buf.borrow().assigned_unsaved {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobAssignCountsAsWrite);
                 continue;
             }
             if stale {
@@ -2095,6 +2103,7 @@ impl Session {
             let mut b = buf.borrow_mut();
             b.inserted = inserted;
             b.bytes = bytes;
+            b.content_edits = b.content_edits.wrapping_add(1);
             b.written = false;
             b.written_base = None;
             b.assigned_unsaved = false;
@@ -2782,7 +2791,7 @@ impl Session {
     }
 
     /// The filters of `rec` in filter group 1, as text to compare.
-    pub(crate) fn group1_signature(rec: &Rec) -> String {
+    fn group1_signature(rec: &Rec) -> String {
         let r = rec.borrow();
         let mut v: Vec<String> = r
             .filters
@@ -2827,7 +2836,6 @@ impl Session {
     /// Page.Run(Page, Rec)); refused otherwise.
     pub(crate) fn global_group_check(&self, rec: &Rec, table: u32, what: &str) -> Result<(), Signal> {
         let Some(global) = self.global_group1.signature(table) else {
-            self.group1_ended_check(rec, table, what);
             return Ok(());
         };
         if what == "FilterGroup" {

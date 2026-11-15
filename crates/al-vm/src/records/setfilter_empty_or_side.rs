@@ -4,7 +4,6 @@
 //! refusal.
 
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 
 /// Which side of the `|` BC names in the error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,24 +12,17 @@ enum Side {
     Right,
 }
 
-/// Whether the shape is pinned by the pinned corpus (no assumption is marked) or measured only by the open probe.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Evidence {
-    Pinned,
-    Probe,
-}
-
 /// The measured cells, the whole filter text by equality. `V` is one literal value with no placeholder argument (letters and
 /// digits on a Text or Code field, no longer than the field; digits that read as an Integer on an Integer field), `%1` one
 /// placeholder with exactly one argument (a non-empty Text no longer than the field on a Text field, an Integer on an Integer
 /// field).
 ///
-/// - Probe (corpus PR 1382, record/filters/SetFilterEmptyTerm.al): Text `%1|` and `|%1` with `'A'` (:123), `A|`, `|A`, `A||B`,
+/// - tests/al-language/record/filters/SetFilterEmptyTerm.al: Text `%1|` and `|%1` with `'A'` (:123), `A|`, `|A`, `A||B`,
 ///   `|` (:142); Code `%1|` with `'A'` (:161), `A|`, `|A`, `A||B` (:177); Integer `%1|` and `|%1` with `1`, `1||2` (:193);
 ///   Text `%1|` with a Text literal argument (:222). `V|` and `V||V` name the right side, `|V` and `|` the left side. Code
 ///   `|%1` was not measured.
-/// - Pinned: Integer `|10` and `10|` (record/crud/RcAFilters.al:376, :378), Text `||` (RcAFilters.al:648, the left side).
-fn empty_or_side(text: &str, args: &[Value], ty: &RtType) -> Option<(Side, Evidence)> {
+/// - Integer `|10` and `10|` (tests/al-language/record/crud/RcAFilters.al:376, :378), Text `||` (RcAFilters.al:648, the left side).
+fn empty_or_side(text: &str, args: &[Value], ty: &RtType) -> Option<Side> {
     let (text_len, int_field) = match ty {
         RtType::Text(len) | RtType::Code(len) => (*len, false),
         RtType::Integer => (None, true),
@@ -38,13 +30,13 @@ fn empty_or_side(text: &str, args: &[Value], ty: &RtType) -> Option<(Side, Evide
     };
     let fits = |v: &str| text_len.is_some_and(|n| v.chars().count() <= n as usize);
     if int_field && args.is_empty() && text == "|10" {
-        return Some((Side::Left, Evidence::Pinned));
+        return Some(Side::Left);
     }
     if int_field && args.is_empty() && text == "10|" {
-        return Some((Side::Right, Evidence::Pinned));
+        return Some(Side::Right);
     }
     if matches!(ty, RtType::Text(_)) && args.is_empty() && text == "||" {
-        return Some((Side::Left, Evidence::Pinned));
+        return Some(Side::Left);
     }
     let literal = |v: &str| {
         !v.is_empty()
@@ -77,7 +69,7 @@ fn empty_or_side(text: &str, args: &[Value], ty: &RtType) -> Option<(Side, Evide
         }
         _ => return None,
     };
-    Some((side, Evidence::Probe))
+    Some(side)
 }
 
 impl Session {
@@ -96,12 +88,9 @@ impl Session {
             return None;
         };
         let field = t.fields.get(pos)?;
-        let (side, evidence) = empty_or_side(text, values, &field.ty)?;
+        let side = empty_or_side(text, values, &field.ty)?;
         if !(from_al && self.measured_record(t, pos, rec)) {
             return None;
-        }
-        if evidence == Evidence::Probe {
-            assume(Assumption::SetfilterEmptyOrSide);
         }
         let reason = match side {
             Side::Left => al_builtins::filter::LEFT_OF_OR_EMPTY,
@@ -160,22 +149,10 @@ mod tests {
     #[test]
     fn only_the_measured_shapes_match() {
         let a = [Value::Text("A".into())];
-        assert_eq!(
-            empty_or_side("A|", &[], &text_ty()),
-            Some((Side::Right, Evidence::Probe))
-        );
-        assert_eq!(
-            empty_or_side("%1|", &a, &text_ty()),
-            Some((Side::Right, Evidence::Probe))
-        );
-        assert_eq!(
-            empty_or_side("||", &[], &text_ty()),
-            Some((Side::Left, Evidence::Pinned))
-        );
-        assert_eq!(
-            empty_or_side("|10", &[], &RtType::Integer),
-            Some((Side::Left, Evidence::Pinned))
-        );
+        assert_eq!(empty_or_side("A|", &[], &text_ty()), Some(Side::Right));
+        assert_eq!(empty_or_side("%1|", &a, &text_ty()), Some(Side::Right));
+        assert_eq!(empty_or_side("||", &[], &text_ty()), Some(Side::Left));
+        assert_eq!(empty_or_side("|10", &[], &RtType::Integer), Some(Side::Left));
         for (t, args) in [
             ("A|B||C", &[][..]),
             (" A|", &[]),
@@ -193,15 +170,9 @@ mod tests {
         // A Code value is not measured (the probe passed Text values only).
         assert_eq!(empty_or_side("%1|", &[Value::Code("A".into())], &text_ty()), None);
         assert_eq!(empty_or_side("2147483648|", &[], &RtType::Integer), None);
-        assert_eq!(
-            empty_or_side("2147483647|", &[], &RtType::Integer),
-            Some((Side::Right, Evidence::Probe))
-        );
+        assert_eq!(empty_or_side("2147483647|", &[], &RtType::Integer), Some(Side::Right));
         assert_eq!(empty_or_side("ABCD|", &[], &RtType::Text(Some(3))), None);
         assert_eq!(empty_or_side("|%1", &a, &RtType::Code(Some(20))), None);
-        assert_eq!(
-            empty_or_side("%1|", &a, &RtType::Code(Some(20))),
-            Some((Side::Right, Evidence::Probe))
-        );
+        assert_eq!(empty_or_side("%1|", &a, &RtType::Code(Some(20))), Some(Side::Right));
     }
 }

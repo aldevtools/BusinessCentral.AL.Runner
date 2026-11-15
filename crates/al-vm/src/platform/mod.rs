@@ -21,6 +21,8 @@ pub(crate) mod coverage;
 mod date;
 mod ext_event_row;
 mod feature_key;
+mod field_key_lookup;
+pub(crate) use field_key_lookup::{unmeasured_find, unmeasured_key_read};
 mod fields;
 pub(crate) use fields::user_name_system_field;
 mod host_tables;
@@ -714,50 +716,6 @@ impl Providers {
         }
     }
 
-    /// A scan of the Field table whose filters set TableNo and No. to one value each: in a shape the probes measured, BC answers it
-    /// as a `Get` ([`fields::measured_key_scan`], [`fields::key_lookup`]). With a filter on a package column too: of a row the
-    /// lookup gives null ids, in the measured shape the filter is tested against the null ids
-    /// ([`fields::measured_key_package_scan`]); of a row the lookup gives null ids or ids the rule does not know, a read after
-    /// the one row the key filters leave finds nothing and every other shape is refused; of a declared field of a table an
-    /// extension of its own app extends, the assumption is marked and the scan tests the filter against the table's ids.
-    fn field_key_scan(&self, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
-        let listed = self.listed(t, Virtual::Field)?;
-        if fields::filters_package(t, scan.filters)
-            && let Some((table_no, no)) = fields::key_scan(t, scan.filters)
-            && let Some(keyed) = listed.get(t, &[table_no.clone(), no.clone()])?
-            && let rule = fields::key_lookup_rule(self, t, &keyed)
-        {
-            if rule.is_none_or(|(null, _)| null != Some(false)) {
-                if fields::measured_key_package_scan(t, scan) && rule.is_some_and(|(null, _)| null == Some(true)) {
-                    let row = fields::key_lookup(self, t, keyed, true);
-                    return Ok(al_builtins::filter::row_passes_checked(&row, scan.filters).then_some(row));
-                }
-                if scan.key == 0
-                    && scan.after.is_some_and(|a| {
-                        al_builtins::filter::key_cmp(a.get(..2).unwrap_or(a), &[table_no, no])
-                            == std::cmp::Ordering::Equal
-                    })
-                {
-                    return Ok(None);
-                }
-                return Err(StoreError::Refused(
-                    "Field: a read that sets TableNo and No. to one value each and filters on App Package ID or App Runtime Package ID is measured only as a FindFirst or FindSet with an = or <> filter on App Package ID, all in filter group 0 (docs/probes-needed.md, field-key-lookup-package-ids)".into(),
-                ));
-            }
-            if rule == Some((Some(false), false)) && !matches!(no, Value::Integer(2_000_000_000..=2_000_000_004)) {
-                // A declared field of a table that an extension of its own app extends: the scan below tests the filter against
-                // the table's ids (:827-842, helper ObservePackageFilters, and, for an extension without a field, :784-815; corpus PR
-                // 1410, not pinned yet).
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::FieldKeyLookupPackageIds);
-            }
-        }
-        let row = listed.next(t, scan)?;
-        Ok(if fields::measured_key_scan(t, scan) {
-            row.map(|row| fields::key_lookup(self, t, row, true))
-        } else {
-            row
-        })
-    }
     /// The rows of the table of `kind`, worked out from the program and the host, with the
     /// columns nothing pins left unknown ([`mark_unpinned`]).
     fn list_rows(&self, t: &TableDef, kind: Virtual) -> Vec<mat::Entry> {
@@ -1018,7 +976,7 @@ impl VirtualTables for Providers {
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.get(t, pk),
             Virtual::Field => Ok(self
                 .field_get_by_key(t, pk)?
-                .map(|r| fields::key_lookup(self, t, r, false))),
+                .map(|r| field_key_lookup::key_lookup(self, t, r, false))),
             Virtual::Media => self.media_of_id(t, pk.first())?.get(t, pk),
             k => self.listed(t, k)?.get(t, pk),
         }
@@ -1087,7 +1045,7 @@ impl VirtualTables for Providers {
             Virtual::Media => self
                 .media_of_id(t, media_id_filter(t, scan.filters).as_ref())?
                 .next(t, scan),
-            Virtual::Field if fields::key_scan(t, scan.filters).is_some() => self.field_key_scan(t, scan),
+            Virtual::Field if field_key_lookup::key_scan(t, scan.filters).is_some() => self.field_key_scan(t, scan),
             k => self.listed(t, k)?.next(t, scan),
         }
     }
@@ -1206,7 +1164,8 @@ pub fn field_get_by_key_pairs(engine: &Arc<Engine>, extra: &[(i32, i32)]) -> Opt
         i += 1;
     }
     keys.extend(extra.iter().map(|(a, b)| vec![Value::Integer(*a), Value::Integer(*b)]));
-    let field_get = |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| fields::key_lookup(&p, &t, r, false)));
+    let field_get =
+        |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| field_key_lookup::key_lookup(&p, &t, r, false)));
     keys.into_iter()
         .map(|pk| {
             let by_listing = field_get(listing.get(&t, &pk));

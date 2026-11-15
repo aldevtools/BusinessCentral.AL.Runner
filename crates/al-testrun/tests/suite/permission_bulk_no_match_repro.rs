@@ -1,6 +1,7 @@
 //! al-runner issue 8068, the reporter's own repro (`repro8068/`, unchanged): `ReproParent.Delete(true)` from a test method
 //! runs the OnDelete trigger of "Repro Parent", whose ModifyAll on "Repro Other" matches no row while the sets give R on
-//! it. Corpus PR 1403 measured that BC denies this write in every shape it changed, op 11 of record/Y19PermNoMatchShapes.al
+//! it. Corpus record/Y19PermNoMatchShapes.al and record/Y19PermNoMatchTriggers.al pin that BC denies this write in every
+//! shape they change, op 11 of record/Y19PermNoMatchShapes.al
 //! being the reporter's trigger on a target with an Integer primary key (`permission_bulk_no_match_probed.rs`). The
 //! reporter's target has a Code primary key, which no probe measured: the repro and each neighbor below are refused on
 //! every major.

@@ -67,7 +67,6 @@ mod data_file_types;
 mod dataset;
 mod datatransfer;
 mod db_event_no_op;
-mod decimal_column;
 mod dev_endpoint_ui;
 mod dispatch;
 pub mod dotnet;
@@ -152,6 +151,7 @@ mod stale_rename;
 mod state_stamp;
 mod table_facts;
 mod tasks;
+mod temp_blob_impl_field;
 mod temp_blob_share;
 mod tenant_layout_cfg;
 mod tenant_layouts;
@@ -198,8 +198,9 @@ pub struct Engine {
     /// The .NET host, the registry of runtime-provided classes and the policy (ADR-014).
     pub dotnet: dotnet::DotNetConfig,
     /// Table objects whose rows the install baseline should have created and did not (ADR-013
-    /// decision 5): a `Get` that finds nothing in dependency code is not BC's answer for them.
-    pub unseeded: std::collections::HashSet<usize>,
+    /// decision 5): a `Get` that finds nothing in dependency code is not BC's answer for them. Each with the root that
+    /// should have written it and why it stopped, for the refusal of a read (al-runner issue 8104).
+    pub unseeded: std::collections::HashMap<usize, std::sync::Arc<str>>,
     /// Stored platform tables whose fresh-tenant rows nothing pins (`al_builtins::platform::UNSEEDED_ROWS`):
     /// unseeded for the tests, but not for install code, which writes them.
     pub platform_unseeded: std::collections::HashSet<usize>,
@@ -1170,6 +1171,8 @@ pub struct Session {
     pub(crate) render_pending_files: std::collections::HashMap<String, Arc<str>>,
     /// How a placeholder file came to be and whether an AL File holds it open (`placeholder_files.rs`).
     pub(crate) placeholder_files: placeholder_files::PlaceholderFiles,
+    /// The Blob fields "Temp Blob Impl." opened a stream on (`temp_blob_impl_field.rs`).
+    pub(crate) temp_blob_impl_fields: temp_blob_impl_field::TempBlobImplFields,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
     /// The key and count of the draws of how far past a stamp the clock lands (`Session::stamp_millis`): the run seed's
@@ -1328,6 +1331,7 @@ impl Session {
             temp_files: 0,
             render_pending_files: std::collections::HashMap::new(),
             placeholder_files: Default::default(),
+            temp_blob_impl_fields: Default::default(),
             last_stamp: i64::MIN / 2,
             clock_key,
             clock_draws: 0,

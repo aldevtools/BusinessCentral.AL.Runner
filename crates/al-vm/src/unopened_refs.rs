@@ -1,13 +1,10 @@
-//! Members of a RecordRef that is not open and of a KeyRef never assigned, where corpus PR 1408 measured them
-//! (tests/al-language/recordref-fieldref/UhUnopenedRecordRef.al, BC 27.5, 28.5 and 29.0; al-runner issues 7760, 7764, 8084,
-//! 8001). The probe is merged and not yet pinned: every path here marks `recordref-not-open-members`,
-//! `recordref-gettable-variant-not-record` or `keyref-unassigned-members`, except the cells the pinned corpus already measured
-//! (cited where they are answered). Corpus PR 1411 (streams/instream-outstream/UhUntouchedStreamsAfter.al, codeunit 66996, merged,
-//! not yet pinned) measured some of them after `Open(0)` and after `Open` then `Clear`. Every other shape keeps the answer of its
-//! owner in `refs.rs` (which refuses it).
+//! Members of a RecordRef that is not open and of a KeyRef never assigned, where
+//! tests/al-language/recordref-fieldref/UhUnopenedRecordRef.al:277-764 (codeunit 66991) measures them (al-runner issues 7760,
+//! 7764, 8084, 8001), and some of them after `Open(0)` and after `Open` then `Clear`, where
+//! tests/al-language/streams/instream-outstream/UhUntouchedStreamsAfter.al:353-380 and :403-421 (codeunit 66996) measure them.
+//! Every other shape keeps the answer of its owner in `refs.rs` (which refuses it).
 
 use crate::Session;
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{AlError, Signal};
 use al_builtins::recordref_closed::not_open;
 use al_builtins::value::{EmptiedRef, LibraryValue, RecordState, Value};
@@ -113,16 +110,8 @@ impl Session {
         if !state_measured {
             return None;
         }
-        // FieldCount of a RecordRef never opened, with the result used, is pinned (recordref-fieldref/recordref/RfTOpen.al:191,
-        // Closed_Errors `fieldcount`, a RecordRef that no Open reached; :630 Open_Zero_Members, after `Open(0)`).
-        let pinned = method == "FieldCount"
-            && matches!(
-                lib,
-                LibraryValue::Empty | LibraryValue::EmptiedRef(EmptiedRef::ZeroOpenedRecordRef)
-            );
-        if !pinned {
-            assume(Assumption::RecordRefNotOpenMembers);
-        }
+        // FieldCount of a RecordRef never opened, with the result used, is also pinned by
+        // recordref-fieldref/recordref/RfTOpen.al:191 (Closed_Errors `fieldcount`) and, after `Open(0)`, :630 Open_Zero_Members.
         Some(record_not_open())
     }
 
@@ -130,9 +119,9 @@ impl Session {
     /// measured; `None` to go on. Pinned (recordref-fieldref/recordref/GetTableVariantKinds.al): `V` holds nothing, on a RecordRef
     /// never opened (:79-116: never assigned, a copy, cleared, a parameter) and on one open on a table that is not temporary
     /// (:154-172, it stays open), "NavVariant variable not initialized."; `V` holds the Integer 5 or the Text 'ALT Universal' on
-    /// a RecordRef never opened (:119-144), the Conversion error naming NavInteger or NavText. Assumed
-    /// (`recordref-gettable-variant-not-record`): the Text '' or 'abc' on a RecordRef never opened (UhUnopenedRecordRef.al:225-230
-    /// `gt_empty`, :242-247 `gt_text`; tests :687, :717), the Conversion error naming NavText. A RecordRef emptied by `Clear` or
+    /// a RecordRef never opened (:119-144), the Conversion error naming NavInteger or NavText; the Text '' or 'abc' on a RecordRef
+    /// never opened, the Conversion error naming NavText (recordref-fieldref/UhUnopenedRecordRef.al:687
+    /// GetTable_VariantEmptyText, :717 GetTable_VariantTextNonEmpty; steps :225-230 `gt_empty`, :242-247 `gt_text`). A RecordRef emptied by `Clear` or
     /// `Open(0)` is not one never opened: no probe measured GetTable there.
     pub(crate) fn get_table_variant_not_record(&self, lib: &LibraryValue, arg: Option<&Value>) -> Option<Signal> {
         if self.ret_used {
@@ -152,10 +141,7 @@ impl Session {
             Value::Null if never_opened || open_stored => Some(crate::recordref_variant::variant_not_initialized()),
             Value::Integer(5) if never_opened => Some(conversion("NavInteger")),
             Value::Text(t) if never_opened && t.as_str() == "ALT Universal" => Some(conversion("NavText")),
-            Value::Text(t) if never_opened && (t.as_str() == "" || t.as_str() == "abc") => {
-                assume(Assumption::RecordRefGetTableVariantNotRecord);
-                Some(conversion("NavText"))
-            }
+            Value::Text(t) if never_opened && (t.as_str() == "" || t.as_str() == "abc") => Some(conversion("NavText")),
             _ => None,
         }
     }
@@ -187,7 +173,6 @@ impl Session {
         if !measured {
             return None;
         }
-        assume(Assumption::KeyRefUnassignedMembers);
         Some(crate::transactions::al_error_code(
             "Microsoft.Dynamics.Nav.Runtime.NavKeyRef variable not initialized.",
             "NotInitialized",
@@ -196,7 +181,7 @@ impl Session {
 }
 
 impl Session {
-    /// Whether the receiver of a KeyRef method is the variable shape corpus PR 1411 measured Active on after `Clear`: a declared
+    /// Whether the receiver of a KeyRef method is the variable shape UhUntouchedStreamsAfter.al measured Active on after `Clear`: a declared
     /// local variable of a procedure of a codeunit (UhUntouchedStreamsAfter.al:285-299 `TryKeyRef`, `KR: KeyRef`), named as such
     /// (`blob_transfer::measured_local`). A parameter, a global, an array element and a returned value are not.
     pub(crate) fn keyref_receiver_measured(&self, receiver: Option<&crate::ir::Arg>, f: &crate::Frame) -> bool {

@@ -10,8 +10,8 @@
 //! - an included set that does not exist adds nothing, and a cycle of includes gives each set the rights of all of them
 //!   (:191 Compose_IncludedSetMissing_And_Cycle).
 //!
-//! - corpus PR 1403 (merged, not pinned; Y19PermExtAndCompose.al PC_D_ExpandedPermissionOfTenantObjectGrants, assumption
-//!   `tenant-object-grants-expanded-as-stored`) lists own rows of other object types as stored, in the shape
+//! - own rows of other object types are listed as stored (tests/al-language/permissions/testpermissions/
+//!   Y19PermExtAndCompose.al:432-453 PC_D_ExpandedPermissionOfTenantObjectGrants), in the shape
 //!   [`measured_object_grant`] allows, for a set that includes and excludes nothing and that no other set names.
 //!
 //! Only the shapes the corpus measured are served; a set that uses another is refused when a read can reach it: a right of
@@ -379,11 +379,6 @@ pub(super) fn tenant_expanded_entries(
                 format!("Expanded Permission of tenant set '{}': {why} (not pinned)", key.1),
             )),
             Ok(rights) => {
-                if sets[key].object_grants {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::TenantObjectGrantsExpandedAsStored,
-                    );
-                }
                 for ((kind, id), level) in rights {
                     let mut r = key_only.clone();
                     if let Some(name) = &sets[key].name {
@@ -405,8 +400,8 @@ pub(super) fn tenant_expanded_entries(
 }
 
 /// Whether a Tenant Permission row of object type `kind` (the "Object Type" ordinal) for object `id` with levels `level` is in
-/// the shape corpus PR 1403 measured (merged, not pinned; permissions/testpermissions/Y19PermExtAndCompose.al:466-490, test
-/// PC_D_ExpandedPermissionOfTenantObjectGrants, assumption `tenant-object-grants-expanded-as-stored`): a row of Type Include,
+/// the shape tests/al-language/permissions/testpermissions/Y19PermExtAndCompose.al:432-453 pins (rows :455-478, test
+/// PC_D_ExpandedPermissionOfTenantObjectGrants): a row of Type Include,
 /// no Security Filter, every permission column Yes (its InitValue), for a Table, Report, Codeunit, XMLport, Page or Query object
 /// of the program, or System object 1350; "Expanded Permission" lists it as it is stored (:450-451).
 fn measured_object_grant(engine: &crate::Engine, kind: i32, id: i32, level: [u8; 5]) -> bool {

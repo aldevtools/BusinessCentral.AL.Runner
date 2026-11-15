@@ -1,8 +1,8 @@
 //! al-runner issue 6924, the reporter's List host with page triggers: what Rec holds in a ListPart that shows no row when the
 //! host has OnOpenPage (CurrPage.Editable from a value read at run time, a notification) and OnAfterGetCurrRecord (the same
-//! notification). The objects and tests are corpus pull request 1378 (pages/parts/EmptyPartRecListHostTriggers.al, merged, not
-//! yet in the pinned corpus), unchanged, with the corpus's Probe Observer. Its values were asserted on BC 27.5, 28.5 and 29.0.
-//! The cells run through the assumption `empty-part-rec-list-host-triggers` until the file is pinned.
+//! notification). The objects and tests are pages/parts/EmptyPartRecListHostTriggers.al as corpus pull request 1378 merged it,
+//! with the corpus's Probe Observer. The host triggers are pinned there; the cells still run through the assumption
+//! `empty-part-rec-list-host` of the List-host cells.
 
 use al_builtins::assumptions::Assumption;
 use al_testkit::{blocked, compile};
@@ -2427,12 +2427,12 @@ codeunit 76872 "PG EPT Tests"
 }
 "##;
 
-/// Every cell passes through the assumption: the action of the part reads BC's Rec (observation 1), TestPage.Editable is BC's
+/// Every cell passes, flagged by `empty-part-rec-list-host` (the List-host cells): the action of the part reads BC's Rec (observation 1), TestPage.Editable is BC's
 /// (observation 2), and the trigger order is BC's (observation 3, `seq`), the part's OnAfterGetCurrRecord included: on a part
 /// in edit mode, at the row a GoToRecord passes on the reporter's form, and again after the part's action.
 #[test]
 fn empty_list_part_rec_trigger_hosts_cells() {
-    let o = run(PROBE, "PG EPT Tests", Assumption::EmptyPartRecListHostTriggers);
+    let o = run(PROBE, "PG EPT Tests", Assumption::EmptyPartRecListHost);
     assert_eq!(o.len(), 85, "{o:?}");
     let wrong: Vec<_> = o
         .iter()
@@ -2759,7 +2759,7 @@ fn empty_list_part_rec_trigger_hosts_neighbors_refuse() {
     let o = run(
         &format!("{PROBE}\n{NEIGHBORS}"),
         "PG EPTN Tests",
-        Assumption::EmptyPartRecListHostTriggers,
+        Assumption::EmptyPartRecListHost,
     );
     assert_eq!(o.len(), want.len(), "{o:?}");
     let wrong: Vec<_> = o
@@ -2805,7 +2805,7 @@ fn empty_list_part_rec_trigger_hosts_walk_neighbors() {
     let o = run(
         &format!("{PROBE}\n{WALK_NEIGHBORS}"),
         "PG EPTW Tests",
-        Assumption::EmptyPartRecListHostTriggers,
+        Assumption::EmptyPartRecListHost,
     );
     assert_eq!(o.len(), 8, "{o:?}");
     let passed_rb = |outcome: &Outcome| matches!(outcome, Outcome::Fail(m) if m.contains("pcur=76860/RB/0"));

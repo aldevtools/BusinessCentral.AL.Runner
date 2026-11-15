@@ -1,7 +1,7 @@
 //! AL Runner issue 6924 (comment of 2026-11-13): a procedure of a codeunit with TableNo has no implicit Rec (corpus
-//! must-not-compile 3140, corpus PR 1386, not pinned yet), so a bare `Message`, `UserId`, `Today`, `WorkDate` or
-//! `CompanyName` there is the system function even when the TableNo table has a field of that name. It runs as the
-//! system function under the assumption `tableno-procedure-bare-system-function`; the field is not read.
+//! must-not-compile 3140), so a bare `Message`, `UserId`, `Today`, `WorkDate` or `CompanyName` there is the system function
+//! even when the TableNo table has a field of that name (codeunits/TableNoBareSystemFunction.al:337-431); the field is not
+//! read.
 
 use super::user_reports::{all_pass, run_with_deps};
 
@@ -57,10 +57,9 @@ codeunit 50202 T
     all_pass(run_with_deps(&[], objects));
 }
 
-/// The quoted names in a procedure, and a codeunit that also declares a global `Rec` (corpus PR 1393,
-/// codeunits/TableNoBareSystemFunction.al:405-417 and :459-482, under the same assumption): in a procedure the bare and
-/// quoted names call the system function and `Rec.UserId` reads the global variable; in OnRun the bare name and
-/// `Rec.UserId` read the run record.
+/// The quoted names in a procedure, and a codeunit that also declares a global `Rec`
+/// (codeunits/TableNoBareSystemFunction.al:405-417 and :459-482): in a procedure the bare and quoted names call the system
+/// function and `Rec.UserId` reads the global variable; in OnRun the bare name and `Rec.UserId` read the run record.
 #[test]
 fn quoted_names_and_a_global_rec_run_the_system_function_in_a_procedure() {
     let objects = "table 50200 \"Repro Ctx\"

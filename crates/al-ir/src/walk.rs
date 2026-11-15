@@ -190,6 +190,7 @@ pub fn walk_object<V: RefVisitor>(o: &mut Object, v: &mut V) {
         // The id of the extended object, not a position.
         extends_id: _,
         layouts: _,
+        modified_fields: _,
     } = o;
     for s in globals {
         walk_rt(&mut s.ty, v);

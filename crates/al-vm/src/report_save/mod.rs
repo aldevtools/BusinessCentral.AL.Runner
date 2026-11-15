@@ -170,6 +170,7 @@ impl Session {
                 for row in &all {
                     self.check_events(schema, &facts, row.events)?;
                 }
+                refuse_unmeasured_data_items_before_false(&all, &facts, schema, &self.engine.tables)?;
                 // When every row the run can end in marks the same assumption (a stored selection, a temporary
                 // selection), it is marked now, as main did; otherwise the row the run ends in marks it.
                 if let Some(a) = lookup::one_mark_after_any_run(table, &facts) {
@@ -251,6 +252,14 @@ impl Session {
             Answer::Empty => Err(Signal::Error(Box::new(empty()))),
             Answer::FalseKeepError => Ok(AfterRun::Answer(false)),
             Answer::TrueNothing => Ok(AfterRun::Answer(true)),
+            Answer::FalseAfterRun(e) => {
+                let error = errors::error_of(e, self.object_id_of(schema.object as u32), facts.format);
+                if !used {
+                    return Err(Signal::Error(Box::new(error)));
+                }
+                self.last_error = error;
+                Ok(AfterRun::Answer(false))
+            }
             Answer::Refuse(why) => Err(Signal::unsupported(format!("{}, {why}", what(&facts, schema)))),
             Answer::False(_) | Answer::Dataset | Answer::Discard => unreachable!("rows read no run fact"),
         }
@@ -304,6 +313,29 @@ impl Session {
             facts::Describe::describe(&selection)
         )))
     }
+}
+
+/// Refuses a run that can end in a false answer after the run unless every data item is as the cells of those rows ran it
+/// (`fact_report::data_items_as_measured_for_false`): whether BC runs a data item trigger or a computed column source before
+/// it answers false is not measured.
+fn refuse_unmeasured_data_items_before_false(
+    rows: &[&Cell],
+    facts: &Facts,
+    schema: &Schema,
+    tables: &[Option<std::sync::Arc<al_data::TableDef>>],
+) -> Result<(), Signal> {
+    let Some(row) = rows.iter().find(|c| matches!(c.answer, Answer::FalseAfterRun(_))) else {
+        return Ok(());
+    };
+    if fact_report::data_items_as_measured_for_false(schema, tables) {
+        return Ok(());
+    }
+    Err(Signal::unsupported(format!(
+        "{} while a data item declares a trigger or a column whose source is not a stored field of its table: not \
+         measured on BC (the cells of {} ran a data item without either)",
+        what(facts, schema),
+        row.evidence.cite()
+    )))
 }
 
 fn mark(row: &Cell) {

@@ -19,8 +19,8 @@ fn all_pass(file: &str, codeunit: &str) {
 
 /// Issue 7958: a Price column (DecimalPlaces = 0 : 5) over a variable set from Round keeps the precision's decimals in the
 /// XML dataset (`2.50`, `3.00`, `2.50`, `1.20000`), while `Format(..., 0, 9)` of the same values drops them. Measured by the
-/// reporter on BC 29.1; corpus PR 1377 (reports/dataset/DatasetDecimalRoundScaleSources.al
-/// Dataset_Decimal_RoundScale_VariableColumnWithDecimalPlaces_FourRows) measures it on BC 27.5, 28.5 and 29.0.
+/// reporter on BC 29.1; tests/al-language/reports/dataset/DatasetDecimalRoundScaleSources.al:255
+/// (Dataset_Decimal_RoundScale_VariableColumnWithDecimalPlaces_FourRows) pins it.
 #[test]
 fn issue_7958_round_keeps_the_precision_decimals_in_the_dataset() {
     all_pass(

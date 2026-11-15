@@ -350,8 +350,8 @@ impl<'a> Lowerer<'a> {
             return self.convert_to(target, &Ty::Char, ch);
         }
         // A value whose declared type is TransactionType (a variable, `TransactionType::X`, `CurrentTransactionType()`) carries
-        // its type into a Variant, where IsTransactionType is true and IsOption false (types/variant/VariantIsMatrix.al:126-152,
-        // not pinned yet, assumption `variant-is-matrix`; :238 of types/TestVariantExtended.al pins the default value). An
+        // its type into a Variant, where IsTransactionType is true and IsOption false (tests/al-language/types/variant/
+        // VariantIsMatrix.al:135; tests/al-language/types/TestVariantExtended.al:238 pins the default value). An
         // Option with the same members stays an Option.
         let value = if matches!(src, Ty::Builtin(n) if n.eq_ignore_ascii_case("TransactionType"))
             && matches!(self.rt(target), Ok(RtType::Variant))

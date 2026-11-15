@@ -174,9 +174,9 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             };
             // Logo (20): blank (null MediaId, no Media row) for an app whose app.json declares no logo (onprem
             // session-system/PZPublishedApplicationColumns.al:162-163). An app whose manifest declares a PNG logo has a media with a
-            // value whose Media row holds the file's bytes ([`logo_media_rows`]; onprem session-system/UsAppLogo.al:79-148, corpus PR
-            // 816; assumption published-application-logo-is-the-logo-file until the pin includes it).
-            // A logo that is no PNG and an app whose manifest was not read are not pinned: unknown.
+            // value and the same id on every read, whose Media row holds the file's bytes ([`logo_media_rows`]; onprem
+            // session-system/UsAppLogo.al:108-117 UsLogo_TinyPng_AppD, :140-146 UsLogo_BigPng_AppC). A logo that is no PNG and an
+            // app whose manifest was not read are not pinned: unknown.
             match &a.logo {
                 Some(al_ir::AppLogo::None) => {}
                 Some(al_ir::AppLogo::File(bytes)) if al_builtins::media::png_size(bytes).is_some() => {

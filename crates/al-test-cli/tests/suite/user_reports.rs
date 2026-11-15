@@ -1739,9 +1739,8 @@ const TINY_PNG: [u8; 67] = [
 
 /// al-runner issue 6148, the rest of cause 2: the Published Application Logo of an app whose manifest declares a logo is a
 /// media with a value, the same id on every read, and a Media row that holds the logo file's bytes unchanged: image/png, the
-/// picture's height and width, every other column empty, Prohibit Cache No. Pin: onprem session-system/UsAppLogo.al:79-117
-/// UsLogo_TinyPng_AppD and :120-148 UsLogo_BigPng_AppC (corpus PR 816; assumption `published-application-logo-is-the-logo-file`
-/// until the pin includes it). A logo that is no PNG stays refused.
+/// picture's height and width, every other column empty, Prohibit Cache No. Pin: onprem session-system/UsAppLogo.al:82-118
+/// UsLogo_TinyPng_AppD and :121-147 UsLogo_BigPng_AppC. A logo that is no PNG stays refused.
 #[test]
 fn issue_6148_extension_logo_of_an_app_with_a_logo() {
     let main = format!(

@@ -446,6 +446,11 @@ pub trait Ctx: FormatCtx {
     fn fs_carried_mark(&self, _path: &str) -> Option<std::sync::Arc<str>> {
         None
     }
+    /// Whether `b` is the Blob field of the temporary record a live instance of System Application's "Temp Blob Impl." holds
+    /// now, the field that codeunit's CreateInStream or CreateOutStream opened a stream on (al-vm `temp_blob_impl_field`).
+    fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
+        false
+    }
     /// The app name and object name of the AL routine that made the current call.
     fn calling_object(&self) -> Option<(String, String)> {
         None
