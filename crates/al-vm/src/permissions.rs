@@ -1357,7 +1357,6 @@ impl Session {
                     // "Published Application"."Tenant Visible" reads "NAV App Extra" in the measured shapes
                     // (permission_system_flowfield.rs).
                     if self.system_flowfield_reads_unchecked(rec, table, stack) {
-                        assume(Assumption::SystemFlowfieldReadsInternalTable);
                         return Ok(());
                     }
                     return Err(Signal::unsupported(unpinned_denial(

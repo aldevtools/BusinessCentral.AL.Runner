@@ -4,14 +4,27 @@
 //! raised (pages/document_handler_error.rs `close_document_after_handler_error`), whose pinned handler catches nothing
 //! (pages/close-errors/CemDocumentTests.al:925-975 `CemDocModal`).
 
-use al_builtins::native::{AlError, ExceptionKind};
+use al_builtins::native::{AlError, ExceptionKind, Signal};
 
 use crate::Session;
 
 impl Session {
     /// AL code caught error `e`: asserterror, a TryFunction call whose result is used, `Codeunit.Run` with its result used,
     /// an isolated event subscriber, or a builtin with its result used. `e` becomes the last error and the count goes up.
-    pub(crate) fn catch_error(&mut self, e: AlError) {
+    ///
+    /// The record of a Rename that raised the SQL range error of its new key still lives where the error is caught: what it
+    /// holds then is not measured (record/filters/SqlDateFloor1753.al:2468-2600 reads only the stored row), so that is refused.
+    pub(crate) fn catch_error(&mut self, e: AlError) -> Result<(), Signal> {
+        if self.tx.failed_sql_rename.take().is_some_and(|r| r.upgrade().is_some()) {
+            return Err(Signal::unsupported(
+                "a record whose Rename raised the SQL range error of its new key is still alive where the error is caught (what it holds is not measured)",
+            ));
+        }
+        self.note_caught(e);
+        Ok(())
+    }
+
+    fn note_caught(&mut self, e: AlError) {
         self.last_error = e;
         self.caught_errors += 1;
     }
@@ -22,7 +35,7 @@ impl Session {
         if e.exception == ExceptionKind::Cleared {
             self.last_error = e;
         } else {
-            self.catch_error(e);
+            self.note_caught(e);
         }
     }
 

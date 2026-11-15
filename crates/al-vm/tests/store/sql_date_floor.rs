@@ -1,7 +1,6 @@
-//! A Date or DateTime in the year 1753 written to a database table (assumption `sql-date-first-year`, al-runner issue 8006,
-//! corpus PR 1398 SqlDateFloor1753.al measured on the majors 27, 28 and 29). The pinned Insert cells stay clean (record/filters/P130DateFilters.al:255-293).
+//! A Date or DateTime in the year 1753 written to a database table (al-runner issue 8006, record/filters/SqlDateFloor1753.al). The pinned Insert cells stay clean (record/filters/P130DateFilters.al:255-293).
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::{clear_hits, take_hits};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_testkit::text;
@@ -584,6 +583,26 @@ codeunit 69992 C
         R.Dt := Dt; R.Insert();
     end;
 
+    procedure RenameKeyCallee(Dt: Date): Text
+    var Seed: Record "SDF Date Key"; Back: Record "SDF Date Key"; Stage: Text;
+    begin
+        Seed.Dk := 20240102D; Seed.Insert();
+        Commit();
+        asserterror RenameKeyIn(Dt, Stage);
+        Back.FindFirst();
+        exit(Stage + '|' + GetLastErrorText() + '|' + Format(Back.Dk, 0, 9));
+    end;
+
+    local procedure RenameKeyIn(Dt: Date; var Stage: Text)
+    var R: Record "SDF Date Key";
+    begin
+        R.Get(20240102D);
+        Stage := 'rename';
+        R.Rename(Dt);
+        Stage := 'after';
+        Error('stored');
+    end;
+
     procedure RenameMissingText(Dt: Date): Text
     var R: Record "SDF Date Key"; Other: Record "SDF Date Key";
     begin
@@ -617,13 +636,7 @@ const BLANK_DTM: Value = Value::DateTime(0);
 fn run(routine: &str, args: Vec<Value>) -> (Result<Value, Signal>, bool) {
     clear_hits();
     let r = al_testkit::run_with(SRC, "C", routine, args).map(|r| r.0);
-    (r, take_hits().contains(&Assumption::SqlDateFirstYear))
-}
-
-fn flagged(routine: &str, args: Vec<Value>) -> String {
-    let (r, hit) = run(routine, args);
-    assert!(hit, "{routine} did not pass through the assumption: {r:?}");
-    text(r)
+    (r, !take_hits().is_empty())
 }
 
 fn unflagged(routine: &str, args: Vec<Value>) -> String {
@@ -647,23 +660,23 @@ fn bad(stage: &str, value: &str, field: &str) -> String {
 #[test]
 fn an_insert_of_a_1753_date_fails_at_the_next_access() {
     assert_eq!(
-        flagged("Insert", vec![date(1753, 1, 2, false), BLANK_DTM]),
+        unflagged("Insert", vec![date(1753, 1, 2, false), BLANK_DTM]),
         bad("get", "01/02/1753", "Dt")
     );
     assert_eq!(
-        flagged("Insert", vec![date(1753, 12, 31, false), BLANK_DTM]),
+        unflagged("Insert", vec![date(1753, 12, 31, false), BLANK_DTM]),
         bad("get", "12/31/1753", "Dt")
     );
     assert_eq!(
-        flagged("Insert", vec![BLANK_DT, datetime(1753, 12, 31, 86_399_000)]),
+        unflagged("Insert", vec![BLANK_DT, datetime(1753, 12, 31, 86_399_000)]),
         bad("get", "12/31/1753 11:59 PM", "Dtm")
     );
     assert_eq!(
-        flagged("Insert", vec![BLANK_DT, datetime(1753, 1, 1, 1_000)]),
+        unflagged("Insert", vec![BLANK_DT, datetime(1753, 1, 1, 1_000)]),
         bad("get", "01/01/1753 12:00 AM", "Dtm")
     );
     assert_eq!(
-        flagged("Insert", vec![BLANK_DT, datetime(1753, 1, 4, 12 * 3_600_000)]),
+        unflagged("Insert", vec![BLANK_DT, datetime(1753, 1, 4, 12 * 3_600_000)]),
         bad("get", "01/04/1753 12:00 PM", "Dtm")
     );
 }
@@ -702,19 +715,19 @@ fn the_first_day_of_1754_stores() {
 #[test]
 fn a_modify_of_a_1753_date_fails() {
     assert_eq!(
-        flagged("Modify", vec![date(1753, 1, 2, false), BLANK_DTM]),
+        unflagged("Modify", vec![date(1753, 1, 2, false), BLANK_DTM]),
         bad("modify", "01/02/1753", "Dt")
     );
     assert_eq!(
-        flagged("Modify", vec![date(1753, 1, 1, false), BLANK_DTM]),
+        unflagged("Modify", vec![date(1753, 1, 1, false), BLANK_DTM]),
         bad("modify", "01/01/1753", "Dt")
     );
     assert_eq!(
-        flagged("Modify", vec![BLANK_DT, datetime(1753, 12, 31, 86_399_000)]),
+        unflagged("Modify", vec![BLANK_DT, datetime(1753, 12, 31, 86_399_000)]),
         bad("modify", "12/31/1753 11:59 PM", "Dtm")
     );
     assert_eq!(
-        flagged("Modify", vec![BLANK_DT, datetime(1753, 1, 1, 1_000)]),
+        unflagged("Modify", vec![BLANK_DT, datetime(1753, 1, 1, 1_000)]),
         bad("modify", "01/01/1753 12:00 AM", "Dtm")
     );
 }
@@ -749,7 +762,7 @@ fn bad_in(stage: &str, value: &str, field: &str, table: &str) -> String {
 
 fn raised(routine: &str, args: Vec<Value>, value: &str, field: &str, table: &str) {
     let (r, hit) = run(routine, args);
-    assert!(hit, "{routine} did not pass through the assumption: {r:?}");
+    assert!(!hit, "{routine} passed through an assumption: {r:?}");
     let Err(Signal::Error(e)) = r else {
         panic!("{routine}: {r:?}")
     };
@@ -768,19 +781,19 @@ fn raised(routine: &str, args: Vec<Value>, value: &str, field: &str, table: &str
 #[test]
 fn the_probe_cells_run() {
     assert_eq!(
-        flagged("Insert", vec![date(1753, 6, 1, true), BLANK_DTM]),
+        unflagged("Insert", vec![date(1753, 6, 1, true), BLANK_DTM]),
         bad("get", "C06/01/1753", "Dt")
     );
     assert_eq!(
-        flagged("Insert", vec![BLANK_DT, datetime(1753, 6, 1, 3 * 3_600_000)]),
+        unflagged("Insert", vec![BLANK_DT, datetime(1753, 6, 1, 3 * 3_600_000)]),
         bad("get", "06/01/1753 03:00 AM", "Dtm")
     );
     assert_eq!(
-        flagged("Insert", vec![BLANK_DT, datetime(1753, 6, 1, 13 * 3_600_000)]),
+        unflagged("Insert", vec![BLANK_DT, datetime(1753, 6, 1, 13 * 3_600_000)]),
         bad("get", "06/01/1753 01:00 PM", "Dtm")
     );
     assert_eq!(
-        flagged("Insert", vec![BLANK_DT, datetime(1753, 12, 31, 86_399_999)]),
+        unflagged("Insert", vec![BLANK_DT, datetime(1753, 12, 31, 86_399_999)]),
         bad("get", "12/31/1753 11:59 PM", "Dtm")
     );
     raised(
@@ -798,7 +811,7 @@ fn the_probe_cells_run() {
         "SDF Trig Row",
     );
     assert_eq!(
-        flagged("Modify", vec![BLANK_DT, datetime(1752, 12, 31, 12 * 3_600_000)]),
+        unflagged("Modify", vec![BLANK_DT, datetime(1752, 12, 31, 12 * 3_600_000)]),
         bad("modify", "12/31/1752 12:00 PM", "Dtm")
     );
     raised(
@@ -843,7 +856,7 @@ fn the_probe_cells_run() {
 #[test]
 fn a_blob_table_raises_at_the_insert() {
     assert_eq!(
-        flagged("BlobInsert", vec![date(1753, 6, 15, false)]),
+        unflagged("BlobInsert", vec![date(1753, 6, 15, false)]),
         bad_in("insert", "06/15/1753", "Dt", "SDF Blob Row")
     );
     refused("BlobInsertUsed", vec![date(1753, 6, 15, false)]);
@@ -854,12 +867,12 @@ fn a_blob_table_raises_at_the_insert() {
 #[test]
 fn the_events_around_a_failed_write() {
     assert_eq!(
-        flagged("SubInsert", vec![date(1753, 6, 15, false), Value::Boolean(true)]),
+        unflagged("SubInsert", vec![date(1753, 6, 15, false), Value::Boolean(true)]),
         "next|beforeInsert;afterInsert;"
     );
     refused("SubInsert", vec![date(1753, 6, 15, false), Value::Boolean(false)]);
     assert_eq!(
-        flagged("SubModify", vec![date(1753, 6, 15, false)]),
+        unflagged("SubModify", vec![date(1753, 6, 15, false)]),
         "modify|beforeModify;"
     );
 }
@@ -869,11 +882,11 @@ fn the_events_around_a_failed_write() {
 #[test]
 fn a_rename_to_a_1753_key_raises() {
     assert_eq!(
-        flagged("RenameKey", vec![date(1753, 6, 15, false)]),
+        unflagged("RenameKeyCallee", vec![date(1753, 6, 15, false)]),
         bad_in("rename", "06/15/1753", "Dk", "SDF Date Key") + "|2024-01-02"
     );
     assert_eq!(
-        flagged("RenameKey", vec![date(1752, 12, 31, false)]),
+        unflagged("RenameKeyCallee", vec![date(1752, 12, 31, false)]),
         bad_in("rename", "12/31/1752", "Dk", "SDF Date Key") + "|2024-01-02"
     );
     refused("RenameKey", vec![date(1753, 6, 15, true)]);
@@ -999,35 +1012,35 @@ fn a_blob_insert_raises_in_the_measured_cells() {
 #[test]
 fn a_value_before_1753_fails_like_1753() {
     assert_eq!(
-        flagged("Insert", vec![date(1700, 1, 1, false), BLANK_DTM]),
+        unflagged("Insert", vec![date(1700, 1, 1, false), BLANK_DTM]),
         bad("get", "01/01/1700", "Dt")
     );
     assert_eq!(
-        flagged("Insert", vec![BLANK_DT, datetime(1700, 1, 1, 12 * 3_600_000)]),
+        unflagged("Insert", vec![BLANK_DT, datetime(1700, 1, 1, 12 * 3_600_000)]),
         bad("get", "01/01/1700 12:00 PM", "Dtm")
     );
     assert_eq!(
-        flagged(
+        unflagged(
             "Insert",
             vec![BLANK_DT, datetime(1752, 12, 31, 23 * 3_600_000 + 59 * 60_000)]
         ),
         bad("get", "12/31/1752 11:59 PM", "Dtm")
     );
     assert_eq!(
-        flagged("Modify", vec![date(1700, 1, 1, false), BLANK_DTM]),
+        unflagged("Modify", vec![date(1700, 1, 1, false), BLANK_DTM]),
         bad("modify", "01/01/1700", "Dt")
     );
     assert_eq!(
-        flagged("Modify", vec![BLANK_DT, datetime(1700, 1, 1, 12 * 3_600_000)]),
+        unflagged("Modify", vec![BLANK_DT, datetime(1700, 1, 1, 12 * 3_600_000)]),
         bad("modify", "01/01/1700 12:00 PM", "Dtm")
     );
     // Modify_Date_ClosingAndOutside_1 to _3 (refused here before they were measured).
     assert_eq!(
-        flagged("Modify", vec![date(1752, 12, 31, false), BLANK_DTM]),
+        unflagged("Modify", vec![date(1752, 12, 31, false), BLANK_DTM]),
         bad("modify", "12/31/1752", "Dt")
     );
     assert_eq!(
-        flagged("Modify", vec![date(1753, 6, 15, true), BLANK_DTM]),
+        unflagged("Modify", vec![date(1753, 6, 15, true), BLANK_DTM]),
         bad("modify", "C06/15/1753", "Dt")
     );
 }
@@ -1058,11 +1071,11 @@ fn a_value_before_1753_outside_the_cells_refuses() {
 #[test]
 fn a_logging_trigger_runs_before_the_error() {
     assert_eq!(
-        flagged("TrigLogModify", vec![date(1753, 6, 15, false), Value::Boolean(true)]),
+        unflagged("TrigLogModify", vec![date(1753, 6, 15, false), Value::Boolean(true)]),
         bad_in("modify", "06/15/1753", "Dt", "SDF Trig Logs Dt") + "|trig:1753-06-15;"
     );
     assert_eq!(
-        flagged("TrigLogModify", vec![date(1753, 6, 15, false), Value::Boolean(false)]),
+        unflagged("TrigLogModify", vec![date(1753, 6, 15, false), Value::Boolean(false)]),
         bad_in("modify", "06/15/1753", "Dt", "SDF Trig Logs Dt") + "|"
     );
     refused("TrigLogModifyUsed", vec![date(1753, 6, 15, false)]);
@@ -1075,7 +1088,7 @@ fn a_logging_trigger_runs_before_the_error() {
 #[test]
 fn a_date_the_trigger_sets_raises() {
     assert_eq!(
-        flagged("SetDtModify", vec![date(2024, 1, 3, false), Value::Boolean(true)]),
+        unflagged("SetDtModify", vec![date(2024, 1, 3, false), Value::Boolean(true)]),
         bad_in("modify", "06/15/1753", "Dt", "SDF Trig Sets Dt")
     );
     assert_eq!(
@@ -1091,7 +1104,7 @@ fn a_date_the_trigger_sets_raises() {
 #[test]
 fn an_after_insert_subscriber_sees_the_value() {
     assert_eq!(
-        flagged(
+        unflagged(
             "SubReadInsert",
             vec![date(1753, 6, 15, false), BLANK_DTM, Value::Boolean(true)]
         ),
@@ -1122,7 +1135,10 @@ fn an_insert_of_a_stored_key_refuses_in_the_new_cells() {
 fn a_rename_of_a_missing_row_raises_not_found_first() {
     let not_found =
         "The SDF Date Key does not exist. Identification fields and values: Dk='05/05/25'|DB:RecordNotFound|2025-05-05";
-    assert_eq!(flagged("RenameMissingText", vec![date(1753, 6, 15, false)]), not_found);
+    assert_eq!(
+        unflagged("RenameMissingText", vec![date(1753, 6, 15, false)]),
+        not_found
+    );
     assert_eq!(unflagged("RenameMissingText", vec![date(1754, 1, 1, false)]), not_found);
     refused("RenameMissing", vec![date(1752, 12, 31, false)]);
 }
@@ -1133,7 +1149,7 @@ fn a_rename_of_a_missing_row_raises_not_found_first() {
 fn a_recordref_insert_takes_only_main_values() {
     refused("RecRefInsertDtm", vec![datetime(1753, 6, 15, 3 * 3_600_000)]);
     assert_eq!(
-        flagged("RecRefInsertDtm", vec![datetime(1753, 6, 15, 11 * 3_600_000)]),
+        unflagged("RecRefInsertDtm", vec![datetime(1753, 6, 15, 11 * 3_600_000)]),
         bad("get", "06/15/1753 11:00 AM", "Dtm")
     );
 }
@@ -1150,6 +1166,38 @@ fn a_modify_of_a_missing_row_keeps_main_for_a_storable_value() {
 #[test]
 fn a_failed_modify_restores_the_buffer_stamp() {
     let (r, hit) = run("StampAfterFailedModify", vec![date(1753, 6, 15, false)]);
-    assert!(hit);
+    assert!(!hit);
     assert!(matches!(r, Ok(Value::Boolean(true))), "{r:?}");
+}
+
+// Shapes record/filters/SqlDateFloor1753.al does not measure refuse (they ran flagged before the probe was pinned): the days
+// and minutes between the measured values before 1753 (1700-01-01, 1700-01-01 12:00, 1752-12-31 23:59), a row with two
+// values their columns cannot hold, and a record that still lives where the error of its failed Rename is caught.
+#[test]
+fn a_day_between_the_measured_values_before_1753_refuses() {
+    refused("Insert", vec![date(1720, 5, 5, false), BLANK_DTM]);
+    refused("Modify", vec![date(1752, 12, 30, false), BLANK_DTM]);
+    refused("Insert", vec![BLANK_DT, datetime(1720, 5, 5, 12 * 3_600_000)]);
+    refused(
+        "Modify",
+        vec![BLANK_DT, datetime(1752, 12, 31, 23 * 3_600_000 + 58 * 60_000)],
+    );
+}
+
+#[test]
+fn a_row_with_two_values_the_columns_cannot_hold_refuses() {
+    refused(
+        "Insert",
+        vec![date(1753, 6, 15, false), datetime(1753, 6, 15, 3 * 3_600_000)],
+    );
+    refused(
+        "Modify",
+        vec![date(1753, 6, 15, false), datetime(1753, 6, 15, 3 * 3_600_000)],
+    );
+}
+
+#[test]
+fn a_record_alive_where_its_failed_rename_is_caught_refuses() {
+    refused("RenameKey", vec![date(1753, 6, 15, false)]);
+    refused("RenameKey", vec![date(1752, 12, 31, false)]);
 }

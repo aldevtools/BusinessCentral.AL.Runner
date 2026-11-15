@@ -55,6 +55,9 @@ pub(crate) struct TxState {
     /// or at Commit (corpus record/TestRecordRuntimeTextsAndViews.al:
     /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess).
     pub(crate) deferred_insert: Option<(usize, AlError)>,
+    /// The record of the last Rename that raised the SQL range error of its new key (`records/sql_range.rs`): what it holds
+    /// afterwards is not measured, so catching that error while the record still lives is refused (`catch_error`).
+    pub(crate) failed_sql_rename: Option<std::rc::Weak<std::cell::RefCell<al_builtins::value::RecordState>>>,
     /// The rows each table's insert queue holds since it was last sent (`Session::note_insert_buffer`).
     pub(crate) insert_buffer: Vec<crate::records::InsertQueue>,
     /// Set by an Insert that AL code calls on a Record or a RecordRef, taken by the record method it starts
@@ -206,6 +209,7 @@ impl TxState {
             rollback_kind: None,
             last_commit_wrote: false,
             deferred_insert: None,
+            failed_sql_rename: None,
             insert_buffer: Vec::new(),
             insert_from_al: false,
             rename_from_al: false,
