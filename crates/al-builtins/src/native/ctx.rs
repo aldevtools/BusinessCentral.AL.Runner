@@ -113,6 +113,10 @@ pub trait Ctx: FormatCtx {
     fn gate(&self, _gate: al_version::Gate) -> bool {
         true
     }
+    /// The selected BC version, if the caller supplied a target.
+    fn bc_version(&self) -> Option<&al_version::BcVersion> {
+        None
+    }
     /// Record methods (`Record.Insert`, ...) need the store, triggers and
     /// table metadata: the VM implements them. `method` is the catalog name.
     fn record(
