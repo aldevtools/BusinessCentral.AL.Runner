@@ -2,7 +2,7 @@
 //! (al-runner issue 7628; open corpus PR 1367, pages/triggers/RecordTriggerReturnValue.al, group G6). The pages copy the probe's
 //! three cards; the neighbors flip one fact each.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 use al_testkit::{run_in, text};
 
@@ -705,10 +705,11 @@ codeunit 75355 T
 }
 "#;
 
-fn flagged(proc: &str, want: &str, id: Assumption) {
+/// The pinned cells run without an assumption (RecordTriggerReturnValue.al G6, CcPageLeads.al:341).
+fn clean(proc: &str, want: &str) {
     take_hits();
     assert_eq!(text(run_in(SRC, "T", proc)), want, "{proc}");
-    assert!(take_hits().contains(&id), "{proc}: not flagged");
+    assert!(take_hits().is_empty(), "{proc}: flagged");
 }
 
 fn refused(proc: &str, why: &str) {
@@ -724,26 +725,25 @@ fn refused(proc: &str, why: &str) {
 #[test]
 fn an_exit_not_taken_saves_the_insert() {
     let want = "I N1 ; T-ins N1 ; M N1 new; T-mod N1 new; | N1=new R1=start R2=second (3 rows)";
-    flagged("CondInsertClose", want, Assumption::PageRecordTriggerExitNotTakenSaves);
-    flagged("CondInsertNext", want, Assumption::PageRecordTriggerExitNotTakenSaves);
+    clean("CondInsertClose", want);
+    clean("CondInsertNext", want);
 }
 
 /// RecordTriggerReturnValue.al:301 Cond_Modify_SetValueNext and :326 _Close: the modify is saved.
 #[test]
 fn an_exit_not_taken_saves_the_modify() {
     let want = "M R1 edited; T-mod R1 edited; | R1=edited R2=second (2 rows)";
-    flagged("CondModifyNext", want, Assumption::PageRecordTriggerExitNotTakenSaves);
-    flagged("CondModifyClose", want, Assumption::PageRecordTriggerExitNotTakenSaves);
+    clean("CondModifyNext", want);
+    clean("CondModifyClose", want);
 }
 
 /// RecordTriggerReturnValue.al:350 False_Insert_OpenNewSetValueClose and :373 _Next: `Ok := false` vetoes the insert with the
 /// filtered-view error of the SetValue that inserts; nothing is stored.
 #[test]
 fn a_named_false_vetoes_the_insert_with_the_view_error() {
-    flagged(
+    clean(
         "FalseInsertClose",
         "Validation error for Field: ,  Message = 'The view is filtered, and the entry is outside the filter. Some actions may not work.' [TestValidation] I N1 ; | R1=start R2=second (2 rows)",
-        Assumption::PageRecordTriggerNamedFalseVetoes,
     );
 }
 
@@ -751,8 +751,8 @@ fn a_named_false_vetoes_the_insert_with_the_view_error() {
 #[test]
 fn a_named_false_drops_the_modify() {
     let want = "M R1 edited; | R1=start R2=second (2 rows)";
-    flagged("FalseModifyNext", want, Assumption::PageRecordTriggerNamedFalseVetoes);
-    flagged("FalseModifyClose", want, Assumption::PageRecordTriggerNamedFalseVetoes);
+    clean("FalseModifyNext", want);
+    clean("FalseModifyClose", want);
 }
 
 /// RecordTriggerReturnValue.al:446, :495: `Ok := true` saves, as main did.
@@ -839,9 +839,7 @@ fn an_unassigned_named_value_keeps_mains_save() {
         text(run_in(SRC, "T", "UnassignedModifyNext")),
         "M R1 edited; T-mod R1 edited; | R1=edited R2=second (2 rows)"
     );
-    let hits = take_hits();
-    assert!(!hits.contains(&Assumption::PageRecordTriggerNamedFalseVetoes));
-    assert!(!hits.contains(&Assumption::PageRecordTriggerExitNotTakenSaves));
+    assert!(take_hits().is_empty());
 }
 
 /// A named return value that ends true after an `exit(false)` that did not run keeps main's save (al-runner PR 7946 review, N15):
@@ -853,19 +851,14 @@ fn a_named_true_after_an_exit_not_taken_keeps_mains_save() {
         text(run_in(SRC, "T", "NamedTrueExitEdit")),
         "M R1 edited; T-mod R1 edited; | R1=edited R2=second (2 rows)"
     );
-    let hits = take_hits();
-    assert!(!hits.contains(&Assumption::PageRecordTriggerExitNotTakenSaves));
+    assert!(take_hits().is_empty());
 }
 
 /// corpus testpage/CcPageLeads.al:341 ModifyRecord_AssignsAnotherRecord: the `case` ran the branch that sets Rec to row 2, no exit
 /// ran, and both rows stay as they were. The branches with an exit that ran answer as on main (:330, :352).
 #[test]
 fn the_fixture_page_runs_only_with_its_assign_branch() {
-    flagged(
-        "MMFixAssign",
-        "M mode=2 name=edited; | R1=start R2=second",
-        Assumption::PageRecordTriggerExitNotTakenSaves,
-    );
+    clean("MMFixAssign", "M mode=2 name=edited; | R1=start R2=second");
     take_hits();
     assert_eq!(
         text(run_in(SRC, "T", "MMFixExitFalse")),
@@ -875,5 +868,5 @@ fn the_fixture_page_runs_only_with_its_assign_branch() {
         text(run_in(SRC, "T", "MMFixExitTrue")),
         "M mode=3 name=edited; | R1=edited R2=second"
     );
-    assert!(!take_hits().contains(&Assumption::PageRecordTriggerExitNotTakenSaves));
+    assert!(take_hits().is_empty());
 }

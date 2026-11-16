@@ -99,7 +99,7 @@ impl Session {
 
     /// The measured shape of the table with object index `object` whose caption [`Self::translated_read_refusal`] refuses, for
     /// `Format` of a RecordId; `None` for any other table. Both shapes are a table that declares its own `Caption` and no
-    /// `CaptionML`, of which no table extension declares a Caption or CaptionML, measured by corpus PR 1413 (merged, not pinned)
+    /// `CaptionML`, of which no table extension declares a Caption or CaptionML, measured
     /// under 1043 in localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al: the extended tables there are in a
     /// namespace (Item, Sales Invoice Header), the corpus app's own table is not (LT TA Item).
     fn record_id_caption_shape(&self, object: usize) -> Option<RecordIdCaptionShape> {
@@ -141,19 +141,18 @@ impl Session {
     }
 
     /// Whether `Format(RecordId, 0, 9)` of the table with object index `object` runs although [`Self::translated_read_refusal`]
-    /// refuses the table's caption. Format 9 names the table and never shows its caption (al-runner issue 8123). Assumed
-    /// (`recordid-format-nine-extended-table`) only for [`RecordIdCaptionShape::ExtendedByTranslatingApp`]; any other refused
-    /// caption keeps format 9 refused (R7184BaseAppCaption.al:235-256, Item and Sales Invoice Header, without and with a cross-app
-    /// unit for the table caption).
-    pub(crate) fn record_id_name_assumed(&self, object: usize) -> bool {
+    /// refuses the table's caption. Format 9 names the table and never shows its caption (al-runner issue 8123): only for
+    /// [`RecordIdCaptionShape::ExtendedByTranslatingApp`], the shape localization/app-xliff/lt-r7144-ext-caption/
+    /// R7184BaseAppCaption.al:249-250, :254-255 measures (Item and Sales Invoice Header, without and with a cross-app unit for
+    /// the table caption, under 1043). Any other refused caption keeps format 9 refused.
+    pub(crate) fn record_id_name_measured(&self, object: usize) -> bool {
         self.record_id_caption_shape(object) == Some(RecordIdCaptionShape::ExtendedByTranslatingApp)
-            && al_builtins::assumptions::hit(al_builtins::assumptions::Assumption::RecordIdFormatNineExtendedTable)
     }
 
     /// The caption `Format(RecordId, 0, 1)` names table `t` by: the caption as its source declares it, which no translation
     /// file changes (`TableCaption` reads the unit, `Self::caption_checked`). `None` where the format is refused. Where the
-    /// language gate refuses the caption, assumed (`recordid-format-one-source-caption`) in the two measured shapes
-    /// ([`Self::record_id_caption_shape`]): corpus PR 1413 (al-runner issue 8135), R7184BaseAppCaption.al:305-336 R8123_RecordIdFormat1_Dutch_SourceCaptions,
+    /// language gate refuses the caption, only in the two measured shapes ([`Self::record_id_caption_shape`]; al-runner issue
+    /// 8135): localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al:305-336 R8123_RecordIdFormat1_Dutch_SourceCaptions,
     /// `LT TA Item: R8123` for the corpus app's own table whose unit gives `TableCaption` `LT TA Artikel`, and `Item: R8123` and
     /// `Sales Invoice Header: R8123` for the tables it extends. Any other refused caption, and an own table whose file could not be
     /// read for the language, keeps format 1 refused.
@@ -162,8 +161,6 @@ impl Session {
         let Some(why) = self.caption_refused(object) else {
             return Some(self.caption(t));
         };
-        let assumed =
-            || al_builtins::assumptions::hit(al_builtins::assumptions::Assumption::RecordIdFormatOneSourceCaption);
         match (
             self.table_caption_translation(object, why),
             self.record_id_caption_shape(object),
@@ -171,11 +168,7 @@ impl Session {
             // No unit for the caption: the source caption, as `TableCaption` gives it.
             (Ok(None), _) => Some(self.source_caption(t)),
             (Ok(Some(_)), Some(RecordIdCaptionShape::OwnAppTranslates))
-            | (Err(_), Some(RecordIdCaptionShape::ExtendedByTranslatingApp))
-                if assumed() =>
-            {
-                Some(self.source_caption(t))
-            }
+            | (Err(_), Some(RecordIdCaptionShape::ExtendedByTranslatingApp)) => Some(self.source_caption(t)),
             _ => None,
         }
     }

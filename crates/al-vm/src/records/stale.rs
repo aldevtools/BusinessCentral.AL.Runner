@@ -36,6 +36,7 @@ impl Session {
             before,
             after: self.store.change_counter(),
             bulk: None,
+            through_recordref: self.through_recordref,
         });
     }
 

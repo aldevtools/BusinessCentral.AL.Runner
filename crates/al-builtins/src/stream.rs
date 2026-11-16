@@ -19,6 +19,25 @@ use crate::value::{LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// The assignment a Blob buffer came from (`BlobBuf::assigned_write`). `CalcFields` of a database record never inserted reads
+/// it (al-vm `Session::load_blobs`).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum AssignedWrite {
+    /// Not an assigned copy, or saved, fetched or written since.
+    #[default]
+    No,
+    /// An assigned copy outside the two shapes below (no content a stream wrote in memory): `CalcFields` as for any buffer.
+    Other,
+    /// The pinned shape: another record's content one stream WriteText wrote in memory, into the fresh Blob of a record that is
+    /// not temporary and has no write. `CalcFields` of the record without filters then reads it empty
+    /// (streams/BlobCopyNeighbors.al:3102-3134, :3311-3316); with a filter it refuses.
+    NeverInsertedEmpties,
+    /// Content a stream wrote in memory, in a shape no cell measures (a chained or repeated assignment, a target with a write,
+    /// a temporary target, a source filled otherwise than by one WriteText, a field of the same record, a copy by
+    /// TransferFields or a RecordRef, a failed write of the record since): `CalcFields` of the record never inserted refuses.
+    Unmeasured,
+}
+
 /// What a Blob field holds.
 #[derive(Debug, Default, Clone)]
 pub struct BlobBuf {
@@ -82,6 +101,9 @@ pub struct BlobBuf {
     /// `blob_transfer::assigned_copy`, al-runner issue 7961, tests/al-language/streams/BlobAssignThenCalcFields.al:244-256 (Assign_Ins_FromTmpIns)), and nothing saved, fetched or wrote it since:
     /// `CalcFields` keeps it as it keeps an unsaved stream write (al-vm `Session::load_blobs`). A copy does not keep it.
     pub assigned_unsaved: bool,
+    /// Whether the buffer is a copy `Target.Field := Source.Blob` stored, and in which shape (al-vm
+    /// `blob_transfer::assigned_copy`), while nothing saved, fetched or wrote it since. Copies of the buffer keep it.
+    pub assigned_write: AssignedWrite,
     /// The empty Blob `FieldRef.Value` hands out for a stored row's Blob that holds content and was not read with CalcFields
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
@@ -384,6 +406,7 @@ pub fn new_blob() -> BlobRef {
         dotnet_view: 0,
         unread_content: false,
         assigned_unsaved: false,
+        assigned_write: AssignedWrite::No,
         utf16_binary: false,
         unicode_read: None,
         content_edits: 0,
@@ -429,6 +452,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         dotnet_view: 0,
         unread_content: false,
         assigned_unsaved: false,
+        assigned_write: AssignedWrite::No,
         utf16_binary: b.utf16_binary,
         unicode_read: None,
         content_edits: 0,
@@ -479,6 +503,7 @@ fn write_bytes_at(b: &BlobRef, bytes: &[u8]) -> bool {
     let mut buf = b.borrow_mut();
     buf.unicode_read = None;
     buf.assigned_unsaved = false;
+    buf.assigned_write = AssignedWrite::No;
     if !buf.written {
         buf.written_base = Some(buf.bytes.clone());
     }
@@ -1157,6 +1182,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         dotnet_view: 0,
         unread_content: false,
         assigned_unsaved: false,
+        assigned_write: AssignedWrite::No,
         utf16_binary: false,
         unicode_read: None,
         content_edits: 0,

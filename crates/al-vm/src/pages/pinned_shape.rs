@@ -727,7 +727,7 @@ pub(super) fn codeunit_var_call(program: &ir::Program, object: usize, e: &ir::Ex
 /// `e` calls a procedure of a codeunit that a global variable of page `object` holds, with arguments that are text built of
 /// constants and fields of Rec with `+` (`Log.Add('I ' + Rec."Code" + ' ' + Rec.Name)`), and the procedure only appends to a
 /// text of its codeunit (`text_log_routine`): the log call of the probe pages of pages/triggers/RecordTriggerReturnValue.al and
-/// testpage/lifecycle/ReopenSameVariableState.al (open corpus PR 1367).
+/// testpage/lifecycle/ReopenSameVariableState.al.
 pub(super) fn rec_text_log_call(program: &ir::Program, object: usize, e: &ir::Expr) -> bool {
     fn rec_text(rec: usize, e: &ir::Expr) -> bool {
         match e {
@@ -758,7 +758,7 @@ pub(super) fn unconverted(e: &ir::Expr) -> &ir::Expr {
 /// Routine `routine` of `callee` is a procedure of a codeunit that only appends text to one Text global of the codeunit: it has
 /// value parameters only, no local variable and no return value, and each statement is `G += <text>` or
 /// `if G <> <constant> then G += <text>;`, the text built of constants and the parameters with `+`. The log procedures of the
-/// pins: corpus testpage/CcPageLeads.al:32-35 (`Buffer += Entry + ';'`), and of open corpus PR 1367
+/// pins: corpus testpage/CcPageLeads.al:32-35 (`Buffer += Entry + ';'`),
 /// pages/triggers/RecordTriggerReturnValue.al:190-193 (`Lines += Line + '; '`) and
 /// testpage/lifecycle/ReopenSameVariableState.al:227-232 (`if Entries <> '' then Entries += ' '; Entries += Line;`).
 pub(super) fn text_log_routine(program: &ir::Program, callee: usize, routine: usize) -> bool {

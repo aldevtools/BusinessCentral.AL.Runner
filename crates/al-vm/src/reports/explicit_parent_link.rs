@@ -1,20 +1,13 @@
 use super::*;
 
-/// The measured explicit parent links are in corpus PR #1358, reports/extensions/TestReportExtensionParentLink.al:47-61.
+/// The row a data item links to: the base item `DataItemLinkReference` names (`link_item`) among the enclosing ones, else
+/// the parent's. The explicit links of added items are pinned at TestReportExtensionParentLink.al:46-61 (al-sema
+/// `reports.rs` refuses the other anchors).
 pub(super) fn linked_parent(
-    run: &Run,
-    r: ItemRef,
     link_item: Option<usize>,
     parent: Option<Rec>,
     enclosing: &[(ItemRef, Rec)],
 ) -> Option<Rec> {
-    if let ItemRef::Added(extension, item) = r
-        && run
-            .ext_ir(extension)
-            .is_some_and(|ext| ext.added[item].explicit_parent_link)
-    {
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportExtensionExplicitParentLink);
-    }
     match link_item {
         Some(index) => enclosing
             .iter()

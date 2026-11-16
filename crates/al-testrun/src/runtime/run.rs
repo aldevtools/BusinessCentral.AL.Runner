@@ -291,7 +291,10 @@ fn run_codeunit_checked(
             engine, lowered, object, baseline, isolation, observe, stacks, times, hits, scratch, limit, execute,
         );
     }
-    match super::test_handlers::refusal(lowered, object) {
+    let refusal = (engine.events)
+        .absent_publisher_subscriber(&lowered.program.objects[object], object)
+        .or_else(|| super::test_handlers::refusal(lowered, object));
+    match refusal {
         Some(why) => {
             let obj = &lowered.program.objects[object];
             obj.routines
@@ -435,16 +438,13 @@ fn run_codeunit_inner(
     // `None`: a scratch run (`execute`), not a test session; else whether the isolation is Disabled.
     let mode = (!execute).then_some(isolation == TestIsolation::Disabled);
     let opened = open_company(engine, lowered, &mut session, mode, &skipped_installs, &perturb);
-    let (mut company_open, company_open_marks) = match opened {
+    let (company_open, company_open_marks) = match opened {
         Ok(opened) => opened,
         Err(why) => return all(Outcome::NotRun(why)),
     };
     // SingleInstance state an earlier test codeunit left (ADR-066 amendment 2): notes from here on, and in the lane the
-    // single instances of the codeunit before are moved in. The partner dependency apps' login subscribers changed
-    // SingleInstance globals: the notes tell from which test on code touched one (`partner_login.rs`
-    // `PartnerLogin::test_read`); only `scratch.watch` hands them to the lane (`ended`).
-    company_open.partner_login.read_in_open(&session);
-    start_singles(&mut session, execute, moved, scratch.watch, &company_open.partner_login);
+    // single instances of the codeunit before are moved in.
+    start_singles(&mut session, execute, moved, scratch.watch);
     if scratch.discovery.is_some() {
         return discover(
             &mut session,
@@ -1041,7 +1041,6 @@ fn run_codeunit_inner(
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
             let hit = company_open.watch_hit(&touched, began);
-            company_open.partner_login.test_read(session, began);
             // A test that read or wrote a table install code that could not run touches, through a path its record
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
@@ -1531,29 +1530,21 @@ fn singles_moved_in(session: &mut Session, execute: bool) -> Option<al_vm::singl
 }
 
 /// Takes over the moved single instances and starts the notes (not for a codeunit the runner runs with
-/// Codeunit.Run: `execute`). Without a watch, without SingleInstance globals the partner login subscribers changed
-/// (`PartnerLogin::test_read`) and without moved instances nothing is noted. Call `PartnerLogin::read_in_open` first: the
-/// notes start again here.
-fn start_singles(
-    session: &mut Session,
-    execute: bool,
-    moved: Option<al_vm::single_track::MovedSingles>,
-    watch: bool,
-    partner: &crate::partner_login::PartnerLogin,
-) {
+/// Codeunit.Run: `execute`). Without a watch and without moved instances nothing is noted.
+fn start_singles(session: &mut Session, execute: bool, moved: Option<al_vm::single_track::MovedSingles>, watch: bool) {
     if execute {
         return;
     }
     if let Some(m) = moved {
         session.adopt_single_instances(m);
     }
-    if watch || partner.notes_singles() {
+    if watch {
         session.track_single_instances();
     }
 }
 
-/// A test method begins: its number for the SingleInstance notes (ADR-066 amendment 7). Notes the lane does not use
-/// (taken for the partner login subscribers alone, without `watch`, [`start_singles`]) number no test: 0.
+/// A test method begins: its number for the SingleInstance notes (ADR-066 amendment 7). Without `watch` the lane uses no
+/// notes: 0.
 fn single_test_begins(session: &mut Session, watch: bool) -> u32 {
     let n = session.single_test_begins();
     if watch { n } else { 0 }

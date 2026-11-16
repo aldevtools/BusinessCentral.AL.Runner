@@ -1,7 +1,7 @@
 //! The List-host cells of the empty ListPart Rec (`empty_part_rec.rs`): a ListPart that shows no row, on a top-level List page,
 //! holds the single values of its SubPageLink on Rec, as on a Card or Document host. Al-runner issue 6924, comment 6822249976
-//! (the reporter's host is a List page with Base Application page 1178 in its FactBoxes). It runs through the assumption
-//! `empty-part-rec-list-host` until corpus pull request 1339 (pages/parts/EmptyPartRecLinkList.al) is pinned.
+//! (the reporter's host is a List page with Base Application page 1178 in its FactBoxes). Pinned by
+//! tests/al-language/pages/parts/EmptyPartRecLinkList.al in the cells it measures; every other shape refuses the read.
 //!
 //! `list_host_cell` is the allowlist: every fact the probe holds fixed is required by equality, each against the probe object
 //! that holds it. Two kinds of cell: the probe's first hosts, whose facts the probe varies one by one (`HOST_PROPS`,
@@ -622,8 +622,22 @@ impl Session {
             && trigger_set_measured(&page.triggers, &PART_TRIGGERS)
             && PART_CONTROL_TRIGGERS.contains(&control_trigger_set(page).as_slice())
             && field_controls_bound_to_rec(page)
+            && part_field_control_props_measured(page)
             && self.unextended_unsubscribed(st)
     }
+}
+
+/// Every field control of the part has no property but ApplicationArea and Editable = false: the probe parts' field controls
+/// (EmptyPartRecLinkList.al:75-76 `{ ApplicationArea = All; }`, :300-313 page 1178's shape with `Editable = false`).
+fn part_field_control_props_measured(page: &ir::Page) -> bool {
+    let mut fields = page.controls.iter().filter(|c| c.kind == ir::ControlKind::Field);
+    fields.all(|c| {
+        c.props.iter().all(|(n, v)| match (n.as_str(), v) {
+            ("applicationarea", _) => true,
+            ("editable", ir::PropVal::Lit(v)) => v.trim().eq_ignore_ascii_case("false"),
+            _ => false,
+        })
+    })
 }
 
 /// The part control's link is a `const(..)` on its first field then a field link (EmptyPartRecLinkList.al page 76854

@@ -184,6 +184,8 @@ impl RunInputs {
             license,
             environment,
             companies,
+            // Which name a message about the companies gives (the option or the serve field): the outcomes are the same.
+            companies_from_request: _,
             server_url,
             company_name,
             // Whether a backup that is not found stops the run. Whether a company is restored is `wants_test_data()`.

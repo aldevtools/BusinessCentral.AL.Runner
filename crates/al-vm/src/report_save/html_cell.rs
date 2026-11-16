@@ -1,18 +1,19 @@
-//! The fact vector, after the run, of every Html hash cell of corpus pull request 1415 (merged, not pinned;
-//! reports/html-email-body/RxHtmlHashTests.al:192 Hash_WordAlpha_TwoRows, :218 Hash_WordRgba_TwoRows, :395 Bound_OneRow,
+//! The fact vector, after the run, of every Html hash cell of the pinned corpus
+//! (reports/html-email-body/RxHtmlHashTests.al:192 Hash_WordAlpha_TwoRows, :218 Hash_WordRgba_TwoRows, :395 Bound_OneRow,
 //! :433 Bound_ThreeRows, :471 Bound_RowCountChangesHash), and of corpus pull request 1419 (merged, not pinned;
 //! reports/html-email-body/RxHtmlWidenTests.al:394, :440, :482, :568, :614). `crate::report_render` renders real Html only
 //! for a save whose whole vector equals [`HTML_HASH_CELL`]; every other save keeps Part A.
 
 use super::Format;
 use super::facts::{
-    AnswerForm, DataItems, Decl, Declares, Extensions, Facts, Kind, Layout, LayoutFile, Rows, Selection, Stored,
+    AnswerForm, Call, DataItems, Decl, Declares, Extensions, Facts, Kind, Layout, LayoutFile, Rows, Selection, Stored,
     Target, Triggers,
 };
 
 /// The facts of the cells, each by equality:
 /// - the call `Ok := Report.SaveAs(ReportId, '', ReportFormat::Html, OutS)` into a Temp Blob stream (RxHtmlBodyFixtures.al:125):
-///   format Html, target a stream, the answer used;
+///   format Html, target a stream, the answer used (by number, no request parameters, no RecordRef: `Call::StaticPlain`,
+///   as `report_render::MEASURED_CALL`);
 /// - the reports RX Word Alpha (RxHtmlBodyFixtures.al:53), RX Word Rgba (RxLayoutSelFixtures.al:73), RX Hash Bound
 ///   (RxHtmlHashTests.al:50), RX Wd Plain, RX Wd Styles, RX Wd Theme, RX Wd Header and RX Wd Caption
 ///   (RxHtmlWidenTests.al:53, :80, :107, :161, :188): a Word layout that `DefaultRenderingLayout` names in the rendering
@@ -24,6 +25,7 @@ use super::facts::{
 pub(super) const HTML_HASH_CELL: Facts = Facts {
     format: Format::Html,
     target: Target::Stream,
+    call: Call::StaticPlain,
     answer: AnswerForm::Used,
     kind: Kind::Word,
     layout: Layout::NotRdlc,

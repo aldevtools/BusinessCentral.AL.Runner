@@ -436,12 +436,9 @@ pub(crate) struct CallSite {
 /// How `Op::SingleWrite` writes its global.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SingleWriteKind {
-    /// A builtin replaces the value without using it (`Get`, `Init`, a `Find`; `Clear` and `G := x` on a global of a type
-    /// that is not simple, `Compiler::replace_kind`): after a guard, the refill.
+    /// A write replaces the value without using it (`Get`, `Init`, a `Find`, `Clear`, `G := x` where `x` is made without
+    /// `G`): after a guard, the refill.
     Replace,
-    /// As `Replace`, and no part of the value stays (`Clear`, `G := x` where `x` is made without `G`, on a global of a simple
-    /// type; `Compiler::replace_kind`): `Session::single_reset`.
-    Reset,
     /// As `Modify`, only when the global holds a temporary record (`Insert`, `Delete`).
     ModifyTemp,
     /// A write that may keep or use what the global held: a `var` argument, `List.Add`, `Dictionary.Set` (the other
