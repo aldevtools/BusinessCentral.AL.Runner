@@ -105,6 +105,8 @@ impl Session {
                     // record/crud/DeleteAllSkipsDeleted.al:DeleteAllTrue_FirstDeletesAnEarlierSibling_NoneEarlier.
                     continue;
                 }
+                let mut row = row;
+                crate::sqltime::read_back(&mut row);
                 let mut st = state_with_fields(rec, row);
                 st.filters.clear();
                 st.globals = shared.share();

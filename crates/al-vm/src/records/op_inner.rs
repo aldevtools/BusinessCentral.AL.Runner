@@ -892,7 +892,16 @@ impl Session {
                 // A bulk ModifyAll(.., false) without subscribers stamps SystemModifiedAt of a row that has the value already
                 // (RcBTriggers.al:ModifyAll_Equal_Value_Rows_BQ) and gives it a new row version, with or without an OnModify
                 // trigger (record/crud/ModifyWithoutChange.al:375-448, `row1_version_changed = Yes`).
-                let unchanged = match stored_row.as_deref() {
+                // A Time held past the day compares as the 00:00:00 it reads (`sqltime::read_back`).
+                let rolled_read = stored_row
+                    .as_deref()
+                    .filter(|r| r.iter().any(crate::sqltime::is_rolled))
+                    .map(|r| {
+                        let mut r = r.to_vec();
+                        crate::sqltime::read_back(&mut r);
+                        r
+                    });
+                let unchanged = match rolled_read.as_deref().or(stored_row.as_deref()) {
                     Some(old) if !rec.borrow().temporary && Session::modify_changes_nothing(&t, old, rec) => Some(old),
                     _ => None,
                 };
@@ -942,6 +951,9 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, view);
+                if let (false, Some(old)) = (rec.borrow().temporary, stored_row.as_deref()) {
+                    crate::sqltime::keep_rolled(old, &mut stored);
+                }
                 // Only the Insert of a value the SQL column cannot hold is pinned (record/filters/P130DateFilters.al:234-275).
                 if self.sql_columns(rec, &t, &mut stored)?.is_some() {
                     return unsupported("a Modify of a value its SQL column cannot hold (not pinned)");
@@ -2077,6 +2089,16 @@ impl Session {
                 // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
                 // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).
                 let old_pk = Self::sql_key(rec, &t, &old);
+                // A Rename of a row that holds a Time past the day: whether the row keeps it is not probed.
+                if !rec.borrow().temporary
+                    && self
+                        .store_for(rec)
+                        .get(&cx, &t, &old_pk)
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
+                        .is_some_and(|r| r.iter().any(crate::sqltime::is_rolled))
+                {
+                    return unsupported("a Rename of a row that holds a Time stored as 23:59:59.999 (not probed)");
+                }
                 // Read before the triggers, on the buffer the test left (`assigned_audit::rename_audit`).
                 let audit = self.rename_audit(&cx, &t, rec, &old_pk)?;
                 let new_rounds = !rec.borrow().temporary && crate::sqltime::key_rounds(&t.primary_key(&new));

@@ -264,6 +264,9 @@ impl Session {
             }
             return unsupported("a load of the missing fields of a partial record whose row is gone (not pinned)");
         };
+        // A Time a database column holds past the day loads as 00:00:00 (`sqltime::read_back`).
+        let mut stored = stored;
+        crate::sqltime::read_back(&mut stored);
         if let Some(p) = read {
             if let Some(e) = self.jit_inconsistent_read(&t, &fields, &stored, p)? {
                 return Err(e);

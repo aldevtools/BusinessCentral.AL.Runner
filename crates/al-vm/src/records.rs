@@ -1658,6 +1658,28 @@ impl Session {
         ascending: bool,
         after: Option<Vec<Value>>,
     ) -> Result<Option<Vec<Value>>, Signal> {
+        let row = self.scan_in_order(rec, t, ascending, after)?;
+        // A record that read a Time the column holds past the day holds 00:00:00, so the next read from it would start from the
+        // wrong place in a key holding that field. BC orders it after the day (TimeRolledPastMidnight.al:162-182); not modelled.
+        if let Some(r) = &row
+            && let Some(key) = t.keys.get(rec.borrow().key)
+            && key.iter().any(|&i| crate::sqltime::is_rolled(&r[i]))
+        {
+            return unsupported(format!(
+                "a read of {} in the order of a key that holds a Time stored as 23:59:59.999 (not modelled)",
+                t.name
+            ));
+        }
+        Ok(row)
+    }
+
+    fn scan_in_order(
+        &mut self,
+        rec: &Rec,
+        t: &TableDef,
+        ascending: bool,
+        after: Option<Vec<Value>>,
+    ) -> Result<Option<Vec<Value>>, Signal> {
         if rec.borrow().adhoc.is_some() {
             if let Some(hit) = self.scan_flowfield_key(rec, t, ascending, &after)? {
                 return Ok(hit);
@@ -1897,6 +1919,10 @@ impl Session {
         if via_get && !temporary && self.tx.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
             self.tx.rows_touched.push((t.object, company, pk.clone()));
+        }
+        // After the filters saw the row as stored: a Time a database column holds past the day reads 00:00:00 (`sqltime`).
+        if !temporary {
+            crate::sqltime::read_back(&mut row);
         }
         {
             let mut r = rec.borrow_mut();
