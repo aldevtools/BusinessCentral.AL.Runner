@@ -311,9 +311,23 @@ fn walk_routine<V: RefVisitor>(r: &mut Routine, v: &mut V) {
     } = r;
     field_opt(v, field, TableOf::Trigger);
     for a in attributes {
-        let Attribute { name: _, args, text: _ } = a;
+        let Attribute {
+            name: _,
+            args,
+            text: _,
+            publisher,
+        } = a;
         for c in args {
             walk_const(c, v);
+        }
+        match publisher {
+            PublisherRef::None => {}
+            PublisherRef::Only(o) => object32(v, o),
+            PublisherRef::Picked { object, twins } => {
+                object32(v, object);
+                twins.iter_mut().for_each(|t| object32(v, t));
+            }
+            PublisherRef::Unpicked(twins) => twins.iter_mut().for_each(|t| object32(v, t)),
         }
     }
     for s in locals {

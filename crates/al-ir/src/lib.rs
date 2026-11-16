@@ -1906,6 +1906,26 @@ pub struct Attribute {
     pub args: Vec<Const>,
     /// The attribute as written (`[EventSubscriber(ObjectType::Table, ...)]`).
     pub text: String,
+    /// For an `EventSubscriber` attribute: the object its publisher name names, as the compile resolved it in the subscriber's
+    /// file (al-sema `Workspace::subscriber_publisher`). [`PublisherRef::None`] for every other attribute.
+    pub publisher: PublisherRef,
+}
+
+/// The object an `[EventSubscriber]` names as its publisher, as indexes into `Program::objects`. The event registry (al-vm
+/// `events.rs`) binds the subscriber by it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum PublisherRef {
+    /// Not an `EventSubscriber`, or no object visible from the subscriber's app has the kind and name (or id) it gives.
+    #[default]
+    None,
+    /// The one object visible from the subscriber's app that has the kind and name (or id).
+    Only(u32),
+    /// Several visible objects have the kind and name (`twins`, `object` among them); the subscriber's file names `object`
+    /// (assumption `subscriber-publisher-namespace-scope`).
+    Picked { object: u32, twins: Vec<u32> },
+    /// Several visible objects have the kind and name, and the file names none of them by a measured rule: raising the event
+    /// of any of them is refused.
+    Unpicked(Vec<u32>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2333,6 +2353,7 @@ mod tests {
                         name: "Test".into(),
                         args: vec![],
                         text: "[Test]".into(),
+                        publisher: PublisherRef::None,
                     }],
                     params: 0,
                     by_var: vec![],

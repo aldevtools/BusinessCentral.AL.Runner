@@ -2,9 +2,11 @@
 //! (ADR-001: it is part of the immutable `Engine`) and the pure parsing of
 //! the attributes that feed it. Dispatch lives in `Session` (`dispatch.rs`).
 //!
-//! Resolution is by name against the workspace only. A subscriber whose
+//! A subscriber is bound to the object the compile resolved its publisher name
+//! to in the subscriber's file (`ir::Attribute::publisher`). A subscriber whose
 //! publisher is not in the workspace (Base App, platform codeunits) attaches
-//! to nothing: the publisher cannot run here, so it cannot fire.
+//! to nothing: the publisher cannot run here, so it cannot fire. The platform
+//! codeunits the runtime raises events of are found by the name as written.
 
 use al_ir as ir;
 use al_ir::ObjKind;
@@ -55,6 +57,11 @@ pub struct Registry {
     /// no code for (`Program::uncompiled_subscribers`, and subscribers whose publisher cannot be
     /// told apart from another object of the same name). Raising such an event is refused.
     pub missing: HashMap<(usize, String), Vec<Missing>>,
+    /// (publisher object, lower-case event name) of the events whose subscribers depend on a publisher name several objects have,
+    /// which the subscriber's file picks (`ir::PublisherRef::Picked`): every one of those objects, for each event a picked
+    /// subscriber names. Asking for the subscribers of such an event marks the assumption `subscriber-publisher-namespace-scope`
+    /// ([`Registry::subscribers_at`], [`Registry::is_subscribed`]).
+    scope_assumed: std::collections::HashSet<(usize, String)>,
     /// (lower-case codeunit, lower-case event) -> subscribers of events the runtime does not raise: every event of `UI Helper
     /// Triggers`, of `Reporting Triggers` and Base Application's `ReportManagement`, and OnResolveAutoFormat and
     /// OnAfterResolveAutoFormat of `Auto Format`. Where BC raises such an event, the runtime refuses
@@ -120,13 +127,40 @@ impl Unraised {
     }
 }
 
-/// A subscriber that is declared and not compiled.
+/// A subscriber BC would run that the program cannot run: one that is declared and not compiled, or one whose publisher name
+/// several objects have and its file names none of them by a measured rule (`ir::PublisherRef::Unpicked`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Missing {
     /// `ElementName`; empty when the event has no elements.
     pub element: String,
     /// Where it is declared, for the refusal text.
     pub subscriber: String,
+    pub why: MissingWhy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MissingWhy {
+    /// The compile left the subscriber out (`Program::uncompiled_subscribers`).
+    NotCompiled,
+    /// The publisher name as written: several objects have it, and the subscriber's file does not pick one.
+    PublisherNotPicked(String),
+}
+
+impl Missing {
+    /// Why raising `event` is refused for this subscriber.
+    pub fn refusal(&self, event: &str) -> String {
+        match &self.why {
+            MissingWhy::NotCompiled => format!(
+                "event {event}: {} subscribes to it and was not compiled (no code the workspace reaches uses it)",
+                self.subscriber
+            ),
+            MissingWhy::PublisherNotPicked(name) => format!(
+                "event {event}: {} subscribes to {name}, a name more than one object has, and its file's namespace and `using`s \
+                 do not pick one by a measured rule (al-runner issue 8171)",
+                self.subscriber
+            ),
+        }
+    }
 }
 
 impl Default for Registry {
@@ -138,6 +172,7 @@ impl Default for Registry {
             has_global_triggers: false,
             unavailable_global: Default::default(),
             missing: HashMap::new(),
+            scope_assumed: Default::default(),
             unraised: HashMap::new(),
             install_subscribers: Vec::new(),
             by_publisher: Default::default(),
@@ -293,24 +328,16 @@ impl Registry {
                 base_of.insert(e, oi);
             }
         }
-        let mut by_name: HashMap<(ObjKind, String), usize> = HashMap::new();
-        // Objects that share a kind and a name (they sit in different namespaces).
-        let mut same_name: HashMap<(ObjKind, String), Vec<usize>> = HashMap::new();
-        let mut by_id: HashMap<(ObjKind, u32), usize> = HashMap::new();
-        for (oi, o) in heads.iter().enumerate() {
-            // A shell (an uncompiled object) is never found by kind and name.
-            if o.uncompiled {
-                continue;
-            }
-            by_name.entry((o.kind, o.name.to_lowercase())).or_insert(oi);
-            same_name.entry((o.kind, o.name.to_lowercase())).or_default().push(oi);
-            if let Some(id) = o.id {
-                by_id.entry((o.kind, id)).or_insert(oi);
-            }
-        }
-        if let Some(&gt) = by_name
-            .get(&(ObjKind::Codeunit, "global triggers".to_string()))
-            .or_else(|| by_id.get(&(ObjKind::Codeunit, 2_000_000_002)))
+        // A shell (an uncompiled object) is never a publisher.
+        let compiled_codeunit = |o: &&ir::ObjectHead| !o.uncompiled && o.kind == ObjKind::Codeunit;
+        if let Some(gt) = heads
+            .iter()
+            .position(|o| compiled_codeunit(&o) && o.name.eq_ignore_ascii_case("Global Triggers"))
+            .or_else(|| {
+                heads
+                    .iter()
+                    .position(|o| compiled_codeunit(&o) && o.id == Some(2_000_000_002))
+            })
         {
             reg.global_key = gt;
         }
@@ -352,31 +379,12 @@ impl Registry {
                                 "xmlport" => ObjKind::XmlPort,
                                 _ => continue,
                             };
-                            // `Codeunit::Microsoft.Foundation.Company."Company-Initialize"` writes the
-                            // namespace; objects are found by their name.
-                            let (target, qualified) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
+                            // The platform codeunits below are found by the name as written, namespace left out.
+                            let (target, _) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
                             let event = unquote(&args[2]).to_lowercase();
-                            // A qualified name of which several objects of the program share the last
-                            // part cannot be told apart here (the program keeps no namespaces): the
-                            // subscriber attaches to none of them and every one refuses its event.
-                            if qualified {
-                                let twins = same_name.get(&(kind, target.to_lowercase())).map_or(&[][..], |v| v);
-                                if twins.len() > 1 {
-                                    for &t in twins {
-                                        reg.missing.entry((t, event.clone())).or_default().push(Missing {
-                                            element: args.get(3).map(|e| unquote(e)).unwrap_or_default(),
-                                            subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                                        });
-                                    }
-                                    continue;
-                                }
-                            }
-                            let found = by_name.get(&(kind, target.to_lowercase())).copied().or_else(|| {
-                                target
-                                    .parse::<u32>()
-                                    .ok()
-                                    .and_then(|id| by_id.get(&(kind, id)).copied())
-                            });
+                            let Some(found) = reg.publisher_of(heads, oi, r, a, &event, args.get(3)) else {
+                                continue;
+                            };
                             // The page client raises the caption class event under a key of its own,
                             // whether or not the codeunit is compiled.
                             if kind == ObjKind::Codeunit
@@ -539,6 +547,7 @@ impl Registry {
             reg.missing.entry((key, u.event.clone())).or_default().push(Missing {
                 element: u.element.clone(),
                 subscriber: u.subscriber.clone(),
+                why: MissingWhy::NotCompiled,
             });
         }
         reg.depends = app_dependencies(&program.apps);
@@ -621,10 +630,71 @@ impl Registry {
     }
 
     pub fn is_subscribed(&self, object: usize, event: &str) -> bool {
+        self.note_scope(object, event);
         self.subscribers
             .get(&(object, event.to_string()))
             .is_some_and(|v| !v.is_empty())
             || self.missing.contains_key(&(object, event.to_string()))
+    }
+
+    /// The subscribers of `event` (lower case) of `object`, in the order they receive it.
+    pub fn subscribers_at(&self, object: usize, event: &str) -> Option<&Vec<Subscriber>> {
+        self.note_scope(object, event);
+        self.subscribers.get(&(object, event.to_string()))
+    }
+
+    /// Marks the assumption `subscriber-publisher-namespace-scope` when the subscribers of `event` of `object` depend on a
+    /// publisher name the subscriber's file picked among several objects (`scope_assumed`).
+    fn note_scope(&self, object: usize, event: &str) {
+        if !self.scope_assumed.is_empty() && self.scope_assumed.contains(&(object, event.to_string())) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SubscriberPublisherNamespaceScope);
+        }
+    }
+
+    /// The publisher object that subscriber attribute `a` of routine `r` of object `oi` is bound to, for `event`: the object
+    /// the compile resolved its publisher name to in the subscriber's file (`ir::PublisherRef`, al-sema
+    /// `Workspace::subscriber_publisher`), a shell never. `Some(None)`: no object of the program. `None`: several objects have the
+    /// name and the file picks none; each of them refuses `event` (`MissingWhy::PublisherNotPicked`).
+    fn publisher_of(
+        &mut self,
+        heads: &[ir::ObjectHead],
+        oi: usize,
+        r: &ir::EventRoutine,
+        a: &ir::Attribute,
+        event: &str,
+        element: Option<&String>,
+    ) -> Option<Option<usize>> {
+        let compiled = |t: u32| Some(t as usize).filter(|&t| heads.get(t).is_some_and(|h| !h.uncompiled));
+        match &a.publisher {
+            ir::PublisherRef::None => Some(None),
+            ir::PublisherRef::Only(t) => Some(compiled(*t)),
+            ir::PublisherRef::Picked { object, twins } => {
+                for &t in twins {
+                    self.scope_assumed.insert((t as usize, event.to_string()));
+                }
+                Some(compiled(*object))
+            }
+            ir::PublisherRef::Unpicked(twins) => {
+                let o = &heads[oi];
+                let written = split_args(&a.text).get(1).map_or_else(String::new, |n| {
+                    n.split_once("::")
+                        .map_or(n.as_str(), |(_, name)| name)
+                        .trim()
+                        .to_string()
+                });
+                for &t in twins {
+                    self.missing
+                        .entry((t as usize, event.to_string()))
+                        .or_default()
+                        .push(Missing {
+                            element: element.map(|e| unquote(e)).unwrap_or_default(),
+                            subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+                            why: MissingWhy::PublisherNotPicked(written.clone()),
+                        });
+                }
+                None
+            }
+        }
     }
 
     /// The first subscriber of `event` of `object` that is declared but not compiled and that an
@@ -869,30 +939,33 @@ mod tests {
     }
 
     #[test]
-    fn a_qualified_name_two_objects_share_attaches_to_neither_and_both_refuse() {
-        // Two codeunits `Pub` in different namespaces: the program keeps no namespaces, so the
-        // subscriber cannot be told which it means.
+    fn a_qualified_name_two_objects_share_attaches_to_the_one_of_that_namespace() {
+        // Two codeunits `Pub` in two namespaces of two apps (one app may not declare both, AL0197): the qualified name names
+        // the one of namespace A (al-runner issue 8171; corpus PR 1423, SnUsingTests.al).
+        let app = |id: &str, deps: &[&str], src: &str| al_sema::workspace::AppSource {
+            id: id.into(),
+            name: id.into(),
+            dependencies: deps.iter().map(|d| d.to_string()).collect(),
+            files: vec![(format!("{id}.al"), src.into())],
+        };
         let (_ws, l) = al_sema::lower::compile(
-            vec![al_sema::workspace::AppSource {
-                id: "a".into(),
-                name: "a".into(),
-                dependencies: vec![],
-                files: vec![
-                    ("a.al".into(), "namespace A;\ncodeunit 50200 Pub { }".into()),
-                    ("b.al".into(), "namespace B;\ncodeunit 50201 Pub { }".into()),
-                    (
-                        "s.al".into(),
-                        "codeunit 50202 Sub { [EventSubscriber(ObjectType::Codeunit, Codeunit::A.Pub, 'OnX', '', false, false)] local procedure H() begin end; }"
-                            .into(),
-                    ),
-                ],
-            }],
+            vec![
+                app("a", &[], "namespace A;\ncodeunit 50200 Pub { }"),
+                app("b", &["a"], "namespace B;\ncodeunit 50201 Pub { }"),
+                app(
+                    "s",
+                    &["a", "b"],
+                    "codeunit 50202 Sub { [EventSubscriber(ObjectType::Codeunit, Codeunit::A.Pub, 'OnX', '', false, false)] local procedure H() begin end; }",
+                ),
+            ],
             &Default::default(),
         );
         let reg = Registry::build(&l.program);
-        assert!(reg.subscribers.is_empty());
-        assert_eq!(reg.missing.len(), 2);
-        assert!(reg.is_subscribed(0, "onx") || reg.is_subscribed(1, "onx"));
+        let a = l.program.objects.iter().position(|o| o.id == Some(50200)).unwrap();
+        let b = l.program.objects.iter().position(|o| o.id == Some(50201)).unwrap();
+        assert!(reg.missing.is_empty());
+        assert!(reg.is_subscribed(a, "onx"));
+        assert!(!reg.is_subscribed(b, "onx"));
     }
 
     #[test]

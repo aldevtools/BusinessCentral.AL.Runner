@@ -751,8 +751,31 @@ impl Lowerer<'_> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                publisher: self.subscriber_publisher(&a),
             })
             .collect()
+    }
+
+    /// What `[EventSubscriber(ObjectType::<Kind>, <Kind>::<name>, ...)]` names as its publisher, resolved in this file
+    /// (`Workspace::subscriber_publisher`); `None` for every other attribute.
+    fn subscriber_publisher(&self, a: &al_syntax::ast::Attribute) -> ir::PublisherRef {
+        if !a.name().eq_ignore_ascii_case("EventSubscriber") {
+            return ir::PublisherRef::None;
+        }
+        let args: Vec<String> = a
+            .args()
+            .map(|l| l.children().map(|e| e.text().to_string()).collect())
+            .unwrap_or_default();
+        let (Some(kind), Some(name)) = (args.first(), args.get(1)) else {
+            return ir::PublisherRef::None;
+        };
+        // The kind as the scan of a dependency file reads it (`Workspace::subscribers_of`): `ObjectType::Table` names a table.
+        let kind = ObjKind::from_keyword(kind.rsplit("::").next().unwrap_or_default().trim().trim_matches('"'));
+        let Some((_, name)) = name.split_once("::") else {
+            return ir::PublisherRef::None;
+        };
+        self.ws
+            .subscriber_publisher(self.file, kind, &crate::members::name_parts(name.trim()))
     }
 
     /// `Codeunit::"Name"` as an attribute argument: the object's id. `[TestDataSource(Codeunit::"Name", 'Set')]` and

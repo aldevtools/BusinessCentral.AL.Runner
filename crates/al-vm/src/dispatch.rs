@@ -457,12 +457,9 @@ impl Session {
             .missing_for(object, event, element)
             .filter(|_| only.is_none())
         {
-            return unsupported(format!(
-                "event {event}: {} subscribes to it and was not compiled (no code the workspace reaches uses it)",
-                m.subscriber
-            ));
+            return unsupported(m.refusal(event));
         }
-        let Some(subs) = engine.events.subscribers.get(&(object, event.to_string())) else {
+        let Some(subs) = engine.events.subscribers_at(object, event) else {
             return Ok(Vec::new());
         };
         // A binding only a gone page held ends before the event picks its targets (page_held_bindings.rs).
