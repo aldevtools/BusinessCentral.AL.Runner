@@ -806,9 +806,9 @@ impl Session {
             )
     }
 
-    /// Whether `part` is the single part of the Worksheet `host` and is the measured FactBox (AL Runner issue 7880, corpus pull
-    /// request 1344, assumption `worksheet-draft-close-empty-part`): a ListPart in the FactBoxes area without extension or
-    /// subscriber, linked by one `field(...)` entry.
+    /// Whether `part` is the single part of the Worksheet `host` and is the measured FactBox (pages/lifecycle/
+    /// TestWorksheetDraftClose.al:11-29, fixtures TestWorksheetDraftClose1Fixture*.al): a ListPart in the FactBoxes area without
+    /// extension or subscriber, linked by one `field(...)` entry.
     fn worksheet_draft_factbox(&self, host: &St, part: &St) -> bool {
         let engine = self.engine();
         let host_state = host.borrow();
