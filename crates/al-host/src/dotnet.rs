@@ -125,11 +125,17 @@ impl DotNetReply {
 }
 
 /// A .NET exception, with its inner exceptions (outermost first).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct DotNetException {
     pub clr_type: String,
     pub message: String,
     pub inner: Vec<(String, String)>,
+    /// What the request called when the code threw: `constructor`, `method` (a method called as one) or `property` (a
+    /// property read by a get). Empty for any other binding (an indexer, a setter, a property reached through a call, a member
+    /// with a ref or out parameter).
+    pub bound: String,
+    /// The member was written in another letter case than its .NET name.
+    pub folded: bool,
 }
 
 impl fmt::Display for DotNetException {
@@ -210,6 +216,11 @@ pub trait DotNetSession {
     /// follows. The default refuses.
     fn stream_read(&mut self, _handle: DotNetHandle, _max: Option<usize>) -> Result<Vec<u8>, DotNetFailure> {
         Err(DotNetFailure::Refused("this host cannot copy a stream".into()))
+    }
+    /// Whether `handle` is a `TimeZoneInfo` this session made in process for the id `UTC` and still holds (ADR-038
+    /// amendment 2026-10-27): its `GetUtcOffset(DateTime)` is 0 at any instant, from no host data. The default: no.
+    fn is_in_process_utc_zone(&self, _handle: DotNetHandle) -> bool {
+        false
     }
     /// Drops host objects. Called before the next call and when the session closes.
     fn release(&mut self, handles: &[DotNetHandle]);

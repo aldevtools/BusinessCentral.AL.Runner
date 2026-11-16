@@ -90,14 +90,19 @@ impl Session {
         method: RecordOp,
         rec: &crate::records::Rec,
         args: &[Value],
-        from_al: bool,
+        caller: crate::permission_bulk_no_match::RecordCaller,
     ) -> Result<(), Signal> {
-        let r = self.permission_gate_record_decided(method, rec, args, from_al);
+        let r = self.permission_gate_record_decided(method, rec, args, caller);
         self.shadow_unit("record", r)
     }
 
-    pub(crate) fn permission_gate_flowfield(&mut self, rec: &crate::records::Rec, table: usize) -> Result<(), Signal> {
-        let r = self.permission_gate_flowfield_decided(rec, table);
+    pub(crate) fn permission_gate_flowfield(
+        &mut self,
+        rec: &crate::records::Rec,
+        table: usize,
+        stack: &[crate::flowfields::CalcFrame],
+    ) -> Result<(), Signal> {
+        let r = self.permission_gate_flowfield_decided(rec, table, stack);
         self.shadow_unit("flowfield", r)
     }
 

@@ -55,9 +55,17 @@ pub struct Registry {
     /// no code for (`Program::uncompiled_subscribers`, and subscribers whose publisher cannot be
     /// told apart from another object of the same name). Raising such an event is refused.
     pub missing: HashMap<(usize, String), Vec<Missing>>,
-    /// (lower-case platform codeunit, lower-case event) -> subscribers of platform events the runtime does not raise:
-    /// `UI Helper Triggers`. Where BC raises such an event, the runtime refuses (`Registry::unraised_subscriber`).
+    /// (lower-case codeunit, lower-case event) -> subscribers of events the runtime does not raise: every event of `UI Helper
+    /// Triggers`, of `Reporting Triggers` and Base Application's `ReportManagement`, and OnResolveAutoFormat and
+    /// OnAfterResolveAutoFormat of `Auto Format`. Where BC raises such an event, the runtime refuses
+    /// (`Registry::unraised_subscriber`, `auto_format_writer`).
     pub unraised: HashMap<(String, String), Vec<Unraised>>,
+    /// Subscribers whose publisher is no object of the program, not even a shell, and is none the runtime raises events
+    /// of without it: the publisher's app is not loaded (a `--no-deps` run of an app that depends on Microsoft's apps).
+    /// Real BC raises its events (record/table-relation/RenameBlankKeyRelation.al:722-736 subscribes to Base
+    /// Application's GlobalTriggerManagement, whose `OnAfterOnDatabaseRename` the log shows, :2104-2112); the runtime
+    /// cannot. Each with the publisher's event as written, for the refusal (`Registry::absent_publisher_subscriber`).
+    pub absent: Vec<(String, Unraised)>,
     /// Subscribers (object, routine, lower-case event) to `OnInstallAppPerCompany` and `OnInstallAppPerDatabase` of the
     /// platform codeunit `Extension Triggers` (2000000010), in program order. BC raises them when the subscriber's own app
     /// is installed (events/platform-triggers/PeVFixtures.al:395-407, PeVTests.al:284;
@@ -76,12 +84,46 @@ pub struct Registry {
 /// A subscriber of a platform event the runtime does not raise.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unraised {
+    /// The subscriber's object.
+    pub object: usize,
     /// Where it is declared, for the refusal text.
     pub subscriber: String,
     /// The objects through which a test can see that it ran: its own codeunit and the SingleInstance codeunits its codeunit
     /// or routine holds a variable of (the corpus fixtures log there, events/platform-triggers/PeVFixtures.al:133,
     /// events/platform-triggers/P114GlobalTriggerEvents.al:31).
     pub witnesses: Vec<usize>,
+    /// The subscriber routine, in `object`.
+    pub routine: usize,
+    /// The subscriber codeunit declares `EventSubscriberInstance = Manual`: it would receive the event only while bound.
+    pub manual: bool,
+}
+
+impl Unraised {
+    /// The entry for subscriber `r` of codeunit `oi`.
+    fn of(heads: &[ir::ObjectHead], oi: usize, o: &ir::ObjectHead, r: &ir::EventRoutine) -> Unraised {
+        Unraised {
+            object: oi,
+            subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
+            witnesses: witnesses(heads, oi, r),
+            routine: r.routine as usize,
+            manual: is_manual(o),
+        }
+    }
+
+    /// Whether test codeunit `test` (object `test_index`) can see that this subscriber ran: it is the subscriber's codeunit or
+    /// holds a variable of one of its witnesses. Outside a test run (a unit test of the runtime) every subscriber counts.
+    pub fn seen_by(&self, test: Option<&ir::Object>, test_index: Option<usize>) -> bool {
+        match (test, test_index) {
+            (Some(t), Some(ti)) => {
+                self.witnesses.contains(&ti)
+                    || t.globals
+                        .iter()
+                        .chain(t.routines.iter().flat_map(|r| r.locals.iter()))
+                        .any(|s| matches!(s.ty, al_builtins::value::RtType::Codeunit(c) if self.witnesses.contains(&(c as usize))))
+            }
+            _ => true,
+        }
+    }
 }
 
 /// A subscriber that is declared and not compiled.
@@ -103,6 +145,7 @@ impl Default for Registry {
             unavailable_global: Default::default(),
             missing: HashMap::new(),
             unraised: HashMap::new(),
+            absent: Vec::new(),
             install_subscribers: Vec::new(),
             by_publisher: Default::default(),
             depends: Vec::new(),
@@ -126,7 +169,6 @@ impl Registry {
         target: &str,
         event: &str,
     ) {
-        let witnesses = witnesses(heads, oi, r);
         if event == "captionclasstranslate" {
             self.subscribers
                 .entry((UI_HELPER_TRIGGERS, event.to_string()))
@@ -141,10 +183,7 @@ impl Registry {
         self.unraised
             .entry((target.to_ascii_lowercase(), event.to_string()))
             .or_default()
-            .push(Unraised {
-                subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                witnesses,
-            });
+            .push(Unraised::of(heads, oi, o, r));
     }
 }
 
@@ -245,26 +284,13 @@ impl Registry {
         let mut reg = Registry::default();
         // Heads only: building the registry makes no object of a program whose objects are made on first read (ADR-054).
         let heads = program.objects.heads();
-        // Events declared in a table or page extension are subscribed to on the base object
-        // (corpus events/extension-events/TestExtensionDeclaredEvents.al:92 PageExtEvent_SubscriberBoundToBasePage_...).
-        let mut base_of: HashMap<usize, usize> = HashMap::new();
-        for (oi, o) in heads.iter().enumerate() {
-            if let Some(base) = o.report_ext_base {
-                base_of.insert(oi, base);
-            }
-            if let Some(t) = &o.table {
-                for &e in &t.extensions {
-                    base_of.insert(e, oi);
-                }
-            }
-            for &e in &o.page_extensions {
-                base_of.insert(e, oi);
-            }
-        }
+        let base_of = base_objects(heads);
         let mut by_name: HashMap<(ObjKind, String), usize> = HashMap::new();
         // Objects that share a kind and a name (they sit in different namespaces).
         let mut same_name: HashMap<(ObjKind, String), Vec<usize>> = HashMap::new();
         let mut by_id: HashMap<(ObjKind, u32), usize> = HashMap::new();
+        let any_head = object_keys(heads);
+        let present = |kind: ObjKind, target: &str| any_head.contains(&(kind, target.to_lowercase()));
         for (oi, o) in heads.iter().enumerate() {
             // A shell (an uncompiled object) is never found by kind and name.
             if o.uncompiled {
@@ -324,6 +350,8 @@ impl Registry {
                             // namespace; objects are found by their name.
                             let (target, qualified) = publisher_name(args[1].rsplit("::").next().unwrap_or(""));
                             let event = unquote(&args[2]).to_lowercase();
+                            // The runtime raises (or refuses where BC raises) this event without the publisher object.
+                            let mut native = false;
                             // A qualified name of which several objects of the program share the last
                             // part cannot be told apart here (the program keeps no namespaces): the
                             // subscriber attaches to none of them and every one refuses its event.
@@ -351,6 +379,7 @@ impl Registry {
                                 && (target.eq_ignore_ascii_case("Caption Class") || target == "42")
                                 && al_ir::is_raised_caption_class_event(&event)
                             {
+                                native = true;
                                 reg.subscribers
                                     .entry((CAPTION_CLASS, event.clone()))
                                     .or_default()
@@ -365,12 +394,14 @@ impl Registry {
                                 && (target.eq_ignore_ascii_case("Extension Triggers") || target == "2000000010")
                                 && (event == "oninstallapppercompany" || event == "oninstallappperdatabase")
                             {
+                                native = true;
                                 reg.install_subscribers.push((oi, ri, event.clone()));
                             }
                             if kind == ObjKind::Codeunit
                                 && (target.eq_ignore_ascii_case("Company Triggers") || target == "2000000003")
                                 && (event == "oncompanyopen" || event == "oncompanyopencompleted")
                             {
+                                native = true;
                                 reg.subscribers
                                     .entry((COMPANY_TRIGGERS, event.clone()))
                                     .or_default()
@@ -382,6 +413,7 @@ impl Registry {
                                     });
                             }
                             if kind == ObjKind::Codeunit && target.eq_ignore_ascii_case("UI Helper Triggers") {
+                                native = true;
                                 reg.add_ui_helper_subscriber(heads, oi, o, r, &target, &event);
                             }
                             // The events of Reporting Triggers, and those Base Application's ReportManagement raises from its
@@ -391,20 +423,31 @@ impl Registry {
                                 && (target.eq_ignore_ascii_case("Reporting Triggers")
                                     || target.eq_ignore_ascii_case("ReportManagement"))
                             {
+                                native = true;
                                 reg.unraised
                                     .entry((target.to_ascii_lowercase(), event.clone()))
                                     .or_default()
-                                    .push(Unraised {
-                                        subscriber: format!("{} \"{}\".{}", o.kind, o.name, r.name),
-                                        witnesses: witnesses(heads, oi, r),
-                                    });
+                                    .push(Unraised::of(heads, oi, o, r));
                             }
+                            // The events of the System Application's "Auto Format" codeunit that its AutoFormatTranslate subscriber
+                            // raises: listed too, the runtime raises neither (`auto_format_writer`).
+                            if kind == ObjKind::Codeunit
+                                && (target.eq_ignore_ascii_case("Auto Format") || target == "45")
+                                && (event == "onresolveautoformat" || event == "onafterresolveautoformat")
+                            {
+                                native = true;
+                                reg.unraised
+                                    .entry(("auto format".to_string(), event.clone()))
+                                    .or_default()
+                                    .push(Unraised::of(heads, oi, o, r));
+                            }
+                            // The layout selection events go to Base Application's ReportManagement only (ADR-040 amendment
+                            // 2026-11-12, A7; `report_save::fact_selection`).
                             if kind == ObjKind::Codeunit
                                 && target.eq_ignore_ascii_case("Reporting Triggers")
-                                && al_ir::RAISED_REPORTING_EVENTS
-                                    .iter()
-                                    .any(|e| e.eq_ignore_ascii_case(event.as_str()))
+                                && raised_reporting_event(program, o, &event)
                             {
+                                native = true;
                                 reg.subscribers
                                     .entry((REPORTING_TRIGGERS, event.clone()))
                                     .or_default()
@@ -421,6 +464,7 @@ impl Registry {
                                     .iter()
                                     .any(|e| e.eq_ignore_ascii_case(event.as_str()))
                             {
+                                native = true;
                                 reg.subscribers
                                     .entry((FILTER_HELPER_TRIGGERS, event.clone()))
                                     .or_default()
@@ -455,6 +499,10 @@ impl Registry {
                                             element: String::new(),
                                         })
                                 }
+                                None if !native && !present(kind, &target) => reg.absent.push((
+                                    format!("{kind} \"{target}\".{}", unquote(&args[2])),
+                                    Unraised::of(heads, oi, o, r),
+                                )),
                                 None => {}
                             }
                         }
@@ -536,26 +584,25 @@ impl Registry {
         test: Option<&ir::Object>,
         test_index: Option<usize>,
     ) -> Option<(&str, &str)> {
-        let sees = |u: &Unraised| {
-            match (test, test_index) {
-            (Some(t), Some(ti)) => {
-                u.witnesses.contains(&ti)
-                    || t.globals
-                        .iter()
-                        .chain(t.routines.iter().flat_map(|r| r.locals.iter()))
-                        .any(|s| matches!(s.ty, al_builtins::value::RtType::Codeunit(c) if u.witnesses.contains(&(c as usize))))
-            }
-            // Outside a test run (a unit test of the runtime) every subscriber counts.
-            _ => true,
-        }
-        };
+        self.unraised_subscriber_but(publisher, event, test, test_index, None)
+    }
+
+    /// [`Registry::unraised_subscriber`], leaving out the subscribers of object `but` (one the runtime raises the event to).
+    pub fn unraised_subscriber_but(
+        &self,
+        publisher: &str,
+        event: Option<&str>,
+        test: Option<&ir::Object>,
+        test_index: Option<usize>,
+        but: Option<usize>,
+    ) -> Option<(&str, &str)> {
         let mut found: Vec<(&str, &str)> = self
             .unraised
             .iter()
             .filter(|((p, e), _)| p == publisher && event.is_none_or(|want| e == want))
             .flat_map(|((_, e), subs)| {
                 subs.iter()
-                    .filter(|u| sees(u))
+                    .filter(|u| Some(u.object) != but && u.seen_by(test, test_index))
                     .map(move |u| (e.as_str(), u.subscriber.as_str()))
             })
             .collect();
@@ -563,10 +610,37 @@ impl Registry {
         found.into_iter().next()
     }
 
+    /// Why test codeunit `test` (object `test_index`) is not run: it can see a subscriber whose publisher is not in the
+    /// program ([`Registry::absent`], [`Unraised::seen_by`]), so whether BC ran that subscriber is not known here.
+    pub fn absent_publisher_subscriber(&self, test: &ir::Object, test_index: usize) -> Option<String> {
+        let mut seen: Vec<_> = (self.absent.iter())
+            .filter(|(_, u)| u.seen_by(Some(test), Some(test_index)))
+            .map(|(publisher, u)| (u.subscriber.as_str(), publisher.as_str()))
+            .collect();
+        seen.sort_unstable();
+        let (subscriber, publisher) = seen.first()?;
+        Some(format!(
+            "the test codeunit can see subscriber {subscriber} of {publisher}, whose publisher is in no loaded app: the \
+             runtime cannot raise its events"
+        ))
+    }
+
     /// Whether any subscriber (compiled or not) listens to an event of object `object`.
     pub fn any_subscriber_of(&self, object: usize) -> bool {
         self.subscribers.iter().any(|((o, _), v)| *o == object && !v.is_empty())
             || self.missing.keys().any(|(o, _)| *o == object)
+    }
+
+    /// The events (publisher, lower-case event name) routine `routine` of object `object` is a compiled subscriber to.
+    pub fn subscriptions_of(&self, object: usize, routine: usize) -> Vec<(usize, &str)> {
+        let mut found: Vec<(usize, &str)> = self
+            .subscribers
+            .iter()
+            .filter(|(_, v)| v.iter().any(|s| s.object == object && s.routine == routine))
+            .map(|((p, e), _)| (*p, e.as_str()))
+            .collect();
+        found.sort_unstable();
+        found
     }
 
     pub fn is_subscribed(&self, object: usize, event: &str) -> bool {
@@ -584,6 +658,19 @@ impl Registry {
             .iter()
             .find(|m| element.is_none_or(|e| m.element.is_empty() || m.element.eq_ignore_ascii_case(e)))
     }
+}
+
+/// Whether the runtime raises `event` of Reporting Triggers to subscriber object `o`: the events of
+/// `al_ir::RAISED_REPORTING_EVENTS` to every subscriber, the layout selection events to Base Application's ReportManagement only
+/// (ADR-040 amendment 2026-11-12, A7; `report_save::fact_selection`).
+fn raised_reporting_event(program: &ir::Program, o: &ir::ObjectHead, event: &str) -> bool {
+    let named = |list: &[&str]| list.iter().any(|e| e.eq_ignore_ascii_case(event));
+    named(&al_ir::RAISED_REPORTING_EVENTS)
+        || (named(&al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS)
+            && program
+                .apps
+                .get(o.app as usize)
+                .is_some_and(|a| al_ir::is_report_management(o.id, &o.name, &a.id)))
 }
 
 /// Splits the argument list of an attribute written as `[Name(a, 'b,c', "d")]`
@@ -666,6 +753,39 @@ pub fn unquote(arg: &str) -> String {
         return inner.to_string();
     }
     a.to_string()
+}
+
+/// The base object of each extension object: events declared in a table or page extension are subscribed to on the base
+/// object (corpus events/extension-events/TestExtensionDeclaredEvents.al:92 PageExtEvent_SubscriberBoundToBasePage_...).
+fn base_objects(heads: &[ir::ObjectHead]) -> HashMap<usize, usize> {
+    let mut base_of: HashMap<usize, usize> = HashMap::new();
+    for (oi, o) in heads.iter().enumerate() {
+        if let Some(base) = o.report_ext_base {
+            base_of.insert(oi, base);
+        }
+        if let Some(t) = &o.table {
+            for &e in &t.extensions {
+                base_of.insert(e, oi);
+            }
+        }
+        for &e in &o.page_extensions {
+            base_of.insert(e, oi);
+        }
+    }
+    base_of
+}
+
+/// Every object of the program by kind and lower-case name or id, shells included: a publisher among them is in a loaded
+/// app ([`Registry::absent`]).
+fn object_keys(heads: &[ir::ObjectHead]) -> std::collections::HashSet<(ObjKind, String)> {
+    let mut keys = std::collections::HashSet::new();
+    for o in heads {
+        keys.insert((o.kind, o.name.to_lowercase()));
+        if let Some(id) = o.id {
+            keys.insert((o.kind, id.to_string()));
+        }
+    }
+    keys
 }
 
 #[cfg(test)]
@@ -789,6 +909,37 @@ mod tests {
              { [EventSubscriber(ObjectType::Table, Database::\"Global Triggers\", 'OnX', '', false, false)] local procedure H() begin end; }",
         );
         assert!(!table.has_global_triggers);
+    }
+
+    /// `Registry::absent`: a publisher that is no object of the program, and none whose events the runtime raises or refuses
+    /// without the object. A publisher in the program, also a table, is not absent.
+    #[test]
+    fn only_a_publisher_no_object_is_and_the_runtime_does_not_stand_in_for_is_absent() {
+        let sub = |kind: &str, publisher: &str, event: &str| {
+            registry(&format!(
+                "table 50300 T {{ fields {{ field(1; K; Integer) {{ }} }} }}
+                 codeunit 50301 Pub {{ [IntegrationEvent(false, false)] procedure OnX() begin end; }}
+                 codeunit 50310 Sub
+                 {{ [EventSubscriber(ObjectType::{kind}, {publisher}, '{event}', '', false, false)] local procedure H() begin end; }}"
+            ))
+            .absent
+            .iter()
+            .map(|(p, u)| format!("{} {p}", u.subscriber))
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            sub("Codeunit", "Codeunit::\"Not There\"", "OnX"),
+            ["codeunit \"Sub\".H codeunit \"Not There\".OnX"]
+        );
+        for (kind, publisher, event) in [
+            ("Codeunit", "Codeunit::Pub", "OnX"),
+            ("Table", "Database::T", "OnAfterInsertEvent"),
+            ("Codeunit", "Codeunit::\"Global Triggers\"", "OnDatabaseInsert"),
+            ("Codeunit", "Codeunit::\"Company Triggers\"", "OnCompanyOpenCompleted"),
+            ("Codeunit", "Codeunit::\"Reporting Triggers\"", "OnX"),
+        ] {
+            assert_eq!(sub(kind, publisher, event), Vec::<String>::new(), "{publisher}");
+        }
     }
 
     #[test]

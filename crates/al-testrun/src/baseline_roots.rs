@@ -7,6 +7,17 @@ use al_sema::lower::Lowered;
 use al_vm::Session;
 use std::collections::BTreeSet;
 
+/// A root that stopped, or was not run.
+pub(crate) struct StoppedRoot {
+    /// The tables it writes.
+    pub tables: BTreeSet<u32>,
+    /// Whether its rows before the stop are kept.
+    pub kept: bool,
+    /// The root and why it stopped, without the site of the stop (`Installer.OnInstallAppPerCompany stopped: <reason>`): the
+    /// refusal of a test that reads one of its tables names it (al-runner issue 8104).
+    pub cause: String,
+}
+
 /// What the roots of one baseline run share and count.
 pub(crate) struct RootRun<'a> {
     pub lowered: &'a Lowered,
@@ -19,13 +30,19 @@ pub(crate) struct RootRun<'a> {
     pub no_client: Option<(Option<usize>, Option<usize>)>,
     pub company_name: String,
     pub notes: &'a mut Vec<String>,
-    /// Per root that stopped: the tables it writes, and whether its rows before the stop are kept.
-    pub stopped: &'a mut Vec<(BTreeSet<u32>, bool)>,
+    /// The roots that stopped or were not run.
+    pub stopped: &'a mut Vec<StoppedRoot>,
     pub ran: usize,
     pub steps_built: usize,
     pub step_failed: bool,
     /// Tables whose rows depend on the install order of partner apps, and why (`install_orders.rs`).
     pub refused: Vec<(BTreeSet<u32>, String)>,
+    /// The app whose install session holds a language or WorkDate the runner does not know, and why
+    /// (`stopped_state::roll_back_stopped_install`): its later install roots are not run.
+    pub unknown_session: Option<(u32, String)>,
+    /// The app whose install session the last root ran in; `None` after a root of no install session (al-vm
+    /// `group1_sessions.rs`).
+    pub install_app: Option<u32>,
 }
 
 impl RootRun<'_> {
@@ -55,10 +72,43 @@ impl RootRun<'_> {
         // Company-Initialize and the company build keep their own rules.
         session.set_install_without_client(!is_step && self.company_initialize_root != Some(k));
         let label = format!("{}.{}", objs[oi].name, objs[oi].routines[ri].name);
+        // The app's install code, which runs in the app's install session (not Company-Initialize or a step).
+        let install_session = !is_step && self.company_initialize_root != Some(k);
+        let app = objs[oi].app;
+        if let Some((_, why)) = self
+            .unknown_session
+            .as_ref()
+            .filter(|(a, _)| install_session && *a == app)
+        {
+            self.notes.push(format!("{label} was not run: {why}"));
+            self.stopped.push(StoppedRoot {
+                tables: crate::baseline::tables_written_or_loaded(self.lowered, oi, ri),
+                kept: false,
+                cause: format!("{label} was not run: {why}"),
+            });
+            return;
+        }
+        if install_session {
+            // Another app's install session begins: the group 1 filters of the one before are gone (al-vm
+            // `group1_sessions.rs`). The dependency apps' per-company part runs in the session company.
+            if self.install_app != Some(app) {
+                session.end_group1_install_session();
+                self.install_app = Some(app);
+            }
+            session.set_group1_install_shape(crate::install::group1_trigger_shape(
+                self.lowered,
+                !no_company,
+                (oi, ri),
+            ));
+        } else {
+            self.install_app = None;
+        }
         if no_company {
             session.set_company("");
         }
         session.clear_fault_site();
+        let before = session.carried_state();
+        let mark = session.store_mut().change_counter();
         // A Message while the company is built goes to the run log (`company_data::MESSAGE_NOTE`).
         if is_step {
             session.capture_messages();
@@ -72,23 +122,31 @@ impl RootRun<'_> {
         };
         session.set_no_client(false);
         session.set_install_without_client(false);
+        session.end_group1_install_routine(called.is_ok());
         if is_step {
             session.set_company_build(false);
             for m in session.stop_capturing_messages() {
                 self.notes.push(format!("{}{m}", crate::company_data::MESSAGE_NOTE));
             }
         }
+        let by_runner = matches!(called, Err(Signal::Unsupported(_)));
+        // Why it stopped, and the same with where: the innermost routine and its source position.
         let why = match called {
             Ok(_) => None,
-            // Where it stopped: the innermost routine and its source position.
-            Err(Signal::Unsupported(r)) => Some(match session.fault_site().last() {
-                Some(f) => {
-                    let at = crate::explain::describe(&self.lowered.program, f.object, f.routine, f.pos);
-                    format!("{r} [in {} at {}]", at.who, at.at)
-                }
-                None => r.into_reason(),
-            }),
-            Err(Signal::Error(e)) => Some(format!("failed with an error: {}", e.message)),
+            Err(Signal::Unsupported(r)) => {
+                let reason = r.into_reason();
+                Some(match session.fault_site().last() {
+                    Some(f) => {
+                        let at = crate::explain::describe(&self.lowered.program, f.object, f.routine, f.pos);
+                        (reason.clone(), format!("{reason} [in {} at {}]", at.who, at.at))
+                    }
+                    None => (reason.clone(), reason),
+                })
+            }
+            Err(Signal::Error(e)) => {
+                let text = format!("failed with an error: {}", e.message);
+                Some((text.clone(), text))
+            }
             Err(_) => None,
         };
         session.set_company(company_name);
@@ -98,11 +156,21 @@ impl RootRun<'_> {
                 self.steps_built += usize::from(is_step);
                 session.commit_transaction();
             }
-            Some(why) => {
+            Some((reason, why)) => {
+                // The rows it wrote before the stop, through any path (a RecordRef too), are rolled back, and on BC it ran
+                // to its end and kept them (review of al-runner PR 8119, probe n19c; the same rule as `install.rs`
+                // `Stopped::roll_back`).
+                let mut tables = crate::baseline::tables_written_or_loaded(self.lowered, oi, ri);
+                if !keep_prefix {
+                    tables.extend(session.store_mut().tables_rolled_back_since(mark));
+                }
                 if keep_prefix {
                     session.commit_transaction();
-                } else {
-                    session.rollback_transaction();
+                } else if let Some(unknown) =
+                    crate::stopped_state::roll_back_stopped_install(self.lowered, session, (oi, ri), before, by_runner)
+                    && install_session
+                {
+                    self.unknown_session = Some((app, unknown));
                 }
                 if is_step {
                     self.step_failed = true;
@@ -120,10 +188,11 @@ impl RootRun<'_> {
                         }
                     ));
                 }
-                self.stopped.push((
-                    crate::baseline::tables_written_or_loaded(self.lowered, oi, ri),
-                    keep_prefix,
-                ));
+                self.stopped.push(StoppedRoot {
+                    tables,
+                    kept: keep_prefix,
+                    cause: format!("{label} stopped: {reason}"),
+                });
             }
         }
     }
@@ -147,15 +216,16 @@ impl RootRun<'_> {
         for company in companies {
             session.reset_single_instances();
             session.set_company(&company);
-            match crate::install::company_open(self.lowered, session, true) {
+            let mut skipped: Vec<_> = self.stopped.iter().map(|root| (root.tables.clone(), root.cause.clone())).collect();
+            match crate::install::company_open(self.lowered, session, &skipped, true) {
                 Ok(()) => {
                     session.commit_transaction();
                     for &k in &company_roots {
                         self.run_root_in_company(session, k, &company);
                     }
                 }
-                Err(why) => {
-                    session.rollback_transaction();
+                Err(stopped) => {
+                    let why = stopped.why.clone();
                     let mut tables = BTreeSet::new();
                     let not_installed = session.apps_not_installed().cloned().unwrap_or_default();
                     for (oi, ri) in
@@ -165,9 +235,34 @@ impl RootRun<'_> {
                     {
                         tables.extend(crate::baseline::tables_written_or_loaded(self.lowered, oi, ri));
                     }
+                    let refused: Vec<_> = company_roots
+                        .iter()
+                        .map(|&k| {
+                            let (oi, ri, _, _) = self.roots[k];
+                            (oi, ri)
+                        })
+                        .collect();
+                    let skipped_before = skipped.len();
+                    let unknown = stopped.roll_back(
+                        self.lowered,
+                        session,
+                        &mut skipped,
+                        (&company, &self.company_name),
+                        &refused,
+                    );
+                    for (tables, cause) in skipped.drain(skipped_before..) {
+                        self.stopped.push(StoppedRoot { tables, kept: false, cause });
+                    }
+                    if let Some(why) = unknown {
+                        if let Some(&k) = company_roots.first() {
+                            let (oi, _, _, _) = self.roots[k];
+                            self.unknown_session = Some((self.lowered.program.objects[oi].app, why));
+                        }
+                    }
                     for &k in &company_roots {
                         let (oi, ri, keep_prefix, _) = self.roots[k];
-                        tables.extend(crate::baseline::tables_written_or_loaded(self.lowered, oi, ri));
+                        let root_tables = crate::baseline::tables_written_or_loaded(self.lowered, oi, ri);
+                        tables.extend(root_tables.iter().copied());
                         let label = format!(
                             "{}.{}",
                             self.lowered.program.objects[oi].name, self.lowered.program.objects[oi].routines[ri].name
@@ -175,12 +270,17 @@ impl RootRun<'_> {
                         self.notes.push(format!(
                             "{label} did not run to its end: Company Triggers before it could not run: {why}"
                         ));
-                        self.stopped.push((
-                            crate::baseline::tables_written_or_loaded(self.lowered, oi, ri),
-                            keep_prefix,
-                        ));
+                        self.stopped.push(StoppedRoot {
+                            tables: root_tables,
+                            kept: keep_prefix,
+                            cause: format!("{label} stopped: Company Triggers before it could not run: {why}"),
+                        });
                     }
-                    self.stopped.push((tables, false));
+                    self.stopped.push(StoppedRoot {
+                        tables,
+                        kept: false,
+                        cause: format!("Company Triggers could not run: {why}"),
+                    });
                 }
             }
         }
@@ -202,7 +302,7 @@ pub(crate) struct DependencyInstalls<'r, 'a> {
 }
 
 impl crate::install_orders::AppInstalls for DependencyInstalls<'_, '_> {
-    type Mark = (usize, usize, usize, usize);
+    type Mark = (usize, usize, usize, usize, Option<(u32, String)>);
 
     fn mark(&self) -> Self::Mark {
         (
@@ -210,6 +310,7 @@ impl crate::install_orders::AppInstalls for DependencyInstalls<'_, '_> {
             self.run.stopped.len(),
             self.run.ran,
             self.run.refused.len(),
+            self.run.unknown_session.clone(),
         )
     }
 
@@ -218,9 +319,12 @@ impl crate::install_orders::AppInstalls for DependencyInstalls<'_, '_> {
         self.run.stopped.truncate(m.1);
         self.run.ran = m.2;
         self.run.refused.truncate(m.3);
+        self.run.unknown_session = m.4.clone();
     }
 
     fn install(&mut self, session: &mut Session, app: u32) {
+        // Each install of an app, in every order tried, is an install session of its own.
+        self.run.install_app = None;
         let roots: Vec<_> = (self.from..self.to)
             .filter(|&k| self.run.lowered.program.objects[self.run.roots[k].0].app == app)
             .collect();

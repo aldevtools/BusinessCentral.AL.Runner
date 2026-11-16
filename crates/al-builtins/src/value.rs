@@ -301,6 +301,26 @@ pub struct QueryState {
     /// `Close` ran since the last `Open`: a filter element read then is not pinned (only before `Open` is,
     /// assumption query-filter-element-read-without-row).
     pub closed: bool,
+    /// Where the variable stands in the pinned sequence of a second `Open` while rows are left (`al-vm` `query_reopen`).
+    pub reopen: crate::query_reopen_step::ReopenStep,
+}
+
+impl QueryState {
+    /// A new or cleared query variable of query object `object`: no filters, no row cap, not open.
+    pub fn new(object: u32) -> QueryState {
+        QueryState {
+            object,
+            filters: Vec::new(),
+            filter_replaced: false,
+            top: None,
+            security_filtering: None,
+            run: None,
+            instance: None,
+            in_before_open: false,
+            closed: false,
+            reopen: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -324,6 +344,22 @@ pub struct QueryRun {
     pub stamps: Vec<(u32, u64)>,
 }
 
+impl QueryRun {
+    /// What `Open` leaves: opened, not run yet.
+    pub fn opened() -> QueryRun {
+        QueryRun {
+            started: false,
+            filters_changed: false,
+            rows: Vec::new(),
+            next: 0,
+            current: None,
+            last_key: None,
+            returned: 0,
+            stamps: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct QueryRow {
     /// One value per query column (`Null` for filter elements).
@@ -342,6 +378,20 @@ pub struct TempId(Rc<TempToken>);
 struct TempToken {
     id: u64,
     release: Rc<RefCell<Vec<u64>>>,
+    /// The table was made for a record handed by value (al-vm `record_by_value`): the record it was copied from. The copy's Blob
+    /// fields may still share their buffers with that record and its rows.
+    by_value_of: Option<std::rc::Weak<RefCell<RecordState>>>,
+    /// The primary key of the row the table's last Insert stored while a Blob of the record was empty: a row that may share a
+    /// record's Blob buffer once the record moves on (al-vm `temp_blob_share.rs`). Where to look first, never more: the row is
+    /// looked up, and the other rows are still searched while holders stay unaccounted for.
+    empty_blob_insert_key: RefCell<Option<Vec<Value>>>,
+    /// The record state whose Insert noted [`TempToken::empty_blob_insert_key`]; dropped when `RecordRef.SetTable` writes into a
+    /// record of the table (al-vm `temp_blob_share.rs`, `measured_detach`).
+    empty_blob_inserter: RefCell<Option<std::rc::Weak<RefCell<RecordState>>>>,
+    /// The table is a Variant's by-value copy whose rows the corpus does not measure (al-vm `variant_copy.rs`, al-runner issue
+    /// 8070): every read of its rows and every write refuses (al-vm `Session::store_for`). Set once, never cleared: it ends with
+    /// the table.
+    rows_unmeasured: std::cell::Cell<bool>,
 }
 
 impl Drop for TempToken {
@@ -352,11 +402,88 @@ impl Drop for TempToken {
 
 impl TempId {
     pub fn new(id: u64, release: Rc<RefCell<Vec<u64>>>) -> TempId {
-        TempId(Rc::new(TempToken { id, release }))
+        TempId(Rc::new(TempToken {
+            id,
+            release,
+            by_value_of: None,
+            empty_blob_insert_key: RefCell::new(None),
+            empty_blob_inserter: RefCell::new(None),
+            rows_unmeasured: Default::default(),
+        }))
+    }
+
+    /// The table of a temporary record's copy handed by value; `source` is the record it was copied from.
+    pub fn new_by_value_copy(id: u64, release: Rc<RefCell<Vec<u64>>>, source: &Rc<RefCell<RecordState>>) -> TempId {
+        TempId(Rc::new(TempToken {
+            id,
+            release,
+            by_value_of: Some(Rc::downgrade(source)),
+            empty_blob_insert_key: RefCell::new(None),
+            empty_blob_inserter: RefCell::new(None),
+            rows_unmeasured: Default::default(),
+        }))
     }
 
     pub fn id(&self) -> u64 {
         self.0.id
+    }
+
+    /// How many record states share the table (`Copy(x, true)`, a record state clone), this one included.
+    pub fn sharers(&self) -> usize {
+        Rc::strong_count(&self.0)
+    }
+
+    /// Marks the rows of the table as not measured (al-vm `variant_copy.rs`), for every record that shares it.
+    pub fn mark_rows_unmeasured(&self) {
+        self.0.rows_unmeasured.set(true);
+    }
+
+    /// Whether [`TempId::mark_rows_unmeasured`] marked the table.
+    pub fn rows_unmeasured(&self) -> bool {
+        self.0.rows_unmeasured.get()
+    }
+
+    /// Whether the table was made for a record handed by value ([`TempId::new_by_value_copy`]).
+    pub fn is_by_value_copy(&self) -> bool {
+        self.0.by_value_of.is_some()
+    }
+
+    /// The record a by-value copy was made from, while it lives ([`TempId::new_by_value_copy`]).
+    pub fn by_value_source(&self) -> Option<Rc<RefCell<RecordState>>> {
+        self.0.by_value_of.as_ref().and_then(std::rc::Weak::upgrade)
+    }
+
+    /// The Insert of `inserter` into the table stored a row while a Blob of the record was empty, under the primary key `key`
+    /// yields.
+    pub fn note_empty_blob_insert<'a>(
+        &self,
+        inserter: &Rc<RefCell<RecordState>>,
+        key: impl Iterator<Item = &'a Value>,
+    ) {
+        *self.0.empty_blob_inserter.borrow_mut() = Some(Rc::downgrade(inserter));
+        let mut slot = self.0.empty_blob_insert_key.borrow_mut();
+        let kept = slot.get_or_insert_with(Vec::new);
+        kept.clear();
+        kept.extend(key.cloned());
+    }
+
+    /// Whether `rec` is the record state whose Insert [`TempId::note_empty_blob_insert`] last noted.
+    pub fn empty_blob_inserted_by(&self, rec: &Rc<RefCell<RecordState>>) -> bool {
+        let inserter = self.0.empty_blob_inserter.borrow();
+        inserter
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
+            .is_some_and(|r| Rc::ptr_eq(&r, rec))
+    }
+
+    /// `RecordRef.SetTable` wrote into a record of the table: no record state counts as the inserter any more.
+    pub fn forget_empty_blob_inserter(&self) {
+        *self.0.empty_blob_inserter.borrow_mut() = None;
+    }
+
+    /// `f` of the key [`TempId::note_empty_blob_insert`] last noted.
+    pub fn with_empty_blob_insert_key<R>(&self, f: impl FnOnce(Option<&[Value]>) -> R) -> R {
+        f(self.0.empty_blob_insert_key.borrow().as_deref())
     }
 }
 
@@ -455,6 +582,8 @@ pub struct RecordState {
     pub row_origin: Option<RowOrigin>,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
+    /// The record is a source the Blob copy probes measured (see [`ProbedSource`]).
+    pub probed_source: ProbedSource,
     /// The table's and its extensions' global variables of this record variable (ADR-021).
     pub globals: TableGlobals,
     /// Every use of the record refuses with this reason: what its buffer holds is not pinned (the row a page closed on after
@@ -463,6 +592,23 @@ pub struct RecordState {
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
+}
+
+/// The record is one whose Blobs the Blob copy probes measured as the source of a record-wide move (a record passed by
+/// value, `Record.Copy`, `TransferFields` with flags, `SetTable(Rec, true)`, a Blob moved into a Variant that is not local):
+/// al-vm `blob_transfer` sets it on a declared variable, keeps it through the record methods and builtins the probes ran, and
+/// ends it at every other one (`blob_transfer::Holder`). The byte is the kind of measured record in al-vm `blob_transfer`'s
+/// encoding, 0 for every other record; the number is the session's commit count when the byte was set (a Commit since ends
+/// it).
+///
+/// `Clone` gives 0: a copy of a record state (a record passed by value, a Variant's record, xRec) is not that variable.
+#[derive(Debug, Default)]
+pub struct ProbedSource(pub u8, pub u64);
+
+impl Clone for ProbedSource {
+    fn clone(&self) -> Self {
+        ProbedSource(0, 0)
+    }
 }
 
 /// A record variable inserted a row with `Insert()` and then read it with `Get`, with nothing written to the record's store
@@ -617,6 +763,20 @@ impl DirtyBase {
 }
 
 impl RecordState {
+    /// How many of the record's own copies of its fields hold Blob buffer `b` at position `pos`: the fields and the snapshots
+    /// IsDirty, RecordRef.IsDirty and Modify compare with (`is_dirty_base`, `dirty_base`, `last_modify`).
+    pub fn blob_copies_of(&self, pos: usize, b: &crate::stream::BlobRef) -> usize {
+        let holds = |row: &[Value]| matches!(row.get(pos), Some(Value::Blob(o)) if std::sync::Arc::ptr_eq(o, b));
+        let mut rows: Vec<&[Value]> = vec![&self.fields];
+        rows.extend(self.dirty_base.as_deref());
+        rows.extend(self.last_modify.as_deref());
+        if let DirtyBase::Row { base, alt, .. } = &self.is_dirty_base {
+            rows.push(base);
+            rows.extend(alt.as_deref());
+        }
+        rows.into_iter().filter(|r| holds(r)).count()
+    }
+
     /// A copy of the record that is a variable of its own: a by-value parameter (also a temporary one). It reads the
     /// original's DECLARED value, not its current one, and `Clear` on it goes back to that value; the original keeps its
     /// current value (al-language/reports/runtime/ACAttributes.al:397, :411-414; al-language/reports/runtime/
@@ -779,6 +939,20 @@ impl TableGlobals {
         let data = self.data();
         let d = data.borrow();
         d.xrec.share()
+    }
+
+    /// Calls `f` for every instance of the set, and of `xRec`'s set, when no other handle shares them
+    /// (`instance_cycles`).
+    pub(crate) fn owned_instances(&self, f: &mut dyn FnMut(&Rc<RefCell<Instance>>)) {
+        let Ok(data) = self.data.try_borrow() else { return };
+        let Some(d) = data.as_ref().filter(|d| Rc::strong_count(d) == 1) else {
+            return;
+        };
+        let Ok(d) = d.try_borrow() else { return };
+        for (_, i) in &d.instances {
+            f(i);
+        }
+        d.xrec.owned_instances(f);
     }
 }
 
@@ -978,10 +1152,14 @@ pub struct HttpRequestState {
     /// The uri came from `SetSecretRequestUri`: `GetRequestUri` then reads empty
     /// (xml/xml/P97ReqSecretUri.al:79, :110).
     pub uri_secret: bool,
-    /// The `Content` set on the request: the `HttpContent` handle itself, so the request and the
-    /// variable it was set from share it (nothing pins a copy; no corpus test tells them apart).
+    /// The request's content: a copy of the content it was set from, or the uninitialized one its first read handed out
+    /// (`http::request_content`).
     pub content: Option<Value>,
     pub headers: HttpHeaderList,
+    /// The request was assigned, passed by value, put into a Variant or sent (`http::request_handed_on`). The variables
+    /// share the request; the mark
+    /// only says that no evidence for `ReadAs(SecretText)` covers its content (`http::SecretReadShape`).
+    pub handed_on: bool,
 }
 
 impl Default for HttpRequestState {
@@ -992,6 +1170,7 @@ impl Default for HttpRequestState {
             uri_secret: false,
             content: None,
             headers: new_header_list(HeaderKind::Request),
+            handed_on: false,
         }
     }
 }
@@ -1017,6 +1196,12 @@ pub struct HttpContentState {
     pub from_stream: bool,
     /// The last `WriteFrom` took a `SecretText` (xml/xml/P97ContentSecret.al).
     pub secret: bool,
+    /// The calls made on the content so far, as far as the evidence for `ReadAs(SecretText)` follows them
+    /// (`http::SecretReadShape`).
+    pub secret_read: crate::http::SecretReadShape,
+    /// No method was called on this content yet; it was only assigned, passed by value or handed on otherwise
+    /// (`http::content_handed_on`). It stands for the variable main keeps as `LibraryValue::Empty` (`http::content_unused`).
+    pub untouched: bool,
 }
 
 impl Default for HttpContentState {
@@ -1035,6 +1220,8 @@ impl Default for HttpContentState {
             copied: false,
             from_stream: false,
             secret: false,
+            secret_read: crate::http::SecretReadShape::Other,
+            untouched: false,
         }
     }
 }
@@ -1212,6 +1399,8 @@ pub struct Instance {
     pub born: Born,
     /// The session watches this single instance's globals (al-vm `single_track.rs`).
     pub single: bool,
+    /// Counts the instance as live while it exists (`instance_cycles::live`).
+    pub live: crate::instance_cycles::LiveCount,
 }
 
 thread_local! {
@@ -1244,10 +1433,31 @@ pub struct HandlerContext {
     pub procedure: String,
     /// Empty except in the case callbacks.
     pub case: String,
-    /// Whether the test passed, in the After callbacks; `None` in the Before callbacks (not pinned there).
-    pub success: Option<bool>,
+    /// Whether the test passed, in the After callbacks; false in every Before callback
+    /// (BiTestHandlerSuccess.al:116, al-runner issue 7181).
+    pub success: bool,
+    /// A Before callback of a default handler: its `success` (false) rests on assumption
+    /// `test-handler-default-before-success` (the corpus pins it for a `TestHandlers` handler only).
+    pub success_assumed: bool,
     /// The reason of a `Skip` call in this callback.
     pub skip: Option<String>,
+}
+
+/// How a RecordRef or a KeyRef came to hold nothing ([`LibraryValue::EmptiedRef`]): a probe measured some members in the first
+/// three states, none in the others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmptiedRef {
+    /// A RecordRef that was open, after `Clear`.
+    ClearedOpenRecordRef,
+    /// A RecordRef never opened, after an `Open(0)` that raised nothing.
+    ZeroOpenedRecordRef,
+    /// A KeyRef that held a key, after `Clear`.
+    ClearedAssignedKeyRef,
+    /// A RecordRef that holds nothing after another sequence: `Clear` of one that was not open, or an `Open` or a `Get` that left
+    /// one emptied (any state above) not open.
+    OtherRecordRef,
+    /// A KeyRef that held nothing, after `Clear`.
+    OtherKeyRef,
 }
 
 /// State behind a library-type handle; grows with the builtins that need it.
@@ -1258,6 +1468,15 @@ pub enum LibraryValue {
     /// An InStream or OutStream after `Clear`: it holds no stream, as one never created, but the corpus measured fewer of its
     /// uses (streams/instream-outstream/Y62GoneInStream.al against StreamUncreatedUse.al; `stream_cleared`).
     ClearedStream,
+    /// The XmlNode that `AsXmlNode` of an unassigned XmlElement returns (al-builtins `xml/unassigned_element.rs`): only
+    /// `IsXmlElement` and `WriteTo(Text)` are admitted on it (`is_node_of_unassigned_element`); every other use refuses.
+    XmlNodeOfUnassignedElement,
+    /// A RecordRef after `Close`: not open, as one never opened (`Empty`), but the corpus measured fewer of its members
+    /// (al-vm `unopened_refs.rs`). `recordref_closed::not_open` tells both apart from an open one.
+    ClosedRecordRef,
+    /// A RecordRef or a KeyRef that holds nothing after a call that emptied it: it answers as one never opened or never assigned,
+    /// except the members the corpus measured only on a new variable (`recordref_closed`, al-vm `unopened_refs.rs`).
+    EmptiedRef(EmptiedRef),
     /// A `DataSourceContext` or `TestHandlerContext` the test framework handed to a callback (ADR-059). Its members are
     /// refused there (`testcontexts.rs`).
     HandedContext,
@@ -1356,8 +1575,13 @@ pub enum LibraryValue {
     XmlNamespaces(crate::xml::NsScopes),
     /// An InStream: a snapshot being read.
     InStream(crate::stream::InState),
-    /// An OutStream: appends to a Blob buffer.
-    OutStream(crate::stream::BlobRef, crate::stream::Encoding),
+    /// An OutStream: appends to a Blob buffer. The last part is what the VM kept when the stream was opened on a Blob field of
+    /// a temporary record ([`crate::stream::OutOpen`]).
+    OutStream(
+        crate::stream::BlobRef,
+        crate::stream::Encoding,
+        Option<Rc<crate::stream::OutOpen>>,
+    ),
 }
 
 impl Value {
@@ -1495,24 +1719,14 @@ impl Value {
                 let n = dims.iter().map(|d| *d as usize).product();
                 Value::Array(Rc::new(RefCell::new((0..n).map(|_| Value::default_for(el)).collect())))
             }
-            RtType::Codeunit(id) => Value::Codeunit(Rc::new(RefCell::new(Instance {
+            RtType::Codeunit(id) => Value::Codeunit(crate::instance_cycles::shared(Instance {
                 object: *id,
                 ..Default::default()
-            }))),
+            })),
             // An unassigned interface holds nothing.
             RtType::Interface(_) => Value::Null,
             RtType::TestPage(id) | RtType::Page(id) => Value::TestPage(PageHandle::closed(*id)),
-            RtType::Query(id) => Value::Query(Rc::new(RefCell::new(QueryState {
-                object: *id,
-                filters: Vec::new(),
-                filter_replaced: false,
-                top: None,
-                security_filtering: None,
-                run: None,
-                instance: None,
-                in_before_open: false,
-                closed: false,
-            }))),
+            RtType::Query(id) => Value::Query(Rc::new(RefCell::new(QueryState::new(*id)))),
             // Records need the table's field types: the VM builds them.
             RtType::Record(..) => Value::Null,
             RtType::Library(crate::library_kind::LibraryKind::Blob) => Value::Blob(crate::stream::new_blob()),

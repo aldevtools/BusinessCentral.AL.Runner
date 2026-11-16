@@ -599,6 +599,8 @@ impl CorpusRuntime {
                 })
             })
             .collect();
+        let load_ws =
+            |apps, kinds, lazy| internals_grant::load_workspace(apps, kinds, symbols, &dep_symbols, lazy, manifests);
         // The apps whose files hold no text yet, in program order.
         let lazy: Vec<Option<al_sema::LazySource>> =
             order.iter().map(|&i| opts.lazy.get(i).cloned().flatten()).collect();
@@ -685,15 +687,11 @@ impl CorpusRuntime {
                     (true, Some(cc)) => match lazy_index(cc, &apps, manifests, &lazy, &identities) {
                         Ok(deps) => {
                             source_index = Some("read");
-                            (
-                                al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, deps),
-                                false,
-                            )
+                            (load_ws(apps, kinds, deps), false)
                         }
                         Err(key) => {
                             fill_all(&mut apps);
-                            let ws =
-                                al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, Vec::new());
+                            let ws = load_ws(apps, kinds, Vec::new());
                             save_index(cc, &ws, &lazy, &key);
                             source_index = Some("built");
                             (ws, true)
@@ -701,10 +699,7 @@ impl CorpusRuntime {
                     },
                     _ => {
                         fill_all(&mut apps);
-                        (
-                            al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, &dep_symbols, Vec::new()),
-                            true,
-                        )
+                        (load_ws(apps, kinds, Vec::new()), true)
                     }
                 };
                 let load = started.elapsed();
@@ -828,13 +823,7 @@ impl CorpusRuntime {
                                 None => {
                                     fill_all(&mut apps);
                                     let started = std::time::Instant::now();
-                                    let ws = al_sema::Workspace::load_apps_symbols(
-                                        apps,
-                                        kinds,
-                                        symbols,
-                                        &dep_symbols,
-                                        Vec::new(),
-                                    );
+                                    let ws = load_ws(apps, kinds, Vec::new());
                                     (ws, started.elapsed())
                                 }
                             };
@@ -991,6 +980,8 @@ impl CorpusRuntime {
         opts: &RunOptions,
         keep: bool,
     ) -> CorpusRuntime {
+        // Declared first, so it drops last: once the run is done, what its AL code made on this thread is released.
+        let _run_end = al_builtins::instance_cycles::RunEnd::new();
         let Compiled {
             ws,
             lowered,
@@ -1076,7 +1067,6 @@ impl CorpusRuntime {
             .iter()
             .map(|o| o.iter().map(|r| r.first().map(|r| r.reason().to_owned())).collect())
             .collect();
-        let limit = opts.test_time_limit;
         // A debugged run is one thread, so the tests stop one at a time (ADR-048 decision 3); the memory budget may cut.
         let mut memory = super::memory::Plan::after_compile(opts, test_workers());
         let mut workers = memory.workers();
@@ -1099,19 +1089,6 @@ impl CorpusRuntime {
                 e.skipped_apps = opts.skipped_dependencies.clone();
             }
             engine
-        };
-        // The tests' engine (with several test threads) shares what `make_engine` worked out from the program with the
-        // install baseline's engine (`Engine::sibling`); what `make_engine` sets on top is set again.
-        let sibling_of = |engine: &Arc<Engine>| {
-            let mut sibling = engine.sibling();
-            if let Some(e) = Arc::get_mut(&mut sibling) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
-            }
-            sibling
         };
         // A warm server's engines of the last request over this compile, set again for this one (al-runner issue 5856).
         let engine_key = keep.then(|| kept_engine_key(target, &dotnet, opts));
@@ -1175,7 +1152,7 @@ impl CorpusRuntime {
                 .then(|| {
                     std::thread::Builder::new()
                         .stack_size(64 << 20)
-                        .spawn_scoped(scope, || sibling_of(&engine))
+                        .spawn_scoped(scope, || sibling_of(&engine, opts))
                         .ok()
                 })
                 .flatten();
@@ -1241,9 +1218,9 @@ impl CorpusRuntime {
         // seed. The baseline itself ran before it knew; with several test threads, which each run
         // the baseline again (its data is not for sharing between threads), the engine that ran it
         // stays as it was and the tests get another.
-        let unseeded: std::collections::HashSet<usize> = baseline_run
+        let unseeded = baseline_run
             .as_ref()
-            .map(|b| b.unseeded.iter().map(|&t| t as usize).collect())
+            .map(crate::baseline::BaselineRun::engine_unseeded)
             .unwrap_or_default();
         workers = memory.after_baseline(); // The fixed part is loaded (`memory.rs`).
         let baseline_engine = (workers > 1 && baseline_run.is_some()).then(|| engine.clone());
@@ -1271,7 +1248,7 @@ impl CorpusRuntime {
             }
             baseline_ids = crate::baseline::NoteFacts::of(&b.notes);
             if baseline_engine.is_some() {
-                engine = spare_engine.take().unwrap_or_else(|| sibling_of(&engine));
+                engine = spare_engine.take().unwrap_or_else(|| sibling_of(&engine, opts));
             }
             if let Some(e) = Arc::get_mut(&mut engine) {
                 e.unseeded = unseeded;
@@ -1413,32 +1390,9 @@ impl CorpusRuntime {
         // pass first runs on several threads.
         let snapshot_once =
             super::install_snapshot::InstallSnapshots::new(opts.private_baseline, memory.pool().fixed_adder());
-        // The passes of the run: one, or one per entry (issue 5635), each over the same compile and install baseline.
-        let passes: Vec<Pass> = if opts.entries.is_empty() {
-            vec![Pass {
-                only: opts_only.clone(),
-                run_only: opts.run_only.clone(),
-                hooks: memory.hooks(&opts.hooks),
-                resources: Default::default(),
-            }]
-        } else {
-            opts.entries
-                .iter()
-                .map(|e| Pass {
-                    only: e.only.as_deref().map(in_program_order).or_else(|| opts_only.clone()),
-                    run_only: e.run_only.clone(),
-                    hooks: memory.hooks(&e.hooks),
-                    resources: e
-                        .resources
-                        .iter()
-                        .filter_map(|(caller, r)| {
-                            let p = order.iter().position(|o| o == caller)?;
-                            Some((p, Arc::new(r.clone())))
-                        })
-                        .collect(),
-                })
-                .collect()
-        };
+        // What the install code left for the codeunits that start from no install baseline: one for the run (`install_once.rs`).
+        let installs = Arc::new(super::install_once::RunInstalls::default());
+        let passes = Pass::of_run(opts, &opts_only, &memory, order, in_program_order);
         let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
         let mut pass_times: Vec<PassTime> = Vec::new();
         for pass in &passes {
@@ -1448,15 +1402,13 @@ impl CorpusRuntime {
             let reset_ns = std::sync::atomic::AtomicU64::new(0);
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
-            if let Ok(mut o) = engine.resource_overrides.write() {
-                o.clone_from(&pass.resources);
-            }
+            super::install_once::begin_pass(&engine, &pass.resources);
             // The install code read resource files, and this entry has resource files of its own: its install baseline
             // would be another one, which is not made per entry.
             let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
             "the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()
         });
-            let opts_only = &pass.only;
+            let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
             // Codeunits with RequiredTestIsolation = Disabled under the TestRunnerHub that are not run (suite, id, object, why).
@@ -1515,6 +1467,7 @@ impl CorpusRuntime {
                             singles_past_stop: false,
                             driver,
                             discovery: None,
+                            installs: installs.clone(),
                         }),
                         Err(why) => {
                             if hub_path && requires_disabled(&lowered.program.objects[oi]) {
@@ -1655,7 +1608,15 @@ impl CorpusRuntime {
                 .for_each(|u| super::discovery::skip_methods_if_raised(u, &chain_report.discovery_raised));
             let rest: Vec<usize> = (0..units.len()).filter(|k| slots[*k].is_none()).collect();
             let results: Vec<UnitResult> = if workers <= 1 || rest.len() < 2 {
-                run_serially(&engine, lowered, baseline.as_ref(), &units, &rest, &mut details, opts)
+                run_serially(
+                    &engine,
+                    lowered,
+                    baseline.as_ref(),
+                    rest.iter().map(|&k| &units[k]),
+                    &mut details,
+                    opts.trace,
+                    limit,
+                )
             } else {
                 // Test codeunits run on a session each and do not share anything (the install baseline is put back for
                 // each), so worker threads take them in turn, each with its own copy of the baseline (`threads.rs`).
@@ -1875,9 +1836,7 @@ impl CorpusRuntime {
                 wall: pass_started.elapsed(),
             });
         }
-        if let Ok(mut o) = engine.resource_overrides.write() {
-            o.clear();
-        }
+        let install_runs = super::install_once::end_run(&engine, &installs);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -1937,6 +1896,7 @@ impl CorpusRuntime {
                 cache: cache_report.clone(),
                 engine: engine_time,
                 baseline_skipped,
+                install_runs,
                 baseline_why: baseline_note,
                 compile_cache_skipped,
                 source_index,
@@ -1987,6 +1947,20 @@ impl CorpusRuntime {
             met: install_met,
         }
     }
+}
+
+/// The tests' engine (with several test threads): it shares what `make_engine` worked out from the program with the
+/// install baseline's engine (`Engine::sibling`); what `make_engine` sets on top is set again.
+fn sibling_of(engine: &Arc<Engine>, opts: &RunOptions) -> Arc<Engine> {
+    let mut sibling = engine.sibling();
+    if let Some(e) = Arc::get_mut(&mut sibling) {
+        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+        e.license = opts.license.clone();
+        e.write_in_try_allowed = opts.allow_write_in_try_functions;
+        e.dependencies_published_global = opts.dependencies_published_global;
+        e.skipped_apps = opts.skipped_dependencies.clone();
+    }
+    sibling
 }
 
 /// What the install code met on the run's engines that the compile left out (`narrowing::take_install`), and what the
@@ -2310,25 +2284,24 @@ fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, 
     Ok(Some(isolation))
 }
 
-/// Runs the codeunits `rest` of `units` one after the other on this thread; with `--trace` it notes what each test
-/// observed for `--explain`.
-fn run_serially(
+/// Runs `units` one after the other on this thread, each test under `limit`; with `trace` (`--explain`) it notes what
+/// each test observed.
+fn run_serially<'a>(
     engine: &Arc<al_vm::Engine>,
     lowered: &Lowered,
     baseline: Option<&al_vm::Baseline>,
-    units: &[Unit],
-    rest: &[usize],
+    units: impl Iterator<Item = &'a Unit>,
     details: &mut std::collections::HashMap<(usize, u32, String), explain::TestDetail>,
-    opts: &RunOptions,
+    trace: bool,
+    limit: Option<std::time::Duration>,
 ) -> Vec<UnitResult> {
-    rest.iter()
-        .map(|&k| &units[k])
+    units
         .map(|u| {
             let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
                 details.insert((u.si, u.id, name.to_lowercase()), observed_detail(lowered, seen));
             };
-            let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
-            run_unit(engine, lowered, baseline, u, trace, opts.test_time_limit)
+            let trace: Option<&mut Observer> = trace.then_some(&mut observe);
+            run_unit(engine, lowered, baseline, u, trace, limit)
         })
         .collect()
 }

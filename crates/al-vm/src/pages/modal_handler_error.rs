@@ -27,13 +27,18 @@ impl Session {
     /// PageModalQueryCloseVeto.al:478 RP_ListWithFactBox_HandlerCancel_HostVetoes, where the page refuses the close). Pinned only
     /// for a refusal by a page with open parts, and for a close allowed in lookup mode (WbModalHandlerCloseTests.al); a page without
     /// parts, or one where no close trigger is declared, closes as before without asking; another allowed close, or one with an
-    /// unsaved row, is refused.
-    pub(super) fn close_modal_after_handler_error(&mut self, st: &St, e: &Signal) -> Result<(), Signal> {
+    /// unsaved row, is refused. `caught_before`: the session's count of caught errors before the handler ran (caught_errors.rs).
+    pub(super) fn close_modal_after_handler_error(
+        &mut self,
+        st: &St,
+        e: &Signal,
+        caught_before: u64,
+    ) -> Result<(), Signal> {
         if self.relation_closed_in_handler(st) {
             return self.close_relation_lookup_after_handler_error(st);
         }
         if self.document_close_pinned(st)? {
-            return self.close_document_after_handler_error(st, e);
+            return self.close_document_after_handler_error(st, e, caught_before);
         }
         let parts: Vec<St> = st
             .borrow()

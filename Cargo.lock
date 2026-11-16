@@ -257,6 +257,7 @@ dependencies = [
  "al-rapidstart",
  "al-sema",
  "al-syntax",
+ "al-testfiles",
  "al-testkit",
  "al-testrun",
  "al-version",

@@ -681,23 +681,33 @@ fn dates_out_of_the_sql_range_fail_at_the_next_access() {
     );
 }
 
-// Not pinned: other dates before 1753-01-02, an Insert into a table with a Blob field, a Modify, a Time that rounds past
-// midnight.
+// Not pinned: dates before 1700-01-01 (dates from 1700 and the Modify of a closing date in 1753, which corpus PR 1398
+// measured: tests/store/sql_date_floor.rs).
 #[test]
 fn unpinned_sql_range_cases_are_refused() {
-    for (routine, d) in [
-        ("StoreBlobTable", date(1753, 1, 1, false)),
-        ("ModifyTo", date(1753, 1, 1, false)),
-        ("ModifyTo", date(1600, 6, 1, false)),
-        ("ModifyTo", date(1753, 1, 1, true)),
-    ] {
-        let r = dates(routine, vec![d.clone()]);
-        assert!(matches!(r, Err(Signal::Unsupported(_))), "{routine} {d:?}: {r:?}");
-    }
+    let r = dates("ModifyTo", vec![date(1600, 6, 1, false)]);
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    // Modify_Date_ClosingAndOutside_1 and _2 (SqlDateFloor1753.al): the Modify() of a closing
+    // date in 1753 raises; it was refused here before corpus PR 1398 measured it.
+    let r = dates("ModifyTo", vec![date(1753, 1, 1, true)]);
+    assert!(
+        matches!(&r, Err(Signal::Error(e)) if e.code == "NDBCS:BadCSideData"),
+        "{r:?}"
+    );
     let r = dates(
         "Store",
         vec![date(1600, 6, 1, false), al_builtins::value::Value::DateTime(0)],
     );
+    assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
+    // An Insert of 1753-06-15 into a table with a Blob field raises at the Insert since corpus PR 1398 measured it
+    // (SqlDateFloor1753.al Blob_Date_1); main refused it. 1753-01-01 is pinned only into a
+    // table without a Blob field (P130DateFilters.al:255-293): into this table it stays refused, as on main.
+    let r = dates("StoreBlobTable", vec![date(1753, 6, 15, false)]);
+    assert!(
+        matches!(&r, Err(Signal::Error(e)) if e.code == "NDBCS:BadCSideData"),
+        "{r:?}"
+    );
+    let r = dates("StoreBlobTable", vec![date(1753, 1, 1, false)]);
     assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
 }
 

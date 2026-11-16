@@ -179,10 +179,13 @@ impl RunInputs {
             skip_after_timeout,
             // Without a usable .NET the run stops: no outcome is stored.
             require_dotnet: _,
+            require_report_renderer,
             files_dir,
             license,
             environment,
             companies,
+            // Which name a message about the companies gives (the option or the serve field): the outcomes are the same.
+            companies_from_request: _,
             server_url,
             company_name,
             // Whether a backup that is not found stops the run. Whether a company is restored is `wants_test_data()`.
@@ -285,6 +288,9 @@ impl RunInputs {
         // A test over the limit is not run.
         r.outcome.push(("test_timeout_secs", text(test_timeout_secs)));
         r.outcome.push(("skip_after_timeout", text(skip_after_timeout)));
+        // A save that needs the renderer refuses without it.
+        r.outcome
+            .push(("require_report_renderer", text(require_report_renderer)));
         // `File` reads and writes a real folder.
         r.outcome.push(("files_dir", text(&file_name(files_dir))));
         // What License Permission answers (ADR-060).
@@ -468,6 +474,7 @@ mod tests {
         ("dotnet_timeout_secs", |a, _| a.dotnet_timeout_secs = Some(5)),
         ("test_timeout_secs", |a, _| a.test_timeout_secs = Some(5)),
         ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
+        ("require_report_renderer", |a, _| a.require_report_renderer = true),
         ("files_dir", |a, f| a.files_dir = Some(f.to_path_buf())),
         ("license", |a, f| a.license = Some(f.to_path_buf())),
         ("environment", |a, _| a.environment = Some(al_host::Environment::OnPrem)),

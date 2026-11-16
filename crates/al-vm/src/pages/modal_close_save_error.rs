@@ -28,6 +28,7 @@ impl Session {
     /// names, an error of the save at close is RunModal's error; elsewhere such an error is refused.
     pub(super) fn close_modal_left_open(&mut self, st: &St, action: &str) -> Result<(), Signal> {
         let pinned = self.modal_close_save_pinned(st);
+        let page_run = self.page_run_returned(st, action)?;
         let errors_before = st.borrow().errors.len();
         self.pages.close_save_error = None;
         self.pages.failed_trigger = None;
@@ -43,14 +44,24 @@ impl Session {
         let saved = std::mem::take(&mut self.pages.close_save_error);
         // The TestField is pinned raised by the page's own code or by a codeunit it calls (ModalCloseSaveErrorShapes.al:34 the
         // TableNo codeunit's OnRun, :74 a codeunit procedure); one raised in a table trigger the save reaches is not.
-        let raised_in_page_or_codeunit =
-            self.pages.close_save_raised_in.take().is_some_and(|o| {
-                o == object as usize || self.engine.program.objects[o].kind == al_ir::ObjKind::Codeunit
-            });
+        let raised_in = self.pages.close_save_raised_in.take();
+        let raised_in_page_or_codeunit = raised_in
+            .is_some_and(|o| o == object as usize || self.engine.program.objects[o].kind == al_ir::ObjKind::Codeunit);
         // The save of the edited row raised (OnModifyRecord, OnInsertRecord or the table's trigger), so the page stayed open.
         let raised = st.borrow().open && st.borrow().errors.len() > errors_before;
         if !raised {
             return Ok(());
+        }
+        // A page run by `Page.Run`, in the cell pages/page_run_close.rs pins: the error is dropped and the page closes.
+        if let Some(e) = &saved {
+            let failure = super::page_run_close::CloseFailure::Save {
+                e,
+                trigger: origin.as_deref(),
+                raised_in,
+            };
+            if self.page_run_save_error_dropped(page_run, st, failure, errors_before) {
+                return Ok(());
+            }
         }
         let Some((e, codes)) = saved.zip(pinned) else {
             return unsupported(

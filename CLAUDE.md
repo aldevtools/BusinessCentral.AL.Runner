@@ -135,9 +135,9 @@ question, choose the better long-term solution over the quicker one.
   hour, and PR CI runs the full corpus on every major in about 6 to 12 minutes. Locally run
   `cargo test -p` and `cargo clippy -p ... -- -D warnings` for the crates you touched, and `cargo fmt --all`.
   Open the pull request as a draft and without auto-merge (owner, 2026-11-09): CI runs only the `test` job on a draft (owner, 2026-11-10),
-  so it takes little of the CI queue. The orchestrator reviews it. A single reviewed PR is marked ready
-  with auto-merge and lands on its own (owner, 2026-11-10); a merge train is used only when two or more
-  PRs are ready, and its pull request runs CI once for all of them. The orchestrator fixes or hands back
+  so it takes little of the CI queue. The orchestrator reviews it. Every reviewed PR lands through
+  a merge train, never on its own (owner, 2026-11-13): the train's pull request runs CI once for all of them. An outside
+  PR with one small thing left joins the train as it is, and the orchestrator fixes that thing in the train. The orchestrator fixes or hands back
   what that run reports. Agents never run `pkill`, `git stash`, `git commit -a` / `git add -A`, or start a
   workflow run; observation runs are local, and CI is only the PR's own run. `./check.sh` (fmt, clippy, all tests, the lists) stays for a person who
   wants the full check on their own machine.

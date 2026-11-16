@@ -8,14 +8,16 @@ use crate::native::{Signal, raise};
 pub(super) fn too_large(body: &str) -> Result<(), Signal> {
     let digits_only = !body.is_empty() && body.bytes().all(|b| b.is_ascii_digit());
     if digits_only && body.trim_start_matches('0').len() > 4 {
-        return raise(
-            format!(
-                "The date formula '{body}' contains a number that is too large.\\\\The number must be in the range 0 - 9999."
-            ),
-            "Evaluate",
-        );
+        return raise(message(body), "Evaluate");
     }
     Ok(())
+}
+
+/// The "too large" text of a date formula, as BC shows it (`shown` is the formula without brackets).
+pub(super) fn message(shown: &str) -> String {
+    format!(
+        "The date formula '{shown}' contains a number that is too large.\\\\The number must be in the range 0 - 9999."
+    )
 }
 
 #[cfg(test)]

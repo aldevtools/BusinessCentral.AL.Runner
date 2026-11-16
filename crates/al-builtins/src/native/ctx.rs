@@ -101,6 +101,12 @@ pub trait Ctx: FormatCtx {
         Ok(None)
     }
 
+    /// `Error` with a text is about to raise: a context may refuse it where the error is not measured (al-vm, a CaptionClass
+    /// run of a page). A context without pages lets it raise.
+    fn error_text_raise(&self) -> Result<(), Signal> {
+        Ok(())
+    }
+
     fn last_error(&self) -> AlError;
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.
@@ -207,6 +213,11 @@ pub trait Ctx: FormatCtx {
             "Format of a field with an AutoFormatExpression outside a session".into(),
         ))
     }
+    /// Why `Format` in code of a Decimal field of AutoFormatType `kind` is refused while a subscriber could write the AutoFormat
+    /// result (al-vm `auto_format_writer`); `None` where the context has no session.
+    fn auto_format_writer_refusal(&self, _kind: &str) -> Option<String> {
+        None
+    }
     /// `CopyStream` where one side is a `DotNet` stream (ADR-024). `None` where the context has no
     /// .NET host.
     fn copy_stream_dotnet(&mut self, _out: &Value, _src: &Value, _count: Option<i64>) -> Option<Result<(), Signal>> {
@@ -291,6 +302,13 @@ pub trait Ctx: FormatCtx {
     /// The name and packaged resources of the app that owns the running code.
     fn app_resources(&self) -> Option<AppResources> {
         None
+    }
+    /// The name of the app that owns the running code and the content of its resource `name` (`None`: it has none of that
+    /// name). A context that tracks what is read notes only that file.
+    fn app_resource(&self, name: &str) -> Option<(String, Option<Vec<u8>>)> {
+        let (app, resources) = self.app_resources()?;
+        let content = resources.into_iter().find(|(n, _)| n == name).map(|(_, c)| c);
+        Some((app, content))
     }
     /// The module BC answers `GetModuleInfo` with for the null app id: the installed application.
     fn application_module(&self) -> crate::value::ModuleInfoState {
@@ -377,6 +395,10 @@ pub trait Ctx: FormatCtx {
     fn media_store(&mut self) -> Option<&mut crate::media::MediaStore> {
         None
     }
+    /// Whether `id` is the ID of a Tenant Media row an AL Insert stored, which the media store does not hold.
+    fn is_stored_tenant_media_id(&mut self, _id: [u8; 16]) -> bool {
+        false
+    }
     /// The media and media sets the stored rows hold in Media and MediaSet fields (`FindOrphans`).
     fn media_holders(&mut self) -> Result<crate::media_orphans::MediaHolders, Signal> {
         Err(Signal::Unsupported("FindOrphans: this context has no database".into()))
@@ -411,6 +433,10 @@ pub trait Ctx: FormatCtx {
     fn fs_placeholder(&mut self, _path: &str) -> Option<(std::sync::Arc<str>, Vec<u8>)> {
         None
     }
+    /// `File.Create` or `File.Open` opened an AL File on `path` (not a temporary file); it holds the file until `fs_closed`.
+    fn fs_opened(&mut self, _path: &str) {}
+    /// `File.Close` closed an AL File that was open on `path` (not a temporary file), after the close wrote what it writes.
+    fn fs_closed(&mut self, _path: &str, _handle: &crate::file::FileHandle) {}
     /// Whether `Clear` of a DotNet variable holding the host object `handle` of type `clr_type` changes nothing AL can see, so
     /// the variable just becomes unassigned (an OpenXml workbook writer after its `Close` and the worksheet writers it handed
     /// out, a workbook reader and its worksheet readers). The context marks the assumption it relies on.
@@ -426,6 +452,11 @@ pub trait Ctx: FormatCtx {
     /// know (`fs_write_unproduced`): File.Open gives an opaque buffer instead of refusing.
     fn fs_carried_mark(&self, _path: &str) -> Option<std::sync::Arc<str>> {
         None
+    }
+    /// Whether `b` is the Blob field of the temporary record a live instance of System Application's "Temp Blob Impl." holds
+    /// now, the field that codeunit's CreateInStream or CreateOutStream opened a stream on (al-vm `temp_blob_impl_field`).
+    fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
+        false
     }
     /// The app name and object name of the AL routine that made the current call.
     fn calling_object(&self) -> Option<(String, String)> {

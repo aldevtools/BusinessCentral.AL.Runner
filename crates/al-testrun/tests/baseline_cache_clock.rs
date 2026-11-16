@@ -3,6 +3,10 @@
 //! install code: a run that does not sees rows stamped with a time that its own clock never showed, which an uncached
 //! run cannot show.
 //!
+//! The stamp is kept as text (`Format(.., 0, 9)`, to the millisecond): a DateTime column rounds to 1/300 s
+//! (record/filters/P130DateFilters.al:122), so a DateTime column holds the clock's instant only when it lies on that grid,
+//! which the run clock's start (12:34:56.789, ADR-045 amendment 2026-11-15) does not.
+//!
 //! The run clock is read once per process, so the run that writes the file is another process (this test starts
 //! itself with `BASELINE_CLOCK_CHILD` set).
 
@@ -13,11 +17,11 @@ use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions, SuiteRun};
 use std::path::Path;
 
 const SOURCE_BASE: &str = r#"
-table 50100 Setting { fields { field(1; Code; Code[20]) { } field(2; Stamp; DateTime) { } } keys { key(PK; Code) { } } }
+table 50100 Setting { fields { field(1; Code; Code[20]) { } field(2; Stamp; Text[50]) { } } keys { key(PK; Code) { } } }
 codeunit 50101 Installer
 {
     Subtype = Install;
-    trigger OnInstallAppPerCompany() var S: Record Setting; begin S.Code := 'SEEDED'; S.Stamp := CurrentDateTime; S.Insert(); end;
+    trigger OnInstallAppPerCompany() var S: Record Setting; begin S.Code := 'SEEDED'; S.Stamp := Format(CurrentDateTime, 0, 9); S.Insert(); end;
 }
 "#;
 
@@ -25,7 +29,7 @@ const SOURCE_MAIN: &str = r#"
 codeunit 60101 ClockTests
 {
     Subtype = Test;
-    [Test] procedure RowStampEqualsTheRunClock() var S: Record Setting; begin S.Get('SEEDED'); if S.Stamp <> CurrentDateTime then Error('row stamped %1, clock says %2', S.Stamp, CurrentDateTime); end;
+    [Test] procedure RowStampEqualsTheRunClock() var S: Record Setting; begin S.Get('SEEDED'); if S.Stamp <> Format(CurrentDateTime, 0, 9) then Error('row stamped %1, clock says %2', S.Stamp, Format(CurrentDateTime, 0, 9)); end;
 }
 "#;
 
@@ -56,6 +60,7 @@ fn run(cache: &Path) -> Outcome {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     let rt = CorpusRuntime::try_run_suites_with(

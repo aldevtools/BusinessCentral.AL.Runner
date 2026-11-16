@@ -59,6 +59,7 @@ pub(crate) fn manifest_digest(m: &Manifest) -> [u8; 32] {
         translation_source: _,
         runtime,
         app_json_keys,
+        platform_internals_visible_to,
     } = m;
     let mut h = Sha256::new();
     let mut put = |name: &str, value: &[u8]| {
@@ -88,6 +89,10 @@ pub(crate) fn manifest_digest(m: &Manifest) -> [u8; 32] {
     put("translation_files", format!("{translation_files:?}").as_bytes());
     put("runtime", format!("{runtime:?}").as_bytes());
     put("app_json_keys", format!("{app_json_keys:?}").as_bytes());
+    put(
+        "platform_internals_visible_to",
+        format!("{platform_internals_visible_to:?}").as_bytes(),
+    );
     h.finalize().into()
 }
 
@@ -189,6 +194,12 @@ pub(super) fn baseline_key(
             for (name, content) in &a.package_data_files {
                 key.text("package_data", name);
                 key.bytes("package_data_content", content);
+            }
+            // Its install code stores labels and captions in another language from its translation files, which an app
+            // folder reads on demand and no layer key holds (al-runner issue 8073). A package's are in its layer key.
+            key.text("translations", if a.translations { "yes" } else { "no" });
+            if let Some(identity) = a.translation_source.as_ref().and_then(|s| s.0.identity()) {
+                key.bytes("translation_files", &identity);
             }
         }
         if ws.kinds.get(i) != Some(&al_sema::AppKind::Dependency) {

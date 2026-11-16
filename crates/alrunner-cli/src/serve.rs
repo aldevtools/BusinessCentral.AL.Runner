@@ -29,6 +29,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "announceStart",
     "serverUrl",
     "license",
+    "companies",
     "tdd",
     "runSelectedOnly",
     "ignorePermissionMock",
@@ -44,12 +45,13 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "includeFailing",
     "strictEnvironment",
     "skipAfterTimeout",
+    "testTimeoutSecs",
     "entries",
     "seed",
     "profile",
 ];
 /// The fields of an entry of `runTests` (issue 5635).
-const ENTRY_FIELDS: &[&str] = &["id", "resources", "test", "excludeTests"];
+const ENTRY_FIELDS: &[&str] = &["id", "resources", "test", "excludeTests", "testTimeoutSecs"];
 /// The request fields of `execute`.
 const EXECUTE_FIELDS: &[&str] = &[
     "command",
@@ -138,15 +140,10 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
         cancel: Some(flags.cancel.clone()),
         on_test: Some(Arc::new(
             move |e: al_testrun::events::TestEvent, captured: Option<Value>| {
-                let mut row =
-                    crate::output::json_row(e.codeunit, &e.codeunit_name, &e.test, &e.outcome, &e.call_stack, e.time);
-                crate::output::add_stubs(&mut row, &e.stubs);
-                crate::dev_endpoint_ui::add_json(&mut row, &e.ui_answered);
                 crate::dev_endpoint_ui::warnings_of(e.codeunit, &e.test, &e.ui_answered)
                     .iter()
                     .for_each(|w| eprintln!("{w}"));
-                crate::output::add_slept(&mut row, e.slept_ms);
-                let mut line = test_line(&mut row);
+                let mut line = event_line(&e);
                 if let Some(k) = e.entry {
                     let id = ids.entry_ids.lock().ok().and_then(|v| v.get(k).cloned());
                     line.insert("entry".into(), id.unwrap_or(json!(k)));
@@ -209,6 +206,12 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// The `test` line of a test that finished, before the entry and the captured values are added: the row of the `--output-json`
+/// document ([`crate::output::test_row`]).
+fn event_line(e: &al_testrun::events::TestEvent) -> Map<String, Value> {
+    test_line(crate::output::test_row(e.into()))
+}
+
 /// The `al-runner test` options of the daemon, as the template of every request's.
 fn daemon_args(daemon: &[String]) -> Result<TestArgs, String> {
     let (rest, store) = crate::args::split_affected_store(daemon)?;
@@ -247,6 +250,18 @@ fn test_filter(fields: &Map<String, Value>) -> Result<Option<String>, String> {
         Some(_) => Err(
             "`test` is a text (one pattern); select several tests with `entries` or exclude with `excludeTests`".into(),
         ),
+    }
+}
+
+/// `testTimeoutSecs` of a request or an entry (al-runner issue 8125): the test time limit in seconds, as
+/// `--test-timeout-secs` (`0`: no limit). `None`: not given.
+fn test_timeout_secs(fields: &Map<String, Value>) -> Result<Option<u64>, String> {
+    match fields.get("testTimeoutSecs") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| format!("`testTimeoutSecs` is a whole number of seconds (0: no limit), not `{v}`")),
     }
 }
 
@@ -332,6 +347,19 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         Some(Value::String(p)) if !p.is_empty() => a.license = Some(PathBuf::from(p)),
         Some(_) => return Err("`license` is the path of a .bclicense file".into()),
     }
+    // Issue 7775: `companies` is `--companies` for one request; absent, the server's.
+    match fields.get("companies") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(c)) => {
+            a.companies = Some(al_host::Companies::parse(c).map_err(|e| format!("`companies` {e}"))?);
+            a.companies_from_request = true;
+        }
+        Some(_) => {
+            return Err(
+                "`companies` is a text: company names, comma separated, the session company first, or `all`".into(),
+            );
+        }
+    }
     // ADR-051 decision 1: `tdd` turns stubs on for this request; absent, the server's `--tdd` decides.
     if !matches!(fields.get("tdd"), None | Some(Value::Null)) {
         a.tdd = flag(fields, "tdd")?;
@@ -347,6 +375,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     // Issue 7517: absent, the server's `--skip-after-timeout`.
     if fields.get("skipAfterTimeout").is_some_and(|v| !v.is_null()) {
         a.skip_after_timeout = flag(fields, "skipAfterTimeout")?;
+    }
+    // Issue 8125: absent, the server's `--test-timeout-secs` or environment variable (`run::test_timeout_secs`).
+    if let Some(n) = test_timeout_secs(fields)? {
+        a.test_timeout_secs = Some(n);
     }
     // Issue 3697: UI calls no handler takes get the dev-endpoint runner's answer, as `--dev-endpoint-ui`.
     a.dev_endpoint_ui = flag(fields, "devEndpointUi")?;
@@ -493,6 +525,7 @@ fn entries_of(fields: &Map<String, Value>) -> Result<(Vec<run::Entry>, Vec<Value
             filters: test_filter(e)?.into_iter().collect(),
             excludes: string_list(e, "excludeTests")?,
             resources,
+            test_timeout_secs: test_timeout_secs(e)?,
         });
     }
     Ok((entries, ids))
@@ -552,15 +585,9 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
             let mut warnings = warnings;
             warnings.extend(report.warnings.iter().cloned());
             let wall = started.elapsed();
-            let mut summary = json!({
-                "type": "summary",
-                "exitCode": code,
-                "passed": doc["passed"], "failed": doc["failed"], "errors": doc["errors"],
-                "notRun": doc["notRun"], "total": doc["total"],
-                "cached": ctx.used == Some(al_testrun::runtime::WarmUse::Reused),
-                "protocolVersion": 2,
-                "wallSeconds": wall.as_secs_f64(),
-            });
+            let mut summary = summary_head(doc, code);
+            summary["cached"] = json!(ctx.used == Some(al_testrun::runtime::WarmUse::Reused));
+            summary["wallSeconds"] = json!(wall.as_secs_f64());
             if let Some(t) = &ctx.timings {
                 summary["timings"] = timings_json(t, wall);
             }
@@ -597,7 +624,9 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
                 for (k, c) in counts.iter().enumerate() {
                     let id = ids.get(k).cloned().unwrap_or(json!(k));
                     let mut line = json!({"type": "entrySummary", "entry": id});
-                    for key in ["exitCode", "passed", "failed", "errors", "notRun", "total", "warnings"] {
+                    for key in [
+                        "exitCode", "passed", "flagged", "failed", "errors", "notRun", "total", "warnings",
+                    ] {
                         if let Some(v) = c.get(key) {
                             line[key] = v.clone();
                         }
@@ -634,6 +663,17 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
 /// Milliseconds, to a tenth.
 fn ms(d: std::time::Duration) -> f64 {
     (d.as_secs_f64() * 10_000.0).round() / 10.0
+}
+
+/// The start of the `summary` line of a `runTests` request: its exit code and the counts of the run's report `doc`.
+fn summary_head(doc: &Value, code: u8) -> Value {
+    json!({
+        "type": "summary",
+        "exitCode": code,
+        "passed": doc["passed"], "flagged": doc["flagged"], "failed": doc["failed"], "errors": doc["errors"],
+        "notRun": doc["notRun"], "total": doc["total"],
+        "protocolVersion": 2,
+    })
 }
 
 /// The `timings` of a summary (al-runner issue 5856): where the request spent its wall time `wall`, by phase. `otherMs`
@@ -831,8 +871,7 @@ fn execute(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flag
             let mut tests = Vec::new();
             let mut tagged_messages: Vec<Value> = Vec::new();
             for (i, row) in report.doc["tests"].as_array().into_iter().flatten().enumerate() {
-                let mut row = row.as_object().cloned().unwrap_or_default();
-                let mut line = test_line(&mut row);
+                let mut line = test_line(row.as_object().cloned().unwrap_or_default());
                 line.remove("type");
                 // An inline object is named by its own name: `X.OnRun`.
                 if inline {
@@ -882,9 +921,6 @@ fn execute(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, flag
     }
 }
 
-/// A `test` line of v2: the row of the JSON document, with `stackFrames` split out of the stack text. `codeunit`,
-/// `codeunitName` and `method` are on every line, as on the row: a method name may hold a dot, so `name` cannot be split
-/// back (issue 5798).
 /// The `orderHints` of a `runTests` summary (ADR-066 amendment 12, decision 2): `{"name", "orderHint"}` for each test row
 /// of the run's JSON document that has an `orderHint`; `None` when no test has one.
 fn order_hints(doc: &Value) -> Option<Value> {
@@ -897,31 +933,19 @@ fn order_hints(doc: &Value) -> Option<Value> {
     (!hints.is_empty()).then(|| json!(hints))
 }
 
-fn test_line(row: &mut Map<String, Value>) -> Map<String, Value> {
-    let mut line = Map::new();
+/// A `test` line of v2: every field of the row of the JSON document (al-runner issue 7954: a key list here
+/// dropped `flagged` and `uiAnswered`), with `stackFrames` split out of the stack text. `codeunit`,
+/// `codeunitName` and `method` are on every line, as on the row: a method name may hold a dot, so `name` cannot be split
+/// back (issue 5798).
+fn test_line(row: Map<String, Value>) -> Map<String, Value> {
+    let mut line = row;
     line.insert("type".into(), json!("test"));
-    for key in [
-        "name",
-        "codeunit",
-        "codeunitName",
-        "method",
-        "status",
-        "clock",
-        "durationMs",
-        "sleptMs",
-        "message",
-        "stackTrace",
-        "notRun",
-        "stubbed",
-        "generatedStubs",
-    ] {
-        if let Some(v) = row.remove(key) {
-            line.insert(key.into(), v);
-        }
-    }
-    if let Some(stack) = line.get("stackTrace").and_then(Value::as_str) {
-        let frames: Vec<&str> = stack.lines().collect();
-        line.insert("stackFrames".into(), json!(frames));
+    let frames: Option<Vec<Value>> = line
+        .get("stackTrace")
+        .and_then(Value::as_str)
+        .map(|stack| stack.lines().map(|l| json!(l)).collect());
+    if let Some(frames) = frames {
+        line.insert("stackFrames".into(), Value::Array(frames));
     }
     line
 }
@@ -1193,6 +1217,40 @@ mod tests {
         assert!(w.is_empty() && a.capture.values && a.capture.loops);
     }
 
+    /// Al-runner issue 8125: `testTimeoutSecs` is `--test-timeout` for one request, and for one entry; absent, the
+    /// server's. A value that is not a whole number of seconds is an error of the request.
+    #[test]
+    fn a_request_and_an_entry_may_set_the_test_time_limit_and_a_bad_one_is_an_error() {
+        let run = |v: Value| request_args(&base(), &fields(v));
+        let request = |v: Value| run(json!({"sourcePaths": ["/a"], "testTimeoutSecs": v}));
+        assert_eq!(request(json!(7)).unwrap().0.test_timeout_secs, Some(7));
+        assert_eq!(request(json!(0)).unwrap().0.test_timeout_secs, Some(0));
+        let started = daemon_args(&["--test-timeout".into(), "30".into()]).unwrap();
+        let kept = request_args(&started, &fields(json!({"sourcePaths": ["/a"]})))
+            .unwrap()
+            .0;
+        assert_eq!(kept.test_timeout_secs, Some(30), "absent: the server's");
+        let kept = request_args(
+            &started,
+            &fields(json!({"sourcePaths": ["/a"], "testTimeoutSecs": null})),
+        )
+        .unwrap()
+        .0;
+        assert_eq!(kept.test_timeout_secs, Some(30), "null: the server's");
+        let entry = |v: Value| {
+            entries_of(&fields(
+                json!({"entries": [{"test": "X", "testTimeoutSecs": v}, {"test": "Y"}]}),
+            ))
+        };
+        let (e, _) = entry(json!(4)).unwrap();
+        assert_eq!((e[0].test_timeout_secs, e[1].test_timeout_secs), (Some(4), None));
+        assert_eq!(entry(json!(0)).unwrap().0[0].test_timeout_secs, Some(0));
+        for bad in [json!(-1), json!(1.5), json!("3"), json!(true), json!([2])] {
+            assert!(request(bad.clone()).unwrap_err().contains("`testTimeoutSecs`"), "{bad}");
+            assert!(entry(bad.clone()).unwrap_err().contains("`testTimeoutSecs`"), "{bad}");
+        }
+    }
+
     /// ADR-066 amendment 7 (owner, 2026-11-08): `maxReplay` is `--max-replay N` for one request; no cap without it.
     #[test]
     fn max_replay_field() {
@@ -1208,9 +1266,35 @@ mod tests {
         assert!(run(json!({"sourcePaths": ["/a"], "maxReplay": "x"})).is_err());
     }
 
+    /// al-runner issue 7954: a pass through an unprobed assumption is flagged on its `test` line and counted in the summary,
+    /// as in the `--output-json` document.
+    #[test]
+    fn a_flagged_pass_is_flagged_on_the_serve_line_and_in_the_summary_as_in_output_json() {
+        let marks = vec![al_builtins::assumptions::Assumption::NoClientSession];
+        let mut result = crate::output::tests::r(50120, "Flag Tests", "D_TestPage", al_testrun::Outcome::Pass);
+        result.assumptions = marks.clone();
+        let clean = crate::output::tests::r(50120, "Flag Tests", "Clean", al_testrun::Outcome::Pass);
+        let doc: Value = serde_json::from_str(&crate::output::json(&[&result, &clean], 0, 1.0)).unwrap();
+        assert_eq!(doc["tests"][0]["flagged"], true);
+        assert_eq!(doc["tests"][1].get("flagged"), None);
+        let mut event =
+            al_testrun::events::TestEvent::not_run(50120, "Flag Tests", "D_TestPage", "placeholder outcome, replaced");
+        event.outcome = al_testrun::Outcome::Pass;
+        event.assumptions = marks;
+        let line = event_line(&event);
+        assert_eq!(line["flagged"], true, "{line:?}");
+        let row = doc["tests"][0].as_object().unwrap().clone();
+        assert_eq!(test_line(row), line, "the serve line is the output-json row");
+        let summary = summary_head(&doc, 0);
+        assert_eq!(
+            (summary["passed"].clone(), summary["flagged"].clone()),
+            (json!(2), json!(1))
+        );
+    }
+
     #[test]
     fn a_test_line_carries_the_stack_as_frames() {
-        let mut row = crate::output::json_row(
+        let row = crate::output::json_row(
             1,
             "T",
             "X",
@@ -1218,7 +1302,7 @@ mod tests {
             "a\nb",
             std::time::Duration::from_millis(3),
         );
-        let l = test_line(&mut row);
+        let l = test_line(row);
         assert_eq!(l["type"], "test");
         assert_eq!(l["name"], "Codeunit1.X");
         assert_eq!(l["stackFrames"], json!(["a", "b"]));

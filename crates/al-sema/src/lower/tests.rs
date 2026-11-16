@@ -2558,3 +2558,8 @@ fn lowered_bodies_stay_compact_until_read() {
     assert!(body.iter().any(|s| matches!(s, ir::Stmt::Exit(Some(_)))));
     assert!(body.is_loaded());
 }
+
+mod do_name;
+mod namespaced_receiver;
+mod type_before_rec_field;
+mod unknown_object_literal;

@@ -926,6 +926,9 @@ impl Lane<'_> {
                             std::thread::Builder::new()
                                 .stack_size(TEST_STACK)
                                 .spawn_scoped(scope, move || {
+                                    // Declared first, so it drops last: what this worker's AL code made is released at
+                                    // its end.
+                                    let _run_end = al_builtins::instance_cycles::RunEnd::new();
                                     let _member = member;
                                     let own = thread_baseline(snapshot);
                                     let (reply, replies) = std::sync::mpsc::channel();

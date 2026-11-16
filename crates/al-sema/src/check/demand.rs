@@ -1116,12 +1116,24 @@ impl Checker<'_> {
         }
     }
 
+    /// Also Base Application's ReportManagement subscribers to the layout selection events, which an Html save raises while a
+    /// temporary layout selection is held (`al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS`).
     fn reach_save_as_subscribers(&self) {
         for (o, k) in self.ws.reporting_triggers_subscribers() {
-            let event = &self.ws.objects[o].subscribers[k].event;
+            let object = &self.ws.objects[o];
+            let event = &object.subscribers[k].event;
+            let report_management = al_ir::REPORT_MANAGEMENT_LAYOUT_EVENTS
+                .iter()
+                .any(|e| e.eq_ignore_ascii_case(event))
+                && self
+                    .ws
+                    .apps
+                    .get(object.app)
+                    .is_some_and(|a| al_ir::is_report_management(object.id, &object.name, &a.id));
             if event.eq_ignore_ascii_case("SubstituteReport")
                 || event.eq_ignore_ascii_case("OnDocumentReady")
                 || event.eq_ignore_ascii_case("SetupPrinters")
+                || report_management
             {
                 self.reach_subscriber(o, k);
             }

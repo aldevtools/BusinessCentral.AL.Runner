@@ -1,0 +1,11 @@
+DotNetFileDeletePlaceholder => {
+    id: "dotnet-file-delete-placeholder",
+    assumed: "DotNet System.IO.File.Delete of a file that holds a placeholder Html or Pdf report output deletes the file as any file: no error, File.Exists answers No afterwards, and the bytes copied out of the file before the delete stay (ADR-040). Only the sequence of the probe runs: Report.SaveAs of a report whose default layout is a Word layout into a stream; one AL File exports it to a path that had no file (File Management InstreamExportToServerFile or BLOBExportToServerFile: WriteMode(true), Create without an encoding, one CreateOutStream, CopyStream, Close; the file holds the placeholder's bytes and nothing else); one AL File imports it (BLOBImportFromServerFile: Open without an encoding, one CreateInStream, Close; whether the stream was read is not checked); no AL File holds the path open; nothing else wrote the path in between. This is Base Application's e-mail body round trip through a server file (Report Selections GetEmailBodyForVend / GetEmailBodyTextForCust, `#if not CLEAN27`: File Management TempBlobToServerFile, BLOBImportFromServerFile, DeleteServerFile). Every other file that holds a placeholder refuses at the delete: a Word or Excel placeholder, the Pdf of an RDLC layout report, a file the rendering save wrote itself, an export over an existing file, an export handle with TextMode, an encoding, a second stream or text of its own, no import or more than one, and a path an AL File opened and did not close.",
+    tests: "Outside reporter's suite (al-runner issue 6924, comment of 2026-11-12 18:46 UTC): 218 + 8 tests stop at DeleteServerFile; they pass on BC. Corpus probe branch al-runtime-rs-writer-reports6 (pull request 1368), al-language-onprem/reports/layouts-saveas/HtmlServerFileRoundTrip.al.",
+    probe: "Corpus probe branch al-runtime-rs-writer-reports6 (pull request 1368), al-language-onprem/reports/layouts-saveas/HtmlServerFileRoundTrip.al: a Word layout report saved as Html and as Pdf into a Temp Blob, exported to a server file, imported back, deleted with DotNet System.IO.File.Delete; HasValue, File.Exists and byte identity with a direct copy.",
+    awaiting: Awaiting {
+        issues: &[6924],
+        files: &["tests/al-language-onprem/reports/layouts-saveas/HtmlServerFileRoundTrip.al"],
+        since: "2026-11-12",
+    },
+}

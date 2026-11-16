@@ -77,6 +77,17 @@ impl Session {
         Ok(false)
     }
 
+    /// The rows of the page's view, counted on a copy of its record.
+    pub(super) fn view_row_count(&mut self, st: &St) -> Result<i32, Signal> {
+        let rec = self.page_rec(st);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        Ok(match self.record_op(RecordOp::Count, &probe, &mut [])? {
+            Value::Integer(n) => n,
+            _ => 0,
+        })
+    }
+
     /// The rows of the view from its start, up to `limit` of them.
     pub(super) fn view_rows(&mut self, rec: &Rec, limit: usize) -> Result<Vec<Vec<Value>>, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));

@@ -137,7 +137,7 @@ pub fn placeholder_xlsx() -> Vec<u8> {
 
 /// A minimal valid html page (AMReportOutputTests.al:205 `kind` markup: it starts with `<`).
 pub fn placeholder_html() -> Vec<u8> {
-    b"<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title></title></head><body></body></html>\n".to_vec()
+    al_builtins::placeholder_output::HTML.to_vec()
 }
 
 fn package_rels(kind: &str, target: &str) -> String {
