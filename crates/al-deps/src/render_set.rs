@@ -149,9 +149,11 @@ pub fn linux_pieces(set: RenderSet, skia: Option<[u16; 4]>) -> Vec<NugetPiece> {
     }
 }
 
-/// The folder nuget pieces go into: `<cache>/render-extras/<package>.<version>/`.
+/// The folder nuget pieces go into: `<cache>/artifacts/render-extras/<package>.<version>/`, inside the artifact cache
+/// ([`crate::cache::Store::dir`]), so the one folder that holds the apps and the service-tier sets holds them too.
 pub fn piece_dir(cache_root: &Path, piece: &NugetPiece) -> PathBuf {
-    cache_root
+    crate::cache::Store::new(cache_root)
+        .dir()
         .join("render-extras")
         .join(format!("{}.{}", piece.package, piece.version))
 }
@@ -242,7 +244,7 @@ mod tests {
         let src = nupkg(t.path());
         let cache = t.path().join("c");
         let path = ensure_piece(&cache, &piece(OWN), true, || FileSource(src.clone())).unwrap();
-        assert_eq!(path, cache.join("render-extras/own.test.1.0.0/Own.dll"));
+        assert_eq!(path, cache.join("artifacts/render-extras/own.test.1.0.0/Own.dll"));
         assert_eq!(std::fs::read(&path).unwrap(), b"own bytes");
         // Offline, from the cache; the source is never opened.
         let again = ensure_piece(&cache, &piece(OWN), false, || -> FileSource { panic!("not opened") });

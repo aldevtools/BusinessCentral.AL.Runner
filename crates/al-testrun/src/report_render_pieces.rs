@@ -69,6 +69,30 @@ pub fn run_renderer(
     cache_root: &Path,
     download: bool,
 ) -> Arc<dyn al_host::render::ReportRenderer> {
+    let src = run_sources(cfg.assembly_dirs.clone(), build, cache_root, download);
+    Arc::new(crate::report_render::RenderHost::new(cfg, prepare(src)))
+}
+
+/// `--fetch-render-pieces`: fetches now, into the cache, what the renderer of a run of BC `build` ([`run_renderer`])
+/// fetches on its first save. Returns the notes of what it could not have.
+pub fn fetch_run_pieces(
+    dirs: Vec<PathBuf>,
+    build: al_deps::build::BuildId,
+    cache_root: &Path,
+    download: bool,
+) -> Vec<String> {
+    let src = run_sources(dirs, Some(build), cache_root, download);
+    pieces(&src, &|p: &NugetPiece| HttpSource::new(http_agent(), p.url())).notes
+}
+
+/// The piece sources of a run of BC `build`: the probe folders `dirs`, then the build's fetch folder, and the sets of
+/// [`RUN_NEEDS`].
+fn run_sources(
+    mut dirs: Vec<PathBuf>,
+    build: Option<al_deps::build::BuildId>,
+    cache_root: &Path,
+    download: bool,
+) -> PieceSources<al_deps::artifact::HttpCdn> {
     let tier = build.map(|b| {
         Arc::new(ServiceTier::new(
             al_deps::artifact::HttpCdn::from_env(),
@@ -77,21 +101,19 @@ pub fn run_renderer(
             download,
         ))
     });
-    let mut dirs = cfg.assembly_dirs.clone();
     if let Some(t) = &tier
         && !dirs.contains(&t.dir())
     {
         dirs.push(t.dir());
     }
-    let src = PieceSources {
+    PieceSources {
         dirs,
         tier,
         cache_root: cache_root.to_path_buf(),
         download,
         linux: cfg!(target_os = "linux"),
         needs: RUN_NEEDS.to_vec(),
-    };
-    Arc::new(crate::report_render::RenderHost::new(cfg, prepare(src)))
+    }
 }
 
 /// The pieces of `src`; `nuget` opens a package (tests give a file).
@@ -243,5 +265,25 @@ mod tests {
                 ..RenderPieces::default()
             }
         );
+    }
+
+    #[test]
+    fn the_sources_of_a_run_add_the_fetch_folder_of_the_build_and_ask_for_the_run_needs() {
+        let t = tempfile::tempdir().unwrap();
+        let build = al_deps::build::BuildId::parse("27.5.46862.58057").unwrap();
+        let src = run_sources(vec![t.path().join("own")], Some(build.clone()), t.path(), false);
+        let svc = al_deps::service_tier::service_dir(t.path(), &build);
+        assert_eq!(src.dirs, vec![t.path().join("own"), svc]);
+        assert!(src.tier.is_some() && !src.download);
+        assert_eq!(src.needs, RUN_NEEDS.to_vec());
+    }
+
+    #[test]
+    fn fetching_the_pieces_of_a_run_offline_on_an_empty_cache_names_each_set_it_could_not_have() {
+        let t = tempfile::tempdir().unwrap();
+        let build = al_deps::build::BuildId::parse("27.5.46862.58057").unwrap();
+        let notes = fetch_run_pieces(Vec::new(), build, t.path(), false);
+        assert!(notes[0].starts_with("the merge set was not fetched"), "{notes:?}");
+        assert!(notes[1].starts_with("the conversion set was not fetched"), "{notes:?}");
     }
 }

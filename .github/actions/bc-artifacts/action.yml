@@ -3,7 +3,7 @@ description: >
   ADR-013 Layer A and the amendment of 2026-11-10: every Microsoft app comes from the build oracle/oracle.toml pins,
   read from the artifact cache. This action fills that cache for a job: it asks which builds are pinned, restores the
   cache entry of those builds, and fetches what is missing from Microsoft's feed by range reads (about 41 MB per BC
-  build out of a 1.3 GB artifact). Nothing is committed. The corpus runs and the Rust tests that read a Microsoft file
+  build out of a 1.3 GB artifact), with the report render pieces of each build. Nothing is committed. The corpus runs and the Rust tests that read a Microsoft file
   (al-testfiles) both need it; the tests never download and fail when a file is missing.
 
 inputs:
@@ -37,15 +37,33 @@ runs:
         # shellcheck disable=SC2086  # VERSIONS is a flag and its value
         "$BINARY" $VERSIONS --print-builds | tee "$RUNNER_TEMP/bc-builds.txt"
         echo "key=$(tr ' \n' '--' < "$RUNNER_TEMP/bc-builds.txt")" >> "$GITHUB_OUTPUT"
-    - uses: actions/cache@v4
+    # The cache is restored here and saved by the step at the end of this action, not by a post-job step: a job that
+    # fails later (a corpus regression, the step time guard) still keeps what this action fetched. The entry also holds
+    # the report render pieces (the service-tier sets under artifacts/<build>/service and the nuget pieces under
+    # artifacts/render-extras), so the first Word-layout save of a corpus run fetches nothing inside its timed step.
+    # v3: entries from before the render pieces were part of it lack them.
+    - name: Artifact cache, restore
+      id: restore
+      uses: actions/cache/restore@v4
       with:
         path: ~/.cache/al-runtime/artifacts
-        key: bc-artifacts-v2-${{ steps.bc.outputs.key }}
+        key: bc-artifacts-v3-${{ steps.bc.outputs.key }}
+    # `--fetch-render-pieces`: the merge and conversion sets of each pinned build and, on Linux, the pinned nuget pieces,
+    # by the same fetch a run makes on its first Word-layout save (al_testrun::report_render_pieces::fetch_run_pieces).
     - name: Fetch dependency apps (warms the cache)
+      id: fetch
       shell: bash
       env:
         BINARY: ${{ inputs.binary }}
         VERSIONS: ${{ inputs.versions }}
       run: |
         # shellcheck disable=SC2086
-        "$BINARY" $VERSIONS --fetch-deps
+        "$BINARY" $VERSIONS --fetch-deps --fetch-render-pieces
+    # `always()` with the fetch's own outcome: the entry is saved whatever the job does after this action, and never
+    # when the fetch failed (a key is written once, so a half-filled entry would stay).
+    - name: Artifact cache, save
+      if: ${{ always() && steps.fetch.outcome == 'success' && steps.restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/al-runtime/artifacts
+        key: ${{ steps.restore.outputs.cache-primary-key }}
