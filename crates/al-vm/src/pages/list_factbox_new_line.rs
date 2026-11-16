@@ -18,8 +18,9 @@
 //! this module does not admit.
 //!
 //! Each step runs only on the probe's page shapes (`factbox_line_pages`) and after the probe's earlier steps
-//! (`FactboxLine`, `steps_are`); everything else keeps the path it had. After a `New()` that kept the part, a call other than
-//! a read of the part's controls, the key's SetValue or Close is refused (`factbox_line_call`).
+//! (`FactboxLine`, `steps_are`); everything else keeps the path it had. After a `New()` that kept the part, the host's reads and
+//! property calls, a key's SetValue the probe does not make and Close keep main's answers; a call that reads or moves the part
+//! otherwise, an action, another SetValue or a move of the host is refused (`factbox_line_call`).
 
 use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call};
 use super::*;
@@ -273,11 +274,17 @@ impl Session {
     }
 
     /// A TestPage call on the tree of a host whose `New()` kept its part on the row before (`FactboxLine::Held`), before it runs:
-    /// a read of a control of the part goes on (:189 `partnew=Alpha`); the key's SetValue of a text that fits the key field
-    /// first lets the part read the new line, OnAfterGetCurrRecord on the blank record (:190 `SetValue('B')`, the first
-    /// `F.AGCR();`), and goes on; Close goes on (the part runs nothing there, as before). Any other call, and one after the test
-    /// wrote to the store, is refused. On a host in the step before `Next()` back onto the saved row (`next_back_held`), the host
-    /// holds that row.
+    /// - a read of a control of the part goes on (:189 `partnew=Alpha`);
+    /// - a call on the host that reads a value or a property and runs no page code (`host_read_call`) goes on: its answer does
+    ///   not depend on the part, so it is main's;
+    /// - the key's SetValue of a new key as the probe makes it (`held_key_measured`) first lets the part read the new line,
+    ///   OnAfterGetCurrRecord on the blank record (:190 `SetValue('B')`, the first `F.AGCR();`), and goes on;
+    /// - the key's SetValue of another value, or after another call, lets the part read the new line as main did at `New()`,
+    ///   with no trigger (`release_held_part`), and goes on as on main; Close goes on (the part runs nothing there, as on main);
+    /// - after the test wrote to the store since the last call, main's read can no longer be made: the key's SetValue is
+    ///   refused. The part's other reads, its moves, actions, other SetValues and moves of the host are refused at any time.
+    ///
+    /// On a host in the step before `Next()` back onto the saved row (`next_back_held`), the host holds that row.
     pub(super) fn factbox_line_call(
         &mut self,
         method: PageOp,
@@ -296,21 +303,24 @@ impl Session {
             return Ok(());
         }
         let on_part = !Rc::ptr_eq(st, &root);
-        let unchanged = root.borrow().tree_calls_mark == Some(self.write_mark());
+        let unchanged = {
+            let r = root.borrow();
+            !r.tree_calls_unknown && r.tree_calls_mark == Some(self.write_mark())
+        };
         let key = self.only_key_control(&root)?;
         match (method, target) {
             (PageOp::TestFieldValue, Some(ControlTarget::Control(_))) if on_part && args.is_empty() => Ok(()),
+            _ if !on_part && Self::host_read_call(method, args) => Ok(()),
             (PageOp::TestPageClose, None) if !on_part => {
                 root.borrow_mut().factbox_line = FactboxLine::Off;
                 Ok(())
             }
             (PageOp::TestFieldSetValue, Some(ControlTarget::Control(i)))
-                if !on_part
-                    && unchanged
-                    && key == Some(*i)
-                    && Self::on_untouched_line(&root)
-                    && self.text_fits_key(&root, args)? =>
+                if !on_part && unchanged && key == Some(*i) =>
             {
+                if !self.held_key_measured(&root, *i, args)? {
+                    return self.release_held_part(&root);
+                }
                 assume(Assumption::ListFactboxNewLine);
                 root.borrow_mut().factbox_line = FactboxLine::HeldRead;
                 let before = self.host_new_running.replace(true);
@@ -320,23 +330,75 @@ impl Session {
             }
             _ => unsupported(format!(
                 "{method} after New() on a List page whose CardPart FactBox still shows the row before (only a read of the part, \
-                 the SetValue of the key and Close are measured)"
+                 the host's reads, the SetValue of the key and Close are measured or keep main's read)"
             )),
         }
     }
 
-    /// Whether `args` is one Text of at least one and at most as many characters as the Code key field of host `host` holds
-    /// (:190 `SetValue('B')` into a Code[10] field, :18).
-    fn text_fits_key(&self, host: &St, args: &[Value]) -> Result<bool, Signal> {
-        let table = self.table(&self.page_rec(host))?;
-        let len = match table.keys[0].as_slice() {
-            [key] => match table.fields[*key].ty {
-                RtType::Code(Some(len)) => len as usize,
+    /// Whether `method` with `args` on a host or one of its controls only reads: a value (`Value()` without an argument, the
+    /// `As*` methods, `GetField`, `AssertEquals`) or a property (Caption, Editable, Enabled, Visible, HideValue, ShowMandatory,
+    /// the options of a control, the validation errors, IsExpanded). Such a call reads nothing of a part.
+    fn host_read_call(method: PageOp, args: &[Value]) -> bool {
+        match method.method() {
+            PageMethod::Value => args.is_empty(),
+            m => {
+                Self::field_read(m)
+                    || matches!(
+                        m,
+                        PageMethod::AssertEquals
+                            | PageMethod::Caption
+                            | PageMethod::Editable
+                            | PageMethod::Enabled
+                            | PageMethod::Visible
+                            | PageMethod::HideValue
+                            | PageMethod::ShowMandatory
+                            | PageMethod::OptionCount
+                            | PageMethod::GetOption
+                            | PageMethod::ValidationErrorCount
+                            | PageMethod::GetValidationError
+                            | PageMethod::IsExpanded
+                    )
+            }
+        }
+    }
+
+    /// The part of host `st`, held on the row before since `New()`, reads the new line as main reads it at `New()`: no trigger runs
+    /// (the parts a host's New() links afresh run no OnNewRecord, see `land_on_part_open_line`). The host leaves
+    /// `FactboxLine::Held`.
+    fn release_held_part(&mut self, st: &St) -> Result<(), Signal> {
+        st.borrow_mut().factbox_line = FactboxLine::Off;
+        let before = self.host_new_running.replace(true);
+        let r = self.sync_parts(st);
+        self.host_new_running = before;
+        r
+    }
+
+    /// Whether the key's SetValue (control `key`, `args`) on host `host` is the one the probe makes after `New()` (:190): the
+    /// first call but reads since the open, on the untouched new line, of one Text of at most as many characters as the Code key
+    /// field holds, which, converted to that field, is not the blank value and is the key of no stored row (`'B'` into a
+    /// Code[10] field, :18, on a view of row `A`).
+    fn held_key_measured(&mut self, host: &St, key: usize, args: &[Value]) -> Result<bool, Signal> {
+        let rec = self.page_rec(host);
+        let table = self.table(&rec)?;
+        let (field, len) = match table.keys[0].as_slice() {
+            [field] => match table.fields[*field].ty {
+                RtType::Code(Some(len)) => (*field, len as usize),
                 _ => return Ok(false),
             },
             _ => return Ok(false),
         };
-        Ok(matches!(args, [Value::Text(t)] if (1..=len).contains(&t.chars().count())))
+        let [Value::Text(text)] = args else {
+            return Ok(false);
+        };
+        if !(Self::on_untouched_line(host) && self.steps_are(host, key, &[Seq::New]) && text.chars().count() <= len) {
+            return Ok(false);
+        }
+        let Ok(typed) = ops::convert(Value::Text(text.clone()), &table.fields[field].ty) else {
+            return Ok(false);
+        };
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        probe.borrow_mut().fields[field] = typed;
+        self.key_is_new(&probe)
     }
 
     /// The parts of host `st` after the SetValue of its control `idx` (`before`: the row before it). On the probe's pages, the
@@ -366,7 +428,7 @@ impl Session {
                 let s = st.borrow();
                 s.cursor == Cursor::NewLine && s.draft && !s.draft_stored
             }
-            && self.typed_key_is_new(st)?;
+            && self.key_is_new(&self.page_rec(st))?;
         if !keyed {
             if matches!(line, FactboxLine::EmptyOpen | FactboxLine::HeldRead) {
                 st.borrow_mut().factbox_line = FactboxLine::Off;
@@ -379,14 +441,13 @@ impl Session {
         Ok(())
     }
 
-    /// Whether host `st` holds a key that is not the blank one and that no stored row holds (:166, :190 `'B'` on a view
-    /// without it).
-    fn typed_key_is_new(&mut self, st: &St) -> Result<bool, Signal> {
-        let rec = self.page_rec(st);
-        let table = self.table(&rec)?;
+    /// Whether record `rec` holds a key that is not the blank one and that no stored row holds (:166, :190 `'B'` on a view
+    /// without it): the host's Rec after the key's SetValue, or the candidate key before it (`held_key_measured`).
+    fn key_is_new(&mut self, rec: &Rec) -> Result<bool, Signal> {
+        let table = self.table(rec)?;
         let blank = table.primary_key(&self.initial_fields(table.object as usize));
         let typed = table.primary_key(&rec.borrow().fields);
-        Ok(!Self::same_values(&typed, &blank) && self.stored_row(&rec)?.is_none())
+        Ok(!Self::same_values(&typed, &blank) && self.stored_row(rec)?.is_none())
     }
 
     /// `Next()` of host `st` from the row before onto the row the new line saved, as the probe makes it after `Keyed`: the SetValue

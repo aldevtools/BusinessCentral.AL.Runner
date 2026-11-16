@@ -188,34 +188,128 @@ codeunit 97059 "LT FB Observe"
     end;
 
     [Test]
-    procedure NewThenNext()
+    procedure NewThenHostReads()
     var
         Rows: TestPage "LT FB Rows";
     begin
         Seed(1);
         Rows.OpenEdit();
         Rows.New();
-        O('next', Format(Rows.Next()));
+        O('no', Rows."No.".Value());
+        O('caption', Rows.Caption());
+        O('namecaption', Rows.Name.Caption());
+        O('editable', Format(Rows.Name.Editable()));
+        Rows.Close();
+        O('close', Log.Take());
         Error('OBSERVE ' + Obs);
     end;
 
     [Test]
-    procedure NewThenSetName()
+    procedure NewThenCaptionThenKey()
+    begin
+        KeyAfterNew('B', true);
+    end;
+
+    [Test]
+    procedure NewThenDuplicateKey()
+    begin
+        DuplicateKeyAfterNew('A');
+    end;
+
+    [Test]
+    procedure NewThenDuplicateKeyLowerCase()
+    begin
+        DuplicateKeyAfterNew('a');
+    end;
+
+    local procedure DuplicateKeyAfterNew(NewKey: Text)
     var
         Rows: TestPage "LT FB Rows";
     begin
         Seed(1);
         Rows.OpenEdit();
         Rows.New();
-        Rows.Name.SetValue('N');
+        Rows."No.".SetValue(NewKey);
+        O('setno', Log.Take());
+        O('part', Rows.Peek.Name.Value());
         Error('OBSERVE ' + Obs);
+    end;
+
+    [Test]
+    procedure NewThenBlankKey()
+    begin
+        KeyAfterNew('', false);
+    end;
+
+    local procedure KeyAfterNew(NewKey: Text; CaptionFirst: Boolean)
+    var
+        Rows: TestPage "LT FB Rows";
+    begin
+        Seed(1);
+        Rows.OpenEdit();
+        Rows.New();
+        if CaptionFirst then
+            O('caption', Rows.Caption());
+        Rows."No.".SetValue(NewKey);
+        O('setno', Log.Take());
+        O('part', Rows.Peek.Name.Value());
+        Rows.Close();
+        O('close', Log.Take());
+        Error('OBSERVE ' + Obs);
+    end;
+}
+
+// One codeunit for each call the new path refuses after the New() that kept the part: a test refused while it runs leaves the
+// later tests of its codeunit not run.
+codeunit 97060 "LT FB Observe Next"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure NewThenNext()
+    var
+        Row: Record "LT FB Row";
+        Rows: TestPage "LT FB Rows";
+    begin
+        Row.DeleteAll();
+        Row."No." := 'A';
+        Row.Insert();
+        Rows.OpenEdit();
+        Rows.New();
+        Error('OBSERVE next=' + Format(Rows.Next()) + ' | ');
+    end;
+}
+
+codeunit 97061 "LT FB Observe SetName"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure NewThenSetName()
+    var
+        Row: Record "LT FB Row";
+        Rows: TestPage "LT FB Rows";
+    begin
+        Row.DeleteAll();
+        Row."No." := 'A';
+        Row.Insert();
+        Rows.OpenEdit();
+        Rows.New();
+        Rows.Name.SetValue('N');
+        Error('OBSERVE ');
     end;
 }
 "#;
 
 /// The outcome of each test of `OBSERVE` on the probe's objects changed by `edit`.
 fn observe(edit: impl Fn(&str) -> String) -> Vec<(String, Outcome, Vec<Assumption>)> {
-    outcomes(&format!("{}\n{OBSERVE}", edit(PROBE)), "LT FB Observe")
+    let src = format!("{}\n{OBSERVE}", edit(PROBE));
+    ["LT FB Observe", "LT FB Observe Next", "LT FB Observe SetName"]
+        .into_iter()
+        .flat_map(|c| outcomes(&src, c))
+        .collect()
 }
 
 /// A page that leaves the probe's shape in one fact, made from the probe's objects.
@@ -351,5 +445,40 @@ fn issue_8188_calls_after_the_held_new_line() {
             matches!(outcome(name), Some(Outcome::NotRun(r)) if r.contains("after New() on a List page whose CardPart FactBox still shows the row before")),
             "{name}: {o:#?}"
         );
+    }
+}
+
+/// After the `New()` that kept the part on the row before, the calls whose answer does not depend on the part keep main's
+/// answers (al-runner 1bd640629): the host's reads and property calls, and the key's SetValue the probe does not measure (a key a
+/// row holds, also written in lower case; a blank key; a key after another call than a read), which lets the part read the new
+/// line as main does at `New()`.
+#[test]
+fn issue_8188_main_reads_after_the_held_new_line() {
+    let o = observe(|s| s.to_string());
+    let outcome = |name: &str| o.iter().find(|(n, _, _)| n == name).map(|(_, r, _)| r.clone());
+    let main = [
+        (
+            "NewThenHostReads",
+            "OBSERVE no= | caption=LT FB Rows | namecaption=Name | editable=Yes | close=P.AGR(A);F.AGR(A);F.AGCR(A); | ",
+        ),
+        (
+            "NewThenCaptionThenKey",
+            "OBSERVE caption=LT FB Rows | setno=P.AGR(A);F.AGR(A);F.AGCR(A); | part= | close=F.AGR(B);F.AGCR(B); | ",
+        ),
+        (
+            "NewThenDuplicateKey",
+            "OBSERVE setno=P.AGR(A);F.AGR(A);F.AGCR(A); | part= | ",
+        ),
+        (
+            "NewThenDuplicateKeyLowerCase",
+            "OBSERVE setno=P.AGR(A);F.AGR(A);F.AGCR(A); | part= | ",
+        ),
+        (
+            "NewThenBlankKey",
+            "OBSERVE setno=P.AGR(A);F.AGR(A);F.AGCR(A); | part= | close=F.AGR();F.AGCR(); | ",
+        ),
+    ];
+    for (name, read) in main {
+        assert_eq!(outcome(name), Some(Outcome::Fail(read.into())), "{name}");
     }
 }
