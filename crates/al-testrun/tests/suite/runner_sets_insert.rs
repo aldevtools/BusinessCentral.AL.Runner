@@ -168,6 +168,186 @@ codeunit 50971 "RS Writer"
         Row.Code := RowCode;
         Row.Insert(true);
     end;
+
+    [TryFunction]
+    procedure TryInsertRow(RowCode: Code[20])
+    var
+        Row: Record "RS Row";
+    begin
+        Row.Code := RowCode;
+        Row.Insert();
+    end;
+
+    procedure InsertRowResultUsed(RowCode: Code[20])
+    var
+        Row: Record "RS Row";
+    begin
+        Row.Code := RowCode;
+        if Row.Insert() then;
+    end;
+
+    [InherentPermissions(PermissionObjectType::TableData, Database::"RS Row", 'r')]
+    procedure InsertRowLowerR(RowCode: Code[20])
+    var
+        Row: Record "RS Row";
+    begin
+        Row.Code := RowCode;
+        Row.Insert();
+    end;
+
+    [InherentPermissions(PermissionObjectType::TableData, Database::"RS Row", 'i', InherentPermissionsScope::Entitlements)]
+    procedure InsertRowLowerIEntitlements(RowCode: Code[20])
+    var
+        Row: Record "RS Row";
+    begin
+        Row.Code := RowCode;
+        Row.Insert();
+    end;
+}
+
+codeunit 50978 "RS Writer OnRun"
+{
+    trigger OnRun()
+    var
+        Row: Record "RS Row";
+    begin
+        Row.Code := 'J';
+        Row.Insert();
+    end;
+}
+
+codeunit 50979 "RS Writer Single"
+{
+    SingleInstance = true;
+
+    procedure InsertRow(RowCode: Code[20])
+    var
+        Row: Record "RS Row";
+    begin
+        Row.Code := RowCode;
+        Row.Insert();
+    end;
+}
+
+codeunit 50980 "RS Neighbors"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure InsertInATryFunction()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        if Writer.TryInsertRow('K') then;
+    end;
+
+    [Test]
+    procedure InsertWithItsResultUsed()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRowResultUsed('L');
+    end;
+
+    [Test]
+    procedure InsertInTheOnRunOfAHelper()
+    begin
+        Codeunit.Run(Codeunit::"RS Writer OnRun");
+    end;
+
+    [Test]
+    procedure InsertThroughASingleInstanceHelper()
+    var
+        Writer: Codeunit "RS Writer Single";
+    begin
+        Writer.InsertRow('M');
+    end;
+
+    [Test]
+    [TestPermissions(TestPermissions::Restrictive)]
+    procedure InsertUnderMethodRestrictiveWithoutCodeunitValue()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRow('N');
+    end;
+
+    [Test]
+    [TestPermissions(TestPermissions::NonRestrictive)]
+    procedure InsertUnderMethodNonRestrictiveWithoutCodeunitValue()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRow('O');
+    end;
+}
+
+codeunit 50981 "RS Restrictive Neighbors"
+{
+    Subtype = Test;
+    TestPermissions = Restrictive;
+
+    [Test]
+    [TestPermissions(TestPermissions::NonRestrictive)]
+    procedure InsertUnderRestrictiveAndMethodNonRestrictive()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRow('P');
+    end;
+
+    [Test]
+    [TestPermissions(TestPermissions::InheritFromTestCodeunit)]
+    procedure InsertUnderRestrictiveAndMethodInherit()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRow('Q');
+    end;
+
+    [Test]
+    procedure InsertUnderALowerCaseR()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRowLowerR('T');
+    end;
+
+    [Test]
+    procedure InsertUnderALowerCaseIEntitlements()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRowLowerIEntitlements('U');
+    end;
+}
+
+codeunit 50984 "RS Restrictive R"
+{
+    Subtype = Test;
+    TestPermissions = Restrictive;
+
+    [Test]
+    procedure InsertUnderTheMeasuredR()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRowR('V');
+    end;
+}
+
+codeunit 50982 "RS Test Codeunit Permissions"
+{
+    Subtype = Test;
+    Permissions = tabledata "RS Row" = RIMD;
+
+    [Test]
+    procedure InsertUnderATestCodeunitPermissions()
+    var
+        Writer: Codeunit "RS Writer";
+    begin
+        Writer.InsertRow('W');
+    end;
 }
 
 codeunit 50972 "RS Default"
@@ -299,6 +479,11 @@ impl al_host::dotnet::DotNetHost for HasDotNet {
 }
 
 fn run(base: &str) -> CorpusRuntime {
+    run_with(base, "")
+}
+
+/// The run with `extra` added to the test app's source.
+fn run_with(base: &str, extra: &str) -> CorpusRuntime {
     let manifest = |p: &str| Manifest {
         publisher: p.into(),
         version: "1.0.0.0".into(),
@@ -320,7 +505,10 @@ fn run(base: &str) -> CorpusRuntime {
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
-        vec![app("main", &["base"], MAIN), app("base", &[], base)],
+        vec![
+            app("main", &["base"], &format!("{MAIN}{extra}")),
+            app("base", &[], base),
+        ],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
         &[manifest("Me"), manifest("Microsoft")],
         &Default::default(),
@@ -396,4 +584,78 @@ fn without_set_state_test_run_the_insert_keeps_mains_answer() {
     let r = result(&rt, "InsertThroughHelper");
     assert_eq!(r.outcome, Outcome::Pass);
     assert!(r.assumptions.is_empty(), "{:?}", r.assumptions);
+}
+
+/// The measured cell with the InherentPermissions letter 'R' on the inserting procedure under codeunit Restrictive
+/// (BiInherentPerms.al:202-213) raises the denial.
+#[test]
+fn the_measured_r_attribute_under_restrictive_raises_the_denial() {
+    let rt = run(BASE);
+    assert_eq!(
+        result(&rt, "InsertUnderTheMeasuredR").outcome,
+        Outcome::Fail(
+            "Sorry, the current permissions prevented the action. (TableData 50970 RS Row Insert: main)".into()
+        )
+    );
+}
+
+/// An insert inside a [TryFunction] of the helper keeps main's answer: the error of a write inside a try function.
+#[test]
+fn an_insert_in_a_try_function_keeps_mains_answer() {
+    let rt = run(BASE);
+    let r = result(&rt, "InsertInATryFunction");
+    match &r.outcome {
+        Outcome::Fail(msg) => assert!(msg.contains("TryFunction"), "{msg}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// `if Row.Insert() then;`: the result used, where the pin is the statement form.
+#[test]
+fn an_insert_with_its_result_used_keeps_mains_answer() {
+    let rt = run(BASE);
+    main_pass(&rt, "InsertWithItsResultUsed");
+}
+
+/// The insert in the OnRun trigger of a helper run by `Codeunit.Run`, where the pin is a procedure.
+#[test]
+fn an_insert_in_the_onrun_of_a_helper_keeps_mains_answer() {
+    let rt = run(BASE);
+    main_pass(&rt, "InsertInTheOnRunOfAHelper");
+}
+
+/// A permission set extension of D365 BASIC that grants the table indirect rights: the session level is not blank.
+#[test]
+fn an_indirect_grant_of_the_table_keeps_mains_answer() {
+    let rt = run_with(
+        BASE,
+        "\npermissionsetextension 50983 \"RS Basic Ext\" extends \"D365 Basic\"\n{\n    Permissions = tabledata \"RS Row\" = rimd;\n}\n",
+    );
+    main_pass(&rt, "InsertThroughHelper");
+}
+
+/// The four (codeunit TestPermissions, method attribute) pairs no probe measures keep main's answer.
+#[test]
+fn unmeasured_test_permissions_pairs_keep_mains_answer() {
+    let rt = run(BASE);
+    main_pass(&rt, "InsertUnderRestrictiveAndMethodNonRestrictive");
+    main_pass(&rt, "InsertUnderRestrictiveAndMethodInherit");
+    main_pass(&rt, "InsertUnderMethodRestrictiveWithoutCodeunitValue");
+    main_pass(&rt, "InsertUnderMethodNonRestrictiveWithoutCodeunitValue");
+}
+
+/// The attribute letters 'r' (indirect read) and 'i' (indirect insert) are not the measured 'R' and 'I'.
+#[test]
+fn lower_case_attribute_letters_keep_mains_answer() {
+    let rt = run(BASE);
+    main_pass(&rt, "InsertUnderALowerCaseR");
+    main_pass(&rt, "InsertUnderALowerCaseIEntitlements");
+}
+
+/// A helper codeunit with a property (SingleInstance) and a test codeunit with Permissions keep main's answer.
+#[test]
+fn codeunit_properties_no_probe_measures_keep_mains_answer() {
+    let rt = run(BASE);
+    main_pass(&rt, "InsertThroughASingleInstanceHelper");
+    main_pass(&rt, "InsertUnderATestCodeunitPermissions");
 }
