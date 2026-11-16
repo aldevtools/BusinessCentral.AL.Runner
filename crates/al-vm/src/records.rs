@@ -2089,12 +2089,13 @@ impl Session {
                     continue;
                 }
             } else if keeps_content && (stored.is_some() || !rec.borrow().inserted) {
-                // An assigned copy of an in-memory write in a record never inserted reads empty
-                // (streams/BlobCopyNeighbors.al:3102-3134, :3311-3316, `AssignedNeverInserted`).
+                // An assigned copy of an in-memory write in a record never inserted and without filters reads empty
+                // (streams/BlobCopyNeighbors.al:3102-3134, :3311-3316, `AssignedNeverInserted`; no cell sets a filter).
                 let never_inserted = stored.is_none() && !rec.borrow().inserted;
+                let unfiltered = rec.borrow().filters.is_empty();
                 match buf.borrow().assigned_write {
-                    AssignedWrite::NeverInsertedEmpties if never_inserted => {}
-                    AssignedWrite::Unmeasured if never_inserted => {
+                    AssignedWrite::NeverInsertedEmpties if never_inserted && unfiltered => {}
+                    AssignedWrite::NeverInsertedEmpties | AssignedWrite::Unmeasured if never_inserted => {
                         return unsupported(
                             "CalcFields of a Blob assigned from an in-memory write, in a record never inserted, outside the measured shape (not pinned)",
                         );

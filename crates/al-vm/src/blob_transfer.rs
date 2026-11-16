@@ -15,8 +15,12 @@ use std::rc::Rc;
 /// How a Blob reaches its target.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BlobMove {
-    /// `Target.Field := Source`; `from_own_record`: `Source` is a Blob field of the target record itself.
-    Assign { from_own_record: bool },
+    /// `Target.Field := Source`; `from_own_record`: `Source` is a Blob field of the target record itself; `target_temporary`:
+    /// the target record is `temporary`.
+    Assign {
+        from_own_record: bool,
+        target_temporary: bool,
+    },
     /// A builtin's write-back of its by-reference receiver or argument (`Session::write_native_back`: Clear, CreateOutStream).
     WriteBack,
     /// `FieldRef.Value := Source`.
@@ -723,8 +727,11 @@ fn moved_blob(
     match how {
         BlobMove::WriteBack => return Ok(v),
         BlobMove::Assign { .. } if s.row_copy && !s.loaded => return Ok(Value::Blob(new_blob())),
-        BlobMove::Assign { from_own_record } if std::sync::Arc::strong_count(b) > 1 => {
-            return Ok(assigned_copy(cur, b, &s, from_own_record));
+        BlobMove::Assign {
+            from_own_record,
+            target_temporary,
+        } if std::sync::Arc::strong_count(b) > 1 => {
+            return Ok(assigned_copy(cur, b, &s, from_own_record, target_temporary));
         }
         BlobMove::Assign { .. } => return Ok(v),
         BlobMove::TransferFields(_) if !s.loaded && !s.written => return Ok(Value::Blob(new_blob())),
@@ -789,7 +796,13 @@ impl BlobMove {
 /// Insert stored while it held content, with no stream created on it and no unsaved write since (`temp_inserted`; in the
 /// repro a stream wrote the content), and the target is a loaded Blob without content and without an unsaved write.
 /// `Session::load_blobs` reads the mark. Every other copy is as before.
-fn assigned_copy(cur: Option<&Value>, b: &al_builtins::stream::BlobRef, s: &Source, from_own_record: bool) -> Value {
+fn assigned_copy(
+    cur: Option<&Value>,
+    b: &al_builtins::stream::BlobRef,
+    s: &Source,
+    from_own_record: bool,
+    target_temporary: bool,
+) -> Value {
     let copy = copy_for_assignment(b);
     let source_in_cell = matches!(
         (b.borrow().temp_inserted, s.loaded, s.content, s.written),
@@ -800,20 +813,23 @@ fn assigned_copy(cur: Option<&Value>, b: &al_builtins::stream::BlobRef, s: &Sour
     if source_in_cell && target_in_cell {
         copy.borrow_mut().assigned_unsaved = true;
     }
-    copy.borrow_mut().assigned_write = assigned_write(cur, b, s, from_own_record);
+    copy.borrow_mut().assigned_write = assigned_write(cur, b, s, from_own_record, target_temporary);
     Value::Blob(copy)
 }
 
 /// The `BlobBuf::assigned_write` of the copy `Target.Field := Source` stores (`assigned_copy`). The pinned shape
 /// (streams/BlobCopyNeighbors.al:3102-3111, `W(Other, 'beta')` then `Src.Data := Other.Data`): the source holds content a
 /// stream wrote in memory and is no assigned copy itself, it is a Blob of another record, and the target is the loaded, empty
-/// Blob of a record with no stream write and no earlier assignment to it. Content written in memory in any other shape is
-/// `Unmeasured`; a copy without such content is `Other`.
+/// Blob of a record with no stream write and no earlier assignment to it. In every pinned cell the stream write is one
+/// `WriteText` through one `CreateOutStream` (BlobCopyNeighbors.al:98-104, BlobAssignThenCalcFields.al:43-49) and the target
+/// record is not `temporary` (BlobCopyNeighbors.al:3104, BlobAssignThenCalcFields.al:667). Content written in memory in any
+/// other shape (a temporary target, a source filled by CopyStream) is `Unmeasured`; a copy without such content is `Other`.
 fn assigned_write(
     cur: Option<&Value>,
     b: &al_builtins::stream::BlobRef,
     s: &Source,
     from_own_record: bool,
+    target_temporary: bool,
 ) -> AssignedWrite {
     if !matches!((s.in_memory, s.written, s.content), (true, true, true)) {
         return AssignedWrite::Other;
@@ -825,8 +841,11 @@ fn assigned_write(
             (true, true, false, AssignedWrite::No)
         )
     });
-    let plain_source = b.borrow().assigned_write == AssignedWrite::No;
-    if fresh_target && plain_source && !from_own_record {
+    let plain_source = {
+        let b = b.borrow();
+        (b.assigned_write, b.line_breaks.one_text_write(b.content_edits)) == (AssignedWrite::No, true)
+    };
+    if (fresh_target, plain_source, from_own_record, target_temporary) == (true, true, false, false) {
         AssignedWrite::NeverInsertedEmpties
     } else {
         AssignedWrite::Unmeasured

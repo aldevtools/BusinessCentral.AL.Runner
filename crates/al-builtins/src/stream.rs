@@ -28,12 +28,13 @@ pub enum AssignedWrite {
     No,
     /// An assigned copy outside the two shapes below (no content a stream wrote in memory): `CalcFields` as for any buffer.
     Other,
-    /// The pinned shape: another record's content a stream wrote in memory, into the fresh Blob of a record with no write.
-    /// `CalcFields` then reads it empty (streams/BlobCopyNeighbors.al:3102-3134, :3311-3316).
+    /// The pinned shape: another record's content one stream WriteText wrote in memory, into the fresh Blob of a record that is
+    /// not temporary and has no write. `CalcFields` of the record without filters then reads it empty
+    /// (streams/BlobCopyNeighbors.al:3102-3134, :3311-3316); with a filter it refuses.
     NeverInsertedEmpties,
     /// Content a stream wrote in memory, in a shape no cell measures (a chained or repeated assignment, a target with a write,
-    /// a field of the same record, a copy by TransferFields or a RecordRef, a failed write of the record since): `CalcFields`
-    /// of the record never inserted refuses.
+    /// a temporary target, a source filled otherwise than by one WriteText, a field of the same record, a copy by
+    /// TransferFields or a RecordRef, a failed write of the record since): `CalcFields` of the record never inserted refuses.
     Unmeasured,
 }
 

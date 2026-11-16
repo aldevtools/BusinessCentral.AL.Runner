@@ -83,7 +83,8 @@ fn an_own_stream_write_keeps_its_content_after_calcfields() {
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "OwnWrite")), "hv:gamma");
 }
 
-/// The shapes around the pin that no cell measures (al-runner PR 8149 review, probe p1 N05-N08, N10, N13, N18): CalcFields of
+/// The shapes around the pin that no cell measures (al-runner PR 8149 review, probe p1 N05-N08, N10, N13, N14, N17, N18, N22):
+/// CalcFields of
 /// the record never inserted refuses. The pin assigns another record's in-memory write to the fresh Blob of a record with no
 /// write, and calls CalcFields on that record, a by-value copy or a `Record.Copy` (BlobCopyNeighbors.al:3102-3134).
 const NEIGHBORS: &str = r#"
@@ -170,6 +171,42 @@ codeunit 50990 C
         Src.CalcFields(Data);
     end;
 
+    local procedure CalcIn(R: Record "By Row")
+    begin
+        R.CalcFields(Data);
+    end;
+
+    procedure TempTargetByValue()
+    var Src: Record "By Row" temporary; Other: Record "By Row";
+    begin
+        Src.Key1 := 10;
+        W(Other, 'beta');
+        Src.Data := Other.Data;
+        CalcIn(Src);
+    end;
+
+    procedure SourceFilledByCopyStream()
+    var Src: Record "By Row"; Other: Record "By Row"; Feed: Record "By Row"; InS: InStream; OutS: OutStream;
+    begin
+        Src.Key1 := 10;
+        W(Feed, 'beta');
+        Feed.Data.CreateInStream(InS);
+        Other.Data.CreateOutStream(OutS);
+        CopyStream(OutS, InS);
+        Src.Data := Other.Data;
+        Src.CalcFields(Data);
+    end;
+
+    procedure FilterOnTarget()
+    var Src: Record "By Row"; Other: Record "By Row";
+    begin
+        Src.Key1 := 10;
+        Src.SetRange(Key1, 5);
+        W(Other, 'beta');
+        Src.Data := Other.Data;
+        Src.CalcFields(Data);
+    end;
+
     procedure AssignedTwiceSecondEmpty()
     var Src: Record "By Row"; Other: Record "By Row"; Empty: Record "By Row";
     begin
@@ -193,6 +230,9 @@ fn calcfields_after_an_assignment_outside_the_pin_is_refused() {
         "ThroughRecordRef",
         "FailedModifyBetween",
         "AssignedTwiceSecondEmpty",
+        "TempTargetByValue",
+        "SourceFilledByCopyStream",
+        "FilterOnTarget",
     ] {
         match al_testkit::run_in(NEIGHBORS, "C", routine) {
             Err(al_builtins::native::Signal::Unsupported(why)) => {
