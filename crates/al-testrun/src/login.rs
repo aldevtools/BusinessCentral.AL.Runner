@@ -119,6 +119,9 @@ pub(crate) const LOGIN_RAISER: u32 = 151;
 /// Why what the login does in a session without a client is not known ([`Login::Own`]).
 pub(crate) const NO_CLIENT: &str = "the login was not raised for this test codeunit, and which login events BC raises in a session without a client (--no-client) is not pinned";
 
+/// Why the login is not raised for a test codeunit that can see what it leaves, in a session without a client.
+pub(crate) const NO_CLIENT_RAISE: &str = "which login events BC raises in a session without a client (--no-client) is not pinned, and this test codeunit can see what the login leaves";
+
 /// Why what the login does under RequiredTestIsolation = Disabled is not known ([`Login::Own`]).
 pub(crate) const DISABLED: &str = "the login was not raised for this test codeunit, and under RequiredTestIsolation = Disabled how what the login writes meets what an earlier codeunit left is not pinned";
 

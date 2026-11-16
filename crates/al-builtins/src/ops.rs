@@ -51,18 +51,8 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     if let Value::PlaceholderSize(_) = &v {
         return crate::placeholder_output::size_convert(v, t);
     }
-    // A counter value stays tainted in a Variant and in a number slot, with the slot's type (`sqlcount`, SqlCounters.al
-    // P6924_Counters_StoredInInteger_NotNegative, P6924_Counters_StoredInDecimal_NotNegativeAndWhole); any other type would
-    // show its number.
     if let Value::SqlCount(c) = &v {
-        use crate::value::SqlType;
-        return match t {
-            T::Variant => Ok(v),
-            T::BigInteger => Ok(crate::sqlcount::into_number(*c, SqlType::BigInteger)),
-            T::Integer => Ok(crate::sqlcount::into_number(*c, SqlType::Integer)),
-            T::Decimal => Ok(crate::sqlcount::into_number(*c, SqlType::Decimal)),
-            _ => Err(crate::sqlcount::refusal("a conversion to another type")),
-        };
+        return crate::sqlcount::convert(*c, v, t);
     }
     // A Text or Code into a Text or Code, the most common conversion (an assignment or a parameter of text), straight to
     // the arm the general match below would reach: no earlier arm takes a text source into a text target, and a text
@@ -191,6 +181,15 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Library(n, cell), T::Library(_)) if n == "HttpRequestMessage" => {
             crate::http::request_handed_on(&cell);
             Value::Library(n, cell)
+        }
+        // The XmlNode that AsXmlNode of an unassigned XmlElement returned (`xml::is_node_of_unassigned_element`), held by a
+        // Variant and assigned to an XmlElement: not measured, refused.
+        (v @ Value::Library(..), T::Library(crate::library_kind::LibraryKind::XmlElement))
+            if crate::xml::is_node_of_unassigned_element(&v) =>
+        {
+            return unsupported(
+                "a Variant holding the XmlNode that AsXmlNode of an unassigned XmlElement returned, into an XmlElement (not measured)",
+            );
         }
         (v @ Value::Codeunit(_), T::Codeunit(_) | T::Interface(_)) | (v @ Value::Library(..), T::Library(_)) => v,
         (v @ Value::Record(_), T::Record(..)) => v,
