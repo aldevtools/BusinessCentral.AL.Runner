@@ -12,6 +12,16 @@ use al_ir::{Attribute, Const};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// The move of `Rec.Field := v` into the record `rec` ([`BlobMove::Assign`]).
+pub(crate) fn assign_into(rec: &RecordState, v: &Value) -> BlobMove {
+    let from_own_record = matches!(v, Value::Blob(b)
+        if rec.fields.iter().any(|f| matches!(f, Value::Blob(o) if std::sync::Arc::ptr_eq(o, b))));
+    BlobMove::Assign {
+        from_own_record,
+        target_temporary: rec.temporary,
+    }
+}
+
 /// How a Blob reaches its target.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BlobMove {

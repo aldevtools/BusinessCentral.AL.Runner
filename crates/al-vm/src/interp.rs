@@ -1706,12 +1706,7 @@ impl Session {
                         crate::records::held_part_field_write(why)?;
                     }
                     let how = if assign {
-                        let from_own_record = matches!(&v, Value::Blob(b)
-                            if r.fields.iter().any(|f| matches!(f, Value::Blob(o) if std::sync::Arc::ptr_eq(o, b))));
-                        BlobMove::Assign {
-                            from_own_record,
-                            target_temporary: r.temporary,
-                        }
+                        crate::blob_transfer::assign_into(&r, &v)
                     } else {
                         BlobMove::WriteBack
                     };

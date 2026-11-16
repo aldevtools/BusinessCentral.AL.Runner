@@ -831,6 +831,13 @@ fn run_pass_compile(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// ADR-046 decision 2: a `--companies` list names AL Runner's session company first.
+fn check_companies(companies: &al_host::Companies) -> Result<(), String> {
+    companies
+        .check_session_first(&al_host::Identity::company_name(&al_host::AlRunnerIdentity))
+        .map_err(|e| format!("--companies: {e}"))
+}
+
 fn run_version_inner(
     args: &Args,
     root: &Path,
@@ -864,9 +871,7 @@ fn run_version_inner(
                 .map_err(|e| format!("{}: {e}", oracle_path.display()))?,
         }
     };
-    companies
-        .check_session_first(&al_host::Identity::company_name(&al_host::AlRunnerIdentity))
-        .map_err(|e| format!("--companies: {e}"))?;
+    check_companies(&companies)?;
     al_test_cli::host::set_companies(companies);
     let started = Instant::now();
     let junit_path = oracle_path.parent().unwrap_or(Path::new(".")).join(&version.junit);
