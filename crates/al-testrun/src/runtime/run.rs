@@ -889,11 +889,9 @@ fn run_codeunit_inner(
                                 limit.map_or(0, |l| l.as_secs()),
                                 session.slept_in_test_ms()
                             ))),
-                            Err(Signal::Unsupported(_)) if timed_out.is_some() => Err(Signal::unsupported(format!(
-                                "the test used more than the time limit of {} s {} and was stopped (--test-timeout-secs); BC may have ended it differently or not at all",
-                                limit.map_or(0, |l| l.as_secs()),
-                                timed_out.map_or("", Stopped::clock_words)
-                            ))),
+                            Err(Signal::Unsupported(_)) if timed_out.is_some() => {
+                                Err(Signal::unsupported(time_limit_reason(timed_out, limit, "")))
+                            }
                             r => r,
                         };
                         // ADR-062: a test that lowered its permissions to sets that do not grant everything, and made no
@@ -1654,14 +1652,17 @@ pub(crate) enum Stopped {
     Wall,
 }
 
-impl Stopped {
-    /// The words after the limit in the reason (`the test used more than the time limit of <N> s <words> and was stopped`).
-    fn clock_words(self) -> &'static str {
-        match self {
-            Stopped::Cpu => "of CPU time",
-            Stopped::Wall => "of wall time",
-        }
-    }
+/// The reason of a test (or, with `place`, its codeunit's OnRun) that the clock `stopped` stopped at its time `limit`. It starts
+/// as `TIME_LIMIT_REASON`, which the outputs turn into the timeout row; the clock's words decide its `clock`.
+fn time_limit_reason(stopped: Option<Stopped>, limit: Option<std::time::Duration>, place: &str) -> String {
+    let clock = match stopped {
+        Some(Stopped::Wall) => "of wall time",
+        Some(Stopped::Cpu) | None => "of CPU time",
+    };
+    format!(
+        "{TIME_LIMIT_REASON}{} s {clock} and was stopped (--test-timeout-secs){place}; BC may have ended it differently or not at all",
+        limit.map_or(0, |l| l.as_secs())
+    )
 }
 
 /// Which clock stops a test now: `cpu` is the CPU time the test thread used (`None`: no CPU clock), `wall` the wall time of
@@ -1896,10 +1897,10 @@ fn on_run_time_limit<T>(
             "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
             limit.map_or(0, |l| l.as_secs())
         ))),
-        Err(Signal::Unsupported(_)) if timed_out.is_some() => Err(Signal::unsupported(format!(
-            "the test used more than the time limit of {} s {} and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests; BC may have ended it differently or not at all",
-            limit.map_or(0, |l| l.as_secs()),
-            timed_out.map_or("", Stopped::clock_words)
+        Err(Signal::Unsupported(_)) if timed_out.is_some() => Err(Signal::unsupported(time_limit_reason(
+            timed_out,
+            limit,
+            " in the test codeunit's OnRun trigger, before its tests",
         ))),
         r => r,
     }
