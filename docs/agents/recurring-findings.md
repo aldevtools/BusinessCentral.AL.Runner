@@ -161,6 +161,9 @@ refusal on a shape main ran is a regression, often in Base App code that partner
   on the wrong item after a splice.
 - PR body claims that the code does not do ("outside shapes keep the old path", "stays refused"), a refused
   cells list that misses cells, file names that changed, "green on 27.5 and 28.5" when that CI failed.
+- An ADR or PR body says an issue is closed because a step now runs. Check the outcome of the corpus case the
+  text cites as the pin, on the binary. A cited case that is on a not-passing list is not closed (ADR-076 draft,
+  al-runner #8160).
 - Before hand-back, read the PR body and the area table against the final diff and the actual CI result.
 - Run the tests of every crate whose tests call the changed path, not only the crates whose source changed:
   `grep -rn` the changed member or refusal text under `crates/*/tests` first.
