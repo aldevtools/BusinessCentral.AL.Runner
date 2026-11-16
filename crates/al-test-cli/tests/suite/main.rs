@@ -92,6 +92,7 @@ mod json_raw_tab_readfrom;
 mod key_after_first_edit_new_document;
 mod language_catalog_current;
 mod legal_guard;
+mod list_factbox_new_line;
 mod list_read_order;
 mod list_refused_validate_close;
 mod list_update_without_current;
