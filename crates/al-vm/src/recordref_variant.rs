@@ -116,8 +116,8 @@ impl VariantRefs {
     }
 
     /// The copy of RecordRef `source` that a RecordRef variable or a RecordRef parameter of a subscriber gets. The pair is
-    /// kept as a typed alias (AL Runner issue 7885, corpus pull request 1357: an assigned RecordRef, a by-value event
-    /// argument) only when `source` is not a handle a Variant holds; a RecordRef assigned from a Variant was not measured.
+    /// kept as a typed alias (an assigned RecordRef, a by-value event argument: TestRecordRefGetTableAlias.al:13-29,
+    /// :37-52) only when `source` is not a handle a Variant holds; a RecordRef assigned from a Variant was not measured.
     pub(crate) fn copy_typed_alias(&mut self, source: &Lib) -> Value {
         if self
             .variant_held
@@ -137,8 +137,8 @@ impl VariantRefs {
         copy
     }
 
-    /// Whether `receiver` is the copy of a typed alias pair (corpus pull request 1357 measures GetTable on the copy, not on
-    /// the source) and both handles still share `current`.
+    /// Whether `receiver` is the copy of a typed alias pair (TestRecordRefGetTableAlias.al:51 measures GetTable on the copy,
+    /// not on the source) and both handles still share `current`.
     fn has_typed_alias(&self, receiver: &Lib, current: &crate::records::Rec) -> bool {
         self.typed_aliases.iter().any(|(a, b)| {
             let (Some(a), Some(b)) = (a.upgrade(), b.upgrade()) else {
@@ -151,26 +151,45 @@ impl VariantRefs {
         })
     }
 
-    /// Corpus PR 1357 (issue 7885) measures typed same-table replacement through a RecordRef alias.
-    pub(crate) fn install_get_table_buffer(&self, lib: &Lib, copy: RecordState, typed_source: bool) {
+    /// GetTable on the copy of a typed alias pair (an assigned RecordRef or a by-value subscriber argument) with a Record of the
+    /// same table replaces the row both handles share, in the pinned shape only (recordref-fieldref/recordref/
+    /// TestRecordRefGetTableAlias.al:13-29 and :37-52): the Record is not temporary, unfiltered and in its primary key, and the
+    /// shared buffer is not temporary, unfiltered, in its primary key and held by exactly the two handles of the pair. With a
+    /// Record and a buffer of that table, both not temporary, another filter, key or number of handles refuses. `record_source`:
+    /// the argument was a Record, not a Variant. Every other GetTable gives the receiver a buffer of its own (main's path).
+    pub(crate) fn install_get_table_buffer(
+        &self,
+        lib: &Lib,
+        copy: RecordState,
+        record_source: bool,
+    ) -> Result<(), Signal> {
         let shared = match &*lib.borrow() {
             LibraryValue::RecordRef(current)
-                if typed_source && !copy.temporary && self.has_typed_alias(lib, current) =>
+                if record_source && !copy.temporary && self.has_typed_alias(lib, current) && {
+                    let buffer = current.borrow();
+                    !buffer.temporary && buffer.table == copy.table
+                } =>
             {
-                let same_table = {
-                    let current = current.borrow();
-                    !current.temporary && current.table == copy.table
+                let pinned = {
+                    let buffer = current.borrow();
+                    let plain = |r: &RecordState| r.filters.is_empty() && r.key == 0 && r.adhoc.is_none();
+                    plain(&copy) && plain(&buffer) && Rc::strong_count(current) == 2
                 };
-                same_table.then(|| current.clone())
+                if !pinned {
+                    return Err(Signal::Unsupported(
+                        "GetTable on a RecordRef that shares its row with another handle, outside the pinned shape (two handles, unfiltered, primary key, same table, not temporary) (not pinned)".into(),
+                    ));
+                }
+                Some(current.clone())
             }
             _ => None,
         };
         if let Some(current) = shared {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RecordRefGetTableSharedSameTable);
             *current.borrow_mut() = copy;
         } else {
             *lib.borrow_mut() = LibraryValue::RecordRef(Rc::new(RefCell::new(copy)));
         }
+        Ok(())
     }
 }
 

@@ -2,13 +2,12 @@
 //! that language.
 //!
 //! al-runner issue 8123: format 9 names the table and never its caption, so the session language does not change it, also
-//! when an app with a translation file for that language extends the table. Until the corpus pins it, the format runs
-//! through the assumption `recordid-format-nine-extended-table`.
+//! when an app with a translation file for that language extends the table
+//! (localization/app-xliff/lt-r7144-ext-caption/R7184BaseAppCaption.al:249-255).
 //!
 //! al-runner issue 8135: format 1 names the table by its caption as the source declares it, never translated: the unit for
 //! the table's own caption gives `TableCaption` its text, not format 1, and an app that extends the table leaves format 1 as
-//! it is (corpus PR 1413). Until the corpus pins it, format 1 runs in those two shapes through the assumption
-//! `recordid-format-one-source-caption`.
+//! it is (R7184BaseAppCaption.al:305-336). Only those two shapes run; the others stay refused.
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
@@ -328,20 +327,16 @@ fn find<'a>(got: &'a [(String, Outcome, Vec<Assumption>)], test: &str) -> &'a (S
         .unwrap_or_else(|| panic!("no test {test}: {got:?}"))
 }
 
-fn ids(assumed: &[Assumption]) -> Vec<&'static str> {
-    assumed.iter().map(|a| a.info().id).collect()
-}
-
-/// The issue's repro: format 9 of the extended table gives the same bracketed name under 1030 as under 1033, flagged.
+/// The issue's repro: format 9 of the extended table gives the same bracketed name under 1030 as under 1033, with no assumption.
 #[test]
-fn format_9_of_a_table_an_app_with_a_translation_file_extends_runs_flagged() {
+fn format_9_of_a_table_an_app_with_a_translation_file_extends_runs_clean() {
     let got = run();
     let (_, outcome, assumed) = find(&got, "Format9OfTheExtendedTableUnderDanish");
     assert!(
         matches!(outcome, Outcome::Fail(m) if m == "[ALR.Base.ALR Unit]: U1|[ALR.Base.ALR Unit]: U1"),
         "{outcome:?}"
     );
-    assert_eq!(ids(assumed), ["recordid-format-nine-extended-table"]);
+    assert!(assumed.is_empty(), "{assumed:?}");
 }
 
 /// A table no app with a translation file extends: the gate never refused it, and the pass stays clean.
@@ -356,23 +351,23 @@ fn format_9_of_a_table_not_extended_stays_a_clean_run() {
     assert!(assumed.is_empty(), "{assumed:?}");
 }
 
-/// Format 1 of a table an app with a translation file extends names it by its source caption, flagged.
+/// Format 1 of a table an app with a translation file extends names it by its source caption, with no assumption.
 #[test]
-fn format_1_of_a_table_an_app_with_a_translation_file_extends_gives_the_source_caption_flagged() {
+fn format_1_of_a_table_an_app_with_a_translation_file_extends_gives_the_source_caption_clean() {
     let got = run();
     let (_, outcome, assumed) = find(&got, "Format1OfTheExtendedTableUnderDanish");
     assert!(matches!(outcome, Outcome::Fail(m) if m == "Unit: U1"), "{outcome:?}");
-    assert_eq!(ids(assumed), ["recordid-format-one-source-caption"]);
+    assert!(assumed.is_empty(), "{assumed:?}");
 }
 
 /// The repro of the format 1 issue: the translating app's own table, whose caption its file translates, is named by the
-/// source caption, flagged.
+/// source caption, with no assumption.
 #[test]
-fn format_1_of_an_own_table_whose_caption_the_file_translates_gives_the_source_caption_flagged() {
+fn format_1_of_an_own_table_whose_caption_the_file_translates_gives_the_source_caption_clean() {
     let got = run();
     let (_, outcome, assumed) = find(&got, "Format1OfAnOwnTableOfTheTranslatingAppUnderDanish");
     assert!(matches!(outcome, Outcome::Fail(m) if m == "Gadget: G1"), "{outcome:?}");
-    assert_eq!(ids(assumed), ["recordid-format-one-source-caption"]);
+    assert!(assumed.is_empty(), "{assumed:?}");
 }
 
 /// TableCaption of the same table still reads the unit of the file, and needs no assumption.

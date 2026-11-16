@@ -1,11 +1,11 @@
-//! The Blob copies of the second probe (assumption `blob-transfer-copies`: corpus PR 1372, streams/BlobValueCopyShapes.al;
+//! The Blob copies of the second probe (pinned since the corpus bump that took corpus PR 1372, streams/BlobValueCopyShapes.al;
 //! al-runner issue 7948): an empty and a not-loaded Blob, the Variant forms, SetTable(Rec, true), TransferFields with more
 //! arguments, Record.Copy, a record by value, and Blob fields with Compressed = false or of a table extension. The measured
 //! routines repeat cells of that file and expect the values it asserts. The `Neighbor` routines are shapes it does not
-//! measure: they expect what the runner gave before (the Blob is shared), unflagged where no measured move runs on the way.
+//! measure: they expect what the runner gave before (the Blob is shared).
 //! `hv:` / `nohv:` is `HasValue`, then the text a stream reads.
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::clear_hits;
 use al_builtins::native::Signal;
 
 const SRC: &str = r#"
@@ -1423,23 +1423,9 @@ codeunit 50444 C
 }
 "#;
 
-/// The text `routine` returns, and whether the run passed through the assumption.
-fn run(routine: &str) -> (String, bool) {
-    clear_hits();
-    let out = al_testkit::text(al_testkit::run_in(SRC, "C", routine));
-    (out, take_hits().contains(&Assumption::BlobTransferCopies))
-}
-
-fn flagged(routine: &str) -> String {
-    let (out, hit) = run(routine);
-    assert!(hit, "{routine} did not pass through the assumption");
-    out
-}
-
-fn unflagged(routine: &str) -> String {
-    let (out, hit) = run(routine);
-    assert!(!hit, "{routine} passed through the assumption");
-    out
+/// The text `routine` returns.
+fn run(routine: &str) -> String {
+    al_testkit::text(al_testkit::run_in(SRC, "C", routine))
 }
 
 fn refused(routine: &str) {
@@ -1452,73 +1438,70 @@ fn refused(routine: &str) {
 
 #[test]
 fn an_empty_blob_stays_empty_in_the_copy_and_in_the_inserted_row() {
-    assert_eq!(flagged("GetTableEmptyWriteSourceInsert"), "rr=nohv: row=nohv: src=hv:x");
+    assert_eq!(run("GetTableEmptyWriteSourceInsert"), "rr=nohv: row=nohv: src=hv:x");
     assert_eq!(
-        flagged("TransferFieldsEmptyWriteTargetInsertSource"),
+        run("TransferFieldsEmptyWriteTargetInsertSource"),
         "src=nohv: row=nohv: dst=hv:y"
     );
-    assert_eq!(flagged("ValidateAndVariantEmptyWriteSource"), "nohv:|nohv:");
+    assert_eq!(run("ValidateAndVariantEmptyWriteSource"), "nohv:|nohv:");
 }
 
 #[test]
 fn settable_of_a_row_read_without_calcfields_gives_a_blob_of_its_own() {
-    assert_eq!(flagged("SetTableUnloadedCalcFieldsTarget"), "dst=hv:alpha rr=hv:");
-    assert_eq!(flagged("SetTableUnloadedWriteTargetModify"), "rr=hv: row=hv:alpha");
+    assert_eq!(run("SetTableUnloadedCalcFieldsTarget"), "dst=hv:alpha rr=hv:");
+    assert_eq!(run("SetTableUnloadedWriteTargetModify"), "rr=hv: row=hv:alpha");
 }
 
 #[test]
 fn validate_and_a_variant_of_a_row_read_without_calcfields_are_empty() {
-    assert_eq!(flagged("ValidateAndVariantUnloaded"), "nohv:|nohv:");
+    assert_eq!(run("ValidateAndVariantUnloaded"), "nohv:|nohv:");
 }
 
 #[test]
 fn a_variant_parameter_an_array_element_and_a_global_hold_a_copy() {
-    assert_eq!(flagged("VariantByValueParameter"), "hv:alpha|hv:betaa");
-    assert_eq!(flagged("VariantArrayElementAndGlobal"), "hv:alpha|hv:alpha");
+    assert_eq!(run("VariantByValueParameter"), "hv:alpha|hv:betaa");
+    assert_eq!(run("VariantArrayElementAndGlobal"), "hv:alpha|hv:alpha");
 }
 
 #[test]
 fn settable_with_sharetable_and_transferfields_with_flags_copy() {
-    assert_eq!(flagged("SetTableShareTable"), "hv:alpha|hv:alpha|hv:zzpha");
-    assert_eq!(flagged("TransferFieldsWithFlags"), "hv:alpha|hv:alpha|hv:alpha");
+    assert_eq!(run("SetTableShareTable"), "hv:alpha|hv:alpha|hv:zzpha");
+    assert_eq!(run("TransferFieldsWithFlags"), "hv:alpha|hv:alpha|hv:alpha");
 }
 
 #[test]
 fn a_record_in_a_variant_holds_the_blob_of_the_moment_it_was_taken() {
-    assert_eq!(flagged("GetTableOfRecordInLocalVariant"), "hv:alpha");
-    assert_eq!(flagged("GetTableOfRecordAsVariantParameter"), "hv:alpha");
+    assert_eq!(run("GetTableOfRecordInLocalVariant"), "hv:alpha");
+    assert_eq!(run("GetTableOfRecordAsVariantParameter"), "hv:alpha");
 }
 
 #[test]
 fn record_copy_copies_and_the_inserted_source_row_keeps_its_content() {
-    assert_eq!(flagged("RecordCopyTemporary"), "hv:zzpha|hv:alpha|hv:betaa");
+    assert_eq!(run("RecordCopyTemporary"), "hv:zzpha|hv:alpha|hv:betaa");
     assert_eq!(
-        flagged("RecordCopyWriteTargetInsertSource"),
+        run("RecordCopyWriteTargetInsertSource"),
         "row=hv:alpha src=hv:alpha dst=hv:zzpha"
     );
 }
 
 #[test]
 fn a_record_passed_by_value_leaves_the_callers_blob() {
-    assert_eq!(flagged("RecordByValue"), "inside=hv:zzpha caller=hv:alpha");
-    assert_eq!(flagged("RecordByValueTemporary"), "inside=hv:zzpha caller=hv:alpha");
+    assert_eq!(run("RecordByValue"), "inside=hv:zzpha caller=hv:alpha");
+    assert_eq!(run("RecordByValueTemporary"), "inside=hv:zzpha caller=hv:alpha");
 }
 
 #[test]
 fn uncompressed_and_table_extension_fields_copy_in_the_measured_moves() {
     assert_eq!(
-        flagged("VariationFields"),
+        run("VariationFields"),
         "hv:zzpha|hv:zzmma|hv:alpha|hv:gamma|hv:alpha|hv:gamma"
     );
-    assert_eq!(
-        flagged("ExtensionFieldStoredGetTableModify"),
-        "row=hv:alpha src=hv:newha"
-    );
+    assert_eq!(run("ExtensionFieldStoredGetTableModify"), "row=hv:alpha src=hv:newha");
 }
 
 #[test]
 fn an_open_outstream_keeps_writing_to_the_blob_it_was_created_on() {
-    assert_eq!(flagged("OpenOutStreamGetTableSetTableSameRecord"), "hv:al|hv:al");
+    assert_eq!(run("OpenOutStreamGetTableSetTableSameRecord"), "hv:al|hv:al");
 }
 
 // P3 is corpus PR 1375, streams/BlobCopyStates.al; P4 is corpus PR 1387, streams/BlobCopyNeighbors.al. Each value below is the one
@@ -1527,18 +1510,18 @@ fn an_open_outstream_keeps_writing_to_the_blob_it_was_created_on() {
 #[test]
 fn a_record_by_value_copies_in_every_measured_state_and_taker() {
     // P4 :587 states ins, calc, empty; :925 temporary into a Record parameter, state mem.
-    assert_eq!(flagged("NeighborByValueAfterInsert"), "hv:alpha");
-    assert_eq!(flagged("NeighborByValueAfterCalcFields"), "hv:alpha");
-    assert_eq!(flagged("NeighborByValueEmpty"), "nohv:");
-    assert_eq!(flagged("NeighborByValueTemporaryToRecordParameter"), "hv:alpha");
+    assert_eq!(run("NeighborByValueAfterInsert"), "hv:alpha");
+    assert_eq!(run("NeighborByValueAfterCalcFields"), "hv:alpha");
+    assert_eq!(run("NeighborByValueEmpty"), "nohv:");
+    assert_eq!(run("NeighborByValueTemporaryToRecordParameter"), "hv:alpha");
     // P4 :613 into a `temporary` parameter; :639 into a Variant parameter (state mem), which GetTable then reads.
-    assert_eq!(flagged("NeighborByValueStoredToOtherParameters"), "hv:alpha|hv:alpha");
+    assert_eq!(run("NeighborByValueStoredToOtherParameters"), "hv:alpha|hv:alpha");
 }
 
 #[test]
 fn a_record_by_value_to_a_tryfunction_copies() {
     // P3 :2200, a codeunit's [TryFunction], state mem.
-    assert_eq!(flagged("NeighborByValueTryFunction"), "hv:alpha");
+    assert_eq!(run("NeighborByValueTryFunction"), "hv:alpha");
 }
 
 #[test]
@@ -1546,33 +1529,33 @@ fn record_copy_copies_in_every_pair_but_not_an_extension_field() {
     // P3 :3108 C6 and :3274 E2 (Compressed = false through Record.Copy); a table extension field through Record.Copy is not
     // measured and shares, as on main.
     assert_eq!(
-        flagged("NeighborVariationFieldsByValueAndCopy"),
+        run("NeighborVariationFieldsByValueAndCopy"),
         "hv:alpha|hv:alpha|hv:yypha|hv:alpha"
     );
     // P4 :1256 temporary into not temporary, state mem.
-    assert_eq!(flagged("NeighborCopyTemporaryToStored"), "hv:alpha");
+    assert_eq!(run("NeighborCopyTemporaryToStored"), "hv:alpha");
     // P4 :1204 stored to stored, state ins; :1282 temporary to temporary, state empty.
-    assert_eq!(flagged("NeighborCopyAfterInsertAndEmpty"), "hv:alpha|nohv:");
+    assert_eq!(run("NeighborCopyAfterInsertAndEmpty"), "hv:alpha|nohv:");
     // P4 :1230 stored into temporary, state empty.
-    assert_eq!(flagged("NeighborCopyStoredToTemporaryEmpty"), "nohv:");
+    assert_eq!(run("NeighborCopyStoredToTemporaryEmpty"), "nohv:");
 }
 
 #[test]
 fn other_arguments_share_and_the_measured_states_copy() {
-    // GetTable copies on the way (flagged); TransferFields(Rec, true, false) and SetTable(Rec, false) share, as on main.
-    assert_eq!(run("NeighborOtherArguments").0, "hv:betaa|hv:zzpha");
+    // GetTable copies on the way; TransferFields(Rec, true, false) and SetTable(Rec, false) share, as on main.
+    assert_eq!(run("NeighborOtherArguments"), "hv:betaa|hv:zzpha");
     // P4 :1434 a stored record's field read into a global Variant, state calc; :1107 TransferFields(Rec, true) between
     // temporary records, state empty.
-    assert_eq!(flagged("NeighborOtherStates"), "hv:alpha|nohv:");
+    assert_eq!(run("NeighborOtherStates"), "hv:alpha|nohv:");
 }
 
 #[test]
 fn fieldref_value_and_validate_into_an_extension_or_uncompressed_field_copy() {
-    assert_eq!(flagged("ValueAndValidateIntoExtensionField"), "hv:alpha|hv:alpha");
-    assert_eq!(flagged("ValueIntoUncompressedField"), "hv:alpha");
-    assert_eq!(flagged("GetTableUncompressedCalcFields"), "hv:alpha");
-    assert_eq!(flagged("ExtensionFieldValueFromUnreadSource"), "nohv:");
-    assert_eq!(flagged("ExtensionFieldValidateFromUnreadSource"), "nohv:");
+    assert_eq!(run("ValueAndValidateIntoExtensionField"), "hv:alpha|hv:alpha");
+    assert_eq!(run("ValueIntoUncompressedField"), "hv:alpha");
+    assert_eq!(run("GetTableUncompressedCalcFields"), "hv:alpha");
+    assert_eq!(run("ExtensionFieldValueFromUnreadSource"), "nohv:");
+    assert_eq!(run("ExtensionFieldValidateFromUnreadSource"), "nohv:");
 }
 
 #[test]
@@ -1588,13 +1571,13 @@ fn content_in_a_field_kind_that_is_not_measured_stays_refused() {
 fn a_saved_blob_written_again_copies() {
     // P4 :587 state inswrite; :925 the same from a temporary record; :1204 Record.Copy, inswrite (the Modify after it stores the
     // source's own text); :587 insmodwrite.
-    assert_eq!(flagged("NeighborInsertWriteAgainByValue"), "hv:betaa");
-    assert_eq!(flagged("NeighborTempInsertWriteAgainByValue"), "hv:betaa");
-    assert_eq!(flagged("NeighborInsertWriteAgainCopyModify"), "hv:betaa|hv:betaa");
-    assert_eq!(flagged("NeighborModifyWriteAgainByValue"), "hv:betaa");
+    assert_eq!(run("NeighborInsertWriteAgainByValue"), "hv:betaa");
+    assert_eq!(run("NeighborTempInsertWriteAgainByValue"), "hv:betaa");
+    assert_eq!(run("NeighborInsertWriteAgainCopyModify"), "hv:betaa|hv:betaa");
+    assert_eq!(run("NeighborModifyWriteAgainByValue"), "hv:betaa");
     // P4 :1512 a temporary record's field read into a global Variant and :1107 TransferFields(Rec, true), state inswrite.
     assert_eq!(
-        flagged("NeighborInsertWriteAgainGlobalVariantTransferFlags"),
+        run("NeighborInsertWriteAgainGlobalVariantTransferFlags"),
         "hv:betaa|hv:betaa"
     );
 }
@@ -1602,19 +1585,19 @@ fn a_saved_blob_written_again_copies() {
 #[test]
 fn a_blob_written_by_a_copy_copies_by_value() {
     // P3 :2880 B1 (a field assignment), :2923 B3 (FieldRef.Value and SetTable).
-    assert_eq!(flagged("NeighborAssignedBlobByValue"), "hv:alpha");
-    assert_eq!(run("NeighborFieldRefValueBlobByValue").0, "hv:alpha");
+    assert_eq!(run("NeighborAssignedBlobByValue"), "hv:alpha");
+    assert_eq!(run("NeighborFieldRefValueBlobByValue"), "hv:alpha");
 }
 
 #[test]
 fn other_field_kinds_into_a_variant_that_is_not_local_copy() {
     // P3 :3017 C1-C3, :3087 C4-C5.
     assert_eq!(
-        flagged("NeighborVariationFieldsToVariantParameter"),
+        run("NeighborVariationFieldsToVariantParameter"),
         "hv:alpha|hv:alpha|hv:alpha"
     );
-    assert_eq!(flagged("NeighborExtensionFieldToGlobalAndArray"), "hv:alpha|hv:alpha");
-    assert_eq!(flagged("NeighborCompressedFieldToGlobalAndLocal"), "hv:alpha|hv:alpha");
+    assert_eq!(run("NeighborExtensionFieldToGlobalAndArray"), "hv:alpha|hv:alpha");
+    assert_eq!(run("NeighborCompressedFieldToGlobalAndLocal"), "hv:alpha|hv:alpha");
 }
 
 #[test]
@@ -1622,14 +1605,14 @@ fn a_record_stored_before_the_write_copies() {
     // P4 :587 insemptywrite, :925 the same from a temporary record, :587 insclearfieldwrite; Insert of an empty Blob, Modify,
     // then a write: :587 insemptywrite and insmodwrite run these calls in other orders; :587 insinitwrite; :1282 Record.Copy
     // between temporary records, insemptywrite; :1512 and :1107, insemptywrite.
-    assert_eq!(flagged("NeighborInsertEmptyWriteByValue"), "hv:alpha");
-    assert_eq!(flagged("NeighborTempInsertEmptyWriteByValue"), "hv:alpha");
-    assert_eq!(flagged("NeighborInsertClearFieldWriteByValue"), "hv:beta");
-    assert_eq!(flagged("NeighborInsertEmptyModifyWriteByValue"), "hv:alpha");
-    assert_eq!(flagged("NeighborInsertInitWriteByValue"), "hv:beta");
-    assert_eq!(flagged("NeighborTempInsertEmptyWriteCopy"), "hv:alpha");
+    assert_eq!(run("NeighborInsertEmptyWriteByValue"), "hv:alpha");
+    assert_eq!(run("NeighborTempInsertEmptyWriteByValue"), "hv:alpha");
+    assert_eq!(run("NeighborInsertClearFieldWriteByValue"), "hv:beta");
+    assert_eq!(run("NeighborInsertEmptyModifyWriteByValue"), "hv:alpha");
+    assert_eq!(run("NeighborInsertInitWriteByValue"), "hv:beta");
+    assert_eq!(run("NeighborTempInsertEmptyWriteCopy"), "hv:alpha");
     assert_eq!(
-        flagged("NeighborTempInsertEmptyWriteGlobalVariantTransferFlags"),
+        run("NeighborTempInsertEmptyWriteGlobalVariantTransferFlags"),
         "hv:alpha|hv:alpha"
     );
 }
@@ -1638,8 +1621,8 @@ fn a_record_stored_before_the_write_copies() {
 /// copy moves on into another Variant, by assignment or as a by-value parameter, as before.
 #[test]
 fn a_blob_read_into_a_global_variant_is_copied_and_moves_on_with_the_variant() {
-    assert_eq!(flagged("NeighborVariantHeldBlobToGlobalVariant"), "nohv:");
-    assert_eq!(flagged("NeighborVariantHeldBlobToVariantParameter"), "nohv:");
+    assert_eq!(run("NeighborVariantHeldBlobToGlobalVariant"), "nohv:");
+    assert_eq!(run("NeighborVariantHeldBlobToVariantParameter"), "nohv:");
 }
 
 /// The probe read the field from a local record variable. A global record, a record in an array, a `var` parameter record and
@@ -1647,46 +1630,46 @@ fn a_blob_read_into_a_global_variant_is_copied_and_moves_on_with_the_variant() {
 #[test]
 fn a_field_of_another_source_record_into_a_global_variant_shares_as_before() {
     assert_eq!(
-        flagged("NeighborOtherSourceRecordsToGlobalVariant"),
+        run("NeighborOtherSourceRecordsToGlobalVariant"),
         "hv:betaa|hv:betaa|hv:betaa|hv:alpha|hv:betaa"
     );
 }
 
-/// Shapes next to the cells of P4 that no probe ran: main's shared buffer, and the assumption does not run.
+/// Shapes next to the cells of P4 that no probe ran: main's shared buffer.
 #[test]
 fn neighbors_of_the_fourth_probe_keep_mains_shared_buffer() {
     // A Commit between the Insert and the by-value call (P4 ran none).
-    assert_eq!(unflagged("NeighborCommitBeforeByValue"), "hv:zzpha");
+    assert_eq!(run("NeighborCommitBeforeByValue"), "hv:zzpha");
     // A record method the probes did not run (SetRange) before the by-value call.
-    assert_eq!(unflagged("NeighborSetRangeBeforeByValue"), "hv:zzpha");
+    assert_eq!(run("NeighborSetRangeBeforeByValue"), "hv:zzpha");
     // A temporary record into a table procedure, and into a codeunit subscriber (P4 measured a stored record there).
-    assert_eq!(unflagged("NeighborTemporaryToTableProcedure"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborByValueEvent"), "hv:zzpha");
+    assert_eq!(run("NeighborTemporaryToTableProcedure"), "hv:zzpha");
+    assert_eq!(run("NeighborByValueEvent"), "hv:zzpha");
     // A procedure of a page.
-    assert_eq!(unflagged("NeighborPageProcedure"), "hv:zzpha");
+    assert_eq!(run("NeighborPageProcedure"), "hv:zzpha");
     // A subscriber of an isolated IntegrationEvent.
-    assert_eq!(unflagged("NeighborIsolatedPublisher"), "hv:zzpha");
+    assert_eq!(run("NeighborIsolatedPublisher"), "hv:zzpha");
     // A by-value OnBeforeInsertEvent subscriber of a temporary record.
-    assert_eq!(unflagged("NeighborTemporaryInsertEvent"), "hv:zzpha");
+    assert_eq!(run("NeighborTemporaryInsertEvent"), "hv:zzpha");
 }
 
 /// FieldRef.Validate on the GetTable copy ends its fact: SetTable(Rec, true) after it shares, as on main. GetTable copies on the
-/// way (flagged).
+/// way.
 #[test]
 fn settable_sharetable_after_a_fieldref_validate_shares_as_before() {
-    assert_eq!(run("NeighborValidateBeforeSetTableShared").0, "hv:zzpha");
+    assert_eq!(run("NeighborValidateBeforeSetTableShared"), "hv:zzpha");
 }
 
 /// A Commit while a local is fresh, before the call that makes it a measured source: no probe ran it (P3 :3208 D5 commits
 /// before a global record only Clear and a write touch), so the by-value call shares as on main.
 #[test]
 fn a_commit_before_the_first_record_method_keeps_mains_shared_buffer() {
-    assert_eq!(unflagged("NeighborCommitWhileFreshThenInsert"), "hv:zzpha");
-    assert_eq!(unflagged("NeighborCommitWhileFreshThenAssign"), "hv:zzpha");
+    assert_eq!(run("NeighborCommitWhileFreshThenInsert"), "hv:zzpha");
+    assert_eq!(run("NeighborCommitWhileFreshThenAssign"), "hv:zzpha");
 }
 
 /// A RecordRef call the probes did not run on the GetTable copy before SetTable(Rec, true): the copy's fact ends and the table
-/// is shared, as on main (GetTable copies on the way, flagged). FieldRef.SetRange with one value is a call P4 ran (:2446
+/// is shared, as on main (GetTable copies on the way). FieldRef.SetRange with one value is a call P4 ran (:2446
 /// `ShareSetRange`): the RecordRef keeps its own Blob.
 #[test]
 fn a_recordref_call_not_measured_before_settable_sharetable_shares_as_before() {
@@ -1704,7 +1687,7 @@ fn a_recordref_call_not_measured_before_settable_sharetable_shares_as_before() {
         "NeighborRrSetTableFalseFirst",
         "NeighborRrSetTableTrueFirst",
     ] {
-        assert_eq!(run(routine).0, "hv:zzpha", "{routine}");
+        assert_eq!(run(routine), "hv:zzpha", "{routine}");
     }
-    assert_eq!(flagged("RrFieldSetRange"), "hv:alpha");
+    assert_eq!(run("RrFieldSetRange"), "hv:alpha");
 }

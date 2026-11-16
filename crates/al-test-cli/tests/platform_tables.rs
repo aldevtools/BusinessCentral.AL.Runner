@@ -4364,8 +4364,16 @@ reportextension 50100 "EE Report Ext" extends "EE Report" {
   [IntegrationEvent(false, false)] local procedure OnReportExtEvent(Code: Code[10]) begin end; }
 "#;
 
-/// Runs test codeunit `T` of `src` and gives each test's outcome and whether it passed through an assumption.
+/// Runs test codeunit `T` of `src` and gives each test's outcome and whether it passed through any assumption.
 fn ext_event_outcomes(src: &str, dep: Option<&str>) -> Vec<(String, Outcome, bool)> {
+    ext_event_hits(src, dep)
+        .into_iter()
+        .map(|(n, o, ids)| (n, o, !ids.is_empty()))
+        .collect()
+}
+
+/// Runs test codeunit `T` of `src` and gives each test's outcome and the ids of the assumptions it passed through.
+fn ext_event_hits(src: &str, dep: Option<&str>) -> Vec<(String, Outcome, Vec<&'static str>)> {
     let (engine, l) = engine_over("main", src, dep, al_sema::check::Roots::default(), FALLBACK_BC);
     let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
     let mut hits = Vec::new();
@@ -4383,12 +4391,27 @@ fn ext_event_outcomes(src: &str, dep: Option<&str>) -> Vec<(String, Outcome, boo
     );
     out.into_iter()
         .map(|(n, o)| {
-            let flagged = hits.iter().any(|(h, m)| {
-                *h == n && m.contains(&al_builtins::assumptions::Assumption::ExtensionEventSubscriberActive)
-            });
-            (n, o, flagged)
+            let ids = hits
+                .iter()
+                .filter(|(h, _)| *h == n)
+                .flat_map(|(_, m)| m.iter().map(|a| a.info().id))
+                .collect();
+            (n, o, ids)
         })
         .collect()
+}
+
+/// The Microsoft Tests-Misc cells (`extension_event_subscription_row_of_a_page_in_another_app` and `..._of_a_list_page_of_the_
+/// same_app`): the reads codeunit 134299 makes, a filter on Active = No and on a non-blank Error Information that rules the
+/// row out, pass through assumption `extension-event-subscriber-active`; a read that counts the row stays refused.
+fn assert_tests_misc_cell(out: &[(String, Outcome, Vec<&'static str>)]) {
+    let get = |n: &str| out.iter().find(|(x, _, _)| x == n).cloned().expect(n);
+    for n in ["Inactive", "NoErrors"] {
+        let (_, o, ids) = get(n);
+        assert_eq!(o, Outcome::Pass, "{n}");
+        assert_eq!(ids, ["extension-event-subscriber-active"], "{n} must be a flagged pass");
+    }
+    assert!(matches!(get("Counted").1, Outcome::NotRun(_)), "Counted");
 }
 
 /// The test procedure `name` that checks the row of subscriber `routine` of codeunit `id` against `want` (the columns of
@@ -4404,11 +4427,11 @@ fn ext_event_row_test(name: &str, id: u32, routine: &str, want: &str, count: Opt
     )
 }
 
-fn assert_flagged_passes(out: &[(String, Outcome, bool)]) {
+fn assert_clean_passes(out: &[(String, Outcome, bool)]) {
     assert!(!out.is_empty());
     for (n, o, flagged) in out {
         assert_eq!(*o, Outcome::Pass, "{n}");
-        assert!(*flagged, "{n} must be a flagged pass");
+        assert!(!*flagged, "{n} must pass without the assumption");
     }
 }
 
@@ -4419,11 +4442,11 @@ fn assert_refused(out: &[(String, Outcome, bool)]) {
     }
 }
 
-/// al-runner #8060, the cells of one app that corpus PR 1412 measures (merged, not pinned; ExtensionEventSubscriptionRows.al
+/// al-runner #8060, the cells of one app that corpus PR 1412 measures (pinned; ExtensionEventSubscriptionRows.al
 /// :178-252, identical on BC 27.5, 28.5 and 29.0): the whole row of a subscriber to an event that a table, page or report
 /// extension declares, an integration event with and without IncludeSender, a business event, a subscriber with both Skip flags
 /// true, and a manual subscriber; Count of a codeunit's rows; Active = No and a non-blank Error Information count no row
-/// (:266-281). Each is a flagged pass (assumption extension-event-subscriber-active).
+/// (:266-281). Each passes without an assumption: the cells are pinned.
 #[test]
 fn extension_event_subscription_rows_of_one_app() {
     let subs = r#"
@@ -4453,11 +4476,11 @@ codeunit 50104 "EE Manual Sub" { EventSubscriberInstance = Manual;
     ]
     .concat();
     let src = format!("{EXT_EVENT_OBJECTS}{subs}codeunit 50000 \"T\" {{ Subtype = Test;\n{tests}}}");
-    assert_flagged_passes(&ext_event_outcomes(&src, None));
+    assert_clean_passes(&ext_event_outcomes(&src, None));
 }
 
 /// al-runner #8060, the columns the session changes. Corpus PR 1412 reads "Active Manual Instances" 0 of the manual subscriber
-/// with no instance bound (ExtensionEventSubscriptionRows.al:244-252) and never reads "Number of Calls". On an assumed row a read
+/// with no instance bound (ExtensionEventSubscriptionRows.al:244-252) and never reads "Number of Calls". On the row a read
 /// of "Active Manual Instances" while an instance of the subscriber codeunit is bound refuses (the rest of the row answers, and
 /// after the unbind the column reads 0 again), and so do a read of and a filter on "Number of Calls". A codeunit event's
 /// subscriber keeps main's answer.
@@ -4484,7 +4507,7 @@ codeunit 50111 "EE Plain Sub" {
     let src = format!("{EXT_EVENT_OBJECTS}{subs}codeunit 50000 \"T\" {{ Subtype = Test;\n{tests}}}");
     let out = ext_event_outcomes(&src, None);
     let get = |n: &str| out.iter().find(|(x, _, _)| x == n).cloned().expect(n);
-    assert_flagged_passes(&[get("BoundRow"), get("Unbound")]);
+    assert_clean_passes(&[get("BoundRow"), get("Unbound")]);
     assert_refused(&[get("BoundInstances"), get("Calls"), get("CallsFilter")]);
     let plain = get("PlainCalls");
     assert_eq!((plain.1, plain.2), (Outcome::Pass, false), "main's answer, no flag");
@@ -4538,7 +4561,7 @@ codeunit 50207 "EE Case Sub" {
 }
 
 /// al-runner #8060, the reporter's shape (ExtensionEventSubscriptionRows.al:254-264): a table extension of a table of another
-/// app declares an integration event, a subscriber of the extension's app binds to the base table. A flagged pass.
+/// app declares an integration event, a subscriber of the extension's app binds to the base table. Pinned, no assumption.
 #[test]
 fn extension_event_subscription_row_of_a_table_in_another_app() {
     let dep = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }"#;
@@ -4557,7 +4580,7 @@ codeunit 50000 "T" {{ Subtype = Test;
             Some(1)
         )
     );
-    assert_flagged_passes(&ext_event_outcomes(&main, Some(dep)));
+    assert_clean_passes(&ext_event_outcomes(&main, Some(dep)));
 }
 
 /// al-runner #8060, neighbors of the measured cells keep main's refusal, also for a filter on Active: an integration event with
@@ -4605,11 +4628,11 @@ codeunit 50000 "T" { Subtype = Test;
     assert_refused(&ext_event_outcomes(main, Some(dep)));
 }
 
-/// al-runner #8060, the cell only Microsoft's Tests-Misc measures: a page extension of a dependency's page declares the event, a
-/// subscriber of the same app with SkipOnMissingLicense and SkipOnMissingPermission true (Base Application's "Serv. Integration
-/// Mgt." on System Application's ListPart "Retention Policy Setup Lines"). A filter on Active leaves the row out (a flagged pass);
-/// a read that returns or counts the row stays refused, and so do a Card page of another app and a page of the same app with
-/// both flags true, which corpus PR 1412 does not hold either.
+/// al-runner #8060, a cell only Microsoft's Tests-Misc measures and no probe holds: a page extension of a dependency's page
+/// declares the event, a subscriber of the same app with SkipOnMissingLicense and SkipOnMissingPermission true (Base
+/// Application's "Serv. Integration Mgt." on System Application's ListPart "Retention Policy Setup Lines"). The reads codeunit
+/// 134299 makes are flagged passes ([`assert_tests_misc_cell`]); a read that counts the row stays refused, and so do a Card
+/// page of another app and a page of the same app with both flags true, which no probe and no Microsoft test hold.
 #[test]
 fn extension_event_subscription_row_of_a_page_in_another_app() {
     let dep = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
@@ -4620,11 +4643,9 @@ codeunit 50151 "EE Measured Sub" {
   [EventSubscriber(ObjectType::Page, Page::"EE Card", 'OnPageExtEvent', '', true, true)] local procedure OnPageExt(Code: Code[10]) begin end; }
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Inactive() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end;
+  [Test] procedure NoErrors() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetFilter("Error Information", '<>%1', ''); if E.Count() <> 0 then Error('errors'); end;
   [Test] procedure Counted() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); if E.Count() <> 1 then Error('count'); end; }"#;
-    let out = ext_event_outcomes(main, Some(dep));
-    let get = |n: &str| out.iter().find(|(x, _, _)| x == n).cloned().expect(n);
-    assert_flagged_passes(&[get("Inactive")]);
-    assert_refused(&[get("Counted")]);
+    assert_tests_misc_cell(&ext_event_hits(main, Some(dep)));
     let card = dep.replace("PageType = ListPart", "PageType = Card");
     assert_refused(&ext_event_outcomes(main, Some(&card))[..1]);
     let src = format!(
@@ -4637,10 +4658,10 @@ codeunit 50000 "T" {{ Subtype = Test;
     assert_refused(&ext_event_outcomes(&src, None));
 }
 
-/// al-runner #8060, the second cell only Microsoft's Tests-Misc measures: a page extension of a List page of the same app declares
-/// the event, a subscriber of that app with both Skip flags false (Base Application's "Check Dimensions".OnOpenRelatedRecord on
-/// "Error Messages", pageextension 705). A filter on Active leaves the row out (a flagged pass); a read that returns or counts
-/// the row stays refused.
+/// al-runner #8060, the second cell only Microsoft's Tests-Misc measures and no probe holds: a page extension of a List page of
+/// the same app declares the event, a subscriber of that app with both Skip flags false (Base Application's "Check
+/// Dimensions".OnOpenRelatedRecord on "Error Messages", pageextension 705). The reads codeunit 134299 makes are flagged passes
+/// ([`assert_tests_misc_cell`]); a read that counts the row stays refused.
 #[test]
 fn extension_event_subscription_row_of_a_list_page_of_the_same_app() {
     let src = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
@@ -4651,11 +4672,9 @@ codeunit 50151 "EE List Sub" {
   [EventSubscriber(ObjectType::Page, Page::"EE List", 'OnListExtEvent', '', false, false)] local procedure OnListExt(Code: Code[10]) begin end; }
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure Inactive() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end;
+  [Test] procedure NoErrors() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetFilter("Error Information", '<>%1', ''); if E.Count() <> 0 then Error('errors'); end;
   [Test] procedure Counted() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); if E.Count() <> 1 then Error('count'); end; }"#;
-    let out = ext_event_outcomes(src, None);
-    let get = |n: &str| out.iter().find(|(x, _, _)| x == n).cloned().expect(n);
-    assert_flagged_passes(&[get("Inactive")]);
-    assert_refused(&[get("Counted")]);
+    assert_tests_misc_cell(&ext_event_hits(src, None));
 }
 
 // reports/runtime/Y6TenantReportLayoutRows.al:16-89 (corpus master): Tenant Report Layout holds no row of a

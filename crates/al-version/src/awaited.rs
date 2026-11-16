@@ -8,9 +8,8 @@ use crate::Target;
 
 /// Whether a temporary part that a Visible expression hid, on the Worksheet or List host of the journal shape, reads its rows
 /// once more after the host's refresh that follows an action, and runs OnAfterGetCurrRecord on its blank row when a host move
-/// emptied it and left it hidden (open corpus PR 1367, testpage/parts/HiddenPartJournalShape.al, the `#if BC29PLUS` guards of
-/// :540, :574, :608, :642 and :677 at commit 32b29320; green on 27.5, 28.5 and 29.0 in its CI run 43307199491): `Some(false)` on 27 and 28,
-/// `Some(true)` on 29.
+/// emptied it and left it hidden (testpage/parts/HiddenPartJournalShape.al, the `#if BC29PLUS` guards of :540, :574, :608,
+/// :642 and :677): `Some(false)` on 27 and 28, `Some(true)` on 29.
 pub fn journal_temp_part_reads_after_refresh(target: Option<&Target>) -> Option<bool> {
     match target.map(|t| t.bc.major) {
         Some(27 | 28) => Some(false),

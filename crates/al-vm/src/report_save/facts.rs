@@ -11,6 +11,17 @@ pub(crate) enum Target {
     File,
 }
 
+/// How AL code called the save (`call_fact`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Call {
+    /// `Report.SaveAs(Id, '', Format, Target)`: the report by number, empty request parameters, no RecordRef.
+    StaticPlain,
+    /// The same with a RecordRef as the fifth argument.
+    StaticRecordRef,
+    /// A report variable, request parameters, or a test request page.
+    Other,
+}
+
 /// How the caller takes the answer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum AnswerForm {
@@ -129,6 +140,7 @@ pub(crate) enum Rows {
 pub(crate) struct Facts {
     pub format: Format,
     pub target: Target,
+    pub call: Call,
     pub answer: AnswerForm,
     pub kind: Kind,
     pub layout: Layout,
@@ -160,6 +172,7 @@ pub(crate) struct Facts {
 pub(crate) enum Fact {
     Format,
     Target,
+    Call,
     Answer,
     Kind,
     Layout,
@@ -181,9 +194,10 @@ pub(crate) enum Fact {
 }
 
 impl Fact {
-    pub(crate) const ALL: [Fact; 20] = [
+    pub(crate) const ALL: [Fact; 21] = [
         Fact::Format,
         Fact::Target,
+        Fact::Call,
         Fact::Answer,
         Fact::Kind,
         Fact::Layout,
@@ -213,6 +227,7 @@ impl Fact {
         match self {
             Fact::Format => "format",
             Fact::Target => "target",
+            Fact::Call => "call",
             Fact::Answer => "answer",
             Fact::Kind => "default layout",
             Fact::Layout => "layout kind",
@@ -256,6 +271,11 @@ macro_rules! describe {
 
 describe!(Format { Format::Pdf => "Pdf", Format::Word => "Word", Format::Excel => "Excel", Format::Html => "Html" });
 describe!(Target { Target::Stream => "a stream", Target::File => "a file" });
+describe!(Call {
+    Call::StaticPlain => "Report.SaveAs by number, no request parameters",
+    Call::StaticRecordRef => "Report.SaveAs by number, no request parameters, a RecordRef",
+    Call::Other => "another call",
+});
 describe!(AnswerForm { AnswerForm::Used => "used", AnswerForm::Statement => "a statement", AnswerForm::None => "none (request page)" });
 describe!(Kind { Kind::Rdlc => "RDLC", Kind::Word => "Word", Kind::Excel => "Excel", Kind::Other => "another kind" });
 describe!(Layout { Layout::Rdlc => "RDLC", Layout::NotRdlc => "not RDLC" });
@@ -303,6 +323,7 @@ impl Facts {
         match fact {
             Fact::Format => self.format.describe(),
             Fact::Target => self.target.describe(),
+            Fact::Call => self.call.describe(),
             Fact::Answer => self.answer.describe(),
             Fact::Kind => self.kind.describe(),
             Fact::Layout => self.layout.describe(),

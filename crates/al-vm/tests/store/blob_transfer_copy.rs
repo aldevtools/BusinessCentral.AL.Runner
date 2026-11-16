@@ -1,9 +1,9 @@
 //! A Blob that moves through `FieldRef.Value :=`, `FieldRef.Validate`, `RecordRef.GetTable` / `SetTable`, `TransferFields` or a
-//! Variant is a copy taken at that moment (assumption `blob-transfer-copies`: corpus PR 1369,
+//! Variant is a copy taken at that moment (pinned since the corpus bump that took corpus PR 1369,
 //! recordref-fieldref/fieldref/FieldRefValueBlobCopy.al; al-runner issue 7935). The shapes below repeat cells of that file; the
 //! expected values are the ones it asserts. The shapes of the second probe are in `blob_value_copy_shapes.rs`. `hv:` / `nohv:` is `HasValue`, then the text a stream reads.
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+use al_builtins::assumptions::clear_hits;
 use al_builtins::native::Signal;
 
 const SRC: &str = r#"
@@ -445,11 +445,9 @@ codeunit 50437 C
 }
 "#;
 
-/// The text `routine` returns, and whether the run passed through the assumption.
-fn run(routine: &str) -> (String, bool) {
-    clear_hits();
-    let out = al_testkit::text(al_testkit::run_in(SRC, "C", routine));
-    (out, take_hits().contains(&Assumption::BlobTransferCopies))
+/// The text `routine` returns.
+fn run(routine: &str) -> String {
+    al_testkit::text(al_testkit::run_in(SRC, "C", routine))
 }
 
 fn refused(routine: &str) {
@@ -464,54 +462,48 @@ fn refused(routine: &str) {
 fn rows_added_before_a_refill_of_the_source_keep_their_content() {
     // Row 2 holds what the second Fill left: 'beta' written over 'alpha' without truncation
     // (streams/TestStreamsRuntimeContracts.al:BlobField_CreateOutStream_DoesNotEmptyExistingData).
-    assert_eq!(run("SameHolderTwoAdds"), ("alpha|betaa".into(), true));
+    assert_eq!(run("SameHolderTwoAdds"), "alpha|betaa");
 }
 
 #[test]
 fn fieldref_value_into_a_stored_record_copies() {
-    assert_eq!(run("StoredTargetRewriteSource"), ("hv:alpha".into(), true));
+    assert_eq!(run("StoredTargetRewriteSource"), "hv:alpha");
 }
 
 #[test]
 fn fieldref_value_from_a_source_read_without_calcfields_is_empty() {
-    assert_eq!(run("UnloadedStoredSource"), ("hand=nohv: row=nohv:".into(), true));
-    assert_eq!(run("UnloadedTemporarySource"), ("nohv:".into(), true));
+    assert_eq!(run("UnloadedStoredSource"), "hand=nohv: row=nohv:");
+    assert_eq!(run("UnloadedTemporarySource"), "nohv:");
 }
 
 #[test]
 fn fieldref_validate_copies() {
-    assert_eq!(run("ValidateRewriteSource"), ("hv:alpha|hv:betaa".into(), true));
+    assert_eq!(run("ValidateRewriteSource"), "hv:alpha|hv:betaa");
 }
 
 #[test]
 fn an_empty_source_empties_the_target() {
-    assert_eq!(run("EmptySource"), ("nohv:|nohv:".into(), true));
+    assert_eq!(run("EmptySource"), "nohv:|nohv:");
 }
 
 #[test]
 fn gettable_copies_and_the_inserted_row_keeps_the_content() {
-    assert_eq!(
-        run("GetTableClearSourceInsert"),
-        ("row=hv:alpha src=nohv:".into(), true)
-    );
+    assert_eq!(run("GetTableClearSourceInsert"), "row=hv:alpha src=nohv:");
 }
 
 #[test]
 fn settable_copies() {
-    assert_eq!(run("SetTableWriteTarget"), ("hv:zzpha|hv:alpha".into(), true));
+    assert_eq!(run("SetTableWriteTarget"), "hv:zzpha|hv:alpha");
 }
 
 #[test]
 fn transferfields_copies_and_the_inserted_row_keeps_the_content() {
-    assert_eq!(
-        run("TransferFieldsClearSourceInsert"),
-        ("hand=hv:alpha row=hv:alpha".into(), true)
-    );
+    assert_eq!(run("TransferFieldsClearSourceInsert"), "hand=hv:alpha row=hv:alpha");
 }
 
 #[test]
 fn a_variant_holds_a_copy() {
-    assert_eq!(run("VariantRewriteSource"), ("hv:alpha".into(), true));
+    assert_eq!(run("VariantRewriteSource"), "hv:alpha");
 }
 
 #[test]
@@ -523,36 +515,36 @@ fn content_into_or_from_a_field_that_is_not_measured_is_refused() {
 /// (streams/BlobValueCopyShapes.al:1174, :1190, :1206); the values are in `blob_value_copy_shapes.rs`.
 #[test]
 fn moves_of_an_extension_or_uncompressed_field_run() {
-    assert_eq!(run("GetTableExtensionFieldWithContent"), ("ran".into(), true));
-    assert_eq!(run("TransferFieldsUncompressedWithContent"), ("ran".into(), true));
-    assert_eq!(run("ExtensionFieldWithContent"), ("ran".into(), true));
-    assert_eq!(run("UncompressedFieldWithContent"), ("ran".into(), true));
-    assert_eq!(run("ExtensionFieldFromUnreadSource"), ("ran".into(), true));
+    assert_eq!(run("GetTableExtensionFieldWithContent"), "ran");
+    assert_eq!(run("TransferFieldsUncompressedWithContent"), "ran");
+    assert_eq!(run("ExtensionFieldWithContent"), "ran");
+    assert_eq!(run("UncompressedFieldWithContent"), "ran");
+    assert_eq!(run("ExtensionFieldFromUnreadSource"), "ran");
 }
 
 /// Shared until corpus PR 1372 measured them: TransferFields(Rec, true) (streams/BlobValueCopyShapes.al:741) and a global
 /// Variant (:672) copy.
 #[test]
 fn transferfields_with_a_flag_and_a_global_variant_copy() {
-    assert_eq!(run("TransferFieldsTwoArguments"), ("hv:alpha".into(), true));
-    assert_eq!(run("GlobalVariant"), ("hv:alpha".into(), true));
+    assert_eq!(run("TransferFieldsTwoArguments"), "hv:alpha");
+    assert_eq!(run("GlobalVariant"), "hv:alpha");
 }
 
 #[test]
 fn call_forms_that_are_not_measured_keep_mains_result() {
-    // GetTable copied (flagged); the two SetTable(Rec, false) calls share the RecordRef's buffer as before.
-    assert_eq!(run("SetTableTwoArguments").0, "hv:zzpha");
+    // GetTable copied; the two SetTable(Rec, false) calls share the RecordRef's buffer as before.
+    assert_eq!(run("SetTableTwoArguments"), "hv:zzpha");
 }
 
 #[test]
 fn empty_blobs_of_fields_that_are_not_measured_keep_mains_result() {
-    // Main's result; the measured Data field is copied on the way (flagged).
-    assert_eq!(run("EmptyUnmeasuredFieldsMove").0, "hv:alpha");
+    // Main's result; the measured Data field is copied on the way.
+    assert_eq!(run("EmptyUnmeasuredFieldsMove"), "hv:alpha");
 }
 
 #[test]
 fn gettable_of_a_row_read_without_calcfields_keeps_mains_result() {
     // The value as before. The SetTable on the way now gives the record a not-loaded Blob of its own (flagged; corpus PR 1372,
     // streams/BlobValueCopyShapes.al:368 N1, :417 N3).
-    assert_eq!(run("GetTableUnloadedRow"), ("hv:alpha".into(), true));
+    assert_eq!(run("GetTableUnloadedRow"), "hv:alpha");
 }

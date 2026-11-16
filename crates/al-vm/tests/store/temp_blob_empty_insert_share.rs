@@ -374,7 +374,7 @@ codeunit 50994 C
     end;
 
     // Main's result kept: a by-value copy of the record writes under another key. The copy takes its own Blob buffer
-    // (assumption `blob-transfer-copies`), so no row of the caller holds it (main: 'nohv').
+    // (pinned Blob copy cells, al-vm `blob_transfer.rs`), so no row of the caller holds it (main: 'nohv').
     procedure ByValueCopyWrites(): Text
     var R: Record "Tbs Row" temporary;
     begin
@@ -429,8 +429,8 @@ codeunit 50994 C
         exit(Lib.ReadGet(R, 1));
     end;
 
-    // Not told apart (the entry says so): a Variant holds a copy of the record whose Blob buffer is its own (assumption
-    // `blob-transfer-copies`) while the record moves on and writes; it takes the measured path (main: 'hv:X').
+    // Not told apart: a Variant holds a copy of the record whose Blob buffer is its own (pinned Blob copy cells, al-vm
+    // `blob_transfer.rs`) while the record moves on and writes; it takes the measured path (main: 'hv:X').
     procedure VariantHolds(): Text
     var R: Record "Tbs Row" temporary; V: Variant;
     begin
