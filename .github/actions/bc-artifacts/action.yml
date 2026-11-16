@@ -50,6 +50,7 @@ runs:
         key: bc-artifacts-v3-${{ steps.bc.outputs.key }}
     # `--fetch-render-pieces`: the merge and conversion sets of each pinned build and, on Linux, the pinned nuget pieces,
     # by the same fetch a run makes on its first Word-layout save (al_testrun::report_render_pieces::fetch_run_pieces).
+    # A failed download fails this step; a piece the build does not have is only a note.
     - name: Fetch dependency apps (warms the cache)
       id: fetch
       shell: bash

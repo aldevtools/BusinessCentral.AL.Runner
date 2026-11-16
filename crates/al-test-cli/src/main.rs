@@ -725,8 +725,11 @@ fn fetch_deps_done(
             build,
             &al_deps::cache::cache_root_from_env(args.cache_dir.as_deref()),
             !args.no_download,
-        );
-        // A note is not an error: a run then has what it would have after its own fetch on the first save.
+        )
+        .map_err(|e| format!("--fetch-render-pieces: BC {bc}: {e}"))?;
+        // A note here is a fact of the build, or (with --no-download) what the cache lacks: a run then has what it would
+        // have after its own fetch on the first save. A failed download is the Err above: the job's fetch step fails and
+        // the bc-artifacts action does not save the entry.
         for note in &notes {
             println!("render pieces of BC {bc}: {note}");
         }

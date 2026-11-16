@@ -19,7 +19,7 @@ finding goes into `docs/agents/recurring-findings.md`, not into one prompt.
    in a worktree (measured 2026-11-11). Read-only work in the main checkout may use the LSP tool (`documentSymbol`,
    `findReferences`): it is exact and reads far less than grep, but the line and column must land exactly on the name.
 4. Build once: `cargo build --release`. Use the binary. `al-test-cli --help` lists every flag.
-5. Once per machine: `./target/release/al-test-cli --root . --all-versions --fetch-deps` fills the artifact cache with
+5. Once per machine: `./target/release/al-test-cli --root . --all-versions --fetch-deps --fetch-render-pieces` fills the artifact cache with
    Microsoft's apps of the pinned builds (`~/.cache/al-runtime/artifacts`, shared by every worktree). Corpus runs and
    the Rust tests that read a Microsoft file take them only from there; a test never downloads and fails with this
    command when a file is missing. Run it again after `bc_build` in `oracle/oracle.toml` moves.

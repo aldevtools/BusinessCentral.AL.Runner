@@ -74,15 +74,24 @@ pub fn run_renderer(
 }
 
 /// `--fetch-render-pieces`: fetches now, into the cache, what the renderer of a run of BC `build` ([`run_renderer`])
-/// fetches on its first save. Returns the notes of what it could not have.
+/// fetches on its first save. `Ok` holds the notes of what the build does not have, or (downloading off) the cache
+/// lacks; `Err` when a fetch failed with downloading on ([`RenderPieces::fetch_failed`]).
 pub fn fetch_run_pieces(
     dirs: Vec<PathBuf>,
     build: al_deps::build::BuildId,
     cache_root: &Path,
     download: bool,
-) -> Vec<String> {
+) -> Result<Vec<String>, String> {
     let src = run_sources(dirs, Some(build), cache_root, download);
-    pieces(&src, &|p: &NugetPiece| HttpSource::new(http_agent(), p.url())).notes
+    fetch_outcome(pieces(&src, &|p: &NugetPiece| HttpSource::new(http_agent(), p.url())))
+}
+
+/// The outcome of `--fetch-render-pieces` from the pieces it prepared.
+fn fetch_outcome(p: RenderPieces) -> Result<Vec<String>, String> {
+    if p.fetch_failed {
+        return Err(p.notes.join("; "));
+    }
+    Ok(p.notes)
 }
 
 /// The piece sources of a run of BC `build`: the probe folders `dirs`, then the build's fetch folder, and the sets of
@@ -142,7 +151,10 @@ pub(crate) fn pieces<C: Cdn, S: al_deps::remote::RangeSource>(
                         out.notes.push(format!("the platform artifact has no {m}.dll"));
                     }
                 }
-                Err(e) => out.notes.push(format!("the {} set was not fetched: {e}", set.name())),
+                Err(e) => {
+                    out.fetch_failed |= src.download;
+                    out.notes.push(format!("the {} set was not fetched: {e}", set.name()));
+                }
             }
         }
     }
@@ -157,7 +169,10 @@ pub(crate) fn pieces<C: Cdn, S: al_deps::remote::RangeSource>(
             match ensure_piece(&src.cache_root, &piece, src.download, || nuget(&piece)) {
                 Ok(path) if set == RenderSet::Merge => out.drawing.push(path),
                 Ok(path) => out.skia = Some(path),
-                Err(e) => out.notes.push(e),
+                Err(e) => {
+                    out.fetch_failed |= src.download;
+                    out.notes.push(e);
+                }
             }
         }
     }
@@ -282,8 +297,44 @@ mod tests {
     fn fetching_the_pieces_of_a_run_offline_on_an_empty_cache_names_each_set_it_could_not_have() {
         let t = tempfile::tempdir().unwrap();
         let build = al_deps::build::BuildId::parse("27.5.46862.58057").unwrap();
-        let notes = fetch_run_pieces(Vec::new(), build, t.path(), false);
+        let notes = fetch_run_pieces(Vec::new(), build, t.path(), false).expect("offline, a missing set is a note");
         assert!(notes[0].starts_with("the merge set was not fetched"), "{notes:?}");
         assert!(notes[1].starts_with("the conversion set was not fetched"), "{notes:?}");
+    }
+
+    /// A feed whose platform artifact cannot be read.
+    struct BrokenFeed(PathBuf);
+    impl Cdn for BrokenFeed {
+        type Src = FileSource;
+        fn base_url(&self) -> String {
+            "https://cdn.test".into()
+        }
+        fn index(&self) -> Result<Vec<u8>, al_deps::remote::RemoteError> {
+            panic!("not needed")
+        }
+        fn platform(&self, _: &al_deps::build::BuildId) -> (String, FileSource) {
+            ("https://cdn.test/platform".into(), FileSource(self.0.clone()))
+        }
+        fn country(&self, _: &al_deps::build::BuildId, _: &str) -> (String, FileSource) {
+            panic!("not needed")
+        }
+    }
+
+    #[test]
+    fn a_failed_platform_read_with_downloading_on_fails_the_fetch() {
+        let t = tempfile::tempdir().unwrap();
+        let build = al_deps::build::BuildId::parse("27.5.46862.58057").unwrap();
+        let tier = ServiceTier::new(BrokenFeed(t.path().join("no-such-file")), t.path(), build, true);
+        let src = PieceSources {
+            dirs: vec![tier.dir()],
+            tier: Some(Arc::new(tier)),
+            cache_root: t.path().to_path_buf(),
+            download: true,
+            linux: false,
+            needs: RUN_NEEDS.to_vec(),
+        };
+        let p = pieces(&src, &|_: &NugetPiece| -> FileSource { panic!("not opened") });
+        let err = fetch_outcome(p).expect_err("a feed error is not a fact of the build");
+        assert!(err.starts_with("the merge set was not fetched"), "{err}");
     }
 }
