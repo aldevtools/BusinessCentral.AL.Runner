@@ -52,8 +52,19 @@ pub(crate) fn rounded(v: &Value) -> Value {
     }
 }
 
+/// A filter value rounded as the column rounds it. A Time that rounds to a whole day stays after every time of the day, past
+/// 23:59:59.999, as on real BC 28.5 (docs/time-filter-probe.md: `< 23:59:59.999` finds 00:00:00 and 23:59:59.997,
+/// `> 23:59:59.999` finds none of them); a stored row of such a time keeps reading 00:00:00.
+fn rounded_filter(v: &Value) -> Value {
+    match v {
+        Value::Time(t) if *t != 0 => Value::Time(round_ms(t - 1) + 1),
+        other => rounded(other),
+    }
+}
+
 fn round_expr(e: &FilterExpr) -> FilterExpr {
     use FilterExpr as F;
+    let rounded = rounded_filter;
     let r = |o: &Option<Value>| o.as_ref().map(rounded);
     match e {
         F::Range(a, b) => F::Range(r(a), r(b)),
