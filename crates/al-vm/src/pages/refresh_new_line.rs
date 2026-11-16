@@ -2,6 +2,7 @@
 //! the new-row line (gap G5-20).
 
 use super::*;
+use al_builtins::record_op::RecordOp;
 
 impl Session {
     /// `Some(true)` on a stored row, `Some(false)` on no row (`Cursor::None`), `None` for a start that is not pinned.
@@ -100,6 +101,53 @@ impl Session {
         if !without_parts {
             self.sync_parts(st)?;
         }
+        Ok(())
+    }
+
+    /// The end of a refresh after a control's OnValidate: OnAfterGetCurrRecord unless `without_curr`, then the parts read again
+    /// unless `without_parts`.
+    pub(super) fn finish_validate_refresh(
+        &mut self,
+        st: &St,
+        without_curr: bool,
+        without_parts: bool,
+    ) -> Result<(), Signal> {
+        let r = (|| {
+            if without_curr {
+                return Ok(true);
+            }
+            self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+            self.page_event(st, "onaftergetcurrrecordevent", None, None)
+        })();
+        self.torn_down_on_error(st, r)?;
+        st.borrow_mut().refresh = false;
+        if !without_parts {
+            self.sync_parts(st)?;
+        }
+        Ok(())
+    }
+
+    /// The refresh after a control's OnValidate from the stored row Rec stands on: the client reads the view from its first row
+    /// (the rows it held do not matter), the row again, then OnAfterGetCurrRecord (`refresh_after_validate_filter`, and the
+    /// new line the table code inserted, `code_inserted_new_line.rs`: ListNewLineCodeInsertUpdate.al `ExpectedSetName`).
+    pub(super) fn reread_view_from_row(
+        &mut self,
+        st: &St,
+        without_curr: bool,
+        without_parts: bool,
+    ) -> Result<(), Signal> {
+        let rec = self.page_rec(st);
+        st.borrow_mut().window_from_start = true;
+        let key = self.row_key(&rec)?;
+        self.read_list_again_from_row_as(st, &rec, &key, false)?;
+        let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
+        self.ret_used = true;
+        self.record_op(RecordOp::Get, &rec, &mut pk)?;
+        self.populate_current(st)?;
+        self.finish_validate_refresh(st, without_curr, without_parts)?;
+        // The client holds the rows the refresh read (`read_list_again_from_row_as`).
+        st.borrow_mut().window_top_unread = false;
+        st.borrow_mut().read_up_from_last = None;
         Ok(())
     }
 

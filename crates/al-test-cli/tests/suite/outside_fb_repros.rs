@@ -1,4 +1,4 @@
-//! The reporter's repros of al-runner issues 6114 to 6119 and 7958 (green on real BC), run here until the corpus writer's pins land:
+//! The reporter's repros of al-runner issues 6114 to 6119, 7958 and 8186 (green on real BC), run here until the corpus writer's pins land:
 //! copies of the app and test files in fixtures/outside-fb, with a stand-in for Microsoft's Library Assert. Each test names
 //! the outcome every test codeunit of a repro must have. Delete this file and the fixtures when the pins are in the corpus.
 
@@ -139,3 +139,111 @@ codeunit 50130 "Refill Probe Part Reads"
     end;
 }
 "#;
+
+/// The corpus probe of issue 8186 (corpus pull request 1425, open: tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al,
+/// measured on BC 29.1) with a stand-in for the corpus's Assert, and the reporter's repro: each test's outcome and the assumptions
+/// it ran through.
+fn issue_8186_outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+    let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
+    let l = al_testkit::compile_apps(vec![al_testkit::app(&src)]);
+    let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let oi = l
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == codeunit)
+        .expect("the codeunit");
+    let mut hits = Vec::new();
+    let outcomes = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Codeunit,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    assert!(!outcomes.is_empty());
+    outcomes
+        .into_iter()
+        .map(|(n, o)| {
+            let marks = hits
+                .iter()
+                .find(|(h, _)| *h == n)
+                .map(|(_, m)| m.clone())
+                .unwrap_or_default();
+            (n, o, marks)
+        })
+        .collect()
+}
+
+const ISSUE_8186_PROBE: &str = include_str!("../fixtures/outside-fb/Issue8186Probe.al");
+
+/// Every test passes, flagged by the assumption list-new-line-code-insert-update, except those on the host with CardPart
+/// FactBoxes: its parts read at steps the runner does not model (at the open and at `New()` already, on main too), so the new path
+/// does not take them.
+#[test]
+fn issue_8186_code_inserted_new_line_lands_on_the_row() {
+    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertUpdate;
+    for (src, codeunit) in [
+        (ISSUE_8186_PROBE, "LT NI Tests"),
+        (
+            include_str!("../fixtures/outside-fb/Issue8186.al"),
+            "Repro Update New Line Tests",
+        ),
+    ] {
+        let bad: Vec<_> = issue_8186_outcomes(src, codeunit)
+            .into_iter()
+            .filter(|(n, o, marks)| match n.contains("PartsHost") {
+                true => *o == Outcome::Pass || marks.contains(&ListNewLineCodeInsertUpdate),
+                false => *o != Outcome::Pass || !marks.contains(&ListNewLineCodeInsertUpdate),
+            })
+            .collect();
+        assert!(bad.is_empty(), "{codeunit}: {bad:#?}");
+    }
+}
+
+/// The shapes the probe does not measure keep the refusal: DelayedInsert, a Worksheet, `Update(true)` written out, a page with a
+/// part.
+#[test]
+fn issue_8186_unmeasured_neighbors_stay_refused() {
+    let with_part = "area(FactBoxes) { part(Peek; \"LT NI Peek X\") { SubPageLink = \"Entry No.\" = field(\"Entry No.\"); } }\n        area(Content)";
+    let peek = "page 97041 \"LT NI Peek X\" { PageType = CardPart; SourceTable = \"LT NI Line\"; layout { area(Content) { field(Name; Rec.Name) { } } } }";
+    for (what, src) in [
+        (
+            "DelayedInsert",
+            ISSUE_8186_PROBE.replace(
+                "AutoSplitKey = true;",
+                "AutoSplitKey = true;\n    DelayedInsert = true;",
+            ),
+        ),
+        (
+            "Worksheet",
+            ISSUE_8186_PROBE.replace("PageType = List;", "PageType = Worksheet;"),
+        ),
+        (
+            "Update(true)",
+            ISSUE_8186_PROBE.replace("CurrPage.Update();", "CurrPage.Update(true);"),
+        ),
+        (
+            "a part",
+            format!("{}\n{peek}", ISSUE_8186_PROBE.replacen("area(Content)", with_part, 1)),
+        ),
+    ] {
+        let o = issue_8186_outcomes(&src, "LT NI Tests");
+        // The tests on page 97032, which the variants change (its Update(false) cells keep `Update(false)` under the Update(true)
+        // variant, and stay measured).
+        let split: Vec<_> = o
+            .iter()
+            .filter(|(n, _, _)| {
+                n.starts_with("ListNewLine_FieldValidateInserts") || n.starts_with("ListNewLine_RunModal_")
+            })
+            .filter(|(n, _, _)| what != "Update(true)" || !n.contains("UpdateFalse"))
+            .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
+            .collect();
+        assert!(split.is_empty(), "{what}: {split:#?}");
+    }
+}

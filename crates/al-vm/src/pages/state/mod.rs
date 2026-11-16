@@ -901,6 +901,11 @@ pub struct PageState {
     pub refresh_by_update: bool,
     /// The last `CurrPage.Update` call was `Update(false)` (it saves nothing).
     pub refresh_update_false: bool,
+    /// The refresh about to run starts from a new line the table code inserted inside the validation (`code_inserted_new_line.rs`).
+    pub refresh_from_code_inserted_line: bool,
+    /// The key of the row that refresh landed on and the number of test calls then, until the next move
+    /// (`code_inserted_new_line.rs`).
+    pub code_inserted_row: Option<(Vec<Value>, usize)>,
     /// The filters of the page's record when a control's OnValidate began, for the refresh a `CurrPage.Update` in it asks for
     /// (`al-vm` `refresh_after_validate_filter`).
     pub filters_before_validate: Option<Vec<al_builtins::filter::FieldFilter>>,
