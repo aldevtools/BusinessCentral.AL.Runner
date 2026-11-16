@@ -133,8 +133,7 @@ fn refused(routine: &str, member: i32) -> String {
 
 #[test]
 fn a_search_of_a_list_of_xml_values_refuses() {
-    // An empty list too: main answered No / 0 there, but BC may refuse the call on a list of handles whatever it holds, as it
-    // does for a list of interfaces (collections/ListComplex.al:Interface_List).
+    // An empty list too (main answered No / 0 there): every shape is refused until corpus PR 1422 is pinned.
     for routine in [
         "Node",
         "UnassignedNode",

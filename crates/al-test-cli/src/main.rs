@@ -864,7 +864,9 @@ fn run_version_inner(
                 .map_err(|e| format!("{}: {e}", oracle_path.display()))?,
         }
     };
-    companies.check_session_first(&al_host::Identity::company_name(&al_host::AlRunnerIdentity))?;
+    companies
+        .check_session_first(&al_host::Identity::company_name(&al_host::AlRunnerIdentity))
+        .map_err(|e| format!("--companies: {e}"))?;
     al_test_cli::host::set_companies(companies);
     let started = Instant::now();
     let junit_path = oracle_path.parent().unwrap_or(Path::new(".")).join(&version.junit);

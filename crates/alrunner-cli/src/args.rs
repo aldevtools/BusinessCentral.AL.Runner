@@ -205,6 +205,8 @@ pub struct TestArgs {
     pub environment: Option<al_host::Environment>,
     /// `--companies NAME[,NAME...]|all` (ADR-046 decision 2): the companies of the database. `None`: one company.
     pub companies: Option<al_host::Companies>,
+    /// Not a command line option: a serve request's `companies` field set `companies`, so a message names that field.
+    pub companies_from_request: bool,
     /// `--server-url URL` (else `$ALRUNNER_SERVER_URL`): the base address `GetUrl` answers with (ADR-042).
     pub server_url: Option<String>,
     /// Not a command line option: the name `CompanyName()` answers when no company is restored (a lane of the recipe).
@@ -496,7 +498,11 @@ fn stability_matrix_args(a: &mut TestArgs) -> Result<(), String> {
                         axes.companies.len()
                     )
                 })?;
-            a.companies = value.as_deref().map(al_host::Companies::parse).transpose()?;
+            a.companies = value
+                .as_deref()
+                .map(al_host::Companies::parse)
+                .transpose()
+                .map_err(|e| format!("--companies {e}"))?;
         }
         return Ok(());
     }
@@ -1667,7 +1673,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--files-dir" => a.files_dir = Some(text()?.into()),
             "--license" => a.license = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
-            "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
+            "--companies" => {
+                a.companies = Some(al_host::Companies::parse(&text()?).map_err(|e| format!("--companies {e}"))?)
+            }
             "--server-url" => {
                 a.server_url = Some(al_host::check_server_url(&text()?).map_err(|e| format!("--server-url: {e}"))?)
             }

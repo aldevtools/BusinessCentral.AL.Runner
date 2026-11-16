@@ -1667,7 +1667,14 @@ fn test_inner(
             .clone()
             .unwrap_or_else(|| al_host::Identity::company_name(&al_host::AlRunnerIdentity)),
     };
-    companies.check_session_first(&session_company)?;
+    companies.check_session_first(&session_company).map_err(|e| {
+        let option = if a.companies_from_request {
+            "`companies`"
+        } else {
+            "--companies"
+        };
+        format!("{option}: {e}")
+    })?;
     al_testrun::host::set_companies(companies);
     let mut opts = RunOptions {
         run_seed,

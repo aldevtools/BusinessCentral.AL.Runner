@@ -376,7 +376,8 @@ fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
 /// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is an XML
 /// handle: no corpus case measures how BC compares two of them (al-runner issue 8165), and `eq` would answer "not equal".
 /// This includes the XmlNode that AsXmlNode of an unassigned XmlElement returned (al-builtins `xml/unassigned_element.rs`).
-/// A list holds values of one AL type, so the searched value and the first element decide.
+/// A list holds values of one AL type (a list of Variant does not compile: must-not-compile/cases/2770-list-of-variant.al:1,
+/// 1747-collection-of-variant.al:1), so the searched value and the first element decide.
 fn refuse_unmeasured_search(l: &[Value], v: &Value, member: &str) -> Result<(), Signal> {
     if is_xml_handle(v) || l.first().is_some_and(is_xml_handle) {
         return Err(Signal::unsupported(format!(

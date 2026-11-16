@@ -351,7 +351,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     match fields.get("companies") {
         None | Some(Value::Null) => {}
         Some(Value::String(c)) => {
-            a.companies = Some(al_host::Companies::parse(c).map_err(|e| e.replace("--companies", "`companies`"))?);
+            a.companies = Some(al_host::Companies::parse(c).map_err(|e| format!("`companies` {e}"))?);
+            a.companies_from_request = true;
         }
         Some(_) => {
             return Err(

@@ -2299,8 +2299,9 @@ fn the_companies_field_is_the_companies_flag_for_one_request() {
     assert!(lines[0]["error"].as_str().unwrap().contains("`companies`"), "{lines:?}");
     s.send(json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": "Other,CRONUS International Ltd."}));
     let lines = s.until_summary();
-    assert!(
-        lines[0]["error"].as_str().is_some(),
+    assert_eq!(
+        lines[0]["error"].as_str(),
+        Some("`companies`: the first company must be the session company `CRONUS International Ltd.`, not `Other`"),
         "the session company comes first: {lines:?}"
     );
     // The server's `--companies` holds for a request without the field, as the CLI flag does.

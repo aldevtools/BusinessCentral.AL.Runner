@@ -743,7 +743,7 @@ impl Session {
             }
         }
         unsupported(format!(
-            "{what} on the Company table: the database may hold companies this runtime does not know; name them with --companies (serve: the `companies` field) (ADR-046 decision 4a)"
+            "{what} on the Company table: the database may hold companies this runtime does not know; name them with --companies NAME[,NAME...] (serve: the `companies` field); `all` needs test data (ADR-046 decision 4a)"
         ))
     }
 
