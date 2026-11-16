@@ -750,15 +750,7 @@ pub const PINNED_ELSEWHERE: &[(u32, &str, &str)] = &[
 /// before its pin lands, docs/agents/brief.md): they read as pinned ones, and a read lowered from AL code marks the
 /// assumption (`assumption_of_column`). When the bump lands, each moves to `PINNED_ELSEWHERE` (or the generated list) and
 /// its assumption is deleted. As (table id, field id, assumption).
-pub const AWAITING_COLUMNS: &[(u32, u32, crate::assumptions::Assumption)] = &[
-    // Published Application Logo: blank for an app whose manifest declares none, the logo file for a PNG logo, unknown for
-    // any other app (al-vm apps.rs).
-    (
-        2_000_000_206,
-        20,
-        crate::assumptions::Assumption::PublishedApplicationLogoIsTheLogoFile,
-    ),
-];
+pub const AWAITING_COLUMNS: &[(u32, u32, crate::assumptions::Assumption)] = &[];
 
 /// The assumption a read of column `field` of platform table `table` rests on (`AWAITING_COLUMNS`).
 pub fn assumption_of_column(table: u32, field: u32) -> Option<crate::assumptions::Assumption> {

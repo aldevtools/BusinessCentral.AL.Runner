@@ -323,6 +323,9 @@ pub struct DependencyApp {
     pub package_data: bool,
     /// The package data files of an app folder ([`package_data_files`]); empty for a package, whose files are not read.
     pub package_data_files: Resources,
+    /// For the platform package (`Role::Platform`), the modules its manifest grants access to its internal members;
+    /// empty for every other app (issue 7853: only System.app's grants are applied).
+    pub platform_internals_visible_to: Vec<crate::package::InternalsGrant>,
 }
 
 #[derive(Debug, Default)]
@@ -816,6 +819,10 @@ pub fn read_planned(planned: Planned, req: &Request<'_>) -> Result<Loaded, Strin
             description: manifest.description.clone(),
             package_data: extras.package_data,
             package_data_files: extras.package_data_files,
+            platform_internals_visible_to: match role {
+                Role::Platform => manifest.internals_visible_to.clone(),
+                Role::Standard => Vec::new(),
+            },
         });
     }
     loaded.notes = notes;
@@ -938,6 +945,49 @@ mod tests {
         assert_eq!(loaded.apps[1].app.dependencies, ["base"]);
         assert_eq!(loaded.apps[0].app.files[0].0, "Base/src/B.al");
         assert_eq!(loaded.apps[0].app.files[0].1, "codeunit 1 B { }");
+    }
+
+    #[test]
+    fn only_the_platform_package_carries_its_internals_grants() {
+        let dir = tempfile::tempdir().unwrap();
+        let grant = r#"<InternalsVisibleTo><Module Id="C64D75F0-E9F1-4D0F-9949-CD453B9B1466" Name="Guided Experience" Publisher="Microsoft" /></InternalsVisibleTo>"#;
+        for (file, id, name, al) in [
+            ("system.app", SYSTEM_APP_ID, "System", "codeunit 2000000004 S { }"),
+            ("other.app", "other", "Other", "codeunit 1 O { }"),
+        ] {
+            let xml = format!(
+                r#"<Package><App Id="{id}" Name="{name}" Publisher="Microsoft" Version="1.0.0.0" /><Dependencies />{grant}</Package>"#
+            );
+            let b = Builder::new()
+                .add("NavxManifest.xml", xml.as_bytes(), true)
+                .add("src/X.al", al.as_bytes(), true);
+            std::fs::write(dir.path().join(file), navx(&b.finish())).unwrap();
+        }
+        let loaded = load_dependencies(&Request {
+            project: &project(&[(SYSTEM_APP_ID, "System", "1.0.0.0"), ("other", "Other", "1.0.0.0")]),
+            workspace_apps: &[],
+            search_dirs: &[dir.path().to_path_buf()],
+            missing: MissingPolicy::Error,
+            source_build: None,
+            application_implies_dependencies: false,
+            lazy_sources: false,
+        })
+        .unwrap();
+        let grants = |name: &str| {
+            let a = loaded.apps.iter().find(|a| a.app.name == name).unwrap();
+            a.platform_internals_visible_to
+                .iter()
+                .map(|g| (g.id.clone(), g.publisher.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            grants("System"),
+            [(
+                "c64d75f0-e9f1-4d0f-9949-cd453b9b1466".to_string(),
+                "Microsoft".to_string()
+            )]
+        );
+        assert!(grants("Other").is_empty());
     }
 
     #[test]

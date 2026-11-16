@@ -475,6 +475,7 @@ pub fn load_project_with(
             }),
             runtime: None,
             app_json_keys: Vec::new(),
+            platform_internals_visible_to: std::mem::take(&mut d.platform_internals_visible_to),
         });
         summary.push(format!("{} {}", d.app.name, d.version));
         lazy.push(d.lazy);

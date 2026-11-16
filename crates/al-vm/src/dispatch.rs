@@ -77,10 +77,15 @@ impl Session {
         let p = &engine.events.publishers[&(object, routine)];
         self.note_event(p.object, &p.event, None);
         let r = &engine.program.objects[object].routines[routine];
+        let blob_publisher = crate::blob_transfer::measured_publisher(engine.program.objects[object].kind, r);
         let mut values = Vec::with_capacity(r.params);
         for (i, a) in args.into_iter().enumerate().take(r.params) {
             values.push(match (a, r.by_var.get(i).copied().unwrap_or(false)) {
-                (Value::Record(rc), false) => self.record_by_value_unmeasured(&rc),
+                (Value::Record(rc), false) => {
+                    let copy = self.record_by_value_unmeasured(&rc);
+                    crate::blob_transfer::publisher_copy(blob_publisher.is_some(), &rc, &copy);
+                    copy
+                }
                 // A Notification handed by value to an event is the caller's own notification: a subscriber's SetData and Message
                 // reach the publisher's caller (events/binding-senders/NotificationByValue.al:Event_ByValueArgument_SubscriberChanges).
                 (a @ Value::Library(al_builtins::library_kind::LibraryKind::Notification, _), false) => a,
@@ -174,6 +179,7 @@ impl Session {
         });
         self.profile_enter(object, routine, true);
         self.events.publish_frame = true;
+        self.events.blob_publisher = blob_publisher;
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
         self.events.publisher_var_lens = lens;
@@ -243,6 +249,7 @@ impl Session {
         let (object, event, element, isolated) = (*object, *event, *element, *isolated);
         let engine = self.engine.clone();
         let sender_refused = self.events.sender_refused.take();
+        let blob_publisher = std::mem::take(&mut self.events.blob_publisher);
         let origins = std::mem::take(&mut self.events.var_origins);
         // The declared lengths of the publisher's `var` Text and Code arguments: a subscriber's `var` parameter reports the
         // length of the publisher's argument (text/text-methods/MaxStrLen.Codeunit.al:172-201,
@@ -341,6 +348,7 @@ impl Session {
                     .collect();
             }
             self.events.next_is_subscriber = true;
+            self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
             let manual_inst = s.manual.then(|| inst.clone());
             // What the event recursion error would name (see `Session::call`): the publisher and the subscriber routine, for the
             // pinned shapes only (an event a codeunit publishes, a table's OnAfterModifyEvent).
@@ -365,6 +373,7 @@ impl Session {
                     }
                     Err(_why) => {
                         self.events.next_is_subscriber = false;
+                        self.events.next_blob_event = false;
                         self.events.next_aliases.clear();
                         self.events.next_var_lens.clear();
                         let app = engine.program.objects[s.object].app;
@@ -383,6 +392,7 @@ impl Session {
                 }
             }
             self.events.next_is_subscriber = false;
+            self.events.next_blob_event = false;
             if let Some(i) = manual_inst {
                 if !self.is_bound(&i) {
                     self_unbound.push(i);
@@ -395,7 +405,7 @@ impl Session {
                     self.store = before.expect("snapshot taken when isolating");
                     // The subscriber's own transaction is gone with its writes.
                     self.tx.tx_phase = phase;
-                    self.last_error = *e;
+                    self.catch_error(*e)?;
                     continue;
                 }
                 r => r?,
@@ -662,15 +672,28 @@ impl Session {
         Ok(!self.event_targets(object, event, element)?.is_empty())
     }
 
+    /// The subscribers `event` of table or codeunit `object` reaches right now (`event_targets`), without their instances.
+    pub(crate) fn event_subscribers(
+        &mut self,
+        object: usize,
+        event: &str,
+    ) -> Result<Vec<crate::events::Subscriber>, Signal> {
+        Ok(self
+            .event_targets(object, event, None)?
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect())
+    }
+
     /// The instance a static (automatic) subscriber runs on: the session's one instance for a
     /// `SingleInstance` codeunit, else a fresh one per event, so its globals start at their defaults
     /// every time (corpus record/TestTableEventSequenceContracts.al:Insert_EventsAndTrigger_WithAndWithoutRunTrigger,
     /// where the After event sees `hits=0` after the Before event counted 1).
     fn static_instance(&mut self, object: usize) -> Result<Inst, Signal> {
-        let fresh = Rc::new(RefCell::new(Instance {
+        let fresh = al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             ..Default::default()
-        }));
+        });
         Ok(self.shared_instance(fresh))
     }
 
@@ -692,8 +715,17 @@ impl Session {
         }
     }
 
+    /// Whether an instance of codeunit `object` is bound right now.
+    pub(crate) fn is_bound_object(&self, object: usize) -> bool {
+        self.events
+            .bindings
+            .iter()
+            .filter_map(|b| b.instance.upgrade())
+            .any(|i| i.borrow().object as usize == object)
+    }
+
     /// Live bound instances of codeunit `object`, oldest binding first.
-    fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
+    pub(crate) fn bound_instances(&mut self, object: usize) -> Vec<Inst> {
         self.events.bindings.retain(|b| b.instance.strong_count() > 0);
         self.events
             .bindings
@@ -766,6 +798,7 @@ impl Session {
             }
             self.ensure_initialized(&inst);
             self.forget_page_held(&inst);
+            self.events.caption_context_revision += 1;
             self.events.bindings.push(Binding {
                 instance: Rc::downgrade(&inst),
             });
@@ -776,6 +809,7 @@ impl Session {
             // True even when it was never bound (Contract 6, "container-verified").
             if let Some(i) = at {
                 self.events.bindings.remove(i);
+                self.events.caption_context_revision += 1;
             }
             self.forget_page_held(&inst);
             self.sync_active_instances();

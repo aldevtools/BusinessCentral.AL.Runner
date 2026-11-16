@@ -383,6 +383,87 @@ fn another_test_runner_is_compiled_again() {
     assert_eq!(run(&mut s, None).last().unwrap()["cached"], true);
 }
 
+/// The reporter's repro of al-runner issue 7978, with a third codeunit.
+const CACHE_PROBE: &str = r#"
+codeunit 50120 "Cache Probe A"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesA()
+    begin
+    end;
+}
+
+codeunit 50121 "Cache Probe B"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesB()
+    begin
+    end;
+}
+
+codeunit 50122 "Cache Probe C"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure PassesC()
+    begin
+    end;
+}
+"#;
+
+/// The compile depends on the sources, not on the `test` filter: a request that selects another codeunit of the same
+/// sources reuses the compile, and runs only what it selects (al-runner issue 7978).
+#[test]
+fn another_test_filter_on_the_same_sources_reuses_the_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "cacheprobe", CACHE_PROBE);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let mut run = |test: &str, coverage: bool| {
+        let mut request = json!({"command": "runTests", "sourcePaths": [a], "testIsolation": "test", "test": test});
+        if coverage {
+            request["coverage"] = json!(true);
+            request["perTestCoverage"] = json!(true);
+        }
+        s.send(request);
+        let lines = s.until_summary();
+        let ran: Vec<String> = lines
+            .iter()
+            .filter(|l| l["type"] == "test" && l["status"] == "pass")
+            .map(|l| l["name"].as_str().unwrap_or_default().to_string())
+            .collect();
+        let summary = lines.last().unwrap().clone();
+        (summary["cached"].clone(), summary["total"].clone(), ran)
+    };
+    let one = |name: &str| vec![name.to_string()];
+    assert_eq!(
+        run("Codeunit50120.", false),
+        (json!(false), json!(1), one("Codeunit50120.PassesA")),
+        "the first request compiles"
+    );
+    assert_eq!(
+        run("Codeunit50121.", false),
+        (json!(true), json!(1), one("Codeunit50121.PassesB"))
+    );
+    assert_eq!(
+        run("Codeunit50121.", false),
+        (json!(true), json!(1), one("Codeunit50121.PassesB"))
+    );
+    assert_eq!(
+        run("Codeunit50122.", true),
+        (json!(true), json!(1), one("Codeunit50122.PassesC"))
+    );
+    assert_eq!(
+        run("Codeunit50120.", true),
+        (json!(true), json!(1), one("Codeunit50120.PassesA"))
+    );
+}
+
 const TWO_UNITS: &str = r#"
 codeunit 50400 "Boom Tests"
 {
@@ -1014,6 +1095,35 @@ fn tdd_true_on_run_tests_runs_against_stubs_and_flags_the_line_and_the_summary()
     let summary = lines.last().unwrap();
     assert_eq!(summary["cached"], false, "{summary}");
     assert_no_tdd_al0132(&lines);
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+}
+
+/// The kept compile holds every test codeunit (ADR-028 amendment of 2026-11-13), so with a `test` filter the summary's
+/// `generatedStubs` still lists the stubs of the test codeunits the filter leaves out.
+#[test]
+fn with_tdd_and_a_test_filter_the_summary_lists_the_stubs_of_unselected_test_codeunits() {
+    let d = tempfile::tempdir().unwrap();
+    let a = tdd_app(d.path());
+    write(
+        &a,
+        "src/Other.al",
+        "codeunit 50112 \"Serve Other Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Alone()\n    begin\n    end;\n}\n",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "tdd": true, "test": "Codeunit50112."}));
+    let lines = s.until_summary();
+    let tests: Vec<&Value> = lines.iter().filter(|l| l["type"] == "test").collect();
+    assert_eq!(tests.len(), 1, "{lines:?}");
+    assert_eq!(line_of(&lines, "Alone")["status"], "pass", "{lines:?}");
+    let summary = lines.last().unwrap();
+    assert_eq!(summary["generatedStubs"], json!([DOUBLE_IT]), "{summary}");
+    assert_eq!(
+        summary["stubbed"],
+        json!({"passed": 0, "failed": 0, "error": 0}),
+        "{summary}"
+    );
     s.send(json!({"command": "shutdown"}));
     s.line();
 }
@@ -2042,4 +2152,169 @@ fn the_summary_lists_skipped_dependencies() {
     s.send(json!({"command": "runTests", "sourcePaths": [ok]}));
     let summary = s.until_summary().pop().unwrap();
     assert_eq!(summary["skippedDependencies"], json!([]), "{summary}");
+}
+
+/// Al-runner issue 8125: `testTimeoutSecs` sets the time limit of a request and of an entry (the entry's wins, then the
+/// request's, then the server's `--test-timeout`), on the kept compile. The time `Sleep` asks for counts.
+#[test]
+fn a_request_and_an_entry_set_the_test_time_limit_on_the_kept_compile() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(
+        d.path(),
+        "timelimit",
+        "codeunit 50414 \"Time Limit\" { Subtype = Test;
+            [Test] procedure SleepsFive() begin Sleep(5000); end; }",
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--test-timeout", "30"]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    let mut run = |request: Value| {
+        s.send(request);
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap().clone();
+        assert_eq!(summary["type"], "summary", "{lines:?}");
+        let rows: Vec<(String, String)> = lines
+            .iter()
+            .filter(|l| l["type"] == "test")
+            .map(|l| {
+                (
+                    l["entry"].as_str().unwrap_or("").to_string(),
+                    l["message"]
+                        .as_str()
+                        .unwrap_or(l["status"].as_str().unwrap())
+                        .to_string(),
+                )
+            })
+            .collect();
+        (rows, summary["cached"].as_bool())
+    };
+    let pass = |entry: &str| (entry.to_string(), "pass".to_string());
+    let stop = |entry: &str, n: u32| (entry.to_string(), format!("Test exceeded {n}s timeout."));
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a]}));
+    assert_eq!((rows, cached), (vec![pass("")], Some(false)), "the server's 30 s");
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a], "testTimeoutSecs": 2}));
+    assert_eq!(
+        (rows, cached),
+        (vec![stop("", 2)], Some(true)),
+        "the request's 2 s, no new compile"
+    );
+    let (rows, cached) = run(
+        json!({"command": "runTests", "sourcePaths": [a], "testTimeoutSecs": 2, "entries": [
+            {"id": "own", "test": "Codeunit50414.SleepsFive", "testTimeoutSecs": 4},
+            {"id": "none", "test": "Codeunit50414.SleepsFive", "testTimeoutSecs": 0},
+            {"id": "request", "test": "Codeunit50414.SleepsFive"},
+        ]}),
+    );
+    assert_eq!(
+        (rows, cached),
+        (vec![stop("own", 4), pass("none"), stop("request", 2)], Some(true)),
+        "an entry's own limit, 0 for none, else the request's"
+    );
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a], "entries": [
+        {"id": "server", "test": "Codeunit50414.SleepsFive"},
+        {"id": "own", "test": "Codeunit50414.SleepsFive", "testTimeoutSecs": 3},
+    ]}));
+    assert_eq!(
+        (rows, cached),
+        (vec![pass("server"), stop("own", 3)], Some(true)),
+        "an entry without a limit in a request without one: the server's"
+    );
+    let (rows, cached) = run(json!({"command": "runTests", "sourcePaths": [a]}));
+    assert_eq!(
+        (rows, cached),
+        (vec![pass("")], Some(true)),
+        "a request does not change the server's limit"
+    );
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "testTimeoutSecs": -1}));
+    let lines = s.until_summary();
+    assert!(
+        lines[0]["error"].as_str().unwrap().contains("`testTimeoutSecs`"),
+        "{lines:?}"
+    );
+}
+
+// al-runner issue 7775: the reporter's repro, a FindSet on the Company table.
+const COMPANY_FINDSET: &str = r#"
+codeunit 50420 "Company FindSet"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FindSetAll()
+    var
+        C: Record Company;
+    begin
+        if C.FindSet() then;
+    end;
+}
+"#;
+
+/// al-runner issue 7775: `companies` is `--companies` for one request. Without it (and without the server's flag) the
+/// FindSet is refused, and the refusal names the flag and the field; a request without it does not keep the last one's.
+#[test]
+fn the_companies_field_is_the_companies_flag_for_one_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "companies", COMPANY_FINDSET);
+    // The Company table is a table of the platform's System app, which the app names through `platform`.
+    let manifest = std::fs::read_to_string(a.join("app.json")).unwrap();
+    write(
+        &a,
+        "app.json",
+        &manifest.replace(r#""dependencies""#, r#""platform":"27.0.0.0","dependencies""#),
+    );
+    let packages = d.path().join("packages");
+    std::fs::create_dir_all(&packages).unwrap();
+    std::fs::copy(al_testfiles::system_app(), packages.join("System.app")).unwrap();
+    let run = |s: &mut Server, req: Value| -> (Value, Value) {
+        s.send(req);
+        let lines = s.until_summary();
+        let t = lines
+            .iter()
+            .find(|l| l["type"] == "test")
+            .unwrap_or_else(|| panic!("{lines:?}"));
+        (t["status"].clone(), t["message"].clone())
+    };
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let refused = |o: &(Value, Value)| {
+        let m = o.1.as_str().unwrap_or_default();
+        o.0 != "pass" && m.contains("--companies") && m.contains("`companies`")
+    };
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
+    );
+    assert!(refused(&o), "{o:?}");
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": "CRONUS International Ltd."}),
+    );
+    assert_eq!(o.0, "pass", "{o:?}");
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
+    );
+    assert!(refused(&o), "the next request without the field: {o:?}");
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": ["CRONUS International Ltd."]}));
+    let lines = s.until_summary();
+    assert!(lines[0]["error"].as_str().unwrap().contains("`companies`"), "{lines:?}");
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": "Other,CRONUS International Ltd."}));
+    let lines = s.until_summary();
+    assert_eq!(
+        lines[0]["error"].as_str(),
+        Some("`companies`: the first company must be the session company `CRONUS International Ltd.`, not `Other`"),
+        "the session company comes first: {lines:?}"
+    );
+    // The server's `--companies` holds for a request without the field, as the CLI flag does.
+    let mut s = Server::start(&[
+        "--no-download",
+        "--no-test-data",
+        "--companies",
+        "CRONUS International Ltd.",
+    ]);
+    s.line();
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
+    );
+    assert_eq!(o.0, "pass", "{o:?}");
 }

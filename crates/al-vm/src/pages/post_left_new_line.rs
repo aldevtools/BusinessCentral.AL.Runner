@@ -3,7 +3,7 @@
 //! with and without the new-row line (al-runner issues 6027, 6292, 7197, 7821).
 
 use super::pinned_body::{Callees, callees_are, page_is, table_is};
-use super::pinned_shape::{PinnedEnd, TestCall};
+use super::pinned_shape::{NextEnd, PinnedEnd, TestCall};
 use super::*;
 use al_builtins::page_op::PageMethod;
 
@@ -80,6 +80,17 @@ impl Session {
             reason: "a call of the test after the Post of a journal that left another primary key in Rec on its new-row line, \
                      other than Close (not pinned)",
             reads: false,
+            caption: false,
+            part_reads: false,
+            one_action: false,
+            first_ends: false,
+            part_visible: false,
+            part_moves: false,
+            no_writes: false,
+            next: NextEnd::Refused,
+            close: true,
+            ok: false,
+            walk: false,
         });
         Ok(true)
     }

@@ -93,7 +93,7 @@ impl Session {
         }
         match args.first() {
             Some(Value::Library(_, h)) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::OutStream(blob, _) => al_builtins::stream::write_bytes(blob, bytes),
+                al_builtins::value::LibraryValue::OutStream(blob, ..) => al_builtins::stream::write_bytes(blob, bytes),
                 _ => {
                     return unsupported(
                         "Media.ExportStream of a Report Layout List Layout into something not an OutStream",
@@ -108,6 +108,36 @@ impl Session {
         }
         Ok(Value::Boolean(true))
     }
+}
+
+/// The bytes of the Word layout report object `object` renders with when none is named, as its app holds the file: the layout
+/// `DefaultRenderingLayout` names, or with `DefaultLayout = Word` the file of its `WordLayout` property (own_layout).
+/// `None` for any other default, or a file the app does not hold (a Microsoft app read from its package).
+pub(crate) fn default_word_layout(program: &ir::Program, object: usize) -> Option<Vec<u8>> {
+    let o = program.objects.get(object)?;
+    let r = o.report.as_ref()?;
+    let id = o.id? as i32;
+    let name = match &r.default_rendering_layout {
+        Some(name) => name.clone(),
+        None => {
+            let prop = |n: &str| {
+                o.properties
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(n))
+                    .map(|(_, v)| v)
+            };
+            if !prop("DefaultLayout").is_some_and(|v| v.trim().eq_ignore_ascii_case("Word")) {
+                return None;
+            }
+            crate::recmeta::string_literal(prop("WordLayout")?)?
+        }
+    };
+    let found = own_layout(program, id, &name).filter(|f| f.kind == "word")?;
+    let app = program.apps.get(found.app)?;
+    app.layout_files
+        .iter()
+        .find(|(p, _)| *p == found.path)
+        .map(|(_, b)| b.clone())
 }
 
 /// A layout of the rendering section of report `id` by its name, or one of the legacy RDLCLayout, WordLayout and ExcelLayout

@@ -176,6 +176,9 @@ pub(super) fn node_of(v: &Value) -> Result<Handle, Signal> {
                 } else {
                     unsupported(format!("use of an unassigned {name}"))
                 }
+            } else if super::unassigned_element::is_node_of_unassigned_element(v) {
+                // `unassigned_element.rs` admits IsXmlElement and WriteTo(Text) on this node before this; every other use refuses.
+                unsupported("use of the XmlNode that AsXmlNode of an unassigned XmlElement returned (not measured)")
             } else {
                 unsupported(format!("{name} used as an XML node"))
             }

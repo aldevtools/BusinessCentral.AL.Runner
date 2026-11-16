@@ -140,7 +140,7 @@ impl Session {
                 let t = self.table(&rec)?;
                 let cx = self.cx.clone();
                 let rows = self
-                    .store_for(&rec)
+                    .store_for(&rec)?
                     .count(&cx, &t, &[])
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 if rows != 0 {

@@ -36,6 +36,7 @@ impl Session {
             before,
             after: self.store.change_counter(),
             bulk: None,
+            through_recordref: self.through_recordref,
         });
     }
 
@@ -228,6 +229,35 @@ impl Session {
             call_stack: String::new(),
             ..Default::default()
         })))
+    }
+
+    /// An unchanged Modify keeps its row version, but ModifyAll gives it a new one
+    /// (record/PriorityAssumptions.al:143-244; record/crud/ModifyWithoutChange.al:375-448).
+    pub(super) fn modify_row_version(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        stored: Option<&[Value]>,
+    ) -> Option<(usize, Value)> {
+        // A Time held past the day compares as the midnight it reads (TimeRolledPastMidnight.al:245-252).
+        let rolled_read = stored.filter(|r| r.iter().any(crate::sqltime::is_rolled)).map(|r| {
+            let mut r = r.to_vec();
+            crate::sqltime::read_back(&mut r);
+            r
+        });
+        let unchanged = match rolled_read.as_deref().or(stored) {
+            Some(old) if !rec.borrow().temporary && Session::modify_changes_nothing(t, old, rec) => Some(old),
+            _ => None,
+        };
+        match unchanged {
+            Some(old) if !self.bulk_modify => {
+                if let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) {
+                    rec.borrow_mut().fields[i] = old[i].clone();
+                }
+                None
+            }
+            _ => self.bump_row_version(t, rec),
+        }
     }
 
     pub(super) fn bump_row_version(&mut self, t: &TableDef, rec: &Rec) -> Option<(usize, Value)> {

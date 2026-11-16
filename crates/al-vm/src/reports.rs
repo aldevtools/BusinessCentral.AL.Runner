@@ -590,16 +590,10 @@ impl Session {
                     ));
                 }
                 let quit = self.report_init(&inst)?;
-                // `--no-client`: a request page that would open raises here; the report has no OnInitReport (`clientless.rs`).
-                if let Some(b) = self.clientless_report(&schema, explicit)? {
-                    let slot = schema.report().request_flag_slot;
-                    let flag = match (b, id == ids::REPORT_RUNMODAL_3) {
-                        (true, _) => REQUEST_PAGE_ON,
-                        (false, false) => REQUEST_PAGE_OFF,
-                        (false, true) => REQUEST_PAGE_OFF_UNPINNED_GETTER,
-                    };
-                    inst.borrow_mut().globals[slot] = Value::Integer(flag);
-                }
+                // Without a client a request page that would open raises here (a page background task worker) or is skipped
+                // (the test session under `--no-client`); the report has no OnInitReport (`clientless.rs`).
+                let modal = id == ids::REPORT_RUNMODAL_3;
+                let explicit = self.static_request_window(&inst, &schema, explicit, args.len() == 1, modal)?;
                 let window = match explicit {
                     Some(b) => b,
                     None => Self::report_shows_page(&inst, &schema)?,
@@ -703,7 +697,7 @@ impl Session {
             ids::REPORT_SAVEASHTML_2 => self.report_save_as_file(id, receiver, args, "Html", true),
             ids::REPORT_WORDXMLPART_1 | ids::REPORT_WORDXMLPART_2 => self.report_word_xml_part(id, receiver, args),
             ids::REPORT_RUNREQUESTPAGE_1 | ids::REPORT_RUNREQUESTPAGE_2 => {
-                let (inst, schema, seed) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
+                let (inst, schema, seed, pinned_call) = if id == ids::REPORT_RUNREQUESTPAGE_1 {
                     let inst = self.report_instance(receiver, false)?.0;
                     // After a RunModal of the variable: the error, and no page opens
                     // (reports/request-page/RptRequestPage.al:990-1009 UseRequestPageFalse_RunModalAndRunRequestPage).
@@ -711,7 +705,7 @@ impl Session {
                         return Err(running::already_run());
                     }
                     let schema = self.report_schema(&inst)?;
-                    (inst, schema, args.first())
+                    (inst, schema, args.first(), false)
                 } else {
                     // The static form raises SubstituteReport with RunMode ParametersOnly first, once, with an empty
                     // RequestPageXml also when old parameters are given (events/platform-triggers/PeVTests.al:465, :660:
@@ -729,15 +723,15 @@ impl Session {
                     if self.report_init(&inst)? {
                         return unsupported("CurrReport.Quit in OnInitReport of a RunRequestPage (not pinned)");
                     }
-                    (inst, schema, args.get(1))
+                    (inst, schema, args.get(1), args.len() == 1 && number.is_none())
                 };
+                self.request_ok_only_call(schema.object, pinned_call)?;
                 // Only the empty string and the text this runtime produced are understood; how BC
                 // loads a parameters string into the page is pinned only by its result
                 // (reports/TestReportInstanceRunReqPage.al:SeededWithParameters_StillRunsTheHandler).
                 let seed = match seed {
-                    None => None,
-                    Some(Value::Text(s)) if s.is_empty() => None,
-                    Some(Value::Text(s)) => Some(s.clone()),
+                    Some(Value::Text(s)) if !s.is_empty() => Some(s.clone()),
+                    None | Some(Value::Text(_)) => None,
                     Some(other) => return unsupported(format!("{id} seeded with {}", other.describe())),
                 };
                 // RunRequestPage always shows the page, so it always enters a transaction world
@@ -1562,7 +1556,7 @@ impl Session {
                 );
             }
         }
-        let shows_page = entry == Entry::Run && window;
+        let shows_page = self.note_report_start(entry == Entry::Run && window);
         self.report.report_preview_pinned.push(match entry {
             Entry::Run => crate::state::ReportStart::Run,
             Entry::Execute | Entry::Print => crate::state::ReportStart::Execute,
@@ -1679,11 +1673,6 @@ impl Session {
         }
     }
 
-    /// The instances a run executes (the report, and the reportextension that changes it) with
-    /// every data item's own view in force. The views are in force before the request page opens
-    /// (reports/TestReportMultiLineDataItemView.al: "the request page applies those views to the
-    /// data items before the handler runs") and before OnPreReport, which may refine them
-    /// (reports/TestReportGetFilterInTriggers.al:43-52 reads the view there).
     /// The `Schema` of the report `inst` is an instance of.
     pub(crate) fn report_schema_of(&self, inst: &Inst) -> Result<Schema, Signal> {
         self.report_schema(inst)
@@ -1719,6 +1708,10 @@ impl Session {
             })
     }
 
+    /// The instances a run executes (the report, and the reportextension that changes it) with every data item's own view in
+    /// force. The views are in force before the request page opens (reports/TestReportMultiLineDataItemView.al: "the request
+    /// page applies those views to the data items before the handler runs") and before OnPreReport, which may refine them
+    /// (reports/TestReportGetFilterInTriggers.al:43-52 reads the view there).
     fn report_prepare(&mut self, inst: &Inst, schema: &Schema, zero_date_pinned: bool) -> Result<Run, Signal> {
         self.report.zero_date_view_failed = false;
         // ShowPrintStatus is inert (al-sema reports.rs `INERT_OBJECT_PROPERTIES`): `false` with Report.Run
@@ -2103,15 +2096,7 @@ impl Session {
         let item = run.item(r);
         let (owner, object) = run.owner(r);
         let mut rec = self.report_item_record(run, r)?;
-        // A `DataItemLinkReference` names another enclosing item than the parent.
-        let parent_rec = match item.link_item {
-            Some(li) => enclosing
-                .iter()
-                .find(|(e, _)| matches!(e, ItemRef::Base(x) if *x == li))
-                .map(|(_, rec)| rec.clone())
-                .or(parent_rec),
-            None => parent_rec,
-        };
+        let parent_rec = explicit_parent_link::linked_parent(item.link_item, parent_rec, enclosing);
         if let Some(parent) = parent_rec {
             // The link filter is hidden from GetFilters (reports/TestReportRuntimeContracts.al:62-90).
             let table = self.table(&rec)?;
@@ -2479,7 +2464,8 @@ impl<'a> ItemTree<'a> {
 
 // ---------------------------------------------------------------------- Report.SaveAs
 
-use crate::report_placeholder::{Rendered, SaveOutput};
+use crate::report_placeholder::SaveOutput;
+use crate::report_render::{RenderInputs, SaveCall};
 
 /// Where a rendering save puts its output.
 pub(crate) enum SaveTarget {
@@ -2551,14 +2537,16 @@ impl Session {
             Some(Value::Option(n, names)) => names.get(*n as usize).cloned().unwrap_or_default(),
             other => return unsupported(format!("{id} with the format {}", other.describe())),
         };
-        let blob = match args.get(at + 2) {
+        let (blob, encoding) = match args.get(at + 2) {
             Some(Value::Library(_, h)) => match &*h.borrow() {
-                al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+                al_builtins::value::LibraryValue::OutStream(blob, encoding, ..) => (blob.clone(), *encoding),
                 other => return unsupported(format!("{id} to {}, which is not an OutStream", other.describe())),
             },
             other => return unsupported(format!("{id} to {}", other.describe())),
         };
         let record_ref = args.get(at + 3);
+        let call = self.save_call(at == 1, !parameters.is_empty(), record_ref.is_some(), &blob, encoding);
+        let target = SaveTarget::Stream(blob);
         self.report_save_core(
             id,
             receiver,
@@ -2566,8 +2554,9 @@ impl Session {
             at,
             parameters,
             &format,
-            SaveTarget::Stream(blob),
+            target,
             record_ref,
+            Some(call),
         )
     }
 
@@ -2591,7 +2580,7 @@ impl Session {
             return unsupported(format!("{id} with a record argument (what it filters is not pinned)"));
         }
         let target = SaveTarget::File(name);
-        self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None)
+        self.report_save_core(id, receiver, args, at, String::new().into(), format, target, None, None)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2605,6 +2594,7 @@ impl Session {
         format: &str,
         target: SaveTarget,
         record_ref: Option<&Value>,
+        save_call: Option<SaveCall>,
     ) -> Result<Value, Signal> {
         let result_used = self.ret_used;
         let format = format.to_string();
@@ -2668,7 +2658,7 @@ impl Session {
             // subscriber that substitutes another report is not pinned.
             if record_ref.is_none()
                 && matches!(target, SaveTarget::Stream(_))
-                && crate::report_placeholder::format_refused_by_layout(&schema, &format)
+                && self.format_unsupported_by_layout(&schema, &format)
                 && self
                     .engine
                     .events
@@ -2725,56 +2715,18 @@ impl Session {
                 return Err(Signal::Error(Box::new(e)));
             }
         }
-        // ADR-040 and its amendments: the format x layout grid (`report_placeholder::grid`).
+        // ADR-040 and its amendments: the save table (`report_save`).
         if format != "Xml" {
-            match self.rendered_save(&schema, &format, &target, result_used, custom.is_some())? {
-                Rendered::Write(o) => output = o,
-                Rendered::False(e) => {
+            match self.static_or_variable_save(&schema, &format, (&target, save_call), result_used, custom.is_some())? {
+                Ok(o) => output = o,
+                Err(e) => {
                     self.last_error = e;
                     return Ok(Value::Boolean(false));
                 }
             }
         }
-        // reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:372-388: false with the text and the code
-        // `ReportProcessingOnly`, no trigger runs and nothing is written. With the answer dropped
-        // BC's behaviour is not pinned.
         if schema.report().processing_only {
-            // The Xml SaveAs of a processing-only report runs OnInitReport before it answers false
-            // (reports/request-page/RptTriggerOrder.al:308,:324 SaveAs_NestedItems_Order, SaveAs_Siblings_Order;
-            // reports/PnH5aExt.al:380). For the other formats that is not pinned and no trigger runs.
-            if format == "Xml" && at != 0 && self.report_init(&inst)? {
-                return unsupported(
-                    "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
-                );
-            }
-            // The request page's OnInit follows, as in a run without the page (reports/reporthandler/AeReportHandler.al:
-            // 133-145 SaveAs_WithReportHandler `OnInitReport;RP OnInit ...;` with an empty parameters string; with parameters the
-            // same error follows and OnPreReport does not run, Y68SelfClosingParams.al:407-418).
-            if format == "Xml" && at != 0 {
-                self.request_page_init_unshown(&inst, &schema)?;
-            }
-            if format == "Xml" && at == 0 && quit {
-                return unsupported(
-                    "CurrReport.Quit in OnInitReport of a SaveAs of a processing-only report (not pinned)",
-                );
-            }
-            let error = al_builtins::native::AlError {
-                message: format!(
-                    "Report {} is a processing-only report. Output cannot be rendered and saved to a file.",
-                    self.object_id_of(schema.object as u32)
-                ),
-                code: "ReportProcessingOnly".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            };
-            // The statement form raises the same error (streams/TestReportSaveAsColumnDetailsContracts.al:
-            // ProcessingOnlyReport_StatementFormRaises, streams/PWReportSaveAsColumns.al:
-            // ProcessingOnly_AnswerDropped_AsserterrorForm); with the answer used it is returned as false.
-            if !result_used {
-                return Err(Signal::Error(Box::new(error)));
-            }
-            self.last_error = error;
-            return Ok(Value::Boolean(false));
+            return self.save_of_processing_only(&inst, &schema, &format, at, quit, result_used);
         }
         if let Some(why) = schema.report().dataset_unsupported.first() {
             return unsupported(format!("Report.SaveAs of \"{}\": {why}", schema.name()));
@@ -2925,7 +2877,7 @@ impl Session {
         match ran {
             Ok(true) => {
                 let header = self.dataset_header(&schema)?;
-                let bytes = written.expect("a SaveAs run has a dataset").finish(&header)?;
+                let (bytes, rows, kinds) = written.expect("a SaveAs run has a dataset").finish_counted(&header)?;
                 if let Some(layout) = custom {
                     let SaveTarget::Stream(blob) = target else {
                         return unsupported(format!(
@@ -2943,8 +2895,9 @@ impl Session {
                         return Ok(Value::Boolean(true));
                     }
                 }
-                self.write_save_output(target, output, &schema, &bytes)?;
-                Ok(Value::Boolean(true))
+                let render = save_call.map(|call| RenderInputs { call, kinds: &kinds });
+                let saved = self.write_save_output(target, output, &schema, &bytes, rows, render)?;
+                Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
             // An error a trigger raises: with no layout it reaches the caller
@@ -2975,7 +2928,7 @@ impl Session {
                     // `asserterror Probe.SaveAs(..)` on a report with an RDLC layout).
                     (ir::ReportLayout::Rdlc, false) if !result_used => Err(Signal::Error(e)),
                     (ir::ReportLayout::Rdlc, false) => {
-                        self.last_error = *e;
+                        self.hold_error(*e)?;
                         Ok(Value::Boolean(false))
                     }
                     _ => unsupported(format!(
@@ -3133,14 +3086,13 @@ impl Session {
             .iter()
             .map(|n| n.to_string())
             .collect();
+        let source = LibraryValue::InStream(InState::live(document, Encoding::Utf8));
+        let target = LibraryValue::OutStream(output.clone(), Encoding::Utf8, None);
         let mut args = vec![
             Value::Integer(self.object_id_of(schema.object as u32) as i32),
             al_builtins::json::unpinned_object("the ObjectPayload of OnDocumentReady is not pinned"),
-            stream(
-                "InStream",
-                LibraryValue::InStream(InState::live(document, Encoding::Utf8)),
-            ),
-            stream("OutStream", LibraryValue::OutStream(output.clone(), Encoding::Utf8)),
+            stream("InStream", source),
+            stream("OutStream", target),
             Value::Boolean(false),
         ];
         let call = crate::dispatch::EventCall {
@@ -3489,7 +3441,7 @@ impl Session {
                 "InStream",
                 LibraryValue::InStream(InState::snapshot(layout_bytes, Encoding::Utf8)),
             ),
-            stream("OutStream", LibraryValue::OutStream(blob.clone(), Encoding::Utf8)),
+            stream("OutStream", LibraryValue::OutStream(blob.clone(), Encoding::Utf8, None)),
             Value::Boolean(false),
         ];
         let call = crate::dispatch::EventCall {
@@ -3868,24 +3820,6 @@ impl Session {
     /// as their captions, a Duration as words, a Guid without braces, and a Decimal in full with a
     /// `decimalformatter` attribute from `DecimalPlaces` of the column, else of the field. Every other
     /// type is refused. A column that asks for its caption adds to the Labels block.
-    /// The `decimalformatter` of a Decimal column: from `DecimalPlaces` of the column, else of the field (`dataset::decimal_formatter`).
-    /// Without either it is `#,##0.00` on every version (reports/runtime/YReportPropsTests.al:40, 1234567.891;
-    /// reports/W3ReportObjectIdPreviewLanguage.al:448). BC follows General Ledger Setup "Amount Decimal Places" as the
-    /// session first read it; the corpus tests read it at the default 2:2 after SelectLatestVersion (corpus bump 28: the
-    /// earlier BC 28 `#,##0.00###` was a value left by an earlier test).
-    fn decimal_column_formatter(
-        &self,
-        t: &Option<Arc<al_data::TableDef>>,
-        c: &ir::ReportColumn,
-    ) -> Result<String, Signal> {
-        let from_field = match (t, c.field, c.places_table.zip(c.places_field)) {
-            (Some(t), Some(pos), _) => self.field_property(t, pos, "DecimalPlaces"),
-            (_, None, Some(at)) => crate::column_formatter::field_places(&self.engine.program, at),
-            _ => None,
-        };
-        crate::column_formatter::of_column(c, from_field.as_deref())
-    }
-
     fn dataset_column(
         &mut self,
         c: &ir::ReportColumn,
@@ -4009,15 +3943,7 @@ impl Session {
             // An undefined Time or DateTime is blank like an undefined Date (docs/probes-needed.md).
             Value::Time(0) | Value::DateTime(0) => String::new(),
             Value::Time(t) => dataset::time_text(t - 1)?,
-            Value::DateTime(t) => {
-                let ms = t - 1;
-                let day = ms.div_euclid(86_400_000) as i32 + 1;
-                format!(
-                    "{} {}",
-                    dataset::date_text(day),
-                    dataset::time_text(ms.rem_euclid(86_400_000))?
-                )
-            }
+            Value::DateTime(t) => dataset::datetime_text(*t)?,
             Value::Decimal(_) => {
                 // A DataSet column of type xs:decimal (dataset.rs `finish_data_set`; al-language-onprem/reports/
                 // AqSaveAsXml.al:257 `AmountC`).
@@ -4026,7 +3952,7 @@ impl Session {
                 let Value::Decimal(d) = &value else {
                     unreachable!("matched a Decimal")
                 };
-                crate::decimal_column::text(&self.engine.program, object, c, *d)
+                al_builtins::decimal_scale::shown(*d).to_string()
             }
             // The column's OptionCaptionML: the caption of the session language, ENU where it has none
             // (record/table-properties/XTablePropsTests.al:741-785, `EnuOnly` shows `Only B` in 1031).
@@ -4103,6 +4029,7 @@ impl Session {
             text,
             schema_type,
             data,
+            kind: dataset::ValueKind::of(&value),
         })
     }
 
@@ -4439,16 +4366,6 @@ impl Session {
 #[cfg(test)]
 mod ignored_output_tests;
 
-/// Values of a report's request-page flag slot (`UseRequestPage`); any other value means "never set": the report's own
-/// property decides.
-const REQUEST_PAGE_ON: i32 = 1;
-const REQUEST_PAGE_OFF: i32 = 2;
-/// The page is hidden by a static `RunModal(id, false)`: the getter is pinned in OnPreReport only, and refused elsewhere.
-const REQUEST_PAGE_OFF_UNPINNED_GETTER: i32 = 3;
-/// After an `Execute` of a variable whose `UseRequestPage` was set: what the getter answers is not pinned
-/// (reports/PnH2UseRp.al:389 pins only the variable never set), so it is refused.
-const REQUEST_PAGE_UNPINNED_GETTER: i32 = 4;
-
 /// The ExtensionName of the dataset header: the app's name, " by " and its publisher (reports/dataset/
 /// ReportDatasetHeaderRaw.al:174, text/PnBReportSaveAs.al:162). An app without a publisher (only the
 /// runtime's own tests build one) keeps the bare name.
@@ -4468,6 +4385,11 @@ pub(crate) mod format_region;
 mod header_tests;
 mod html_record;
 mod request_caption;
+mod request_flag;
+use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_PAGE_ON, REQUEST_PAGE_UNPINNED_GETTER};
 mod request_unshown;
 mod running;
-mod word_xml_part;
+mod save_processing_only;
+pub(crate) mod word_xml_part;
+
+mod explicit_parent_link;

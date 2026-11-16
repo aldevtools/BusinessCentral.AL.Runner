@@ -10,6 +10,11 @@ use std::path::{Path, PathBuf};
 /// `(file suffix, the trimmed source line, why the debug format is fine here)`.
 const KEPT: &[(&str, &str, &str)] = &[
     (
+        "al-sema/src/lower/tests/namespaced_receiver.rs",
+        r#"format!("{:?}", l.program.objects).contains("Assume(NamespacedEnumReceiver)")"#,
+        "a test helper that searches the lowered program's dump for the assumption mark, not a message",
+    ),
+    (
         "al-vm/src/permission_shadow.rs",
         r#"other => self.shadow_note("unknown", site, &format!("{other:?}")),"#,
         "a line of the shadow report (a developer diagnostic of the permission switch, off by default), not a message of a test",
@@ -43,6 +48,11 @@ const KEPT: &[(&str, &str, &str)] = &[
         "al-testrun/src/dotnet.rs",
         r#""dotnet {} runtimes {} on {} sidecar {} {:?} roll-forward {} assembly dirs {:?}","#,
         "the .NET host's identity in the key of the cached install state, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
+        r#"format!("{platform_internals_visible_to:?}").as_bytes(),"#,
+        "a cache key text, not a message",
     ),
     (
         "al-testrun/src/runtime/baseline_key.rs",
@@ -297,8 +307,9 @@ fn no_message_formats_a_value_with_the_debug_format() {
     let mut found = Vec::new();
     for f in &files {
         let rel = f.strip_prefix(root()).unwrap().to_string_lossy().replace('\\', "/");
+        // Unit test modules (`tests.rs`, `src/**/tests/`) print values for a failing test.
         // `al-testkit` is a dev-dependency: its messages are what a failing test prints about a value.
-        if rel.ends_with("tests.rs") || rel.starts_with("crates/al-testkit/") {
+        if rel.ends_with("tests.rs") || rel.contains("/tests/") || rel.starts_with("crates/al-testkit/") {
             continue;
         }
         let text = std::fs::read_to_string(f).unwrap();

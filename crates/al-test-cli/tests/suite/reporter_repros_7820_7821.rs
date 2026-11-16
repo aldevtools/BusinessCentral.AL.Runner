@@ -541,7 +541,11 @@ fn variants(src: &str, edits: &[(&str, &str)]) -> String {
 }
 
 /// The assumption marks one test of `src` makes, and its outcome.
-fn outcome_and_marks(src: &str, codeunit: &str, test: &str) -> (Outcome, Vec<al_builtins::assumptions::Assumption>) {
+pub(super) fn outcome_and_marks(
+    src: &str,
+    codeunit: &str,
+    test: &str,
+) -> (Outcome, Vec<al_builtins::assumptions::Assumption>) {
     let l = al_testkit::compile_apps(vec![al_testkit::app(src)]);
     let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
     let oi = l

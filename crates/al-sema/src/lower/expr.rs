@@ -367,6 +367,44 @@ impl Lowerer<'_> {
     }
 
     /// Whether the routine being lowered was made from a property expression (a control's source).
+    /// The kind of object `Kw::Name` names when it is an object literal (`Database::"X"`, `Report::"X"`, ...) and
+    /// neither the file's app nor an app it sees declares that object (al-runner issues 8101, 8099).
+    fn names_no_loaded_object(&self, kw: &str, name: &str) -> Option<ObjKind> {
+        let kind = match kw.trim().to_ascii_lowercase().as_str() {
+            "database" => ObjKind::Table,
+            "report" => ObjKind::Report,
+            "page" => ObjKind::Page,
+            "codeunit" => ObjKind::Codeunit,
+            "query" => ObjKind::Query,
+            "xmlport" => ObjKind::XmlPort,
+            _ => return None,
+        };
+        let parts = crate::types::qualified_parts(name.trim());
+        matches!(
+            self.ws.resolve_ref(self.file, kind, &parts),
+            crate::workspace::Resolution::Missing
+        )
+        .then_some(kind)
+    }
+
+    /// Why `text`, an object literal of `kind` that [`Self::names_no_loaded_object`] found, is refused. It names a cause
+    /// only when the workspace shows it: a dependency of the app or of an app it sees that is not loaded, or, when the
+    /// app sees Base Application, another country's Base Application.
+    fn no_declared_object_reason(&self, text: &str, kind: ObjKind) -> String {
+        let app = self.ws.files[self.file].app;
+        let mut reason = format!(
+            "`{text}` names no {} that this app or its dependencies declare",
+            kind.label()
+        );
+        if self.ws.has_unloaded_dependency(app) {
+            reason.push_str("; a dependency was skipped as not found");
+        }
+        if self.ws.sees_base_application(app) {
+            reason.push_str("; an object of another country's Base Application needs --country");
+        }
+        reason
+    }
+
     pub(crate) fn in_synthetic_routine(&self) -> bool {
         self.routine_nodes
             .get(self.oi)
@@ -730,7 +768,9 @@ impl Lowerer<'_> {
             NameRef if crate::check::is_this_keyword(n) && self.ws.objects[self.oi].kind == ObjKind::Report => {
                 Ok(ir::Expr::ThisInstance)
             }
-            ParenExpr => self.expr(&kids[0]),
+            // The parser recovers from `Do();` (alc: AL0104) with an empty `()`: refuse it, never index into it
+            // (al-runner issue 7957).
+            ParenExpr => self.expr(kids.first().ok_or("parenthesized expression without an operand")?),
             PrefixExpr => {
                 let op = match sig_tokens(n)[0].text().to_ascii_lowercase().as_str() {
                     "not" => ir::UnOp::Not,
@@ -1030,7 +1070,11 @@ impl Lowerer<'_> {
                             m.trim().trim_matches('"'),
                             e.trim()
                         )),
-                        _ => Err(format!("`{text}` is not lowered yet")),
+                        Some((kw, name)) => match self.names_no_loaded_object(kw, name) {
+                            Some(kind) => Err(self.no_declared_object_reason(&text, kind)),
+                            None => Err(format!("`{text}` is not lowered yet")),
+                        },
+                        None => Err(format!("`{text}` is not lowered yet")),
                     }
                 }
             },

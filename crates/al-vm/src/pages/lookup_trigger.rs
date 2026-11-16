@@ -80,7 +80,9 @@ impl Session {
                     e.code = own.to_string();
                 }
                 self.error_finals = None;
-                self.last_error = *e;
+                if let Err(s) = self.hold_error(*e) {
+                    return Some(Err(s));
+                }
                 Some(Ok(Value::Null))
             }
             Err(Signal::Error(mut e)) if e.code == "Dialog" => {

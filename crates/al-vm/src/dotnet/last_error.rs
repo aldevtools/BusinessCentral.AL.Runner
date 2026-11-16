@@ -97,7 +97,7 @@ fn equals(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> R
     }))
 }
 
-fn message(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Result<Value, Signal> {
+pub(super) fn message(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Result<Value, Signal> {
     Ok(parts(this)?.1)
 }
 
@@ -112,7 +112,7 @@ fn inner_exception(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]
     }))))
 }
 
-fn get_type(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Result<Value, Signal> {
+pub(super) fn get_type(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> Result<Value, Signal> {
     let (type_name, ..) = parts(this)?;
     Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
         type_name: RUNTIME_TYPE.into(),
@@ -266,7 +266,7 @@ fn full_name(_: &mut Session, this: Option<&Rc<DotNetObject>>, _: &[Value]) -> R
     }
 }
 
-fn member(name: &str, kind: MemberKind, f: super::registry::MemberFn) -> RegistryMember {
+pub(super) fn member(name: &str, kind: MemberKind, f: super::registry::MemberFn) -> RegistryMember {
     RegistryMember {
         name: name.into(),
         kind,
@@ -344,6 +344,8 @@ pub fn types() -> Vec<RegistryType> {
             clr_name: AL_INNER_EXCEPTION.into(),
             members: Vec::new(),
         },
+        super::invoke_exception::outer_type(),
+        super::invoke_exception::inner_type(),
         RegistryType {
             clr_name: NULL_EXCEPTION.into(),
             members: vec![

@@ -40,11 +40,17 @@ pub trait FormatCtx {
     fn region_unpinned(&self) -> Option<String> {
         None
     }
-    /// The caption and the namespace of the table with object index `table`, for the text of a RecordId; None where the
-    /// context does not know the program (a RecordId format that names them is then refused).
+    /// The caption and the namespace of the table with object index `table`, for the text of a RecordId: the caption as the
+    /// source declares it, which no translation file changes (`Format(RecordId, 0, 1)`). None where the context does not know
+    /// the program or the caption (a RecordId format that names them is then refused).
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         let _ = table;
         None
+    }
+    /// The namespace of the table with object index `table` (`Some(None)`: none), for `Format(RecordId, 0, 9)`, which names the
+    /// table and never shows its caption; None where the format is refused. By default the context's [`Self::record_id_table`].
+    fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {
+        self.record_id_table(table).map(|(_, namespace)| namespace)
     }
     /// Whether the target BC version has the behavior of `gate` (false where the context knows no target).
     fn format_gate(&self, gate: al_version::Gate) -> bool {
@@ -94,6 +100,9 @@ impl FormatCtx for WithoutRegion<'_> {
     }
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         self.0.record_id_table(table)
+    }
+    fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {
+        self.0.record_id_namespace(table)
     }
     fn format_gate(&self, gate: al_version::Gate) -> bool {
         self.0.format_gate(gate)
@@ -281,6 +290,21 @@ pub fn try_format(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) ->
         FormatFail::Unsupported(s) => s,
         FormatFail::Error { message, .. } => message,
     })
+}
+
+/// `Format(BigText)`: the text it holds, all of it (streams/StTBigText.al:248 ConvertTextAndBack `direct`;
+/// streams/DdStreamLeads.al:595, two AddText calls; xmlports/shapes-properties/XmlPortBigText.al: 218, 0 to 50000 characters).
+/// Only the plain Format(BigText) is pinned. Rendered content comes out with its marks in the changed form (owner decision
+/// 2026-11-12, ADR-040 amendment 2026-11-12, P3): whether BC returns a long rendered text whole is not probed.
+fn bigtext_text(l: &crate::value::LibraryValue) -> Result<String, String> {
+    match l {
+        crate::value::LibraryValue::Empty => Ok(String::new()),
+        crate::value::LibraryValue::Text(s) if crate::rendered_text::holds(s) => {
+            Ok(crate::rendered_text::to_changed(s))
+        }
+        crate::value::LibraryValue::Text(s) => Ok(s.clone()),
+        _ => Err("Format of a BigText of this kind is not pinned".to_string()),
+    }
 }
 
 /// The values `Format` does not read: a column a platform row leaves unknown (refused), and a SQL counter value.
@@ -498,15 +522,9 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             // session-system/TestProbeSessionMiscContracts.al:Version_Forms.
             return Err(no_such_format(9, "Version"));
         }
-        // A BigText formats as the text it holds, all of it (streams/StTBigText.al:248 ConvertTextAndBack `direct`;
-        // streams/DdStreamLeads.al:595, two AddText calls; xmlports/shapes-properties/XmlPortBigText.al:
-        // 218, 0 to 50000 characters). Only the plain Format(BigText) is pinned.
+        // A BigText formats as the text it holds (`bigtext_text`).
         Value::Library(crate::library_kind::LibraryKind::BigText, l) if standard == 0 && length == 0 => {
-            match &*l.borrow() {
-                crate::value::LibraryValue::Empty => String::new(),
-                crate::value::LibraryValue::Text(s) => s.clone(),
-                _ => return Err("Format of a BigText of this kind is not pinned".to_string().into()),
-            }
+            bigtext_text(&l.borrow())?
         }
         Value::Library(crate::library_kind::LibraryKind::TextBuilder, l) => {
             crate::format_textbuilder::text(&l.borrow(), standard)?
@@ -625,27 +643,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                // Format 1 names the table by its caption (record/crud/RcBMeta.al:572, :578, also under
-                // GlobalLanguage 1031); format 9 of a table in a namespace names it `[<namespace>.<name>]`
-                // (language/namespaces/P69NsConsumers.al:214, a name with spaces; :210 format 1 of the same table
-                // gives the plain name, which is its caption), a one-word name too, and a name with a dot is quoted
-                // inside the brackets (corpus branch al-runtime-rs-staging-r6985, language/namespaces/
-                // R7003RecordIdFormat9.al: Format9_NamespacedOwnTables, Format9_BaseAppContactAndItem `[Microsoft.CRM.Contact.Contact]`;
-                // a table outside a namespace gives the plain name, Format9_TablesWithoutNamespace). The other numbers give
-                // the plain name (RcBMeta.al:570-574).
-                let shown = match standard {
-                    1 | 9 => {
-                        let Some((caption, namespace)) = ctx.record_id_table(*table) else {
-                            return Err(format!("Format of a RecordId with standard format {standard} where the table caption is not known").into());
-                        };
-                        match (standard, namespace) {
-                            (1, _) => caption,
-                            (_, Some(ns)) => format!("[{ns}.{}]", recordid_number::namespaced_name(name)?),
-                            (_, None) => name.clone(),
-                        }
-                    }
-                    _ => name.clone(),
-                };
+                let shown = recordid_number::table_shown(standard, *table, name, ctx)?;
                 // A RecordId made by Evaluate from a table name alone has no key values and reads as the name
                 // (format-evaluate/P128EvalRecordId.al:P128_Evaluate_IntoRecordId_OtherTexts `table name only`); format 9 of a
                 // table in a namespace reads as the bracketed name alone (language/namespaces/RecordIdFormat9Evaluate.al:285-286,

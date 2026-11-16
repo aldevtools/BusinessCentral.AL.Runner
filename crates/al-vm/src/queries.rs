@@ -8,6 +8,7 @@
 //! `Signal::Unsupported`; the open questions are in docs/probes-needed.md.
 
 use crate::Session;
+use crate::query_reopen::ReopenCall;
 use al_builtins::collation;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -159,6 +160,8 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        // The global the call goes through, when `run_native` saw one (`query_reopen`).
+        let receiver = self.query_receiver.take();
         if method == "SaveAsCsvStatic" {
             return self.query_save_csv_static(args);
         }
@@ -206,22 +209,15 @@ impl Session {
                 _ => {}
             }
         }
+        if self.query_reopen_step(def, &qs, ReopenCall::Method(method, args), receiver)? {
+            return Ok(Value::Boolean(true));
+        }
         match method {
             "Open" => {
                 // Opening an open query is not an error (queries/TestQueryRuntimeContracts.al:
                 // Query_StateMisuse_DoesNotThrow); once rows were read what it does is not pinned.
                 if qs.borrow().run.as_ref().is_some_and(|r| r.started) {
-                    // After a filter changed mid-read it runs again with the new filters
-                    // (queries/read-lifecycle/PnAQueryOpenRead.al:125-170, SetRangeAndOpenAfterRead: `next-entry` 4).
-                    // After the last row (with or without a SetRange or SetFilter since) it runs again too,
-                    // with the new filters (queries/read-lifecycle/QueryReadToEnd.al:88,130,172:
-                    // SetRange_AfterLastRow_ThenOpenAndRead, SetFilter_AfterLastRow_ThenOpenAndRead,
-                    // Open_Twice_AfterLastRow).
-                    let filters_changed = qs.borrow().run.as_ref().is_some_and(|r| r.filters_changed);
-                    if !Self::query_read_to_the_end(&qs) && !filters_changed {
-                        return unsupported("Open on a query that is already open and was read from (not pinned)");
-                    }
-                    qs.borrow_mut().run = None;
+                    Self::query_open_started(&qs)?;
                 }
                 // OnBeforeOpen runs inside Open, after the filters set so far, and a filter it sets
                 // applies to this read (queries/TestQueryOnBeforeOpenVariablesContracts.al:104-140).
@@ -238,16 +234,7 @@ impl Session {
                 }
                 // Open does not run the query; the first Read does.
                 qs.borrow_mut().closed = false;
-                qs.borrow_mut().run = Some(QueryRun {
-                    started: false,
-                    filters_changed: false,
-                    rows: Vec::new(),
-                    next: 0,
-                    current: None,
-                    last_key: None,
-                    returned: 0,
-                    stamps: Vec::new(),
-                });
+                qs.borrow_mut().run = Some(QueryRun::opened());
                 Ok(Value::Boolean(true))
             }
             "Read" => self.query_read(def, &qs),
@@ -326,6 +313,14 @@ impl Session {
                 let col = arg_col(args, 0)?;
                 let q = qs.borrow();
                 Self::refuse_plain_static_filter(&def.columns[col], "GetFilter")?;
+                // The corpus reads such a filter back only through GetFilters (queries/flowfields-filters/
+                // QueryOuterFlowBelowJoin.al:381), which names it by another field.
+                if def.columns[col].flow_below_join {
+                    return unsupported(format!(
+                        "GetFilter of query column {} over a FlowField of a dataitem below the top dataitem's child (not pinned)",
+                        def.columns[col].name
+                    ));
+                }
                 match q.filters.iter().find(|(c, _)| *c == col) {
                     Some((_, e)) => self.filter_text(e).map(|s| Value::Text(s.into())),
                     // The static ColumnFilter of an aggregated column reads back as its filter text
@@ -359,6 +354,11 @@ impl Session {
             "ColumnNo" => column_no(&def.columns[arg_col(args, 0)?].name).map(Value::Integer),
             "TopNumberOfRows" => match args.first() {
                 None => Ok(Value::Integer(qs.borrow().top.unwrap_or(def.top))),
+                // A filter on such a column runs after the join (`Plan::post`); the probe set no top
+                // (queries/flowfields-filters/QueryOuterFlowBelowJoin.al:99-281).
+                Some(_) if def.columns.iter().any(|c| c.flow_below_join) => unsupported(
+                    "TopNumberOfRows on a query with a column over a FlowField of a dataitem below the top dataitem's child (not pinned)",
+                ),
                 Some(n) => {
                     let n = match n {
                         Value::Integer(n) => *n,
@@ -449,7 +449,7 @@ impl Session {
             return unsupported(format!("{method} with {}", stream.describe()));
         };
         let blob = match &*h.borrow() {
-            al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+            al_builtins::value::LibraryValue::OutStream(blob, ..) => blob.clone(),
             _ => return unsupported(format!("{method} to something that is not an OutStream")),
         };
         let cols: Vec<usize> = (0..def.columns.len())
@@ -575,7 +575,7 @@ impl Session {
             return unsupported(format!("Query.SaveAsCsv with {}", args.first().describe()));
         };
         let blob = match &*h.borrow() {
-            al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+            al_builtins::value::LibraryValue::OutStream(blob, ..) => blob.clone(),
             _ => return unsupported("Query.SaveAsCsv to something that is not an OutStream"),
         };
         let cols: Vec<usize> = (0..def.columns.len())
@@ -676,15 +676,23 @@ impl Session {
     }
 
     /// The value of column `column` in the row `Read` returned last.
-    pub(crate) fn query_column(&mut self, q: Value, column: usize) -> Result<Value, Signal> {
+    /// `global` is the global variable the read goes through (object index of the routine, slot), if it is one.
+    pub(crate) fn query_column(
+        &mut self,
+        q: Value,
+        column: usize,
+        global: Option<(usize, usize)>,
+    ) -> Result<Value, Signal> {
         let Value::Query(qs) = q else {
             return unsupported(format!("a query column of {}", q.describe()));
         };
-        let qs = qs.borrow();
-        let def = self.engine.program.objects[qs.object as usize]
+        let engine = self.engine.clone();
+        let def = engine.program.objects[qs.borrow().object as usize]
             .query
             .as_ref()
             .expect("a query object");
+        self.query_reopen_step(def, &qs, ReopenCall::Column(column), global)?;
+        let qs = qs.borrow();
         if def.columns[column].filter_element {
             // A filter() element read before Open, or after Open without a Read, raises as a column read without a
             // row does (corpus branch al-runtime-rs-staging-uh ab6c6eb2, PR 799: errors/lt-ms-refusals-131/
@@ -724,6 +732,16 @@ impl Session {
     /// `ColumnCaption`: the `Caption` property, else the caption of the source field.
     fn column_caption(&self, def: &ir::Query, col: usize) -> Result<String, Signal> {
         let c = &def.columns[col];
+        // GetFilters names a filter on such a FlowField by another field's caption (`Name`, `Line No.` and `timestamp` for the
+        // Lookup, Count and Exist FlowFields of queries/flowfields-filters/QueryOuterFlowBelowJoin.al:648-685); which field is
+        // not known, so the caption is refused, with or without a Caption property.
+        if c.flow_below_join {
+            return unsupported(format!(
+                "the caption of query column {} over a FlowField of a dataitem below the top dataitem's child (BC prints \
+                 another field's caption; not pinned)",
+                c.name
+            ));
+        }
         if let Some(caption) = &c.caption {
             return Ok(caption.clone());
         }
@@ -823,6 +841,21 @@ impl Session {
         Ok(placed.into_iter().map(|i| filters[i].clone()).collect())
     }
 
+    /// `Open` on a query that was read from. After a filter changed mid-read it runs again with the new filters
+    /// (queries/read-lifecycle/PnAQueryOpenRead.al:125-170, SetRangeAndOpenAfterRead: `next-entry` 4). After the last row
+    /// (with or without a SetRange or SetFilter since) it runs again too, with the new filters
+    /// (queries/read-lifecycle/QueryReadToEnd.al:88,130,172: SetRange_AfterLastRow_ThenOpenAndRead,
+    /// SetFilter_AfterLastRow_ThenOpenAndRead, Open_Twice_AfterLastRow). The one pinned Open while rows are left is
+    /// `query_reopen`'s; any other is not pinned.
+    fn query_open_started(qs: &Qs) -> Result<(), Signal> {
+        let filters_changed = qs.borrow().run.as_ref().is_some_and(|r| r.filters_changed);
+        if !Self::query_read_to_the_end(qs) && !filters_changed {
+            return unsupported("Open on a query that is already open and was read from (not pinned)");
+        }
+        qs.borrow_mut().run = None;
+        Ok(())
+    }
+
     /// Whether the query was read to its last row (its last Read returned false).
     fn query_read_to_the_end(qs: &Qs) -> bool {
         qs.borrow()
@@ -868,7 +901,7 @@ impl Session {
         // (corpus queries/TestQueryReadAfterWrite.al:102-179).
         let now = self.query_stamps(def);
         if qs.borrow().run.as_ref().expect("open").stamps != now {
-            if def.columns.iter().any(|c| c.method.is_some()) {
+            if def.columns.iter().any(|c| c.method.is_some()) && !self.aggregated_reread_pinned(def, qs) {
                 return unsupported("a write to a table an open aggregated query reads (the re-read is not pinned)");
             }
             let filters = qs.borrow().filters.clone();
@@ -906,8 +939,56 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
+    /// The aggregated queries whose Read after a write is pinned: Read reads the groups again with the table as it is now and
+    /// goes on after the last group it returned, in the query's order, as a plain query does. Pinned facts, each required:
+    /// - one dataitem with no DataItemTableFilter (queries/read-lifecycle/QueryAggregatedWriteInLoop.al:41-84,
+    ///   queries/read-lifecycle/QueryLiveWrite.al:22-36);
+    /// - every column a column of a normal field of type Code or Integer (a group column), or a Count column, or a Sum over a
+    ///   normal Integer or Decimal field; no filter element, ColumnFilter or ReverseSign (the same lines);
+    /// - no TopNumberOfRows and no SecurityFiltering call;
+    /// - the Read before returned a row (every write of the probes sits after a Read that returned one; a Read at the end after
+    ///   DeleteAll did not see a write, QueryLiveWrite.al:144-159);
+    /// - the group columns, the run-time filters and the OrderBy form one of the measured cells (`aggregated_reread_cell`).
+    ///
+    /// The re-read reads the table as it is, so the kind of write is not a fact of the gate; the probes wrote with Insert, Modify,
+    /// Delete, ModifyAll and DeleteAll (QueryAggregatedWriteInLoop.al:166-236 and :373-416, QueryLiveWrite.al:90-163). Expected
+    /// rows: QueryAggregatedWriteInLoop.al:254-433, QueryLiveWrite.al:108-159.
+    fn aggregated_reread_pinned(&self, def: &ir::Query, qs: &Qs) -> bool {
+        use ir::QueryMethod as M;
+        let [item] = def.items.as_slice() else {
+            return false;
+        };
+        let Some(table) = self.engine.tables[item.table].as_ref() else {
+            return false;
+        };
+        let normal = |pos: usize| table.fields.get(pos).is_some_and(|f| f.stored);
+        let group = |c: &ir::QueryColumn| {
+            c.method.is_none() && c.field.is_some_and(normal) && matches!(c.ty, RtType::Code(_) | RtType::Integer)
+        };
+        let column = |c: &ir::QueryColumn| {
+            !c.filter_element
+                && !c.reverse_sign
+                && c.static_filter.is_none()
+                && (group(c)
+                    || (c.method == Some(M::Count) && c.field.is_none())
+                    || (c.method == Some(M::Sum)
+                        && c.field.is_some_and(normal)
+                        && matches!(c.ty, RtType::Integer | RtType::Decimal)))
+        };
+        let groups: Vec<usize> = (0..def.columns.len()).filter(|&i| group(&def.columns[i])).collect();
+        let s = qs.borrow();
+        item.parent.is_none()
+            && item.table_filter.is_empty()
+            && def.columns.iter().all(column)
+            && def.top == 0
+            && s.top.is_none()
+            && s.security_filtering.is_none()
+            && s.run.as_ref().is_some_and(|r| r.current.is_some())
+            && aggregated_reread_cell(def, table, &groups, &s.filters)
+    }
+
     /// The version of every table the query reads.
-    fn query_stamps(&self, def: &ir::Query) -> Stamps {
+    pub(crate) fn query_stamps(&self, def: &ir::Query) -> Stamps {
         let mut out = Stamps::new();
         for item in &def.items {
             let t = self.engine.tables[item.table].as_ref().expect("table");
@@ -1083,6 +1164,13 @@ impl Session {
                 let outer_child = item.left_outer && item.parent.is_some_and(|p| def.items[p].parent.is_none());
                 let below_outer = std::iter::successors(Some(c.item), |&i| def.items[i].parent)
                     .any(|i| def.items[i].left_outer && def.items[i].parent.is_some());
+                // One level deeper, in the shape the compile pinned (`ir::QueryColumn::flow_below_join`), a filter() element and a
+                // filter on the column both filter the joined rows by the value calculated per row, the default for a row without
+                // a match (queries/flowfields-filters/QueryOuterFlowBelowJoin.al:695-812, al-runner issue 7401).
+                if c.flow_below_join {
+                    plan.post.push((ci, expr));
+                    continue;
+                }
                 if c.filter_element && ((below_outer && !outer_child) || has_right) {
                     return unsupported(
                         "a filter() element over a FlowField of a joined data item, or in a query with a right or full outer join (not pinned)",
@@ -1606,6 +1694,54 @@ fn sum_fits_column(ty: &RtType, sum: Decimal) -> bool {
         RtType::Integer => i32::try_from(whole).is_ok(),
         RtType::BigInteger | RtType::Duration => i64::try_from(whole).is_ok(),
         _ => true,
+    }
+}
+
+/// The group columns (`groups`, positions in `def.columns`), run-time filters and OrderBy of an aggregated query whose re-read
+/// after a write is measured:
+/// - one group column, no run-time filter, no OrderBy (queries/read-lifecycle/QueryAggregatedWriteInLoop.al:75-84, :357-433) or
+///   OrderBy ascending on it (queries/read-lifecycle/QueryLiveWrite.al:22-36);
+/// - every group column but the last two filtered by a SetRange to one value, no OrderBy (QueryAggregatedWriteInLoop.al:41-54,
+///   :139-146);
+/// - every group column but the last filtered by a SetRange to one value, OrderBy descending on the last
+///   (QueryAggregatedWriteInLoop.al:57-72, :318-328).
+///
+/// In the two filtered cells the filtered columns and the first free one hold every field of the table's primary key, so no
+/// two groups tie on what the re-read resumes after (the probe's key is Header No., Line No., :34).
+fn aggregated_reread_cell(
+    def: &ir::Query,
+    table: &al_data::TableDef,
+    groups: &[usize],
+    filters: &[(usize, al_builtins::filter::FilterExpr)],
+) -> bool {
+    use al_builtins::filter::FilterExpr;
+    let one_value = |f: &FilterExpr| {
+        matches!(f, FilterExpr::Range(Some(a), Some(b))
+            if al_builtins::ops::compare_key_value(a, b).is_ok_and(|o| o == Ordering::Equal))
+    };
+    if !filters.iter().all(|(c, f)| groups.contains(c) && one_value(f)) {
+        return false;
+    }
+    let free: Vec<usize> = groups
+        .iter()
+        .copied()
+        .filter(|g| filters.iter().all(|(c, _)| c != g))
+        .collect();
+    let key_held = |first_free: usize| {
+        table.keys.first().is_some_and(|pk| {
+            pk.iter().all(|&pos| {
+                let held = |ci: usize| def.columns[ci].field == Some(pos);
+                held(first_free) || filters.iter().any(|(c, _)| held(*c))
+            })
+        })
+    };
+    let n = groups.len();
+    match (free.as_slice(), def.order_by.as_slice()) {
+        ([f], []) if n == 1 => groups[0] == *f,
+        ([f], [(o, true)]) if n == 1 => groups[0] == *f && *o == *f,
+        ([a, b], []) if n > 2 => groups[n - 2..] == [*a, *b] && key_held(*a),
+        ([a], [(o, false)]) if n > 1 => groups[n - 1] == *a && *o == *a && key_held(*a),
+        _ => false,
     }
 }
 

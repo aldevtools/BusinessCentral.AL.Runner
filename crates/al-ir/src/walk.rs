@@ -190,6 +190,7 @@ pub fn walk_object<V: RefVisitor>(o: &mut Object, v: &mut V) {
         // The id of the extended object, not a position.
         extends_id: _,
         layouts: _,
+        modified_fields: _,
     } = o;
     for s in globals {
         walk_rt(&mut s.ty, v);
@@ -306,6 +307,7 @@ fn walk_routine<V: RefVisitor>(r: &mut Routine, v: &mut V) {
         container: _,
         expr_tys: _,
         reads_var_max_len: _,
+        local: _,
     } = r;
     field_opt(v, field, TableOf::Trigger);
     for a in attributes {
@@ -735,7 +737,7 @@ fn walk_field<V: RefVisitor>(f: &mut Field, v: &mut V) {
         if let Some(ws) = wheres {
             for w in ws {
                 match w {
-                    RelationWhere::Value { related: f, text: _ } => fld(v, f, related),
+                    RelationWhere::Value { related: f, .. } => fld(v, f, related),
                     RelationWhere::Field { related: f, own } => {
                         fld(v, f, related);
                         fld(v, own, TableOf::Own);
@@ -841,6 +843,7 @@ pub fn walk_page_contribution<V: RefVisitor>(c: &mut crate::sym::PageContributio
     for m in mods {
         let crate::sym::ControlMod {
             target: _,
+            name: _,
             props,
             triggers: _,
         } = m;
@@ -889,6 +892,7 @@ fn walk_control<V: RefVisitor>(
         part_link,
         owner,
         ext_triggers,
+        caption_modifies,
         ext_replaced: _,
         run_object,
         action_ref: _,
@@ -953,6 +957,9 @@ fn walk_control<V: RefVisitor>(
         v.routine(r, *ext);
         obj(v, ext);
     }
+    for (ext, _) in caption_modifies {
+        obj(v, ext);
+    }
     if let Some(r) = run_object {
         let RunObject {
             kind: _,
@@ -991,6 +998,7 @@ fn walk_query<V: RefVisitor>(q: &mut Query, v: &mut V) {
             link,
             link_items,
             table_filter,
+            properties: _,
         } = i;
         let own = TableOf::object(Some(*table));
         for (k, (mine, theirs)) in link.iter_mut().enumerate() {
@@ -1017,6 +1025,8 @@ fn walk_query<V: RefVisitor>(q: &mut Query, v: &mut V) {
             reverse_sign: _,
             ty,
             static_filter,
+            flow_below_join: _,
+            properties: _,
         } = c;
         field_opt(v, field, TableOf::object(tables.get(*item).copied().flatten()));
         walk_rt(ty, v);
@@ -1086,6 +1096,9 @@ fn walk_xmlport<V: RefVisitor>(x: &mut XmlPort, v: &mut V) {
             big_text: _,
             source_view: _,
             calc_fields,
+            after_assign_layout: _,
+            plain_import_layout: _,
+            text_attr_export: _,
             triggers: _,
         } = n;
         let of_node = |i: &Option<usize>| TableOf::object(i.and_then(|i| tables.get(i).copied().flatten()));
@@ -1175,9 +1188,12 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         assumes: _,
         request_flag_slot: _,
         request_rec_routines: _,
+        request_page_ok_only: _,
+        bare_processing_only: _,
         output: _,
         unsupported: _,
         caption: _,
+        caption_attributes: _,
         format_region: _,
         about_title: _,
         about_text: _,
@@ -1188,6 +1204,7 @@ fn walk_report<V: RefVisitor>(r: &mut Report, v: &mut V) {
         rendering_layouts: _,
         default_rendering_layout: _,
         default_layout_kind: _,
+        layout_properties: _,
     } = r;
     let tables: Vec<Option<usize>> = items.iter().map(|i| i.table).collect();
     for i in items {

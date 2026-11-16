@@ -43,12 +43,45 @@ impl Session {
         let object = st.borrow().object as usize;
         let observes_curr = self.declares(st, "onaftergetcurrrecord")
             || self.engine().events.is_subscribed(object, "onaftergetcurrrecordevent");
-        if self.host_new_running {
+        if let Some(from_row) = self.host_new_running {
             // Whether and how often the part's OnAfterGetCurrRecord runs then is not pinned (the PYB pages declare none).
             if observes_curr {
-                return unsupported(
-                    "OnAfterGetCurrRecord of an empty part while its host runs New() (whether and how often BC runs it is not pinned)",
-                );
+                // pages/parts/TestCardNewEmptyPartRead.al:12-28: an empty linked ListPart skips OnAfterGetCurrRecord when
+                // its editable Card host, opened by the test's OpenEdit onto a stored row, moves to New() (host and part:
+                // TestCardNewEmptyPartRead1Fixture51750.al:7-36, one field link).
+                let host = st
+                    .borrow()
+                    .host
+                    .clone()
+                    .and_then(|(host, control)| host.upgrade().map(|host| (host, control)));
+                let measured = from_row
+                    && self.engine.object_facts[object].page_type_lower() == "listpart"
+                    && self.unextended_unsubscribed(st)
+                    && self.declares(st, "onaftergetcurrrecord")
+                    && !self.declares(st, "onnewrecord")
+                    && self.page_editable(st)
+                    && ["AutoSplitKey", "DelayedInsert"].iter().all(|name| {
+                        effective_prop(&self.engine(), object, name)
+                            .is_ok_and(|v| v.is_none_or(|v| v.trim().eq_ignore_ascii_case("false")))
+                    })
+                    && host.is_some_and(|(host, control)| {
+                        self.engine.object_facts[host.borrow().object as usize].page_type_lower() == "card"
+                            && host.borrow().test_open_edit()
+                            && self.page_editable(&host)
+                            && self.unextended_unsubscribed(&host)
+                            && page_of(&self.engine, &host).controls[control]
+                                .part_link
+                                .as_ref()
+                                .is_some_and(|link| {
+                                    link.provider.is_none()
+                                        && matches!(link.entries.as_slice(), [ir::LinkEntry::Field(_, _)])
+                                })
+                    });
+                if !measured {
+                    return unsupported(
+                        "OnAfterGetCurrRecord of an empty part while its host runs New() (whether and how often BC runs it is not pinned)",
+                    );
+                }
             }
             self.set_xrec(st);
             return Ok(());
@@ -162,7 +195,7 @@ impl Session {
             if Self::same_values(std::slice::from_ref(was), std::slice::from_ref(now)) {
                 continue;
             }
-            match self.validate_relation(&rec, &table, pos, now.clone()) {
+            match self.validate_relation(&rec, &table, pos, now.clone(), None) {
                 Err(Signal::Error(e)) => return Ok(Some(e)),
                 other => other?,
             }
@@ -290,7 +323,7 @@ impl Session {
                 // without its where() or not at all is not pinned.
                 if top_level
                     && matches!(
-                        self.validate_relation(&rec, &table, pos, v.clone()),
+                        self.validate_relation(&rec, &table, pos, v.clone(), None),
                         Err(Signal::Error(_))
                     )
                 {

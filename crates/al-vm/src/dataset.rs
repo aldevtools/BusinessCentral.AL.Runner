@@ -131,12 +131,20 @@ pub(crate) fn leading_digit(d: char, name: &str) -> Result<String, Signal> {
 /// Text as an XML element writes it: `&`, `<` and `>` become entities
 /// (text/TestReportSaveAsDatasetContracts.al: `one <&>` is `one &lt;&amp;&gt;`). In an
 /// attribute value a quote does too. A control character is refused: how the writer treats it is
-/// not pinned.
+/// not pinned. Rendered content is refused (`al_builtins::rendered_text`).
 pub(crate) fn escape(text: &str) -> Result<String, Signal> {
     escape_as(text, false)
 }
 
 fn escape_as(text: &str, attribute: bool) -> Result<String, Signal> {
+    // Rendered content never goes into a dataset or a query file: its characters would be written as known bytes into a
+    // buffer without a mark (ADR-040 amendment 2026-11-12, A3b: a use that is not in table A3 refuses).
+    if al_builtins::rendered_text::holds(text) {
+        return Err(al_builtins::rendered_text::refusal(
+            text,
+            "a text written to a report dataset or a query file",
+        ));
+    }
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
@@ -383,6 +391,35 @@ pub(crate) fn date_text(day: i32) -> String {
     format!("{m}/{d}/{y}")
 }
 
+/// A defined DateTime (`t` as `Value::DateTime` holds it) as the dataset writes it: the [`date_text`] and the [`time_text`].
+pub(crate) fn datetime_text(t: i64) -> Result<String, Signal> {
+    let ms = t - 1;
+    let day = ms.div_euclid(86_400_000) as i32 + 1;
+    Ok(format!("{} {}", date_text(day), time_text(ms.rem_euclid(86_400_000))?))
+}
+
+/// The kind of value a column held, for the gate of the real Html (`crate::report_render::shape`): only the kinds it tells
+/// apart.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ValueKind {
+    Decimal,
+    Date,
+    Other,
+}
+
+impl ValueKind {
+    pub(crate) fn of(v: &al_builtins::value::Value) -> ValueKind {
+        match v {
+            al_builtins::value::Value::Decimal(_) => ValueKind::Decimal,
+            al_builtins::value::Value::Date(..) => ValueKind::Date,
+            _ => ValueKind::Other,
+        }
+    }
+}
+
+/// The [`ValueKind`] of each column of the top-level data item, by column name, when every row it wrote held that kind.
+pub(crate) type ColumnKinds = Vec<(String, Option<ValueKind>)>;
+
 /// One column of a row: its name, an attribute written after the name, and its text.
 pub(crate) struct Column {
     pub name: String,
@@ -393,6 +430,7 @@ pub(crate) struct Column {
     pub schema_type: Option<&'static str>,
     /// What the .NET DataSet writes for the value.
     pub data: DataFileText,
+    pub kind: ValueKind,
 }
 
 /// The value of a column in a SaveAsXml data file (al-language-onprem/reports/AqSaveAsXml.al:247).
@@ -477,6 +515,7 @@ struct FlatCol {
     /// A Decimal column's `decimalformatter`.
     formatter: Option<String>,
     data: DataFileText,
+    kind: ValueKind,
 }
 
 /// The dataset as it was before a row began.
@@ -538,6 +577,7 @@ impl Dataset {
                         .filter(|(k, _)| *k == "decimalformatter")
                         .map(|(_, v)| v.clone()),
                     data: c.data.clone(),
+                    kind: c.kind,
                 })
                 .collect(),
         });
@@ -825,6 +865,28 @@ impl Dataset {
         Ok(())
     }
 
+    /// [`Dataset::finish`], the number of data item records written, and the [`ColumnKinds`] of the rows of the top-level data
+    /// items.
+    pub(crate) fn finish_counted(self, header: &Header) -> Result<(Vec<u8>, usize, ColumnKinds), Signal> {
+        let rows = self.rows;
+        let kinds = self.top_column_kinds();
+        Ok((self.finish(header)?, rows, kinds))
+    }
+
+    fn top_column_kinds(&self) -> ColumnKinds {
+        let mut kinds: ColumnKinds = Vec::new();
+        for row in self.flat.iter().filter(|r| r.depth == 0 && r.kind == FlatKind::Row) {
+            for c in &row.cols {
+                match kinds.iter_mut().find(|(n, _)| *n == c.name) {
+                    Some((_, k)) if *k != Some(c.kind) => *k = None,
+                    Some(_) => {}
+                    None => kinds.push((c.name.clone(), Some(c.kind))),
+                }
+            }
+        }
+        kinds
+    }
+
     /// The bytes of the whole dataset: the byte order mark, the header, the data items.
     pub(crate) fn finish(self, header: &Header) -> Result<Vec<u8>, Signal> {
         debug_assert!(self.open.is_empty());
@@ -882,6 +944,7 @@ mod tests {
             text: text.into(),
             schema_type: Some(ty),
             data: DataFileText::Same,
+            kind: ValueKind::Other,
         }
     }
 

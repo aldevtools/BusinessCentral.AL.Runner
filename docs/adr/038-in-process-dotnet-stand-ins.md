@@ -161,6 +161,13 @@ Everything else on both types (`GetUtcOffset` except on the UTC zone, see the am
 `TimeZoneInfo.Local`, ...) goes to the sidecar. They are not in the traces; `TimeZoneImpl` calls some of them, and they run
 once per call of that codeunit, not in the hot loop. A later amendment can add one when a measurement asks for it.
 
+Text correction 2026-11-14 (al-runner issue 8012): on a host that does not run .NET on Windows, the `TimeZoneInfo` members
+other than `FindSystemTimeZoneById`, `Utc`, `CreateCustomTimeZone`, `Id`, `BaseUtcOffset` and `GetUtcOffset` do not go to
+the sidecar: the policy refuses them (`members-off-windows` in `crates/al-vm/src/dotnet/policy.txt`), because there .NET
+answers from the host's IANA and ICU data, not the Windows zone data BC reads. `GetUtcOffset` reaches the stand-in or the
+sidecar only for the arguments `crates/al-vm/src/dotnet/zone_rules.rs` allows. On a Windows .NET host this section holds
+as written.
+
 ### Semantics served
 
 - The session's local time zone is UTC (`TZ=UTC`, ADR-014 section 9). So `DateTimeOffset(DateTime)` has offset zero and
@@ -210,7 +217,9 @@ lists the members as before.
 | `System.TimeZoneInfo` | `GetUtcOffset(DateTime)` | yes, only on a zone found by the id `UTC` (any case): the answer is a zero `TimeSpan` for every `DateTime` |
 
 Every other zone, and every other overload (`GetUtcOffset(DateTimeOffset)`), goes to the sidecar: the zone moves there on
-its first call, as in section 2. The offset of a zone with daylight saving time or a changed history depends on the tz data
+its first call, as in section 2. Text correction 2026-11-14 (al-runner issue 8012): off Windows that holds only for one `DateTime` of the
+session clock's year; any other argument, on any zone but the `UTC` zone made here, is refused before the host
+(`crates/al-vm/src/dotnet/zone_rules.rs`). The offset of a zone with daylight saving time or a changed history depends on the tz data
 of the host, which the sidecar has and the stand-in does not claim to match.
 
 ### Conformance

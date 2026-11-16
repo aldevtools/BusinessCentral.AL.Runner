@@ -107,24 +107,31 @@ impl Session {
             }
             _ => return None,
         }
-        // The text names the page's Caption when it has one (Y90PermOpenPage.al:36-37, `Page LT Y90 Shown Caption has to close.`),
-        // else its name. A CaptionML without Caption is not pinned.
+        Some(self.page_close_for_permission(object))
+    }
+
+    /// The error that closes page `object` when a permission check of its open fails: `Page <name> has to close.`, code
+    /// `FormAbort:Permission` (Y84PermExecute.al Y84_Exec_PageOpen). The text names the page's Caption when it has one
+    /// (Y90PermOpenPage.al:36-37, `Page LT Y90 Shown Caption has to close.`), else its name. A CaptionML without Caption is not
+    /// pinned.
+    pub(crate) fn page_close_for_permission(&self, object: usize) -> Signal {
+        let heads = self.engine.program.objects.heads();
         let props = &self.engine.program.objects[object].properties;
         let prop = |name: &str| props.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v);
         let shown = match (prop("Caption"), prop("CaptionML")) {
             (Some(c), _) => crate::pages::unquote(c),
             (None, Some(_)) => {
-                return Some(Signal::Unsupported(
-                    "a codeunit call from a page trigger ends the open of a page with CaptionML only (the text of `Page <caption> has to close.` is pinned for Caption, Y90PermOpenPage.al:36)".into(),
-                ));
+                return Signal::Unsupported(
+                    "a permission check ends the open of a page with CaptionML only (the text of `Page <caption> has to close.` is pinned for Caption, Y90PermOpenPage.al:36)".into(),
+                );
             }
             (None, None) => heads[object].name.clone(),
         };
-        Some(Signal::Error(Box::new(al_builtins::native::AlError {
+        Signal::Error(Box::new(al_builtins::native::AlError {
             message: format!("Page {shown} has to close."),
             code: "FormAbort:Permission".into(),
             ..Default::default()
-        })))
+        }))
     }
 }
 

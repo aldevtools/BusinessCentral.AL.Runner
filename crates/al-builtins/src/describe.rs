@@ -17,6 +17,9 @@ pub trait Describe {
 const TEXT_SHOWN: usize = 30;
 
 fn quoted(s: &str) -> String {
+    // Rendered content prints as `<rendered content of report X>`, never as the mark (ADR-040 amendment 2026-11-12, A6).
+    let shown = crate::rendered_text::describe(s);
+    let s = shown.as_str();
     if s.chars().count() > TEXT_SHOWN {
         format!("'{}...'", s.chars().take(TEXT_SHOWN).collect::<String>())
     } else {
@@ -143,8 +146,20 @@ impl Describe for LibraryValue {
     fn describe(&self) -> String {
         match self {
             LibraryValue::ClearedStream => "a cleared stream".into(),
+            LibraryValue::ClosedRecordRef => "a closed RecordRef".into(),
+            LibraryValue::EmptiedRef(e) => match e {
+                crate::value::EmptiedRef::ClearedAssignedKeyRef | crate::value::EmptiedRef::OtherKeyRef => {
+                    "a cleared KeyRef".into()
+                }
+                crate::value::EmptiedRef::ZeroOpenedRecordRef => "a RecordRef after Open(0)".into(),
+                crate::value::EmptiedRef::ClearedOpenRecordRef => "a cleared RecordRef".into(),
+                crate::value::EmptiedRef::OtherRecordRef => {
+                    "a RecordRef emptied by Clear or Open(0) and not opened again".into()
+                }
+            },
             LibraryValue::Empty => "an untouched handle".into(),
             LibraryValue::HandedContext => "a context the test framework handed over".into(),
+            LibraryValue::XmlNodeOfUnassignedElement => "the XmlNode of an unassigned XmlElement".into(),
             LibraryValue::HandlerContext(_) => "a TestHandlerContext the test runner handed over".into(),
             LibraryValue::Text(_) | LibraryValue::TextCap(..) => "a text handle".into(),
             LibraryValue::RecordRef(_) => "RecordRef".into(),
@@ -305,6 +320,7 @@ mod tests {
             failed_insert: None,
             row_origin: None,
             own_read: Default::default(),
+            probed_source: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,
             run_page_link: None,
@@ -424,5 +440,20 @@ mod tests {
         assert_eq!(RtType::Record(4, true).describe(), "temporary Record");
         assert_eq!(RtType::Library("JsonArray".into()).describe(), "JsonArray");
         assert_eq!(RtType::Option(vec!["A".into()].into()).describe(), "Option");
+    }
+
+    /// A RecordRef an `Open` or a `Get` left not open after `Clear` or `Open(0)` (`EmptiedRef::OtherRecordRef`) is not described
+    /// as one `Clear` emptied while it was open.
+    #[test]
+    fn emptied_recordrefs_are_told_apart() {
+        use crate::value::EmptiedRef;
+        assert_eq!(
+            LibraryValue::EmptiedRef(EmptiedRef::ClearedOpenRecordRef).describe(),
+            "a cleared RecordRef"
+        );
+        assert_eq!(
+            LibraryValue::EmptiedRef(EmptiedRef::OtherRecordRef).describe(),
+            "a RecordRef emptied by Clear or Open(0) and not opened again"
+        );
     }
 }

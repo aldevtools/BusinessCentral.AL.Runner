@@ -13,7 +13,7 @@ use al_host::dotnet::DotNetHost;
 use al_host::testdata::TestData;
 use al_testrun::deps::{self, Provision};
 use al_testrun::discover;
-use al_testrun::dotnet::{SidecarConfig, SidecarHost};
+use al_testrun::dotnet::SidecarHost;
 use al_testrun::refusals;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun, TestResult};
 use al_testrun::{CaseId, Outcome, target};
@@ -228,6 +228,82 @@ fn ms(d: Duration) -> String {
 /// [`secs`] right-aligned, so the numbers of the `Time:` line stack up from run to run.
 fn secs_w(d: Duration) -> String {
     format!("{:>6.2} s", d.as_secs_f64())
+}
+
+/// The `--timings` lines of the compile: its phases, the install baseline, the memory budget and the compile summary.
+fn print_compile_phases(p: &al_testrun::runtime::Phases) {
+    let c = &p.compile_parts;
+    eprintln!(
+        "compile: load {}, members {}, check workspace {}, baseline roots {}, demand {}, check rest {}, lower {}, engine {}",
+        secs(c.load),
+        secs(c.members),
+        secs(c.check.workspace),
+        secs(c.check.baseline),
+        secs(c.check.demand),
+        secs(c.check.rest),
+        secs(c.lower),
+        secs(p.engine)
+    );
+    if let Some(line) = p.baseline_line() {
+        eprintln!("{line}");
+    }
+    if let Some(line) = p.memory.line() {
+        eprintln!("{line}");
+    }
+    if let Some(line) = p.compile_line() {
+        eprintln!("{line}");
+    }
+}
+
+/// The `--timings` lines of the compile cache.
+fn print_compile_cache(p: &al_testrun::runtime::Phases) {
+    if let Some(c) = &p.cache {
+        eprintln!(
+            "compile cache: {}; {} {}",
+            if c.hit {
+                format!("hit, opened in {}", secs(c.open))
+            } else if c.built {
+                format!("miss, built in {}", secs(c.build))
+            } else {
+                "not used".to_string()
+            },
+            c.file.display(),
+            if c.notes.is_empty() {
+                String::new()
+            } else {
+                format!("({})", c.notes.join("; "))
+            }
+        );
+        for (i, l) in c.layers.iter().enumerate() {
+            eprintln!(
+                "compile cache: layer {} of {} ({}): {}, {:.1} MB",
+                i + 1,
+                c.layers.len(),
+                l.apps.join(", "),
+                if l.hit {
+                    "hit".to_string()
+                } else {
+                    format!("built in {}", secs(l.build))
+                },
+                l.bytes as f64 / 1e6
+            );
+        }
+        eprintln!(
+            "compile cache: {:.1} MB, {} dependency objects, {} compiled again because the workspace extends or implements what they embed",
+            c.bytes as f64 / 1e6,
+            c.objects,
+            c.relowered
+        );
+        eprintln!(
+            "compile cache: reading the blocks {}",
+            secs(p.compile_parts.cache_blocks)
+        );
+        let (n, took) = al_sema::provided::decoded_on_touch();
+        eprintln!(
+            "compile cache: {n} dependency objects decoded on first touch, {}",
+            secs(took)
+        );
+    }
 }
 
 fn secs(d: Duration) -> String {
@@ -506,6 +582,11 @@ fn test_timeout_secs(a: &TestArgs) -> Result<u64, String> {
     Ok(DEFAULT_TEST_TIMEOUT_SECS)
 }
 
+/// The time limit of a test from a number of seconds: `0` is no limit.
+fn time_limit(secs: u64) -> Option<std::time::Duration> {
+    (secs > 0).then(|| std::time::Duration::from_secs(secs))
+}
+
 pub fn test(a: &TestArgs) -> Result<u8, String> {
     if !a.impact_of.is_empty() {
         return crate::impact::run(a);
@@ -700,6 +781,27 @@ pub struct Entry {
     pub excludes: Vec<String>,
     /// Resource name (relative to the resource folder) -> the text the entry's run reads in place of the file's.
     pub resources: std::collections::BTreeMap<String, String>,
+    /// As `--test-timeout-secs`, for this entry (al-runner issue 8125). `None`: the request's limit.
+    pub test_timeout_secs: Option<u64>,
+}
+
+impl Entry {
+    /// The entry's resource texts, in each app under test that has a resource of that name (the request checked that
+    /// one has): (app index in `apps`, the files of that app the entry replaces, with the entry's text). Only those:
+    /// the app's other files are read from the program, which every entry shares (al-runner issue 8026).
+    fn resources_in(&self, apps: &[&[(String, Vec<u8>)]]) -> Vec<(usize, al_testrun::runtime::ResourceFiles)> {
+        apps.iter()
+            .enumerate()
+            .map(|(app, files)| {
+                let replaced: al_testrun::runtime::ResourceFiles = files
+                    .iter()
+                    .filter_map(|(n, _)| Some((n.clone(), self.resources.get(n)?.as_bytes().to_vec())))
+                    .collect();
+                (app, replaced)
+            })
+            .filter(|(_, replaced)| !replaced.is_empty())
+            .collect()
+    }
 }
 
 /// The result of a run for a caller that is not the console.
@@ -863,6 +965,19 @@ fn run_only_picks(
             (a.run_selected_only || (a.single_test_alone && picked.len() == 1)).then(|| Arc::new(picked))
         })
         .flatten()
+}
+
+/// ADR-046 decision 2: a companies list names the session company `session` first. The message names the serve field when the
+/// request set it, else the option.
+fn check_companies(a: &TestArgs, companies: &al_host::Companies, session: &str) -> Result<(), String> {
+    companies.check_session_first(session).map_err(|e| {
+        let option = if a.companies_from_request {
+            "`companies`"
+        } else {
+            "--companies"
+        };
+        format!("{option}: {e}")
+    })
 }
 
 fn test_inner(
@@ -1450,16 +1565,13 @@ fn test_inner(
         .chain(a.defines.iter().cloned())
         .collect();
 
-    let host = Arc::new(SidecarHost::new(SidecarConfig {
-        sidecar: a.dotnet_sidecar.clone(),
-        source_root: source_root(),
-        // Under the same cache root as the apps when the user chose one (issue 5747).
-        cache_dir: al_testrun::dotnet::sidecar_cache_dir_from_env(a.cache_dir.as_deref()),
-        allow_roll_forward: a.dotnet_allow_roll_forward,
-        timeout: Duration::from_secs(a.dotnet_timeout_secs.unwrap_or(60)),
-        // ADR-014 section 3, step 2 and issue 6924: the user's folders, an extracted artifact, then fetched assemblies.
-        ..crate::service_tier::dotnet_dirs(a, dependencies.build.as_ref(), u32::from(chosen.target.bc.major))
-    }));
+    let (sidecar_cfg, renderer) = crate::service_tier::sidecar_and_renderer(
+        a,
+        dependencies.build.as_ref(),
+        u32::from(chosen.target.bc.major),
+        source_root(),
+    );
+    let host = Arc::new(SidecarHost::new(sidecar_cfg));
     if a.require_dotnet {
         if let Err(why) = host.availability() {
             return Err(format!("--require-dotnet: DotNet {why}"));
@@ -1497,7 +1609,8 @@ fn test_inner(
             sidecar_host.prewarm(al_testrun::dotnet::STANDBY_SIDECARS);
         }
     }
-    let dotnet = al_testrun::dotnet::sidecar_config(host);
+    let mut dotnet = al_testrun::dotnet::sidecar_config(host);
+    crate::service_tier::set_renderer(&mut dotnet, renderer, a);
     // `--affected` (ADR-050): the stored result of the last run, and the callback that narrows this one.
     let affected = if a.affected && collect.is_none() {
         Some(crate::affected::Affected::prepare(
@@ -1567,7 +1680,7 @@ fn test_inner(
             .clone()
             .unwrap_or_else(|| al_host::Identity::company_name(&al_host::AlRunnerIdentity)),
     };
-    companies.check_session_first(&session_company)?;
+    check_companies(a, &companies, &session_company)?;
     al_testrun::host::set_companies(companies);
     let mut opts = RunOptions {
         run_seed,
@@ -1577,10 +1690,7 @@ fn test_inner(
             .chain(dependencies.lazy.iter().cloned())
             .collect(),
         trace: a.explain.is_some() || std::env::var_os("AL_STACK_OF").is_some(),
-        test_time_limit: match test_timeout {
-            0 => None,
-            n => Some(std::time::Duration::from_secs(n)),
-        },
+        test_time_limit: time_limit(test_timeout),
         // ADR-066 (owner decision 3): Microsoft's runner by default; `--test-runner builtin` keeps al-runner's own.
         test_runner: a.test_runner.unwrap_or(al_testrun::runtime::TestRunner::Microsoft),
         isolation: a.isolation,
@@ -1678,27 +1788,12 @@ fn test_inner(
                     .collect();
                 let single_method = picked.len() == 1 && sel.active() && !a.execute;
                 let run_only = ((a.run_selected_only && sel.active()) || single_method).then(|| Arc::new(picked));
-                // The entry's resource texts, in each app under test that has a resource of that name (the request
-                // checked that one has).
-                let resources: Vec<(usize, al_testrun::runtime::ResourceFiles)> = inputs
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, i)| i.manifest.resources.iter().any(|(n, _)| e.resources.contains_key(n)))
-                    .map(|(app, i)| {
-                        let r = i
-                            .manifest
-                            .resources
-                            .iter()
-                            .map(|(n, c)| {
-                                (
-                                    n.clone(),
-                                    e.resources.get(n).map_or_else(|| c.clone(), |t| t.as_bytes().to_vec()),
-                                )
-                            })
-                            .collect();
-                        (app, r)
-                    })
-                    .collect();
+                let resources = e.resources_in(
+                    &inputs
+                        .iter()
+                        .map(|i| i.manifest.resources.as_slice())
+                        .collect::<Vec<_>>(),
+                );
                 let pick = sel.clone();
                 let forward = w.on_test.clone();
                 let (paths, cwd, next_loop) = (paths.clone(), cwd.clone(), next_loop.clone());
@@ -1726,6 +1821,7 @@ fn test_inner(
                         ..opts.hooks.clone()
                     },
                     resources,
+                    test_time_limit: e.test_timeout_secs.map(time_limit),
                 }
             })
             .collect();
@@ -1865,6 +1961,12 @@ fn test_inner(
             into.bc_build = bc_build.clone();
             return Ok(code);
         }
+        // The phases before the compile stopped ran (al-runner issue 8103).
+        if a.timings {
+            print_compile_phases(p);
+            print_compile_cache(p);
+            eprintln!("time: total {}", secs(total_time));
+        }
         say!("{why}");
         let result = format!("Result: COMPILE ERRORS (exit {code})");
         say!("{}", style::bold(&style::yellow(&result)));
@@ -1990,77 +2092,11 @@ fn test_inner(
     }
 
     if a.timings {
-        let c = &p.compile_parts;
-        eprintln!(
-            "compile: load {}, members {}, check workspace {}, baseline roots {}, demand {}, check rest {}, lower {}, engine {}",
-            secs(c.load),
-            secs(c.members),
-            secs(c.check.workspace),
-            secs(c.check.baseline),
-            secs(c.check.demand),
-            secs(c.check.rest),
-            secs(c.lower),
-            secs(p.engine)
-        );
-        if let Some(line) = p.baseline_line() {
-            eprintln!("{line}");
-        }
-        if let Some(line) = p.memory.line() {
-            eprintln!("{line}");
-        }
-        if let Some(line) = p.compile_line() {
-            eprintln!("{line}");
-        }
+        print_compile_phases(p);
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {
             eprintln!("test data: {cost}");
         }
-        if let Some(c) = &p.cache {
-            eprintln!(
-                "compile cache: {}; {} {}",
-                if c.hit {
-                    format!("hit, opened in {}", secs(c.open))
-                } else if c.built {
-                    format!("miss, built in {}", secs(c.build))
-                } else {
-                    "not used".to_string()
-                },
-                c.file.display(),
-                if c.notes.is_empty() {
-                    String::new()
-                } else {
-                    format!("({})", c.notes.join("; "))
-                }
-            );
-            for (i, l) in c.layers.iter().enumerate() {
-                eprintln!(
-                    "compile cache: layer {} of {} ({}): {}, {:.1} MB",
-                    i + 1,
-                    c.layers.len(),
-                    l.apps.join(", "),
-                    if l.hit {
-                        "hit".to_string()
-                    } else {
-                        format!("built in {}", secs(l.build))
-                    },
-                    l.bytes as f64 / 1e6
-                );
-            }
-            eprintln!(
-                "compile cache: {:.1} MB, {} dependency objects, {} compiled again because the workspace extends or implements what they embed",
-                c.bytes as f64 / 1e6,
-                c.objects,
-                c.relowered
-            );
-            eprintln!(
-                "compile cache: reading the blocks {}",
-                secs(p.compile_parts.cache_blocks)
-            );
-            let (n, took) = al_sema::provided::decoded_on_touch();
-            eprintln!(
-                "compile cache: {n} dependency objects decoded on first touch, {}",
-                secs(took)
-            );
-        }
+        print_compile_cache(p);
         let slowest: Vec<String> = p
             .slowest
             .iter()
@@ -2735,5 +2771,42 @@ mod selection_tests {
         assert!(s.picks(50650, "PassesToo") && s.picks(1, "Other"));
         let s = sel(&[], &["Codeunit50650.Passes", "Codeunit1.Other"]);
         assert!(s.picks(50650, "Passes") && s.picks(1, "Other") && !s.picks(50650, "PassesToo"));
+    }
+}
+
+#[cfg(test)]
+mod entry_resource_tests {
+    use super::*;
+
+    /// Al-runner issue 8026: an entry that replaces one small resource holds that text, not a copy of the app's other
+    /// resource files, so a request's memory does not grow with the size of files no entry replaces.
+    #[test]
+    fn an_entry_holds_only_the_resource_texts_it_replaces() {
+        let filler = vec![7u8; 1 << 20];
+        let app: Vec<(String, Vec<u8>)> = vec![("filler.bin".into(), filler), ("switch.txt".into(), b"NONE".to_vec())];
+        let other: Vec<(String, Vec<u8>)> = vec![("other.txt".into(), b"O".to_vec())];
+        let held: usize = (0..64)
+            .map(|k| {
+                let e = Entry {
+                    resources: [("switch.txt".to_string(), format!("M{k:05}"))].into(),
+                    ..Entry::default()
+                };
+                let r = e.resources_in(&[&app, &other]);
+                assert_eq!(r.len(), 1, "only the app that has the resource");
+                assert_eq!(r[0].0, 0);
+                let names: Vec<&str> = r[0].1.iter().map(|(n, _)| n.as_str()).collect();
+                assert_eq!(
+                    names,
+                    ["switch.txt"],
+                    "the files the entry does not replace stay the app's"
+                );
+                assert_eq!(r[0].1[0].1, format!("M{k:05}").into_bytes());
+                r.iter()
+                    .flat_map(|(_, f)| f.iter())
+                    .map(|(_, c)| c.len())
+                    .sum::<usize>()
+            })
+            .sum();
+        assert_eq!(held, 64 * 6);
     }
 }

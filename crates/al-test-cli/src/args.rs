@@ -53,6 +53,9 @@ pub struct Args {
     pub dotnet_timeout_secs: Option<u64>,
     /// `--require-dotnet`: a machine without a usable .NET is an error, not a skip (CI).
     pub require_dotnet: bool,
+    /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
+    /// refuses when the report renderer is unavailable.
+    pub require_report_renderer: bool,
     /// `--files-dir DIR`: the `File` data type reads and writes real files under DIR. Without it
     /// files live in memory and are gone when the test ends.
     pub files_dir: Option<PathBuf>,
@@ -267,9 +270,12 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--dotnet-assembly-dir" => a.dotnet_assembly_dirs.push(text()?.into()),
             "--dotnet-allow-roll-forward" => a.dotnet_allow_roll_forward = true,
             "--require-dotnet" => a.require_dotnet = true,
+            "--require-report-renderer" => a.require_report_renderer = true,
             "--files-dir" => a.files_dir = Some(text()?.into()),
             "--environment" => a.environment = Some(text()?.parse().map_err(|e| format!("--environment: {e}"))?),
-            "--companies" => a.companies = Some(al_host::Companies::parse(&text()?)?),
+            "--companies" => {
+                a.companies = Some(al_host::Companies::parse(&text()?).map_err(|e| format!("--companies {e}"))?)
+            }
             "--one-company" => a.one_company = true,
             "--no-download" => a.no_download = true,
             "--cache-dir" => a.cache_dir = Some(text()?.into()),
@@ -381,8 +387,8 @@ INPUT
   --all-versions              run every version in the oracle table, then compare them
   --deps DIR, --dep DIR       extra directory of .app packages for the dependencies (repeatable)
   --no-deps                   run the corpus alone, without Microsoft's apps
-  --no-client                 run the tests as a session without a client (dialogs answer as in a page background task
-                              worker, calls not probed there are refused; as `al-runner test --no-client`)
+  --no-client                 run the tests as a web-service session (the handlers answer the dialogs, as measured by a
+                              user on BC; calls not measured there are refused; as `al-runner test --no-client`)
   --test-runner R             builtin (default), microsoft (runner 130450 run as BcContainerHelper runs it;
                               not on the TestRunnerHub path of the newer majors) or a runner codeunit id (ADR-066)
   --no-download               never fetch a dependency app from the artifact feed
@@ -477,6 +483,7 @@ DOTNET (ADR-014)
   --dotnet-allow-roll-forward when the .NET major the BC version needs is missing, run the sidecar on a newer one, with a warning
   --dotnet-timeout-secs N     the deadline of one DotNet call (default 60)
   --require-dotnet            a machine without .NET is an error, not a skip (CI)
+  --require-report-renderer   a save whose real Html needs BC's own merger and converter refuses when they are unavailable
 
 DEPENDENCY TOOLING
   --compile-cache             use the compile cache of the dependency apps (ADR-022), in

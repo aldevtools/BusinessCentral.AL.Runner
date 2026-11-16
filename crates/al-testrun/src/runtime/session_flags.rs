@@ -3,7 +3,7 @@
 use super::RunOptions;
 use al_vm::Session;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct SessionFlags {
     ignore_permission_mock: bool,
     permissions_off: bool,
@@ -26,7 +26,8 @@ impl SessionFlags {
     pub(super) fn apply(self, s: &mut Session) {
         s.ignore_permission_mock = self.ignore_permission_mock;
         s.permissions_off = self.permissions_off;
-        s.set_dev_endpoint_ui(self.dev_endpoint_ui);
+        // The dev endpoint's answers are measured in a session with a client: under `--no-client` none applies.
+        s.set_dev_endpoint_ui(self.dev_endpoint_ui && !self.no_client);
         s.set_clientless_session(self.no_client);
         if self.cell_tap {
             s.enable_cell_tap();
