@@ -1055,7 +1055,7 @@ impl<'a> Walk<'a> {
             return;
         }
         // A report the runtime refuses when it runs (`Session::report_schema`): what the test does before it is not followed.
-        if let Some(why) = obj.report.as_ref().and_then(|r| r.unsupported.first()) {
+        if let Some(why) = obj.report.as_ref().and_then(|r| r.run_refusal()) {
             self.unknown(|| format!("runs {}, which cannot run: {why}", obj.name));
             if self.out.report_cannot_run.is_none() {
                 self.out.report_cannot_run = Some(format!("runs {}, which cannot run: {why}", obj.name));

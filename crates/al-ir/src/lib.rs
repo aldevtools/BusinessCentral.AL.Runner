@@ -620,8 +620,12 @@ pub struct Report {
     /// page still opens first.
     #[serde(default)]
     pub output: Vec<String>,
-    /// Why the runtime cannot run this report yet; empty = it can.
+    /// Why the runtime cannot run this report yet, and why a variable of it is refused; empty = it can.
     pub unsupported: Vec<String>,
+    /// Why the order of `extensions` is not pinned (al-sema `lower/ext_order.rs`). It refuses a run of the report, not a
+    /// variable of it: declaring one runs no extension. [`Report::run_refusal`] reads both.
+    #[serde(default)]
+    pub extension_order: Option<String>,
     /// The `Caption` property when it is a plain text literal.
     #[serde(default)]
     pub caption: Option<String>,
@@ -665,6 +669,13 @@ pub struct Report {
     /// The kinds the `RDLCLayout`, `WordLayout` and `ExcelLayout` properties declare (`rdlc`, `word`, `excel`), in that order.
     #[serde(default)]
     pub layout_properties: Vec<String>,
+}
+
+impl Report {
+    /// Why a run of the report is refused: the first of `unsupported`, else `extension_order`. `None`: it can run.
+    pub fn run_refusal(&self) -> Option<&String> {
+        self.unsupported.first().or(self.extension_order.as_ref())
+    }
 }
 
 /// One `layout(Name) { ... }` of a report's `rendering` section.

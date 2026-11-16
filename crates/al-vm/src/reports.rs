@@ -953,7 +953,7 @@ impl Session {
             object,
         };
         match &schema.engine.program.objects[object].report {
-            Some(r) => match r.unsupported.first() {
+            Some(r) => match r.run_refusal() {
                 None => {
                     for a in &r.assumes {
                         al_builtins::assumptions::assume(*a);
@@ -1043,38 +1043,6 @@ impl Session {
             self.report.prepared.push(Rc::downgrade(inst));
         }
         Ok(())
-    }
-
-    /// The request page's OnInit of a report that a procedure uses first (see `first_use`): it runs right after OnInitReport and
-    /// before the procedure's body, and the run does not run it again, with or without the request page
-    /// (reports/request-page/RequestPageOnInitFirstUse.al:104-185). An OnInit a reportextension adds is left to the run,
-    /// which refuses it.
-    fn request_page_init_at_first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
-        let object = inst.borrow().object as usize;
-        let engine = self.engine.clone();
-        let o = &engine.program.objects[object];
-        if o.report.is_none() {
-            return Ok(());
-        }
-        let Some(page) = o.page.as_ref() else {
-            return Ok(());
-        };
-        if page.ext_triggers.iter().any(|(n, _, _)| n == "oninit") {
-            return Ok(());
-        }
-        let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
-            return Ok(());
-        };
-        self.report.rp_init_done.push(Rc::downgrade(inst));
-        self.call(object, r, inst.clone(), Vec::new()).map(|_| ())
-    }
-
-    /// Whether the request page's OnInit of `inst` already ran at a procedure's first use.
-    pub(crate) fn request_page_init_done(&self, inst: &Inst) -> bool {
-        self.report
-            .rp_init_done
-            .iter()
-            .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
     }
 
     /// Makes the globals of `inst` and, for a report that had none, runs `OnInitReport`. Returns
