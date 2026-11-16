@@ -155,6 +155,7 @@
 61287 SaveAs_File_BadPaths
 61288 PActivate_NoDebugger
 61296 AzureAdGraphUser_WithoutDirectory_OnTheTier
+98012 UsLogo_Jpeg_AppE
 98041 RE_MediaAndMediaSet_ImportFile_JpgHoldingPng
 98102 Instance_SecondUse
 98102 Instance_Xml
@@ -219,6 +220,9 @@
 98890 Y76_Patch_Delete_RelativePaths
 98890 Y76_Post_Put_RelativePaths
 98940 Handler_StatusCodes
+98981 Evaluate_Dutch
+98981 Format_Belgian
+98981 Format_Dutch
 98990 BG_IsPathTemporary_OutsideTemporaryFolder
 98991 BG_File_DownloadFromStream_ReturnAndToFile
 98991 BG_File_Download_ReturnAndToFile

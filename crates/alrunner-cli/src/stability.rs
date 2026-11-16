@@ -192,7 +192,11 @@ fn companies_index(a: &TestArgs, cfg: &stability::Config) -> Result<Option<usize
         return Ok(None);
     }
     for (i, v) in cfg.matrix.companies.iter().enumerate() {
-        let parsed = v.as_deref().map(al_host::Companies::parse).transpose()?;
+        let parsed = v
+            .as_deref()
+            .map(al_host::Companies::parse)
+            .transpose()
+            .map_err(|e| format!("--companies {e}"))?;
         if parsed == a.companies {
             return Ok(Some(i + 1));
         }

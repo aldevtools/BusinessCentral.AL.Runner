@@ -60,6 +60,7 @@ impl Session {
         if !shape::shape_is_measured(shape::SHAPES, &save) || translated {
             return Ok(None);
         }
+        let unpinned = shape::rests_on_unpinned_cells(shape::SHAPES, &facts, &save, &title);
         let renderer = self.engine.dotnet.renderer.clone();
         // A converter whose version no cell measured on this major gives Html that keeps Part A: do not render it.
         if let Some(version) = renderer.converter_version()
@@ -102,7 +103,11 @@ impl Session {
         if !major.is_some_and(|m| shape::build_is_measured(shape::BUILDS, m, &html)) {
             return Ok(None);
         }
-        assume(Assumption::ReportHtmlRenderedByBcConverter);
+        // BC writes these bytes: RxHtmlHashTests.al:192, :218, :395, :433 and :471 assert their SHA-256 and length. A save
+        // with a fact only corpus pull request 1419 (merged, not pinned) measured rests on its assumption.
+        if unpinned {
+            assume(Assumption::ReportHtmlRenderedByBcConverter);
+        }
         Ok(Some(html))
     }
 }

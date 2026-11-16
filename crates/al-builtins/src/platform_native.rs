@@ -324,7 +324,6 @@ fn encoding(encoding: &Value, codepage: &Value, windows_text: bool) -> Result<En
 /// reaches, direct or through System Application's "Base64 Convert". It answers only the measured cells; every other pair
 /// of encoding and code page refuses (al-runner issue 8069).
 fn to_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool) -> Result<Enc, Signal> {
-    use crate::assumptions::{Assumption::BaseEncodeTextCodePages as A, assume};
     let Value::Integer(cp) = codepage else {
         return unsupported("a code page that is not an Integer");
     };
@@ -340,25 +339,14 @@ fn to_base64_encoding(encoding_arg: &Value, codepage: &Value, windows_text: bool
         // types/PVBase64.al:76 and :77.
         ("windows", 1252) => Ok(Enc::Windows1252),
         ("windows", 28591) => Ok(Enc::Latin1),
-        // Corpus PR 1414, PVBase64ToCodePages.al:44-45, :51, :53: UTF8 ignores 1252 and 28591.
-        ("utf8", 1252 | 28591) => {
-            assume(A);
-            Ok(Enc::Utf8)
-        }
-        // PVBase64ToCodePages.al:46-47: MSDos uses the code page given.
-        ("msdos", 1252) => {
-            assume(A);
-            Ok(Enc::Windows1252)
-        }
-        ("msdos", 28591) => {
-            assume(A);
-            Ok(Enc::Latin1)
-        }
-        // PVBase64ToCodePages.al:48-49: Windows and MSDos with 65001 write UTF-8.
-        ("windows" | "msdos", 65001) => {
-            assume(A);
-            Ok(Enc::Utf8)
-        }
+        // types/PVBase64ToCodePages.al:44-45, :51, :53 (expected :54-55, :60-61): UTF8 ignores 1252 and 28591.
+        ("utf8", 1252 | 28591) => Ok(Enc::Utf8),
+        // types/PVBase64ToCodePages.al:46-47 (expected :56-57): MSDos uses the code page given (the tables of the Windows rows,
+        // types/PVBase64.al:76-77).
+        ("msdos", 1252) => Ok(Enc::Windows1252),
+        ("msdos", 28591) => Ok(Enc::Latin1),
+        // types/PVBase64ToCodePages.al:48-49 (expected :58-59): Windows and MSDos with 65001 write UTF-8.
+        ("windows" | "msdos", 65001) => Ok(Enc::Utf8),
         _ => unsupported(format!(
             "ToBase64 with code page {cp} and TextEncoding::{name} (not pinned)"
         )),
@@ -754,22 +742,17 @@ mod tests {
         to_base64_encoding(&Value::Option(i, members), &Value::Integer(cp), false)
     }
 
-    /// `ToBase64(Value, false, Encoding, CodePage)` as Base64 text, and whether it ran through
-    /// `base-encode-text-code-pages`.
+    /// `ToBase64(Value, false, Encoding, CodePage)` as Base64 text, and whether it ran through an assumption.
     fn to_text(value: &str, name: &str, cp: i32) -> Result<(String, bool), Signal> {
         let _ = take_hits();
         let bytes = encode_text(value, to_enc(name, cp)?)?;
-        Ok((
-            b64_encode(&bytes, false),
-            take_hits().contains(&Assumption::BaseEncodeTextCodePages),
-        ))
+        Ok((b64_encode(&bytes, false), !take_hits().is_empty()))
     }
 
-    // Corpus PR 1414 (merged, not pinned), tests/al-language/types/PVBase64ToCodePages.al:44-61, the same on every major
-    // of its CI run: UTF8 ignores the code page, MSDos uses 1252 and 28591, Windows and MSDos with 65001 give UTF-8. Every cell
-    // runs flagged.
+    // types/PVBase64ToCodePages.al:44-61: UTF8 ignores the code page, MSDos uses 1252 and 28591, Windows and MSDos with 65001
+    // give UTF-8. No cell runs through an assumption.
     #[test]
-    fn to_base64_runs_the_cells_of_the_code_page_probe_flagged() {
+    fn to_base64_runs_the_cells_of_the_code_page_probe() {
         for (value, name, cp, want) in [
             ("äöü", "UTF8", 1252, "w6TDtsO8"),
             ("äöü", "UTF8", 28591, "w6TDtsO8"),
@@ -783,7 +766,7 @@ mod tests {
             match to_text(value, name, cp) {
                 Ok((text, flagged)) => {
                     assert_eq!(text, want, "{value} {name} {cp}");
-                    assert!(flagged, "{value} {name} {cp} runs flagged");
+                    assert!(!flagged, "{value} {name} {cp} runs unflagged");
                 }
                 Err(_) => panic!("{value} {name} {cp} refused"),
             }
@@ -842,7 +825,7 @@ mod tests {
 
     // ---- ToBase64 of an InStream and FromBase64 code pages (corpus PR 1394, tests/al-language/streams/Base64LineBreaks.al)
 
-    use crate::assumptions::{Assumption, take_hits};
+    use crate::assumptions::take_hits;
     use crate::library_kind::LibraryKind;
     use crate::stream::{BlobRef, Encoding, InState, new_blob, write_bytes};
     use crate::value::LibraryValue;

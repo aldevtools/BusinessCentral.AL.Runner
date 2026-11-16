@@ -2096,7 +2096,7 @@ impl Session {
         let item = run.item(r);
         let (owner, object) = run.owner(r);
         let mut rec = self.report_item_record(run, r)?;
-        let parent_rec = explicit_parent_link::linked_parent(run, r, item.link_item, parent_rec, enclosing);
+        let parent_rec = explicit_parent_link::linked_parent(item.link_item, parent_rec, enclosing);
         if let Some(parent) = parent_rec {
             // The link filter is hidden from GetFilters (reports/TestReportRuntimeContracts.al:62-90).
             let table = self.table(&rec)?;
@@ -2717,7 +2717,7 @@ impl Session {
         }
         // ADR-040 and its amendments: the save table (`report_save`).
         if format != "Xml" {
-            match self.static_or_variable_save(&schema, &format, &target, result_used, custom.is_some())? {
+            match self.static_or_variable_save(&schema, &format, (&target, save_call), result_used, custom.is_some())? {
                 Ok(o) => output = o,
                 Err(e) => {
                     self.last_error = e;

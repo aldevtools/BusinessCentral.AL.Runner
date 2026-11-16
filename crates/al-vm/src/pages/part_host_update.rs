@@ -25,11 +25,12 @@ pub(crate) enum DeferredReread {
 }
 
 impl Session {
-    /// AL Runner issue 7886, corpus pull request 1348 (pages/parts/TestCardPartDrilldownRefresh.al), assumption
-    /// `card-part-drilldown-deferred-host-refresh`: after a drilldown of a CardPart (UpdatePropagation = Both) that changed the
-    /// stored header and called Update(false), the Document host still shows the old value, and its next SetValue validates
-    /// against the stored header. Measured sequence: the drilldown, reads of host fields, then the host's SetValue; every
-    /// other test call on the page tree ends the pending reread (`end_deferred_host_reread`).
+    /// pages/parts/TestCardPartDrilldownRefresh.al:12-31: after a drilldown of a CardPart (UpdatePropagation = Both,
+    /// TestCardPartDrilldownRefresh1Fixture51738.al:33-37) that changed the stored header and called Update(false)
+    /// (TestCardPartDrilldownRefresh1Fixture51737.al:23-32), the Document host the test opened with OpenEdit (:22) still shows
+    /// the old value (:25), and its next SetValue validates against the stored header (:26-28). Measured sequence: the
+    /// drilldown, reads of host fields, then the host's SetValue; every other test call on the page tree ends the pending
+    /// reread (`end_deferred_host_reread`). Any other host keeps main's result (no reread).
     pub(super) fn defer_host_refresh_after_part_drilldown(&mut self, part: &St) -> Result<(), Signal> {
         let (host, index) = {
             let child = part.borrow();
@@ -49,7 +50,11 @@ impl Session {
             };
             (host, index)
         };
-        if !self.clean_document_refresh_row(&host) || !self.unextended_unsubscribed(&host) || !self.has_source(part) {
+        if !host.borrow().test_open_edit()
+            || !self.clean_document_refresh_row(&host)
+            || !self.unextended_unsubscribed(&host)
+            || !self.has_source(part)
+        {
             return Ok(());
         }
         let engine = self.engine();
@@ -121,9 +126,6 @@ impl Session {
             return Ok(());
         };
         if self.clean_document_refresh_row(st) && Self::same_key(&key, &self.row_key(&self.page_rec(st))?) {
-            al_builtins::assumptions::assume(
-                al_builtins::assumptions::Assumption::CardPartDrilldownDeferredHostRefresh,
-            );
             st.borrow_mut().refresh = true;
             self.run_refresh(st)?;
         }

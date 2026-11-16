@@ -1,4 +1,4 @@
-//! The facts of the `Report.SaveAs` call of the Html hash cells (corpus pull request 1415, merged, not pinned;
+//! The facts of the `Report.SaveAs` call of the Html hash cells (pinned corpus,
 //! reports/html-email-body/RxHtmlBodyFixtures.al:120-126 `TrySave`): `TempBlob.CreateOutStream(OutS, TextEncoding::UTF8)` on
 //! a new Temp Blob, then `Ok := Report.SaveAs(ReportId, '', ReportFormat::Html, OutS)`, in a session of language 1033.
 

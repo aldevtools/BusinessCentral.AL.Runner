@@ -44,11 +44,11 @@ pub(super) fn is_secret_content(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut 
 /// new one included (P97ContentSecret.al:21-28 with :83-150, :215-234).
 ///
 /// The statement form gives the body the same way after the call sequences `SecretReadShape::statement_gives_body` lists
-/// (assumption `http-readas-secret-statement`, probe al-language-onprem/http/N4ReadAsSecretStatement.al; corpus
-/// http/CzHttpNoNetwork.al:34 with :80 pins one of them as not empty, its body is assumed). On the content of a request that
-/// has none, after the sequences `SecretReadShape::without_content_measured` lists, the statement raises NotInitialized and
-/// the result-used form answers false, and both leave the secret (assumed, same probe). Every other statement, and every
-/// other read of the content of a request that has none, is refused.
+/// (al-language-onprem/http/N4ReadAsSecretStatement.al; corpus http/CzHttpNoNetwork.al:34 with :80 pins one of them only as
+/// not empty, its body runs through assumption `http-readas-secret-statement`). On the content of a request that has none,
+/// after the sequences `SecretReadShape::without_content_measured` lists, the statement raises NotInitialized and the
+/// result-used form answers false, and both leave the secret (N4:188-223). Every other statement, and every other read of
+/// the content of a request that has none, is refused.
 pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let used = c.ret_used();
     let (data, uninit, shape) = with_content(r, |s| {
@@ -64,7 +64,6 @@ pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
                 "HttpContent.ReadAs(SecretText) as a statement (not pinned)"
             });
         }
-        crate::assumptions::assume(crate::assumptions::Assumption::HttpReadasSecretStatement);
         return if used {
             Ok(Value::Boolean(false))
         } else {
@@ -75,7 +74,9 @@ pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         if !shape.statement_gives_body() {
             return unsupported("HttpContent.ReadAs(SecretText) as a statement (not pinned)");
         }
-        crate::assumptions::assume(crate::assumptions::Assumption::HttpReadasSecretStatement);
+        if shape.statement_body_assumed() {
+            crate::assumptions::assume(crate::assumptions::Assumption::HttpReadasSecretStatement);
+        }
     }
     let Ok(t) = String::from_utf8(data) else {
         return unsupported("HttpContent.ReadAs(SecretText) of a body that is not UTF-8 (not pinned)");

@@ -28,8 +28,8 @@ impl Session {
         self.run_refresh(st)
     }
 
-    /// AL Runner issue 7881, corpus pull request 1345 (pages/currpage/TestCardAssistEditSavedRefresh.al), assumption
-    /// `next-only-card-assist-edit-refresh`: AssistEdit stores and reloads the edited row before Update(false). The old client
+    /// pages/currpage/TestCardAssistEditSavedRefresh.al:11-35 (card TestCardAssistEditSavedRefresh1Fixture51717.al:7-50):
+    /// AssistEdit stores and reloads the edited row before Update(false). The old client
     /// edit is no longer pending. BC shows the returned Rec and refreshes the linked part without raising the card's
     /// current-record trigger. Measured: a Card the test opened with its own OpenEdit (`test_open_edit`; a trapped Page.Run keeps main), whose own triggers are exactly OnNextRecord and
     /// OnAfterGetCurrRecord, without extension or subscriber, with one linked ListPart.
@@ -75,7 +75,6 @@ impl Session {
                 });
         drop(current);
         if already_stored {
-            assume(Assumption::NextOnlyCardAssistEditRefresh);
             {
                 let mut s = st.borrow_mut();
                 s.dirty = false;

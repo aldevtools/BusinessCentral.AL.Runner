@@ -806,9 +806,9 @@ impl Session {
             )
     }
 
-    /// Whether `part` is the single part of the Worksheet `host` and is the measured FactBox (AL Runner issue 7880, corpus pull
-    /// request 1344, assumption `worksheet-draft-close-empty-part`): a ListPart in the FactBoxes area without extension or
-    /// subscriber, linked by one `field(...)` entry.
+    /// Whether `part` is the single part of the Worksheet `host` and is the measured FactBox (pages/lifecycle/
+    /// TestWorksheetDraftClose.al:11-29, fixtures TestWorksheetDraftClose1Fixture*.al): a ListPart in the FactBoxes area without
+    /// extension or subscriber, linked by one `field(...)` entry.
     fn worksheet_draft_factbox(&self, host: &St, part: &St) -> bool {
         let engine = self.engine();
         let host_state = host.borrow();
@@ -902,7 +902,8 @@ impl Session {
         }
         let pinned =
             st.borrow().draft_from_open && self.top_card_or_document(st) && self.key_typed_since_draft_start(st)?;
-        // The measured Worksheet (issue 7880, corpus pull request 1344): opened by the test's own OpenEdit, the test's only
+        // The measured Worksheet (pages/lifecycle/TestWorksheetDraftClose.al:11-29, fixtures TestWorksheetDraftClose1Fixture*.al):
+        // opened by the test's own OpenEdit, the test's only
         // calls on it SetValues that succeeded and then Close (`worksheet_draft_close_calls`), so its line started on the empty
         // page (no OpenNew draft, no saved starting buffer), AutoSplitKey, DelayedInsert and MultipleNewLines, OnNewRecord,
         // no extension or subscriber, no key field shown, and one FactBox part (`worksheet_draft_factbox`).
@@ -943,11 +944,6 @@ impl Session {
                 if !pinned && !worksheet {
                     return unsupported(
                         "closing a new host row while a part that shows no row declares OnNewRecord or OnAfterGetCurrRecord (BC runs neither, the relink does; not implemented)",
-                    );
-                }
-                if worksheet {
-                    al_builtins::assumptions::assume(
-                        al_builtins::assumptions::Assumption::WorksheetDraftCloseEmptyPart,
                     );
                 }
                 c.borrow_mut().quiet_at_close = true;
@@ -1080,8 +1076,8 @@ impl Session {
         }
         if go == Some(false) && std::mem::take(&mut self.pages.named_false_insert) {
             // The page's own OnInsertRecord vetoed by its named return value, the insert of a SetValue: the SetValue raises
-            // the filtered-view error and nothing is stored (open corpus PR 1367, pages/triggers/RecordTriggerReturnValue.al:350
-            // False_Insert_OpenNewSetValueClose `end|text`, `log` `I N1 ; `; assumption page-record-trigger-named-false-vetoes).
+            // the filtered-view error and nothing is stored (pages/triggers/RecordTriggerReturnValue.al:350
+            // False_Insert_OpenNewSetValueClose `end|text`, `log` `I N1 ; `).
             // What the page holds afterwards is not measured: every later call on it, Close too, is refused.
             {
                 let mut s = st.borrow_mut();
@@ -1223,7 +1219,7 @@ impl Session {
     }
 }
 
-/// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487, open corpus PR 1367
+/// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487,
 /// pages/triggers/RecordTriggerReturnValue.al:365).
 fn view_filtered_error() -> Signal {
     error_code(

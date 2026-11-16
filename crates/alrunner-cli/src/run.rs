@@ -967,6 +967,19 @@ fn run_only_picks(
         .flatten()
 }
 
+/// ADR-046 decision 2: a companies list names the session company `session` first. The message names the serve field when the
+/// request set it, else the option.
+fn check_companies(a: &TestArgs, companies: &al_host::Companies, session: &str) -> Result<(), String> {
+    companies.check_session_first(session).map_err(|e| {
+        let option = if a.companies_from_request {
+            "`companies`"
+        } else {
+            "--companies"
+        };
+        format!("{option}: {e}")
+    })
+}
+
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -1667,7 +1680,7 @@ fn test_inner(
             .clone()
             .unwrap_or_else(|| al_host::Identity::company_name(&al_host::AlRunnerIdentity)),
     };
-    companies.check_session_first(&session_company)?;
+    check_companies(a, &companies, &session_company)?;
     al_testrun::host::set_companies(companies);
     let mut opts = RunOptions {
         run_seed,

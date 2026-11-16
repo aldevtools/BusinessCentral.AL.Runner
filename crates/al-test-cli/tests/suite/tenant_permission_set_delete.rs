@@ -1,11 +1,16 @@
 //! The delete of a stored Tenant Permission Set row with App ID zero that Tenant Permission or Tenant Permission Set Rel. rows
 //! name (crates/al-vm/src/tenant_set_delete.rs): BC deletes those rows with the set (corpus probe TenantSetDeleteCascade.al,
-//! corpus pull request 1340, through the assumption `tenant-set-delete-cascade`). Shapes the probe does not measure are
-//! refused; a delete no row names keeps main's result.
+//! pinned: tests/al-language/permissions/permission-sets/TenantSetDeleteCascade.al). Shapes the probe does not measure are
+//! refused; a delete no row names keeps main's result. No test goes through an assumption.
 
 use super::y48_platform_probes::{outcomes, outcomes_with_hits};
 use al_builtins::assumptions::Assumption;
 use al_test_cli::report::Outcome;
+
+/// No assumption but the one the tests' own `Error(...)` of a procedure result goes through.
+fn no_hit(hits: &[Assumption]) -> bool {
+    hits.iter().all(|a| *a == Assumption::ErrorTextProcedureResult)
+}
 
 const SETUP: &str = r#"
   local procedure AddSet(RoleId: Code[20]) var S: Record "Tenant Permission Set"; begin S."Role ID" := RoleId; S.Name := RoleId; S.Insert(); end;
@@ -203,7 +208,7 @@ fn other_tenant_permission_set_deletes_keep_mains_result() {
 }
 
 /// The probe's measured result: `sets=1 perms gone=0 perms kept=1 rel of gone=0 rel of kept=0` (TenantSetDeleteCascade.al:121),
-/// here counted over the whole tables; each pass goes through the assumption.
+/// here counted over the whole tables; no pass goes through an assumption.
 #[test]
 fn deleting_a_set_takes_its_permission_rows_with_it() {
     let o = outcomes_with_hits(&src(CASCADE), "T");
@@ -212,7 +217,7 @@ fn deleting_a_set_takes_its_permission_rows_with_it() {
             .iter()
             .find(|(n, _, _)| n == name)
             .unwrap_or_else(|| panic!("{name} in {o:?}"));
-        assert!(hits.contains(&Assumption::TenantSetDeleteCascade), "{name}: {hits:?}");
+        assert!(no_hit(hits), "{name}: {hits:?}");
         match out {
             Outcome::Fail(m) => m.clone(),
             other => panic!("{name}: {other:?}"),
@@ -241,12 +246,12 @@ fn a_rollback_puts_the_rows_back() {
     assert_eq!(failed_with(&o, "RolledBack"), "2 3 2");
 }
 
-/// A delete no row names keeps main's result and does not go through the assumption.
+/// A delete no row names keeps main's result and goes through no assumption.
 #[test]
-fn deletes_no_row_names_are_not_flagged() {
+fn deletes_no_row_names_keep_main_result() {
     let o = outcomes_with_hits(&src(KEPT), "T");
     for (name, _, hits) in &o {
-        assert!(!hits.contains(&Assumption::TenantSetDeleteCascade), "{name}: {hits:?}");
+        assert!(no_hit(hits), "{name}: {hits:?}");
     }
 }
 
@@ -281,11 +286,13 @@ fn reason(name: &str) -> &'static str {
     }
 }
 
-/// The probe file of corpus pull request 1340, unchanged, with the corpus's Probe Observer: every test passes through the
-/// assumption except the one with a bound Tenant Permission subscriber, whose event arguments the probe does not log.
+/// The pinned probe file with the corpus's Probe Observer, without Microsoft's apps (with them, the corpus run, the delete is
+/// not known to raise no database trigger and is refused): every test passes through no assumption except the
+/// one with a bound Tenant Permission subscriber, whose event arguments the probe does not log.
 #[test]
-fn the_probe_passes_flagged() {
-    const PROBE: &str = include_str!("../fixtures/tenant-set-delete-cascade.al");
+fn the_probe_passes() {
+    const PROBE: &str =
+        include_str!("../../../../corpus/tests/al-language/permissions/permission-sets/TenantSetDeleteCascade.al");
     const OBSERVER: &str = include_str!("../../../../corpus/tests/al-language/_fixtures/ProbeObserver.Codeunit.al");
     let o = outcomes_with_hits(&format!("{PROBE}\n{OBSERVER}"), "XP TSDC Tests");
     assert_eq!(o.len(), 8, "{o:?}");
@@ -298,19 +305,13 @@ fn the_probe_passes_flagged() {
             continue;
         }
         assert_eq!(*out, Outcome::Pass, "{name}");
-        // A set with another App ID takes nothing with it (main's result).
-        let through = name != "TSDC_DeleteAllOtherApp";
-        assert_eq!(
-            hits.contains(&Assumption::TenantSetDeleteCascade),
-            through,
-            "{name}: {hits:?}"
-        );
+        assert!(no_hit(hits), "{name}: {hits:?}");
     }
 }
 
 /// The reporter's repro of al-runner issue 7854 (comment of 2026-11-13), unchanged.
 #[test]
-fn reporters_repro_passes_flagged() {
+fn reporters_repro_passes() {
     const REPRO: &str = r#"codeunit 50400 "Tenant Set Delete Tests"
 {
     Subtype = Test;
@@ -347,5 +348,5 @@ fn reporters_repro_passes_flagged() {
     let o = outcomes_with_hits(REPRO, "Tenant Set Delete Tests");
     assert_eq!(o.len(), 1);
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
-    assert!(o[0].2.contains(&Assumption::TenantSetDeleteCascade), "{o:?}");
+    assert!(no_hit(&o[0].2), "{o:?}");
 }

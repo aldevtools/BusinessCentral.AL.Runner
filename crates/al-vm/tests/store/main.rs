@@ -2,6 +2,7 @@
 
 mod assigned_audit_fields;
 mod autoinc_non_key;
+mod blob_assign_in_memory_calcfields;
 mod blob_assign_then_calcfields;
 mod blob_calcfields_after_run;
 mod blob_clear_shared_xrec;
@@ -14,6 +15,7 @@ mod blob_transfer_copy;
 mod blob_value_copy_shapes;
 mod blob_write_then_record_copies;
 mod blob_write_unloaded;
+mod blob_xrec_write;
 mod bump_36_transferfields_system_fields;
 mod calcsums_duration;
 mod clear_table_filter;
@@ -110,6 +112,7 @@ mod recordref_load_fields;
 mod recordref_zero_field_numbers;
 mod records;
 mod relation_field_qualified_const;
+mod relation_group_two_enum;
 mod relation_option_blank_const;
 mod relation_related_flowfield;
 mod relation_where_enum_filter;

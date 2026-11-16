@@ -21,7 +21,19 @@ impl Lowerer<'_> {
                 && args.is_empty()
                 && crate::members::has_internal_parameterless_save_record(self.ws, self.oi)
             {
-                self.assume(al_builtins::assumptions::Assumption::CurrPageSaveRecordNameCollision);
+                // `CurrPage.SaveRecord()` on a ListPart that declares an internal parameterless SaveRecord calls the
+                // platform method, not the procedure (pages/lifecycle/TestCurrPageSaveRecordName.al:13-37, page
+                // TestCurrPageSaveRecordName1Fixture51744.al:9,28,53). Other page types are not measured.
+                let list_part = self.ws.object_ast(self.oi).properties().any(|p| {
+                    p.name().eq_ignore_ascii_case("PageType") && p.value_text().trim().eq_ignore_ascii_case("ListPart")
+                });
+                if !list_part {
+                    return Err(
+                        "CurrPage.SaveRecord() on a page other than a ListPart that declares an internal SaveRecord \
+                         procedure (which one BC calls is pinned on a ListPart only)"
+                            .to_string(),
+                    );
+                }
             }
         }
         Ok(resolution)

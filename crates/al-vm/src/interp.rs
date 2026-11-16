@@ -1651,6 +1651,7 @@ impl Session {
                                             dotnet_view: 0,
                                             unread_content: false,
                                             assigned_unsaved: false,
+                                            assigned_write: al_builtins::stream::AssignedWrite::No,
                                             utf16_binary: b.utf16_binary,
                                             ..Default::default()
                                         },
@@ -1704,7 +1705,11 @@ impl Session {
                     if let Some(why) = r.unpinned_buffer {
                         crate::records::held_part_field_write(why)?;
                     }
-                    let how = if assign { BlobMove::Assign } else { BlobMove::WriteBack };
+                    let how = if assign {
+                        crate::blob_transfer::assign_into(&r, &v)
+                    } else {
+                        BlobMove::WriteBack
+                    };
                     let v =
                         crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, Holder::Other, || FieldKind::Plain)?;
                     r.before_field_write();

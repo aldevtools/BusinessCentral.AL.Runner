@@ -106,6 +106,23 @@ fn key_fields(t: &TableDef, k: usize) -> Option<Vec<usize>> {
     None
 }
 
+/// GetTable's argument is a Record, not a Variant: the shared-buffer cells hand GetTable such a Record
+/// (`install_get_table_buffer`).
+fn record_source(from_variant: bool, args: &[Value]) -> bool {
+    !from_variant && matches!(args.first(), Some(Value::Record(_)))
+}
+
+/// A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target answers as any RecordRef: it drops the RunPageLink marks.
+fn forget_run_page_link_open(copy: &mut RecordState) {
+    if matches!(
+        copy.unpinned_buffer,
+        Some(crate::records::RUN_PAGE_LINK_OPEN | crate::records::RUN_PAGE_LINK_OPEN_FILLED)
+    ) {
+        copy.unpinned_buffer = None;
+        copy.run_page_link = None;
+    }
+}
+
 /// The table as the program declares it: without the ad hoc key a record may have appended.
 impl Session {
     /// A lock through a RecordRef: whether it starts the write transaction is pinned for Record only
@@ -971,14 +988,9 @@ impl Session {
                 // A RecordRef copy of Rec in the OnOpenPage of a RunPageLink target holds Rec's view, the link included, and answers
                 // as any RecordRef: GetView, SetView, SetFilter, FindFirst (corpus
                 // testpage/RunPageLinkOpenSetView.al, RSV_LinkAndView_SameViewOfRecordRef, RSV_LinkAndView_ViewOfACopyWithItsOwnFilter).
-                if matches!(
-                    copy.unpinned_buffer,
-                    Some(crate::records::RUN_PAGE_LINK_OPEN | crate::records::RUN_PAGE_LINK_OPEN_FILLED)
-                ) {
-                    copy.unpinned_buffer = None;
-                    copy.run_page_link = None;
-                }
-                self.variant_refs.install_get_table_buffer(lib, copy, !from_variant);
+                forget_run_page_link_open(&mut copy);
+                self.variant_refs
+                    .install_get_table_buffer(lib, copy, record_source(from_variant, args))?;
                 return Ok(Value::Null);
             }
 

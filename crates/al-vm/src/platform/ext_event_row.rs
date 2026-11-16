@@ -1,9 +1,9 @@
 //! The Event Subscription row of a subscriber to an event that an extension of the publisher object declares
 //! (al-runner issue 8060). The corpus pins that such a subscriber, bound to the base object, fires
-//! (events/extension-events/TestExtensionDeclaredEvents.al:92); it does not pin its row yet. Corpus PR 1412 (merged, not
-//! pinned) measures the whole row in the cells of [`ROW_CELLS`]; Microsoft's Tests-Misc codeunit 134299
-//! TestAllSubscriptionsAreActive and TestSubscriptionTableHasNoErrors measure Active and Error Information in the cell of
-//! [`ACTIVE_CELLS`]. Assumption `extension-event-subscriber-active`, in those cells only.
+//! (events/extension-events/TestExtensionDeclaredEvents.al:92), and its whole row in the cells of [`ROW_CELLS`]
+//! (events/extension-events/ExtensionEventSubscriptionRows.al:178-281). In the two cells only Microsoft's Tests-Misc codeunit
+//! 134299 measures ([`ACTIVE_CELLS`]), Active and Error Information rest on assumption `extension-event-subscriber-active`.
+//! Every other cell is refused.
 
 use super::objects::prop;
 use al_ir::{ObjKind, ObjectFacts, ObjectHead, PageType};
@@ -68,8 +68,7 @@ enum EventAttr {
 /// (ExtensionEventSubscriptionRows.al:52-150; the Base Application objects of [`ACTIVE_CELLS`]).
 type Cell = (Base, EventAttr, bool, bool, bool, Placement);
 
-/// The cells of corpus PR 1412 (merged, not pinned; events/extension-events/ExtensionEventSubscriptionRows.al, identical on
-/// BC 27.5, 28.5 and 29.0): Event Type Integration or Business as declared, Publisher Object Type and ID of the base object,
+/// The cells of events/extension-events/ExtensionEventSubscriptionRows.al (identical on BC 27.5, 28.5 and 29.0): Event Type Integration or Business as declared, Publisher Object Type and ID of the base object,
 /// Published Function the event's name, Active Yes, Error Information blank.
 const ROW_CELLS: &[Cell] = &[
     // :178-188
@@ -140,11 +139,12 @@ const ROW_CELLS: &[Cell] = &[
 ];
 
 /// The cells only Microsoft's tests measure, Active Yes and a blank Error Information and nothing else (Tests-Misc codeunit
-/// 134299 TestAllSubscriptionsAreActive and TestSubscriptionTableHasNoErrors; the facts are alike in the BC 27.5, 28.5 and 29.0
-/// sources): Base Application's "Serv. Integration Mgt".SetIsDocumentArchiveTable_OnAfterSetIsDocumentArchiveTable on System
-/// Application's "Retention Policy Setup Lines", pageextension 3997 "Reten. Pol. Setup Lines Ext."; Base Application's
-/// "Check Dimensions".OnOpenRelatedRecord on "Error Messages", pageextension 705 "Error Messages Extension", all three in Base
-/// Application.
+/// 134299 "Test Partner Integration Event", TestPartnerIntegrationEvent.Codeunit.al:157-191, TestAllSubscriptionsAreActive and
+/// TestSubscriptionTableHasNoErrors; the facts are alike in the BC 27.5, 28.5 and 29.0 sources): Base Application's "Serv.
+/// Integration Mgt".SetIsDocumentArchiveTable_OnAfterSetIsDocumentArchiveTable on System Application's "Retention Policy Setup
+/// Lines", pageextension 3997 "Reten. Pol. Setup Lines Ext."; Base Application's "Check Dimensions".OnOpenRelatedRecord on
+/// "Error Messages", pageextension 705 "Error Messages Extension", all three in Base Application. Assumption
+/// `extension-event-subscriber-active`.
 const ACTIVE_CELLS: &[Cell] = &[
     (
         Base::ListPartPage,
