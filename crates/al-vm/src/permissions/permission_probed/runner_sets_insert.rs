@@ -85,9 +85,12 @@ impl Session {
         let properties = |o: usize, measured: &dyn Fn(&str, &str) -> bool| {
             heads[o].properties.iter().all(|(k, v)| measured(k, v.trim()))
         };
+        // On BC 29 the lowering adds the default ITestHandler codeunits of the app set to each test codeunit, as it does to
+        // the measured ones (a `D<id>` list). A handler that assigns sets shows in the roles checked above.
         let test_properties = |k: &str, v: &str| {
             (k.eq_ignore_ascii_case("Subtype") && v.eq_ignore_ascii_case("Test"))
                 || k.eq_ignore_ascii_case("TestPermissions")
+                || (k == al_ir::TEST_HANDLER_CODEUNITS && v.split(',').all(|h| h.starts_with('D')))
         };
         let table_properties =
             |k: &str, v: &str| k.eq_ignore_ascii_case("DataClassification") && v.eq_ignore_ascii_case("SystemMetadata");
