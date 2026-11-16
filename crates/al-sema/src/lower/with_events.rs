@@ -111,8 +111,9 @@ impl Lowerer<'_> {
                         .children()
                         .next()
                         .filter(|c| c.kind() == SyntaxKind::MemberExpr)
-                        .and_then(|c| c.children().next())
-                        .is_some_and(|r| same_var(&r))
+                        .is_some_and(|m| {
+                            m.children().next().is_some_and(|r| same_var(&r)) && self.no_trigger_ctor_call(n, &m)
+                        })
             }
             Some((SyntaxKind::ArgList, p)) => {
                 p.children().count() == 1
@@ -198,8 +199,9 @@ impl Lowerer<'_> {
                         .children()
                         .next()
                         .filter(|c| c.kind() == SyntaxKind::MemberExpr)
-                        .and_then(|c| c.children().next())
-                        .is_some_and(|r| same_var(&r))
+                        .is_some_and(|m| {
+                            m.children().next().is_some_and(|r| same_var(&r)) && self.no_trigger_ctor_call(n, &m)
+                        })
             }
             Some((SyntaxKind::ArgList, p)) => p.parent().is_some_and(|call| {
                 call.kind() == SyntaxKind::CallExpr
@@ -220,6 +222,19 @@ impl Lowerer<'_> {
             return Ok(());
         }
         self.no_trigger_refusal(name)
+    }
+
+    /// Whether the member expression `m` on the AzureML variable `var` names the constructor of the variable's DotNet type
+    /// (AzureMLConnector.Codeunit.al:42, :47, :49 assign only from the constructor).
+    fn no_trigger_ctor_call(&self, var: &SyntaxNode, m: &SyntaxNode) -> bool {
+        let Ty::DotNet(alias) = self.ty_of(var) else {
+            return false;
+        };
+        let member = m.text_string();
+        let member = member.rsplit('.').next().unwrap_or("").trim().trim_matches('"');
+        self.ws
+            .resolve_dotnet(self.file, &alias)
+            .is_some_and(|i| self.dotnet_ctor_name(i, member))
     }
 
     /// A member of the AzureML variable `name` ([`WITH_EVENTS_NO_TRIGGER`]): a method call, the only member form codeunit

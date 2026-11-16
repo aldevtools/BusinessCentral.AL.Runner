@@ -4552,6 +4552,7 @@ const AZURE_ML_SHAPE: &str = "dotnet { assembly(\"Microsoft.Dynamics.Nav.AzureML
     procedure ArgOfPlain() begin Other.SetInput('input1', Inp); end; \
     procedure PropRead(): Integer begin exit(Req.Timeout); end; \
     procedure All() begin ClearAll(); end; \
+    procedure NotCtor() begin Req := Req.SetInput('input1', Inp); end; \
     procedure Keep(X: DotNet AzureMLRequest) begin end; }";
 
 // An AzureML WithEvents variable in a codeunit that declares no trigger for it: the uses codeunit 2001 makes run as a plain
@@ -4578,6 +4579,7 @@ fn an_azure_ml_with_events_variable_runs_flagged_in_the_shape_of_codeunit_2001()
         "ArgOfPlain",
         "PropRead",
         "All",
+        "NotCtor",
     ] {
         let r = run_src(&host, AZURE_ML_SHAPE, "W", routine);
         assert!(unsupported(&r).contains("WithEvents"), "{routine}: {}", unsupported(&r));
