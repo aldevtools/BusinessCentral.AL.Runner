@@ -184,6 +184,8 @@ pub(crate) struct TxWrite {
     /// A ModifyAll or DeleteAll that ended: what it wrote (`Session::note_bulk_end`). `None` for other writes and for one that
     /// stopped with an error.
     pub(crate) bulk: Option<BulkEnd>,
+    /// The write ran through a RecordRef (`Session::through_recordref`).
+    pub(crate) through_recordref: bool,
 }
 
 impl TxState {

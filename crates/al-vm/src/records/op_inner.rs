@@ -17,6 +17,7 @@ impl Session {
             }
         }
         let t = self.table(rec)?;
+        crate::blob_transfer::record_write_starts(method, &rec.borrow());
         Self::refuse_filter_in_unpinned_group(method, rec)?;
         if !rec.borrow().temporary {
             self.install_assumed(t.object);
@@ -1915,7 +1916,13 @@ impl Session {
                 };
                 // The relation is checked before the value goes in and before OnValidate runs; a
                 // refused value is never stored (corpus record/TestCalcFormulaSystemFieldsTests.Codeunit.al:253).
-                self.validate_relation(rec, &t, pos, new_value.clone().unwrap_or_else(|| old_value.clone()))?;
+                self.validate_relation(
+                    rec,
+                    &t,
+                    pos,
+                    new_value.clone().unwrap_or_else(|| old_value.clone()),
+                    entry.1,
+                )?;
                 if let Some(v) = new_value {
                     rec.borrow_mut().fields[pos] = v;
                 }
@@ -1995,7 +2002,7 @@ impl Session {
                 // After the All Profile key check: a tenant profile renamed from the empty App ID gets that error
                 // (profiles/TestAllProfileTable.al:186).
                 // A stale record gets DB:RecordChanged before the blank-key error (stale_rename.rs).
-                self.stale_rename(&cx, rec, &t, &old, &new, from_al, rename_note.0)?;
+                self.stale_rename(&cx, rec, &t, &refs, &old, &new, from_al, rename_note.0)?;
                 let blank_key = self.blank_key_rename(&cx, rec, &t, &refs, &old, &new, from_al)?;
                 // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
                 // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).

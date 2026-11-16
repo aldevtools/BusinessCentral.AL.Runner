@@ -166,15 +166,13 @@ fn a_subscriber_binds_only_to_an_object_its_app_sees() {
                codeunit 51673 \"Dep Subs\"\n{\n    \
                [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Twin Pub\", 'OnPing', '', false, false)]\n    \
                local procedure H() var S: Codeunit Seen; begin S.Mark(); end;\n}\n";
-    let tests = format!(
-        "codeunit 51660 \"Ns Tests\"\n{{\n    procedure PingMain(): Boolean\n    var P: Codeunit M.\"Twin Pub\"; S: Codeunit Seen;\n    \
+    let tests = "codeunit 51660 \"Ns Tests\"\n{\n    procedure PingMain(): Boolean\n    var P: Codeunit M.\"Twin Pub\"; S: Codeunit Seen;\n    \
          begin P.Ping(); exit(S.WasRun()); end;\n    procedure PingDep(): Boolean\n    var P: Codeunit \"Twin Pub\"; S: Codeunit Seen;\n    \
-         begin P.Ping(); exit(S.WasRun()); end;\n}}\n"
-    );
+         begin P.Ping(); exit(S.WasRun()); end;\n}\n";
     let twin = shared("M", 51672).replace("Shared Name", "Twin Pub");
     let apps = || {
         let mut main = app("main", &["dep"], &twin);
-        main.files.push(("tests.al".into(), tests.clone()));
+        main.files.push(("tests.al".into(), tests.into()));
         vec![main, app("dep", &[], dep)]
     };
     assert!(!al_testkit::boolean(run(apps(), "PingMain").0));

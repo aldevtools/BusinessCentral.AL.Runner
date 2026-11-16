@@ -1,8 +1,9 @@
 //! AssistEdit on the primary-key control of an empty linked CardPart.
 //!
-//! Measured shape (AL Runner issue 7883, corpus pull request 1347; assumption `linked-card-part-assist-edit`): a CardPart with
-//! InsertAllowed = false, a stored source table keyed by one Code field, no OnAfterGetRecord or OnAfterGetCurrRecord, no
-//! page extension and no subscriber, on a Document linked by one `field(...)` entry on that key. The part lands on the row
+//! Measured shape (pages/parts/TestCardPartAssistEditKey.al:11-38, fixtures TestCardPartAssistEditKey1Fixture*.al): a CardPart
+//! with InsertAllowed = false, a stored source table keyed by one Code field, no OnAfterGetRecord or OnAfterGetCurrRecord, no
+//! page extension and no subscriber, on a Document the test opened with OpenEdit (:52) linked by one `field(...)` entry on
+//! that key; AssistEdit reads the filter's key in Rec before the row exists (:17-18). The part lands on the row
 //! the trigger inserted only when Rec equals that stored row. Other shapes keep main's result.
 
 use super::*;
@@ -36,6 +37,7 @@ impl Session {
             || !effective_prop(&engine, st.borrow().object as usize, "InsertAllowed")?
                 .is_some_and(|value| value.trim().eq_ignore_ascii_case("false"))
             || engine.object_facts[host.borrow().object as usize].page_type != Some(ir::PageType::Document)
+            || !host.borrow().test_open_edit()
         {
             return Ok(None);
         }
@@ -75,8 +77,6 @@ impl Session {
             };
             (key, Value::Code(blank.clone()))
         };
-        // The real-BC LinkedPartAssist probe reads the filter's key in Rec before the row exists.
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LinkedCardPartAssistEdit);
         rec.borrow_mut().fields[field] = key.clone();
         Ok(Some((field, key, blank)))
     }

@@ -26,7 +26,8 @@
 //!   Word layout of the report: [`Selection::TempWord`], and SelectedBuiltinLayoutType is not raised. Any other answer while
 //!   a selection was held is [`Selection::DesignTimeHeld`].
 //! - The same answer while no selection was held (the name is the company's Custom Layout row's code): a name of no Tenant
-//!   Report Layout row, while SelectedBuiltinLayoutType answers None, is [`Stored::CustomUnknownCode`]
+//!   Report Layout row, while SelectedBuiltinLayoutType answers None, for a report that declares an RDLC layout in its
+//!   rendering section, is [`Stored::CustomUnknownCode`]
 //!   (RxLayoutSelectionTests.al:746, :771). Any other answer is [`Selection::Unknown`].
 //!
 //! A run, and a save that does not reach the layout selection (processing only, a layout of Type Custom, the company build),
@@ -143,7 +144,10 @@ impl Session {
             }
             Select::Named(name) => {
                 let builtin = self.builtin_layout_type(schema)?;
-                let stored = if builtin == NONE && self.no_tenant_layout_named(&name)? {
+                // The report of the pin declares an RDLC layout (report 80020, RxLayoutSelFixtures.al; its RDLC row at
+                // RxLayoutSelectionTests.al:452).
+                let declares_rdlc = schema.report().rendering_layouts.iter().any(|l| l.kind == "rdlc");
+                let stored = if builtin == NONE && declares_rdlc && self.no_tenant_layout_named(&name)? {
                     Stored::CustomUnknownCode
                 } else {
                     Stored::None

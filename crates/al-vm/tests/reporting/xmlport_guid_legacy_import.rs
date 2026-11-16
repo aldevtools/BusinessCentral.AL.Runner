@@ -1,6 +1,5 @@
-//! An XmlPort without FormatEvaluate imports a text into a Guid field as corpus pull request 1340 measured
-//! (xmlports/import/XpLegacyGuidImport.al), under the assumption `xmlport-guid-legacy-import` (al-runner issue 7854). The
-//! texts that file does not measure at a site, and FixedText, keep main's refusal.
+//! An XmlPort without FormatEvaluate imports a text into a Guid field as xmlports/import/XpLegacyGuidImport.al measures it.
+//! The texts that file does not measure at a site, and FixedText, keep main's refusal.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -144,17 +143,14 @@ fn assert_mains_refusal(routine: &str, arg: &str) {
         other => panic!("{routine} {arg}: {other:?}"),
     }
     let hits = al_builtins::assumptions::take_hits();
-    assert!(
-        !hits.contains(&al_builtins::assumptions::Assumption::XmlportGuidLegacyImport),
-        "{routine} {arg}: {hits:?}"
-    );
+    assert!(hits.is_empty(), "{routine} {arg}: {hits:?}");
 }
 
-/// The error is measured with one text, `not-a-guid` (XpLegacyGuidImport.al:213, :244, :267). A text with a foreign character
-/// that lacks one of its facts (no white space, no bracket, lower-case letters and dashes, a letter outside a-f) keeps main's
-/// refusal at every site (review round 1 of PR 7938).
+/// The error is measured with one text, `not-a-guid` (XpLegacyGuidImport.al:213, :244, :267). Every other text with a foreign
+/// character keeps main's refusal at every site, also one with each of its facts (lower-case letters and dashes, a letter
+/// outside a-f).
 #[test]
-fn texts_unlike_the_measured_invalid_sample_keep_mains_refusal() {
+fn texts_other_than_the_measured_invalid_sample_keep_mains_refusal() {
     let g = &G[1..G.len() - 1];
     let texts = [
         // A tab around the Guid, a line break and indent around it.
@@ -175,6 +171,7 @@ fn texts_unlike_the_measured_invalid_sample_keep_mains_refusal() {
         "urn:uuid:not-a-guid".to_string(),
         "(not-a-guid)".to_string(),
         " not-a-guid".to_string(),
+        "another-word".to_string(),
     ];
     for t in &texts {
         for routine in ["Attr", "Elem", "Vt"] {

@@ -25,7 +25,6 @@ fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> 
     let nlocals = u16::try_from(r.locals.len()).ok()?;
     let mut c = Compiler {
         locals_ty: r.locals.iter().map(|l| l.ty.clone()).collect(),
-        globals: &o.globals,
         tys: DeclaredTypes {
             locals: r.locals.iter().map(|l| l.ty.clone()).collect(),
             lowered: al_ir::types::ExprTypes::new(r),
@@ -81,8 +80,6 @@ struct LoopCtx {
 struct Compiler<'a> {
     /// The declared type of each local.
     locals_ty: Vec<RtType>,
-    /// The globals of the routine's object.
-    globals: &'a [ir::Slot],
     /// Where the static types come from; the instruction selection asks only this.
     tys: DeclaredTypes<'a>,
     chunk: Chunk,
@@ -365,7 +362,7 @@ impl<'a> Compiler<'a> {
         let (g, kind) = match id {
             ids::SYSTEM_CLEAR_1 | ids::SYSTEM_CLEAR_2 | ids::SYSTEM_CLEAR_3 => {
                 let g = global(args.first())?;
-                (g, self.replace_kind(g as usize))
+                (g, SingleWriteKind::Replace)
             }
             ids::RECORD_GET_1
             | ids::RECORD_GETBYSYSTEMID_1
@@ -1330,7 +1327,7 @@ impl<'a> Compiler<'a> {
         // refill (ADR-066 amendment 3, R1b; `WhenGotGLSetup := CurrentDateTime` in Get Shortcut Dimension Values). The
         // note is emitted after `x` is evaluated, just before the store: code that `x` calls may read `G` first.
         let single = match p {
-            ir::Place::Global(g) if free_of_global(e, *g, 0) => Some((*g as u32, self.replace_kind(*g))),
+            ir::Place::Global(g) if free_of_global(e, *g, 0) => Some((*g as u32, SingleWriteKind::Replace)),
             _ => None,
         };
         if self.variant_copy(p, e, single)? {
@@ -1374,32 +1371,6 @@ impl<'a> Compiler<'a> {
             }
         }
         Ok(())
-    }
-
-    /// How a write that replaces global `g` without using it is noted: `Reset` only for a global of a simple type, whose
-    /// value has no part a `Clear` or an assignment keeps; `Replace` (a touch) for every other type, such as a record
-    /// (`Clear` keeps a temporary record's rows, run-onrun/RunCommitClear.al:386-405; the runtime keeps the target's
-    /// filters on an assignment), a RecordRef, a collection or a handle.
-    fn replace_kind(&self, g: usize) -> SingleWriteKind {
-        match self.globals.get(g).map(|s| &s.ty) {
-            Some(
-                RtType::Integer
-                | RtType::BigInteger
-                | RtType::Decimal
-                | RtType::Boolean
-                | RtType::Char
-                | RtType::Text(_)
-                | RtType::Code(_)
-                | RtType::Date
-                | RtType::Time
-                | RtType::DateTime
-                | RtType::Duration
-                | RtType::Guid
-                | RtType::Option(_)
-                | RtType::Enum(_),
-            ) => SingleWriteKind::Reset,
-            _ => SingleWriteKind::Replace,
-        }
     }
 
     /// `p := Convert(Variant, x)` where `x` may be a Variant (`variant_copy::source_of`): a site of `variant_copy.rs`, which

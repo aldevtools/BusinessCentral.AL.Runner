@@ -3,10 +3,9 @@
 //! runner feeds BC's merger and converter equals the probe cells' (owner decision of 2026-11-15, "gate inputs, layout
 //! free"): the report, its columns and the row count here, the call in `super::call`, the fact vector in
 //! `report_save::html_cell`. The cells are the evidence that BC's own merger and converter, run by the runner on the
-//! build's own assemblies, give BC's bytes. Until a corpus bump pins the probe, each pass runs through the assumption
-//! `report-html-rendered-by-bc-converter`.
+//! build's own assemblies, give BC's bytes; the pinned corpus holds them.
 //!
-//! The cells (corpus pull request 1415, merged, not pinned; reports/html-email-body/RxHtmlHashTests.al):
+//! The cells (pinned corpus, reports/html-email-body/RxHtmlHashTests.al):
 //! Hash_WordAlpha_TwoRows (:192, report `RX Word Alpha`, RxHtmlBodyFixtures.al:53) and Hash_WordRgba_TwoRows (:218, report
 //! `RX Word Rgba`, RxLayoutSelFixtures.al:73). Each report has one data item over `RX Row` (RxHtmlBodyFixtures.al:12) with
 //! the field columns RowId (Integer) and RowTxt (Text), and a hand-built layout named by DefaultRenderingLayout; each save
@@ -18,7 +17,8 @@
 //! Bound report's columns with two rows: Plain_TwoRows (:394, the bound layout), Styles_ArialParagraphStyle (:440),
 //! Theme_FontScheme (:482) and Header_FromSectPr (:568), each the bound layout plus one part; Caption_RxCap_PlainBoundLayout
 //! (:614, a report `Caption`, the title). Numbering_BulletList_NoTabs (:524) keeps Part A: the converter pads the list label
-//! by its width in the host's fonts (`content_is_measured`).
+//! by its width in the host's fonts (`content_is_measured`). A save with a fact only these cells measured runs through the
+//! assumption `report-html-rendered-by-bc-converter` ([`rests_on_unpinned_cells`]).
 
 use super::layout_facts::LayoutFacts;
 use crate::dataset::ValueKind;
@@ -55,7 +55,11 @@ pub(crate) struct SaveShape {
 #[derive(Debug)]
 pub(crate) struct MeasuredShape {
     pub(crate) columns: &'static [ColumnKind],
+    /// The row counts of the pinned cells.
     pub(crate) rows: &'static [usize],
+    /// The row counts only cells of corpus pull request 1419 (merged, not pinned) measured: a save with one runs through the
+    /// assumption `report-html-rendered-by-bc-converter` ([`rests_on_unpinned_cells`]).
+    pub(crate) unpinned_rows: &'static [usize],
 }
 
 pub(crate) const SHAPES: &[MeasuredShape] = &[
@@ -63,9 +67,10 @@ pub(crate) const SHAPES: &[MeasuredShape] = &[
     MeasuredShape {
         columns: &[ColumnKind::IntegerField, ColumnKind::TextField],
         rows: &[2],
+        unpinned_rows: &[],
     },
     // Bound_OneRow and Bound_ThreeRows: RowId, RowTxt, Amount and Day, one or three rows; two rows in the cells of
-    // RxHtmlWidenTests.al (Html.Rows(2), :403, :445, :487, :573, :619).
+    // corpus pull request 1419 (merged, not pinned; RxHtmlWidenTests.al Html.Rows(2), :403, :445, :487, :573, :619).
     MeasuredShape {
         columns: &[
             ColumnKind::IntegerField,
@@ -73,7 +78,8 @@ pub(crate) const SHAPES: &[MeasuredShape] = &[
             ColumnKind::DecimalExpression,
             ColumnKind::DateExpression,
         ],
-        rows: &[1, 2, 3],
+        rows: &[1, 3],
+        unpinned_rows: &[2],
     },
 ];
 
@@ -116,11 +122,11 @@ const PARTS: &[&str] = &[
     "docProps/app.xml",
     "word/_rels/document.xml.rels",
     "word/document.xml",
-    "word/header1.xml",
     "word/settings.xml",
-    "word/styles.xml",
-    "word/theme/theme1.xml",
 ];
+
+/// The parts only the layouts of corpus pull request 1419 (merged, not pinned) have.
+const UNPINNED_PARTS: &[&str] = &["word/header1.xml", "word/styles.xml", "word/theme/theme1.xml"];
 
 /// The relationship types of the measured layouts' `_rels/.rels` and `word/_rels/document.xml.rels`, each with an internal
 /// target (no `TargetMode`): the four of corpus pull request 1415's layouts, then the styles, theme and header
@@ -130,6 +136,10 @@ const RELATIONSHIPS: &[&str] = &[
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties",
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings",
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml",
+];
+
+/// The relationship types only the layouts of corpus pull request 1419 (merged, not pinned) have.
+const UNPINNED_RELATIONSHIPS: &[&str] = &[
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles",
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header",
@@ -153,16 +163,13 @@ const DOCUMENT_ELEMENTS: &[&str] = &[
     "w:docGrid",
     "w:document",
     "w:gridCol",
-    "w:headerReference",
     "w:highlight",
     "w:id",
     "w:p",
     "w:pPr",
-    "w:pStyle",
     "w:pgMar",
     "w:pgSz",
     "w:r",
-    "w:rFonts",
     "w:rPr",
     "w:sdt",
     "w:sdtContent",
@@ -183,6 +190,9 @@ const DOCUMENT_ELEMENTS: &[&str] = &[
 ];
 
 /// The element names of the measured layouts' `word/settings.xml`.
+/// The element names of `word/document.xml` only the layouts of corpus pull request 1419 (merged, not pinned) use.
+const UNPINNED_DOCUMENT_ELEMENTS: &[&str] = &["w:headerReference", "w:pStyle", "w:rFonts"];
+
 const SETTINGS_ELEMENTS: &[&str] = &["w:compat", "w:compatSetting", "w:settings", "w:useFELayout"];
 
 /// The element names of RxWdStyles.docx's `word/styles.xml`: document defaults with a font size, and paragraph styles with a
@@ -257,7 +267,6 @@ const PART_ELEMENTS: &[(&str, &[&str])] = &[
 /// The namespace declarations of the measured layouts' XML parts under `word/` (prefix, URI): the document and settings
 /// parts, and the DrawingML namespace of RxWdTheme.docx's theme part (the styles and header parts declare only `w`).
 const NAMESPACES: &[(&str, &str)] = &[
-    ("a", "http://schemas.openxmlformats.org/drawingml/2006/main"),
     ("m", "http://schemas.openxmlformats.org/officeDocument/2006/math"),
     ("mc", "http://schemas.openxmlformats.org/markup-compatibility/2006"),
     ("o", "urn:schemas-microsoft-com:office:office"),
@@ -312,26 +321,59 @@ const NAMESPACES: &[(&str, &str)] = &[
 /// New Roman metric font. BC's converter saves with `HtmlSaveOptions(SaveFormat.Html) { ExportImagesAsBase64 = true }`:
 /// `ResolveFontNames` and `ExportFontResources` stay false, so font names go into the CSS as written.
 pub(crate) fn content_is_measured(f: &LayoutFacts) -> bool {
-    f.parts.iter().all(|p| PARTS.contains(&p.as_str()))
-        && f.relationships
-            .iter()
-            .all(|r| RELATIONSHIPS.contains(&r.kind.as_str()) && !r.external)
+    f.parts
+        .iter()
+        .all(|p| PARTS.contains(&p.as_str()) || UNPINNED_PARTS.contains(&p.as_str()))
+        && f.relationships.iter().all(|r| {
+            (RELATIONSHIPS.contains(&r.kind.as_str()) || UNPINNED_RELATIONSHIPS.contains(&r.kind.as_str()))
+                && !r.external
+        })
         && f.elements.iter().all(|(part, names)| {
             PART_ELEMENTS
                 .iter()
                 .find(|(p, _)| p == part)
-                .is_some_and(|(_, vocabulary)| names.iter().all(|e| vocabulary.contains(&e.as_str())))
+                .is_some_and(|(p, vocabulary)| {
+                    names.iter().all(|e| {
+                        vocabulary.contains(&e.as_str())
+                            || (*p == "word/document.xml" && UNPINNED_DOCUMENT_ELEMENTS.contains(&e.as_str()))
+                    })
+                })
         })
-        && f.namespaces
+        && f.namespaces.iter().all(|(p, u)| {
+            NAMESPACES.contains(&(p.as_str(), u.as_str())) || (p.as_str(), u.as_str()) == UNPINNED_NAMESPACE
+        })
+}
+
+/// The namespace declaration only the theme part of RxWdTheme.docx (corpus pull request 1419, merged, not pinned) has.
+const UNPINNED_NAMESPACE: (&str, &str) = ("a", "http://schemas.openxmlformats.org/drawingml/2006/main");
+
+/// Whether a measured save uses a fact only a cell of corpus pull request 1419 (merged, not pinned;
+/// reports/html-email-body/RxHtmlWidenTests.al:394, :440, :482, :568, :614) measured: a report Caption as the title, a row
+/// count of [`MeasuredShape::unpinned_rows`], or a part, relationship type, `word/document.xml` element or namespace
+/// declaration only those layouts have. Such a save runs through the assumption `report-html-rendered-by-bc-converter`;
+/// a save of only the pinned cells' facts (RxHtmlHashTests.al:192, :218, :395, :433, :471) does not.
+pub(crate) fn rests_on_unpinned_cells(table: &[MeasuredShape], f: &LayoutFacts, s: &SaveShape, title: &Title) -> bool {
+    title.caption
+        || table
             .iter()
-            .all(|(p, u)| NAMESPACES.contains(&(p.as_str(), u.as_str())))
+            .any(|m| m.columns == s.columns.as_slice() && m.unpinned_rows.contains(&s.rows))
+        || f.parts.iter().any(|p| UNPINNED_PARTS.contains(&p.as_str()))
+        || f.relationships
+            .iter()
+            .any(|r| UNPINNED_RELATIONSHIPS.contains(&r.kind.as_str()))
+        || f.elements
+            .get("word/document.xml")
+            .is_some_and(|names| names.iter().any(|e| UNPINNED_DOCUMENT_ELEMENTS.contains(&e.as_str())))
+        || f.namespaces
+            .iter()
+            .any(|(p, u)| (p.as_str(), u.as_str()) == UNPINNED_NAMESPACE)
 }
 
 /// Whether `s` equals one row of `table`.
 pub(crate) fn shape_is_measured(table: &[MeasuredShape], s: &SaveShape) -> bool {
     table
         .iter()
-        .any(|m| m.columns == s.columns.as_slice() && m.rows.contains(&s.rows))
+        .any(|m| m.columns == s.columns.as_slice() && (m.rows.contains(&s.rows) || m.unpinned_rows.contains(&s.rows)))
 }
 
 /// Whether the converter assembly's version (`[major, minor, build, revision]`) is the one a cell measured on `major`: read

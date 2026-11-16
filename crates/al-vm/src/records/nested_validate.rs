@@ -23,8 +23,10 @@ pub(crate) enum ValidateSite {
     AlRecordValidateVariant,
     /// `FieldRef.Validate`.
     FieldRef,
-    /// The write of a TestPage control (SetValue and the like).
-    TestPageControl,
+    /// The write of a TestPage control (SetValue and the like). `new_line_of_trapped_static_card`: the control is on the line
+    /// `New()` started on a Card that a static `Page.Run(Id, Rec)` opened and `TestPage.Trap()` caught
+    /// (`Session::new_line_of_trapped_static_card`).
+    TestPageControl { new_line_of_trapped_static_card: bool },
     /// The field element or attribute of an XmlPort import.
     XmlPortField,
     /// A part's link value stamped on its new line.

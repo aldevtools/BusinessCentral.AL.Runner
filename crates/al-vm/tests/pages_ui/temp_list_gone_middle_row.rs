@@ -2,7 +2,7 @@
 //! 7940; open corpus PR 1367, testpage/lifecycle/ReopenSameVariableState.al:469 TempListRowGone_CloseReopen_DeleteAgain): BC
 //! lands on the row before it. The page copies the probe's; the neighbors flip one fact each.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use al_builtins::assumptions::take_hits;
 use al_builtins::native::Signal;
 use al_testkit::{run_in, text};
 
@@ -302,7 +302,7 @@ fn the_list_lands_on_the_row_before_the_deleted_one() {
         text(run_in(SRC, "T", "Probe")),
         "[open agcr(R3) agcr(R1) agcr(R2)] R1 [del(R2) agcr(R1) agcr(R1)] R3 [agcr(R3)] [close] R3 [open agcr(R3) agcr(R1) agcr(R2)] R1 [del(R2) agcr(R1) agcr(R1)] R3 [agcr(R3)] [close]"
     );
-    assert!(take_hits().contains(&Assumption::TempReadOnlyListGoneMiddleRowLandsBefore));
+    assert!(take_hits().is_empty());
 }
 
 /// The neighbors of the probe's cell on a list over a temporary table: refused.
@@ -340,5 +340,5 @@ fn unmeasured_neighbors_are_refused() {
 fn a_stored_list_keeps_mains_next_row() {
     take_hits();
     assert_eq!(text(run_in(SRC, "T", "StoredList")), "R3");
-    assert!(!take_hits().contains(&Assumption::TempReadOnlyListGoneMiddleRowLandsBefore));
+    assert!(take_hits().is_empty());
 }

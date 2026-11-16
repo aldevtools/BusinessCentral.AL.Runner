@@ -77,7 +77,8 @@ fn measured_line_break_stream(ctx: &dyn Ctx, s: &InState) -> bool {
 }
 
 /// What happened to a Blob buffer since it was made or cleared, as far as `ToBase64(InStream, true[, OutStream])` asks
-/// (Base64LineBreaks.al:53-61, :284-286, :364-367, :385-389). A copy of the buffer starts again ([`LineBreakHistory::cleared`]),
+/// (Base64LineBreaks.al:53-61, :284-286, :364-367, :385-389) and the mark of an assigned copy asks
+/// ([`LineBreakHistory::one_text_write`]). A copy of the buffer starts again ([`LineBreakHistory::cleared`]),
 /// so it is not the measured buffer.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LineBreakHistory {
@@ -115,6 +116,12 @@ impl LineBreakHistory {
         if enc == Encoding::MsDos {
             self.default_text_writes += 1;
         }
+    }
+
+    /// Whether the buffer holds what one `WriteText(Text)` through the one `CreateOutStream` of the default encoding on it empty
+    /// wrote, and nothing else edited it since it was made or cleared (al-vm `blob_transfer::assigned_write`).
+    pub fn one_text_write(&self, content_edits: u32) -> bool {
+        self.text_writes(content_edits) == Some(1)
     }
 
     /// How many `WriteText(Text)` calls (0 or 1) wrote the buffer when every edit of it since it was made or cleared is the one

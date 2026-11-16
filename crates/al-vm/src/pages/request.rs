@@ -609,11 +609,11 @@ impl Session {
         let target = crate::reports::SaveTarget::File(name);
         // `None`: the ADR-040 allow-list's answer, run and write nothing.
         let placeholder = {
-            use crate::report_save::{AnswerForm, BeforeRun};
+            use crate::report_save::{AnswerForm, BeforeRun, Call};
             let Some(f) = crate::report_placeholder::Format::from_name(format) else {
                 return unsupported(format!("SaveAs{format} of \"{}\"", schema.name()));
             };
-            match self.save_before_run(&schema, f, &target, AnswerForm::None, false)? {
+            match self.save_before_run(&schema, f, (&target, Call::Other), AnswerForm::None, false)? {
                 BeforeRun::Run(plan) => Some(crate::report_placeholder::SaveOutput::Rendered(Box::new(plan))),
                 BeforeRun::Discard => None,
                 // No row of the request page's form answers before the run (`report_save` test

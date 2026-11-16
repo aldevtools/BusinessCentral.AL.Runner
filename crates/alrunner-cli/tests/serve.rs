@@ -2231,3 +2231,90 @@ fn a_request_and_an_entry_set_the_test_time_limit_on_the_kept_compile() {
         "{lines:?}"
     );
 }
+
+// al-runner issue 7775: the reporter's repro, a FindSet on the Company table.
+const COMPANY_FINDSET: &str = r#"
+codeunit 50420 "Company FindSet"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FindSetAll()
+    var
+        C: Record Company;
+    begin
+        if C.FindSet() then;
+    end;
+}
+"#;
+
+/// al-runner issue 7775: `companies` is `--companies` for one request. Without it (and without the server's flag) the
+/// FindSet is refused, and the refusal names the flag and the field; a request without it does not keep the last one's.
+#[test]
+fn the_companies_field_is_the_companies_flag_for_one_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "companies", COMPANY_FINDSET);
+    // The Company table is a table of the platform's System app, which the app names through `platform`.
+    let manifest = std::fs::read_to_string(a.join("app.json")).unwrap();
+    write(
+        &a,
+        "app.json",
+        &manifest.replace(r#""dependencies""#, r#""platform":"27.0.0.0","dependencies""#),
+    );
+    let packages = d.path().join("packages");
+    std::fs::create_dir_all(&packages).unwrap();
+    std::fs::copy(al_testfiles::system_app(), packages.join("System.app")).unwrap();
+    let run = |s: &mut Server, req: Value| -> (Value, Value) {
+        s.send(req);
+        let lines = s.until_summary();
+        let t = lines
+            .iter()
+            .find(|l| l["type"] == "test")
+            .unwrap_or_else(|| panic!("{lines:?}"));
+        (t["status"].clone(), t["message"].clone())
+    };
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    let refused = |o: &(Value, Value)| {
+        let m = o.1.as_str().unwrap_or_default();
+        o.0 != "pass" && m.contains("--companies") && m.contains("`companies`")
+    };
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
+    );
+    assert!(refused(&o), "{o:?}");
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": "CRONUS International Ltd."}),
+    );
+    assert_eq!(o.0, "pass", "{o:?}");
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
+    );
+    assert!(refused(&o), "the next request without the field: {o:?}");
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": ["CRONUS International Ltd."]}));
+    let lines = s.until_summary();
+    assert!(lines[0]["error"].as_str().unwrap().contains("`companies`"), "{lines:?}");
+    s.send(json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages], "companies": "Other,CRONUS International Ltd."}));
+    let lines = s.until_summary();
+    assert_eq!(
+        lines[0]["error"].as_str(),
+        Some("`companies`: the first company must be the session company `CRONUS International Ltd.`, not `Other`"),
+        "the session company comes first: {lines:?}"
+    );
+    // The server's `--companies` holds for a request without the field, as the CLI flag does.
+    let mut s = Server::start(&[
+        "--no-download",
+        "--no-test-data",
+        "--companies",
+        "CRONUS International Ltd.",
+    ]);
+    s.line();
+    let o = run(
+        &mut s,
+        json!({"command": "runTests", "sourcePaths": [a], "packagePaths": [packages]}),
+    );
+    assert_eq!(o.0, "pass", "{o:?}");
+}

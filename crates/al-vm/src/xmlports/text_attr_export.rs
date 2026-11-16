@@ -1,10 +1,8 @@
 //! Export of a text element with one field attribute and its own text below a temporary table element (al-runner issue 7865):
-//! the shapes corpus PR 1366 measures (xmlports/shapes-properties/XpTextElemFieldAttrExport.al:468-533), under the assumption
-//! `xmlport-text-elem-field-attr-export`. al-sema `xmlports/assumed_shapes.rs` `text_attr_export` decides the shape and marks
-//! the element (`ir::XmlNode::text_attr_export`).
+//! the shapes xmlports/shapes-properties/XpTextElemFieldAttrExport.al:468-533 measures. al-sema `xmlports/measured_shapes.rs`
+//! `text_attr_export` decides the shape and marks the element (`ir::XmlNode::text_attr_export`).
 
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
 
 impl Session {
     /// The element in the measured shape: its OnBeforePassVariable, then the element, always written, with the attribute read
@@ -19,7 +17,6 @@ impl Session {
                 schema.node(child).name
             ));
         }
-        assume(Assumption::XmlportTextElemFieldAttrExport);
         let mut e = Elem::new(&doc_name(schema, child));
         self.xp_export_content(inst, schema, child, &mut e)?;
         if !text.is_empty() {

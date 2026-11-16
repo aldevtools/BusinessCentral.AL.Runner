@@ -1869,9 +1869,8 @@ const XAPP_E_JPEG: [u8; 307] = [
 
 /// al-runner issue 8061: the Published Application Logo of an app whose manifest declares a baseline JPEG logo is a media with a
 /// value and the same id on every read; its Media row holds the file's bytes unchanged, the picture's size, every other column
-/// empty, and Mime Type image/png on BC 27.5 and 28.5, image/jpeg on BC 29.0 (corpus PR 1412, merged, not pinned:
-/// onprem session-system/UsAppLogoJpeg.al:82-120). A flagged pass (assumption published-application-jpeg-logo). A progressive
-/// JPEG stays refused.
+/// empty, and Mime Type image/png on BC 27.5 and 28.5, image/jpeg on BC 29.0 (onprem session-system/UsAppLogoJpeg.al:82-120,
+/// pinned). A pass without an assumption. A progressive JPEG, and a JPEG of another size, stay refused.
 #[test]
 fn issue_8061_extension_logo_of_an_app_with_a_jpeg_logo() {
     let main = |mime: &str| {
@@ -1909,14 +1908,14 @@ codeunit 50000 T {{ Subtype = Test;
     ] {
         let o = run_over_system_as(target, MAIN_ID, jpeg(), None, &main(mime));
         assert_eq!(o[0].1, Outcome::Pass, "{target:?}: {o:?}");
-        assert!(
-            o[0].2
-                .contains(&al_builtins::assumptions::Assumption::PublishedApplicationJpegLogo),
-            "{target:?}: a flagged pass"
-        );
+        assert!(o[0].2.is_empty(), "{target:?}: pinned, no assumption");
     }
-    // A JPEG built otherwise than the measured one: not measured, refused as on main.
-    for other in unmeasured_jpegs() {
+    // A JPEG built otherwise than the measured one, or built so in another size than 8 x 8: not measured, refused as on main.
+    let sized = [
+        include_bytes!("../fixtures/jpeg/wide16x8.jpg").to_vec(),
+        include_bytes!("../fixtures/jpeg/big400x300.jpg").to_vec(),
+    ];
+    for other in unmeasured_jpegs().into_iter().chain(sized) {
         let o = run_over_system_as(
             None,
             MAIN_ID,
@@ -1995,8 +1994,8 @@ fn jfif_logo_size_takes_the_measured_structure_only() {
     }
 }
 
-/// al-runner issue 8061: a dependency app published as global rests on `dependency-published-as-global`; its JPEG logo, which
-/// rests on `published-application-jpeg-logo`, is not served on that row (one assumption per row), and its Media row is not
+/// al-runner issue 8061: a dependency app published as global rests on `dependency-published-as-global`; its JPEG logo, pinned
+/// only on a row that rests on no assumption (UsAppLogoJpeg.al:82-120), is not served on that row, and its Media row is not
 /// listed either (`apps::served_logo`, the one owner of both). A read of the Logo refuses.
 #[test]
 fn issue_8061_jpeg_logo_of_a_dependency_published_as_global_is_refused() {
@@ -2012,7 +2011,7 @@ codeunit 50000 T {{ Subtype = Test;
     let jpeg = Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
     let o = run_over_system_with(None, MAIN_ID, None, Some((dep, jpeg.clone())), true, &main);
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
-    // Published as Dev (the default): the logo is served on the JPEG assumption.
+    // Published as Dev (the default): the logo is served, without an assumption.
     let o = run_over_system_with(None, MAIN_ID, None, Some((dep, jpeg)), false, &main);
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
@@ -2929,6 +2928,14 @@ fn issue_7877_other_group_two_flowfilter_shapes_keep_their_refusals() {
                 r#"Source.SetRange("Kind Filter", Source."Kind Filter"::Other, Source."Kind Filter"::Selected);"#,
             ),
         ),
+        // The pin sets the group 2 filter with SetRange (TestRecordEnumFlowFilterGroup.al:139); SetFilter is not measured.
+        (
+            "SetFilter",
+            source.replace(
+                narrow,
+                r#"Source.SetFilter("Kind Filter", '%1', Source."Kind Filter"::Selected);"#,
+            ),
+        ),
         (
             "assigned buffer",
             source.replace(
@@ -2988,6 +2995,38 @@ codeunit 50993 T {
     all_pass(run_with_deps(&[], source));
 }
 
+/// The pin calls `CurrPage.SaveRecord()` on a ListPart (TestCurrPageSaveRecordName1Fixture51744.al:9,28); on a Card the
+/// same collision is not measured and refuses.
+#[test]
+fn currpage_save_record_collision_on_a_card_refuses() {
+    let source = r#"
+page 50992 "Save Collision Control" {
+    PageType = Card;
+    layout { area(Content) { field(Observed; Called) {} } }
+    actions { area(Processing) {
+        action(Check) { trigger OnAction() begin CurrPage.SaveRecord(); end; }
+    } }
+    var Called: Boolean;
+    internal procedure SaveRecord() begin Called := true; end;
+}
+codeunit 50993 T {
+    Subtype = Test;
+    [Test] procedure CurrPageCall() var P: TestPage "Save Collision Control";
+    begin
+        P.OpenView();
+        P.Check.Invoke();
+        if P.Observed.AsBoolean() then Error('CurrPage.SaveRecord invoked the page procedure.');
+        P.Close();
+    end;
+}
+"#;
+    let outcomes = run_with_deps(&[], source);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(why))] if why.contains("internal SaveRecord")),
+        "{outcomes:?}"
+    );
+}
+
 #[test]
 fn extension_save_record_still_calls_the_base_procedure() {
     let outcomes = run_with_deps(
@@ -3033,6 +3072,21 @@ fn measured_card_new_skips_empty_part_current_record() {
     all_pass(run_with_deps(&[], include_str!("../fixtures/card-new-empty-part.al")));
 }
 
+/// The pin opens the Card host with the test's own OpenEdit (TestCardNewEmptyPartRead.al:22); a host that AL code ran and
+/// the test trapped is not measured and refuses.
+#[test]
+fn card_new_empty_part_on_a_trapped_host_refuses() {
+    let src = include_str!("../fixtures/card-new-empty-part.al").replace(
+        "        Document.OpenEdit();",
+        "        Document.Trap();\n        Page.Run(Page::\"Document Repro With Part\", Row);",
+    );
+    let outcomes = run_with_deps(&[], &src);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::NotRun(why))] if why.contains("host runs New()")),
+        "{outcomes:?}"
+    );
+}
+
 #[test]
 fn measured_report_extension_items_link_to_named_immediate_parents() {
     all_pass(run_with_deps(
@@ -3069,6 +3123,23 @@ fn report_extension_refuses_unmeasured_parent_references() {
             fixture.replacen("DataItemLink = ParentId = field(Id);", "", 1),
             "DataItemLinkReference",
         ),
+        // The pin adds the item with addbefore of a base sibling (TestReportExtensionParentLink.al:46-51): the other
+        // anchors that name the same parent are not measured.
+        (
+            "addlast",
+            fixture.replace("addbefore(Line)", "addlast(Header)"),
+            "DataItemLinkReference on an item added",
+        ),
+        (
+            "addfirst",
+            fixture.replace("addbefore(Line)", "addfirst(Header)"),
+            "DataItemLinkReference on an item added",
+        ),
+        (
+            "addafter",
+            fixture.replace("addbefore(Line)", "addafter(Line)"),
+            "DataItemLinkReference on an item added",
+        ),
     ] {
         let outcomes = run_with_deps(&[], &source);
         assert_eq!(outcomes.len(), 1, "{shape}: {outcomes:?}");
@@ -3085,6 +3156,27 @@ fn measured_trapped_card_sets_non_key_field_with_blank_part_rows() {
         &[],
         include_str!("../fixtures/trapped-card-draft-blank-part-rows.al"),
     ));
+}
+
+/// The pin runs the Card with a static `Page.Run(Id, Header)` (TestTrappedCardBlankPart.al:26); a Page.Run without a record
+/// is not measured and keeps the refusal.
+#[test]
+fn trapped_card_run_without_a_record_keeps_the_refusal() {
+    let source = include_str!("../fixtures/trapped-card-draft-blank-part-rows.al");
+    let changed = source.replace(
+        "        Page.Run(Page::\"Draft Probe Card\", Header);",
+        "        Page.Run(Page::\"Draft Probe Card\");",
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "SetValueOnNewCardWithBlankLinkedRows")
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::NotRun(reason) if reason.contains("whose part shows rows of the blank key")),
+        "{outcome:?}"
+    );
 }
 
 #[test]
@@ -3228,6 +3320,31 @@ fn measured_assist_edit_uses_the_linked_card_part_primary_key() {
     ));
 }
 
+/// The pin opens the Document host with the test's own OpenEdit (TestCardPartAssistEditKey.al:52); a trapped host keeps the
+/// previous result.
+#[test]
+fn linked_card_part_assist_edit_on_a_trapped_host_keeps_the_previous_result() {
+    let source = include_str!("../fixtures/linked-card-part-assist.al");
+    let changed = source.replacen(
+        "        Host.OpenEdit();\n        Host.GoToRecord(Header);\n",
+        "        Host.Trap();\n        Page.Run(Page::\"Linked Part Host\", Header);\n",
+        1,
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    let (_, outcome) = results
+        .iter()
+        .find(|(name, _)| name == "AssistEditUsesTheLinkedPrimaryKey")
+        .unwrap();
+    assert_eq!(
+        outcome,
+        &Outcome::Fail(
+            "Before Assist must be equal to 'DETAIL-A'  in Linked Part Detail Row: Code=DETAIL-A. Current value is ''."
+                .into()
+        )
+    );
+}
+
 #[test]
 fn issue_7883_neighbor_keeps_the_previous_result() {
     let source = include_str!("../fixtures/linked-card-part-assist.al");
@@ -3271,6 +3388,23 @@ fn default_update_propagation_keeps_main_scan_result() {
     );
 }
 
+/// The pin opens the Document host with the test's own OpenEdit (TestCardPartDrilldownRefresh.al:22); a trapped host is not
+/// measured and keeps main's scan result (no deferred reread).
+#[test]
+fn trapped_document_host_keeps_main_scan_result() {
+    let source = include_str!("../fixtures/card-part-drilldown-refresh.al");
+    let trapped = source.replace(
+        "        Document.OpenEdit();\n        Document.GoToRecord(Row);\n",
+        "        Document.Trap();\n        Page.Run(Page::\"Probe Packing Document\", Row);\n",
+    );
+    assert_ne!(source, trapped);
+    let outcomes = run_with_deps(&[], &trapped);
+    assert!(
+        matches!(outcomes.as_slice(), [(_, Outcome::Fail(reason))] if reason == "Before the next scan the page showed FIRST. The scan used package FIRST."),
+        "{outcomes:?}"
+    );
+}
+
 #[test]
 fn measured_literal_field_caption_reuses_the_resolution_on_repeated_reads() {
     all_pass(run_with_deps(&[], include_str!("../fixtures/literal-field-caption.al")));
@@ -3295,12 +3429,78 @@ fn issue_7884_caption_after_language_or_binding_change_stays_refused() {
     }
 }
 
+/// The pin writes a page-variable control without OnValidate between the reads
+/// (TestLiteralFieldCaptionResolution1Fixture*.al: `field(EditValue; EditValue)`); a write that runs an OnValidate is not
+/// measured and keeps the refusal.
+#[test]
+fn literal_field_caption_after_a_validated_write_stays_refused() {
+    let source = include_str!("../fixtures/literal-field-caption.al");
+    let changed = source.replace(
+        "field(EditValue; EditValue) { ApplicationArea = All; }",
+        "field(EditValue; EditValue) { ApplicationArea = All; trigger OnValidate() begin end; }",
+    );
+    assert_ne!(source, changed);
+    let results = run_with_deps(&[], &changed);
+    assert!(
+        matches!(results.as_slice(), [(_, Outcome::NotRun(reason))] if reason.contains("a second Caption()")),
+        "{results:?}"
+    );
+}
+
 #[test]
 fn measured_recordref_get_table_updates_the_shared_event_buffer() {
     all_pass(run_with_deps(
         &[],
         include_str!("../fixtures/recordref-gettable-shared.al"),
     ));
+}
+
+/// The pin hands GetTable an unfiltered Record in its primary key, on the copy of a pair of handles that share an unfiltered
+/// buffer in its primary key (TestRecordRefGetTableAlias.al:44-52). A filtered or keyed source, a filtered original and a
+/// third handle are not measured: GetTable refuses.
+#[test]
+fn recordref_get_table_on_an_alias_outside_the_pin_is_refused() {
+    let source = include_str!("../fixtures/recordref-gettable-shared.al");
+    let get_table = "        Row.Category := 7;\n        Alias.GetTable(Row);";
+    let vars = "        Alias: RecordRef;\n        Observed: Variant;\n";
+    assert!(source.contains(get_table) && source.contains(vars));
+    let shapes = [
+        (
+            "filtered source",
+            source.replace(get_table, "        Row.Category := 7;\n        Row.SetRange(Id, 1);\n        Alias.GetTable(Row);"),
+        ),
+        (
+            "source with another key",
+            source.replace(get_table, "        Row.Category := 7;\n        Row.SetCurrentKey(Category);\n        Alias.GetTable(Row);"),
+        ),
+        (
+            "filtered original",
+            source.replace(
+                "        Original.GetTable(Row);\n        Alias := Original;",
+                "        Original.GetTable(Row);\n        Original.Field(1).SetRange(1, 3);\n        Alias := Original;",
+            ),
+        ),
+        (
+            "three handles",
+            source
+                .replace(
+                    "        Alias := Original;\n        Row.Category := 7;\n        Alias.GetTable(Row);",
+                    "        Alias := Original;\n        Third := Alias;\n        Row.Category := 7;\n        Third.GetTable(Row);",
+                )
+                .replace(vars, &format!("{vars}        Third: RecordRef;\n")),
+        ),
+    ];
+    for (shape, changed) in shapes {
+        assert_ne!(source, changed, "{shape}");
+        let outcome = outcome_named(
+            &run_with_deps(&[], &changed),
+            "GetTableUpdatesAnAssignedAliasOfTheSameTable",
+        );
+        assert!(
+            matches!(&outcome, Outcome::NotRun(reason) if reason.contains("GetTable on a RecordRef that shares")),
+            "{shape}: {outcome:?}"
+        );
+    }
 }
 
 #[test]

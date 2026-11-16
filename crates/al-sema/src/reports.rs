@@ -1663,10 +1663,19 @@ pub fn build_ext(cx: &ExtContext, obj: &ast::Object) -> (ir::ReportExt, Vec<Stri
             .section
             .properties()
             .any(|p| p.name().eq_ignore_ascii_case("DataItemLinkReference"));
+        // Pinned (TestReportExtensionParentLink.al:46-61, :72): an item added with addbefore of a base sibling names its
+        // base parent, and an item nested in an added item names that item. Every other anchor refuses.
+        let pinned_anchor = (base_parent.is_some() && matches!(place, ir::AddedPlace::Before(ir::ItemAnchor::Base(_))))
+            || (raw.target.is_none() && parent.is_some());
+        if explicit_parent_link && !pinned_anchor {
+            reasons.push(format!(
+                "dataitem {}: DataItemLinkReference on an item added by addfirst, addlast or addafter is not pinned",
+                raw.name
+            ));
+        }
         added.push(ir::AddedItem {
             item,
             base_parent,
-            explicit_parent_link,
             place,
         });
     }

@@ -126,6 +126,8 @@ mod tests {
         }
     }
 
+    type Files<'a> = Vec<(&'a str, &'a str)>;
+
     const SUB: &str = "codeunit 50 Sub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnX', '', false, false)] \
                        local procedure H() begin end; }";
 
@@ -134,7 +136,7 @@ mod tests {
     /// second file instead.
     fn workspace(header: &str, scanned: bool) -> Workspace {
         let sub = format!("{header}\n{SUB}");
-        let (b_files, s_files): (Vec<(&str, &str)>, Vec<(&str, &str)>) = if scanned {
+        let (b_files, s_files): (Files, Files) = if scanned {
             (
                 vec![("b.al", "namespace B;\ncodeunit 20 Pub { }"), ("bs.al", &sub)],
                 vec![],

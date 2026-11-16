@@ -4,8 +4,8 @@ use super::call::{MEASURED_CALL, SaveCall, Stream};
 use super::layout_facts::{LayoutFacts, Relationship};
 use super::save_is_measured;
 use super::shape::{
-    BUILDS, ColumnKind, SHAPES, SaveShape, build_is_measured, content_is_measured, converter_is_measured,
-    shape_is_measured,
+    BUILDS, ColumnKind, SHAPES, SaveShape, Title, build_is_measured, content_is_measured, converter_is_measured,
+    rests_on_unpinned_cells, shape_is_measured,
 };
 use crate::report_save::Renders;
 
@@ -475,4 +475,49 @@ fn an_app_with_a_translation_file_of_the_call_language_may_translate_the_caption
     std::sync::Arc::make_mut(&mut l.program).apps[app].translations = true;
     let s = session(l);
     assert!(s.app_translates_into(object, 1033));
+}
+
+/// The layout facts of RxHashBound.docx without an extra part (the bound layout of the pinned cells).
+fn bound_layout() -> LayoutFacts {
+    let mut f = header();
+    f.parts.remove("word/header1.xml");
+    f.elements.remove("word/header1.xml");
+    f.relationships.retain(|r| !r.kind.ends_with("/header"));
+    f.elements
+        .get_mut("word/document.xml")
+        .unwrap()
+        .remove("w:headerReference");
+    f
+}
+
+fn name_title() -> Title {
+    Title {
+        text: "RX Hash Bound".into(),
+        caption: false,
+    }
+}
+
+#[test]
+fn only_a_save_with_a_fact_of_corpus_pull_request_1419_rests_on_the_assumption() {
+    // The pinned cells: RxHtmlHashTests.al:192, :218 (two field columns, two rows), :395 and :433 (four columns, one and
+    // three rows), with the report name as the title and the bound layout's facts.
+    let pinned = bound_layout();
+    assert!(content_is_measured(&pinned));
+    for s in [cell_shape(), bound_shape(1), bound_shape(3)] {
+        assert!(!rests_on_unpinned_cells(SHAPES, &pinned, &s, &name_title()), "{s:?}");
+    }
+    // Each fact only RxHtmlWidenTests.al measured: two rows of the four columns (:394), a Caption as the title (:614), the
+    // styles (:440), theme (:482) and header (:568) parts.
+    assert!(rests_on_unpinned_cells(SHAPES, &pinned, &bound_shape(2), &name_title()));
+    let caption = Title {
+        text: "RX Wd Caption".into(),
+        caption: true,
+    };
+    assert!(rests_on_unpinned_cells(SHAPES, &pinned, &bound_shape(1), &caption));
+    for f in [styles(), theme(), header()] {
+        assert!(
+            rests_on_unpinned_cells(SHAPES, &f, &bound_shape(1), &name_title()),
+            "{f:?}"
+        );
+    }
 }
