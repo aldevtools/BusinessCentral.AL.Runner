@@ -111,8 +111,11 @@ fn outcomes_with_baseline(
         "expected dependency install roots"
     );
     if let Some(baseline) = &baseline {
-        Arc::get_mut(&mut engine).expect("baseline session dropped").unseeded =
-            baseline.unseeded.iter().map(|&table| table as usize).collect();
+        Arc::get_mut(&mut engine).expect("baseline session dropped").unseeded = baseline
+            .unseeded
+            .iter()
+            .map(|(&table, reason)| (table as usize, Arc::from(reason.as_str())))
+            .collect();
     }
     let oi = l
         .program
@@ -187,6 +190,62 @@ fn per_company_install_code_runs_in_each_declared_company_then_per_database() {
             end; }}"
     ));
     all_pass(&o);
+}
+
+#[test]
+fn install_code_gets_fresh_single_instances_in_each_company_and_database() {
+    let o = outcomes(&format!(
+        "{COMPANY_TABLE}
+        table 60900 Log {{ DataPerCompany = false; fields {{ field(1; Id; Integer) {{ AutoIncrement = true; }} field(2; Company; Text[30]) {{ }} field(3; N; Integer) {{ }} }} }}
+        codeunit 60904 Cache {{ SingleInstance = true; var N: Integer; procedure Next(): Integer begin N += 1; exit(N); end; }}
+        codeunit 60905 Inst {{ Subtype = Install;
+            trigger OnInstallAppPerCompany() var C: Codeunit Cache; R: Record Log; begin
+                R.Company := CompanyName(); R.N := C.Next(); R.Insert();
+            end;
+            trigger OnInstallAppPerDatabase() var C: Codeunit Cache; R: Record Log; begin
+                R.Company := CompanyName(); R.N := C.Next(); R.Insert();
+            end; }}
+        codeunit 60102 T {{ Subtype = Test;
+            [Test] procedure EveryInstallStartsFresh() var R: Record Log; S: Text; begin
+                R.SetCurrentKey(Id);
+                if R.FindSet() then repeat S += Format(R.Id) + ':' + R.Company + ':' + Format(R.N) + ';'; until R.Next() = 0;
+                if S <> '1:CRONUS International Ltd.:1;2:My Company:1;3::1;' then Error('%1', S);
+            end; }}"
+    ));
+    all_pass(&o);
+}
+
+#[test]
+fn each_test_codeunit_starts_with_fresh_single_instance_state() {
+    let src = format!(
+        "{COMPANY_TABLE}
+        codeunit 60904 Cache {{ SingleInstance = true; var N: Integer; procedure Next(): Integer begin N += 1; exit(N); end; }}
+        codeunit 60102 First {{ Subtype = Test; [Test] procedure StartsAtOne() var C: Codeunit Cache; begin if C.Next() <> 1 then Error('first codeunit was not fresh'); end; }}
+        codeunit 60103 Second {{ Subtype = Test; [Test] procedure StartsAtOne() var C: Codeunit Cache; begin if C.Next() <> 1 then Error('second codeunit was not fresh'); end; }}"
+    );
+    al_testrun::host::set_companies(al_host::Companies::List(vec![SESSION.into(), OTHER.into()]));
+    let rt = al_testrun::runtime::CorpusRuntime::run_for_apps(
+        vec![AppSource {
+            id: "main".into(),
+            name: "main".into(),
+            dependencies: Vec::new(),
+            files: vec![("main.al".into(), src)],
+        }],
+        vec![al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+    );
+    for (codeunit, name) in [(60102, "StartsAtOne"), (60103, "StartsAtOne")] {
+        assert_eq!(
+            rt.first_outcome(&al_testrun::CaseId {
+                codeunit,
+                name: name.into(),
+            }),
+            Outcome::Pass
+        );
+    }
 }
 
 // Dependency installs on a selected backup use each selected company, but Company-Initialize remains in the session

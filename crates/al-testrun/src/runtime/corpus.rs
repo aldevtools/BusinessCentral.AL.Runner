@@ -609,6 +609,12 @@ impl CorpusRuntime {
         // with the compile cache keeps a baseline.
         let uncovered = use_cache.then(|| super::baseline_key::uncovered_apps(manifests, &identities, n_cached));
         let any_lazy = lazy.iter().any(Option::is_some);
+        let company_install_events = opts.test_data.is_some()
+            && match crate::host::companies() {
+                al_host::Companies::One => false,
+                al_host::Companies::List(companies) => companies.len() > 1,
+                al_host::Companies::All => true,
+            };
         let fill_all = |apps: &mut Vec<al_sema::workspace::AppSource>| {
             for (a, l) in apps.iter_mut().zip(&lazy) {
                 if let Some(l) = l {
@@ -618,11 +624,7 @@ impl CorpusRuntime {
         };
         let roots = al_sema::check::Roots {
             baseline: baseline_wanted,
-            company_install_events: opts
-                .test_data
-                .as_ref()
-                .and_then(|data| data.provider.known_companies())
-                .is_some_and(|companies| companies.len() > 1),
+            company_install_events,
             company_data: opts
                 .company_data
                 .iter()

@@ -216,7 +216,11 @@ impl RootRun<'_> {
         for company in companies {
             session.reset_single_instances();
             session.set_company(&company);
-            let mut skipped: Vec<_> = self.stopped.iter().map(|root| (root.tables.clone(), root.cause.clone())).collect();
+            let mut skipped: Vec<_> = self
+                .stopped
+                .iter()
+                .map(|root| (root.tables.clone(), root.cause.clone()))
+                .collect();
             match crate::install::company_open(self.lowered, session, &skipped, true) {
                 Ok(()) => {
                     session.commit_transaction();
@@ -251,7 +255,11 @@ impl RootRun<'_> {
                         &refused,
                     );
                     for (tables, cause) in skipped.drain(skipped_before..) {
-                        self.stopped.push(StoppedRoot { tables, kept: false, cause });
+                        self.stopped.push(StoppedRoot {
+                            tables,
+                            kept: false,
+                            cause,
+                        });
                     }
                     if let Some(why) = unknown {
                         if let Some(&k) = company_roots.first() {

@@ -1995,6 +1995,19 @@ impl Session {
                         new[field] = ops::convert(v.clone(), &ty)?;
                     }
                 }
+                if !rec.borrow().temporary
+                    && self.is_company_table(&t)
+                    && let (Some(from), Some(to)) = (
+                        old.first().and_then(al_builtins::native::text_of),
+                        new.first().and_then(al_builtins::native::text_of),
+                    )
+                    && from != to
+                    && self.companies.iter().any(|company| company == &from)
+                {
+                    return unsupported(format!(
+                        "renaming selected company {from} under --companies is not supported (ADR-046)"
+                    ));
+                }
                 let auto_increment_refusal = self.check_rename_values(rec, &t, &old, &mut new)?;
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;

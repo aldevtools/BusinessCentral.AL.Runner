@@ -1145,6 +1145,8 @@ pub struct Session {
     /// The companies the run declared, the session company first (ADR-046 decision 2, `--companies`); empty for the
     /// default of one company.
     pub(crate) companies: Vec<String>,
+    /// Companies the selected test-data provider explicitly backs; this does not add companies to the host's declaration.
+    pub(crate) backed_companies: Vec<String>,
     /// (company, table) -> why the rows of a per-company table in a company other than the session company are not known
     /// (ADR-046 decision 6, `Session::mark_company_unknown`).
     pub(crate) company_unknown: std::collections::HashMap<(String, u32), String>,
@@ -1287,7 +1289,6 @@ impl Session {
         let clock_key = al_host::seed::clock_key(host.run_seed, 0, "");
         let mut ident = platform::Ident::of(&host);
         let declared = host.identity.companies();
-        let known_test_data_companies = engine.test_data.as_ref().and_then(|td| td.provider.known_companies());
         let restored = match declared {
             al_host::Companies::All => engine
                 .test_data
@@ -1296,14 +1297,12 @@ impl Session {
             _ => None,
         };
         ident.resolve_companies(declared, restored);
-        if let Some(selected) = known_test_data_companies {
-            for company in selected {
-                if !ident.companies.iter().any(|known| known == &company) {
-                    ident.companies.push(company);
-                }
-            }
-        }
         let companies = ident.companies.clone();
+        let backed_companies = engine
+            .test_data
+            .as_ref()
+            .and_then(|data| data.provider.known_companies())
+            .unwrap_or_default();
         let event_stats = Rc::new(platform::EventStats::default());
         let media = al_builtins::media::MediaStore::default();
         let mut store = al_data::memory::MemStore::with_virtual_tables(Rc::new(platform::Providers::new(
@@ -1339,6 +1338,7 @@ impl Session {
             waited_ms: 0,
             resource_reads: Default::default(),
             companies,
+            backed_companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),
             run_trigger_unknown: None,

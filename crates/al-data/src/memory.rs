@@ -687,9 +687,10 @@ impl MemStore {
 
     /// The backing's rows of table `object` in `company`; a copy reads those of the company it was copied from.
     fn backing_rows(&self, company: &str, object: u32) -> Option<Rows> {
-        if self
-            .dropped_backed_companies
-            .contains_key(&std::sync::Arc::from(company))
+        if !self.dropped_backed_companies.is_empty()
+            && self
+                .dropped_backed_companies
+                .contains_key(&std::sync::Arc::from(company))
         {
             return None;
         }
@@ -706,6 +707,9 @@ impl MemStore {
         let source = self.copy_source(source);
         self.copies.insert(copy.into(), source.clone());
         self.committed_copies.insert(copy.into(), source);
+        let copy = std::sync::Arc::from(copy);
+        self.dropped_backed_companies.remove(&copy);
+        self.committed_dropped_backed_companies.remove(&copy);
     }
 
     /// The company whose backing rows `company` holds: its source if it is a copy, else itself.
@@ -1273,9 +1277,13 @@ impl MemStore {
                 self.shapes.insert(target, self.counter);
             }
         }
-        if let Some(source) = self.copies.remove(&std::sync::Arc::from(old)) {
+        let source = self.copy_source(old);
+        self.copies.remove(&std::sync::Arc::from(old));
+        if self.backing.is_some() {
             self.copies.insert(new.into(), source);
         }
+        self.dropped_backed_companies.insert(old.into(), ());
+        self.dropped_backed_companies.remove(&std::sync::Arc::from(new));
     }
 
     /// Copies every row of company `from` to company `to`, as they are (system fields included), as
@@ -1286,6 +1294,7 @@ impl MemStore {
             let source = self.copy_source(from);
             self.copies.insert(to.into(), source);
         }
+        self.dropped_backed_companies.remove(&std::sync::Arc::from(to));
         let copied: Vec<(Slot, Table)> = self
             .tables
             .iter()
@@ -2540,6 +2549,49 @@ mod tests {
         s.drop_company("E");
         assert_eq!(s.count(&crate::contract::cx("E"), &t, &[]).unwrap(), 0);
         assert!(!s.has_company_rows("E"));
+    }
+
+    #[test]
+    fn copying_to_a_deleted_backed_company_restores_its_source_rows() {
+        let (mut s, _) = backed();
+        let (t, source, copy) = (
+            crate::contract::table(),
+            crate::contract::cx("C"),
+            crate::contract::cx("D"),
+        );
+
+        s.drop_company("D");
+        s.copy_company("C", "D");
+
+        assert_eq!(s.count(&copy, &t, &[]).unwrap(), 3);
+        assert_eq!(s.count(&source, &t, &[]).unwrap(), 3);
+    }
+
+    #[test]
+    fn noting_a_copy_to_a_deleted_backed_company_restores_its_source_rows() {
+        let (mut s, _) = backed();
+        let (t, copy) = (crate::contract::table(), crate::contract::cx("D"));
+
+        s.drop_company("D");
+        s.note_copy("D", "C");
+
+        assert_eq!(s.count(&copy, &t, &[]).unwrap(), 3);
+    }
+
+    #[test]
+    fn renaming_to_a_deleted_backed_company_moves_its_source_rows() {
+        let (mut s, _) = backed();
+        let (t, old, new) = (
+            crate::contract::table(),
+            crate::contract::cx("C"),
+            crate::contract::cx("D"),
+        );
+
+        s.drop_company("D");
+        s.rename_company("C", "D");
+
+        assert_eq!(s.count(&new, &t, &[]).unwrap(), 3);
+        assert_eq!(s.count(&old, &t, &[]).unwrap(), 0);
     }
 
     #[test]

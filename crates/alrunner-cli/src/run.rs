@@ -393,10 +393,13 @@ fn open_backup_fresh(a: &TestArgs, path: PathBuf) -> Result<(TestData, PathBuf),
 
 fn resolved_companies(a: &TestArgs, data: Option<&TestData>) -> al_host::Companies {
     match (data, &a.companies) {
-        (Some(data), Some(al_host::Companies::List(_) | al_host::Companies::All)) => al_host::Companies::List(
+        (Some(data), Some(al_host::Companies::List(names))) => {
+            al_host::Companies::List(data.provider.known_companies().unwrap_or_else(|| names.clone()))
+        }
+        (Some(data), Some(al_host::Companies::All)) => al_host::Companies::List(
             data.provider
                 .known_companies()
-                .unwrap_or_else(|| vec![data.provider.company().to_string()]),
+                .unwrap_or_else(|| data.provider.companies()),
         ),
         _ => a.companies.clone().unwrap_or_default(),
     }
@@ -2720,6 +2723,48 @@ fn explain(
 #[cfg(test)]
 mod country_tests {
     use super::*;
+
+    struct ProviderWithoutKnownCompanies;
+
+    impl al_host::testdata::TableProvider for ProviderWithoutKnownCompanies {
+        fn company(&self) -> &str {
+            "Session"
+        }
+
+        fn companies(&self) -> Vec<String> {
+            vec!["Session".into(), "Other".into()]
+        }
+
+        fn source(&self) -> String {
+            "test".into()
+        }
+
+        fn read(
+            &self,
+            _: &al_host::testdata::TableRequest,
+        ) -> Result<Arc<al_host::testdata::TableRows>, al_host::testdata::TableError> {
+            Err(al_host::testdata::TableError::Absent)
+        }
+    }
+
+    #[test]
+    fn explicit_company_list_survives_a_provider_without_known_companies() {
+        let data = TestData::new(Arc::new(ProviderWithoutKnownCompanies));
+        let mut args = TestArgs {
+            companies: Some(al_host::Companies::List(vec!["Session".into(), "Other".into()])),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            resolved_companies(&args, Some(&data)),
+            al_host::Companies::List(vec!["Session".into(), "Other".into()])
+        );
+        args.companies = Some(al_host::Companies::All);
+        assert_eq!(
+            resolved_companies(&args, Some(&data)),
+            al_host::Companies::List(vec!["Session".into(), "Other".into()])
+        );
+    }
 
     #[test]
     fn backup_company_options_resolve_before_the_runtime_list_is_set() {

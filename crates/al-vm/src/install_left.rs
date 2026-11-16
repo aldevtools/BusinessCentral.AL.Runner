@@ -223,6 +223,8 @@ impl Session {
             host: _,
             // Made from the host's identity, the same in every session of the run.
             companies: _,
+            // Made from the shared test-data provider, the same in every session of the run.
+            backed_companies: _,
             // Carried: the Baseline.
             company_unknown: _,
             full_copies: _,

@@ -140,14 +140,39 @@ impl TableProvider for SelectedBackup {
 }
 
 fn run_with_selected_backup_data(body: &str) -> (Result<Value, Signal>, TestData) {
+    run_with_backup_data_and_companies(
+        body,
+        al_host::Companies::List(vec!["Main".into(), "Other".into()]),
+        None,
+    )
+}
+
+fn run_with_backup_data_and_companies(
+    body: &str,
+    companies: al_host::Companies,
+    unseeded: Option<usize>,
+) -> (Result<Value, Signal>, TestData) {
     let src = format!(
         "{TABLES}\ncodeunit 50100 C {{ procedure F(): Integer var R: Record \"CC Row\"; P: Record \"CC Shared Parent\"; Co: Record Company; Bad: Record \"CC Bad\"; N: Integer; begin {body} end; }}"
     );
     let lowered = al_testkit::compile(&src);
     let mut engine = al_vm::Engine::new(lowered.program.clone(), al_testkit::blocked(&lowered));
     let data = TestData::new(Arc::new(SelectedBackup));
-    Arc::get_mut(&mut engine).expect("engine is not shared").test_data = Some(data.clone());
-    let mut session = al_vm::Session::new(engine);
+    {
+        let engine = Arc::get_mut(&mut engine).expect("engine is not shared");
+        engine.test_data = Some(data.clone());
+        if let Some(id) = unseeded {
+            let object = lowered
+                .program
+                .objects
+                .iter()
+                .position(|object| object.id == Some(id as u32))
+                .expect("table object exists");
+            engine.unseeded.insert(object, "not installed".into());
+        }
+    }
+    let host = al_host::Host::default().with_companies(companies);
+    let mut session = al_vm::Session::with_host(engine, host);
     let oi = lowered
         .program
         .objects
@@ -179,6 +204,26 @@ fn selected_backup_companies_expose_their_company_rows() {
 }
 
 #[test]
+fn backup_companies_are_not_added_when_the_host_declares_one_company() {
+    let (result, _) = run_with_backup_data_and_companies("N := Co.Count(); exit(N);", al_host::Companies::One, None);
+    assert!(matches!(result, Ok(Value::Integer(1))), "{result:?}");
+}
+
+#[test]
+fn an_unseeded_table_stays_refused_in_a_selected_backup_company() {
+    let (result, _) = run_with_backup_data_and_companies(
+        "R.ChangeCompany('Other'); exit(R.Count());",
+        al_host::Companies::List(vec!["Main".into(), "Other".into()]),
+        Some(50910),
+    );
+    assert!(
+        matches!(&result, Err(Signal::Unsupported(reason))
+            if reason.contains("CC Row") && reason.contains("because not installed")),
+        "{result:?}"
+    );
+}
+
+#[test]
 fn selected_backup_company_rows_exclude_unselected_companies() {
     let (result, data) = run_with_selected_backup_data(
         "N := Co.Count(); if Co.Get('Unselected') then exit(-1); R.Get(1); R.ChangeCompany('Other'); R.Get(1); if R.ChangeCompany('Unselected') then exit(-2); exit(N);",
@@ -203,12 +248,29 @@ fn selected_backup_rows_block_renaming_a_shared_parent() {
 }
 
 #[test]
+fn renaming_a_selected_backup_company_is_refused_with_its_name() {
+    let result = run_with_selected_backup("Co.Get('Other'); Co.Rename('Renamed'); exit(1);");
+    assert!(
+        matches!(&result, Err(Signal::Unsupported(reason)) if reason.contains("Other")),
+        "{result:?}"
+    );
+}
+
+#[test]
 fn deleting_and_recreating_a_selected_backup_company_starts_empty() {
     // record/TestChangeCompanyFiltersCopyDeleteContracts.al:204-212.
     let result = run_with_selected_backup(
         "Co.Get('Other'); Co.Delete(true); Commit(); Co.Name := 'Other'; Co.Insert(); Commit(); R.ChangeCompany('Other'); exit(R.Count());",
     );
     assert!(matches!(result, Ok(Value::Integer(0))), "{result:?}");
+}
+
+#[test]
+fn rolling_back_company_deletion_restores_selected_backup_rows() {
+    let result = run_with_selected_backup(
+        "Co.Get('Other'); Co.Delete(true); ClearLastError(); asserterror Error('rollback'); R.ChangeCompany('Other'); exit(R.Count());",
+    );
+    assert!(matches!(result, Ok(Value::Integer(1))), "{result:?}");
 }
 
 #[test]

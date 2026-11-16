@@ -83,21 +83,12 @@ impl Session {
     /// baseline made for the session company, since a company BC creates holds such rows too.
     pub(crate) fn cx_for(&self, rec: &Rec, t: &TableDef) -> Result<AccessContext, Signal> {
         let r = rec.borrow();
-        let backed_company = self
-            .engine
-            .test_data
-            .as_ref()
-            .and_then(|data| data.provider.known_companies())
-            .is_some_and(|companies| {
-                companies
-                    .iter()
-                    .any(|known| r.company.as_deref().unwrap_or(&self.cx.company) == known)
-            });
+        let company = r.company.as_deref().unwrap_or(&self.cx.company);
+        let backed_company = self.backed_companies.iter().any(|known| known == company);
         // ADR-046 decision 5, under the `--companies` opt-in: in a declared company other than the session company only
         // the per-company tables of the apps under test are answered, unless the backup was explicitly selected to supply
         // that company's rows.
         if !self.companies.is_empty() && t.per_company && !r.temporary {
-            let company = r.company.as_deref().unwrap_or(&self.cx.company);
             if let Some(why) = self.company_unknown.get(&(company.to_string(), t.object)) {
                 return unsupported(format!("{} in company {company}: {why}", t.name));
             }
