@@ -29,6 +29,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "announceStart",
     "serverUrl",
     "license",
+    "companies",
     "tdd",
     "runSelectedOnly",
     "ignorePermissionMock",
@@ -345,6 +346,18 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
         None | Some(Value::Null) => {}
         Some(Value::String(p)) if !p.is_empty() => a.license = Some(PathBuf::from(p)),
         Some(_) => return Err("`license` is the path of a .bclicense file".into()),
+    }
+    // Issue 7775: `companies` is `--companies` for one request; absent, the server's.
+    match fields.get("companies") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(c)) => {
+            a.companies = Some(al_host::Companies::parse(c).map_err(|e| e.replace("--companies", "`companies`"))?);
+        }
+        Some(_) => {
+            return Err(
+                "`companies` is a text: company names, comma separated, the session company first, or `all`".into(),
+            );
+        }
     }
     // ADR-051 decision 1: `tdd` turns stubs on for this request; absent, the server's `--tdd` decides.
     if !matches!(fields.get("tdd"), None | Some(Value::Null)) {

@@ -373,16 +373,43 @@ fn dict_insert(d: &mut Vec<(Value, Value)>, k: Value, v: Value) {
     }
 }
 
-/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is the XmlNode
-/// that AsXmlNode of an unassigned XmlElement returned: not measured (al-builtins `xml/unassigned_element.rs`).
+/// `Contains`, `IndexOf`, `LastIndexOf` and `Remove` refuse when the searched value or an element of the list is an XML
+/// handle: no corpus case measures how BC compares two of them (al-runner issue 8165), and `eq` would answer "not equal".
+/// This includes the XmlNode that AsXmlNode of an unassigned XmlElement returned (al-builtins `xml/unassigned_element.rs`).
+/// A list holds values of one AL type, so the searched value and the first element decide.
 fn refuse_unmeasured_search(l: &[Value], v: &Value, member: &str) -> Result<(), Signal> {
-    let node = crate::xml::is_node_of_unassigned_element;
-    if node(v) || l.iter().any(node) {
+    if is_xml_handle(v) || l.first().is_some_and(is_xml_handle) {
         return Err(Signal::unsupported(format!(
-            "List.{member} with the XmlNode that AsXmlNode of an unassigned XmlElement returned (not measured)"
+            "List.{member} on a list of XML handles: how BC compares them is not measured"
         )));
     }
     Ok(())
+}
+
+/// A value of an XML handle type: a node or document, a node list, an attribute collection, a name table or a namespace
+/// manager, assigned or not. `XmlReadOptions` and `XmlWriteOptions` are not handles.
+fn is_xml_handle(v: &Value) -> bool {
+    use crate::library_kind::LibraryKind as K;
+    match v {
+        Value::Library(k, _) => matches!(
+            k,
+            K::XmlAttribute
+                | K::XmlAttributeCollection
+                | K::XmlCData
+                | K::XmlComment
+                | K::XmlDeclaration
+                | K::XmlDocument
+                | K::XmlDocumentType
+                | K::XmlElement
+                | K::XmlNamespaceManager
+                | K::XmlNameTable
+                | K::XmlNode
+                | K::XmlNodeList
+                | K::XmlProcessingInstruction
+                | K::XmlText
+        ),
+        _ => false,
+    }
 }
 
 fn eq(a: &Value, b: &Value) -> bool {
