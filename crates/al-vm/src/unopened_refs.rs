@@ -119,7 +119,9 @@ impl Session {
     /// measured; `None` to go on. Pinned (recordref-fieldref/recordref/GetTableVariantKinds.al): `V` holds nothing, on a RecordRef
     /// never opened (:79-116: never assigned, a copy, cleared, a parameter) and on one open on a table that is not temporary
     /// (:154-172, it stays open), "NavVariant variable not initialized."; `V` holds the Integer 5 or the Text 'ALT Universal' on
-    /// a RecordRef never opened (:119-144), the Conversion error naming NavInteger or NavText; the Text '' or 'abc' on a RecordRef
+    /// a RecordRef never opened (:119-144), the Conversion error naming NavInteger or NavText; the Boolean true, the null Guid, the
+    /// Date 01-02-2020 and the RecordId of table 60000 with key 1 (the probe's row exists) on a RecordRef never opened (:133-148),
+    /// the Conversion error naming NavBoolean, NavGuid, NavDate or NavRecordId; the Text '' or 'abc' on a RecordRef
     /// never opened, the Conversion error naming NavText (recordref-fieldref/UhUnopenedRecordRef.al:687
     /// GetTable_VariantEmptyText, :717 GetTable_VariantTextNonEmpty; steps :225-230 `gt_empty`, :242-247 `gt_text`). A RecordRef emptied by `Clear` or
     /// `Open(0)` is not one never opened: no probe measured GetTable there.
@@ -142,10 +144,24 @@ impl Session {
             Value::Integer(5) if never_opened => Some(conversion("NavInteger")),
             Value::Text(t) if never_opened && t.as_str() == "ALT Universal" => Some(conversion("NavText")),
             Value::Text(t) if never_opened && (t.as_str() == "" || t.as_str() == "abc") => Some(conversion("NavText")),
+            Value::Boolean(true) if never_opened => Some(conversion("NavBoolean")),
+            Value::Guid(g) if never_opened && *g == [0; 16] => Some(conversion("NavGuid")),
+            Value::Date(d, false) if never_opened && *d == al_builtins::format::day_from_civil(2020, 2, 1) => {
+                Some(conversion("NavDate"))
+            }
+            Value::Library(_, l) if never_opened && probe_record_id(&l.borrow()) => Some(conversion("NavRecordId")),
             _ => None,
         }
     }
 
+}
+
+/// The RecordId GetTableVariantKinds.al:139 hands to GetTable: table 60000 ("ALT Universal") with the key 1.
+fn probe_record_id(l: &LibraryValue) -> bool {
+    matches!(l, LibraryValue::RecordId { table_no: 60000, key, .. } if matches!(key.as_slice(), [Value::Integer(1)]))
+}
+
+impl Session {
     /// `Some` with "Microsoft.Dynamics.Nav.Runtime.NavKeyRef variable not initialized." (NotInitialized) for the members of a
     /// KeyRef nothing assigned that UhUnopenedRecordRef.al measured, each with its result used: FieldCount and Active
     /// (:248-251 `kr_fieldcount`, `kr_active`; tests :727, :737), FieldIndex(1) (:252-256, test :747) and Record (:257-261,

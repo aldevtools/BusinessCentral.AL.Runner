@@ -975,6 +975,12 @@ impl Session {
                                 ..Default::default()
                             })));
                         }
+                        LibraryValue::RecordId { .. } if from_variant => {
+                            match self.get_table_variant_not_record(&lib.borrow(), args.first()) {
+                                Some(e) => return Err(e),
+                                None => return unsupported("RecordRef.GetTable of a Variant that holds a RecordId"),
+                            }
+                        }
                         _ => return unsupported("RecordRef.GetTable of a RecordRef that is not open"),
                     },
                     other => {
